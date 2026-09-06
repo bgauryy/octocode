@@ -7,16 +7,19 @@
 //! the tools-core ranker prefers over its regex line heuristics (Phase 1).
 //!
 //! Properties:
-//!   * Deterministic: same content + positions -> same labels.
+//!   * Stable labels: each completed classification depends on content + position.
 //!   * Comment/string immune: a hit inside a comment or string is labeled as
 //!     such, not as a declaration, because the label comes from the parse tree.
 //!   * Optional + capped: only runs when `classify_matches` is set, and the
-//!     caller bounds how many files are parsed.
+//!     caller bounds how many files are parsed and shares a two-second parsing
+//!     budget across the classification pass. Unprocessed matches stay unlabeled.
 //!   * Degrades gracefully: an unsupported extension or parse failure leaves
 //!     matches unlabeled (kind = None), never an error.
 
-use tree_sitter::{Node, Parser};
+use std::time::Instant;
+use tree_sitter::Node;
 
+use crate::signatures::extractor::{parse_before, AST_EXECUTION_TIMEOUT};
 use crate::signatures::languages::find_entry;
 use crate::types::{RipgrepFile, RipgrepMatch};
 
@@ -41,9 +44,14 @@ fn extension_of(path: &str) -> &str {
 
 /// Annotate matches across the first `cap` files in place by reading each file
 /// and classifying its match positions. Files past the cap, unsupported
-/// extensions, and unreadable/unparseable files are left unlabeled.
+/// extensions, unreadable/unparseable files, and work past the shared deadline
+/// are left unlabeled. This optional ranking budget never removes search hits.
 pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
+    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
     for file in files.iter_mut().take(cap) {
+        if Instant::now() >= deadline {
+            break;
+        }
         if file.matches.is_empty() {
             continue;
         }
@@ -61,7 +69,7 @@ pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
         let Ok(content) = std::fs::read_to_string(&file.path) else {
             continue;
         };
-        classify_file_matches(&content, ext, &mut file.matches);
+        classify_file_matches_before(&content, ext, &mut file.matches, deadline);
     }
 }
 
@@ -94,21 +102,35 @@ fn score_hint_for(kind: &str) -> f64 {
 
 /// Classify every match in `matches` in place. No-op when the extension has no
 /// grammar or the file does not parse.
+#[cfg(test)]
 pub fn classify_file_matches(content: &str, ext: &str, matches: &mut [RipgrepMatch]) {
+    classify_file_matches_before(
+        content,
+        ext,
+        matches,
+        Instant::now() + AST_EXECUTION_TIMEOUT,
+    );
+}
+
+fn classify_file_matches_before(
+    content: &str,
+    ext: &str,
+    matches: &mut [RipgrepMatch],
+    deadline: Instant,
+) {
     let Some(entry) = find_entry(ext) else {
         return;
     };
-    let mut parser = Parser::new();
-    if parser.set_language(&entry.language).is_err() {
-        return;
-    }
-    let Some(tree) = parser.parse(content, None) else {
+    let Some(tree) = parse_before(content, &entry.language, deadline) else {
         return;
     };
     let root = tree.root_node();
     let line_starts = line_start_offsets(content);
 
     for m in matches.iter_mut() {
+        if Instant::now() >= deadline {
+            break;
+        }
         let Some(byte) = position_to_byte(content, &line_starts, m.line, m.column) else {
             continue;
         };
@@ -221,13 +243,11 @@ fn is_heading_kind(k: &str) -> bool {
 
 /// JSON/YAML object key: the node is (or sits under) a pair/mapping key.
 fn is_config_key(node: Node, _src: &str) -> bool {
-    let k = node.kind();
-    if k == "pair" || k == "block_mapping_pair" || k == "flow_pair" {
-        return true;
-    }
     if let Some(parent) = node.parent() {
         let pk = parent.kind();
-        if (pk == "pair" || pk == "block_mapping_pair") && is_key_child(parent, node) {
+        if (pk == "pair" || pk == "block_mapping_pair" || pk == "flow_pair")
+            && is_key_child(parent, node)
+        {
             return true;
         }
     }
@@ -356,6 +376,14 @@ mod tests {
     }
 
     #[test]
+    fn expired_classification_keeps_matches_unlabeled() {
+        let mut matches = vec![m(1, 0)];
+        classify_file_matches_before("import os\n", "py", &mut matches, Instant::now());
+        assert_eq!(matches[0].kind, None);
+        assert_eq!(matches[0].score_hint, None);
+    }
+
+    #[test]
     fn unsupported_extension_is_noop() {
         let mut ms = vec![m(1, 0)];
         classify_file_matches("whatever", "unknownext", &mut ms);
@@ -395,5 +423,28 @@ mod tests {
         let src = "{\n  \"handler\": \"build\"\n}\n";
         let k = classify_one(src, "json", 2, 3);
         assert_eq!(k.as_deref(), Some(KIND_CONFIG_KEY));
+    }
+
+    #[test]
+    fn config_values_are_not_misclassified_as_keys() {
+        for (ext, src) in [
+            ("json", r#"{"handler": "build"}"#),
+            ("json", r#"{"handler": {"child": "build"}}"#),
+            ("yaml", "handler: build\n"),
+            ("yaml", "handler: \"build\"\n"),
+            ("yaml", "{handler: build}\n"),
+        ] {
+            let key = src.find("handler").expect("key fixture") as u32;
+            let value = src.find("build").expect("value fixture") as u32;
+            assert_eq!(
+                classify_one(src, ext, 1, key).as_deref(),
+                Some(KIND_CONFIG_KEY)
+            );
+            let value_kind = classify_one(src, ext, 1, value);
+            assert_ne!(value_kind.as_deref(), Some(KIND_CONFIG_KEY), "{src}");
+            if ext == "json" {
+                assert_eq!(value_kind.as_deref(), Some(KIND_STRING));
+            }
+        }
     }
 }

@@ -68,7 +68,6 @@ const WORKSPACE_SYMBOL_FALLBACK_EXTENSIONS = [
   'php',
   'swift',
   'scala',
-  'lua',
   'dart',
   'ex',
   'exs',

@@ -64,7 +64,8 @@ export async function getWorkspaceSymbols(
 
   const clientResult = await acquirePooledClientDetailed(
     workspaceRoot,
-    anchorFile
+    anchorFile,
+    query.rustContext
   );
   if (clientResult.ok === false) {
     throwLspUnavailable(anchorFile, 'workspaceSymbol', clientResult);
@@ -230,7 +231,11 @@ export async function getFileDiagnostics(
     throwLspUnavailable(uri, 'diagnostic');
   }
 
-  const clientResult = await acquirePooledClientDetailed(workspaceRoot, uri);
+  const clientResult = await acquirePooledClientDetailed(
+    workspaceRoot,
+    uri,
+    query.rustContext
+  );
   if (clientResult.ok === false) {
     throwLspUnavailable(uri, 'diagnostic', clientResult);
   }

@@ -170,15 +170,6 @@ mod tests {
     }
 
     // ── dispatch routing preserves UTF-8 on the aggressive path ───────────────
-    #[test]
-    fn lua_dispatch_preserves_non_ascii() {
-        let out = minify_content_sync_inner("local s = \"café → naïve\" { x = 1 }", "a.lua");
-        assert!(
-            out.contains("café → naïve"),
-            "aggressive dispatch corrupted UTF-8: '{out}'"
-        );
-        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
-    }
 
     #[test]
     fn sync_and_result_paths_share_dispatch_outputs() {

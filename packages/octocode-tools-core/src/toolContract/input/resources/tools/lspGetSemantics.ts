@@ -39,6 +39,8 @@ documentSymbols/diagnostic need uri; workspaceSymbol needs symbolName; other ope
       'Lines of surrounding source shown around each result location.',
     format: '"compact" saves tokens; "structured" has typed locations.',
     workspaceRoot: 'Use when auto-root is wrong.',
+    rustContext:
+      'Explicit Rust build context (requires a .rs uri). Features/target/cfgs select rust-analyzer semantics. buildScripts and procMacros default false; enabling either permits workspace code execution. procMacros requires buildScripts:true. Context partitions server reuse and pagination; syntax graphs remain unexpanded.',
   },
 });
 
@@ -74,7 +76,37 @@ export const LspGetSemanticsQuerySchema = buildObject(lspGetSemantics.schema, {
   contextLines: contextLines(),
   format: z.enum(['structured', 'compact']).default('structured'),
   workspaceRoot: z.string().optional(),
+  rustContext: z
+    .object({
+      features: z
+        .union([z.literal('all'), z.array(z.string().min(1).max(128)).max(128)])
+        .default([]),
+      noDefaultFeatures: z.boolean().default(false),
+      target: z.string().min(1).max(256).optional(),
+      cfgs: z.array(z.string().min(1).max(256)).max(128).default([]),
+      buildScripts: z.boolean().default(false),
+      procMacros: z.boolean().default(false),
+    })
+    .strict()
+    .superRefine((context, ctx) => {
+      if (context.procMacros && !context.buildScripts)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['procMacros'],
+          message:
+            'procMacros requires buildScripts:true because rust-analyzer builds procedural macros through Cargo.',
+        });
+    })
+    .optional(),
 }).superRefine((query, ctx) => {
+  if (query.rustContext && !query.uri?.toLowerCase().endsWith('.rs')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['rustContext'],
+      message:
+        'rustContext requires a Rust .rs uri, including for workspaceSymbol.',
+    });
+  }
   // workspaceSymbol: needs a query string (symbolName) but not a position.
   if (query.type === 'workspaceSymbol') {
     if (!query.symbolName) {

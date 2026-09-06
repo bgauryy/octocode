@@ -1,6 +1,6 @@
 ---
 name: octocode-code-graph
-description: "Use when a codebase dependency graph needs architecture-risk triage, cycle analysis, change-impact mapping, layering checks, reachability review, or dead-code verification."
+description: "Use when mapping dependencies, change impact, cycles, layering, dead code, reachability, or architecture risk."
 ---
 
 # Octocode code graph

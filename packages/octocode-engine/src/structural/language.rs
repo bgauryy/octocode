@@ -116,9 +116,6 @@ fn primary_expando_for_ext(ext: &str) -> char {
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => '\u{10000}',
         "html" | "htm" => 'z',
         "css" | "scss" => '_',
-        // Zig requires an ASCII placeholder; `_` is unambiguous
-        // with the uppercase-only capture-name syntax.
-        "zig" => '_',
         // This SQL grammar rejects the default non-ASCII placeholder.
         "sql" => '_',
         _ => '\u{00b5}',

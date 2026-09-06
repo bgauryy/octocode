@@ -1,6 +1,6 @@
 ---
 name: octocode-architect
-description: Use when the user requests an architect-minded or ItaiC-style approach to consequential code planning, implementation, or review, especially for boundaries, interfaces, data flow, blast radius, or maintainability.
+description: "Use when root-cause analysis, boundary design, blast-radius mapping, architecture review, or interface contracts matter."
 ---
 
 # Octocode Architect

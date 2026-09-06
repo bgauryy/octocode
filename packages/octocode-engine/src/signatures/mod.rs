@@ -422,8 +422,7 @@ mod tests {
 
     #[test]
     fn unsupported_or_nonshrinking_outlines_return_none() {
-        // Unsupported/structural-only languages have no outline. The tiny Lua
-        // example also returns None because rendering would not shrink it.
+        // Unsupported/structural-only languages have no outline.
         for (content, path) in &[
             ("local x = 1\nfunction f() return x end\n", "a.lua"),
             ("-module(d).\nrev(L) -> L.\n", "a.erl"),

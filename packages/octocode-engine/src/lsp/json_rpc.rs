@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{oneshot, watch, Mutex};
-use tokio::time::{timeout, Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
 const MAX_JSON_RPC_CONTENT_LENGTH: usize = 64 * 1024 * 1024;
@@ -114,11 +114,6 @@ impl ProgressTracker {
 
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
 
-        // Fast path: all progress already completed before we were called.
-        if self.ever_active.load(Ordering::Acquire) && *self.count_rx.borrow() == 0 {
-            return Readiness::ProgressIdle;
-        }
-
         let mut rx = self.count_rx.clone();
 
         // Phase 1 -- settle: wait briefly for the first $/progress begin.
@@ -147,18 +142,18 @@ impl ProgressTracker {
             }
 
             // 2b. Quiesce: wait briefly to see if a new wave starts.
-            let quiesce = Duration::from_millis(
-                QUIESCE_MS.min(
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .as_millis() as u64,
-                ),
-            );
-            let new_wave = tokio::time::timeout(quiesce, rx.wait_for(|c| *c > 0))
-                .await
-                .is_ok();
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let full_quiescence = Duration::from_millis(QUIESCE_MS);
+            let quiesce = full_quiescence.min(remaining);
+            // Any update breaks quiescence, including a short begin/end wave
+            // whose active count was coalesced back to zero before we woke.
+            let new_wave = tokio::time::timeout(quiesce, rx.changed()).await.is_ok();
             if !new_wave {
-                return Readiness::ProgressIdle; // Quiescence passed -- server is idle.
+                return if remaining >= full_quiescence {
+                    Readiness::ProgressIdle
+                } else {
+                    Readiness::Timeout
+                };
             }
             // A new wave started; loop back and drain it too.
         }
@@ -224,15 +219,22 @@ where
     }
 
     pub async fn request(&self, method: &str, params: Value, timeout_ms: u32) -> Result<Value> {
+        let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
+        if !self.is_alive() {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "JSON-RPC connection closed",
+            ));
+        }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
         let message = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
-        if let Err(err) = self.write_message(&message).await {
+        if let Err(err) = self.write_before(&message, deadline).await {
             self.pending.lock().await.remove(&id);
             return Err(err);
         }
-        match timeout(Duration::from_millis(u64::from(timeout_ms)), rx).await {
+        match tokio::time::timeout_at(deadline, rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(Error::new(
                 Status::GenericFailure,
@@ -245,7 +247,11 @@ where
                 // result nobody will read (and can head-of-line block later work
                 // on single-threaded servers). Best-effort: we are already
                 // returning a timeout error, so a write failure here is moot.
-                let _ = self.notify("$/cancelRequest", json!({ "id": id })).await;
+                let cancellation =
+                    json!({"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":id}});
+                let _ = self
+                    .write_before(&cancellation, Instant::now() + Duration::from_millis(100))
+                    .await;
                 Err(Error::new(
                     Status::GenericFailure,
                     format!("LSP request timed out after {timeout_ms}ms"),
@@ -256,11 +262,33 @@ where
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         let message = json!({"jsonrpc":"2.0","method":method,"params":params});
-        self.write_message(&message).await
+        // didOpen/initialized/exit writes must not hold startup or shutdown open
+        // indefinitely when a server stops draining stdin.
+        self.write_before(&message, Instant::now() + Duration::from_secs(1))
+            .await
     }
 
-    async fn write_message(&self, message: &Value) -> Result<()> {
-        write_message(&self.writer, message).await
+    async fn write_before(&self, message: &Value, deadline: Instant) -> Result<()> {
+        if !self.is_alive() {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "JSON-RPC connection closed",
+            ));
+        }
+        let result = tokio::time::timeout_at(deadline, write_message(&self.writer, message)).await;
+        match result {
+            Ok(Ok(())) => Ok(()),
+            failure => {
+                // A cancelled write can leave a partial Content-Length frame.
+                // Do not reuse the stream or let concurrent requests await replies.
+                self.failed.store(true, Ordering::Release);
+                fail_all_pending(&self.pending, "JSON-RPC connection write failed").await;
+                Err(match failure {
+                    Ok(Err(error)) => error,
+                    _ => Error::new(Status::GenericFailure, "LSP request write timed out"),
+                })
+            }
+        }
     }
 }
 
@@ -666,6 +694,74 @@ mod tests {
     }
 
     #[test]
+    fn request_timeout_bounds_a_blocked_write() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (client_w, _server_r) = duplex(1);
+            let (_server_w, client_r) = duplex(8192);
+            let conn = JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            );
+            let result = tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                conn.request("blocked", Value::Null, 20),
+            )
+            .await
+            .expect("request deadline must include writes");
+            assert!(result
+                .expect_err("write timed out")
+                .reason
+                .contains("timed out"));
+            assert!(conn.pending.lock().await.is_empty());
+            assert!(!conn.is_alive(), "a partial frame cannot be safely reused");
+        });
+    }
+
+    #[test]
+    fn request_timeout_bounds_a_blocked_cancellation() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let body = serde_json::to_vec(
+                &json!({"jsonrpc":"2.0","id":1,"method":"blocked","params":null}),
+            )
+            .unwrap();
+            let frame_size = format!("Content-Length: {}\r\n\r\n", body.len()).len() + body.len();
+            let (client_w, _server_r) = duplex(frame_size);
+            let (_server_w, client_r) = duplex(8192);
+            let conn = JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            );
+            let result = tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                conn.request("blocked", Value::Null, 20),
+            )
+            .await
+            .expect("cancellation must not hold a timed-out request open");
+            assert!(result
+                .expect_err("response timed out")
+                .reason
+                .contains("timed out"));
+            assert!(conn.pending.lock().await.is_empty());
+            assert!(
+                !conn.is_alive(),
+                "an interrupted cancellation frame cannot be reused"
+            );
+        });
+    }
+
+    #[test]
     fn timed_out_request_emits_cancel_request_to_server() {
         // A request whose response never arrives must (a) return a timeout error
         // and (b) send a `$/cancelRequest` for its id so the server stops working.
@@ -869,16 +965,52 @@ mod tests {
     }
 
     #[test]
-    fn progress_tracker_fast_path_reports_idle_when_cycle_completed_before_call() {
+    fn progress_tracker_completed_cycle_still_requires_quiescence() {
         // A full begin/end cycle happens before wait_until_idle is called; the
-        // fast path must report progressIdle (not settledFallback).
+        // an idle observation must still bridge subsequent progress waves.
         let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
         runtime.block_on(async {
             let tracker = ProgressTracker::new();
             tracker.on_begin("indexing".to_owned()).await;
             tracker.on_end("indexing").await;
+            let started = Instant::now();
             let readiness = tracker.wait_until_idle(5_000).await;
             assert_eq!(readiness, Readiness::ProgressIdle);
+            assert!(started.elapsed() >= Duration::from_millis(150));
+        });
+    }
+
+    #[test]
+    fn progress_tracker_cannot_confirm_idle_without_full_quiescence_budget() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            tracker.on_begin("indexing".to_owned()).await;
+            tracker.on_end("indexing").await;
+            assert_eq!(tracker.wait_until_idle(20).await, Readiness::Timeout);
+        });
+    }
+
+    #[test]
+    fn progress_tracker_quiescence_restarts_for_a_followup_wave() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            tracker.on_begin("first".to_owned()).await;
+            tracker.on_end("first").await;
+            let followup = Arc::clone(&tracker);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                followup.on_begin("second".to_owned()).await;
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                followup.on_end("second").await;
+            });
+            let started = Instant::now();
+            assert_eq!(
+                tracker.wait_until_idle(2_000).await,
+                Readiness::ProgressIdle
+            );
+            assert!(started.elapsed() >= Duration::from_millis(400));
         });
     }
 }

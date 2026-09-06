@@ -220,6 +220,7 @@ export const SUBAGENT_REGISTRY = {
     tools: [
       'web',
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
+      'memory',  // record verified findings for the parent; recall prior learnings
       'write',   // durable handback artifacts assigned by the parent
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -235,6 +236,7 @@ export const SUBAGENT_REGISTRY = {
     tools: [
       'web',
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
+      'memory',  // record planning decisions; recall prior learnings
       'write',   // durable handback artifacts assigned by the parent
     ],
     resourceMode: 'octocode' as ResourceMode,
@@ -251,6 +253,7 @@ export const SUBAGENT_REGISTRY = {
       'bash',
       'web',
       'MCPTool', // octocode MCP server: all GitHub, local, LSP, npm research tools
+      'memory',  // record root-cause findings and verified learnings
       'write',   // durable handback artifacts assigned by the parent
     ],
     resourceMode: 'octocode' as ResourceMode,

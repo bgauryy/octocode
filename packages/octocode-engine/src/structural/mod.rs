@@ -62,7 +62,7 @@ pub fn search(
         format!("[structural.language.unsupported] structural search does not support .{ext} files")
     })?;
     let lang = AgLanguage::new(ext, entry);
-    let run = compile_matcher(&lang, query)?;
+    let run = compile_matcher(&lang, &query)?;
     // The non-detailed API returns bare StructuralMatch; node_kind is only
     // surfaced by the detailed shape.
     Ok(run(content)
@@ -154,7 +154,7 @@ pub fn search_detailed(
     };
 
     let lang = AgLanguage::new(ext, entry);
-    let run = match compile_matcher(&lang, query) {
+    let run = match compile_matcher(&lang, &query) {
         Ok(run) => run,
         Err(message) => {
             if let Some(error) = ExecutionError::from_compile_message(&message) {

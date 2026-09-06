@@ -41,6 +41,64 @@ afterEach(async () => {
 });
 
 describe('resolveSymbolAnchor', () => {
+  it.each(['étarget', '東京', '𐐀', '$target', 'target\u0301', 'target\u200c'])(
+    'counts complete Unicode identifier %s when reporting ambiguous anchors',
+    async symbolName => {
+      tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+      const filePath = join(tempDir, 'fixture.ts');
+      const line = `function ${symbolName}() {}`;
+      await writeFile(filePath, `${line}\n${line}\n\n`);
+      resolverMocks.resolvePositionFromContent.mockReturnValue({
+        position: { line: 1, character: 9 },
+        foundAtLine: 2,
+        lineOffset: 0,
+        lineContent: line,
+      });
+      const result = await resolveSymbolAnchor(
+        { uri: filePath, type: 'definition', symbolName, lineHint: 3 } as never,
+        'lspGetSemantics'
+      );
+      expect(result.ok).toBe(true);
+      expect(result.value.resolvedSymbol.isAmbiguous).toBe(true);
+    }
+  );
+
+  it.each([
+    'étarget',
+    'targeté',
+    'target\u0301',
+    'target\u200c',
+    '$target',
+    '𐐀target',
+  ])(
+    'does not count target inside %s as an ambiguous occurrence',
+    async identifier => {
+      tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+      const filePath = join(tempDir, 'fixture.ts');
+      await writeFile(
+        filePath,
+        `const ${identifier} = 1;\nfunction target() {}\n\n`
+      );
+      resolverMocks.resolvePositionFromContent.mockReturnValue({
+        position: { line: 1, character: 9 },
+        foundAtLine: 2,
+        lineOffset: 0,
+        lineContent: 'function target() {}',
+      });
+      const result = await resolveSymbolAnchor(
+        {
+          uri: filePath,
+          type: 'definition',
+          symbolName: 'target',
+          lineHint: 3,
+        } as never,
+        'lspGetSemantics'
+      );
+      expect(result.ok).toBe(true);
+      expect(result.value.resolvedSymbol.isAmbiguous).toBeUndefined();
+    }
+  );
+
   it('resolves symbols from already-read file content', async () => {
     tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
     const filePath = join(tempDir, 'fixture.ts');

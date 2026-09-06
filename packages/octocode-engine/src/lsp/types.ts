@@ -1,5 +1,14 @@
 export type InitializationOptions = Record<string, unknown>;
 
+export interface RustBuildContext {
+  features?: string[] | 'all';
+  noDefaultFeatures?: boolean;
+  target?: string;
+  cfgs?: string[];
+  buildScripts?: boolean;
+  procMacros?: boolean;
+}
+
 /**
  * Outcome of `waitForReady` — a readiness signal that lets a zero-results
  * semantic query be interpreted honestly:

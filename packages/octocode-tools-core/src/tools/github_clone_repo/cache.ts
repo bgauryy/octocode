@@ -155,7 +155,8 @@ export function ensureCloneParentDir(cloneDir: string): void {
     }
   } catch (error) {
     throw new Error(
-      `Failed to create clone parent directory '${parent}': ${error instanceof Error ? error.message : String(error)}`
+      `Failed to create clone parent directory '${parent}': ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error }
     );
   }
 }

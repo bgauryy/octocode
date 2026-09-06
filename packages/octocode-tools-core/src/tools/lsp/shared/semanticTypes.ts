@@ -1,6 +1,7 @@
 import type {
   ExactPosition,
   LSPRange,
+  RustBuildContext,
 } from '@octocodeai/octocode-engine/lsp/types';
 
 export const SEMANTIC_CONTENT_TYPES = [
@@ -28,6 +29,7 @@ export type SemanticQueryBase = {
   type: SemanticContentType;
   uri?: string;
   workspaceRoot?: string;
+  rustContext?: RustBuildContext;
   page?: number;
   pageSize?: number;
   snapshot?: string;
@@ -262,7 +264,14 @@ export type LspSemanticEnvelope = {
   hints?: string[];
   terminalLimit?: boolean;
   truncated?: boolean;
-  partialReasons?: Array<'warmupCap' | 'warmupIncomplete' | 'depth' | 'budget'>;
+  incompleteResults?: boolean;
+  partialReasons?: Array<
+    | 'warmupCap'
+    | 'warmupIncomplete'
+    | 'depth'
+    | 'budget'
+    | 'readinessUnconfirmed'
+  >;
   next?: Record<
     string,
     {

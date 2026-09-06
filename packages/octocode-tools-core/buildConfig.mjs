@@ -41,7 +41,14 @@ export const sharedBuildOptions = {
 
 export const entryPoints = [
   { entryPoints: ['src/index.ts'], outfile: 'dist/index.js' },
-  { entryPoints: ['src/direct.ts'], outfile: 'dist/direct.js' },
+  // Keep execution handlers deferred in the published direct entry. Other
+  // public entries remain independent bundles, including engine-free schema.
+  {
+    entryPoints: ['src/direct.ts'],
+    outdir: 'dist',
+    splitting: true,
+    chunkNames: 'chunks/direct/[name]-[hash]',
+  },
   // Engine-free schema/help surface (P3): bundled independently so it carries no
   // @octocodeai/octocode-engine import and loads no native addon at eval.
   { entryPoints: ['src/schema.ts'], outfile: 'dist/schema.js' },

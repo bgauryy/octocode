@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { isAbsolute, relative } from 'node:path';
+import { inferRootFromAbsoluteFile } from './rootInference.js';
 import {
   buildFileGraph,
   resolveGraphExcludeDirs,
@@ -21,7 +21,7 @@ import {
   computeImmediateDominators,
   condenseGraph,
   findTransitiveEdges,
-  withoutTypeOnlyEdges,
+  runtimeImportGraph,
 } from '../../graph/advancedOperations.js';
 import {
   componentLayerMap,
@@ -36,18 +36,6 @@ import { finalizeGraphOutput, paginateGraphResults } from './pagination.js';
 
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_DEPTH = 1;
-
-/** Find the nearest package root; fall back to the source file's directory. */
-export function inferRootFromAbsoluteFile(absoluteFile: string): string {
-  let dir = dirname(absoluteFile);
-  while (true) {
-    if (existsSync(join(dir, 'package.json'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break; // filesystem root
-    dir = parent;
-  }
-  return dirname(absoluteFile);
-}
 
 /**
  * Return the graph-relative key for `file`.
@@ -90,14 +78,17 @@ export async function analyzeGraph(
     const candidate =
       rawQuery.file ?? rawQuery.target ?? rawQuery.entrypoints?.[0];
     if (candidate && isAbsolute(candidate)) {
-      resolvedPath = inferRootFromAbsoluteFile(candidate);
+      resolvedPath = inferRootFromAbsoluteFile(
+        candidate,
+        rawQuery.rustWorkspace
+      );
     }
   }
   if (!resolvedPath) {
     return {
       status: 'error',
       error:
-        'path is required — or provide an absolute file path and path will be inferred from the nearest package.json',
+        'path is required — or provide an absolute file path to infer its nearest Cargo.toml (Rust) or package.json root',
       errorCode: 'invalidGraphQuery',
       operation: rawQuery.operation,
       path: '',
@@ -189,7 +180,7 @@ export async function analyzeGraph(
     const condensed = condenseGraph(built.fileGraph);
     const layerByComponent = componentLayerMap(condensed.layers);
     const redundantEdges = findTransitiveEdges(condensed.edges);
-    const runtimeGraph = withoutTypeOnlyEdges(built.fileGraph);
+    const runtimeGraph = runtimeImportGraph(built.fileGraph);
     const runtimeComponents = findStronglyConnectedComponents(runtimeGraph).map(
       component => [...component.files].sort()
     );

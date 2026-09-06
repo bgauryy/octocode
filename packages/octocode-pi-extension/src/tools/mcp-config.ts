@@ -95,17 +95,30 @@ export const OCTOCODE_MCP_ENV_DEFAULTS: Record<string, string> = {
 const AMBIENT_ENV_PASSTHROUGH = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'NODE_EXTRA_CA_CERTS'];
 
 /**
- * Resolve the pinned, locally-installed `octocode-mcp` entry (its bin === main
- * === dist/index.js) relative to this extension's own module. Returns null when
- * the dependency is not resolvable, so the caller can fall back to npx.
+ * Resolve the pinned, locally-installed `octocode-mcp` server binary relative
+ * to this extension's own module. Returns null when not resolvable so the caller
+ * falls back to npx.
  *
- * octocode-mcp's package.json `exports` only defines the "import" condition, so
- * require.resolve fails — use import.meta.resolve (ESM), which honours it.
+ * import.meta.resolve('octocode-mcp') follows exports["."] which points to the
+ * public API (dist/public.js), NOT the server binary (dist/index.js as declared
+ * in the package.json `bin` field). We therefore resolve the package root from
+ * the exports entry and read the actual `bin` field from package.json.
  */
 function resolveLocalOctocodeMcpBin(): string | null {
   try {
-    const url = import.meta.resolve('octocode-mcp');
-    const binPath = fileURLToPath(url);
+    const exportedUrl = import.meta.resolve('octocode-mcp');
+    const exportedPath = fileURLToPath(exportedUrl);
+    // exportedPath is inside dist/ — go up one level to reach the package root.
+    const pkgRoot = path.resolve(path.dirname(exportedPath), '..');
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf8')) as {
+      bin?: string | Record<string, string>;
+    };
+    const binEntry =
+      typeof pkgJson.bin === 'string'
+        ? pkgJson.bin
+        : Object.values(pkgJson.bin ?? {})[0];
+    if (!binEntry) return null;
+    const binPath = path.resolve(pkgRoot, binEntry);
     return fs.existsSync(binPath) ? binPath : null;
   } catch {
     return null;

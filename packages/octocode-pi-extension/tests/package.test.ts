@@ -1276,10 +1276,15 @@ test('every direct tool contract is concise enough for per-turn agent context', 
   for (const [name, tool] of tools) {
     const description = tool.description ?? '';
     const schemaText = JSON.stringify(tool.parameters);
+    assert.ok(description.length > 0, `${name} has a model-visible description`);
     assert.ok(description.length <= 360, `${name} description is ${description.length} chars`);
     visitDescriptions(tool.parameters, name);
     totalContractChars += description.length + schemaText.length;
   }
+  assert.match(tools.get('bash')!.description!, /never for code search or file reads/i);
+  assert.match(tools.get('MCPTool')!.description!, /over bash for code search\/file reads/i);
+  assert.match(tools.get('MCPTool')!.description!, /describe unfamiliar tools before their first call/i);
+  assert.match(tools.get('agent')!.description!, /use MCPTool for repository research/i);
   assert.ok(totalContractChars <= 45_000, `direct tool contracts use ${totalContractChars} chars`);
 });
 
@@ -2512,7 +2517,7 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.match(cachedPrompt, /effective_inline_images: false/);
     assert.match(cachedPrompt, /<available_skills>/);
     assert.doesNotMatch(cachedPrompt, /octocode-awareness:/);
-    assert.match(cachedPrompt, /octocode-roast: Critical review and adversarial critique\. \[user\/global\]/);
+    assert.match(cachedPrompt, /octocode-roast: Use when a blunt evidence-backed code roast is wanted:.*\[user\/global\]/);
     assert.match(cachedPrompt, /load the minimal matching skill BEFORE acting via skill\(\{queries:/);
 
     const called = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'ok' } });

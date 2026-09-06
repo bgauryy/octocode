@@ -54,6 +54,11 @@ export function resolvePythonImport(
     !module && dots
       ? pythonInitializers(stem, files)
       : pythonModuleCandidates(stem, files);
+  // These interpreter modules precede filesystem search under Python's default
+  // import machinery. A colliding local file cannot establish a target; custom
+  // import hooks and the wider platform-dependent builtin set remain unmodelled.
+  if (!dots && ['sys', 'builtins'].includes(module) && candidates.length)
+    return unsupported;
   if (candidates.length > 1) return unsupported;
   if (!candidates.length) {
     const prefix = `${stem}/`;

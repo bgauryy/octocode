@@ -6,7 +6,7 @@
 //! hints. LSP remains responsible for semantic identity and reference proof.
 
 use serde::Serialize;
-use tree_sitter::{Node, Parser};
+use tree_sitter::Node;
 
 use crate::text::file_extension::get_extension_internal;
 
@@ -196,33 +196,50 @@ pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
 }
 
 fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
+    extract_graph_facts_before(
+        content,
+        file_path,
+        std::time::Instant::now() + super::extractor::AST_EXECUTION_TIMEOUT,
+    )
+}
+
+fn extract_graph_facts_before(
+    content: &str,
+    file_path: &str,
+    deadline: std::time::Instant,
+) -> Option<String> {
     let ext = get_extension_internal(file_path, true, "txt");
     if !graph_fact_extensions().iter().any(|item| item == &ext) {
         return None;
     }
     let entry = languages::find_entry(&ext)?;
-    let mut parser = Parser::new();
-    parser.set_language(&entry.language).ok()?;
-    let tree = parser.parse(content.as_bytes(), None)?;
-    let root = tree.root_node();
-    if root.has_error() {
-        // Keep parse-recovered facts, but make the uncertainty explicit.
-        // Tree-sitter is intentionally error-tolerant, so an ERROR node does not
-        // mean the whole file is unusable.
-    }
-
-    let line_index = LineIndex::new(content);
     let mut acc = GraphAccumulator::new(file_path, &ext);
-    let rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
-    if rust_root_unsupported == Some(true) {
-        acc.diagnostics
-            .push("unsupported Rust inner conditional or custom crate attributes".to_owned());
+    let mut rust_root_unsupported = (ext == "rs").then_some(true);
+    if let Some(tree) = super::extractor::parse_before(content, &entry.language, deadline) {
+        let root = tree.root_node();
+        let line_index = LineIndex::new(content);
+        rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
+        if rust_root_unsupported == Some(true) {
+            acc.diagnostics
+                .push("unsupported Rust inner conditional or custom crate attributes".to_owned());
+        }
+        if root.has_error() {
+            acc.diagnostics.push(
+                "tree-sitter recovered from parse errors; graph facts may be partial".to_owned(),
+            );
+        }
+        if !visit_node(root, content, &line_index, &mut acc, deadline) {
+            // Partial module forests cannot safely establish negative import facts.
+            acc = GraphAccumulator::new(file_path, &ext);
+            acc.diagnostics.push("graph.traversal.deadlineExceeded: graph extraction exceeded its execution deadline; facts are incomplete".to_owned());
+            rust_root_unsupported = (ext == "rs").then_some(true);
+        }
+    } else {
+        acc.diagnostics.push(
+            "graph.parse.deadlineExceeded: graph parsing was interrupted; facts are incomplete"
+                .to_owned(),
+        );
     }
-    if root.has_error() {
-        acc.diagnostics
-            .push("tree-sitter recovered from parse errors; graph facts may be partial".to_owned());
-    }
-    visit_node(root, content, &line_index, &mut acc);
 
     let facts = GraphFacts {
         kind: "graphFacts",
@@ -276,7 +293,8 @@ fn visit_node(
     content: &str,
     line_index: &LineIndex<'_>,
     acc: &mut GraphAccumulator,
-) {
+    deadline: std::time::Instant,
+) -> bool {
     enum Frame<'tree> {
         Enter(Node<'tree>),
         ExitDeclaration,
@@ -285,6 +303,9 @@ fn visit_node(
     let mut frames = vec![Frame::Enter(root)];
     let mut declarations: Vec<(String, String)> = Vec::new();
     while let Some(frame) = frames.pop() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
         let node = match frame {
             Frame::Enter(node) => node,
             Frame::ExitDeclaration => {
@@ -300,6 +321,7 @@ fn visit_node(
             acc,
             active.map(|(id, _)| id.as_str()),
             active.map(|(_, name)| name.as_str()),
+            deadline,
         ) {
             declarations.push(identity);
             frames.push(Frame::ExitDeclaration);
@@ -312,6 +334,7 @@ fn visit_node(
         frames.extend(node.named_children(&mut cursor).map(Frame::Enter));
         frames[children_start..].reverse();
     }
+    std::time::Instant::now() < deadline
 }
 
 fn collect_node_facts(
@@ -321,6 +344,7 @@ fn collect_node_facts(
     acc: &mut GraphAccumulator,
     active_decl: Option<&str>,
     active_name: Option<&str>,
+    deadline: std::time::Instant,
 ) -> Option<(String, String)> {
     if acc.ext == "rs" && node.kind() == "macro_invocation" {
         let message = "unsupported Rust macro expansion: macro-generated imports are not linked";
@@ -407,11 +431,12 @@ fn collect_node_facts(
         if let Some(argument) = node.child_by_field_name("argument") {
             collect_rust_imports(
                 argument,
-                "",
+                &rust_module_scope(node, content),
                 content,
                 line_index,
                 acc,
                 rust_unsupported_context(node, content),
+                deadline,
             );
         }
     } else if acc.ext == "rs" && node.kind() == "mod_item" {
@@ -646,69 +671,78 @@ fn rust_unsupported_context(node: Node<'_>, content: &str) -> bool {
 /// Expand Rust use trees through grammar nodes, preserving aliases and multiline groups.
 fn collect_rust_imports(
     node: Node<'_>,
-    prefix: &str,
+    module_scope: &[String],
     content: &str,
     index: &LineIndex<'_>,
     acc: &mut GraphAccumulator,
     unsupported: bool,
+    deadline: std::time::Instant,
 ) {
-    let text = node_text(node, content).unwrap_or_default();
-    match node.kind() {
-        "use_list" => {
-            let mut cursor = node.walk();
-            for child in node.named_children(&mut cursor) {
-                collect_rust_imports(child, prefix, content, index, acc, unsupported);
-            }
+    let mut pending = vec![(node, String::new())];
+    while let Some((node, prefix)) = pending.pop() {
+        if std::time::Instant::now() >= deadline {
+            return;
         }
-        "scoped_use_list" => {
-            let path = node
-                .child_by_field_name("path")
-                .and_then(|n| node_text(n, content))
-                .unwrap_or_default();
-            let joined = if prefix.is_empty() {
-                path.to_owned()
-            } else {
-                format!("{prefix}::{path}")
-            };
-            if let Some(list) = node.child_by_field_name("list") {
-                collect_rust_imports(list, &joined, content, index, acc, unsupported);
+        let text = node_text(node, content).unwrap_or_default();
+        match node.kind() {
+            "use_list" => {
+                let mut cursor = node.walk();
+                let children_start = pending.len();
+                for child in node.named_children(&mut cursor) {
+                    pending.push((child, prefix.clone()));
+                }
+                pending[children_start..].reverse();
             }
-        }
-        _ => {
-            let (path, alias) = if node.kind() == "use_as_clause" {
-                (
-                    node.child_by_field_name("path")
-                        .and_then(|n| node_text(n, content))
-                        .unwrap_or(text),
-                    node.child_by_field_name("alias")
-                        .and_then(|n| node_text(n, content)),
-                )
-            } else {
-                (text, None)
-            };
-            let specifier = if path == "self" && !prefix.is_empty() {
-                prefix.to_owned()
-            } else if prefix.is_empty() {
-                path.to_owned()
-            } else {
-                format!("{prefix}::{path}")
-            };
-            let imported = specifier
-                .rsplit("::")
-                .next()
-                .unwrap_or(&specifier)
-                .to_owned();
-            let line = index.range(node).start.line + 1;
-            acc.imports.push(GraphImport {
-                id: format!("import:{specifier}:{line}:{}", acc.imports.len()),
-                specifier,
-                line,
-                import_kind: "value",
-                local_name: Some(alias.unwrap_or(&imported).to_owned()),
-                imported_name: Some(imported),
-                resolution_hint: unsupported.then_some("unsupported"),
-                module_scope: Some(rust_module_scope(node, content)),
-            });
+            "scoped_use_list" => {
+                let path = node
+                    .child_by_field_name("path")
+                    .and_then(|n| node_text(n, content))
+                    .unwrap_or_default();
+                let joined = if prefix.is_empty() {
+                    path.to_owned()
+                } else {
+                    format!("{prefix}::{path}")
+                };
+                if let Some(list) = node.child_by_field_name("list") {
+                    pending.push((list, joined));
+                }
+            }
+            _ => {
+                let (path, alias) = if node.kind() == "use_as_clause" {
+                    (
+                        node.child_by_field_name("path")
+                            .and_then(|n| node_text(n, content))
+                            .unwrap_or(text),
+                        node.child_by_field_name("alias")
+                            .and_then(|n| node_text(n, content)),
+                    )
+                } else {
+                    (text, None)
+                };
+                let specifier = if path == "self" && !prefix.is_empty() {
+                    prefix.to_owned()
+                } else if prefix.is_empty() {
+                    path.to_owned()
+                } else {
+                    format!("{prefix}::{path}")
+                };
+                let imported = specifier
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or(&specifier)
+                    .to_owned();
+                let line = index.range(node).start.line + 1;
+                acc.imports.push(GraphImport {
+                    id: format!("import:{specifier}:{line}:{}", acc.imports.len()),
+                    specifier,
+                    line,
+                    import_kind: "value",
+                    local_name: Some(alias.unwrap_or(&imported).to_owned()),
+                    imported_name: Some(imported),
+                    resolution_hint: unsupported.then_some("unsupported"),
+                    module_scope: Some(module_scope.to_vec()),
+                });
+            }
         }
     }
 }
@@ -1238,6 +1272,60 @@ mod tests {
     fn facts(src: &str, path: &str) -> Value {
         let raw = extract_graph_facts(src, path).expect("graph facts expected");
         serde_json::from_str(&raw).expect("valid graph json")
+    }
+
+    #[test]
+    fn expired_graph_budget_reports_incomplete_rust_root() {
+        let raw = extract_graph_facts_before(
+            "mod child; fn main() { work(); }",
+            "lib.rs",
+            std::time::Instant::now(),
+        )
+        .unwrap();
+        let graph: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(graph["rustRootUnsupported"], true);
+        assert_eq!(graph["imports"], serde_json::json!([]));
+        assert!(graph["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d.as_str().unwrap().contains("graph.parse.deadlineExceeded")));
+    }
+
+    #[test]
+    fn expired_graph_walk_does_not_emit_complete_facts() {
+        let source = "fn main() { work(); }";
+        let language = tree_sitter_rust::LANGUAGE.into();
+        let tree = super::super::extractor::parse_before(
+            source,
+            &language,
+            std::time::Instant::now() + super::super::extractor::AST_EXECUTION_TIMEOUT,
+        )
+        .unwrap();
+        let index = LineIndex::new(source);
+        let mut acc = GraphAccumulator::new("main.rs", "rs");
+        assert!(!visit_node(
+            tree.root_node(),
+            source,
+            &index,
+            &mut acc,
+            std::time::Instant::now()
+        ));
+        assert!(acc.declarations.is_empty());
+        assert!(acc.calls.is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_rust_use_groups_do_not_recurse_on_the_native_stack() {
+        let source = format!("use {}std{};", "{".repeat(10_000), "}".repeat(10_000));
+        let graph = facts(&source, "imports.rs");
+        assert_eq!(graph["imports"].as_array().unwrap().len(), 1);
+        assert_eq!(graph["imports"][0]["specifier"], "std");
+        assert!(!graph["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d.as_str().unwrap().contains("parse errors")));
     }
 
     #[test]

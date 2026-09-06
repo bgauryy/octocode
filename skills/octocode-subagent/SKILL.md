@@ -1,6 +1,6 @@
 ---
 name: octocode-subagent
-description: "Use when orchestrating or delegating substantial work: choose solo, batch, subagents, specialist handoffs, or A2A peers; coordinate independent workstreams through measurable completion; challenge claims with fresh reviewers; or offload sealed one-shots to local Ollama. Skip routine edits, explanations, dependent steps, and cheap batchable reads."
+description: "Use when choosing execution before spawning agents: solo/batch/subagent/local-Ollama, decomposition, and handoffs."
 ---
 # Octocode Orchestration
 Accountable, host-independent orchestration: the parent owns user intent, authority, integration, evidence, and verdict; workers supply bounded results, never authority.

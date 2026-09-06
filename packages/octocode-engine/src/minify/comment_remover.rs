@@ -72,19 +72,6 @@ pub fn rules_for(group: &str) -> Option<CommentRules> {
             }],
             ..Default::default()
         }),
-        "lua" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "--[[",
-                end: "]]",
-                nested: false,
-            }],
-            line: vec![LineRule {
-                token: "--",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
         "haskell" => Some(CommentRules {
             block: vec![BlockRule {
                 start: "{-",

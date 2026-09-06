@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when an idea needs exploration before building: generate options, test whether it is worth pursuing, map adjacent solutions, challenge assumptions, narrow scope, or choose Build RFC / Prototype / Narrow / Park. Skip when the user already chose a specific implementation plan."
+description: "Use when an idea needs options, feasibility testing, adjacent opportunities, or scope exploration before building."
 ---
 
 # Octocode Brainstorming

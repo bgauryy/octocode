@@ -239,13 +239,11 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     // keeping the schema/help paths above engine-free (P3).
     const { executeDirectTool, formatCallToolResultForOutput } =
       await import('@octocodeai/octocode-tools-core/direct');
-    const result = await executeDirectTool(tool.name, input);
-    printToolResult(
-      result,
-      args,
-      getOutputMode(args),
-      formatCallToolResultForOutput
-    );
+    const outputMode = getOutputMode(args);
+    const result = await (outputMode === 'compact'
+      ? executeDirectTool(tool.name, input, { resultProjection: 'structured' })
+      : executeDirectTool(tool.name, input));
+    printToolResult(result, args, outputMode, formatCallToolResultForOutput);
     if (result.isError) {
       process.exitCode = classifyToolErrorText(JSON.stringify(result));
       return false;

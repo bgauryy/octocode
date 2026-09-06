@@ -97,7 +97,8 @@ export async function getDocumentSymbols(
     }
     const result = await acquirePooledClientDetailed(
       workspaceRoot,
-      anchor.value.absolutePath
+      anchor.value.absolutePath,
+      query.rustContext
     );
     if (result.ok === false)
       throwLspUnavailable(anchor.value.uri, 'documentSymbols', result);

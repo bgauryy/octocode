@@ -67,18 +67,8 @@ export const grammarFixtures = [
       'fun target(value: Int): Int {\n  val body_marker = value + 1\n  return body_marker\n}\n',
   },
   {
-    extensions: ['lua'],
-    source:
-      'function target(value)\n  local body_marker = value + 1\n  return body_marker\nend\n',
-  },
-  {
     extensions: ['sql'],
     source: 'SELECT target FROM users WHERE active = true;\n',
-  },
-  {
-    extensions: ['zig'],
-    source:
-      'fn target(value: i32) i32 {\n  const body_marker = value + 1;\n  return body_marker;\n}\n',
   },
   {
     extensions: ['html', 'htm'],
@@ -96,7 +86,6 @@ export const grammarFixtures = [
   },
   { extensions: ['json', 'jsonc'], source: '{"target": true}\n' },
   { extensions: ['yaml', 'yml'], source: 'target: true\n' },
-  { extensions: ['toml'], source: 'target = true\n' },
   {
     extensions: ['swift'],
     source:

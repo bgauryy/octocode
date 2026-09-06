@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { test } from 'vitest';
 import { canonicalizeSkillCatalog, renderAvailableSkillsAddendum, renderSkillsDashboard } from '../src/tools/skill-catalog.js';
 
@@ -13,7 +15,7 @@ test('available skills addendum lists loadable skills and filters prompt-owned A
   assert.match(addendum, /Skills available by name this turn/);
   assert.match(addendum, /load the minimal matching skill BEFORE acting via skill\(\{queries:/);
   assert.doesNotMatch(addendum, /octocode-awareness/);
-  assert.match(addendum, /- octocode-roast: Critical review workflow\. \[user\/global\]/);
+  assert.match(addendum, /- octocode-roast: Use when a blunt evidence-backed code roast is wanted:.*\[user\/global\]/);
 });
 
 test('available skills addendum is empty when Pi reports no skills', () => {
@@ -61,6 +63,61 @@ test('available skills addendum caps descriptions tighter than the dashboard', (
   assert.ok(dashboardLine.length > addendumLine.length, 'dashboard keeps the longer description');
 });
 
+test('every Octocode-owned bundled skill keeps its complete trigger description in the model-facing catalog', () => {
+  const skillsRoot = path.resolve(import.meta.dirname, '../../../skills');
+  const bundledNames = [
+    'octocode-architect',
+    'octocode-brainstorming',
+    'octocode-chrome-devtools',
+    'octocode-code-graph',
+    'octocode-documentation',
+    'octocode-eval-benchmark',
+    'octocode-prompt-optimizer',
+    'octocode-research',
+    'octocode-rfc-generator',
+    'octocode-roast',
+    'octocode-scraping',
+    'octocode-skills',
+    'octocode-subagent',
+  ] as const;
+  const skills = bundledNames.map((name) => {
+    const source = fs.readFileSync(path.join(skillsRoot, name, 'SKILL.md'), 'utf8');
+    const description = /^description:\s*"([^"]+)"$/m.exec(source)?.[1];
+    assert.ok(description, `${name} has a quoted frontmatter description`);
+    assert.ok(description.length <= 120, `${name} description is ${description.length} chars and would be truncated`);
+    assert.match(description, /^Use when\b/, `${name} starts with trigger-first routing language`);
+    return { name, description };
+  });
+
+  const addendum = renderAvailableSkillsAddendum(skills);
+  for (const skill of skills) {
+    const line = addendum.split('\n').find((candidate) => candidate.startsWith(`- ${skill.name}:`));
+    assert.ok(line, `${skill.name} appears in the model-facing catalog`);
+    assert.ok(line.includes(skill.description), `${skill.name} keeps its complete trigger description`);
+    assert.doesNotMatch(line, /…/, `${skill.name} is not truncated`);
+  }
+
+  const staleInstalledAddendum = renderAvailableSkillsAddendum(skills.map((skill) => ({
+    name: skill.name,
+    description: `Stale installed metadata for ${skill.name}. `.repeat(8),
+  })));
+  for (const skill of skills) {
+    const line = staleInstalledAddendum.split('\n').find((candidate) => candidate.startsWith(`- ${skill.name}:`));
+    assert.ok(line?.includes(skill.description), `${skill.name} overrides stale installed metadata at the extension boundary`);
+    assert.doesNotMatch(line!, /…/, `${skill.name} override is not truncated`);
+  }
+});
+
+test('Awareness-owned orchestrator receives a complete trigger-first extension projection', () => {
+  const line = renderAvailableSkillsAddendum([{
+    name: 'octocode-orchestrator',
+    description: 'Upstream description that is intentionally much longer than the prompt catalog limit. '.repeat(4),
+  }]).split('\n').find((candidate) => candidate.startsWith('- octocode-orchestrator:'))!;
+
+  assert.match(line, /Use when substantial work needs one agent to coordinate workstreams, subagents, TDD, evaluation, and handoffs\./);
+  assert.doesNotMatch(line, /…/);
+});
+
 test('skills dashboard lists loadable skills, filters Awareness aliases, and shows install guidance', () => {
   const dashboard = renderSkillsDashboard([
     { name: 'octocode-roast', description: 'Critical review workflow.', source: 'user', scope: 'global' },
@@ -71,7 +128,7 @@ test('skills dashboard lists loadable skills, filters Awareness aliases, and sho
   assert.match(dashboard, /^◆ Octocode skills/m);
   assert.match(dashboard, /Available now/);
   assert.doesNotMatch(dashboard, /octocode-awareness/);
-  assert.match(dashboard, /- octocode-roast: Critical review workflow\. \[user\/global\]/);
+  assert.match(dashboard, /- octocode-roast: Use when a blunt evidence-backed code roast is wanted:.*\[user\/global\]/);
   assert.match(dashboard, /skill\(\{queries:/, 'dashboard teaches the unified skill query envelope');
   assert.match(dashboard, /\/skill:<name>/);
   assert.match(dashboard, /npx octocode skill install <skill> --platform pi/);

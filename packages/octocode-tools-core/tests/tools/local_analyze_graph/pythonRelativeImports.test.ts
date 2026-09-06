@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolvePythonImport } from '../../../src/graph/languageImportResolver.js';
@@ -34,6 +35,63 @@ const resolve = (
   );
 
 describe('bounded relative Python imports', () => {
+  it.each(['sys', 'builtins'])(
+    'does not invent a local target for builtin %s collisions',
+    async name => {
+      const path = await fixture({
+        'entry.py': `import ${name}\n`,
+        [`${name}.py`]: 'raise RuntimeError("local collision must not run")\n',
+      });
+      const result = await analyzeGraph({
+        operation: 'dependencies',
+        path,
+        file: 'entry.py',
+      });
+      expect(result.results).toEqual([]);
+      expect(result.coverage?.imports.unsupported).toBe(1);
+      expect(result.partialReasons).toContain('unsupportedLinking');
+    }
+  );
+
+  it('checks the default Python import oracle for builtin collisions', async context => {
+    const path = await fixture({
+      'sys.py': 'raise RuntimeError("wrong sys")',
+      'builtins.py': 'raise RuntimeError("wrong builtins")',
+    });
+    const result = spawnSync(
+      'python3',
+      [
+        '-S',
+        '-E',
+        '-c',
+        'import sys, builtins; print(sys.__spec__.origin, builtins.__spec__.origin)',
+      ],
+      { cwd: path, encoding: 'utf8', timeout: 5000, shell: false }
+    );
+    if (
+      result.error &&
+      'code' in result.error &&
+      result.error.code === 'ENOENT'
+    ) {
+      context.skip(
+        'Python oracle unavailable; product does not require Python.'
+      );
+      return;
+    }
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('built-in built-in');
+  });
+
+  it('retains explicitly relative sys module imports', () => {
+    expect(
+      resolve('.sys', 'pkg/entry.py', '', [
+        'pkg/__init__.py',
+        'pkg/entry.py',
+        'pkg/sys.py',
+      ])
+    ).toMatchObject({ target: 'pkg/sys.py', status: 'resolved' });
+  });
+
   it('links a unique same-package submodule and retains its namespace', () => {
     expect(
       resolve('.', 'pkg/service.py', 'worker', [

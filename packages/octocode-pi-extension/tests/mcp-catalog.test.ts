@@ -75,6 +75,64 @@ test('catalog snapshot and fallback guide are deterministic, sorted, escaped, an
   assert.deepEqual(read?.inputSchema, { required: ['path'], type: 'object', properties: { path: { type: 'string' } } });
 });
 
+test('fallback guide exposes nested discriminated query schemas needed for a valid first call', () => {
+  const home = tempRoot('octocode-mcp-nested-guide-');
+  const snapshot = buildMcpCatalogSnapshot({
+    cwd: path.join(home, 'workspace'),
+    sources: [],
+    configSignatures: { octocode: 'config' },
+    capturedAt: '2026-08-24T00:00:00.000Z',
+    servers: [{
+      name: 'octocode',
+      tools: [{
+        name: 'localSearch',
+        description: 'Search local code with operation-specific query shapes.',
+        inputSchema: {
+          type: 'object',
+          required: ['queries'],
+          properties: {
+            queries: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 5,
+              items: {
+                anyOf: [
+                  {
+                    type: 'object',
+                    required: ['operation', 'path', 'searchText'],
+                    properties: {
+                      operation: { const: 'text', type: 'string' },
+                      path: { type: 'string' },
+                      searchText: { type: 'string' },
+                      regex: { enum: ['smart', 'fixed', 'perl'], type: 'string' },
+                    },
+                  },
+                  {
+                    type: 'object',
+                    required: ['operation', 'path'],
+                    properties: {
+                      operation: { const: 'tree', type: 'string' },
+                      path: { type: 'string' },
+                      maxDepth: { maximum: 20, minimum: 0, type: 'integer' },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }],
+    }],
+  });
+
+  const rendered = renderMcpCatalogIndex(snapshot);
+  assert.match(rendered, /operation="text"/);
+  assert.match(rendered, /searchText/);
+  assert.match(rendered, /regex.*smart.*fixed.*perl/);
+  assert.match(rendered, /operation="tree"/);
+  assert.match(rendered, /maxDepth.*minimum: 0.*maximum: 20/);
+});
+
 test('exact catalog includes every enabled server tool description and normalized input schema', () => {
   const home = tempRoot('octocode-mcp-exact-catalog-');
   const rendered = renderMcpCatalogExact(fixtureSnapshot(home));

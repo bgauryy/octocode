@@ -84,6 +84,34 @@ describe('production grammar matrix through the native and public tool boundarie
       expect(structuralExtensions).toContain(extension);
   });
 
+  it.each(['toml', 'lua', 'zig'])(
+    'reports removed .%s analysis as unsupported while preserving plain reads',
+    async extension => {
+      expect(structuralExtensions).not.toContain(extension);
+      expect(signatureExtensions.has(extension)).toBe(false);
+      expect(graphExtensions.has(extension)).toBe(false);
+      const path = join(root, `removed.${extension}`);
+      const source = 'target(value);\n';
+      await writeFile(path, source);
+      expect(extractSignatures(source, path)).toBeNull();
+      expect(extractGraphFacts(source, path)).toBeNull();
+      const result = await executeDirectTool('localSearch', {
+        queries: [{ operation: 'structural', path, pattern: 'target($X)' }],
+      });
+      expect(result.structuredContent).toMatchObject({
+        results: [
+          {
+            status: 'error',
+            data: { errorCode: 'structural.language.unsupported' },
+          },
+        ],
+      });
+      const read = await run('localGetFileContent', { path, minify: 'none' });
+      expect(read.data.content).toContain('target(value);');
+      await rm(path);
+    }
+  );
+
   describe.each(cases)('.$extension', ({ extension, source }) => {
     it('matches real syntax through the native AST boundary', () => {
       const result = structuralSearchDetailed(

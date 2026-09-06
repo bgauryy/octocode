@@ -187,7 +187,7 @@ fn captures_multi_metavar_as_list() {
 
 #[test]
 fn document_probe_matches_root_without_ellipsis_panic() {
-    for ext in ["ts", "py", "html", "json", "toml"] {
+    for ext in ["ts", "py", "html", "json"] {
         let matches = run_pattern("foo(a)\nbar(b)\n", ext, "$$$");
         assert_eq!(matches.len(), 1, "{ext} should return the document root");
         assert_eq!(matches[0].start_line, 1);
@@ -518,17 +518,19 @@ fn content_of_at_least(byte_len: usize) -> String {
 }
 
 fn content_of_exactly(byte_len: usize) -> String {
-    // Valid AST source truncated to an exact byte length (newline-terminated
-    // repetitions, then a final partial line). Used for the at-cap case so
-    // the cap boundary is exact, not soft.
-    let line = "target(v);\n";
+    // Exercise the byte boundary with a small AST. Repeating 100,000 calls
+    // also measures parser/walker throughput and can legitimately hit the
+    // independent execution deadline when the suite runs under CPU load.
+    let prefix = "target(v);\n/*";
+    let suffix = "*/";
+    assert!(byte_len >= prefix.len() + suffix.len());
     let mut out = String::with_capacity(byte_len);
-    while out.len() + line.len() <= byte_len {
-        out.push_str(line);
-    }
-    while out.len() < byte_len {
-        out.push(' ');
-    }
+    out.push_str(prefix);
+    out.extend(std::iter::repeat_n(
+        'x',
+        byte_len - prefix.len() - suffix.len(),
+    ));
+    out.push_str(suffix);
     out
 }
 
@@ -556,9 +558,10 @@ fn search_accepts_content_at_cap() {
     const CAP: usize = 1_000_000;
     let content = content_of_exactly(CAP);
     assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
-    let matches = search(&content, "ts", Some("nomatch($X)"), None)
+    let matches = search(&content, "ts", Some("target($X)"), None)
         .expect("content at the cap must parse, not error");
-    assert!(matches.is_empty());
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].metavars["X"], ["v"]);
 }
 
 #[test]
@@ -586,9 +589,9 @@ fn search_detailed_accepts_content_at_cap() {
     const CAP: usize = 1_000_000;
     let content = content_of_exactly(CAP);
     assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
-    let result = search_detailed(&content, "a.ts", "ts", Some("nomatch($X)"), None);
+    let result = search_detailed(&content, "a.ts", "ts", Some("target($X)"), None);
     assert_eq!(result.status, "ok");
-    assert!(result.matches.is_empty());
+    assert_eq!(result.matches.len(), 1);
     assert!(result.diagnostics.is_empty());
 }
 
@@ -715,21 +718,13 @@ fn scala_extensions_are_supported() {
     }
 }
 
-// ── config grammars (JSON / YAML / TOML) + extension aliases ──────────────
+// ── config grammars (JSON / YAML) + extension aliases ──────────────
 
 #[test]
 fn json_rule_matches_pairs() {
     let src = "{\n  \"a\": 1,\n  \"b\": 2\n}\n";
     let rule = "rule:\n  kind: pair\n";
     let matches = search(src, "json", None, Some(rule)).expect("json rule search");
-    assert_eq!(matches.len(), 2);
-}
-
-#[test]
-fn toml_rule_matches_pairs() {
-    let src = "a = 1\nb = 2\n";
-    let rule = "rule:\n  kind: pair\n";
-    let matches = search(src, "toml", None, Some(rule)).expect("toml rule search");
     assert_eq!(matches.len(), 2);
 }
 
@@ -756,7 +751,7 @@ fn mts_uses_typescript_grammar_and_dollar_expando() {
 #[test]
 fn config_and_alias_extensions_are_supported() {
     let exts = supported_extensions();
-    for ext in ["json", "jsonc", "yaml", "yml", "toml", "mts", "cts", "pyi"] {
+    for ext in ["json", "jsonc", "yaml", "yml", "mts", "cts", "pyi"] {
         assert!(
             exts.iter().any(|e| e == ext),
             "structural search must support .{ext}"

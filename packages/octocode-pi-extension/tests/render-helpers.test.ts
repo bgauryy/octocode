@@ -335,6 +335,26 @@ test('error result rows surface the failure text and honor system-level context.
   assert.ok(r3.some((l) => /line B/.test(l)));
 });
 
+test('single Octocode query errors show the actionable cause instead of a structural key or error code', () => {
+  const text = [
+    'results:',
+    '- index: 0',
+    '  status: error',
+    '  data:',
+    '    error: File not found: missing-root. Verify the path with localSearch operation:"files".',
+    '    errorCode: fileAccessFailed',
+  ].join('\n');
+  const row = buildOctocodeRenderResult(
+    'localSearch',
+    textResult(text, {}, true),
+    { expanded: false },
+    theme,
+  ).render(240)[0]!;
+
+  assert.match(row, /File not found: missing-root/);
+  assert.doesNotMatch(row, /· results:|errorCode: fileAccessFailed/);
+});
+
 test('makeCachedRenderer memoizes lines per width and clears on invalidate', () => {
   let calls = 0;
   const r = makeCachedRenderer((w) => {

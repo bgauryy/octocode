@@ -5,6 +5,7 @@ export interface PoolKey {
   filePath: string;
   languageId: string;
   serverId?: string;
+  contextFingerprint?: string;
 }
 
 interface PooledClient {
@@ -136,7 +137,7 @@ export function serializeKey(key: PoolKey): string {
   // must map to the SAME pooled client, or equivalent roots silently spawn
   // parallel language servers with split index state.
   const root = resolve(key.workspaceRoot).replace(/(?<=.)[/\\]+$/, '');
-  return `${key.serverId ?? key.languageId}\u0000${root}`;
+  return `${key.serverId ?? key.languageId}\u0000${root}\u0000${key.contextFingerprint ?? ''}`;
 }
 
 async function isEntryAlive(client: PooledClient): Promise<boolean> {

@@ -20,6 +20,26 @@ function localPath(value: string | undefined): string | undefined {
   return path.resolve(value.startsWith('file:') ? fileURLToPath(value) : value);
 }
 
+export function describeRustContext(query: LspGetSemanticsQuery) {
+  if (!query.rustContext) return undefined;
+  const context = query.rustContext;
+  const normalized = {
+    features:
+      context.features === 'all'
+        ? 'all'
+        : [...new Set(context.features ?? [])].sort(),
+    noDefaultFeatures: context.noDefaultFeatures ?? false,
+    target: context.target ?? null,
+    cfgs: [...new Set(context.cfgs ?? [])].sort(),
+    buildScripts: context.buildScripts ?? false,
+    procMacros: context.procMacros ?? false,
+  };
+  return {
+    ...normalized,
+    fingerprint: `rust-v1:${createHash('sha256').update(canonical(normalized)).digest('hex')}`,
+  };
+}
+
 function queryIdentity(query: LspGetSemanticsQuery) {
   const anchored = query as LspGetSemanticsQuery & {
     symbolName?: string;
@@ -41,6 +61,7 @@ function queryIdentity(query: LspGetSemanticsQuery) {
     includeDeclaration: anchored.includeDeclaration ?? true,
     groupByFile: anchored.groupByFile ?? false,
     contextLines: query.contextLines ?? 0,
+    rustContext: describeRustContext(query),
   };
 }
 
@@ -130,6 +151,7 @@ export function guardSemanticSnapshot(
     type: envelope.type,
     uri: envelope.uri,
     lsp: envelope.lsp,
+    ...(query.rustContext ? { rustContext: describeRustContext(query) } : {}),
     ...(envelope.workspaceRoot
       ? { workspaceRoot: envelope.workspaceRoot }
       : {}),

@@ -128,7 +128,7 @@ async function viewStructureNative(
 
   const sortBy = query.sortBy ?? 'name';
   filteredEntries = filteredEntries.sort((a, b) => {
-    let comparison = 0;
+    let comparison: number;
     switch (sortBy) {
       case 'size': {
         const aSize = a.sizeBytes ?? (a.size ? parseFileSize(a.size) : 0);

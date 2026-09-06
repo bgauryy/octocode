@@ -64,7 +64,7 @@ incomplete reports are removed rather than included with caveats in the
 headline calculation.
 
 Write new reports as
-`<COMPARISON_NAME>-<TIME>-<DATE>.md` using
+`COMPARISON_NAME-TIME-DATE.md` using uppercase placeholder components and
 [REPORT_TEMPLATE.md](../skills/octocode-benchmark/references/REPORT_TEMPLATE.md). Measurement is in Unicode
 characters delivered to the runner; correctness takes precedence over
 footprint. Failed probes inside a complete run remain counted.

@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 import {
   SymbolResolver,
   SymbolResolutionError,
@@ -29,6 +29,40 @@ export type SymbolAnchor = FileAnchor & {
 export type AnchorResolutionResult<T> =
   { ok: true; value: T } | { ok: false; error: Record<string, unknown> };
 
+const MAX_SEMANTIC_SOURCE_BYTES = 1_000_000;
+const SOURCE_LIMIT_MESSAGE =
+  '[lspSourceTooLarge] Semantic source exceeds 1000000 bytes; choose a smaller source file.';
+
+async function readBoundedSource(path: string): Promise<string> {
+  const file = await open(path, 'r');
+  try {
+    const info = await file.stat();
+    if (!info.isFile())
+      throw new Error('Semantic source must be a regular file.');
+    if (info.size > MAX_SEMANTIC_SOURCE_BYTES)
+      throw new Error(SOURCE_LIMIT_MESSAGE);
+    // Read at most one sentinel byte beyond the bound, including when a file
+    // grows between stat and read.
+    const buffer = Buffer.alloc(MAX_SEMANTIC_SOURCE_BYTES + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await file.read(
+        buffer,
+        offset,
+        buffer.length - offset,
+        null
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > MAX_SEMANTIC_SOURCE_BYTES)
+      throw new Error(SOURCE_LIMIT_MESSAGE);
+    return buffer.toString('utf8', 0, offset);
+  } finally {
+    await file.close();
+  }
+}
+
 export async function resolveFileAnchor(
   query: { uri?: string },
   toolName: string
@@ -48,17 +82,28 @@ export async function resolveFileAnchor(
   // "ENOENT" surfaced verbatim. LSP semantics operate on a single file.
   try {
     const stats = await stat(absolutePath);
-    if (stats.isDirectory()) {
+    if (!stats.isFile()) {
       return {
         ok: false,
         error: {
           status: 'error',
-          error: `Path is a directory: ${absolutePath}.`,
+          error: `Path is not a regular source file: ${absolutePath}.`,
           errorType: 'not_a_file',
           errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
           hints: [
             'Choose a source file, or use workspaceSymbol with symbolName.',
           ],
+        },
+      };
+    }
+    if (stats.size > MAX_SEMANTIC_SOURCE_BYTES) {
+      return {
+        ok: false,
+        error: {
+          status: 'error',
+          error: SOURCE_LIMIT_MESSAGE,
+          errorType: 'source_limit',
+          errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
         },
       };
     }
@@ -81,7 +126,7 @@ export async function resolveFileAnchor(
       value: {
         uri: toUri(absolutePath),
         absolutePath,
-        content: await readFile(absolutePath, 'utf-8'),
+        content: await readBoundedSource(absolutePath),
       },
     };
   } catch (error) {
@@ -90,7 +135,11 @@ export async function resolveFileAnchor(
       error: {
         status: 'error',
         error: error instanceof Error ? error.message : String(error),
-        errorType: 'file_not_found',
+        errorType:
+          error instanceof Error &&
+          error.message.includes('[lspSourceTooLarge]')
+            ? 'source_limit'
+            : 'file_not_found',
         errorCode: LSP_ERROR_CODES.LSP_REQUEST_FAILED,
         hints: [`Could not read file: ${uri ?? '<missing>'}`],
       },
@@ -124,7 +173,13 @@ export async function resolveSymbolAnchor(
     });
 
     const escapedName = query.symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const occurrenceRegex = new RegExp(`\\b${escapedName}\\b`, 'g');
+    // Match the native resolver's Unicode identifier boundaries; JavaScript's
+    // ASCII word boundary miscounts Unicode names and substrings inside them.
+    const identifierContinue = '[\\p{ID_Continue}$\\u200C\\u200D]';
+    const occurrenceRegex = new RegExp(
+      `(?<!${identifierContinue})${escapedName}(?!${identifierContinue})`,
+      'gu'
+    );
     const totalOccurrences = (file.value.content.match(occurrenceRegex) ?? [])
       .length;
     // The resolver searches within a radius around the hint — with multiple

@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
+    "types": ["node"],
     "outDir": "./out",
     "strict": true,
     "esModuleInterop": true,
@@ -24,4 +25,3 @@
   "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "out"]
 }
-

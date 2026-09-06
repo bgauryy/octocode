@@ -39,7 +39,9 @@ export async function withTreeLock<T>(
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       if (tryRecoverStaleCloneLock(lock)) continue;
       if (Date.now() - started > 30_000)
-        throw new Error('Timed out waiting for tree materialization lock.');
+        throw new Error('Timed out waiting for tree materialization lock.', {
+          cause: error,
+        });
       await new Promise(resolve => setTimeout(resolve, 25));
     }
   }

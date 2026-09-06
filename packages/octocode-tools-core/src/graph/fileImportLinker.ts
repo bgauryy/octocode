@@ -7,6 +7,8 @@ import {
 } from './languageImportResolver.js';
 import type { prepareMetadataImports } from './metadataImports.js';
 import type { prepareRustResolver } from './rustWorkspace.js';
+import type { WorkspacePackageExports } from './workspacePackageResolver.js';
+import type { PackageExportMode } from './packageExportTargets.js';
 import type {
   GraphCoverage,
   ImportResolution,
@@ -18,7 +20,7 @@ export function createFileImportLinker(options: {
   relativePath: string;
   parsed: RawGraphFacts;
   knownFiles: Set<string>;
-  workspacePackageExports: Parameters<typeof resolveImportSpecifier>[3];
+  getWorkspacePackageExports: () => WorkspacePackageExports;
   metadata: ReturnType<typeof prepareMetadataImports>;
   resolveRust: Awaited<ReturnType<typeof prepareRustResolver>>;
   coverage: GraphCoverage;
@@ -27,7 +29,7 @@ export function createFileImportLinker(options: {
     relativePath,
     parsed,
     knownFiles,
-    workspacePackageExports,
+    getWorkspacePackageExports,
     metadata,
     resolveRust,
     coverage,
@@ -86,13 +88,41 @@ export function createFileImportLinker(options: {
   const resolve = (
     specifier: string,
     line: number,
-    moduleDeclaration = false,
-    resolutionHint?: string,
-    moduleScope?: string[],
-    importedName?: string
+    options: {
+      moduleDeclaration?: boolean;
+      resolutionHint?: string;
+      moduleScope?: string[];
+      importedName?: string;
+      exportMode?: PackageExportMode;
+    } = {}
   ): string | null => {
+    const {
+      moduleDeclaration = false,
+      resolutionHint,
+      moduleScope,
+      importedName,
+      exportMode = 'import',
+    } = options;
+    const mode =
+      exportMode === 'types'
+        ? ['mts', 'mjs'].includes(extension)
+          ? 'types-import'
+          : ['cts', 'cjs'].includes(extension)
+            ? 'types-require'
+            : 'types'
+        : exportMode === 'static'
+          ? extension === 'cts'
+            ? 'require'
+            : ['ts', 'tsx'].includes(extension)
+              ? 'static'
+              : 'import'
+          : exportMode;
     let resolution: ImportResolution;
-    if (resolutionHint === 'unsupported' || linking === 'unsupported')
+    if (
+      resolutionHint === 'unsupported' ||
+      linking === 'unsupported' ||
+      (javascript && specifier.startsWith('/'))
+    )
       resolution = { target: null, status: 'unsupported' };
     else if (extension === 'rs')
       resolution = resolveRust(
@@ -122,17 +152,21 @@ export function createFileImportLinker(options: {
       const target = resolveImportSpecifier(
         specifier,
         relativePath,
-        knownFiles,
-        workspacePackageExports
+        knownFiles
       );
-      resolution = metadataResolution ?? {
-        target,
-        status: target
-          ? 'resolved'
-          : specifier.startsWith('.') || specifier.startsWith('/')
-            ? 'unresolvedInternal'
-            : 'external',
-      };
+      const workspaceResolution =
+        !specifier.startsWith('.') && !specifier.startsWith('/')
+          ? getWorkspacePackageExports().resolve(specifier, mode)
+          : undefined;
+      resolution = metadataResolution ??
+        workspaceResolution ?? {
+          target,
+          status: target
+            ? 'resolved'
+            : specifier.startsWith('.') || specifier.startsWith('/')
+              ? 'unresolvedInternal'
+              : 'external',
+        };
     }
     for (const target of resolution.additionalTargets ?? [])
       auxiliaryTargets.add(target);
@@ -148,7 +182,7 @@ export function createFileImportLinker(options: {
           resolution.status === 'unsupported'
             ? 'unsupported-linking'
             : 'unresolved-internal',
-        message: `Cannot link import ${JSON.stringify(specifier)} (${resolution.status}).`,
+        message: `Cannot link import ${JSON.stringify(specifier)} (${resolution.status}${resolution.reason ? `: ${resolution.reason}` : ''}).`,
       });
     }
     return resolution.target;

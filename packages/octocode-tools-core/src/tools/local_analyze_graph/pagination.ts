@@ -1,7 +1,6 @@
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
-import { createHash } from 'node:crypto';
 import { MAX_PAGE_NUMBER } from '../../config.js';
-import { canonicalGraphDiagnostics } from '../../graph/coverage.js';
+import { prepareGraphDiagnostics } from '../../graph/diagnosticSnapshot.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import type { AnalyzeGraphOutput, AnalyzeGraphQuery } from './analysisTypes.js';
 
@@ -256,22 +255,9 @@ function paginateGraphDiagnostics(
 ): AnalyzeGraphOutput {
   const coverage = output.coverage;
   if (!coverage) return output;
-  const diagnostics = canonicalGraphDiagnostics(coverage.diagnostics);
-  const resultId = createHash('sha256')
-    .update(
-      JSON.stringify(
-        diagnostics.map(item => [
-          item.file,
-          item.line ?? null,
-          item.code,
-          item.message,
-        ])
-      )
-    )
-    .digest('hex');
-  const diagnosticCounts: Record<string, number> = {};
-  for (const item of diagnostics)
-    diagnosticCounts[item.code] = (diagnosticCounts[item.code] ?? 0) + 1;
+  const { diagnostics, resultId, diagnosticCounts } = prepareGraphDiagnostics(
+    coverage.diagnostics
+  );
   const { diagnosticSnapshot: _previousSnapshot, ...restartQuery } = query;
   const restartDiagnostics = buildNextPageContinuation(
     'localAnalyzeGraph',

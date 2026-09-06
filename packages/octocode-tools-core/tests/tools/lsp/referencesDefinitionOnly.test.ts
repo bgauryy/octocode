@@ -40,17 +40,19 @@ function location(line: number, character: number, uri = URI) {
   } as never;
 }
 
-describe('references definition-only typed signal', () => {
-  it('marks payload.definitionOnly when the only reference is the definition itself', () => {
-    // A def-only result is NOT proof of absence (index scope may be narrow, or
-    // the symbol may be public API). Warnings are stripped from responses, so
-    // the honesty signal must be a typed payload field.
+describe('references declaration identity', () => {
+  it('does not label a matching query anchor as a definition', () => {
+    // An anchor may be a call site. The references protocol does not identify
+    // which returned location is a declaration, even with includeDeclaration.
     const envelope = referencesEnvelope(makeQuery(), makeAnchor(), [
       location(36, 16),
     ]);
     const payload = envelope.payload as Record<string, unknown>;
     expect(payload.totalReferences).toBe(1);
-    expect(payload.definitionOnly).toBe(true);
+    expect(payload.definitionOnly).toBeUndefined();
+    expect(payload.locations).toEqual([
+      expect.not.objectContaining({ isDefinition: true }),
+    ]);
   });
 
   it('omits definitionOnly when real external references exist', () => {

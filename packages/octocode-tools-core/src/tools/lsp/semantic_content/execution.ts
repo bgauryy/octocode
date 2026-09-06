@@ -33,7 +33,10 @@ import {
   formatSemanticResult,
 } from './semanticPresentation.js';
 import { withSemanticNext } from './semanticNext.js';
-import { guardSemanticSnapshot } from './semanticSnapshot.js';
+import {
+  guardSemanticSnapshot,
+  describeRustContext,
+} from './semanticSnapshot.js';
 import { LspGetSemanticsQuerySchema } from './scheme.js';
 
 export async function executeLspGetSemantics(
@@ -52,13 +55,16 @@ export async function executeLspGetSemantics(
         contextMessage: 'lspGetSemantics execution failed',
         execute: async () => {
           const result = await getSemanticContent(validatedQuery);
+          const contextualResult = validatedQuery.rustContext
+            ? { ...result, rustContext: describeRustContext(validatedQuery) }
+            : result;
           return attachSemanticRawEvidence(
             formatSemanticResult(
               validatedQuery,
               withSemanticNext(
                 validatedQuery,
                 classifySemanticResult(
-                  guardSemanticSnapshot(validatedQuery, result)
+                  guardSemanticSnapshot(validatedQuery, contextualResult)
                 )
               )
             )
@@ -112,7 +118,8 @@ async function getSemanticContent(
 
   const clientResult = await acquirePooledClientDetailed(
     workspaceRoot,
-    anchor.value.absolutePath
+    anchor.value.absolutePath,
+    query.rustContext
   );
   if (clientResult.ok === false) {
     throwLspUnavailable(anchor.value.uri, query.type, clientResult);

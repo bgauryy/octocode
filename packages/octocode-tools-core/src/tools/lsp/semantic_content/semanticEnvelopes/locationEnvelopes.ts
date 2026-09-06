@@ -59,16 +59,9 @@ export function referencesEnvelope(
   locations: CodeSnippet[],
   warmupStats?: ConsumerWarmupStats
 ): LspSemanticEnvelope {
-  const refs = stableReferenceLocations(locations).map(
-    (location): ReferenceLocation => {
-      const isDefinition =
-        referenceUri(location.uri) === referenceUri(anchor.uri) &&
-        location.range.start.line === anchor.resolvedSymbol.position.line &&
-        location.range.start.character ===
-          anchor.resolvedSymbol.position.character;
-      return { ...location, ...(isDefinition ? { isDefinition: true } : {}) };
-    }
-  );
+  // A query anchor may be a usage. LSP references return locations without
+  // declaration identity; matching the anchor cannot establish a definition.
+  const refs: ReferenceLocation[] = stableReferenceLocations(locations);
   const byFile = query.groupByFile ? buildReferencesByFile(refs) : undefined;
   const referenceGroups = new Map<string, ReferenceLocation[]>();
   if (byFile) {

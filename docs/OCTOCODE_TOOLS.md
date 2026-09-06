@@ -731,11 +731,11 @@ Declaration IDs identify scoped source occurrences; unresolved call references
 are not proof of symbol identity. Lexical occurrence counts are conservative
 retention evidence and still require LSP confirmation for deletion decisions.
 
-One bounded repository graph provides six operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `c-include`, and `metadata-import`. Type-only import and reexport edges do not create runtime cycles.
+One bounded repository graph provides six operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `rust-module`, `rust-use`, `c-include`, and `metadata-import`. Rust module/use edges, C includes, metadata, erased types, and edges without provenance do not establish runtime import cycles.
 
 Cross-file resolution covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Literal CommonJS loads link only when `require`, `module.require`, or an imported `createRequire(import.meta.url)` binding is not shadowed or reassigned. Dynamic and ambiguous loaders remain explicit diagnostics. Python wildcard and ambiguous package-attribute imports remain diagnostics, as do C/C++ system and macro includes. Explicit relative `package.json` imports can link to a manifest inside the root or the nearest ancestor boundary; these manifests are validated, limited to 64 KiB, count against `maxFiles`, and remain metadata leaves. Namespace-style imports conservatively retain target exports during dead-code analysis.
 
-Dependency traversal also reports immediate dominators, topological layers, and transitively redundant condensation-DAG edges. Cycle results distinguish `runtimeCycle` from type-only SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
+Dependency traversal also reports immediate dominators, topological layers, and transitively redundant condensation-DAG edges. Cycle results distinguish runtime import candidates (`runtimeCycle`) from other topology SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
 
 #### Best for
 
@@ -771,8 +771,8 @@ Results never dump the complete graph: the result list is paginated, SCC/dead-cl
 | Signal | Interpretation | Required follow-up |
 |--------|----------------|--------------------|
 | `cycleEdges` | A deterministic directed witness through one reported SCC. Each edge names `from`, `to`, and its syntactic `edgeKinds`. | Read every reported edge exactly; SCC member order alone is not a valid cycle path. |
-| `runtimeCycleEdges` | A directed witness that remains after the analysis removes `type-import` edges. This is the relevant witness for module-loading risk. | Confirm the imported bindings and initialization behavior before claiming a runtime defect. |
-| Type-only SCC | Files are mutually connected in the full import graph, but no runtime cycle remains after the analysis erases type-only edges. | Report it as topology or coupling evidence, not as a module-loading cycle. |
+| `runtimeCycleEdges` | A directed witness using supported runtime import candidates; Rust module/use, C include, metadata, erased-type, and unknown-provenance edges are excluded. | Confirm the imported bindings and initialization behavior before claiming a runtime defect. |
+| Topology-only SCC | Files are mutually connected in the full graph, but no cycle remains among runtime import candidates. This includes type-only and Rust module cycles. | Report it as topology or coupling evidence, not as a module-loading cycle. |
 | `transitiveCandidates` | Condensation-DAG edges for which another directed path already connects the same components. They can indicate redundant architectural wiring. | Check re-export contracts, side effects, public API intent, and symbol usage before calling an import duplicate. |
 | `immediateDominators` | Components that every directed route from the selected root must cross. | Use them to prioritize chokepoints; do not infer symbol ownership from file topology. |
 
@@ -902,6 +902,7 @@ Optional fields:
 |-------|-------|
 | `orderHint` | Disambiguates repeated symbol text on the same line. |
 | `workspaceRoot` | Overrides automatic project-root detection. |
+| `rustContext` | Explicit rust-analyzer build context. Requires a `.rs` URI, including for `workspaceSymbol`. See [Rust build context](#rust-build-context). |
 | `contextLines` | Adds source previews to call-flow results. Keep `0` unless previews are needed. |
 | `page` | Result page for `documentSymbols` and call-flow results. |
 | `pageSize` | Semantic items per page. Defaults to `40` for `documentSymbols`, `10` for call-flow. Max `100`. |
@@ -941,6 +942,7 @@ All semantic responses use this envelope:
 | `summary` | Agent-readable totals for symbol and call-flow requests. |
 | `payload` | Typed semantic payload. |
 | `pagination` | Native semantic pagination for symbol and call-flow requests. |
+| `rustContext` | Normalized requested Rust settings and their fingerprint, when supplied. This field also remains visible on native document-symbol results. |
 | `next` | Executable reads, searches, completeness checks, or pagination requests. |
 
 Empty semantic payloads use `payload.kind="empty"` with a machine-readable
@@ -948,6 +950,12 @@ Empty semantic payloads use `payload.kind="empty"` with a machine-readable
 or `noCalls`. A successfully executed semantic miss exits with code `0`.
 Scripts must inspect the typed payload instead of using the process exit code to
 distinguish an empty result.
+
+If the server did not confirm readiness, an empty semantic result includes
+`partialReasons: ["readinessUnconfirmed"]` and a warning. This state means the
+answer cannot establish absence; inspect the supplied search continuation or
+query again after the server finishes indexing. Octocode does not automatically
+retry every empty result.
 
 Reference results preserve typed warmup, definition-only, empty, partial, and
 continuation metadata in structured and compact presentations. An incomplete
@@ -966,6 +974,47 @@ Call-flow payloads are compact by default. Each call includes the target item, s
 An `expandDepth` continuation appears only when unvisited project calls remain;
 filtered standard-library calls do not make an otherwise complete result look
 depth-truncated.
+
+### Rust build context
+
+Supply `rustContext` to select the Rust configuration used for a semantic query:
+
+| Field | Default in an explicit context | Meaning |
+|-------|-------------------------------|---------|
+| `features` | `[]` | Cargo feature names, or `"all"`. Names are deduplicated and sorted for identity. |
+| `noDefaultFeatures` | `false` | Disable the package's default Cargo features. |
+| `target` | Unset | Cargo target triple; an unset value uses the server's Cargo environment. |
+| `cfgs` | `[]` | Additional rust-analyzer cfg settings, such as `"custom"`, `"mode=fast"`, or `"!custom"`. |
+| `buildScripts` | `false` | Allow rust-analyzer to run build scripts and load their cfg and generated-source results. |
+| `procMacros` | `false` | Allow procedural macro expansion. Requires `buildScripts: true`. |
+
+For a Rust call found at line 5, query the definition with the `selected` feature:
+
+```bash
+octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/src/lib.rs","type":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}' --json
+```
+
+Replace the path, symbol, and line with an anchor from `localSearch`. An explicit
+empty context (`"rustContext": {}`) disables build scripts and procedural macros;
+it also disables rust-analyzer's implicit test cfg and check-on-save. Omitting
+`rustContext` preserves the configured server defaults, which can enable build
+scripts or procedural macros. Enabling these providers permits workspace code
+execution; the context is not a sandbox.
+
+The tool uses rust-analyzer for cfg-selected definitions, declarative macro
+expansion, and enabled build-script or procedural-macro results. The syntax graph
+from `localAnalyzeGraph` remains a separate source analysis and does not acquire
+compiler expansion through this option. A disabled provider can explain an empty
+answer even when the declaration is generated during a normal Cargo build.
+
+Different effective server settings use different pooled clients. The returned
+`rustContext.fingerprint` identifies the normalized requested settings, and semantic
+pagination includes that identity. Follow continuations unchanged; changing the
+context requires restarting pagination. This fingerprint does not pin source
+files, Cargo configuration, the toolchain, environment changes, or generated
+artifacts. It is not a reproducible-build identifier. See the
+[engine lifecycle contract](../packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#rust-context-and-server-identity)
+and [rust-analyzer configuration](https://rust-analyzer.github.io/book/configuration.html).
 
 ### Root selection
 
@@ -1037,13 +1086,11 @@ Common environment overrides:
 | `OCTOCODE_CSS_SERVER_PATH` | CSS/SCSS/Less |
 | `OCTOCODE_RUBY_SERVER_PATH` | Ruby |
 | `OCTOCODE_KOTLIN_SERVER_PATH` | Kotlin |
-| `OCTOCODE_LUA_SERVER_PATH` | Lua |
 | `OCTOCODE_ELIXIR_SERVER_PATH` | Elixir |
-| `OCTOCODE_ZIG_SERVER_PATH` | Zig |
 
 #### Custom / bring-your-own servers
 
-Scala and TOML have no built-in server. To support either language, or to
+Scala has no built-in server. To support it, or to
 replace a built-in server, register it in a JSON config. Octocode loads the
 configuration in this precedence order:
 

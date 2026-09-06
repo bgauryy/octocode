@@ -32,6 +32,8 @@ function makeExe(filePath: string): void {
 
 beforeEach(() => clearDiscoveryCache());
 afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
   clearDiscoveryCache();
   while (roots.length) {
     rmSync(roots.pop()!, { recursive: true, force: true });
@@ -103,6 +105,33 @@ describe('discoverServer – resolution', () => {
 // ---------------------------------------------------------------------------
 
 describe('discoverServer – caching', () => {
+  it('refreshes missing project servers after a bounded cache lifetime', () => {
+    vi.useFakeTimers();
+    const root = tempWorkspace();
+    expect(discoverServer('installed-after-miss', root)).toBeNull();
+    const server = path.join(root, 'node_modules', '.bin', 'installed-after-miss');
+    makeExe(server);
+    vi.advanceTimersByTime(5_001);
+    expect(discoverServerBatch(['installed-after-miss'], root)['installed-after-miss'])
+      .toEqual({ command: server, source: 'project-local' });
+    rmSync(server);
+    vi.advanceTimersByTime(5_001);
+    expect(discoverServer('installed-after-miss', root)).toBeNull();
+  });
+
+  it.skipIf(process.platform === 'win32')('refreshes newly created ecosystem directories', () => {
+    vi.useFakeTimers();
+    const root = tempWorkspace();
+    const bin = path.join(root, 'go-bin');
+    vi.stubEnv('GOBIN', bin);
+    expect(discoverServer('new-ecosystem-server', root)).toBeNull();
+    const server = path.join(bin, 'new-ecosystem-server');
+    makeExe(server);
+    vi.advanceTimersByTime(5_001);
+    expect(discoverServer('new-ecosystem-server', root))
+      .toEqual({ command: server, source: 'ecosystem:go' });
+  });
+
   it('null result is cached — server installed after first call is not visible until cache is cleared', () => {
     const root = tempWorkspace();
 

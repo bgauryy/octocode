@@ -186,7 +186,12 @@ async function withCloneLock<T>(
       if (code !== 'EEXIST') throw error;
       if (tryRecoverStaleCloneLock(lockDir)) continue;
       if (Date.now() - started > CLONE_LOCK_TIMEOUT_MS) {
-        throw new Error(`Timed out waiting for clone cache lock '${lockDir}'.`);
+        throw new Error(
+          `Timed out waiting for clone cache lock '${lockDir}'.`,
+          {
+            cause: error,
+          }
+        );
       }
       await sleep(CLONE_LOCK_POLL_MS);
     }
@@ -225,7 +230,8 @@ function promoteCloneDir(tempDir: string, cloneDir: string): void {
       } catch (restoreError) {
         throw new AggregateError(
           [error, restoreError],
-          `Clone publication failed; the previous checkout is preserved at ${previousDir}.`
+          `Clone publication failed; the previous checkout is preserved at ${previousDir}.`,
+          { cause: restoreError }
         );
       }
     }

@@ -199,7 +199,7 @@ pub fn get_semantic_boundary_offsets(
 
 /// Returns all extensions that have signature-outline support. This is exactly
 /// the set of tree-sitter grammars with a function-body query (no regex
-/// heuristics): structural-only grammars (for example HTML/CSS/JSON/YAML/TOML) are
+/// heuristics): structural-only grammars (for example HTML/CSS/JSON/YAML) are
 /// excluded because they produce no outline.
 #[napi(js_name = "getSupportedSignatureExtensions")]
 pub fn get_supported_signature_extensions() -> Vec<String> {
@@ -231,7 +231,7 @@ mod tests {
             (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
             (
                 cfg!(feature = "tree-sitter-extended"),
-                &["lua", "zig", "scala", "sc", "sbt"][..],
+                &["scala", "sc", "sbt"][..],
             ),
         ] {
             for extension in optional {

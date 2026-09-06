@@ -126,6 +126,11 @@ describe('raw tools command adapter parity', () => {
       expect(readCompactOutput()).toEqual(
         createAdapterParityPageResult(testCase, 1).structuredContent
       );
+      expect(directExecution).toHaveBeenLastCalledWith(
+        testCase.name,
+        expect.any(Object),
+        { resultProjection: 'structured' }
+      );
       expect(readCompactOutput()).toMatchObject({
         results: [
           { index: 0 },
@@ -173,4 +178,58 @@ describe('raw tools command adapter parity', () => {
       );
     }
   );
+
+  it.each<Record<string, boolean>>([{}, { json: true }])(
+    'keeps full direct output for %j',
+    async options => {
+      const testCase = ADAPTER_PARITY_CASES[0]!;
+      const { executeToolCommand } =
+        await import('../../src/cli/tool-command/execute.js');
+      await executeToolCommand({
+        command: 'tools',
+        args: [testCase.name],
+        options: { ...options, queries: JSON.stringify(testCase.input) },
+      });
+      expect(directExecution).toHaveBeenLastCalledWith(
+        testCase.name,
+        expect.any(Object)
+      );
+    }
+  );
+
+  it('preserves text-only compact fallback', async () => {
+    const testCase = ADAPTER_PARITY_CASES[0]!;
+    const fallback = {
+      content: [{ type: 'text', text: 'sanitized fallback' }],
+    };
+    directExecution.mockResolvedValueOnce(fallback);
+    const { executeToolCommand } =
+      await import('../../src/cli/tool-command/execute.js');
+    await executeToolCommand({
+      command: 'tools',
+      args: [testCase.name],
+      options: { compact: true, queries: JSON.stringify(testCase.input) },
+    });
+    expect(readCompactOutput()).toEqual(fallback);
+  });
+
+  it('preserves exit classification when only error text identifies the failure', async () => {
+    const testCase = ADAPTER_PARITY_CASES[0]!;
+    directExecution.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'rate limit exceeded' }],
+      structuredContent: { results: [], status: 'error' },
+      isError: true,
+    });
+    const { executeToolCommand } =
+      await import('../../src/cli/tool-command/execute.js');
+    await expect(
+      executeToolCommand({
+        command: 'tools',
+        args: [testCase.name],
+        options: { compact: true, queries: JSON.stringify(testCase.input) },
+      })
+    ).resolves.toBe(false);
+    expect(process.exitCode).toBe(7);
+    expect(readCompactOutput()).toEqual({ results: [], status: 'error' });
+  });
 });

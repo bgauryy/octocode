@@ -19,12 +19,12 @@ export class SymbolResolutionError extends Error {
   }
 }
 
-function toSymbolResolutionError(
-  error: unknown,
-  fuzzy: FuzzyPosition
-): SymbolResolutionError {
+function toSymbolResolutionError(error: unknown, fuzzy: FuzzyPosition): Error {
   if (error instanceof SymbolResolutionError) return error;
   const raw = error instanceof Error ? error.message : String(error);
+  if (/\[lsp(?:PositionTimeout|SourceTooLarge)\]/.test(raw)) {
+    return error instanceof Error ? error : new Error(raw);
+  }
   // The native resolver already emits the canonical "Could not find symbol …"
   // sentence; strip it so the wrapper message doesn't repeat it.
   const prefix = `Could not find symbol '${fuzzy.symbolName}' at or near line ${fuzzy.lineHint ?? 0}`;

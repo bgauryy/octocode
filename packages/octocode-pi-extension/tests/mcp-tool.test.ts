@@ -144,7 +144,7 @@ test("mode-aware artifact persistence creates a validated compact guide only whe
   const guidePath = path.join(path.dirname(persisted.snapshotPath), "mcp.md");
   const guide = fs.readFileSync(guidePath, "utf8");
 
-  assert.match(guide, /^<!-- octocode-mcp-guide:v1 /);
+  assert.match(guide, /^<!-- octocode-mcp-guide:v2 /);
   assert.match(guide, /<mcp_catalog_index>/);
   assert.match(guide, /tool: echo/);
   assert.match(guide, /text \(string, required\)/);
@@ -417,7 +417,7 @@ test("catalog addendum carries server instructions and a compact routing guide w
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
   assert.doesNotMatch(addendum, /inputSchema|schemaLease|SCHEMA_REQUIRED/);
-  assert.match(addendum, /call it directly/i);
+  assert.match(addendum, /before the first call.*unfamiliar tool.*action:"describe"/i);
 });
 
 test("explicit exact catalog addendum carries enabled descriptions and input schemas", () => {
@@ -804,7 +804,7 @@ test("catalog addendum caps degenerate instructions and descriptions with an ell
       tools: [
         {
           name: "wordy",
-          description: `${"a".repeat(2_100)}DTAIL`,
+          description: `${"a".repeat(4_100)}DTAIL`,
           inputSchema: { type: "object" },
         },
       ],

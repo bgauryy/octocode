@@ -28,6 +28,19 @@ async function withUnavailableNative(
 }
 
 describe('config resolution ladder (server unavailable on PATH)', () => {
+  it('launches bundled Bash with the current Node and the start subcommand', async () => {
+    await withUnavailableNative(
+      { command: 'bash-language-server', args: ['start'], languageId: 'shellscript' },
+      async ({ resolveServerForFile, BUNDLED_SERVER_NAMES }) => {
+        const resolution = await resolveServerForFile('/outside/project/a.sh', '/outside/project');
+        expect(BUNDLED_SERVER_NAMES).toContain('bash-language-server');
+        expect(resolution?.source).toBe('bundled');
+        expect(resolution?.config.command).toBe(process.execPath);
+        expect(resolution?.config.args?.[0]).toMatch(/bash-language-server[/\\]out[/\\]cli\.js$/);
+        expect(resolution?.config.args?.slice(1)).toEqual(['start']);
+      }
+    );
+  });
   it('falls back to the bundled YAML server (command-keyed)', async () => {
     await withUnavailableNative(
       { command: 'yaml-language-server', args: ['--stdio'], languageId: 'yaml' },
@@ -70,12 +83,6 @@ describe('config resolution ladder (server unavailable on PATH)', () => {
   });
 
   it.each([
-    {
-      file: '/repo/a.sh',
-      command: 'bash-language-server',
-      args: ['start'],
-      languageId: 'shellscript',
-    },
     {
       file: '/repo/a.php',
       command: 'intelephense',

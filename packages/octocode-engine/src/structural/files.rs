@@ -43,7 +43,7 @@ pub fn search_files(
         .map(|n| n as u64)
         .unwrap_or(1_000_000);
     let prefilter = query.prefilter();
-    let query_explanation = query.explanation();
+    let query_explanation = query.explanation_with_prefilter(&prefilter);
 
     let overrides = build_overrides(&root, &include, &exclude)?;
     let (mut candidate_files, skipped_by_pre_filter, skipped_unsupported) = match &prefilter {
@@ -144,7 +144,7 @@ pub fn search_files(
             continue;
         };
         let lang = AgLanguage::new(&ext, entry);
-        let run = match compile_matcher(&lang, query) {
+        let run = match compile_matcher(&lang, &query) {
             Ok(run) => {
                 compiled_any = true;
                 run
@@ -367,7 +367,7 @@ pub fn search_files_detailed(
     let max_files = max_files.map(|n| n as usize).unwrap_or(2_000);
     let max_file_bytes = max_file_bytes.map(|n| n as u64).unwrap_or(1_000_000);
     let prefilter = query.prefilter();
-    let query_explanation = query.explanation();
+    let query_explanation = query.explanation_with_prefilter(&prefilter);
 
     let overrides = build_overrides(&root, &include, &exclude)?;
     let mut candidate_files = collect_files(
@@ -524,7 +524,7 @@ pub fn search_files_detailed(
 
         if !matchers.contains_key(&ext) {
             let lang = AgLanguage::new(&ext, entry);
-            matchers.insert(ext.clone(), compile_matcher(&lang, query));
+            matchers.insert(ext.clone(), compile_matcher(&lang, &query));
         }
         let Some(compiled) = matchers.get(&ext) else {
             compile_failures += 1;

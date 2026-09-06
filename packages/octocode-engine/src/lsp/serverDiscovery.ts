@@ -56,6 +56,8 @@ let _existingEcoDirs: Array<{ dir: string; label: string }> | null = null;
 
 /** Project-local dir lists per resolved workspace root. */
 const _projectLocalDirs = new Map<string, string[]>();
+const DISCOVERY_CACHE_TTL_MS = 5_000;
+let cacheStartedAt = Date.now();
 
 /**
  * Invalidate all discovery caches. Call after programmatically installing a
@@ -65,6 +67,12 @@ export function clearDiscoveryCache(): void {
   _discoveryCache.clear();
   _existingEcoDirs = null;
   _projectLocalDirs.clear();
+  cacheStartedAt = Date.now();
+}
+
+function refreshExpiredCache(): void {
+  const elapsed = Date.now() - cacheStartedAt;
+  if (elapsed >= DISCOVERY_CACHE_TTL_MS || elapsed < 0) clearDiscoveryCache();
 }
 
 const HOME = homedir();
@@ -144,7 +152,7 @@ function ecosystemBinDirs(): Array<{ dir: string; label: string }> {
 }
 
 /**
- * Ecosystem dirs that exist on this machine, cached for the process lifetime.
+ * Ecosystem dirs that exist on this machine, cached for at most five seconds.
  * Pre-filtering eliminates stat calls for non-existent dirs on every lookup —
  * on a typical dev machine this shrinks the probe list from ~15 to ~5.
  */
@@ -245,13 +253,14 @@ function scan(command: string, resolvedRoot: string): DiscoveredServer | null {
  * server name (e.g. `rust-analyzer`, `gopls`); absolute commands are returned
  * by the caller before this is reached.
  *
- * Results are memoised for the process lifetime. Call `clearDiscoveryCache()`
- * after installing a server mid-session.
+ * Results are memoised for at most five seconds, including misses. Explicitly
+ * clear the cache to observe an installation immediately.
  */
 export function discoverServer(
   command: string,
   workspaceRoot: string
 ): DiscoveredServer | null {
+  refreshExpiredCache();
   const base = resolveCommand(command);
   const resolved = resolveRoot(workspaceRoot);
   const key = cacheKey(base, resolved);
@@ -279,6 +288,7 @@ export function discoverServerBatch(
   commands: string[],
   workspaceRoot: string
 ): Record<string, DiscoveredServer | null> {
+  refreshExpiredCache();
   const resolved = resolveRoot(workspaceRoot);
   const results: Record<string, DiscoveredServer | null> = {};
 

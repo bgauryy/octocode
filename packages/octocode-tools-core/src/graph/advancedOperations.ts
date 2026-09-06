@@ -1,23 +1,24 @@
 import type { FileGraphEdgeKind, FileNode } from './types.js';
 
-/** Remove edges that exist only for erased type imports or reexports. */
-export function withoutTypeOnlyEdges(
+const RUNTIME_IMPORT_KINDS = new Set<FileGraphEdgeKind>([
+  'static-import',
+  'dynamic-import',
+  'named-reexport',
+  'star-reexport',
+  'commonjs-require',
+  'create-require',
+  'python-import',
+]);
+
+/** Runtime import candidates; Rust names/modules and C preprocessing are topology only. */
+export function runtimeImportGraph(
   graph: ReadonlyMap<string, FileNode>
 ): Map<string, FileNode> {
   return new Map(
     [...graph].map(([file, node]) => {
       const retained = [...node.importsFiles].filter(target => {
         const kinds = node.edgeKinds.get(target);
-        return (
-          !kinds ||
-          kinds.size === 0 ||
-          [...kinds].some(
-            kind =>
-              kind !== 'type-import' &&
-              kind !== 'type-named-reexport' &&
-              kind !== 'type-star-reexport'
-          )
-        );
+        return [...(kinds ?? [])].some(kind => RUNTIME_IMPORT_KINDS.has(kind));
       });
       return [
         file,

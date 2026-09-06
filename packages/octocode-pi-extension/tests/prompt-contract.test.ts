@@ -136,6 +136,14 @@ test('main prompt makes compacted checkpoints subordinate to current plan and do
   assert.match(recoveryGuidance, /complete.*blocked on approval.*waiting\s+for the user.*stop/is);
 });
 
+test('main prompt recovers maximum-output truncation with bounded, non-duplicating tool calls', () => {
+  assert.match(SYSTEM_PROMPT, /maximum output.*limit/i);
+  assert.match(SYSTEM_PROMPT, /assume.*incomplete tool call.*did not run/i);
+  assert.match(SYSTEM_PROMPT, /retry only.*unfinished.*action/i);
+  assert.match(SYSTEM_PROMPT, /smallest unique.*anchor/i);
+  assert.match(SYSTEM_PROMPT, /split.*large.*mutation/i);
+});
+
 test('main prompt assigns bounded session memory to the agent and audit history to the system', () => {
   assert.match(SYSTEM_PROMPT, /<session_artifacts>/i);
   assert.match(SYSTEM_PROMPT, /memory\.md.*gotchas.*decisions.*handoff/is);

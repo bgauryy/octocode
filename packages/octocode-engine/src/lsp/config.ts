@@ -17,6 +17,7 @@ const requireFromPackage = createRequire(import.meta.url);
  * over unchanged.
  */
 const BUNDLED_JS_SERVERS: Record<string, string> = {
+  'bash-language-server': 'bash-language-server/out/cli.js',
   'typescript-language-server': 'typescript-language-server/lib/cli.mjs',
   'yaml-language-server': 'yaml-language-server/bin/yaml-language-server',
   'vscode-json-language-server':

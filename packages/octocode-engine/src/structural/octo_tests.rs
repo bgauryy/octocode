@@ -189,7 +189,7 @@ fn point_column_uses_utf16_code_units_not_code_points() {
 fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
     let matcher = compile_matcher(
         &lang(ext),
-        StructuralQuery::new(Some(pattern), None).expect("query"),
+        &StructuralQuery::new(Some(pattern), None).expect("query"),
     )
     .expect("compile pattern");
     matcher(src)
@@ -202,7 +202,7 @@ fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
 fn run_rule(src: &str, ext: &str, rule: &str) -> Vec<StructuralMatch> {
     let matcher = compile_matcher(
         &lang(ext),
-        StructuralQuery::new(None, Some(rule)).expect("query"),
+        &StructuralQuery::new(None, Some(rule)).expect("query"),
     )
     .expect("compile rule");
     matcher(src)
@@ -381,22 +381,6 @@ fn class_shaped_pattern_still_matches_in_csharp_despite_synthetic_wrap() {
     assert_eq!(
         matches[0].metavars.get("NAME").map(Vec::as_slice),
         Some(&["Box".to_string()][..])
-    );
-}
-
-#[cfg(feature = "tree-sitter-extended")]
-#[test]
-fn multi_capture_body_matches_in_zig_despite_missing_sibling() {
-    let matches = run_pattern(
-        "pub fn foo(x: i32) i32 {\n    return x;\n}\n",
-        "zig",
-        "pub fn $NAME($$$ARGS) i32 { $$$BODY }",
-    );
-    assert_eq!(
-        matches.len(),
-        1,
-        "Zig matched {} times, expected 1",
-        matches.len()
     );
 }
 
@@ -592,19 +576,6 @@ fn multiple_multi_captures_terminate_within_attempt_budget() {
     );
 }
 
-#[cfg(feature = "tree-sitter-extended")]
-#[test]
-fn lua_pattern_matches_a_real_function_call() {
-    let matches = run_pattern("local x = 1\nprint(x)\n", "lua", "print(x)");
-    assert_eq!(
-        matches.len(),
-        1,
-        "Lua matched {} times, expected 1",
-        matches.len()
-    );
-    assert_eq!(matches[0].start_line, 2);
-}
-
 #[test]
 fn php_pattern_matches_a_real_assignment() {
     // Before the `<?php` auto-wrap, a bare pattern with no PHP tag parsed as
@@ -629,22 +600,6 @@ fn php_pattern_matches_a_real_assignment() {
         1,
         "PHP call pattern matched {} times, expected 1",
         call_matches.len()
-    );
-}
-
-#[cfg(feature = "tree-sitter-extended")]
-#[test]
-fn zig_pattern_with_metavars_matches_a_real_function() {
-    let matches = run_pattern(
-        "pub fn findMe(x: i32) i32 {\n    return x;\n}\n",
-        "zig",
-        "pub fn $NAME($$$ARGS) i32 { $$$BODY }",
-    );
-    assert_eq!(
-        matches.len(),
-        1,
-        "Zig matched {} times, expected 1",
-        matches.len()
     );
 }
 
@@ -702,6 +657,49 @@ fn structural_review_expired_match_deadline_is_explicit() {
     let error = visit_named(tree.root_node(), Instant::now(), &mut |_| Ok(()))
         .expect_err("expired deadline");
     assert_eq!(error.code, "structural.match.deadline");
+}
+
+#[test]
+fn expired_parser_deadline_is_honored_for_tiny_inputs() {
+    let language = lang("ts").tree_sitter_language();
+    let error = parse_tree_with_deadline(&language, "x", Instant::now())
+        .expect_err("even a parse shorter than the progress callback interval must expire");
+    assert_eq!(error.code, "structural.parse.interrupted");
+}
+
+#[test]
+fn one_request_parses_yaml_once_across_planning_and_languages() {
+    RULE_PARSE_COUNT.with(|count| count.set(0));
+    let query = StructuralQuery::new(
+        None,
+        Some("all: [{pattern: foo($X)}, {not: {pattern: foo(absent)}}]"),
+    )
+    .unwrap();
+    query.prefilter();
+    query.explanation();
+    for extension in ["ts", "js"] {
+        let run = compile_matcher(&lang(extension), &query).unwrap();
+        let matches = run("foo(value);").unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].matched.metavars["X"], ["value"]);
+        assert!(run("foo(absent);").unwrap().is_empty());
+    }
+    assert_eq!(RULE_PARSE_COUNT.with(|count| count.get()), 1);
+}
+
+#[test]
+fn malformed_yaml_is_parsed_once_without_changing_compile_errors() {
+    RULE_PARSE_COUNT.with(|count| count.set(0));
+    let query = StructuralQuery::new(None, Some("pattern: [")).unwrap();
+    query.prefilter();
+    query.explanation();
+    let mut errors = Vec::new();
+    for extension in ["ts", "js"] {
+        errors.push(compile_matcher(&lang(extension), &query).err().unwrap());
+    }
+    assert_eq!(errors[0], errors[1]);
+    assert!(errors[0].starts_with("[structural.query.compileFailed] invalid rule YAML:"));
+    assert_eq!(RULE_PARSE_COUNT.with(|count| count.get()), 1);
 }
 
 #[test]

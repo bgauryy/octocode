@@ -55,5 +55,15 @@ export function attachReadinessWarning(
     `Language server did not confirm indexing completion (readiness: ${readiness}) — ` +
     `zero results may mean the project is not yet indexed, not that the symbol is absent. ` +
     `Retry the query, or warm the relevant consumer files first.`;
-  return { ...envelope, warnings: [...(envelope.warnings ?? []), warning] };
+  return {
+    ...envelope,
+    incompleteResults: true,
+    partialReasons: [
+      ...new Set([
+        ...(envelope.partialReasons ?? []),
+        'readinessUnconfirmed' as const,
+      ]),
+    ],
+    warnings: [...(envelope.warnings ?? []), warning],
+  };
 }

@@ -206,10 +206,10 @@ the complete resolution ladder for one extension, including overrides,
 project-local executables, packaged servers, ecosystem locations, and managed
 downloads.
 
-Managed installation supports `rust-analyzer` and `clangd`. Ruby, Kotlin, Lua,
-Elixir, SQL, and Zig have built-in PATH/override routes but are not managed by
-`lsp-server install`. Scala and TOML require a custom
-`.octocode/lsp-servers.json` entry.
+Managed installation supports `rust-analyzer` and `clangd`. Ruby, Kotlin,
+Elixir, and SQL have built-in PATH/override routes but are not managed by
+`lsp-server install`. Scala requires a custom `.octocode/lsp-servers.json`
+entry.
 
 ---
 

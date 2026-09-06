@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Use when docs are missing, wrong, stale, or badly written, or need a copyedit against the Google style guide: README, API reference, runbook, CONTRIBUTING, changelog, onboarding, AGENTS.md/CLAUDE.md, ADR, migration guide, Diátaxis or whole-codebase restructure, docstrings, alt text, prose linting. Not for code, commits, or marketing copy. Code investigation → octocode-research; SKILL.md folders → octocode-skills."
+description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs, runbooks, or stale technical docs."
 ---
 
 # Octocode Documentation

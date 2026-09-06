@@ -87,20 +87,9 @@ const KOTLIN_BODY_QUERY: &str = r#"[
   (anonymous_function (function_body) @body)
 ]"#;
 
-#[cfg(feature = "tree-sitter-extended")]
-const LUA_BODY_QUERY: &str = r#"[
-  (function_declaration body: (block) @body)
-  (function_definition body: (block) @body)
-]"#;
-
 #[cfg(feature = "tree-sitter-swift")]
 const SWIFT_BODY_QUERY: &str = r#"
   (function_declaration body: (function_body) @body)
-"#;
-
-#[cfg(feature = "tree-sitter-extended")]
-const ZIG_BODY_QUERY: &str = r#"
-  (function_declaration body: (block) @body)
 "#;
 
 /// Scala: strip function/method bodies. Class/object/trait bodies are intentionally NOT
@@ -207,26 +196,10 @@ fn init_language_table() -> Vec<LanguageEntry> {
         },
         #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
-            extensions: &["lua"],
-            language_id: Some("lua"),
-            language: tree_sitter_lua::LANGUAGE.into(),
-            body_query: LUA_BODY_QUERY,
-            comment_style: "c",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
             extensions: &["sql"],
             language_id: Some("sql"),
             language: tree_sitter_sequel::LANGUAGE.into(),
             body_query: "", // data-query language — no function bodies
-            comment_style: "c",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["zig"],
-            language_id: Some("zig"),
-            language: tree_sitter_zig::LANGUAGE.into(),
-            body_query: ZIG_BODY_QUERY,
             comment_style: "c",
         },
         // ── Markup / style grammars: structural-search only ──────────────────
@@ -286,13 +259,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: "",
             comment_style: "hash",
         },
-        LanguageEntry {
-            extensions: &["toml"],
-            language_id: Some("toml"),
-            language: tree_sitter_toml_ng::LANGUAGE.into(),
-            body_query: "",
-            comment_style: "hash",
-        },
     ];
 
     // Feature-gated grammars: conditional push after vec! creation is fine.
@@ -348,7 +314,7 @@ pub fn supported_extensions() -> Vec<&'static str> {
 
 /// Extensions that produce a signature outline: tree-sitter grammars with a
 /// non-empty `body_query`. Excludes structural-search-only grammars
-/// (HTML/CSS/SCSS/JSON/YAML/TOML), which have no function bodies to
+/// (HTML/CSS/SCSS/JSON/YAML), which have no function bodies to
 /// strip and therefore no outline.
 pub fn signature_extensions() -> Vec<&'static str> {
     LANGUAGE_TABLE

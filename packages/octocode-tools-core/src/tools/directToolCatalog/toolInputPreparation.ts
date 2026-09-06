@@ -118,7 +118,7 @@ function buildDirectToolPayload(
   rawPayload: unknown,
   options: PrepareDirectToolInputOptions
 ): DirectToolInput {
-  let queriesInput: unknown[] = [];
+  let queriesInput: unknown[];
 
   if (Array.isArray(rawPayload)) {
     queriesInput = rawPayload;

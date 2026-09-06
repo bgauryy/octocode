@@ -14,6 +14,104 @@ function resolver(
 }
 
 describe('explicit Rust module forest', () => {
+  it.each(['std', 'dependency'])(
+    'does not misclassify an imported %s alias as an external crate',
+    alias => {
+      const facts = new Map<string, RawGraphFacts>([
+        [
+          'src/lib.rs',
+          {
+            modules: [{ name: 'local', line: 1, scope: [], inline: false }],
+            imports: [
+              {
+                specifier: 'crate::local',
+                localName: alias,
+                importedName: 'local',
+                line: 2,
+                moduleScope: [],
+              },
+            ],
+          },
+        ],
+        ['src/local.rs', {}],
+      ]);
+      const resolve = createRustModuleResolver(
+        facts,
+        new Set(facts.keys()),
+        ['src/lib.rs'],
+        new Map([['src/lib.rs', new Map([[alias, { external: true }]])]]),
+        new Map([['src/lib.rs', '2021']])
+      );
+      expect(resolve(`${alias}::Thing`, 'src/lib.rs', [], false, 3)).toEqual({
+        target: null,
+        status: 'unsupported',
+      });
+      expect(resolve('crate::local', 'src/lib.rs', [], false, 2).target).toBe(
+        'src/local.rs'
+      );
+    }
+  );
+
+  it('reports cyclic reexport prefixes as unsupported without guessing or traversing aliases', () => {
+    const resolve = resolver({
+      'src/lib.rs': {
+        modules: [
+          { name: 'a', line: 1, scope: [], inline: false },
+          { name: 'b', line: 2, scope: [], inline: false },
+        ],
+      },
+      'src/a.rs': {
+        imports: [
+          {
+            specifier: 'crate::b::alias',
+            localName: 'alias',
+            importedName: 'alias',
+            line: 1,
+            moduleScope: [],
+          },
+        ],
+      },
+      'src/b.rs': {
+        imports: [
+          {
+            specifier: 'crate::a::alias',
+            localName: 'alias',
+            importedName: 'alias',
+            line: 1,
+            moduleScope: [],
+          },
+        ],
+      },
+    });
+    expect(resolve('crate::a::alias::Thing', 'src/lib.rs').status).toBe(
+      'unsupported'
+    );
+  });
+
+  it('keeps a possible glob shadow unsupported but resolves the defining import itself', () => {
+    const resolve = resolver({
+      'src/lib.rs': {
+        modules: [{ name: 'local', line: 1, scope: [], inline: false }],
+        imports: [
+          {
+            specifier: 'crate::local::*',
+            localName: '*',
+            importedName: '*',
+            line: 2,
+            moduleScope: [],
+          },
+        ],
+      },
+      'src/local.rs': {},
+    });
+    expect(resolve('std::Thing', 'src/lib.rs', [], false, 3).status).toBe(
+      'unsupported'
+    );
+    expect(resolve('crate::local::*', 'src/lib.rs', [], false, 2).target).toBe(
+      'src/local.rs'
+    );
+  });
+
   it.each([
     [
       'super::language::AgLanguage',

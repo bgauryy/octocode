@@ -81,6 +81,8 @@ export async function fetchNpmRegistryJson(
     });
   } catch (error) {
     const status = (error as { statusCode?: number }).statusCode;
+    // Raw provider causes may contain credentials or echoed response bodies.
+    /* eslint-disable preserve-caught-error */
     if (status === 401 || status === 403) {
       throw new Error(
         `npm registry authentication failed (${status}). Check npm login and registry-scoped credentials.`
@@ -93,6 +95,7 @@ export async function fetchNpmRegistryJson(
         ? `npm registry request failed (HTTP ${status}).`
         : 'npm registry request failed: network or configuration error.'
     );
+    /* eslint-enable preserve-caught-error */
   }
 }
 

@@ -6,7 +6,12 @@ import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
 import { contentDigest } from '@octocodeai/octocode-awareness';
 import type { PiInstance, ToolDefinition } from '../src/types.js';
-import { OCTOCODE_COMPACTION_THRESHOLD, reserveTokensForCompactionThreshold } from '../src/tools/context-tools.js';
+import {
+  OCTOCODE_COMPACTION_THRESHOLD,
+  evaluateCompactionPolicy,
+  formatCompactionPolicyWarning,
+  reserveTokensForCompactionThreshold,
+} from '../src/tools/context-tools.js';
 import { __test__ as compactionInternals, registerCompactionHooks, resetCompactionCheckpointDedupe } from '../src/tools/compaction-hooks.js';
 import { activePlanScope, clearPlan } from '../src/tools/active-plan.js';
 import { buildCompactionMarkdown } from '../src/tools/compaction-artifacts.js';
@@ -109,6 +114,31 @@ test('80 percent Pi policy reserves 20 percent of the context window', () => {
   assert.equal(reserveTokensForCompactionThreshold(8_192), 1_639);
   assert.equal(reserveTokensForCompactionThreshold(100), 20);
   assert.equal(reserveTokensForCompactionThreshold(0), undefined);
+});
+
+test('compaction policy diagnosis is actionable without mutating user settings', () => {
+  assert.deepEqual(evaluateCompactionPolicy({
+    contextWindow: 100_000,
+    enabled: false,
+    reserveTokens: 16_384,
+  }), {
+    status: 'disabled',
+    contextWindow: 100_000,
+    configuredReserveTokens: 16_384,
+    recommendedReserveTokens: 20_000,
+  });
+  const warning = formatCompactionPolicyWarning({
+    contextWindow: 100_000,
+    enabled: true,
+    reserveTokens: 10_000,
+  });
+  assert.match(warning ?? '', /compaction reserve.*10,000.*20,000/i);
+  assert.match(warning ?? '', /80%/);
+  assert.equal(formatCompactionPolicyWarning({
+    contextWindow: 100_000,
+    enabled: true,
+    reserveTokens: 20_000,
+  }), undefined);
 });
 
 test('only public Pi compaction hooks are registered', () => {

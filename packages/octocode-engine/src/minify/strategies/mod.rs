@@ -279,21 +279,6 @@ mod tests {
     }
 
     // ── regression: aggressive strategy must not mutate string content ────────
-    #[test]
-    fn aggressive_lua_preserves_internal_string_whitespace_and_punctuation() {
-        let out = minify_aggressive(
-            "local s = \"hello    world\"\nlocal t = \"a: b, c\"",
-            Some(&["lua"]),
-        );
-        assert!(
-            out.contains("hello    world"),
-            "aggressive collapsed whitespace inside a string literal: '{out}'"
-        );
-        assert!(
-            out.contains("a: b, c"),
-            "aggressive tightened punctuation inside a string literal: '{out}'"
-        );
-    }
 
     #[test]
     fn aggressive_preserves_newline_as_statement_separator() {

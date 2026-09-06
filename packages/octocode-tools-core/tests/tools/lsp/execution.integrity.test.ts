@@ -64,6 +64,18 @@ function query(extra: Record<string, unknown> = {}) {
   };
 }
 
+it('reports oversized semantic source as an error without claiming symbol absence', async () => {
+  await writeFile(
+    file,
+    `export function target() {}\n${' '.repeat(1_000_000)}`
+  );
+  const result = await execute(query({ type: 'definition' }));
+  expect(result.status).toBe('error');
+  expect(result.data.error).toContain('[lspSourceTooLarge]');
+  expect(result.data.errorType).not.toBe('symbol_not_found');
+  expect(mocks.acquire).not.toHaveBeenCalled();
+});
+
 beforeEach(async () => {
   vi.resetAllMocks();
   dir = await mkdtemp(join(process.cwd(), '.tmp-lsp-integrity-'));
@@ -106,6 +118,44 @@ beforeEach(async () => {
 });
 
 describe('snapshot-safe semantic pagination', () => {
+  it('passes explicit Rust context to the provider and preserves it in executable pagination', async () => {
+    const rustFile = join(dir, 'main.rs');
+    await writeFile(rustFile, 'fn target() {}\n');
+    mocks.references.mockResolvedValue([
+      location(rustFile, 0),
+      location(rustFile, 1),
+    ]);
+    const rustContext = { features: ['enabled'], cfgs: ['custom'] };
+    const first = await execute(
+      query({ uri: rustFile, rustContext, pageSize: 1 })
+    );
+    expect(mocks.acquire).toHaveBeenLastCalledWith(
+      dir,
+      rustFile,
+      expect.objectContaining({
+        features: ['enabled'],
+        cfgs: ['custom'],
+        buildScripts: false,
+        procMacros: false,
+      })
+    );
+    expect(first.data.rustContext).toMatchObject({
+      features: ['enabled'],
+      fingerprint: expect.stringMatching(/^rust-v1:/),
+    });
+    const continuation = first.data.next.nextPage;
+    expect(continuation.query.rustContext.features).toEqual(['enabled']);
+    const second = await execute(continuation.query);
+    expect(second.data.payload.locations).toHaveLength(1);
+    const changed = await execute({
+      ...continuation.query,
+      rustContext: { features: ['other'] },
+    });
+    expect(changed.data.payload.category).toBe('paginationChanged');
+    expect(changed.data.payload.locations).toBeUndefined();
+    expect(changed.data.rustContext.features).toEqual(['other']);
+  });
+
   const cases = [
     'references',
     'workspaceSymbol',
@@ -554,7 +604,7 @@ describe('semantic execution integrity', () => {
       pagination: { totalFiles: 101, hasMore: false },
     });
     const row = await execute(query({ format: 'compact' }));
-    expect(row.data.payload.definitionOnly).toBe(true);
+    expect(row.data.payload.definitionOnly).toBeUndefined();
     expect(row.data.payload.warmup).toMatchObject({
       candidates: 101,
       possiblyTruncated: true,

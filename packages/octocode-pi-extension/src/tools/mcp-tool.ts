@@ -2881,7 +2881,7 @@ export function registerMcpTool(
     description:
       "MCP 2026-07-28 client for stdio and Streamable HTTP servers, with automatic era negotiation, internal schema validation, tools, resources, prompts, and runtime management.",
     promptSnippet:
-      "Use the injected enabled MCP catalog to select a tool and call it directly. When OCTOCODE_COMPACT_MCP is enabled it is a concise <mcp_catalog_index>; otherwise <mcp_catalog> includes exact descriptions and input schemas. Exact schemas are compiled and validated internally; there is no prepare or schema-lease round trip.",
+      "Use the injected enabled MCP catalog to select a tool. Before the first call to an unfamiliar tool, or whenever the compact summary is ambiguous, call MCPTool action:\"describe\" for its exact schema and then use only supported fields. When OCTOCODE_COMPACT_MCP is enabled the prompt contains a concise <mcp_catalog_index>; otherwise <mcp_catalog> includes exact descriptions and input schemas. Exact schemas are compiled and validated internally; there is no prepare or schema-lease round trip.",
     promptGuidelines: [
       "MCPTool has two schema layers: put MCP actions in outer MCPTool.queries[]; put the selected server-tool input only in queries[].arguments (for Octocode tools, commonly arguments.queries[]). Never place inner server-tool fields directly in MCPTool.queries[].",
       "MCPTool default server: octocode = pinned local octocode-mcp binary (npx -y octocode-mcp@latest fallback) — the default research surface for code/file/structure/history/package lookups.",

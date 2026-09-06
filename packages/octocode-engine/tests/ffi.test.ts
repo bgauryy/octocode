@@ -122,6 +122,30 @@ describe('public native export parity', () => {
   });
 });
 
+describe('removed language capabilities', () => {
+  it.each(['toml', 'lua', 'zig'])(
+    'does not advertise or analyze .%s',
+    extension => {
+      expect(addon!.getSupportedStructuralExtensions()).not.toContain(
+        extension
+      );
+      expect(addon!.getSupportedSignatureExtensions()).not.toContain(extension);
+      expect(addon!.getSupportedGraphFactExtensions()).not.toContain(extension);
+      expect(addon!.getMINIFY_CONFIG().fileTypes).not.toHaveProperty(extension);
+      const path = `fixture.${extension}`;
+      const source = 'target(value);';
+      expect(addon!.extractSignatures(source, path)).toBeNull();
+      expect(addon!.extractGraphFacts(source, path)).toBeNull();
+      expect(
+        addon!.structuralSearchDetailed(source, path, 'target($X)', null)
+      ).toMatchObject({
+        status: 'unsupported',
+        diagnostics: [{ code: 'structural.language.unsupported' }],
+      });
+    }
+  );
+});
+
 describe('getExtension', () => {
   it('returns extension from normal file', () => {
     expect(addon!.getExtension('foo.ts', { lowercase: true })).toBe('ts');
@@ -477,8 +501,7 @@ def top():
   });
 
   it('returns null for languages without a tree-sitter grammar (no regex fallback)', () => {
-    // Signature extraction is tree-sitter only — Markdown, Lua, SQL, Ruby, etc.
-    // have no wired grammar and therefore produce no outline.
+    // Unsupported languages and structural-only formats produce no signature outline.
     expect(
       addon!.extractSignatures('# Title\n\nText\n', 'README.md')
     ).toBeNull();
@@ -819,7 +842,6 @@ describe('getSupportedStructuralExtensions', () => {
       'scala',
       'json',
       'yaml',
-      'toml',
       'mts',
       'cts',
       'pyi',
@@ -1040,15 +1062,26 @@ describe('getSupportedSignatureExtensions', () => {
       'rb',
       'php',
       'kt',
-      'lua',
-      'zig',
       'swift',
       'scala',
     ]) {
       expect(exts, `${required} must be in signature list`).toContain(required);
     }
     // Data/markup/prose formats and languages without a body_query are excluded.
-    for (const absent of ['md', 'markdown', 'sql', 'html', 'jl', 'ml', 'ex', 'exs', 'tf', 'hcl', 'tfvars', 'proto']) {
+    for (const absent of [
+      'md',
+      'markdown',
+      'sql',
+      'html',
+      'jl',
+      'ml',
+      'ex',
+      'exs',
+      'tf',
+      'hcl',
+      'tfvars',
+      'proto',
+    ]) {
       expect(exts, `${absent} must NOT be in signature list`).not.toContain(
         absent
       );
@@ -1059,10 +1092,10 @@ describe('getSupportedSignatureExtensions', () => {
 // ── UTF-8 safety across the FFI boundary ──────────────────────────────────────
 
 describe('UTF-8 preservation', () => {
-  it('aggressive strategy preserves non-ASCII (lua)', () => {
+  it('aggressive strategy preserves non-ASCII (R)', () => {
     const out = addon!.minifyContentSync(
       'local s = "café → naïve" { x = 1 }',
-      'a.lua'
+      'a.r'
     );
     expect(out).toContain('café → naïve');
     expect(out).not.toContain('Ã');

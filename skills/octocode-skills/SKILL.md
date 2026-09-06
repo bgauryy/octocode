@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when working on Agent Skills (SKILL.md folders): find, compare, rate, review, create, improve, repair, install, or sync skills from local workspaces, registries, or remote sources. For wording-only prompt polish without folder ops, use octocode-prompt-optimizer."
+description: "Use when Agent Skills/SKILL.md need finding, comparison, review, creation, repair, install, sync, or trigger tuning."
 ---
 
 # Octocode Skills

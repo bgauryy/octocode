@@ -37,17 +37,16 @@ const routes = [
   ['swift', ['swift']],
   ['ruby', ['rb', 'rake', 'gemspec', 'ru']],
   ['kotlin', ['kt', 'kts']],
-  ['lua', ['lua']],
   ['elixir', ['ex', 'exs']],
-  ['zig', ['zig']],
+  ['scala', ['scala', 'sc']],
 ] as const;
 const cases = routes.flatMap(([language, extensions]) =>
   extensions.map(extension => ({ language, extension }))
 );
 
 describe('shipped LSP route acceptance', () => {
-  it('covers the documented 26 language IDs and 45 extensions', () => {
-    expect(new Set(routes.map(([language]) => language)).size).toBe(26);
+  it('covers the documented 25 language IDs and 45 extensions', () => {
+    expect(new Set(routes.map(([language]) => language)).size).toBe(25);
     expect(new Set(cases.map(({ extension }) => extension)).size).toBe(45);
   });
   it.each(cases)(
@@ -67,7 +66,7 @@ describe('shipped LSP route acceptance', () => {
       }
     }
   );
-  it.each(['scala', 'sc', 'sbt', 'toml', 'md', 'mdx', 'unknown'])(
+  it.each(['sbt', 'toml', 'lua', 'zig', 'md', 'mdx', 'unknown'])(
     'does not invent a built-in server route for .%s',
     extension => {
       expect(

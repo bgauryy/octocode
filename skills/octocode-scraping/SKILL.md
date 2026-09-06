@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Use when extracting or mapping public web content into a local cited corpus: scrape/crawl a URL or docs site, pull tables/pricing/product fields, diagnose blocked or thin pages, or answer from saved pages. Phrases like scrape this URL, crawl the docs, build a corpus, extract pricing. Prefer keyless fetch; ask before hosted spend. Live clicks/HAR/perf → octocode-chrome-devtools."
+description: "Use when scraping public URLs/docs into a cited corpus, extracting tables/pricing, or diagnosing blocked/thin pages."
 ---
 
 # Octocode Scraping

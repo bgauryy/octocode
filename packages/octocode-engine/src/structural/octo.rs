@@ -1,10 +1,11 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
 use regex::Regex;
 use serde::Deserialize;
 use std::ops::ControlFlow;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tree_sitter::{Language, Node, ParseOptions, Parser, Tree};
 
 use super::language::{AgLanguage, Expando};
@@ -89,7 +90,7 @@ struct MatchBudget {
 
 pub(super) fn compile_matcher(
     lang: &AgLanguage,
-    query: StructuralQuery<'_>,
+    query: &StructuralQuery<'_>,
 ) -> Result<OctoCompiledMatcher, String> {
     compile_matcher_inner(lang, query).map_err(|message| {
         if message.starts_with("[structural.") {
@@ -102,12 +103,12 @@ pub(super) fn compile_matcher(
 
 fn compile_matcher_inner(
     lang: &AgLanguage,
-    query: StructuralQuery<'_>,
+    query: &StructuralQuery<'_>,
 ) -> Result<OctoCompiledMatcher, String> {
     let language = lang.tree_sitter_language();
     match query.parts() {
         (Some(pattern), None) if is_document_probe(pattern) => Ok(Box::new(move |content| {
-            let deadline = Instant::now() + Duration::from_secs(2);
+            let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
             parse_tree_with_deadline(&language, content, deadline).map(|tree| {
                 let root = tree.root_node();
                 vec![MatchWithKind::new(
@@ -119,7 +120,7 @@ fn compile_matcher_inner(
         (Some(pattern), None) => {
             let compiled = CompiledPattern::new(lang, pattern)?;
             Ok(Box::new(move |content| {
-                let deadline = Instant::now() + Duration::from_secs(2);
+                let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                 if compiled.is_special() {
                     return compiled.find_special_matches(content, deadline);
                 }
@@ -150,18 +151,18 @@ fn compile_matcher_inner(
                 Ok(matches)
             }))
         }
-        (None, Some(rule)) => {
-            let compiled = CompiledRule::new(lang, rule)?;
+        (None, Some(_)) => {
+            let compiled = CompiledRule::compile(lang, query.parsed_rule()?)?;
             let language = lang.tree_sitter_language();
             if let Some(kind) = compiled.simple_kind().map(str::to_owned) {
                 return Ok(Box::new(move |content| {
-                    let deadline = Instant::now() + Duration::from_secs(2);
+                    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                     let tree = parse_tree_with_deadline(&language, content, deadline)?;
                     collect_kind_matches(tree.root_node(), &kind, content, deadline)
                 }));
             }
             Ok(Box::new(move |content| {
-                let deadline = Instant::now() + Duration::from_secs(2);
+                let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                 let tree = parse_tree_with_deadline(&language, content, deadline)?;
                 let document = Document { content, deadline };
                 let line_index = LineIndex::new(content);
@@ -201,8 +202,8 @@ thread_local! {
     /// Reused across files on each worker thread so the structural walk doesn't
     /// allocate a fresh `Parser` (and its internal scratch buffers) per file —
     /// `search_files` parses one file per candidate, often thousands, in a
-    /// `rayon` pool. Each rayon worker gets its own instance (`Parser` is not
-    /// `Sync`), and `set_language` is re-applied per parse: a single-extension
+    /// `rayon` pool. Each rayon worker gets its own mutable parser without
+    /// contending on a shared lock, and reapplies `set_language`: a single-extension
     /// group already shares one grammar, so the call is cheap relative to
     /// constructing a parser from scratch.
     static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
@@ -222,7 +223,7 @@ fn parse_tree(language: &Language, content: &str) -> Result<Tree, ExecutionError
             "Injected compile parser interruption",
         ));
     }
-    parse_tree_with_deadline(language, content, Instant::now() + Duration::from_secs(2))
+    parse_tree_with_deadline(language, content, Instant::now() + AST_EXECUTION_TIMEOUT)
 }
 
 fn parse_tree_with_deadline(
@@ -230,6 +231,16 @@ fn parse_tree_with_deadline(
     content: &str,
     deadline: Instant,
 ) -> Result<Tree, ExecutionError> {
+    let interrupted = || {
+        ExecutionError::limit(
+            "structural.parse.interrupted",
+            "parse",
+            "Structural parsing exceeded its execution deadline",
+        )
+    };
+    if Instant::now() >= deadline {
+        return Err(interrupted());
+    }
     PARSER.with(|parser| {
         let mut parser = parser.borrow_mut();
         parser.reset();
@@ -245,21 +256,17 @@ fn parse_tree_with_deadline(
                 ControlFlow::Continue(())
             }
         };
-        let tree = parser.parse_with_options(
-            &mut read,
-            None,
-            Some(ParseOptions::new().progress_callback(&mut progress)),
-        );
+        let tree = parser
+            .parse_with_options(
+                &mut read,
+                None,
+                Some(ParseOptions::new().progress_callback(&mut progress)),
+            )
+            .filter(|_| Instant::now() < deadline);
         if tree.is_none() {
             parser.reset();
         }
-        tree.ok_or_else(|| {
-            ExecutionError::limit(
-                "structural.parse.interrupted",
-                "parse",
-                "Structural parsing exceeded its execution deadline",
-            )
-        })
+        tree.ok_or_else(interrupted)
     })
 }
 
@@ -762,7 +769,7 @@ impl CompiledPattern {
         // never represent user intent (nobody types a "missing token" into a
         // pattern string). It shows up here specifically because some
         // grammars parse a bare `$$$NAME`/`$X` expando identifier at
-        // statement position ambiguously (e.g. C/C++/C#/Zig treat an
+        // statement position ambiguously (e.g. C/C++/C# treat an
         // unrecognized identifier as the start of a declaration and then
         // expect a trailing `;`) — the compiled pattern's root itself is not
         // `is_error()` (so `CompiledPattern::new` accepts it), but the
@@ -1102,6 +1109,8 @@ struct CompiledRule {
 }
 
 pub(super) fn parse_rule(rule: &str) -> Result<RawRule, String> {
+    #[cfg(test)]
+    RULE_PARSE_COUNT.with(|count| count.set(count.get() + 1));
     if rule.len() > 64_000 {
         return Err("structural rule exceeds 64000 byte limit".to_owned());
     }
@@ -1119,6 +1128,11 @@ pub(super) fn parse_rule(rule: &str) -> Result<RawRule, String> {
     };
     validate_rule_depth(&raw, 0)?;
     Ok(raw)
+}
+
+#[cfg(test)]
+thread_local! {
+    static RULE_PARSE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn validate_rule_depth(rule: &RawRule, depth: usize) -> Result<(), String> {
@@ -1143,12 +1157,13 @@ impl CompiledRule {
     /// Accepts both the wrapped document form (`rule:\n  kind: ...`) and a bare
     /// rule (`kind: ...`). A top-level `rule` key is unambiguous: `RawRule` has
     /// no such field, so a bare rule can never contain one.
+    #[cfg(test)]
     fn new(lang: &AgLanguage, rule: &str) -> Result<Self, String> {
         let raw = parse_rule(rule)?;
-        Self::compile(lang, raw)
+        Self::compile(lang, &raw)
     }
 
-    fn compile(lang: &AgLanguage, raw: RawRule) -> Result<Self, String> {
+    fn compile(lang: &AgLanguage, raw: &RawRule) -> Result<Self, String> {
         if let Some(kind) = raw.kind.as_deref() {
             let language = lang.tree_sitter_language();
             // ERROR is a built-in recovery node, outside the grammar's symbol table.
@@ -1174,31 +1189,36 @@ impl CompiledRule {
             .map_err(|err| format!("invalid rule regex: {err}"))?;
         let has = raw
             .has
-            .map(|rule| Self::compile(lang, *rule).map(Box::new))
+            .as_deref()
+            .map(|rule| Self::compile(lang, rule).map(Box::new))
             .transpose()?;
         let inside = raw
             .inside
-            .map(|rule| Self::compile(lang, *rule).map(Box::new))
+            .as_deref()
+            .map(|rule| Self::compile(lang, rule).map(Box::new))
             .transpose()?;
         let all = raw
             .all
+            .as_deref()
             .unwrap_or_default()
-            .into_iter()
+            .iter()
             .map(|rule| Self::compile(lang, rule))
             .collect::<Result<Vec<_>, _>>()?;
         let any = raw
             .any
+            .as_deref()
             .unwrap_or_default()
-            .into_iter()
+            .iter()
             .map(|rule| Self::compile(lang, rule))
             .collect::<Result<Vec<_>, _>>()?;
         let not = raw
             .not
-            .map(|rule| Self::compile(lang, *rule).map(Box::new))
+            .as_deref()
+            .map(|rule| Self::compile(lang, rule).map(Box::new))
             .transpose()?;
 
         let mut compiled = Self {
-            kind: raw.kind,
+            kind: raw.kind.clone(),
             pattern,
             regex,
             has,
@@ -1456,13 +1476,6 @@ fn is_pattern_wrapper(kind: &str) -> bool {
             | "expression_statement"
             | "config_file"
             | "body"
-            // Lua's top-level node kind. Without this, `effective_pattern_root`
-            // stopped at "chunk" itself instead of unwrapping to the single
-            // real statement inside it — `chunk` never appears as a candidate
-            // when walking a real document (only the tree's own root node has
-            // that kind, and the walk starts at its children), so every
-            // pattern silently matched nothing.
-            | "chunk"
     )
 }
 

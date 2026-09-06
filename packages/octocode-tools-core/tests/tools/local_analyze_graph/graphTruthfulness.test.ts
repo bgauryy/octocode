@@ -27,6 +27,62 @@ async function fixture(sources: Record<string, string>): Promise<string> {
 }
 
 describe('graph edge and completeness truthfulness', () => {
+  it('keeps Rust and C compile-time cycles distinct from JavaScript runtime import candidates', async () => {
+    const path = await fixture({
+      'lib.rs': 'pub mod a;\npub mod b;\n',
+      'a.rs': 'use crate::b::B;\npub struct A(pub Option<B>);\n',
+      'b.rs': 'use crate::a::A;\npub struct B(pub Option<Box<A>>);\n',
+      'a.h': '#ifndef A_H\n#define A_H\n#include "b.h"\n#endif\n',
+      'b.h': '#ifndef B_H\n#define B_H\n#include "a.h"\n#endif\n',
+      'a.ts': "import { b } from './b.js';\nexport const a = () => b;\n",
+      'b.ts': "import { a } from './a.js';\nexport const b = () => a;\n",
+    });
+    const output = await analyzeGraph({ operation: 'cycles', path });
+    const rust = output.results.find(row =>
+      (row.files as string[]).includes('a.rs')
+    )!;
+    const headers = output.results.find(row =>
+      (row.files as string[]).includes('a.h')
+    )!;
+    const javascript = output.results.find(row =>
+      (row.files as string[]).includes('a.ts')
+    )!;
+    expect(rust).toMatchObject({
+      edgeKinds: ['rust-use'],
+      runtimeCycle: false,
+      runtimeCycleCount: 0,
+    });
+    expect(headers).toMatchObject({
+      edgeKinds: ['c-include'],
+      runtimeCycle: false,
+      runtimeCycleCount: 0,
+    });
+    expect(javascript).toMatchObject({
+      runtimeCycle: true,
+      runtimeCycleCount: 1,
+    });
+    expect(output.summary?.runtimeCycleCount).toBe(1);
+    const modules = await analyzeGraph({
+      operation: 'dependencies',
+      path,
+      file: 'lib.rs',
+    });
+    expect(modules.results.map(row => row.edgeKinds)).toEqual([
+      ['rust-module'],
+      ['rust-module'],
+    ]);
+  });
+
+  it('does not reinterpret absolute JavaScript imports as scan-root-relative files', async () => {
+    const path = await fixture({
+      'index.ts': "import '/target.js';\n",
+      'target.ts': 'export const target = 1;\n',
+    });
+    const built = await buildFileGraph(path, [], 20);
+    expect([...built.fileGraph.get('index.ts')!.importsFiles]).toEqual([]);
+    expect(built.coverage?.imports.unsupported).toBe(1);
+  });
+
   it('answers depth-one dominators without traversing the whole reachable graph', async () => {
     const path = await fixture({
       'index.ts': "import './a.js';\nimport './b.js';\n",

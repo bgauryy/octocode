@@ -11,8 +11,23 @@ import { normalizeError } from './normalizedError.js';
 const WITHHELD_TEXT =
   '[content withheld: sanitization failed — retry the call; if this persists, report it]';
 
-export function sanitizeCallToolResult(result: CallToolResult): CallToolResult {
-  let sanitized = result;
+/** Internal transport projection; never a tool-input or global runtime setting. */
+export type CallToolResultProjection = 'full' | 'structured';
+
+export function sanitizeCallToolResult(
+  result: CallToolResult,
+  projection: CallToolResultProjection = 'full'
+): CallToolResult {
+  // Compact CLI emits only structuredContent when present. Remove the unused
+  // text channel BEFORE egress scanning, but keep the same fail-closed scan of
+  // every structured leaf. Text-only results need their full fallback; errors
+  // retain text because the CLI also uses it to classify the exit code.
+  let sanitized =
+    projection === 'structured' &&
+    result.structuredContent != null &&
+    !result.isError
+      ? { ...result, content: [] }
+      : result;
 
   if (sanitized.structuredContent) {
     try {

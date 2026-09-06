@@ -8,12 +8,12 @@
     "url": "https://github.com/bgauryy/octocode",
     "source": "github"
   },
-  "version": "19.0.0",
+  "version": "19.1.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "octocode-mcp",
-      "version": "19.0.0",
+      "version": "19.1.0",
       "transport": {
         "type": "stdio"
       },

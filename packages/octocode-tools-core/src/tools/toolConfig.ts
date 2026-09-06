@@ -2,18 +2,6 @@ import {
   DIRECT_TOOL_SPECIFICATIONS,
   type DirectToolSpecification,
 } from './directToolCatalog/toolSpecifications.js';
-import { executeCloneRepo } from './github_clone_repo/execution.js';
-import { fetchMultipleGitHubFileContents } from './github_fetch_content/execution.js';
-import { executeGitHubSearch } from './github_search/execution.js';
-import {
-  getMultipleGitHubHistoryItems,
-  searchMultipleGitHubHistory,
-} from './github_search_pull_requests/historyExecutions.js';
-import { searchPackages } from './package_search/execution.js';
-import { executeFetchContent } from './local_fetch_content/execution.js';
-import { executeAnalyzeGraph } from './local_analyze_graph/execution.js';
-import { executeLocalSearch } from './local_search/execution.js';
-import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from './toolNames.js';
 import {
   GITHUB_SEARCH_TOOL_NAME,
@@ -63,7 +51,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: false,
     type: 'search',
     direct: {
-      executionFn: executeGitHubSearch,
+      executionFn: async input =>
+        (await import('./github_search/execution.js')).executeGitHubSearch(
+          input
+        ),
       ...REMOTE_DIRECT,
     },
   },
@@ -72,7 +63,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: false,
     type: 'content',
     direct: {
-      executionFn: fetchMultipleGitHubFileContents,
+      executionFn: async input =>
+        (
+          await import('./github_fetch_content/execution.js')
+        ).fetchMultipleGitHubFileContents(input),
       ...REMOTE_DIRECT,
     },
   },
@@ -81,7 +75,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: false,
     type: 'history',
     direct: {
-      executionFn: searchMultipleGitHubHistory,
+      executionFn: async input =>
+        (
+          await import('./github_search_pull_requests/historyExecutions.js')
+        ).searchMultipleGitHubHistory(input),
       ...REMOTE_DIRECT,
     },
   },
@@ -90,7 +87,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: false,
     type: 'history',
     direct: {
-      executionFn: getMultipleGitHubHistoryItems,
+      executionFn: async input =>
+        (
+          await import('./github_search_pull_requests/historyExecutions.js')
+        ).getMultipleGitHubHistoryItems(input),
       ...REMOTE_DIRECT,
     },
   },
@@ -99,7 +99,8 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: false,
     type: 'search',
     direct: {
-      executionFn: searchPackages,
+      executionFn: async input =>
+        (await import('./package_search/execution.js')).searchPackages(input),
       security: 'remote',
       requiresServerRuntime: true,
     },
@@ -110,7 +111,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isClone: true,
     type: 'content',
     direct: {
-      executionFn: executeCloneRepo,
+      executionFn: async input =>
+        (await import('./github_clone_repo/execution.js')).executeCloneRepo(
+          input
+        ),
       timeoutMs: 150_000,
       ...REMOTE_DIRECT,
     },
@@ -120,7 +124,8 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: true,
     type: 'search',
     direct: {
-      executionFn: executeLocalSearch,
+      executionFn: async input =>
+        (await import('./local_search/execution.js')).executeLocalSearch(input),
       security: 'basic',
     },
   },
@@ -129,7 +134,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: true,
     type: 'search',
     direct: {
-      executionFn: executeAnalyzeGraph,
+      executionFn: async input =>
+        (
+          await import('./local_analyze_graph/execution.js')
+        ).executeAnalyzeGraph(input),
       security: 'basic',
     },
   },
@@ -138,7 +146,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: true,
     type: 'content',
     direct: {
-      executionFn: executeFetchContent,
+      executionFn: async input =>
+        (
+          await import('./local_fetch_content/execution.js')
+        ).executeFetchContent(input),
       security: 'basic',
     },
   },
@@ -147,7 +158,10 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
     isLocal: true,
     type: 'content',
     direct: {
-      executionFn: executeLspGetSemantics,
+      executionFn: async input =>
+        (
+          await import('./lsp/semantic_content/execution.js')
+        ).executeLspGetSemantics(input),
       security: 'basic',
       requiresServerRuntime: true,
     },

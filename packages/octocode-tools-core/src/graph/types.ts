@@ -6,6 +6,8 @@ export interface ImportResolution {
   target: string | null;
   status: 'resolved' | 'external' | 'unresolvedInternal' | 'unsupported';
   additionalTargets?: string[];
+  /** Stable explanation for a bounded resolver's unavailable target or context. */
+  reason?: string;
 }
 
 export interface DeclarationFact {
@@ -66,8 +68,8 @@ export interface ImportFact {
   localName: string;
   importedName: string;
   line: number;
-  /** Native syntax classification; `type` edges do not exist at runtime. */
-  importKind: 'type' | 'value';
+  /** Native syntax classification; `module` denotes a Rust module declaration. */
+  importKind: 'type' | 'value' | 'module';
   /**
    * Canonical target resolved during graph construction with the complete
    * workspace package-export map. `null` means the specifier is external or
@@ -136,6 +138,8 @@ export type FileGraphEdgeKind =
   | 'create-require'
   | 'metadata-import'
   | 'python-import'
+  | 'rust-module'
+  | 'rust-use'
   | 'c-include';
 
 export interface RawGraphFacts {

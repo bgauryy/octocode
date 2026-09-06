@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-benchmark",
   "description": "Benchmark suites for Octocode tools and engine behavior.",
-  "version": "18.3.0",
+  "version": "19.1.0",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "engines": {
     "node": ">=20.0.0"

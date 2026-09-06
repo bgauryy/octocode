@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Use when code needs a blunt, evidence-backed roast or memorable critique: smell inventory, debt ranking, hot-path autopsy, brutal review, security or performance sins, or practical repair paths. Trigger phrases include roast this, brutal review, top sins, and cleanup debt. Use octocode-research for a conventional evidence-first review."
+description: "Use when a blunt evidence-backed code roast is wanted: rank smells, debt, hot paths, top sins, and cleanup priorities."
 ---
 
 # Octocode Roast

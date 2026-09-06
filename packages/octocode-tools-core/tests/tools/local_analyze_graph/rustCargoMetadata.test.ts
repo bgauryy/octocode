@@ -88,6 +88,25 @@ afterEach(async () => {
 });
 
 describe('bounded Cargo metadata adapter', () => {
+  it('keeps in-root path dependencies outside the metadata workspace explicitly unresolved', async () => {
+    const data = metadata();
+    respond({
+      ...data,
+      workspace_members: ['app-id'],
+      packages: [data.packages[0]],
+    });
+    const result = await resolveRustCargoMetadata({ root, files });
+    expect(result.targets[0]!.dependencyAliases[0]).toMatchObject({
+      external: false,
+    });
+    expect(result.targets[0]!.dependencyAliases[0]!.targetId).toBeUndefined();
+    expect(
+      result.diagnostics.some(
+        item => item.code === 'cargo-workspace-dependency-unresolved'
+      )
+    ).toBe(true);
+  });
+
   it('preserves per-target editions for module resolution', async () => {
     const data = metadata();
     respond({

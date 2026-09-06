@@ -135,10 +135,10 @@ describe('local/GitHub minification and executable pagination across every gramm
     if (root) await rm(root, { recursive: true, force: true });
   });
 
-  it('covers all 45 structural extensions and 35 outline extensions', () => {
-    expect(cases).toHaveLength(45);
-    expect(signatureExtensions.size).toBe(35);
-    expect(new Set(cases.map(item => item.extension)).size).toBe(45);
+  it('covers all 42 structural extensions and 33 outline extensions', () => {
+    expect(cases).toHaveLength(42);
+    expect(signatureExtensions.size).toBe(33);
+    expect(new Set(cases.map(item => item.extension)).size).toBe(42);
   });
   describe.each(cases)('.$extension', ({ extension, source }) => {
     it.each(windows)(

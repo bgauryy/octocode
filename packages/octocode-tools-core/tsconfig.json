@@ -18,8 +18,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["node"],
-    "baseUrl": "."
+    "types": ["node"]
   },
   "include": ["src/**/*", "src/types/**/*.d.ts"],
   "exclude": ["node_modules"]

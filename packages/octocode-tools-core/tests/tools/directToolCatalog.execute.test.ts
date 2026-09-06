@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 
 import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
 import {
@@ -222,6 +223,45 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
           ),
         }),
       ])
+    );
+  });
+
+  it('retains full compact errors for exit classification', async () => {
+    const full = await executeDirectTool('definitely-not-a-real-tool', {});
+    const compact = await executeDirectTool(
+      'definitely-not-a-real-tool',
+      {},
+      {
+        resultProjection: 'structured',
+      }
+    );
+    expect(compact).toEqual(full);
+    expect(compact.isError).toBe(true);
+    expect(full.content).toHaveLength(1);
+  });
+
+  it('projects successful direct results while retaining structured file data', async () => {
+    setRuntimeSurface('cli');
+    process.env.ENABLE_LOCAL = 'true';
+    cleanup();
+    const result = await executeDirectTool(
+      LOCAL_SEARCH_TOOL_NAME,
+      {
+        queries: [
+          {
+            operation: 'files',
+            path: resolve('tests/fixtures'),
+            names: ['adapterParityFixture.ts'],
+            limit: 1,
+          },
+        ],
+      },
+      { resultProjection: 'structured' }
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toEqual([]);
+    expect(JSON.stringify(result.structuredContent)).toContain(
+      'adapterParityFixture.ts'
     );
   });
 

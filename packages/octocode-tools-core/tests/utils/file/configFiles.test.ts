@@ -140,6 +140,12 @@ describe('isLockFile', () => {
 });
 
 describe('classifyFileType', () => {
+  it.each(['lua', 'zig'])(
+    'does not classify removed .%s support as code',
+    ext => {
+      expect(classifyFileType(`source.${ext}`)).toBeUndefined();
+    }
+  );
   it('classifies config manifests, with config winning over code/data ext', () => {
     expect(classifyFileType('package.json')).toBe('config');
     expect(classifyFileType('vite.config.js')).toBe('config');

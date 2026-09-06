@@ -1,5 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
+import {
+  selectPackageExport,
+  type PackageExportMode,
+} from './packageExportTargets.js';
+import type { ImportResolution } from './types.js';
 
 interface PackageManifest {
   name?: unknown;
@@ -14,24 +19,6 @@ const SOURCE_EXTENSION_SWAPS: Record<string, string[]> = {
   '.cjs': ['.cts', '.ts'],
   '.d.ts': ['.ts'],
 };
-
-function firstExportTarget(value: unknown): string | null {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const target = firstExportTarget(item);
-      if (target) return target;
-    }
-    return null;
-  }
-  if (!value || typeof value !== 'object') return null;
-  const conditions = value as Record<string, unknown>;
-  for (const key of ['import', 'default', 'node', 'require', 'types']) {
-    const target = firstExportTarget(conditions[key]);
-    if (target) return target;
-  }
-  return null;
-}
 
 function sourceCandidates(packageDir: string, target: string): string[] {
   if (!target.startsWith('./')) return [];
@@ -57,11 +44,18 @@ function sourceCandidates(packageDir: string, target: string): string[] {
   return [...candidates];
 }
 
-/** Resolve only exact package exports declared by manifests in this scan. */
+export interface WorkspacePackageExports {
+  resolve(
+    specifier: string,
+    mode: PackageExportMode
+  ): ImportResolution | undefined;
+}
+
+/** Package export selection precedes bounded source projection and file existence checks. */
 export function buildWorkspacePackageExports(
   rootAbsolutePath: string,
   knownFiles: ReadonlySet<string>
-): Map<string, string> {
+): WorkspacePackageExports {
   const packageDirs = new Set<string>(['.']);
   for (const file of knownFiles) {
     let directory = posix.dirname(file);
@@ -71,7 +65,10 @@ export function buildWorkspacePackageExports(
     }
   }
 
-  const resolved = new Map<string, string>();
+  const packages = new Map<
+    string,
+    { directory: string; exports: unknown } | null
+  >();
   for (const packageDir of packageDirs) {
     let manifest: PackageManifest;
     try {
@@ -81,36 +78,62 @@ export function buildWorkspacePackageExports(
     } catch {
       continue;
     }
-    if (typeof manifest.name !== 'string') continue;
+    if (!manifest || typeof manifest.name !== 'string') continue;
 
-    const exportEntries: Array<[string, unknown]> = [];
-    if (
-      manifest.exports &&
-      typeof manifest.exports === 'object' &&
-      !Array.isArray(manifest.exports) &&
-      Object.keys(manifest.exports).some(key => key.startsWith('.'))
-    ) {
-      exportEntries.push(
-        ...Object.entries(manifest.exports as Record<string, unknown>)
-      );
-    } else if (manifest.exports !== undefined) {
-      exportEntries.push(['.', manifest.exports]);
-    }
-
-    for (const [exportKey, exportValue] of exportEntries) {
-      if (exportKey !== '.' && !exportKey.startsWith('./')) continue;
-      const target = firstExportTarget(exportValue);
-      if (!target) continue;
-      const source = sourceCandidates(packageDir, target).find(candidate =>
-        knownFiles.has(candidate)
-      );
-      if (!source) continue;
-      const specifier =
-        exportKey === '.'
-          ? manifest.name
-          : `${manifest.name}/${exportKey.slice(2)}`;
-      resolved.set(specifier, source);
-    }
+    packages.set(
+      manifest.name,
+      packages.has(manifest.name)
+        ? null
+        : { directory: packageDir, exports: manifest.exports }
+    );
   }
-  return resolved;
+  const cache = new Map<string, ImportResolution>();
+  return {
+    resolve(specifier, mode) {
+      const parts = specifier.split('/');
+      const nameParts = specifier.startsWith('@') ? 2 : 1;
+      const name = parts.slice(0, nameParts).join('/');
+      if (!packages.has(name)) return undefined;
+      const key = `${mode}\0${specifier}`;
+      const cached = cache.get(key);
+      if (cached) return cached;
+      const item = packages.get(name);
+      const suffix = parts.slice(nameParts).join('/');
+      const selected = item
+        ? selectPackageExport(
+            item.exports,
+            parts.length > nameParts ? `./${suffix}` : '.',
+            mode
+          )
+        : { kind: 'unsupported' as const };
+      const source =
+        selected.kind === 'target' && item
+          ? sourceCandidates(item.directory, selected.target).find(candidate =>
+              knownFiles.has(candidate)
+            )
+          : undefined;
+      const resolution: ImportResolution = source
+        ? { target: source, status: 'resolved' }
+        : {
+            target: null,
+            status:
+              selected.kind === 'invalid' || selected.kind === 'unsupported'
+                ? 'unsupported'
+                : 'unresolvedInternal',
+            reason: !item
+              ? 'ambiguous-workspace-package'
+              : item.exports === undefined
+                ? 'package-exports-unavailable'
+                : selected.kind === 'target'
+                  ? 'package-export-target-unavailable'
+                  : selected.kind === 'invalid'
+                    ? 'invalid-package-exports'
+                    : selected.kind === 'unsupported'
+                      ? 'package-export-context-unavailable'
+                      : 'package-subpath-not-exported',
+          };
+      cache.set(key, resolution);
+      return resolution;
+    },
+  };
 }

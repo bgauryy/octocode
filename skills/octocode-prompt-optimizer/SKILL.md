@@ -1,6 +1,6 @@
 ---
 name: octocode-prompt-optimizer
-description: "Use when an agent prompt, tool schema, policy, or handoff needs to get clearer, safer, easier to trigger, cheaper in context, or measurable against real behavior. For SKILL.md folder install/review/structure, use octocode-skills."
+description: "Use when improving prompts, tool/MCP schemas, policies, handoffs, routing descriptions, or instruction clarity."
 ---
 
 # Octocode prompt optimizer

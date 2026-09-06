@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
-    "target": "ES2021",
-    "lib": ["ES2021"],
+    "module": "Node16",
+    "target": "ES2022",
+    "lib": ["ES2022"],
     "outDir": "out",
     "rootDir": "src",
     "sourceMap": true,
@@ -12,7 +12,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
-    "moduleResolution": "node"
+    "moduleResolution": "Node16",
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "out"]

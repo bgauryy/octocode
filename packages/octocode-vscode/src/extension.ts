@@ -265,7 +265,8 @@ async function installMcpServer(
       await fsPromises.mkdir(dirPath, { recursive: true });
     } catch (err) {
       throw new Error(
-        `Failed to create directory ${path.dirname(mcpConfigPath)}: ${err}`
+        `Failed to create directory ${path.dirname(mcpConfigPath)}: ${err}`,
+        { cause: err }
       );
     }
 
@@ -276,7 +277,9 @@ async function installMcpServer(
         'utf-8'
       );
     } catch (err) {
-      throw new Error(`Failed to write config file ${mcpConfigPath}: ${err}`);
+      throw new Error(`Failed to write config file ${mcpConfigPath}: ${err}`, {
+        cause: err,
+      });
     }
 
     outputChannel.appendLine(`MCP server configured at: ${mcpConfigPath}`);

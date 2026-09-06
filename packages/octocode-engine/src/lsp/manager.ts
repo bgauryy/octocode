@@ -3,7 +3,15 @@ import { getLanguageServerForFile, resolveServerForFile } from './config.js';
 import { LspClientPool, type PoolKey, serializeKey } from './lspClientPool.js';
 import { manifestInstallHint } from './serverManifest.js';
 import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
-import type { LanguageServerConfig, LspServerSource } from './types.js';
+import type {
+  LanguageServerConfig,
+  LspServerSource,
+  RustBuildContext,
+} from './types.js';
+import {
+  applyRustBuildContext,
+  serverConfigurationFingerprint,
+} from './rustContext.js';
 
 export async function isLanguageServerAvailable(
   filePath: string,
@@ -31,11 +39,6 @@ export interface ToolchainServer {
 
 export const TOOLCHAIN_SERVERS: readonly ToolchainServer[] = [
   {
-    server: 'bash-language-server',
-    languageId: 'shellscript',
-    hint: 'Install `bash-language-server` in the project or on PATH, or set `OCTOCODE_BASH_SERVER_PATH` to its executable.',
-  },
-  {
     server: 'intelephense',
     languageId: 'php',
     hint: 'Install `intelephense` in the project or on PATH, or set `OCTOCODE_PHP_SERVER_PATH` to its executable.',
@@ -59,6 +62,31 @@ export const TOOLCHAIN_SERVERS: readonly ToolchainServer[] = [
     server: 'csharp-ls',
     languageId: 'csharp',
     hint: 'Install .NET SDK, then `dotnet tool install -g csharp-ls` (adds csharp-ls to ~/.dotnet/tools).',
+  },
+  {
+    server: 'ruby-lsp',
+    languageId: 'ruby',
+    hint: 'Install a supported Ruby and `gem install ruby-lsp`, or set `OCTOCODE_RUBY_SERVER_PATH` to the ruby-lsp executable.',
+  },
+  {
+    server: 'kotlin-language-server',
+    languageId: 'kotlin',
+    hint: 'Install the Kotlin language server and its required JDK; put `kotlin-language-server` on PATH or set `OCTOCODE_KOTLIN_SERVER_PATH`.',
+  },
+  {
+    server: 'elixir-ls',
+    languageId: 'elixir',
+    hint: 'Install Elixir/Erlang and ElixirLS; set `OCTOCODE_ELIXIR_SERVER_PATH` to its language_server.sh launcher (or an elixir-ls executable on PATH).',
+  },
+  {
+    server: 'sqls',
+    languageId: 'sql',
+    hint: 'Install `sqls` from https://github.com/sqls-server/sqls and put it on PATH, or set `OCTOCODE_SQL_SERVER_PATH`.',
+  },
+  {
+    server: 'metals',
+    languageId: 'scala',
+    hint: 'Install Metals with a supported JDK and Coursier (https://scalameta.org/metals/docs/); put `metals` on PATH or set `OCTOCODE_SCALA_SERVER_PATH`.',
   },
 ];
 
@@ -89,16 +117,19 @@ export function parsePoolIdleTimeoutMs(
 
 const POOL_IDLE_TIMEOUT_MS = parsePoolIdleTimeoutMs();
 
-// Languages whose servers emit $/progress notifications and need waitForReady.
+// Servers that need post-initialize readiness before semantic requests.
+// Bash awaits workspace configuration before enabling document analysis without
+// emitting progress; its bounded settle remains explicitly unconfirmed.
 // TypeScript, Python, C/C++, and data-format servers (JSON/YAML/HTML/CSS)
 // answer queries immediately after the LSP handshake — skipping waitForReady
 // avoids burning the 2-second SETTLE_MS window for them.
-const PROGRESS_LANGUAGES: ReadonlySet<string> = new Set([
+const STARTUP_WAIT_LANGUAGES: ReadonlySet<string> = new Set([
   'go',
   'rust',
   'java',
   'csharp',
   'swift',
+  'shellscript',
 ]);
 
 // Per-language upper bound for $/progress drain (ms).
@@ -109,6 +140,7 @@ const SERVER_READY_TIMEOUT_MS: Partial<Record<string, number>> = {
   java: 120_000,
   csharp: 30_000,
   swift: 30_000,
+  shellscript: 2_000,
 };
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 
@@ -144,10 +176,9 @@ const sharedPool = new LspClientPool<LSPClient>({
     try {
       await client.start();
       // Wait for servers that do workspace-wide indexing before answering
-      // semantic queries. Servers that don't emit $/progress (TypeScript,
-      // Python, clangd) answer immediately after the handshake — we skip
-      // waitForReady for them to avoid the 2-second SETTLE_MS penalty.
-      if (PROGRESS_LANGUAGES.has(key.languageId)) {
+      // semantic queries, plus Bash's asynchronous configuration handshake.
+      // Other servers skip the bounded settle interval.
+      if (STARTUP_WAIT_LANGUAGES.has(key.languageId)) {
         await client.waitForReady(readyTimeoutForLanguage(key.languageId));
       }
       return client;
@@ -172,9 +203,10 @@ export type LspClientAcquireResult =
 
 export async function acquirePooledClientDetailed(
   workspaceRoot: string,
-  filePath: string
+  filePath: string,
+  rustContext?: RustBuildContext
 ): Promise<LspClientAcquireResult> {
-  const key = await poolKeyForFile(workspaceRoot, filePath);
+  const key = await poolKeyForFile(workspaceRoot, filePath, rustContext);
   if (!key) {
     return {
       ok: false,
@@ -209,9 +241,14 @@ export async function acquirePooledClientDetailed(
 
 export async function acquirePooledClient(
   workspaceRoot: string,
-  filePath: string
+  filePath: string,
+  rustContext?: RustBuildContext
 ): Promise<LSPClient | null> {
-  const result = await acquirePooledClientDetailed(workspaceRoot, filePath);
+  const result = await acquirePooledClientDetailed(
+    workspaceRoot,
+    filePath,
+    rustContext
+  );
   return result.ok ? result.client : null;
 }
 
@@ -221,9 +258,10 @@ export async function releaseAllPooledClients(): Promise<void> {
 
 export async function releasePooledClientForFile(
   workspaceRoot: string,
-  filePath: string
+  filePath: string,
+  rustContext?: RustBuildContext
 ): Promise<boolean> {
-  const key = await poolKeyForFile(workspaceRoot, filePath);
+  const key = await poolKeyForFile(workspaceRoot, filePath, rustContext);
   if (!key) return false;
   await sharedPool.clear(key);
   return true;
@@ -295,14 +333,20 @@ function synthesizeFilePathForKey(key: PoolKey): string {
 
 async function poolKeyForFile(
   workspaceRoot: string,
-  filePath: string
+  filePath: string,
+  rustContext?: RustBuildContext
 ): Promise<PoolKey | null> {
-  const serverConfig = await getLanguageServerForFile(filePath, workspaceRoot);
-  if (!serverConfig) return null;
+  const resolvedConfig = await getLanguageServerForFile(
+    filePath,
+    workspaceRoot
+  );
+  if (!resolvedConfig) return null;
+  const serverConfig = applyRustBuildContext(resolvedConfig, rustContext);
   const key: PoolKey = {
     workspaceRoot,
     filePath,
     languageId: serverConfig.languageId ?? 'unknown',
+    contextFingerprint: serverConfigurationFingerprint(serverConfig),
     serverId:
       `${serverConfig.command} ${(serverConfig.args ?? []).join(' ')}`.trim(),
   };

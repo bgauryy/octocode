@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "outDir": "./dist",
+    "rootDir": "..",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -18,8 +19,7 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["vitest/globals", "node"],
-    "baseUrl": "."
+    "types": ["vitest/globals", "node"]
   },
   "include": ["src/**/*", "tests/**/*", "src/types/**/*.d.ts"],
   "exclude": ["node_modules"],

@@ -1,4 +1,5 @@
 use super::types::{StructuralDiagnostic, StructuralQueryExplanation};
+use std::sync::OnceLock;
 
 /// Describes how the ripgrep pre-filter is applied before AST parsing.
 #[derive(Debug, PartialEq)]
@@ -12,10 +13,11 @@ pub(super) enum Prefilter {
     Union(Vec<String>),
 }
 
-#[derive(Clone, Copy)]
 pub(super) struct StructuralQuery<'a> {
     pattern: Option<&'a str>,
     rule: Option<&'a str>,
+    /// Share one language-independent YAML parse (including errors) for this request.
+    parsed_rule: OnceLock<Result<super::octo::RawRule, String>>,
 }
 
 impl<'a> StructuralQuery<'a> {
@@ -27,34 +29,47 @@ impl<'a> StructuralQuery<'a> {
             (None, Some(rule)) if rule.trim().is_empty() => {
                 Err("rule must not be empty".to_string())
             }
-            (Some(_), None) | (None, Some(_)) => Ok(Self { pattern, rule }),
+            (Some(_), None) | (None, Some(_)) => Ok(Self {
+                pattern,
+                rule,
+                parsed_rule: OnceLock::new(),
+            }),
             (Some(_), Some(_)) => Err("provide either `pattern` or `rule`, not both".to_string()),
             (None, None) => Err("structural search requires `pattern` or `rule`".to_string()),
         }
     }
 
-    pub(super) fn parts(self) -> (Option<&'a str>, Option<&'a str>) {
+    pub(super) fn parts(&self) -> (Option<&'a str>, Option<&'a str>) {
         (self.pattern, self.rule)
     }
 
-    pub(super) fn is_rule(self) -> bool {
+    pub(super) fn is_rule(&self) -> bool {
         self.rule.is_some()
     }
 
     /// Returns the full prefilter descriptor for the ripgrep candidate-selection step.
-    pub(super) fn prefilter(self) -> Prefilter {
+    pub(super) fn prefilter(&self) -> Prefilter {
         match (self.pattern, self.rule) {
             (Some(pattern), _) => match derive_literal_anchor(pattern) {
                 Some(anchor) => Prefilter::Single(anchor.to_owned()),
                 None => Prefilter::None,
             },
-            (_, Some(rule)) => derive_rule_prefilter(rule),
+            (_, Some(_)) => self
+                .parsed_rule()
+                .map_or(Prefilter::None, prefilter_for_rule),
             _ => Prefilter::None,
         }
     }
 
-    pub(super) fn explanation(self) -> StructuralQueryExplanation {
+    pub(super) fn explanation(&self) -> StructuralQueryExplanation {
         let prefilter = self.prefilter();
+        self.explanation_with_prefilter(&prefilter)
+    }
+
+    pub(super) fn explanation_with_prefilter(
+        &self,
+        prefilter: &Prefilter,
+    ) -> StructuralQueryExplanation {
         let unsafe_reason = (self.is_rule() && matches!(prefilter, Prefilter::None))
             .then(|| "no literal is required by every matching rule branch".to_owned());
         let mut diagnostics = Vec::new();
@@ -69,7 +84,7 @@ impl<'a> StructuralQuery<'a> {
                 .with_recovery("The engine will parse candidate files instead of trusting a single text anchor."),
             );
         }
-        let (literal_anchor, pre_filter) = match &prefilter {
+        let (literal_anchor, pre_filter) = match prefilter {
             Prefilter::None => (None, "disabled".to_owned()),
             Prefilter::Single(s) => (Some((*s).to_owned()), "literal-anchor".to_owned()),
             Prefilter::Union(anchors) => (Some(anchors.join("|")), "union-anchor".to_owned()),
@@ -85,7 +100,16 @@ impl<'a> StructuralQuery<'a> {
         }
     }
 
-    fn source(self) -> Option<&'a str> {
+    pub(super) fn parsed_rule(&self) -> Result<&super::octo::RawRule, String> {
+        self.parsed_rule
+            .get_or_init(|| {
+                super::octo::parse_rule(self.rule.expect("only rule queries compile a rule"))
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    fn source(&self) -> Option<&'a str> {
         self.pattern.or(self.rule)
     }
 }
@@ -198,11 +222,8 @@ fn is_safe_anchor_token(token: &str) -> bool {
 /// Infer necessary file literals from the same parsed rule that compilation uses.
 /// Conjunction may use any proven necessary condition; disjunction needs one
 /// from every branch. A negated matcher never proves a positive file literal.
-fn derive_rule_prefilter(rule: &str) -> Prefilter {
-    let Ok(raw) = super::octo::parse_rule(rule) else {
-        return Prefilter::None;
-    };
-    rule_anchors(&raw).map_or(Prefilter::None, |mut anchors| {
+fn prefilter_for_rule(raw: &super::octo::RawRule) -> Prefilter {
+    rule_anchors(raw).map_or(Prefilter::None, |mut anchors| {
         anchors.sort();
         anchors.dedup();
         if anchors.len() == 1 {
@@ -240,6 +261,10 @@ fn rule_anchors(rule: &super::octo::RawRule) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn derive_rule_prefilter(rule: &str) -> Prefilter {
+        StructuralQuery::new(None, Some(rule)).unwrap().prefilter()
+    }
 
     #[test]
     fn new_rejects_both_or_neither_query_sources() {

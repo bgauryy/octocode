@@ -205,12 +205,6 @@ export const EXTENSION_SELECTORS: Readonly<Record<string, SelectorDefinition>> =
       extension: 'tsx',
       extensions: ['tsx'],
     },
-    toml: {
-      kind: 'extension',
-      canonicalLanguage: 'TOML',
-      extension: 'toml',
-      extensions: ['toml'],
-    },
     yaml: {
       kind: 'extension',
       canonicalLanguage: 'YAML',
@@ -327,11 +321,6 @@ export const LANGUAGE_SELECTORS: Readonly<Record<string, SelectorDefinition>> =
       kind: 'language',
       canonicalLanguage: 'TypeScript',
       extensions: ['ts', 'tsx', 'mts', 'cts'],
-    },
-    toml: {
-      kind: 'language',
-      canonicalLanguage: 'TOML',
-      extensions: ['toml'],
     },
     yaml: {
       kind: 'language',

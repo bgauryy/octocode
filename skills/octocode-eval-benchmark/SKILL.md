@@ -1,6 +1,6 @@
 ---
 name: octocode-eval-benchmark
-description: "Use when measuring whether a change helped or designing a trustworthy eval or benchmark: goal→KPI contracts, baselines, held-out suites, graders, guardrails, ACCEPT/REVERT loops, or don't-stop-till-done optimization against a runnable sensor. Not for ordinary ship checks where tests passing is enough."
+description: "Use when measuring whether a change helped: define KPIs, baselines, held-out cases, benchmarks, and keep/discard gates."
 ---
 # Octocode eval benchmark
 Design trustworthy evals and benchmarks, then run evidence-backed improvement loops for one agent or a multi-agent workflow.

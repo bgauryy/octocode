@@ -1,17 +1,17 @@
 {
   "name": "octocode-monorepo",
   "description": "Monorepo for Octocode MCP and related packages - Model Context Protocol server for advanced GitHub repository analysis and code discovery.",
-  "version": "18.3.0",
+  "version": "19.1.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "devDependencies": {
-    "@eslint/js": "^9.35.0",
-    "eslint": "^10.9.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
-    "prettier": "^3.8.4",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.61.1"
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.69.0"
   },
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
@@ -21,16 +21,7 @@
   "packageManager": "yarn@4.9.1",
   "private": true,
   "resolutions": {
-    "@octocodeai/config": "workspace:*",
-    "@octocodeai/octocode-core": "18.3.0",
-    "@octocodeai/octocode-engine": "workspace:*",
-    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
-    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
-    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*",
-    "@octocodeai/octocode-tools-core": "workspace:*"
+    "@octocodeai/octocode-core": "18.3.0"
   },
   "repository": "bgauryy/octocode.git",
   "scripts": {

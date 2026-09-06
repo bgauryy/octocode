@@ -71,20 +71,40 @@ export async function prepareRustResolver(
       metadata.targets.map(target => [target.id, target.srcPath])
     );
     rustDependencies = new Map(
-      targets.map(target => [
-        target.srcPath,
-        new Map(
-          target.dependencyAliases.map(dependency => [
-            dependency.alias,
-            {
+      targets.map(target => {
+        const aliases = new Map<string, { root?: string; external: boolean }>();
+        const identities = new Map<string, string>();
+        for (const dependency of target.dependencyAliases) {
+          const identity = JSON.stringify([
+            dependency.packageName,
+            dependency.targetId,
+            dependency.external,
+            dependency.conditional,
+          ]);
+          if (
+            identities.has(dependency.alias) &&
+            identities.get(dependency.alias) !== identity
+          ) {
+            aliases.set(dependency.alias, { external: false });
+            // Keep an ambiguity sentinel so later entries cannot restore a guessed edge.
+            identities.set(dependency.alias, 'ambiguous');
+            coverage.diagnostics.push({
+              file: target.srcPath,
+              code: 'unsupported-linking',
+              message: `Cargo dependency alias ${dependency.alias} has conflicting contexts; import resolution is ambiguous.`,
+            });
+          } else {
+            identities.set(dependency.alias, identity);
+            aliases.set(dependency.alias, {
               root: dependency.conditional
                 ? undefined
                 : rootsById.get(dependency.targetId ?? ''),
               external: !dependency.conditional && dependency.external,
-            },
-          ])
-        ),
-      ])
+            });
+          }
+        }
+        return [target.srcPath, aliases];
+      })
     );
     for (const diagnostic of metadata.diagnostics)
       coverage.diagnostics.push({

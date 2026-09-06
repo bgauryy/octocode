@@ -201,7 +201,7 @@ export const installCommand: CLICommand = {
       const hasOctocode = Boolean(existingConfig?.mcpServers?.['octocode-mcp']);
       const parentDir = path.dirname(cfgPath);
       const parentExists = existsSync(parentDir);
-      let parentWritable = false;
+      let parentWritable: boolean;
       if (parentExists) {
         try {
           accessSync(parentDir, constants.W_OK);

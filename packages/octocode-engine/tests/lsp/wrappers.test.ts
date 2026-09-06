@@ -24,9 +24,7 @@ function nativeMock() {
     outgoingCalls: vi.fn().mockResolvedValue([{ to: { name: 'callee' } }]),
     workspaceSymbol: vi.fn().mockResolvedValue([{ name: 'workspaceSymbol' }]),
     prepareTypeHierarchy: vi.fn().mockResolvedValue([{ name: 'type' }]),
-    typeHierarchySupertypes: vi
-      .fn()
-      .mockResolvedValue([{ name: 'supertype' }]),
+    typeHierarchySupertypes: vi.fn().mockResolvedValue([{ name: 'supertype' }]),
     typeHierarchySubtypes: vi.fn().mockResolvedValue([{ name: 'subtype' }]),
     getDiagnostics: vi.fn().mockResolvedValue([{ message: 'diagnostic' }]),
     isAlive: vi.fn().mockResolvedValue(true),
@@ -100,7 +98,9 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       ]) {
         Reflect.deleteProperty(mock.client, method);
       }
-      expect(() => client.hasCapability('definitionProvider')).toThrow(TypeError);
+      expect(() => client.hasCapability('definitionProvider')).toThrow(
+        TypeError
+      );
       await expect(client.isAlive()).rejects.toThrow(TypeError);
       expect(() => client.getRecentStderr()).toThrow(TypeError);
       await expect(client.closeDocument('/workspace/a.ts')).rejects.toThrow(
@@ -335,6 +335,19 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
         searchRadius: 5,
       });
       const resolver = new resolverModule.SymbolResolver();
+      for (const code of ['lspPositionTimeout', 'lspSourceTooLarge']) {
+        const limit = new Error(`[${code}] analysis was incomplete`);
+        mock.nativeBinding.resolvePositionFromContent.mockImplementationOnce(
+          () => {
+            throw limit;
+          }
+        );
+        expect(() =>
+          resolver.resolvePositionFromContent('content', {
+            symbolName: 'target',
+          })
+        ).toThrow(limit);
+      }
       await expect(
         resolver.resolvePosition(filePath, { symbolName: 'target' })
       ).resolves.toMatchObject({ foundAtLine: 2 });

@@ -257,8 +257,8 @@ const CODE_EXTENSIONS = new Set<string>(
     '.vue .svelte .css .scss .sass .less .html .htm ' +
     // Data/query languages
     '.sql .graphql .gql .proto ' +
-    // Elixir/Erlang · Lua · Haskell · Perl · R · Julia
-    '.ex .exs .erl .lua .hs .pl .pm .r .jl'
+    // Elixir/Erlang · Haskell · Perl · R · Julia
+    '.ex .exs .erl .hs .pl .pm .r .jl'
   ).split(' ')
 );
 

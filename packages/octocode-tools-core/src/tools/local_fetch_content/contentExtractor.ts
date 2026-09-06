@@ -19,7 +19,7 @@ export function extractMatchingLines(
       new RegExp(pattern);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Invalid regex pattern: ${message}`);
+      throw new Error(`Invalid regex pattern: ${message}`, { cause: error });
     }
   }
 

@@ -199,7 +199,6 @@ async function transformToOptimizedFormat(
 
   const foundFiles = new Set<string>();
 
-  let droppedItems = 0;
   let droppedMatches = 0;
 
   const itemResults = await Promise.allSettled(
@@ -210,13 +209,10 @@ async function transformToOptimizedFormat(
 
       const matchResults = await Promise.allSettled(
         (item.text_matches || []).map(async match => {
-          let processedFragment = match.fragment;
-
           const sanitizationResult = ContentSanitizer.sanitizeContent(
-            processedFragment || '',
+            match.fragment || '',
             item.path
           );
-          processedFragment = sanitizationResult.content;
 
           if (sanitizationResult.hasSecrets) {
             allMatchLocationsSet.add(
@@ -305,7 +301,7 @@ async function transformToOptimizedFormat(
     )
     .map(r => r.value);
 
-  droppedItems = itemResults.filter(r => r.status === 'rejected').length;
+  const droppedItems = itemResults.filter(r => r.status === 'rejected').length;
 
   const result: OptimizedCodeSearchResult = {
     items: optimizedItems,

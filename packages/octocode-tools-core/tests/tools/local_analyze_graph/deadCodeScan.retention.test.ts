@@ -21,6 +21,28 @@ async function createTempDir(): Promise<string> {
 }
 
 describe('star-barrel retention (named re-export → star re-export → entrypoint)', () => {
+  it('retains a source export consumed through a renamed reexport', async () => {
+    const dir = await createTempDir();
+    await writeFile(
+      join(dir, 'leaf.js'),
+      'export const original = 1;\nexport const unused = 2;\n'
+    );
+    await writeFile(
+      join(dir, 'barrel.js'),
+      "export { original as renamed } from './leaf.js';\n"
+    );
+    await writeFile(
+      join(dir, 'index.js'),
+      "import { renamed } from './barrel.js';\nexport const api = renamed;\n"
+    );
+    const result = await scanForDeadCode(dir, {
+      entrypoints: ['index.js'],
+      includeTests: false,
+    });
+    expect(result.deadExports.map(item => item.name)).not.toContain('original');
+    expect(result.deadExports.map(item => item.name)).toContain('unused');
+  });
+
   it('retains an export whose named re-export flows through a star-re-exported barrel', async () => {
     // types.ts --named reexport--> barrel/index.ts --export * --> index.ts (entrypoint)
     const dir = await createTempDir();
@@ -94,6 +116,28 @@ describe('star-barrel retention (named re-export → star re-export → entrypoi
 });
 
 describe('symbol-level same-file retention (dead callers must not retain callees)', () => {
+  it('does not attribute a live method call to a same-named dead exported function', async () => {
+    const dir = await createTempDir();
+    await writeFile(
+      join(dir, 'lib.js'),
+      [
+        'export function factory() { return new Live(); }',
+        'export function deadCaller() { return 1; }',
+        'export function helper() { return 2; }',
+        'class Live { deadCaller() { return helper(); } }',
+      ].join('\n')
+    );
+    await writeFile(
+      join(dir, 'index.js'),
+      "import { factory } from './lib.js'; factory().deadCaller();\n"
+    );
+    const result = await scanForDeadCode(dir, {
+      entrypoints: ['index.js'],
+      includeTests: false,
+    });
+    expect(result.deadExports.map(item => item.name)).not.toContain('helper');
+  });
+
   it('flags an export whose only same-file caller is itself a dead export', async () => {
     const dir = await createTempDir();
     await writeFile(

@@ -1,8 +1,8 @@
 /**
- * Direct-tool EXECUTION path (P3). This module imports the engine (native LSP
- * client pool) and every tool's execution function via `ALL_TOOLS`, so it is the
- * one that loads the native `.node` addon at eval. It is reached only when a tool
- * actually runs. Schema, help, and context use the engine-free
+ * Direct-tool EXECUTION path (P3). Shared runtime and security imports load the
+ * native addon here; `ALL_TOOLS` loads each execution handler only when called.
+ * This entry is reached only when a tool actually runs. Schema, help, and
+ * context use the engine-free
  * `@octocodeai/octocode-tools-core/schema` entry point.
  */
 import type { CallToolResult } from '@modelcontextprotocol/server';
@@ -16,6 +16,7 @@ import { ALL_TOOLS } from './toolConfig.js';
 import {
   buildToolErrorResult,
   sanitizeCallToolResult,
+  type CallToolResultProjection,
 } from '../utils/response/callToolResult.js';
 import {
   withBasicSecurityValidation,
@@ -109,7 +110,8 @@ function findDirectToolRuntimeDefinition(
 
 export async function executeDirectTool(
   name: string,
-  input: unknown
+  input: unknown,
+  options?: { resultProjection?: CallToolResultProjection }
 ): Promise<CallToolResult> {
   // LSP client cleanup is handled by the pool's idle timer (idleTimeoutMs,
   // unref()'d). Do not call releaseAllPooledClients() here — it would tear down
@@ -122,7 +124,7 @@ export async function executeDirectTool(
     const parsedInput = parseDirectToolInput(tool, input);
     assertDirectToolEnabled(tool);
     await ensureDirectToolRuntimeReady(tool);
-    return await runDirectTool(tool, parsedInput);
+    return await runDirectTool(tool, parsedInput, options?.resultProjection);
   } catch (error) {
     // Input parsing and runtime readiness can throw; convert to the same
     // structured error envelope as execution failures so non-CLI consumers
@@ -226,14 +228,15 @@ function assertDirectToolEnabled(tool: DirectToolRuntimeDefinition): void {
 
 async function runDirectTool(
   tool: DirectToolRuntimeDefinition,
-  input: DirectToolInput
+  input: DirectToolInput,
+  projection?: CallToolResultProjection
 ): Promise<CallToolResult> {
   try {
     const result =
       tool.security === 'remote'
         ? await runRemoteDirectTool(tool, input)
         : await runBasicDirectTool(tool, input);
-    return sanitizeCallToolResult(result);
+    return sanitizeCallToolResult(result, projection);
   } catch (error) {
     return buildToolErrorResult(tool.name, error);
   }

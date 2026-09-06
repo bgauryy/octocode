@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Use when a code claim must be checked, not assumed: trace callers/imports/cross-repo wiring and change impact; locate behavior; map a system; diagnose failures/RCA; inspect external repositories, npm packages, upstream work, or prior art; plan before coding and validate afterward. Triggers on 'research this' or 'use octocode'. Return exact file:line/PR/commit evidence with confidence. Skip trivial edits whose blast radius is already known. Not for writing docs → octocode-documentation, or skill folders → octocode-skills."
+description: "Use when a code claim must be proven: trace callers, imports, runtime wiring, regressions, GitHub, or change impact."
 ---
 
 # Octocode Research

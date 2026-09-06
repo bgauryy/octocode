@@ -13,9 +13,37 @@
 //! silently remove source lines.
 
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
-use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{
+    Language, ParseOptions, Parser, Query, QueryCursor, QueryCursorOptions, StreamingIterator, Tree,
+};
+
+pub(crate) const AST_EXECUTION_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant) -> Option<Tree> {
+    if Instant::now() >= deadline {
+        return None;
+    }
+    let mut parser = Parser::new();
+    parser.set_language(language).ok()?;
+    let bytes = content.as_bytes();
+    let mut read = |offset: usize, _| &bytes[offset..];
+    let mut progress = |_: &tree_sitter::ParseState| {
+        if Instant::now() >= deadline {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    };
+    let tree = parser.parse_with_options(
+        &mut read,
+        None,
+        Some(ParseOptions::new().progress_callback(&mut progress)),
+    )?;
+    (Instant::now() < deadline).then_some(tree)
+}
 
 pub struct LangExtractConfig {
     pub language: Language,
@@ -25,9 +53,9 @@ pub struct LangExtractConfig {
 
 /// Compiled `Query` objects are static per language (`body_query` is a
 /// `&'static str` fixed in `languages.rs`) and safe to share across threads
-/// once built — `tree_sitter::Query` is `Send + Sync`, unlike `Parser`, which
-/// is why `structural/octo.rs` uses `thread_local!` for the parser
-/// specifically rather than caching it here. Caches one compiled `Query` per
+/// once built. Queries can be shared concurrently; parsing requires mutable
+/// parser access, so `structural/octo.rs` keeps a parser per worker thread.
+/// Caches one compiled `Query` per
 /// `(language, body_query)` pair instead of recompiling on every `extract()`
 /// call — previously once per file scanned, mirroring the reuse pattern
 /// `structural/files.rs` already uses for its matcher compilation.
@@ -60,13 +88,13 @@ fn cached_query(language: &Language, body_query: &'static str) -> Option<Arc<Que
 
 /// Returns `(1-based line number, trimmed text)` pairs.
 pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
-    extract_with_limits(content, cfg, Instant::now() + Duration::from_secs(2), 65_536)
+    extract_with_limits(content, cfg, Instant::now() + AST_EXECUTION_TIMEOUT, 65_536)
 }
 
 fn extract_with_limits(
     content: &str,
     cfg: &LangExtractConfig,
-    _deadline: Instant,
+    deadline: Instant,
     match_limit: u32,
 ) -> Option<Vec<(usize, String)>> {
     let lines: Vec<&str> = content.lines().collect();
@@ -77,9 +105,7 @@ fn extract_with_limits(
 
     let mut keep = vec![true; n];
 
-    let mut parser = Parser::new();
-    parser.set_language(&cfg.language).ok()?;
-    let tree = parser.parse(content.as_bytes(), None)?;
+    let tree = parse_before(content, &cfg.language, deadline)?;
 
     // Compile (or reuse the cached compile of) the body query; if it fails
     // (bad query or grammar mismatch) fall back gracefully to returning all
@@ -87,9 +113,28 @@ fn extract_with_limits(
     if let Some(query) = cached_query(&cfg.language, cfg.body_query) {
         let mut cursor = QueryCursor::new();
         cursor.set_match_limit(match_limit);
-        let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
+        let body_capture = query.capture_index_for_name("body");
+        let mut progress = |_: &tree_sitter::QueryCursorState| {
+            if Instant::now() >= deadline {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let mut matches = cursor.matches_with_options(
+            &query,
+            tree.root_node(),
+            content.as_bytes(),
+            QueryCursorOptions::new().progress_callback(&mut progress),
+        );
         while let Some(m) = matches.next() {
+            if Instant::now() >= deadline {
+                return None;
+            }
             for capture in m.captures() {
+                if Some(capture.index) != body_capture {
+                    continue;
+                }
                 let node = capture.node;
                 let start = node.start_position().row;
                 let end = node.end_position().row;
@@ -127,6 +172,10 @@ fn extract_with_limits(
                 }
             }
         }
+        drop(matches);
+        if cursor.did_exceed_match_limit() || Instant::now() >= deadline {
+            return None;
+        }
     } else {
         // Query failed → fall back to heuristic (signal with None)
         return None;
@@ -156,7 +205,9 @@ mod tests {
             language: tree_sitter_rust::LANGUAGE.into(),
             body_query: "(function_item body: (block) @body)",
         };
-        assert!(extract_with_limits("fn f() {\n work();\n}\n", &cfg, Instant::now(), 65_536).is_none());
+        assert!(
+            extract_with_limits("fn f() {\n work();\n}\n", &cfg, Instant::now(), 65_536).is_none()
+        );
     }
 
     #[test]
@@ -166,8 +217,21 @@ mod tests {
             body_query: "(block (expression_statement)* @body (expression_statement) @body)",
         };
         let source = "fn f() {\n one();\n two();\n three();\n four();\n}\n";
-        assert!(extract_with_limits(source, &cfg, Instant::now() + Duration::from_secs(2), 1).is_none());
+        assert!(
+            extract_with_limits(source, &cfg, Instant::now() + Duration::from_secs(2), 1).is_none()
+        );
         assert!(extract(source, &cfg).is_some());
+    }
+
+    #[test]
+    fn helper_captures_do_not_remove_signature_lines() {
+        let source = "def keep():\n    work()\n";
+        let cfg = LangExtractConfig {
+            language: tree_sitter_python::LANGUAGE.into(),
+            body_query: "(function_definition body: (block) @body) @_function",
+        };
+        let outline = extract(source, &cfg).expect("outline retains the signature");
+        assert_eq!(outline, vec![(1, "def keep():".to_owned())]);
     }
 
     #[test]

@@ -13,7 +13,11 @@ pub struct LineDiffOpInner {
 
 /// Compute a full line-level edit script from `old_text` → `new_text`.
 pub(crate) fn compute_line_diff_inner(old_text: &str, new_text: &str) -> Vec<LineDiffOpInner> {
-    let diff = TextDiff::from_lines(old_text, new_text);
+    // The public line contract splits on LF. Similar's built-in tokenizer also
+    // splits on bare CR, which would invent extra lines inside source content.
+    let old_lines: Vec<_> = old_text.split_inclusive('\n').collect();
+    let new_lines: Vec<_> = new_text.split_inclusive('\n').collect();
+    let diff = TextDiff::from_slices(&old_lines, &new_lines);
     let mut ops = Vec::new();
     for change in diff.iter_all_changes() {
         // similar yields trailing newlines on values; strip so callers match
@@ -35,6 +39,40 @@ pub(crate) fn compute_line_diff_inner(old_text: &str, new_text: &str) -> Vec<Lin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    #[test]
+    fn bare_cr_stays_inside_a_line_and_crlf_preserves_cr() {
+        let ops = compute_line_diff_inner("", "first\rsecond\r\nlast");
+        assert_eq!(
+            ops.iter().map(|op| op.line.as_str()).collect::<Vec<_>>(),
+            ["first\rsecond\r", "last"]
+        );
+        assert!(ops.iter().all(|op| op.op_type == "add"));
+    }
+
+    proptest! {
+        #[test]
+        fn edit_script_reconstructs_both_inputs(
+            old in prop::collection::vec("[^\n]{0,16}", 0..32),
+            new in prop::collection::vec("[^\n]{0,16}", 0..32),
+        ) {
+            let text = |lines: &[String]| {
+                lines.iter().map(|line| format!("{line}\n")).collect::<String>()
+            };
+            let ops = compute_line_diff_inner(&text(&old), &text(&new));
+            let reconstructed_old: Vec<_> = ops.iter()
+                .filter(|op| op.op_type != "add")
+                .map(|op| op.line.clone())
+                .collect();
+            let reconstructed_new: Vec<_> = ops.iter()
+                .filter(|op| op.op_type != "remove")
+                .map(|op| op.line.clone())
+                .collect();
+            prop_assert_eq!(reconstructed_old, old);
+            prop_assert_eq!(reconstructed_new, new);
+        }
+    }
 
     #[test]
     fn single_line_change() {

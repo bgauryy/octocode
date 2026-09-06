@@ -90,7 +90,42 @@ fn fixture(extension: &str, config: &FileTypeConfig, group: Option<&str>) -> Str
 #[test]
 fn every_structural_extension_has_an_explicit_minification_route() {
     let extensions = crate::signatures::languages::supported_extensions();
-    assert_eq!(extensions.len(), 45);
+    let mut expected: std::collections::BTreeSet<_> = [
+        "ts", "mts", "cts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "go", "rs", "java", "c",
+        "h", "rb", "rake", "gemspec", "ru", "php", "kt", "kts", "html", "htm", "css", "scss",
+        "json", "jsonc", "yaml", "yml",
+    ]
+    .into_iter()
+    .collect();
+    for (enabled, optional) in [
+        (
+            cfg!(feature = "tree-sitter-extended"),
+            &["sql", "scala", "sc", "sbt"][..],
+        ),
+        (
+            cfg!(feature = "tree-sitter-cpp"),
+            &["cpp", "hpp", "cc", "cxx", "hh", "hxx"][..],
+        ),
+        (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
+        (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
+    ] {
+        if enabled {
+            expected.extend(optional.iter().copied());
+        }
+    }
+    assert_eq!(
+        extensions
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected,
+        "advertised grammars must match the enabled feature inventory"
+    );
+    assert_eq!(
+        extensions.len(),
+        expected.len(),
+        "duplicate grammar aliases"
+    );
     for extension in extensions {
         assert!(
             minify_config().contains_key(extension),
@@ -104,7 +139,7 @@ fn every_configured_extension_preserves_evidence_and_removes_its_comments() {
     let config = minify_config();
     assert_eq!(
         config.len(),
-        151,
+        148,
         "review new entries and update the published inventory"
     );
     for (&extension, cfg) in config {

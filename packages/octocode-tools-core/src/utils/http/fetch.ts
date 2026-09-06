@@ -188,7 +188,7 @@ export async function fetchWithRetries(
         signal?.aborted ||
         (error instanceof Error && error.name === 'AbortError')
       ) {
-        throw new Error('Request aborted');
+        throw new Error('Request aborted', { cause: error });
       }
 
       if (extendedError && extendedError.retryable === false) {

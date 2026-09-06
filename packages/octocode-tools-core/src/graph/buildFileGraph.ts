@@ -9,9 +9,12 @@ import type {
   RawGraphFacts,
 } from './types.js';
 import { prepareRustResolver } from './rustWorkspace.js';
-import { buildWorkspacePackageExports } from './workspacePackageResolver.js';
+import {
+  buildWorkspacePackageExports,
+  type WorkspacePackageExports,
+} from './workspacePackageResolver.js';
 import { prepareMetadataImports } from './metadataImports.js';
-import { canonicalGraphDiagnostics } from './coverage.js';
+import { prepareGraphDiagnostics } from './diagnosticSnapshot.js';
 import { createFileImportLinker } from './fileImportLinker.js';
 
 export const DEFAULT_DEAD_CODE_EXCLUDE_DIRS = [
@@ -58,8 +61,7 @@ export interface WalkResult {
    * `export * from` it. Needed for retention: a NAMED re-export whose barrel
    * is itself star-re-exported (barrel → `export *` → entrypoint) is public
    * API — `isBindingLive` must be able to hop the star edge, which carries no
-   * per-name entry in the named `reexportIndex`. Unfiltered (all scanned
-   * files); the scan filters to reachable re-exporters before use.
+   * per-name `reexportIndex` entry. Filtered to reachable re-exporters at use.
    */
   starReexporters: Map<string, string[]>;
 }
@@ -84,15 +86,18 @@ export async function buildFileGraph(
 
   const entries = scanResult.entries;
 
-  const knownFiles = new Set(
-    scanResult.candidatePaths.map(relativePath =>
-      posix.normalize(relativePath.split('\\').join('/'))
-    )
+  const candidatePaths = scanResult.candidatePaths.map(relativePath =>
+    posix.normalize(relativePath.split('\\').join('/'))
   );
-  const workspacePackageExports = buildWorkspacePackageExports(
-    rootAbsolutePath,
-    knownFiles
-  );
+  const knownFiles = new Set(candidatePaths);
+  let workspacePackageExports: WorkspacePackageExports | undefined;
+  const getWorkspacePackageExports = (): WorkspacePackageExports =>
+    (workspacePackageExports ??= buildWorkspacePackageExports(
+      rootAbsolutePath,
+      // Metadata linking may extend knownFiles; package source discovery stays
+      // confined to the original native inventory, as with eager discovery.
+      new Set(candidatePaths)
+    ));
   const metadata = prepareMetadataImports(
     rootAbsolutePath,
     knownFiles,
@@ -164,7 +169,7 @@ export async function buildFileGraph(
       relativePath,
       parsed,
       knownFiles,
-      workspacePackageExports,
+      getWorkspacePackageExports,
       metadata,
       resolveRust,
       coverage,
@@ -196,21 +201,15 @@ export async function buildFileGraph(
       .filter(exp => exp.source && exp.name !== '*')
       .map(exp => ({
         specifier: exp.source as string,
-        localName: exp.localName ?? exp.name,
-        importedName: exp.name,
+        localName: exp.name,
+        importedName: exp.localName ?? exp.name,
         line: exp.line,
         importKind:
           exp.exportKind === 'type' ? ('type' as const) : ('value' as const),
-        resolvedTarget: resolve(exp.source as string, exp.line),
+        resolvedTarget: resolve(exp.source as string, exp.line, {
+          exportMode: exp.exportKind === 'type' ? 'types' : 'static',
+        }),
       }));
-
-    // String-literal dynamic `import('./x')` specifiers resolve to a file the
-    // same way a static import does — kept separate from `calls` (which is
-    // real call-graph edges, not module linking) and from `imports` (which
-    // carries local/imported binding names a dynamic import doesn't have).
-    const dynamicImportSpecifiers = (parsed.calls ?? [])
-      .filter(c => c.kind === 'dynamic-import')
-      .map(c => c.callee);
 
     const fileFacts: FileFacts = {
       relativePath,
@@ -220,15 +219,19 @@ export async function buildFileGraph(
         localName: i.localName,
         importedName: i.importedName,
         line: i.line,
-        importKind: i.importKind === 'type' ? 'type' : 'value',
-        resolvedTarget: resolve(
-          i.specifier,
-          i.line,
-          i.importKind === 'module',
-          i.resolutionHint,
-          i.moduleScope,
-          i.importedName
-        ),
+        importKind:
+          i.importKind === 'type'
+            ? 'type'
+            : i.importKind === 'module'
+              ? 'module'
+              : 'value',
+        resolvedTarget: resolve(i.specifier, i.line, {
+          moduleDeclaration: i.importKind === 'module',
+          resolutionHint: i.resolutionHint,
+          moduleScope: i.moduleScope,
+          importedName: i.importedName,
+          exportMode: i.importKind === 'type' ? 'types' : 'static',
+        }),
       })),
       namedReexports,
       calls: (parsed.calls ?? [])
@@ -258,13 +261,17 @@ export async function buildFileGraph(
       if (target) {
         addEdge(
           target,
-          imp.importKind === 'type'
-            ? 'type-import'
-            : python
-              ? 'python-import'
-              : cFamily
-                ? 'c-include'
-                : 'static-import'
+          extension === 'rs'
+            ? imp.importKind === 'module'
+              ? 'rust-module'
+              : 'rust-use'
+            : imp.importKind === 'type'
+              ? 'type-import'
+              : python
+                ? 'python-import'
+                : cFamily
+                  ? 'c-include'
+                  : 'static-import'
         );
         if (imp.importedName === '*' || cFamily)
           namespaceImportTargets.add(target);
@@ -279,13 +286,16 @@ export async function buildFileGraph(
       if (target)
         addEdge(
           target,
-          reexport.importKind === 'type'
-            ? 'type-named-reexport'
-            : 'named-reexport'
+          extension === 'rs'
+            ? 'rust-use'
+            : reexport.importKind === 'type'
+              ? 'type-named-reexport'
+              : 'named-reexport'
         );
     }
-    for (const specifier of dynamicImportSpecifiers) {
-      const target = resolve(specifier, 0);
+    for (const call of parsed.calls ?? []) {
+      if (call.kind !== 'dynamic-import') continue;
+      const target = resolve(call.callee, 0);
       if (target) {
         addEdge(target, 'dynamic-import');
         namespaceImportTargets.add(target);
@@ -302,7 +312,9 @@ export async function buildFileGraph(
         });
         continue;
       }
-      const target = resolve(load.specifier, load.line);
+      const target = resolve(load.specifier, load.line, {
+        exportMode: 'require',
+      });
       if (target) {
         addEdge(
           target,
@@ -315,11 +327,17 @@ export async function buildFileGraph(
     }
     for (const exp of parsed.exports ?? []) {
       if (!exp.source || exp.name !== '*') continue;
-      const target = resolve(exp.source, exp.line);
+      const target = resolve(exp.source, exp.line, {
+        exportMode: exp.exportKind === 'type' ? 'types' : 'static',
+      });
       if (target) {
         addEdge(
           target,
-          exp.exportKind === 'type' ? 'type-star-reexport' : 'star-reexport'
+          extension === 'rs'
+            ? 'rust-use'
+            : exp.exportKind === 'type'
+              ? 'type-star-reexport'
+              : 'star-reexport'
         );
         starReexportTargets.add(target);
         const list = starReexporters.get(target) ?? [];
@@ -365,7 +383,9 @@ export async function buildFileGraph(
       linking: 'metadata',
     });
 
-  coverage.diagnostics = canonicalGraphDiagnostics(coverage.diagnostics);
+  coverage.diagnostics = prepareGraphDiagnostics(
+    coverage.diagnostics
+  ).diagnostics;
   return {
     coverage,
     facts,

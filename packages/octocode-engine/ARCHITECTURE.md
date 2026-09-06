@@ -38,7 +38,7 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
   fallbacks such as `node_modules/typescript-language-server/lib/cli.mjs`.
   Resolver tests must inject cwd/PATH availability through helpers instead of
   mutating process-global cwd.
-- `src/signatures/` owns semantic outlines and JS/TS symbol extraction.
+- `src/signatures/` owns syntax outlines and JS/TS symbol extraction.
 - `src/security/` owns secret detection and sanitization across two tiers: Rust
   (`detector.rs`, `sanitizer.rs`, `patterns.rs`) for the detection engine and
   TypeScript wrappers (`withSecurityValidation`, `registry`, `pathValidator`,
@@ -52,8 +52,8 @@ Reachability/dead-code detection lives today in
 tool), consuming this engine's per-file facts rather than tool-specific regex
 logic:
 
-- `signatures/graph_facts.rs` (JS/TS via `js_oxc.rs`, ~24 other languages via
-  tree-sitter) parses files through the shared grammar registry and extracts
+- `signatures/graph_facts.rs` (JS/TS via `js_oxc.rs`, other registered languages via
+  Tree-sitter) parses files through the shared grammar registry and extracts
   AST facts for declarations, imports, exports, calls, classes, and functions,
   normalized into common symbol/relation facts;
 - `graph/mod.rs` owns the bounded filesystem walk, parallel file reads, native
@@ -87,6 +87,12 @@ candidate exists beyond `maxFiles`; result pagination can expand that scan.
 The asynchronous scan result carries the query plan used for that same scan,
 so callers can explain zero matches without repeating a synchronous directory
 walk on the JavaScript event loop.
+
+Search-result AST classification shares a two-second cooperative deadline across
+the candidate files. Exhausted classification leaves remaining hits unlabeled;
+it does not discard search results. Signature queries cache compiled queries,
+honor execution limits, and remove only nodes explicitly captured as `@body`.
+Helper captures used by predicates cannot remove signature lines.
 Execution limits instead carry staged diagnostics and an incomplete status.
 Completed files remain available, while exhausted matching cannot establish
 absence or satisfy a negation. Public tools preserve these diagnostics and
@@ -133,9 +139,9 @@ TypeScript implementation; see that doc's status before reviving the idea.
   `tree-sitter-java`, `tree-sitter-c`, `tree-sitter-cpp`,
   `tree-sitter-c-sharp`, `tree-sitter-ruby`, `tree-sitter-php`,
   `tree-sitter-kotlin-ng`, `tree-sitter-json`,
-  `tree-sitter-yaml`, `tree-sitter-toml-ng`, `tree-sitter-html`,
+  `tree-sitter-yaml`, `tree-sitter-html`,
   `tree-sitter-css`, `tree-sitter-scss`, `tree-sitter-scala`,
-  `tree-sitter-lua`, `tree-sitter-sequel`, `tree-sitter-zig`, and
+  `tree-sitter-sequel`, and
   `tree-sitter-swift`.
 
 ## Distribution

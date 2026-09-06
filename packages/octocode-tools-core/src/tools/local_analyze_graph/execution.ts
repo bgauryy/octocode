@@ -12,7 +12,8 @@ import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import { TOOL_NAMES } from '../toolMetadata/names.js';
 import { safeParseOrError } from '../utils.js';
-import { analyzeGraph, inferRootFromAbsoluteFile } from './analyzeGraph.js';
+import { analyzeGraph } from './analyzeGraph.js';
+import { inferRootFromAbsoluteFile } from './rootInference.js';
 import {
   type AnalyzeGraphOutput,
   type AnalyzeGraphQuery,
@@ -22,7 +23,7 @@ import {
 /**
  * When `path` is omitted, try to derive the repository root from the first
  * absolute file-like field in the query.  The walk stops at the nearest
- * `package.json`, matching the behaviour of the impl-level fallback in
+ * Cargo manifest for Rust or `package.json`, matching the impl-level fallback in
  * `analyzeGraph()` so both call paths are consistent.
  */
 function inferPathIfMissing(query: AnalyzeGraphQuery): AnalyzeGraphQuery {
@@ -33,7 +34,10 @@ function inferPathIfMissing(query: AnalyzeGraphQuery): AnalyzeGraphQuery {
   const q = query as { file?: string; target?: string; entrypoints?: string[] };
   const candidate = q.file ?? q.target ?? q.entrypoints?.[0];
   if (!candidate || !isAbsolute(candidate)) return query;
-  return { ...query, path: inferRootFromAbsoluteFile(candidate) };
+  return {
+    ...query,
+    path: inferRootFromAbsoluteFile(candidate, query.rustWorkspace),
+  };
 }
 
 export async function executeAnalyzeGraph(

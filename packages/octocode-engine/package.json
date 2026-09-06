@@ -1,22 +1,24 @@
 {
   "name": "@octocodeai/octocode-engine",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
-  "version": "18.3.0",
+  "version": "19.1.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
-    "@octocodeai/config": "18.3.0",
-    "pyright": "^1.1.411",
-    "typescript": "^5.9.3",
-    "typescript-language-server": "^4.4.0",
+    "@octocodeai/config": "19.1.0",
+    "bash-language-server": "^5.6.0",
+    "pyright": "^1.1.413",
+    "typescript": "^6.0.3",
+    "typescript-language-server": "^5.3.0",
     "vscode-langservers-extracted": "^4.10.0",
-    "yaml-language-server": "^1.23.0",
+    "yaml-language-server": "^1.24.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.2",
+    "@napi-rs/cli": "^3.9.0",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
   "engines": {
@@ -192,12 +194,12 @@
     ]
   },
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "18.3.0",
-    "@octocodeai/octocode-engine-darwin-x64": "18.3.0",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "18.3.0",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "18.3.0",
-    "@octocodeai/octocode-engine-linux-x64-musl": "18.3.0",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "18.3.0"
+    "@octocodeai/octocode-engine-darwin-arm64": "19.1.0",
+    "@octocodeai/octocode-engine-darwin-x64": "19.1.0",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "19.1.0",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "19.1.0",
+    "@octocodeai/octocode-engine-linux-x64-musl": "19.1.0",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "19.1.0"
   },
   "publishConfig": {
     "access": "public"

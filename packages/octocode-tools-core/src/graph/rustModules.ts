@@ -44,6 +44,16 @@ export function createRustModuleResolver(
 ) => ImportResolution {
   const modules = new Map<string, ModuleContext | null>();
   const contexts = new Map<string, ModuleContext[]>();
+  const bindings = new Map<string, NonNullable<RawGraphFacts['imports']>>();
+  for (const [file, source] of facts) {
+    for (const binding of source.imports ?? []) {
+      if (binding.importKind === 'module') continue;
+      const id = scopeKey(file, binding.moduleScope ?? []);
+      const values = bindings.get(id) ?? [];
+      values.push(binding);
+      bindings.set(id, values);
+    }
+  }
   const queue: ModuleContext[] = [];
   const maxContexts = Math.max(64, files.size * 8);
   let contextLimit = false;
@@ -162,7 +172,19 @@ export function createRustModuleResolver(
     }
   }
 
-  return (specifier, file, scope = [], _moduleDeclaration = false) => {
+  return (specifier, file, scope = [], _moduleDeclaration = false, line) => {
+    // Imported names can shadow extern-prelude names or stand for modules.
+    // Their resolution (including glob/reexport cycles) is intentionally not guessed.
+    const importedPrefix = (source: string, scope: string[], name: string) =>
+      (bindings.get(scopeKey(source, scope)) ?? []).some(
+        binding =>
+          !(
+            source === file &&
+            binding.line === line &&
+            binding.specifier === specifier
+          ) &&
+          (binding.localName === name || binding.importedName === '*')
+      );
     const parts = specifier.split('::');
     if (parts.some(part => !/^(?:[\p{L}_][\p{L}\p{N}_]*|\*)$/u.test(part)))
       return unsupported();
@@ -171,6 +193,7 @@ export function createRustModuleResolver(
     const owners = contexts.get(scopeKey(file, scope));
     if (!owners?.length)
       return standardLibrary &&
+        !importedPrefix(file, scope, qualifier) &&
         !facts.get(file)?.modules?.some(module => module.name === qualifier)
         ? { target: null, status: 'external' }
         : unsupported();
@@ -203,6 +226,12 @@ export function createRustModuleResolver(
           return unsupported();
         if (edition === '2015') path = [];
         if (!modules.has(key(root, [...path, qualifier]))) {
+          const namespace = modules.get(key(root, path));
+          if (
+            namespace &&
+            importedPrefix(namespace.file, namespace.scope, qualifier)
+          )
+            return unsupported();
           const dependency = dependencies.get(root)?.get(qualifier);
           if (!dependency)
             return standardLibrary
@@ -224,6 +253,11 @@ export function createRustModuleResolver(
         if (part === '*' && index === remaining.length - 1) break;
         const childId = key(root, [...path, part]);
         if (!modules.has(childId)) {
+          if (
+            index < remaining.length - 1 &&
+            importedPrefix(current.file, current.scope, part)
+          )
+            return unsupported();
           if (index === remaining.length - 1 && !_moduleDeclaration) break;
           return contextLimit ? unsupported() : missing();
         }

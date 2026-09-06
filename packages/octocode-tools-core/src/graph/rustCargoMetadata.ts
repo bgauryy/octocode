@@ -148,6 +148,7 @@ async function collectTargets(
             )
           : undefined;
       const members = directory ? (byDirectory.get(directory) ?? []) : [];
+      const internalPath = directory !== undefined && within(root, directory);
       const libraries =
         members.length === 1
           ? members[0]!.targets.filter(candidate =>
@@ -174,7 +175,7 @@ async function collectTargets(
         alias,
         packageName: dependency.name,
         ...(linked ? { targetId: linked.id } : {}),
-        external: members.length === 0,
+        external: members.length === 0 && !internalPath,
         conditional,
       });
       if (conditional)
@@ -182,10 +183,10 @@ async function collectTargets(
           code: 'cargo-conditional-dependency',
           message: `Dependency ${alias} of ${pkg.name} is conditional; metadata without dependency resolution does not establish an active import.`,
         });
-      else if (members.length && !linked)
+      else if ((members.length || internalPath) && !linked)
         diagnostics.push({
           code: 'cargo-workspace-dependency-unresolved',
-          message: `Workspace dependency ${alias} of ${pkg.name} has no unique library target in this scan.`,
+          message: `Local dependency ${alias} of ${pkg.name} has no unique workspace library target in this scan.`,
         });
     }
     if (!isBuild && !target.kind.some(kind => LIBRARY_KINDS.has(kind))) {

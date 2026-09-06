@@ -20,12 +20,32 @@ afterEach(async () => {
 });
 
 async function workspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'octocode-engine-manager-'));
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), 'octocode-engine-manager-')
+  );
   tempDirs.push(root);
   return root;
 }
 
 describe('native LSP manager', () => {
+  it('settles a fresh bundled Bash server before its first definition request', async () => {
+    const root = await workspace();
+    const file = path.join(root, 'main.sh');
+    const content =
+      '#!/usr/bin/env bash\ngreet() {\n  printf "hello"\n}\ngreet\n';
+    await writeFile(file, content);
+    const client = await acquirePooledClient(root, file);
+    expect(client).not.toBeNull();
+    expect(client!.getReadiness()).toBe('settledFallback');
+    const definitions = await client!.gotoDefinition(
+      file,
+      { line: 4, character: 0 },
+      content
+    );
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0]?.range.start.line).toBe(1);
+  }, 10_000);
+
   it('reports generic status', async () => {
     await expect(getLspStatus()).resolves.toMatchObject({
       enabled: true,

@@ -1,10 +1,37 @@
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{JsExactPosition, JsFuzzyPosition, JsResolvedSymbol};
+use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
 use napi::{Error, Result, Status};
 use std::fs;
+use std::io::Read;
+use std::time::Instant;
 use tree_sitter::Node;
 
 const DEFAULT_RADIUS: i32 = 5;
+const MAX_POSITION_SOURCE_BYTES: usize = 1_000_000;
+
+fn budget_error() -> Error {
+    Error::new(Status::GenericFailure, "[lspPositionTimeout] Symbol position analysis exceeded its time budget; narrow the source.")
+}
+
+fn check_budget(deadline: Instant) -> Result<()> {
+    if Instant::now() >= deadline {
+        Err(budget_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn check_source_size(size: usize) -> Result<()> {
+    if size > MAX_POSITION_SOURCE_BYTES {
+        Err(Error::new(
+            Status::GenericFailure,
+            "[lspSourceTooLarge] Symbol position source exceeds 1000000 bytes; narrow the source.",
+        ))
+    } else {
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 struct SymbolCandidate {
@@ -36,12 +63,44 @@ impl QuoteState {
 }
 
 pub fn resolve_position(file_path: String, fuzzy: JsFuzzyPosition) -> Result<JsResolvedSymbol> {
-    let content = fs::read_to_string(&file_path).map_err(|err| {
+    let metadata = fs::metadata(&file_path).map_err(|err| {
         Error::new(
             Status::GenericFailure,
             format!("Failed to read {file_path}: {err}"),
         )
     })?;
+    if !metadata.is_file() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Symbol position source must be a regular file",
+        ));
+    }
+    check_source_size(metadata.len().try_into().unwrap_or(usize::MAX))?;
+    let file = fs::File::open(&file_path).map_err(|err| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to read {file_path}: {err}"),
+        )
+    })?;
+    let metadata = file
+        .metadata()
+        .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;
+    if !metadata.is_file() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Symbol position source must be a regular file",
+        ));
+    }
+    check_source_size(metadata.len().try_into().unwrap_or(usize::MAX))?;
+    let mut content = String::new();
+    file.take((MAX_POSITION_SOURCE_BYTES + 1) as u64)
+        .read_to_string(&mut content)
+        .map_err(|err| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to read {file_path}: {err}"),
+            )
+        })?;
     resolve_position_with_path(&file_path, &content, &fuzzy)
 }
 
@@ -49,8 +108,10 @@ pub fn resolve_position_from_content(
     content: String,
     fuzzy: JsFuzzyPosition,
 ) -> Result<JsResolvedSymbol> {
+    check_source_size(content.len())?;
+    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
     let lines = normalized_lines(&content);
-    resolve_position_from_lines(&lines, &fuzzy)
+    resolve_position_from_lines(&lines, &fuzzy, deadline)
 }
 
 fn resolve_position_with_path(
@@ -58,30 +119,53 @@ fn resolve_position_with_path(
     content: &str,
     fuzzy: &JsFuzzyPosition,
 ) -> Result<JsResolvedSymbol> {
+    resolve_position_before(
+        file_path,
+        content,
+        fuzzy,
+        Instant::now() + AST_EXECUTION_TIMEOUT,
+    )
+}
+
+fn resolve_position_before(
+    file_path: &str,
+    content: &str,
+    fuzzy: &JsFuzzyPosition,
+    deadline: Instant,
+) -> Result<JsResolvedSymbol> {
+    check_source_size(content.len())?;
+    check_budget(deadline)?;
     let lines = normalized_lines(content);
-    if let Some(hit) = resolve_position_with_grammar(file_path, content, &lines, fuzzy) {
+    if let Some(hit) = resolve_position_with_grammar(file_path, content, &lines, fuzzy, deadline)? {
         return Ok(hit);
     }
-    resolve_position_from_lines(&lines, fuzzy)
+    resolve_position_from_lines(&lines, fuzzy, deadline)
 }
 
 fn resolve_position_from_lines(
     lines: &[&str],
     fuzzy: &JsFuzzyPosition,
+    deadline: Instant,
 ) -> Result<JsResolvedSymbol> {
+    check_budget(deadline)?;
     let order_hint = fuzzy.order_hint.unwrap_or(0) as usize;
 
     match fuzzy.line_hint {
-        None | Some(0) => scan_whole_file(lines, &fuzzy.symbol_name, order_hint).ok_or_else(|| {
-            Error::new(
-                Status::GenericFailure,
-                format!(
-                    "Could not find symbol '{}' anywhere in the file",
-                    fuzzy.symbol_name
-                ),
-            )
-        }),
-        Some(line_hint) => scan_near_line(lines, &fuzzy.symbol_name, line_hint, order_hint),
+        None | Some(0) => scan_whole_file(lines, &fuzzy.symbol_name, order_hint, deadline)?
+            .ok_or_else(|| {
+                Error::new(
+                    Status::GenericFailure,
+                    format!(
+                        "Could not find symbol '{}' anywhere in the file",
+                        fuzzy.symbol_name
+                    ),
+                )
+            }),
+        Some(line_hint) => {
+            let result = scan_near_line(lines, &fuzzy.symbol_name, line_hint, order_hint);
+            check_budget(deadline)?;
+            result
+        }
     }
 }
 
@@ -98,18 +182,24 @@ fn resolve_position_with_grammar(
     content: &str,
     lines: &[&str],
     fuzzy: &JsFuzzyPosition,
-) -> Option<JsResolvedSymbol> {
-    let spec = grammar_for_file(file_path)?;
-    let mut parser = spec.parser()?;
-    let tree = parser.parse(content, None)?;
+    deadline: Instant,
+) -> Result<Option<JsResolvedSymbol>> {
+    let Some(spec) = grammar_for_file(file_path) else {
+        return Ok(None);
+    };
+    let tree = spec
+        .parse_before(content, deadline)
+        .ok_or_else(budget_error)?;
     let root = tree.root_node();
     if root.has_error() {
-        return None;
+        return Ok(None);
     }
 
     let mut candidates = Vec::new();
-    collect_symbol_candidates(root, content, &fuzzy.symbol_name, &mut candidates);
-    pick_candidate(candidates, fuzzy, lines)
+    collect_symbol_candidates(root, content, &fuzzy.symbol_name, &mut candidates, deadline)?;
+    let result = pick_candidate(candidates, fuzzy, lines);
+    check_budget(deadline)?;
+    Ok(result)
 }
 
 fn collect_symbol_candidates(
@@ -117,18 +207,27 @@ fn collect_symbol_candidates(
     content: &str,
     symbol_name: &str,
     candidates: &mut Vec<SymbolCandidate>,
-) {
-    if is_ignored_node(node.kind()) {
-        return;
-    }
-
-    if let Some(candidate) = candidate_from_node(node, content, symbol_name) {
-        candidates.push(candidate);
-    }
-
-    for index in 0..node.named_child_count() {
-        if let Some(child) = node.named_child(index as u32) {
-            collect_symbol_candidates(child, content, symbol_name, candidates);
+    deadline: Instant,
+) -> Result<()> {
+    let mut cursor = node.walk();
+    loop {
+        check_budget(deadline)?;
+        let current = cursor.node();
+        if current.is_named() && !is_ignored_node(current.kind()) {
+            if let Some(candidate) = candidate_from_node(current, content, symbol_name) {
+                candidates.push(candidate);
+            }
+            if cursor.goto_first_child() {
+                continue;
+            }
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return Ok(());
+            }
         }
     }
 }
@@ -320,22 +419,25 @@ fn scan_whole_file(
     lines: &[&str],
     symbol_name: &str,
     order_hint: usize,
-) -> Option<JsResolvedSymbol> {
+    deadline: Instant,
+) -> Result<Option<JsResolvedSymbol>> {
     let mut first_match = None;
     for (index, line) in lines.iter().enumerate() {
+        check_budget(deadline)?;
         let hint = if first_match.is_none() { order_hint } else { 0 };
         let Some(character) = find_symbol_in_line(line, symbol_name, hint) else {
             continue;
         };
         let hit = hit_for(line, index, character, 0);
         if looks_like_declaration(line, symbol_name) {
-            return Some(hit);
+            return Ok(Some(hit));
         }
         if first_match.is_none() {
             first_match = Some(hit);
         }
     }
-    first_match
+    check_budget(deadline)?;
+    Ok(first_match)
 }
 
 fn hit_for(line: &str, line_index: usize, character: usize, line_offset: i32) -> JsResolvedSymbol {
@@ -426,8 +528,18 @@ fn has_word_boundaries(text: &str, start: usize, len: usize) -> bool {
 }
 
 fn is_ident(ch: Option<char>) -> bool {
-    ch.map(|c| c == '_' || c == '$' || c.is_ascii_alphanumeric())
-        .unwrap_or(false)
+    let Some(ch) = ch else { return false };
+    if ch.is_ascii() {
+        return ch == '_' || ch == '$' || ch.is_ascii_alphanumeric();
+    }
+    // Use a conservative cross-language identifier boundary, including combining
+    // marks and ECMAScript join controls. ASCII-only boundaries can bind a
+    // requested name to a different Unicode identifier.
+    static IDENT_CONTINUE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^[\p{ID_Continue}\u{200C}\u{200D}]$")
+            .expect("valid Unicode identifier boundary")
+    });
+    IDENT_CONTINUE.is_match(ch.encode_utf8(&mut [0; 4]))
 }
 
 fn strip_line_comment(line: &str) -> &str {
@@ -483,6 +595,101 @@ mod tests {
     use crate::lsp::types::JsFuzzyPosition;
 
     #[test]
+    fn oversized_position_source_returns_limit_instead_of_a_symbol() {
+        let source = format!("const target = 1;\n{}", " ".repeat(1_000_000));
+        let result = resolve_position_with_path(
+            "demo.ts",
+            &source,
+            &JsFuzzyPosition {
+                symbol_name: "target".to_owned(),
+                line_hint: Some(1),
+                order_hint: None,
+            },
+        );
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("oversized source must be bounded"),
+        };
+        assert!(
+            error.reason.contains("[lspSourceTooLarge]"),
+            "{}",
+            error.reason
+        );
+    }
+
+    #[test]
+    fn expired_position_budget_does_not_fall_back_to_a_lexical_hit() {
+        for file in ["demo.ts", "demo.unknown"] {
+            let result = super::resolve_position_before(
+                file,
+                "const target = 1;",
+                &JsFuzzyPosition {
+                    symbol_name: "target".to_owned(),
+                    line_hint: Some(1),
+                    order_hint: None,
+                },
+                std::time::Instant::now(),
+            );
+            let error = match result {
+                Err(error) => error,
+                Ok(_) => panic!("expired analysis must fail"),
+            };
+            assert!(error.reason.contains("[lspPositionTimeout]"));
+        }
+    }
+
+    #[test]
+    fn expired_walk_budget_discards_partial_candidates() {
+        let source = "const target = 1;";
+        let spec = super::grammar_for_file("demo.ts").unwrap();
+        let tree = spec
+            .parse_before(
+                source,
+                std::time::Instant::now() + super::AST_EXECUTION_TIMEOUT,
+            )
+            .unwrap();
+        let mut candidates = Vec::new();
+        let result = super::collect_symbol_candidates(
+            tree.root_node(),
+            source,
+            "target",
+            &mut candidates,
+            std::time::Instant::now(),
+        );
+        assert!(result
+            .expect_err("walk budget must fail")
+            .reason
+            .contains("[lspPositionTimeout]"));
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn deeply_nested_position_walk_is_bounded_without_recursive_stack_growth() {
+        let source = format!(
+            "const target = {}1{};",
+            "(".repeat(10_000),
+            ")".repeat(10_000)
+        );
+        let result = super::resolve_position_with_path(
+            "demo.ts",
+            &source,
+            &JsFuzzyPosition {
+                symbol_name: "target".to_owned(),
+                line_hint: Some(1),
+                order_hint: None,
+            },
+        );
+        match result {
+            Ok(hit) => assert_eq!(hit.position.character, 6),
+            Err(error) => assert!(
+                error.reason.contains("[lspPositionTimeout]"),
+                "{}",
+                error.reason
+            ),
+        }
+    }
+
+    #[test]
     fn byte_offset_converts_to_utf16_character() {
         // 'é' = 2 UTF-8 bytes / 1 UTF-16 unit: "target" starts at byte 8, char 7.
         assert_eq!(byte_offset_to_utf16("const étarget = 1;", 8), 7);
@@ -509,11 +716,66 @@ mod tests {
 
     #[test]
     fn resolves_utf16_character_for_non_ascii_prefix() {
-        // 'é' before the symbol → LSP character must be UTF-16 (7), not byte (8).
+        // The prefix contains both a BMP character and a surrogate pair.
+        let prefix = "const label = 'é🌍'; const ";
         assert_eq!(
-            resolve_char("demo.ts", "const étarget = 1;\n", "target", 1),
-            7
+            resolve_char("demo.ts", &format!("{prefix}target = 1;\n"), "target", 1),
+            prefix.encode_utf16().count() as u32
         );
+    }
+
+    #[test]
+    fn unicode_identifier_substrings_are_not_symbol_anchors() {
+        for identifier in [
+            "étarget",
+            "targeté",
+            "target\u{301}",
+            "℘target",
+            "target\u{200c}tail",
+            "東京target",
+            "𐐀target",
+        ] {
+            let source = format!("const {identifier} = 1;\n");
+            for file_name in ["demo.ts", "demo.unknown"] {
+                assert!(
+                    resolve_position_with_path(
+                        file_name,
+                        &source,
+                        &JsFuzzyPosition {
+                            symbol_name: "target".to_owned(),
+                            line_hint: Some(1),
+                            order_hint: None,
+                        }
+                    )
+                    .is_err(),
+                    "must not resolve target inside {identifier} in {file_name}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn complete_unicode_identifiers_keep_utf16_positions() {
+        let prefix = "const label = 'é🌍'; const ";
+        for identifier in [
+            "étarget",
+            "targeté",
+            "target\u{301}",
+            "℘target",
+            "target\u{200c}tail",
+            "東京target",
+            "𐐀target",
+            "$target",
+        ] {
+            let source = format!("{prefix}{identifier} = 1;\n");
+            for file_name in ["demo.ts", "demo.unknown"] {
+                assert_eq!(
+                    resolve_char(file_name, &source, identifier, 1),
+                    prefix.encode_utf16().count() as u32,
+                    "{identifier} in {file_name}"
+                );
+            }
+        }
     }
 
     fn resolve(file_name: &str, source: &str, symbol_name: &str, line_hint: u32) -> u32 {

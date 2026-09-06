@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Use when a live page needs Chrome DevTools/CDP evidence: network failures, console errors, performance, DOM/CSS actionability, screenshots/PDF, cookies/storage, click/fill/search, HAR, or auth-gated pages. Phrases like debug in Chrome, live page health, CDP snapshot, cookie bridge. Not for static crawl or bulk extract (use octocode-scraping)."
+description: "Use when live-page Chrome DevTools/CDP evidence is needed: console, network, DOM/CSS, performance, or automation."
 ---
 
 # Octocode Chrome DevTools

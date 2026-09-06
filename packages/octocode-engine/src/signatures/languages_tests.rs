@@ -6,7 +6,7 @@ use tree_sitter::{Parser, Query};
 fn excluded_grammars_report_unsupported_across_native_capabilities() {
     for ext in [
         "sh", "bash", "zsh", "vue", "svelte", "astro", "dart", "less", "ml", "mli", "jl", "r",
-        "erl", "hrl", "ex", "exs", "tf", "hcl", "tfvars", "proto",
+        "erl", "hrl", "ex", "exs", "tf", "hcl", "tfvars", "proto", "toml", "lua", "zig",
     ] {
         assert!(find_entry(ext).is_none(), ".{ext} must not load a grammar");
         assert!(!supported_extensions().contains(&ext));
@@ -26,6 +26,21 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
             "structural.language.unsupported"
         );
     }
+}
+
+#[test]
+fn removed_languages_have_no_analysis_minifier_or_builtin_server_route() {
+    for ext in ["toml", "lua", "zig"] {
+        let file = format!("fixture.{ext}");
+        assert!(crate::signatures::extract_signatures_inner("target(value);", &file).is_none());
+        assert!(crate::signatures::extract_graph_facts_inner("target(value);", &file).is_none());
+        assert!(!crate::signatures::graph_facts::graph_fact_extensions()
+            .iter()
+            .any(|item| item == ext));
+        assert!(!crate::minify::config::minify_config().contains_key(ext));
+        assert!(crate::lsp::config::detect_language_id(file).is_none());
+    }
+    assert!(crate::minify::comment_remover::rules_for("lua").is_none());
 }
 
 #[test]
@@ -73,16 +88,13 @@ fn fixture(ext: &str) -> &'static str {
         "rb" => "def target(value)\n  body_marker = value + 1\n  body_marker\nend\n",
         "php" => "<?php\nfunction target($value) {\n  $body_marker = $value + 1;\n  return $body_marker;\n}\n",
         "kt" => "fun target(value: Int): Int {\n  val body_marker = value + 1\n  return body_marker\n}\n",
-        "lua" => "function target(value)\n  local body_marker = value + 1\n  return body_marker\nend\n",
         "sql" => "SELECT target FROM users WHERE active = true;\n",
-        "zig" => "fn target(value: i32) i32 {\n  const body_marker = value + 1;\n  return body_marker;\n}\n",
         "html" => "<div id=\"target\"><span>value</span></div>\n",
         "css" => ".target { color: red; }\n",
         "scss" => "$color: red;\n.target { color: $color; }\n",
         "scala" => "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = value + 1\n    body_marker\n  }\n}\n",
         "json" => "{\"target\": true}\n",
         "yaml" => "target: true\n",
-        "toml" => "target = true\n",
         "swift" => "func target(value: Int) -> Int {\n  let body_marker = value + 1\n  return body_marker\n}\n",
         _ => panic!("missing grammar fixture for .{ext}"),
     }
@@ -118,7 +130,16 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                 let grammar = crate::lsp::grammar::grammar_for_file(&file)
                     .unwrap_or_else(|| panic!("missing LSP grammar for .{ext}"));
                 assert_eq!(grammar.language_id, language_id, ".{ext}");
-                assert!(grammar.parser().is_some(), ".{ext}: LSP parser ABI");
+                assert!(
+                    grammar
+                        .parse_before(
+                            "",
+                            std::time::Instant::now()
+                                + crate::signatures::extractor::AST_EXECUTION_TIMEOUT
+                        )
+                        .is_some(),
+                    ".{ext}: LSP parser ABI"
+                );
             }
         }
     }

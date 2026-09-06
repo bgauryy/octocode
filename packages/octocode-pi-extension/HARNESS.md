@@ -285,7 +285,7 @@ Resolved by `getAssetPaths()` in `src/assets.ts`.
  1  flag                     (--no-context)
 12  lifecycle hooks          (hookComposer; session_start pre-warms MCP catalog)
     direct pi.on handlers    (metrics, UI, worker inbox, Awareness, and Pi-owned compaction observation)
-11  bundled skills           (octocode CLI skill set; awareness excluded)
+14  bundled skills           (13 from octocode CLI + octocode-architect from awareness pkg; octocode-awareness coordination skill excluded)
  5  worker profiles          (researcher, architect, planner, browser, custom)
  1  built-in MCP server      (octocode — cache-first npx, pre-warmed at session start)
  1  composed system prompt     (shared policy + Awareness + Pi engineering delta)

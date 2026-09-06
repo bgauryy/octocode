@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::LazyLock;
-use tree_sitter::{Language, Parser};
+use tree_sitter::Language;
 
 use crate::signatures::languages;
 
@@ -11,10 +11,12 @@ pub struct GrammarSpec {
 }
 
 impl GrammarSpec {
-    pub fn parser(&self) -> Option<Parser> {
-        let mut parser = Parser::new();
-        parser.set_language(&self.language).ok()?;
-        Some(parser)
+    pub(crate) fn parse_before(
+        &self,
+        content: &str,
+        deadline: std::time::Instant,
+    ) -> Option<tree_sitter::Tree> {
+        crate::signatures::extractor::parse_before(content, &self.language, deadline)
     }
 }
 
@@ -105,7 +107,6 @@ mod tests {
             ("demo.cs", "csharp", "class Target { void target() {} }\n"),
             ("demo.json", "json", "{\"target\": true}\n"),
             ("demo.yaml", "yaml", "target: true\n"),
-            ("demo.toml", "toml", "target = true\n"),
             ("demo.html", "html", "<div id=\"target\"></div>\n"),
             ("demo.css", "css", ".target { color: red; }\n"),
             ("demo.scss", "scss", ".target { color: red; }\n"),
@@ -116,10 +117,10 @@ mod tests {
                 panic!("missing grammar for {file_name}");
             };
             assert_eq!(spec.language_id, language_id);
-            let Some(mut parser) = spec.parser() else {
-                panic!("failed to create parser for {file_name}");
-            };
-            let Some(tree) = parser.parse(source, None) else {
+            let Some(tree) = spec.parse_before(
+                source,
+                std::time::Instant::now() + crate::signatures::extractor::AST_EXECUTION_TIMEOUT,
+            ) else {
                 panic!("failed to parse {file_name}");
             };
             assert!(

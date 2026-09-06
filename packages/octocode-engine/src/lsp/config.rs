@@ -315,23 +315,17 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_KOTLIN_SERVER_PATH"),
         },
-        ".lua" => ServerSpec {
-            language_id: "lua",
-            command: "lua-language-server",
-            args: &[],
-            env_var: Some("OCTOCODE_LUA_SERVER_PATH"),
-        },
         ".ex" | ".exs" => ServerSpec {
             language_id: "elixir",
             command: "elixir-ls",
             args: &[],
             env_var: Some("OCTOCODE_ELIXIR_SERVER_PATH"),
         },
-        ".zig" => ServerSpec {
-            language_id: "zig",
-            command: "zls",
+        ".scala" | ".sc" => ServerSpec {
+            language_id: "scala",
+            command: "metals",
             args: &[],
-            env_var: Some("OCTOCODE_ZIG_SERVER_PATH"),
+            env_var: Some("OCTOCODE_SCALA_SERVER_PATH"),
         },
         _ => return None,
     };
@@ -601,6 +595,17 @@ mod tests {
     }
 
     #[test]
+    fn routes_scala_to_metals_without_spurious_stdio_arguments() {
+        for extension in [".scala", ".sc"] {
+            let spec = super::spec_for_extension(extension).expect("Scala provider");
+            assert_eq!(spec.language_id, "scala");
+            assert_eq!(spec.command, "metals");
+            assert!(spec.args.is_empty());
+            assert_eq!(spec.env_var, Some("OCTOCODE_SCALA_SERVER_PATH"));
+        }
+    }
+
+    #[test]
     fn detects_protocol_language_ids_with_grammar_fallback() {
         let cases = [
             ("demo.ts", "typescript"),
@@ -618,7 +623,6 @@ mod tests {
             ("demo.sh", "shellscript"),
             ("demo.json", "json"),
             ("demo.yaml", "yaml"),
-            ("demo.toml", "toml"),
             ("demo.html", "html"),
             ("demo.css", "css"),
             ("demo.scss", "scss"),
