@@ -48,7 +48,7 @@ process.stdout.write(JSON.stringify({ embedding: [1, 2, 3], model: 'unit', echo:
       expect(() => runHostEmbedder('hello', { command })).toThrow('exited 7: bad key');
     });
     expect(() => runHostEmbedder('hello', {
-      command: 'node -e "setTimeout(() => {}, 1000)"',
+      command: `${process.execPath} -e "setTimeout(() => {}, 1000)"`,
       timeoutMs: 1,
     })).toThrow('OCTOCODE_EMBED_CMD failed to start');
   });

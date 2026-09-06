@@ -8,11 +8,11 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 
 | Area | Source contract |
 |---|---|
-| Main-agent policy | [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts): shared policy and Awareness prompt plus the Pi engineering delta |
+| Main-agent policy | [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts): concise host facts; the user determines workflow and response format |
 | Context assembly and lifecycle | [`src/index.ts`](src/index.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) |
 | Direct tool names | [`src/constants.ts`](src/constants.ts); registration in `registerSupportToolPhase` |
 | MCP discovery and execution | [`src/tools/mcp-tool.ts`](src/tools/mcp-tool.ts) and [`src/tools/mcp-config.ts`](src/tools/mcp-config.ts) |
-| Skills | [`src/tools/skill-tool.ts`](src/tools/skill-tool.ts); bundled inventory in [README.md](README.md#bundled-skills-12) |
+| Skills | [`src/tools/skill-tool.ts`](src/tools/skill-tool.ts); bundled inventory in [README.md](README.md#bundled-skills-14) |
 | Plan projection | [`src/tools/plan-read-model.ts`](src/tools/plan-read-model.ts) |
 
 This reference does not assign quality grades or claim token savings without a measured baseline.
@@ -23,14 +23,11 @@ This reference does not assign quality grades or claim token savings without a m
 
 ### 2.1 Composition
 
-The full system prompt injected by the extension is the concatenation of:
-
-```
-buildOctocodeSystemPrompt(EXTERNAL_AGENT_AWARENESS_PROMPT)
-  └── @octocodeai/agent-contracts/prompts  (base Octocode policy)
-  └── EXTERNAL_AGENT_AWARENESS_PROMPT      (Awareness coordination rules)
-+ <engineering> block                      (src/prompts/system-prompt.ts — THINK→PLAN→CODE→REVIEW)
-```
+The extension adds a short `<octocode>` block describing host capabilities, the
+user’s ownership of workflow, trust boundaries, and `/configuration`. It does not
+inject repository-state snapshots, regex-triggered instructions, or a mandatory
+engineering workflow. Tool catalogs and explicitly selected skills provide their
+own capability descriptions.
 
 Source: `src/prompts/system-prompt.ts` → `SYSTEM_PROMPT`.
 Bundled artifact: `dist/system/SYSTEM_PROMPT.md`.
@@ -66,8 +63,8 @@ load or list call; the initial prompt inventory stays frozen.
 
 | File | Content |
 |---|---|
-| `src/prompts/system-prompt.ts` | `SYSTEM_PROMPT` constant (base + engineering) |
-| `src/prompts/plan-prompt.ts` | Builds the Pi review-and-Start workflow, using shared goal length and truncation constants |
+| `src/prompts/system-prompt.ts` | `SYSTEM_PROMPT` constant (concise host facts) |
+| `src/prompts/plan-prompt.ts` | Describes current plan state using shared goal length and truncation constants |
 | `@octocodeai/agent-contracts/prompts` | Defines shared worker prompt fragments and expansion; build and tests import the owner directly |
 
 ---
@@ -167,7 +164,7 @@ first main-agent before_agent_start
 ### 4.1 Bundled skills
 
 The build places bundled skills in `dist/skills/`. See the
-[README inventory](README.md#bundled-skills-12) for names. The inventory is checked
+[README inventory](README.md#bundled-skills-14) for names. The inventory is checked
 by `tests/docs-consistency.test.ts`; `tests/package.test.ts` checks bundled artifacts.
 
 ### 4.2 Discovery sources
@@ -387,6 +384,5 @@ Never reimplement — import from `@octocodeai/config`.
 |---|---|---|
 | Frozen routing catalogs can differ from live execution discovery | Operational constraint | Use `skill` list for enabled skill changes; start `/new` for an updated MCP routing prompt |
 | Skill loading returns a bounded first page and supporting-file preview | Recovery contract | `src/tools/skill-tool.ts` reports typed partial reasons and executable `MCPTool` continuations. Follow content pages before acting; merge file discovery results with the preview and follow their continuations. |
-| Schema field name surprises (`searchText`, `type` for lsp) | Medium | Always call `MCPTool action:"describe"` first; add a schema cheat-sheet to SYSTEM_PROMPT |
+| Schema field name surprises (`searchText`, `type` for lsp) | Medium | `MCPTool action:"describe"` exposes the current schema before execution |
 | Plan HTML uses meta-refresh (3s) | Transport constraint | Refresh behavior is separate from the plan state and review transaction |
-| `buildOctocodeSystemPrompt` lives in external `octocode-agent-contracts` | Low | Prompt changes need an `octocode-agent-contracts` release; mitigated by the engineering block inlined here |

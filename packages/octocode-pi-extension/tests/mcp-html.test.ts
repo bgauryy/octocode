@@ -11,12 +11,15 @@ import { projectMcpPath } from '../src/tools/mcp-config.js';
 
 const originalHome = process.env['OCTOCODE_HOME'];
 const originalCompactMcp = process.env['OCTOCODE_COMPACT_MCP'];
+const originalStorageMode = process.env['OCTOCODE_STORAGE_MODE'];
 const roots: string[] = [];
 afterEach(() => {
   if (originalHome === undefined) delete process.env['OCTOCODE_HOME'];
   else process.env['OCTOCODE_HOME'] = originalHome;
   if (originalCompactMcp === undefined) delete process.env['OCTOCODE_COMPACT_MCP'];
   else process.env['OCTOCODE_COMPACT_MCP'] = originalCompactMcp;
+  if (originalStorageMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
+  else process.env['OCTOCODE_STORAGE_MODE'] = originalStorageMode;
   while (roots.length) fs.rmSync(roots.pop()!, { recursive: true, force: true });
   setFooterDensity('default');
   setPermissionLevel('default');
@@ -51,6 +54,23 @@ test('configuration explains unavailable persistence and disables only database-
     if (previousMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
     else process.env['OCTOCODE_STORAGE_MODE'] = previousMode;
   }
+});
+
+test('configuration reports an unreadable database without changing it', async () => {
+  process.env['OCTOCODE_STORAGE_MODE'] = 'persistent';
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-broken-settings-'));
+  roots.push(root);
+  process.env['OCTOCODE_HOME'] = path.join(root, 'home');
+  const dbPath = path.join(root, 'home', 'extension', 'state', 'extension.sqlite3');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const original = Buffer.from('This is not a SQLite database.');
+  fs.writeFileSync(dbPath, original);
+  const html = await renderMcpManagerPage({ cwd: root, isProjectTrusted: () => true } as PiContext);
+  assert.match(html, /Saved enablement is unavailable/);
+  assert.match(html, /data-action="disable"[^>]*disabled/);
+  assert.doesNotMatch(html, /data-action="set-footer-density"[^>]*disabled/);
+  assert.match(html, /file is not a database/);
+  assert.deepEqual(fs.readFileSync(dbPath), original);
 });
 
 test('settings actions use canonical optimistic revisions and redacted provenance', async () => {

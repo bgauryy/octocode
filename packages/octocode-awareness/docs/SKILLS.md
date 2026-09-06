@@ -11,17 +11,19 @@ separate from Agent runtime and control databases.
 Requires Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (`node:sqlite` without an experimental flag).
 
 ```bash
+npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
+# After approval, rerun without --dry-run.
 npx @octocodeai/octocode-awareness maintenance init --compact
 ```
 
-The host or package manager owns installation of the bundled skill. Do not derive
-destination paths or copy package internals from an agent prompt. Initialization is
-deterministic and safe to repeat.
+The CLI resolves and copies its own bundled skill. Use `skill install --help` for
+host-specific user/project destinations; do not derive package paths in a prompt.
+Initialization is deterministic and safe to repeat.
 
 The package bundles only the Awareness skill for the collaboration lifecycle. The
 separately owned `octocode-orchestrator` skill remains in the sibling
 [`octocode-agent` repository](https://github.com/bgauryy/octocode-agent/tree/main/skills/octocode-orchestrator).
-Install other workflow skills separately with `npx octocode skill --name <skill>`
+Install other workflow skills separately with `npx octocode skill install <skill>`
 when that work is needed. Discover the package-bundled list with
 `npx @octocodeai/octocode-awareness --help` — do not hardcode a skill list from prose.
 
