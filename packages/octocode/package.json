@@ -8,7 +8,6 @@
   "dependencies": {
     "@inquirer/prompts": "^8.7.1",
     "@octocodeai/config": "18.3.0",
-    "@octocodeai/octocode-core": "18.3.0",
     "@octocodeai/octocode-engine": "18.3.0",
     "@octocodeai/octocode-tools-core": "18.3.0",
     "@octokit/auth-oauth-device": "^8.0.5",
@@ -27,7 +26,7 @@
     "zod": "^4.5.4"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "files": [
     "out",

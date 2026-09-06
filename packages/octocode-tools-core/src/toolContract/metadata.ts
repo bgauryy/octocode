@@ -1,5 +1,5 @@
 import { SYSTEM_PROMPT } from '@octocodeai/octocode-core';
-import { baseSchemaDescriptions, toolNames } from './schemas.js';
+import { baseSchemaDescriptions, toolNames } from './input/resources/global.js';
 import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '../tools/directToolCatalog/toolCatalogDefinitions.js';
 
 /** Shared prompt plus the canonical tools-core-owned executable catalog. */

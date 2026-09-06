@@ -2,13 +2,10 @@ import { c, bold, dim } from '../../utils/colors.js';
 import { select, input } from '../../utils/prompts.js';
 import { separatorChoice } from '../../utils/prompt-separator.js';
 import { openInEditor } from '../../utils/platform.js';
-import {
-  readMCPConfig,
-  getMCPConfigPath,
-  isOctocodeConfigured,
-  MCP_CLIENTS,
-} from '../../utils/mcp-config.js';
-import { selectMCPClient } from '../install/prompts.js';
+import { readMCPConfig } from '../../utils/mcp-io.js';
+import { getMCPConfigPath, MCP_CLIENTS } from '../../utils/mcp-paths.js';
+import { isOctocodeConfigured } from '../../utils/mcp-config.js';
+import { selectMCPClient } from '../install/prompts/client-select.js';
 import {
   ALL_CONFIG_OPTIONS,
   getExampleValue,

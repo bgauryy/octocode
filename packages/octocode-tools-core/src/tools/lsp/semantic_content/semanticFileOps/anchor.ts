@@ -155,10 +155,6 @@ export async function resolveWorkspaceSymbolAnchor(
   return workspaceRoot;
 }
 
-export function lspErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /**
  * Native JS/TS document symbols via oxc, parsed into the LSP `DocumentSymbol[]`
  * shape. Returns `null` when oxc declines the input so the caller can fall back

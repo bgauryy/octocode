@@ -83,7 +83,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { storeCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       const creds = createTestCredentials();
       vi.mocked(shared.storeCredentials).mockResolvedValue({ success: true });
@@ -98,7 +98,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
   describe('getCredentials', () => {
     it('should return null when no credentials exist', async () => {
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       const result = await getCredentials('github.com');
 
@@ -109,7 +109,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       const creds = createTestCredentials();
       vi.mocked(shared.getCredentials).mockResolvedValue(creds);
@@ -125,7 +125,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { getCredentialsSync } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       getCredentialsSync('github.com');
 
@@ -138,7 +138,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { deleteCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.deleteCredentials).mockResolvedValue({
         success: true,
@@ -157,7 +157,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.isTokenExpired).mockReturnValue(false);
 
@@ -171,7 +171,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.isTokenExpired).mockReturnValue(true);
 
@@ -194,7 +194,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { refreshAuthToken } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.refreshAuthToken).mockResolvedValue({
         success: true,
@@ -214,7 +214,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { getTokenWithRefresh } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.getTokenWithRefresh).mockResolvedValue({
         token: 'test-token',
@@ -232,7 +232,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { getTokenWithRefresh } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.getTokenWithRefresh).mockResolvedValue({
         token: null,
@@ -250,7 +250,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { getCredentialsFilePath } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.getCredentialsFilePath).mockReturnValue(
         '/home/user/.octocode/credentials.json'
@@ -267,7 +267,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { resolveTokenFull } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.resolveTokenFull).mockResolvedValue({
         token: 'full-token',
@@ -285,7 +285,7 @@ describe('Token Storage (CLI re-exports from @octocodeai/octocode-tools-core)', 
       const shared =
         await import('@octocodeai/octocode-tools-core/credentials');
       const { resolveTokenFull } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(shared.resolveTokenFull).mockResolvedValue(null);
 

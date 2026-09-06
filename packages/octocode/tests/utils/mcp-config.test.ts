@@ -35,15 +35,13 @@ describe('MCP Config Utilities', () => {
 
   describe('getMCPConfigPath', () => {
     it('should return Cursor config path for macOS', async () => {
-      const { getMCPConfigPath } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
 
       expect(getMCPConfigPath('cursor')).toBe('/Users/test/.cursor/mcp.json');
     });
 
     it('should return Claude Desktop config path for macOS', async () => {
-      const { getMCPConfigPath } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
 
       expect(getMCPConfigPath('claude-desktop')).toBe(
         '/Users/test/Library/Application Support/Claude/claude_desktop_config.json'
@@ -51,15 +49,13 @@ describe('MCP Config Utilities', () => {
     });
 
     it('should return Claude Code config path', async () => {
-      const { getMCPConfigPath } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
 
       expect(getMCPConfigPath('claude-code')).toBe('/Users/test/.claude.json');
     });
 
     it('should return Windsurf config path', async () => {
-      const { getMCPConfigPath } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
 
       expect(getMCPConfigPath('windsurf')).toBe(
         '/Users/test/.codeium/windsurf/mcp_config.json'

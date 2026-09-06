@@ -25,9 +25,8 @@ def read_metrics(path: Path) -> dict[str, object]:
             if not line.strip():
                 continue
             record = json.loads(line)
-            default_in = int(record.get("out_chars", record.get("chars", 0)))
-            model_in += int(record.get("model_in_chars", default_in))
-            model_out += int(record.get("model_out_chars", 0))
+            model_in += int(record["model_in_chars"])
+            model_out += int(record["model_out_chars"])
             if record.get("kind") == "answer":
                 answers += 1
                 continue
@@ -38,8 +37,8 @@ def read_metrics(path: Path) -> dict[str, object]:
                 if int(record.get("source_exit_code", -1)) != 0:
                     failed_calls += 1
             else:
-                raw += int(record["chars"])
-                chars += int(record["chars"])
+                raw += int(record["model_in_chars"])
+                chars += int(record["model_in_chars"])
                 if int(record.get("exit_code", -1)) != 0:
                     failed_calls += 1
             transforms.update(str(item) for item in record.get("transforms", []))

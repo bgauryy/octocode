@@ -17,6 +17,7 @@ export interface ToolSuccessResult extends ToolResult {
 }
 
 export interface PaginationInfo {
+  pageCountsKind?: 'estimated';
   currentPage: number;
   totalPages: number;
   hasMore: boolean;

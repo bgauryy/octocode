@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import {
   createResponseFormat,
   sanitizeStructuredContent,

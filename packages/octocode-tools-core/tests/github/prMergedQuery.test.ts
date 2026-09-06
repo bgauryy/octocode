@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPullRequestSearchQuery } from '../../src/github/queryBuilders.js';
+import { buildPullRequestSearchQuery } from '../../src/github/queryBuilders/pullRequests.js';
 
 /**
  * Regression for `pr --state merged` returning empty. The provider maps

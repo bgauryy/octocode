@@ -30,8 +30,7 @@ export function parseFetchResult(
 ): FetchFileData | FetchDirectoryData {
   const structured = result.structuredContent as
     FetchStructuredContent | undefined;
-  const first = structured?.results?.[0];
-  const data = first?.data ?? first;
+  const data = structured?.results?.[0]?.data;
   if (kind === 'file') return data?.files?.[0] ?? {};
   return data?.directories?.[0] ?? {};
 }

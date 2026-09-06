@@ -1,9 +1,9 @@
+import type { PlanPhase } from './plan-domain.js';
 import path from 'node:path';
 import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
 import type { PiContext, PiInstance } from '../types.js';
 import {
   activePlanScope,
-  type PlanPhase,
 } from './active-plan.js';
 import { getCurrentPlanReadModel, renderPlanContext } from './plan-read-model.js';
 import { setManagedActivity } from './runtime-renderer.js';
@@ -16,7 +16,7 @@ import {
   resolveRehydrationContentRefs,
   type RehydrationLedgerV1,
 } from './session-artifacts.js';
-import { isPersistentStorageEnabled } from '../env.js';
+import { isPersistentStorageEnabled } from '@octocodeai/config';
 import { openPersistentAwareness } from './storage-policy.js';
 
 export const REHYDRATION_RECEIPT_ENTRY_TYPE = 'octocode-rehydration-receipt';

@@ -31,7 +31,7 @@ formats it for a terminal.
     command are intentionally removed; use `tools <name>` for research.
   - **Management commands** (`install`, `auth`/`login`/`logout`, `status`) —
     eagerly loaded; manage setup, credentials, and environment state.
-- `src/cli/tool-command.ts` — the raw `tools <name>` / `context` surface. Bridges
+- `src/cli/tool-command/` — the raw `tools <name>` / `context` surface. Bridges
   directly to `octocode-tools-core/direct` (`executeDirectTool`, schema text,
   display fields) for power users and agents.
 - `src/ui/` — interactive TUI: the menu loop (`menu.ts`), install flow
@@ -45,25 +45,28 @@ formats it for a terminal.
   `scripts/validate-*.ts`.
 - `src/utils/` — terminal primitives (colors, spinner, prompts), MCP config I/O,
   token storage, platform/shell/fs helpers, and frontmatter parsing.
+  MCP client discovery and paths come from `mcp-paths.ts`; config reads and
+  writes come from `mcp-io.ts`. `mcp-config.ts` owns configuration composition
+  and installation status, using the shared client inventory.
 
 ## Build
 
 - `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
-  (ESM, minified, code-split, with a CJS-compat banner and a `#!/usr/bin/env node`
-  shebang).
-- A custom source alias resolves `@octocodeai/octocode-tools-core` to workspace
-  source and bundles that code into the CLI output. The package manifest also
-  declares the published tools-core package as a runtime dependency.
-- Other published runtime dependencies, especially
-  `@octocodeai/octocode-engine`, `@octocodeai/octocode-core`, and `zod`, stay
-  **external** so npm resolves them normally. The native `.node` binary comes
-  from the engine package's platform `optionalDependencies`.
+  (ESM, minified, code-split, with a `#!/usr/bin/env node` shebang).
+- Published runtime dependencies, including
+  `@octocodeai/octocode-tools-core` and `@octocodeai/octocode-engine`, stay
+  external so each package owns and resolves its own dependency graph. The
+  native `.node` binary comes from the engine package's platform
+  `optionalDependencies`.
+- The build inspects esbuild's metafile and fails if output contains a bare
+  external import that the CLI does not declare as a runtime dependency.
 - `__APP_VERSION__` is injected at build time from `package.json`.
 
 ## Publish Boundary
 
 Publish runtime prerequisites before the CLI: engine platform packages, the
-engine root, config/core/tools-core, and then `octocode`.
+engine root, config/core/tools-core, and then `octocode`. The CLI declares only
+the packages it imports directly; tools-core owns core and its other transitives.
 
 ## Rules
 

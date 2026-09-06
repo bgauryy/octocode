@@ -439,11 +439,9 @@ export declare const SUPPORTED_STRUCTURAL_EXTENSIONS: readonly string[]
  * Returns a sorted list of JS char offsets (UTF-16 code units) where
  * top-level semantic blocks begin in `content`.
  *
- * **Tree-sitter** (exact AST): `ts tsx js jsx mjs cjs py go rs java c h sh bash zsh`
- * **Heuristic** (pattern-based): `cpp hpp cc cxx cs kt kotlin scala rb php swift
- *   css scss less html htm sql vue svelte ex exs hs lhs md lua` + 10 more
- * **Returns `[]`** for data/config files (`json yaml toml ini csv xml …`),
- *   plain text, and files above the 1 MB guard.
+ * Uses registered Tree-sitter body queries; see `getSupportedSignatureExtensions`
+ * for the compiled language set. Unsupported and structural-only languages
+ * return `[]`, as do plain text and files above the 1 MB guard.
  *
  * Char offsets match JavaScript `string.substring()` — pass them directly to
  * JavaScript string slicing without conversion.
@@ -453,8 +451,7 @@ export declare const SUPPORTED_STRUCTURAL_EXTENSIONS: readonly string[]
 export declare function getSemanticBoundaryOffsets(content: string, filePath: string): Promise<Array<number>>
 
 /**
- * Returns all extensions that have signature extraction support
- * (tree-sitter languages + heuristic-covered languages).
+ * Returns the sorted extensions with registered Tree-sitter body queries.
  */
 export declare function getSupportedSignatureExtensions(): Array<string>
 
@@ -934,7 +931,7 @@ export interface StructuralSearchDetailedResult {
     | 'stale'
     | string
   languageId?: string
-  query: StructuralQueryExplanation
+  query?: StructuralQueryExplanation
   matches: Array<StructuralDetailedMatch>
   diagnostics: Array<StructuralDiagnostic>
 }
@@ -991,13 +988,18 @@ export interface StructuralSearchFilesOptions {
    * searches files normally hidden by ignore files (mirrors local-search `noIgnore`).
    */
   noIgnore?: boolean
-  /** Maximum directory descent depth (0 = just the root). `None` = unbounded. */
+  /** Maximum path depth below a directory root (1 = direct files; 0 = no descent). `None` = unbounded. */
   maxDepth?: number
   maxFiles?: number
   maxFileBytes?: number
 }
 
 export interface StructuralSearchFilesResult {
+  scanTruncated: boolean
+  status: string
+  /** Query planning evidence returned by the same asynchronous scan. */
+  query?: StructuralQueryExplanation
+  diagnostics: Array<StructuralDiagnostic>
   files: Array<StructuralSearchFileResult>
   totalMatches: number
   parsedFiles: number
@@ -1024,6 +1026,7 @@ export interface StructuralSearchDetailedFileResult {
 }
 
 export interface StructuralSearchFilesDetailedResult {
+  scanTruncated: boolean
   files: Array<StructuralSearchDetailedFileResult>
   totalMatches: number
   parsedFiles: number

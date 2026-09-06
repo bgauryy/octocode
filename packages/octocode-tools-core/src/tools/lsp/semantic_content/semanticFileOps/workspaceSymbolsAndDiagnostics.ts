@@ -5,7 +5,6 @@ import {
   acquirePooledClientDetailed,
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
-import { resolveImportAliasDefinitions } from '@octocodeai/octocode-engine/lsp/resolver';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import type {
   LspSemanticEnvelope,
@@ -15,14 +14,12 @@ import type {
 import {
   DEFAULT_SYMBOLS_PER_PAGE,
   paginateItems,
-} from '../semanticEnvelopes.js';
+} from '../semanticEnvelopes/envelopeHelpers.js';
 import { symbolKindName } from '../semanticPresentation.js';
-import {
-  lspErrorMessage,
-  resolveWorkspaceSymbolAnchor,
-  throwLspUnavailable,
-} from './anchor.js';
+import { resolveWorkspaceSymbolAnchor, throwLspUnavailable } from './anchor.js';
 import type { CompactSymbol } from './documentSymbols.js';
+import { resolveFileAnchor } from '../../shared/resolveSymbolAnchor.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../toolNames.js';
 
 type CompactWorkspaceSymbol = CompactSymbol & { uri: string };
 
@@ -39,6 +36,11 @@ type DiagnosticItem = {
 export async function getWorkspaceSymbols(
   query: WorkspaceSymbolSemanticQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
+  if (query.uri) {
+    const anchor = await resolveFileAnchor(query, LSP_GET_SEMANTICS_TOOL_NAME);
+    if (anchor.ok === false) return anchor.error;
+    query = { ...query, uri: anchor.value.absolutePath };
+  }
   const symbolQuery = query.symbolName ?? '';
   // Same default-root rule as every other sub-op: when a uri is given, the
   // root is the file's project root (marker walk), not the process cwd —
@@ -82,24 +84,10 @@ export async function getWorkspaceSymbols(
     } satisfies LspSemanticEnvelope;
   }
 
-  let raw: unknown[];
-  try {
-    if (path.extname(anchorFile)) {
-      await client.openDocument(anchorFile);
-    }
-    raw = await client.workspaceSymbol(symbolQuery);
-  } catch (error) {
-    return {
-      type: 'workspaceSymbol',
-      uri: anchorFile,
-      lsp: { serverAvailable: true, provider: 'workspaceSymbolProvider' },
-      payload: {
-        kind: 'empty',
-        category: 'unsupportedOperation',
-        reason: `workspaceSymbolProvider failed: ${lspErrorMessage(error)}`,
-      },
-    } satisfies LspSemanticEnvelope;
+  if (path.extname(anchorFile)) {
+    await client.openDocument(anchorFile);
   }
+  const raw = await client.workspaceSymbol(symbolQuery);
   const symbols = await preferDefinitionLocations(
     client,
     compactWorkspaceSymbols(raw)
@@ -107,7 +95,8 @@ export async function getWorkspaceSymbols(
   const { pageItems, pagination } = paginateItems(
     symbols,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE,
+    query
   );
 
   return {
@@ -155,18 +144,12 @@ async function preferDefinitionLocations(
           : sym.uri;
         const content = await readFile(fsPath, 'utf8');
         await client.openDocument(fsPath);
-        // gotoDefinition on an import specifier returns the import binding
-        // itself — chase aliases to the real definition the same way the
-        // anchored definition path does.
-        const defs = await resolveImportAliasDefinitions({
-          anchorUri: fsPath,
-          symbolName: sym.name,
-          locations: await client.gotoDefinition(
-            fsPath,
-            { line: sym.line - 1, character: sym.character },
-            content
-          ),
-        });
+        // Keep provider locations exactly; unresolved bindings remain visible.
+        const defs = await client.gotoDefinition(
+          fsPath,
+          { line: sym.line - 1, character: sym.character },
+          content
+        );
         if (!Array.isArray(defs) || defs.length !== 1) return sym;
         const def = defs[0] as {
           uri?: string;
@@ -235,7 +218,9 @@ export function compactWorkspaceSymbols(
 export async function getFileDiagnostics(
   query: DiagnosticSemanticQuery
 ): Promise<LspSemanticEnvelope | Record<string, unknown>> {
-  const uri = query.uri ?? '';
+  const anchor = await resolveFileAnchor(query, LSP_GET_SEMANTICS_TOOL_NAME);
+  if (anchor.ok === false) return anchor.error;
+  const uri = anchor.value.absolutePath;
   const workspaceRoot =
     query.workspaceRoot ??
     (uri ? await resolveWorkspaceRootForFile(uri) : process.cwd());
@@ -278,7 +263,8 @@ export async function getFileDiagnostics(
   const { pageItems, pagination } = paginateItems(
     diags,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE,
+    query
   );
 
   return {

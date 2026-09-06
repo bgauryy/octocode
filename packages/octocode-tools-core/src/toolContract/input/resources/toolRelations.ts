@@ -29,12 +29,15 @@ const TOOL_SCHEMA_RELATIONS: Readonly<Record<string, readonly string[]>> = {
     'definition | references | hover | callers | callees | callHierarchy | implementation | typeDefinition | supertypes | subtypes -> requires uri + symbolName + lineHint.',
   ],
   ghGetFileContent: [
-    'Choose fullContent, a line range, or matchString.',
+    'Optionally choose fullContent, a line range, or matchString; extraction modes are exclusive.',
     'A line range needs startLine and endLine.',
     'matchString options apply with matchString.',
     'type:"directory" materializes; extraction fields read files.',
   ],
-  npmSearch: ['Set exactly one of packageName or keywords.'],
+  npmSearch: [
+    'Set exactly one non-empty packageName or keywords.',
+    'page applies only to keyword discovery.',
+  ],
 };
 
 export function getToolSchemaRelations(toolName: string): string[] {

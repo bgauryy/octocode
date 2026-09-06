@@ -1,20 +1,9 @@
+import { truncateToWidth, visibleWidth } from '../src/tui/width.js';
+import { sanitizeLine } from '../src/tui/palette.js';
 import assert from 'node:assert/strict';
 import { visibleWidth as piVisibleWidth } from '@earendil-works/pi-tui';
 import { test } from 'vitest';
-import {
-  buildOctocodeRenderCall,
-  buildOctocodeRenderResult,
-  buildResultStats,
-  buildToolCallSummary,
-  makeCachedRenderer,
-  makeComponentRenderer,
-  makeRenderer,
-  sanitizeLine,
-  singleLineRenderer,
-  truncateToWidth,
-  visibleWidth,
-  wrapText,
-} from '../src/tools/render-helpers.js';
+import { buildOctocodeRenderCall, buildOctocodeRenderResult, buildResultStats, buildToolCallSummary, makeCachedRenderer, makeComponentRenderer, singleLineRenderer, wrapText } from '../src/tools/render-helpers.js';
 import { CLI_GLYPH, cliSpinnerFrame, formatCliToolRow, formatThinkingRow, summarizeInlineValue } from '../src/tui/cli-design.js';
 import type { PiTheme, ToolCallResult } from '../src/types.js';
 
@@ -97,7 +86,7 @@ test('ANSI-aware rendering helpers keep visible width stable', () => {
   assert.deepEqual(wrapText('', 10), ['']);
   assert.deepEqual(wrapText('abc', 0), []);
 
-  const renderer = makeRenderer(() => ['x'.repeat(20)]);
+  const renderer = makeComponentRenderer((_props, _context) => ['x'.repeat(20)], undefined);
   assert.equal(visibleWidth(renderer.render(6)[0]!), 6);
   assert.equal(singleLineRenderer('single long line').render(8)[0], 'single \x1b[0m…\x1b[0m');
 });

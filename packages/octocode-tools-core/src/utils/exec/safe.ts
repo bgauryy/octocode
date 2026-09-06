@@ -1,5 +1,5 @@
 import { validateCommand } from '@octocodeai/octocode-engine/commandValidator';
-import { spawnWithTimeout, validateArgs } from './spawn.js';
+import { spawnWithTimeout, validateArgs } from './spawn/wrappers.js';
 import type { ExecResult, ExecOptions } from '../core/types.js';
 
 export async function safeExec(

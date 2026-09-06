@@ -7,8 +7,8 @@ import {
   checkAndPrintEnvironmentWithLoader,
   printNodeDoctorHint,
   hasEnvironmentIssues,
-} from './ui/install/index.js';
-import { runMenuLoop } from './ui/menu.js';
+} from './ui/install/environment.js';
+import { runMenuLoop } from './ui/menu/main-menu.js';
 
 function printEnvHeader(): void {
   console.log(c('blue', '━'.repeat(66)));

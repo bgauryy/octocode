@@ -1,8 +1,6 @@
 import type { z } from 'zod';
-import type {
-  GitHubCodeSearchQuerySchema,
-  GitHubReposSearchSingleQuerySchema,
-} from '../../toolContract/schemas.js';
+import type { GitHubCodeSearchQuerySchema } from '../../toolContract/input/resources/tools/githubCodeOperation.js';
+import type { GitHubReposSearchSingleQuerySchema } from '../../toolContract/input/resources/tools/githubRepositoriesOperation.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 type GitHubReposSearchSingleQuery = z.infer<

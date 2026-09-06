@@ -1,7 +1,5 @@
-import {
-  contextUtils,
-  type ExtractMatchingLinesOptions,
-} from '../../utils/contextUtils.js';
+import { contextUtils } from '../../utils/contextUtils.js';
+import type { ExtractMatchingLinesOptions } from '@octocodeai/octocode-engine';
 
 export function extractMatchingLines(
   lines: string[],

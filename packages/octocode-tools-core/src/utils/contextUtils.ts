@@ -2,36 +2,6 @@ import { createRequire } from 'node:module';
 
 import type * as NativeContextUtils from '@octocodeai/octocode-engine';
 
-export type {
-  ExtractMatchingLinesOptions,
-  ExtractMatchingLinesResult,
-  FilterPatchOptions,
-  FileSystemEntry,
-  FileSystemQueryOptions,
-  FileSystemQueryResult,
-  GraphFactCapability,
-  GraphFactCall,
-  GraphFactDeclaration,
-  GraphFactEdge,
-  GraphFactExport,
-  GraphFactImport,
-  GraphFacts,
-  GraphFactsScanEntry,
-  GraphFactsScanOptions,
-  GraphFactsScanResult,
-  GraphReferenceCount,
-  LineDiffOp,
-  MinifyResult,
-  JsonInput,
-  RipgrepParseOptions,
-  RipgrepParseResult,
-  RipgrepSearchOptions,
-  SliceContentOptions,
-  SliceContentResult,
-  StructuralMatch,
-  YamlConversionConfig,
-} from '@octocodeai/octocode-engine';
-
 type NativeContextUtilsModule = typeof NativeContextUtils;
 type NativeLoader = () => NativeContextUtilsModule;
 

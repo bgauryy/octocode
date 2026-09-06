@@ -11,10 +11,9 @@ MCP package wires those into the MCP SDK and runs them.
 - **Transport**: MCP SDK v2 `StdioServerTransport` from
   `@modelcontextprotocol/server/stdio` (stdio only — no HTTP).
 - **Entry**: `src/index.ts` → `startServer()` → stdio transport.
-- **Public API**: `src/public.ts` is the stable surface for programmatic
-  consumers (`octocode` CLI, `octocode-research`). It mostly re-exports core
-  types, schemas, and `execute*` runners. Internal `register*Tool` functions are
-  intentionally absent.
+- **Public API**: `src/public.ts` is the declared package surface for programmatic
+  consumers. It re-exports tools-core; workspace interfaces import tools-core
+  directly. Internal `register*Tool` functions are intentionally absent.
 - Logic, descriptions, schemas, and the system prompt come from core. Do not
   add data-shaping here — shape it in core.
 
@@ -37,9 +36,8 @@ within `SHUTDOWN_TIMEOUT_MS` (5s) before exiting.
 
 ## Tool Registration (`src/tools/`)
 
-- `toolConfig.ts` — joins core's `ALL_TOOLS` metadata with this package's
-  `register*` functions via `MCP_FN_MAP`, producing `ALL_TOOLS: McpToolConfig[]`.
-  A tool in core with no MCP `fn` is a build-time error.
+- `toolConfig.ts` — maps core's `ALL_TOOLS` metadata and execution contracts
+  through `createToolRegistration`, producing `ALL_TOOLS: McpToolConfig[]`.
 - `toolsManager.ts` — `registerTools()`: wraps the server with output
   sanitization, filters tools (local/clone gates + filter config), then
   batch-registers and summarizes outcomes.
@@ -79,11 +77,9 @@ There are two different dependency views:
   metadata, and shared utilities; `buildConfig.mjs` keeps runtime dependencies
   external in `dist/index.js` and `dist/public.js`.
 - **Published runtime**: npm users install the direct dependencies declared in
-  `package.json`: MCP SDK v2's `@modelcontextprotocol/server`, tools-core, core,
-  the native engine, and Zod. Client SDK v2 is test-only.
-- **Native engine**: `@octocodeai/octocode-engine` must remain a direct runtime
-  dependency because its Rust `.node` binary is distributed through the engine
-  root package plus one matching platform `optionalDependency`.
+  `package.json`: MCP SDK v2's `@modelcontextprotocol/server`, tools-core, and
+  Zod. Client SDK v2 is test-only. Tools-core owns its core and native-engine
+  dependencies, including the matching platform addon.
 - **Types**: `dist/public.d.ts` is bundled into one consumer-facing declaration
   file while tools-core remains an explicit runtime dependency.
 
@@ -112,6 +108,6 @@ then the engine root and tools-core, then `octocode-mcp`.
 `manifest.json` and `server.json` are **hand-maintained** — no build step syncs
 their `version` or tool list from `package.json` or core's `ALL_TOOLS`. When
 the tool catalog changes or a release ships, update both files' `version`
-fields and `manifest.json#tools` alongside `package.json#version` and the
-`toolConfig.ts` `MCP_FN_MAP`; drift here does not fail CI and only surfaces as
-an outdated registry/DXT listing.
+fields and `manifest.json#tools` alongside `package.json#version`.
+`tests/packageRelease.test.ts` checks versions, canonical tool names, and
+desktop setting interpolation. Runtime registration derives from tools-core.

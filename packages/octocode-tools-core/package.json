@@ -6,20 +6,22 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
+    "@npmcli/config": "^11.0.1",
     "@octocodeai/config": "18.3.0",
     "@octocodeai/octocode-core": "18.3.0",
     "@octocodeai/octocode-engine": "18.3.0",
     "@octokit/oauth-methods": "^6.0.5",
-    "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/openapi-types": "^29.0.1",
+    "@octokit/plugin-rest-endpoint-methods": "^18.0.0",
+    "@octokit/plugin-throttling": "^11.0.5",
     "@octokit/request": "^10.0.16",
     "node-cache": "^5.1.2",
+    "npm-registry-fetch": "^20.0.1",
     "octokit": "^5.0.5",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@octokit/core": "^7.0.6",
-    "@octokit/openapi-types": "^27.0.0",
-    "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
+    "@octokit/core": "^7.0.8",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
@@ -28,7 +30,7 @@
     "vitest": "^4.1.11"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "exports": {
     ".": {

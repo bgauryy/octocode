@@ -102,7 +102,7 @@ test('Streamable HTTP supports tools, resources, templates, prompts, reads, comp
   const configPath = projectMcpPath(root);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({ mcpServers: { remote: { url: fixture.url, timeoutMs: 5_000 } } }));
-  const ctx = { cwd: root, isProjectTrusted: async () => true } as unknown as PiContext;
+  const ctx = { cwd: root, isProjectTrusted: () => true } as unknown as PiContext;
 
   assert.match(text(await handleMcpAction({ action: 'describe', server: 'remote', tool: 'echo' }, undefined, ctx)), /required.*text|text.*required/i);
   assert.match(text(await handleMcpAction({ action: 'resources', server: 'remote' }, undefined, ctx)), /fixture:\/\/readme/);

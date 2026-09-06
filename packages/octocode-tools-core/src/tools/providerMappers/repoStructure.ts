@@ -1,9 +1,10 @@
-import type { RepoStructureResult as ProviderRepoStructureResult } from '../../providers/types.js';
+import type { RepoStructureResult as ProviderRepoStructureResult } from '../../providers/providerResults.js';
 import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/input/resources/tools/githubTreeOperation.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 import { GITHUB_STRUCTURE_DEFAULTS } from '../github_view_repo_structure/constants.js';
+import { buildNextPageContinuation } from '../../scheme/pagination.js';
 
 type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema
@@ -35,6 +36,7 @@ export function mapRepoStructureToolQuery(
     includeContributors: include.includes('contributors'),
     includeBranches: include.includes('branches'),
     includeTags: include.includes('tags'),
+    metadataPage: query.metadataPage,
     goal: query.goal,
     reasoning: query.reasoning,
   };
@@ -42,7 +44,7 @@ export function mapRepoStructureToolQuery(
 
 export function mapRepoStructureProviderResult(
   data: ProviderRepoStructureResult,
-  _query: PartialRepoStructureQuery,
+  query: PartialRepoStructureQuery,
   filteredStructure: ProviderRepoStructureResult['structure'],
   resolvedBranch: string
 ): Record<string, unknown> {
@@ -124,14 +126,14 @@ export function mapRepoStructureProviderResult(
     ...(enrich.contributors
       ? {
           contributors: enrich.contributors,
-          totalContributors: enrich.contributors.length,
+          returnedContributors: enrich.contributors.length,
         }
       : {}),
     ...(enrich.branches
-      ? { branches: enrich.branches, totalBranches: enrich.branches.length }
+      ? { branches: enrich.branches, returnedBranches: enrich.branches.length }
       : {}),
     ...(enrich.tags
-      ? { tags: enrich.tags, totalTags: enrich.tags.length }
+      ? { tags: enrich.tags, returnedTags: enrich.tags.length }
       : {}),
     summary: {
       totalFiles: filteredSummary.totalFiles,
@@ -142,6 +144,35 @@ export function mapRepoStructureProviderResult(
     ...(terminalLimit ? { terminalLimit: true } : {}),
     ...(partialReasons ? { partialReasons } : {}),
   };
+
+  if (data.metadataPagination) {
+    resultData.metadataPagination = data.metadataPagination;
+    const next: Record<string, unknown> = {};
+    for (const [kind, metadata] of Object.entries(data.metadataPagination)) {
+      if ((!metadata.hasMore && !metadata.failed) || metadata.terminalLimit)
+        continue;
+      next[kind] = buildNextPageContinuation(
+        'ghSearch',
+        {
+          operation: 'tree',
+          owner: query.owner,
+          repo: query.repo,
+          branch: actualBranch,
+          ...(query.path !== undefined ? { path: query.path } : {}),
+          ...(query.maxDepth !== undefined ? { maxDepth: query.maxDepth } : {}),
+          page: query.page ?? 1,
+          pageSize:
+            query.itemsPerPage ?? GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
+          include: [kind],
+          metadataPage: metadata.currentPage + (metadata.failed ? 0 : 1),
+        },
+        metadata.failed
+          ? `Retry the failed ${kind} page.`
+          : `Continue the ${kind} list.`
+      );
+    }
+    if (Object.keys(next).length > 0) resultData.next = next;
+  }
 
   if (actualBranch) {
     resultData.resolvedBranch = actualBranch;

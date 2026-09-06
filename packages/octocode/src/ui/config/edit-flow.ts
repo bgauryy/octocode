@@ -1,14 +1,10 @@
 import { c, bold, dim } from '../../utils/colors.js';
 import { confirm, select } from '../../utils/prompts.js';
 import { Spinner } from '../../utils/spinner.js';
-import {
-  readMCPConfig,
-  writeMCPConfig,
-  getMCPConfigPath,
-  isOctocodeConfigured,
-  MCP_CLIENTS,
-} from '../../utils/mcp-config.js';
-import { selectMCPClient } from '../install/prompts.js';
+import { readMCPConfig, writeMCPConfig } from '../../utils/mcp-io.js';
+import { getMCPConfigPath, MCP_CLIENTS } from '../../utils/mcp-paths.js';
+import { isOctocodeConfigured } from '../../utils/mcp-config.js';
+import { selectMCPClient } from '../install/prompts/client-select.js';
 import type { MCPConfig } from '../../types/index.js';
 import {
   ALL_CONFIG_OPTIONS,

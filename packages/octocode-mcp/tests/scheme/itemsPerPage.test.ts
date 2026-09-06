@@ -73,14 +73,28 @@ describe('Unified public pagination fields', () => {
     expect(query).toMatchObject({ limit: 100, page: 2, pageSize: 20 });
   });
 
-  it('npmSearch exposes page but no page-size or total-cap fields', () => {
-    const query = q0(NpmSearchBulkQueryLocalSchema, {
-      packageName: 'hono',
+  it('npmSearch exposes page and pageSize only for keyword discovery', () => {
+    const keywordQuery = q0(NpmSearchBulkQueryLocalSchema, {
+      keywords: ['hono'],
       page: 2,
+      pageSize: 25,
     });
-    expect(query.page).toBe(2);
-    for (const field of ['pageSize', 'itemsPerPage', 'searchLimit', 'limit']) {
-      expect(field in query).toBe(false);
+    expect(keywordQuery).toMatchObject({ page: 2, pageSize: 25 });
+    for (const field of ['itemsPerPage', 'searchLimit', 'limit']) {
+      expect(field in keywordQuery).toBe(false);
+    }
+
+    const exactQuery = q0(NpmSearchBulkQueryLocalSchema, {
+      packageName: 'hono',
+    });
+    for (const field of [
+      'page',
+      'pageSize',
+      'itemsPerPage',
+      'searchLimit',
+      'limit',
+    ]) {
+      expect(field in exactQuery).toBe(false);
     }
   });
 });

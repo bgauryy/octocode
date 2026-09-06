@@ -1,11 +1,11 @@
+import { visibleWidth } from '../src/tui/width.js';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { renderFooterView } from '../src/tui/footer-view.js';
-import { planPanelModelLines } from '../src/tools/plan-tool.js';
 import { buildPlanReadModel } from '../src/tools/plan-read-model.js';
 import { formatAwarenessPanel } from '../src/tools/awareness-status.js';
 import { buildCompactionCard, buildHandoffCard } from '../src/tools/custom-messages.js';
-import { buildOctocodeRenderResult, visibleWidth } from '../src/tools/render-helpers.js';
+import { buildOctocodeRenderResult } from '../src/tools/render-helpers.js';
 import type { PlanStep } from '../src/tools/active-plan.js';
 import type { ToolCallResult } from '../src/types.js';
 import { buildPlanFooterSegments } from '../src/extension-ui.js';
@@ -27,7 +27,7 @@ function assertWidthSafe(lines: readonly string[], width: number): void {
 
 test('plan, task, agent, footer, and Awareness projections stay complete and width-safe', () => {
   for (const width of [24, 40, 80, 120]) {
-    const plan = planPanelModelLines(PLAN_MODEL, undefined, width);
+    const plan = renderFooterView({ rows: [buildPlanFooterSegments(PLAN_MODEL)] }, { width });
     const awareness = formatAwarenessPanel({
       activePlans: 1,
       readyTasks: 2,
@@ -45,10 +45,10 @@ test('plan, task, agent, footer, and Awareness projections stay complete and wid
       ],
     }, undefined, width);
     const footer = renderFooterView({
-      segments: [
+      rows: [[
         { text: 'main (3 changed)' }, { text: 'model gpt-5.6' },
         { text: 'context 152k/200k · 76%' }, { text: 'agents 2 (1 live)' },
-      ],
+      ]],
     }, { width });
 
     assertWidthSafe([...plan, ...awareness, ...footer], width);

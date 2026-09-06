@@ -52,6 +52,20 @@ describe('ToolsManager filter validation', () => {
     );
   });
 
+  it('fails before registration when config loading fails', async () => {
+    mockGetServerConfig.mockImplementationOnce(() => {
+      throw new Error('config unavailable');
+    });
+    const toolFn = vi.fn(() => registeredTool());
+
+    await expect(
+      registerTools(mockServer, undefined, {
+        toolLoader: () => [toolWithRegistration('ghSearchHistory', toolFn)],
+      })
+    ).rejects.toThrow('config unavailable');
+    expect(toolFn).not.toHaveBeenCalled();
+  });
+
   it('fails before registration when TOOLS_TO_RUN contains no valid names', async () => {
     mockGetServerConfig.mockReturnValue({
       toolsToRun: ['ghGetHistory'],

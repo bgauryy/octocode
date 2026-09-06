@@ -1,12 +1,8 @@
 /**
- * Example command-pattern construction for the engine-free direct-tool
- * catalog (`--scheme`/help output). Split out of `directToolCatalog.meta.ts`
- * (still the public barrel) — see that file's header comment for the full P3
- * rationale. Hand-authored per-tool queries live in
- * `toolCommandPatternQueries.ts`; this file falls back to a schema-derived
- * example when a tool has none.
+ * Engine-free command examples. Uses toolCommandPatternQueries.ts for
+ * curated examples and derives examples from schemas when none are provided.
  */
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import {
   findDirectToolDefinition,
   type DirectToolCommandPattern,

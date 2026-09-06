@@ -1,5 +1,5 @@
 import { CallToolResult } from '@modelcontextprotocol/server';
-import { incrementToolCharSavings } from '../../../shared/index.js';
+import { incrementToolCharSavings } from '../../../shared/session/index.js';
 import type {
   ProcessedBulkResult,
   FlatQueryResult,
@@ -252,7 +252,7 @@ export function buildToolResultMeta(
   data: Record<string, unknown>,
   status?: 'empty' | 'error'
 ): FlatQueryResult['meta'] {
-  const kind = inferEvidenceKind(toolName, query);
+  const kind = inferEvidenceKind(toolName, query, data);
   const reportedConfidence = data.confidence;
   const confidence =
     status === 'error' || reportedConfidence === 'low'
@@ -313,9 +313,19 @@ function reconcilePaginationDiagnostics(
   };
 }
 
-function inferEvidenceKind(toolName: string, query: object): EvidenceKind {
+function inferEvidenceKind(
+  toolName: string,
+  query: object,
+  data: Record<string, unknown>
+): EvidenceKind {
   if (toolName === 'localAnalyzeGraph') return 'syntactic';
-  if (toolName === 'lspGetSemantics') return 'semantic';
+  if (toolName === 'lspGetSemantics') {
+    const source = (data.lsp as { source?: string } | undefined)?.source;
+    return source &&
+      ['native', 'native-graph-facts', 'markdown'].includes(source)
+      ? 'syntactic'
+      : 'semantic';
+  }
   if (toolName === 'local.text') {
     return (query as Record<string, unknown>).mode === 'structural'
       ? 'structural'

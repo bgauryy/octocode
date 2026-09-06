@@ -21,6 +21,7 @@ import {
   DEFAULT_SEC_CH_UA,
   readCapped,
   createDeadline,
+  createPinnedLookup,
   postJson,
   webFetch,
   duckDuckGoSearch,
@@ -100,6 +101,33 @@ test('assertPublicUrl rejects non-http(s) and hosts resolving to private IPs (DN
   await assert.rejects(() => assertPublicUrl('http://169.254.169.254/latest/meta-data/'), /private\/loopback/);
   const ok = await assertPublicUrl('https://good.com/x', { lookup: async () => [{ address: '8.8.8.8', family: 4 }] });
   assert.equal(ok.hostname, 'good.com');
+});
+
+test('pinned DNS lookup honors both net callback result shapes', async () => {
+  const lookup = createPinnedLookup(async () => [
+    { address: '8.8.8.8', family: 4 },
+    { address: '2606:4700:4700::1111', family: 6 },
+  ]);
+
+  const one = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+    lookup('example.com', {}, (error, address, family) => {
+      if (error) return reject(error);
+      assert.equal(typeof address, 'string');
+      resolve({ address: address as string, family: family as number });
+    });
+  });
+  assert.deepEqual(one, { address: '8.8.8.8', family: 4 });
+
+  const all = await new Promise<Array<{ address: string; family: number }>>(
+    (resolve, reject) => {
+      lookup('example.com', { all: true }, (error, addresses) => {
+        if (error) return reject(error);
+        assert.ok(Array.isArray(addresses));
+        resolve(addresses as Array<{ address: string; family: number }>);
+      });
+    }
+  );
+  assert.equal(all.length, 2);
 });
 
 test('safeFetch re-validates every redirect hop and blocks a redirect into a private IP', async () => {

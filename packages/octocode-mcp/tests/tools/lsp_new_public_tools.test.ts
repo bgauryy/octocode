@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import {
   BulkLspGetSemanticsQuerySchema,
   LspGetSemanticsQuerySchema,

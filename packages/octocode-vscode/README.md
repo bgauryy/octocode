@@ -40,7 +40,7 @@ Octocode researches **your local code and external code alike** (GitHub reposito
 
 ## Quick start
 
-**Prerequisites:** Node.js 20.12+
+**Prerequisites:** Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+
 
 **1. Run the Octocode CLI with `npx`**
 
@@ -55,8 +55,8 @@ npx octocode auth login
 npx octocode status       # verify the active token source
 ```
 
-**3. Choose your interface.** Same tools and Rust engine on both. (Clone is on by
-default in the CLI, opt-in for MCP.)
+**3. Choose your interface.** Same tools and Rust engine on both. Cloning is
+opt-in on CLI and MCP.
 
 **🖥️ CLI** - research straight from your terminal:
 
@@ -66,18 +66,18 @@ npx octocode
 
 **🤖 MCP** - one-click install:
 
-- [<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwidHlwZSI6InN0ZGlvIiwiYXJncyI6WyJAb2N0b2NvZGVhaS9tY3BAbGF0ZXN0Il19)
-- [<img src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
+- [<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwidHlwZSI6InN0ZGlvIiwiYXJncyI6WyIteSIsIm9jdG9jb2RlLW1jcEBsYXRlc3QiXX0=)
+- [<img src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22-y%22%2C%22octocode-mcp%40latest%22%5D%7D)
 
 <details>
 <summary><b>Show more install options (Windsurf, Kiro, Goose, LM Studio, Claude Code)</b></summary>
 <br>
 
-- [<img src="https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code Insiders">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D&quality=insiders)
-- [<img src="https://img.shields.io/badge/Windsurf-Install_Server-1a1a1a?style=flat-square&logoColor=white" alt="Install in Windsurf">](windsurf://mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
-- [<img src="https://kiro.dev/images/add-to-kiro.svg" alt="Install in Kiro">](https://kiro.dev/launch/mcp/add?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22%40octocodeai%2Fmcp%40latest%22%5D%7D)
-- [<img src="https://goose-docs.ai/img/extension-install-dark.svg" alt="Install in Goose">](https://goose-docs.ai/extension?cmd=npx&arg=%40octocodeai%2Fmcp%40latest&id=octocode&name=octocode&description=Evidence-first%20code%20research%20for%20AI%20agents)
-- [<img src="https://files.lmstudio.ai/deeplink/mcp-install-light.svg" alt="Install in LM Studio">](https://lmstudio.ai/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwidHlwZSI6InN0ZGlvIiwiYXJncyI6WyJAb2N0b2NvZGVhaS9tY3BAbGF0ZXN0Il19)
+- [<img src="https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white" alt="Install in VS Code Insiders">](https://insiders.vscode.dev/redirect/mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22-y%22%2C%22octocode-mcp%40latest%22%5D%7D&quality=insiders)
+- [<img src="https://img.shields.io/badge/Windsurf-Install_Server-1a1a1a?style=flat-square&logoColor=white" alt="Install in Windsurf">](windsurf://mcp/install?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22-y%22%2C%22octocode-mcp%40latest%22%5D%7D)
+- [<img src="https://kiro.dev/images/add-to-kiro.svg" alt="Install in Kiro">](https://kiro.dev/launch/mcp/add?name=octocode&config=%7B%22command%22%3A%22npx%22%2C%22type%22%3A%22stdio%22%2C%22args%22%3A%5B%22-y%22%2C%22octocode-mcp%40latest%22%5D%7D)
+- [<img src="https://goose-docs.ai/img/extension-install-dark.svg" alt="Install in Goose">](https://goose-docs.ai/extension?cmd=npx&arg=-y&arg=octocode-mcp%40latest&id=octocode&name=octocode&description=Evidence-first%20code%20research%20for%20AI%20agents)
+- [<img src="https://files.lmstudio.ai/deeplink/mcp-install-light.svg" alt="Install in LM Studio">](https://lmstudio.ai/install-mcp?name=octocode&config=eyJjb21tYW5kIjoibnB4IiwidHlwZSI6InN0ZGlvIiwiYXJncyI6WyIteSIsIm9jdG9jb2RlLW1jcEBsYXRlc3QiXX0=)
 
 **Claude Code:**
 
@@ -169,7 +169,7 @@ Most tools do one slice (web search, or grep your repository) and hand back a fi
 A blind, head-to-head test on **research-oriented flows rather than plain lookups** (multi-hop traces,
 dependency/call-graph chains, commit ranges, blast-radius, PR reviews across repositories).
 
-[![Octocode benchmark — same answers, a fraction of the context](assets/benchmark.png)](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)
+[![Octocode benchmark — same answers, a fraction of the context](https://raw.githubusercontent.com/bgauryy/octocode/main/assets/benchmark.png)](https://raw.githack.com/bgauryy/octocode/main/packages/octocode-benchmark/results/index.html)
 
 **How it works:** 30 GitHub questions × 3 passes; Octocode vs `gh`, `gh`+Headroom, and `gh`+RTK on
 identical questions (only the CLI differs). A blind judge (gpt-5.5) grades correctness; the metric is
@@ -183,13 +183,13 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**10 tools in the full discovery catalog.** Repository cloning is enabled by
-default on both CLI and MCP:
+**10 tools in the full discovery catalog.** Nine are enabled by default on
+CLI and MCP. Repository cloning is opt-in:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
-| MCP, no flags | 10 | Default GitHub, clone, package, local, graph, and LSP tools |
-| CLI, no flags | 10 | Local tools and clone are on |
+| MCP, no flags | 9 | GitHub, package, local, graph, and LSP tools |
+| CLI, no flags | 9 | The same default tools as MCP |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;
@@ -206,7 +206,7 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
 | `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequests"`, `"issues"`, or `"commits"` queries. | `operation` |
 | `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
-| `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. Enabled by default on CLI and MCP; `ENABLE_CLONE=false` disables it. | `sparsePath` |
+| `ghCloneRepo` | Clone a repository or sparse subtree into the local cache for local and LSP analysis. Requires `ENABLE_LOCAL=true`, `ENABLE_CLONE=true`, and persistent storage. | `sparsePath` |
 
 `ghSearch` is the only GitHub discovery interface; select code, repositories,
 or trees with its strict `operation` field.
@@ -315,7 +315,7 @@ Most-used settings (both CLI and MCP unless noted):
 |---------|-------------------|---------|--------------|
 | `OCTOCODE_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | env only | unset | GitHub token, in priority order. Never in `.octocoderc`. |
 | `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem and LSP tools on or off. Set `false` to disable them. |
-| `ENABLE_CLONE` | `local.enableClone` | `true` | `ghCloneRepo` + directory fetch on/off. Set `false` to disable them. |
+| `ENABLE_CLONE` | `local.enableClone` | `false` | Opt in to `ghCloneRepo` with `true`; local access and persistent storage are also required. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `cwd` | Root for resolving relative local paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
@@ -434,7 +434,7 @@ npx octocode skill help
 | [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
 | [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
 
-### Planning and architecture
+### Plan and architecture
 | Skill | Use when |
 |-------|----------|
 | [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. |
@@ -549,7 +549,7 @@ npx node-doctor
   npx octocode skill install octocode-research --platform pi
   ```
 
-- **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is called. Clone tools are available by default.
+- **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is called. Cloning requires explicit enablement.
 
 ### Research-driven loop
 

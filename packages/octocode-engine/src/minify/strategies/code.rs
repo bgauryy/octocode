@@ -1,11 +1,12 @@
-use crate::comment_remover::remove_comments;
+use crate::minify::comment_remover::remove_comments;
 
 // ── OXC JS/TS AST minifier ────────────────────────────────────────────────────
 
 /// OXC-backed JS/TS minification.
 ///
 /// `mangle = true`: rename locals (maximum compression, for full minify path).
-/// `mangle = false`: preserve names (agent-readable, for content-view path).
+/// `mangle = false`: compact code generation only, preserving declarations and
+/// identifier uses for research. No type erasure or optimizer runs in this mode.
 ///
 /// Returns `None` on parse error so callers can choose the non-OXC path.
 ///
@@ -30,7 +31,7 @@ fn minify_js_oxc_inner(content: &str, file_path: &str, mangle: bool) -> Option<S
     use oxc_span::SourceType;
 
     let allocator = Allocator::default();
-    let ext = crate::file_extension::get_extension_internal(file_path, true, "js");
+    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "js");
     let source_type = match ext.as_str() {
         "ts" | "mts" | "cts" => SourceType::ts(),
         "tsx" => SourceType::tsx(),
@@ -52,32 +53,22 @@ fn minify_js_oxc_inner(content: &str, file_path: &str, mangle: bool) -> Option<S
 
     let mut program = parser_ret.program;
 
-    // P1: Strip TypeScript-only top-level statements before code generation.
-    // Removes: `import type`, `interface`, `type alias`, TS-declare statements.
-    //
-    // Note: Statement::is_typescript_syntax() returns false for ImportDeclaration
-    // even when import_kind == Type (OXC considers it valid syntax for other purposes).
-    // We therefore write an explicit match.
-    use oxc_ast::ast::{ImportOrExportKind, Statement as Stmt};
-    program.body.retain(|stmt| match stmt {
-        // `import type { Foo } from '...'` — no runtime value
-        Stmt::ImportDeclaration(decl) => decl.import_kind != ImportOrExportKind::Type,
-        // All other TS-only nodes (interface, type alias, declare, etc.)
-        _ => !stmt.is_typescript_syntax(),
-    });
-
-    // Use safest() for compression + mangle for variable renaming.
-    // safest() = keep all code, join vars, comma sequences — no dead-code removal
-    // (avoids OXC 0.95 bug where CompressOptions::default() can produce empty output).
-    Minifier::new(MinifierOptions {
-        mangle: if mangle {
-            Some(MangleOptions::default())
-        } else {
-            None
-        },
-        compress: Some(CompressOptions::safest()),
-    })
-    .minify(&allocator, &mut program);
+    if mangle {
+        // Full minification may erase type-only declarations and optimize code.
+        // Content views must retain this source evidence, even when a binding
+        // could be inlined without changing runtime behavior.
+        use oxc_ast::ast::{ImportOrExportKind, Statement as Stmt};
+        program.body.retain(|stmt| match stmt {
+            Stmt::ImportDeclaration(decl) => decl.import_kind != ImportOrExportKind::Type,
+            _ => !stmt.is_typescript_syntax(),
+        });
+        Minifier::new(MinifierOptions {
+            mangle: Some(MangleOptions::default()),
+            compress: Some(CompressOptions::safest()),
+            mangle_properties: None,
+        })
+        .minify(&allocator, &mut program);
+    }
 
     let codegen_opts = CodegenOptions {
         minify: true,
@@ -110,7 +101,7 @@ pub fn minify_javascript_core(content: &str) -> String {
     // "c-style" already carries `regex: true` and the default quote/backtick
     // delimiters, so a single literal-range scan protects string, template,
     // and regex literals from the whitespace/punctuation passes below.
-    let rules = crate::comment_remover::rules_for("c-style");
+    let rules = crate::minify::comment_remover::rules_for("c-style");
     let s = super::collapse_whitespace(&s, rules.as_ref());
     let s = re_tighten_punct_js(&s, rules.as_ref());
     // Split back to lines, drop empty
@@ -121,9 +112,12 @@ pub fn minify_javascript_core(content: &str) -> String {
         .join("\n")
 }
 
-fn re_tighten_punct_js(s: &str, rules: Option<&crate::comment_remover::CommentRules>) -> String {
+fn re_tighten_punct_js(
+    s: &str,
+    rules: Option<&crate::minify::comment_remover::CommentRules>,
+) -> String {
     let ranges = rules
-        .map(|r| crate::comment_remover::literal_ranges(s, r))
+        .map(|r| crate::minify::comment_remover::literal_ranges(s, r))
         .unwrap_or_default();
     let mut ri = 0usize;
     let bytes = s.as_bytes();

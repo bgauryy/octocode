@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { DESCRIPTIONS } from '../../src/tools/toolMetadata/descriptions.js';
+import { PUBLIC_TOOL_DESCRIPTIONS } from '../../src/toolContract/descriptions.js';
 import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/scheme.js';
 
@@ -9,7 +9,7 @@ import { LocalFindFilesQuerySchema } from '../../src/tools/local_find_files/sche
 // the single-local-owner contract.
 describe('localSearch excludeDir description contract', () => {
   it('the local contract ships the pruned-by-default truth directly', () => {
-    const description = DESCRIPTIONS.localSearch;
+    const description = PUBLIC_TOOL_DESCRIPTIONS.localSearch;
     expect(description).toMatch(
       /prune common generated and vendor directories by default/i
     );
@@ -18,7 +18,9 @@ describe('localSearch excludeDir description contract', () => {
 
   it('served DESCRIPTIONS are byte-identical to the local contract', () => {
     for (const definition of DIRECT_TOOL_DISCOVERY_DEFINITIONS) {
-      expect(DESCRIPTIONS[definition.name]).toBe(definition.description);
+      expect(PUBLIC_TOOL_DESCRIPTIONS[definition.name]).toBe(
+        definition.description
+      );
     }
   });
 

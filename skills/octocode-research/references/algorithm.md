@@ -8,14 +8,14 @@ Load when any research run starts and you need routing, proof grades, triangulat
 | none + docs/wiki | extract named entry points, then verify exact claims |
 | none | tree depth 1-2 + count matches per file; re-enter at hotspots |
 | concept/behavior | synonym regex → symbols view for anchors |
-| identifier | workspace symbol → callers/callees/references by symbol kind |
+| identifier | text or workspaceSymbol for a real location, then LSP if identity matters |
 | code shape | structural rule with metavariables |
 | file/repository topology | `localAnalyzeGraph`: dependencies/dependents/path/cycles/reachability |
-| installed package | inspect `node_modules` exact version before GitHub |
+| installed package | inspect resolved version/source when access permits; compare the matching upstream release |
 | why/history | PR/commit history on the path |
 
 ## Proof Model
-Read at least two dimensions before a nontrivial conclusion:
+Choose evidence for the claim; cross-check consequential conclusions:
 
 | Dimension | Proves | Blind spot |
 |---|---|---|
@@ -23,27 +23,27 @@ Read at least two dimensions before a nontrivial conclusion:
 | stream | exact text/slices/symbols | symbol identity |
 | connections | graph paths/SCCs/reachability + LSP references/callers/AST shape | dynamic/unsupported paths |
 
-Evidence grades: semantic (LSP identity), structural (AST shape), lexical (coverage, not identity), provider (weakest; index-limited). Before “unused/only/safe/impact,” diff package-wide text hits against LSP and include tests/scripts/configs.
+Evidence kinds are not a universal ranking: LSP answers identity, AST answers syntax, exact reads answer text, and providers answer their declared data scope. Before “unused/only/safe/impact,” compare relevant text hits with LSP and account for tests/scripts/configs and runtime registrations.
 
 ## Execution Rules
-- Batch independent probes; claims get 2-3 angles on the same target.
+- Batch independent probes; add another lane when it can disconfirm the claim.
 - Prefer `matchString` anchors, then line ranges; use full exact content only for small files.
 - Quote/edit only exact content. Symbols orient; standard/minified output might rewrite text.
-- Materialize a remote area before AST/LSP, exact absence, repeated many-file reads, or a third deep read.
+- Let `references/workflow-combination.md` decide materialization from evidence needs and scope.
 - Read the tool/schema contract immediately before raw calls; graph compact schemas might flatten operation variants, so use full JSON when `file`/`target` requirements are unclear.
-- For `node_modules`, turn off default exclusions and inspect the file the resolver loads.
+- Honor repository access restrictions before inspecting vendor/generated files; record any unresolved version gap.
 
 ## Failure Signals
 | Signal | Meaning → move |
 |---|---|
 | empty + search stats | negative only for that scope → change scope/synonym/filter once |
 | typed error/hint | failure, not absence → follow the hint |
-| structural zero | likely incomplete pattern → widen node shape or use a rule |
+| structural zero | inspect completion/diagnostics first; only a complete search earns pattern revision |
 | LSP unavailable/incomplete | capability/truncation → exact/AST/text fallback |
 | GitHub empty/unindexed | provider blind spot → verify path, materialize, search locally |
-| resolved ref differs | default-branch fallback → cite/recheck actual ref |
+| resolved ref differs | scope changed → verify the reported ref against the intended target |
 | warning/redaction/pagination | interpretation changed → preserve and follow it |
 
-Avoid guessed offsets/fields, serial single queries, remote over-reading, snippet conclusions, and claims from one evidence lane. No embeddings/index are assumed; for conceptual queries use tree → hotspot map → symbols → exact proof. <!-- style-lint: ignore-line passive-voice -->
+Avoid guessed offsets/fields, unnecessary rereads, and snippet-based behavior claims. Serial calls are appropriate when one result determines the next. Conceptual queries can use synonyms, tree, or symbols to find a decisive exact anchor.
 
 Next: classify the request with `references/problem-framing.md`, then take one route from `references/workflows.md`; when a code claim needs the proof ladder load `references/code-research.md`; when a call itself fails or a surface is gated load `references/octocode.md`. <!-- style-lint: ignore-line passive-voice -->

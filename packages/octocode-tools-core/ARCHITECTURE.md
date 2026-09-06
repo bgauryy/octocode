@@ -1,4 +1,4 @@
-# Octocode Tools Core Architecture
+# Octocode tools-core architecture
 
 `@octocodeai/octocode-tools-core` is the **tool execution layer** of Octocode. It
 owns all the logic — schemas, provider calls, file/LSP operations, response
@@ -36,7 +36,7 @@ is the single source of truth.
 Each tool lives in `src/tools/<tool_name>/` with a common core — `scheme.ts`
 (Zod single + bulk schemas) and `execution.ts` (the bulk-loop `executionFn`) —
 plus `finalizer.ts` / `types.ts` and helper modules as needed (the set varies
-per tool; e.g. `local_ripgrep` splits ranking/structural/executor into separate
+per tool; for example, `local_ripgrep` splits ranking/structural/executor into separate
 files). Next-step hints are generated centrally by
 `src/utils/pagination/hints.ts`, not per tool.
 
@@ -94,6 +94,8 @@ structure, history) lives in `src/github/`.
 
 - `src/index.ts` — the full re-export barrel (everything above + selected
   `octocode-engine` and `octocode-core` re-exports).
+- Public entries export directly from the owning module. Internal consumers
+  import that owner instead of routing through an unrelated module's exports.
 - `src/direct.ts` — the minimal `./direct` entry: `executeDirectTool` plus the
   catalog/metadata helpers consumers need to drive tools.
 - `src/zod.ts`, `./platform`, `./session`, `./config`, `./credentials`,
@@ -108,8 +110,8 @@ during development.
 
 - `octocode-mcp` keeps tools-core external and declares it as a runtime
   dependency; npm installs it with the server.
-- `octocode` also declares tools-core as a runtime dependency, while its custom
-  esbuild source alias bundles tools-core code into `out/octocode.js` for the CLI.
+- `octocode` also keeps tools-core external as a declared runtime dependency.
+  Each package resolves its own dependency graph.
 - Native dependencies, especially `@octocodeai/octocode-engine` and its matching
   platform package, remain external.
 

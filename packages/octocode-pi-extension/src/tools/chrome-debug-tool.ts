@@ -1,9 +1,11 @@
+import { truncateToWidth } from '../tui/width.js';
+import { paint } from '../tui/palette.js';
 /**
  * chromeDebug Pi tool — registration, schema, execute, and render.
  *
  * One tool that gives agents control over Chrome DevTools Protocol (CDP) through
  * a declarative scheme registry. A `raw` action exposes any Domain.method.
- * Screenshots are written to `$OCTOCODE_HOME/extension/workspaces/<workspace>/sessions/<session-key>/browser/screenshots/`
+ * Screenshots are written to `$OCTOCODE_HOME/extension/sessions/<session-key>/browser/screenshots/`
  * (session-scoped). Session metadata lands at `browser/port-<N>/session.json` inside the
  * same session tree. A deterministic session identity is derived when the host does not provide one.
  *
@@ -20,12 +22,12 @@ import { resolveSessionIdentity } from './session-artifacts.js';
 import { connectionKey, getLiveConnection, cacheConnection, evictConnection } from '../chrome-connection-cache.js';
 import { SCHEME_REGISTRY, SCHEMES, ACTIONS, STEALTH_SCRIPT } from '../chrome-debug-schemes.js';
 import type { ChromeDebugParams, Scheme } from '../chrome-debug-schemes.js';
-import { CLI_STATUS_TEXT, cliStatusGlyph, cliStatusToken, cliToolTitle, paint } from '../tui/cli-design.js';
+import { CLI_STATUS_TEXT, cliStatusGlyph, cliStatusToken, cliToolTitle } from '../tui/cli-design.js';
 import type { ToolDefinition, ToolCallResult, PiTheme, PiContext, RenderContext } from '../types.js';
 import { appendImageLines } from './image-render.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
-import { makeRenderer, truncateToWidth } from './render-helpers.js';
+import { makeComponentRenderer } from './render-helpers.js';
 import { setManagedStatus } from './runtime-renderer.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
@@ -430,13 +432,13 @@ export function registerChromeDebugTool(
         : '';
 
       const rawLine = `${nameStr} ${schemeStr}${actionStr}${portStr}${urlStr}${more}`;
-      return makeRenderer((w) => [truncateToWidth(rawLine, w)]);
+      return makeComponentRenderer((_props, { width: w }) => [truncateToWidth(rawLine, w)], undefined);
     },
 
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme, context?: RenderContext) {
       if (opts.isPartial) {
         const msg = paint(theme, 'brand', CLI_STATUS_TEXT.connectingChrome);
-        return makeRenderer((w) => [truncateToWidth(msg, w)]);
+        return makeComponentRenderer((_props, { width: w }) => [truncateToWidth(msg, w)], undefined);
       }
 
       const ok = !result.isError;
@@ -469,14 +471,14 @@ export function registerChromeDebugTool(
         const hint = !ok
           ? paint(theme, 'error', ` · ${text.split('\n').find(Boolean) ?? 'failed'}`)
           : paint(theme, 'dim', ' · expand for evidence');
-        return makeRenderer((w) => [truncateToWidth(`${header}${hint}`, w)]);
+        return makeComponentRenderer((_props, { width: w }) => [truncateToWidth(`${header}${hint}`, w)], undefined);
       }
 
       const allLines = text.split('\n');
       const lines = allLines.slice(0, 30);
       const omitted = allLines.length - lines.length;
 
-      const base = makeRenderer((w) => [
+      const base = makeComponentRenderer((_props, { width: w }) => [
         truncateToWidth(header, w),
         ...lines.map((l) =>
           truncateToWidth(
@@ -493,10 +495,10 @@ export function registerChromeDebugTool(
         ...(omitted > 0
           ? [truncateToWidth(paint(theme, 'muted', `… ${omitted} more lines`), w)]
           : []),
-      ]);
+      ], undefined);
 
       // Inline screenshot in the expanded view. appendImageLines keeps the image
-      // escape lines outside makeRenderer's width truncation (see image-render.ts).
+      // escape lines outside component width truncation (see image-render.ts).
       return screenshotPath
         ? appendImageLines(base, context, screenshotPath, theme)
         : base;

@@ -1,10 +1,10 @@
-use crate::config::{indentation_sensitive_names, minify_config, FileTypeConfig};
-use crate::file_extension::get_extension_internal;
-use crate::strategies::{
+use crate::minify::config::{indentation_sensitive_names, minify_config, FileTypeConfig};
+use crate::minify::strategies::{
     minify_aggressive, minify_conservative, minify_css_quality, minify_general_core,
     minify_html_core, minify_html_quality, minify_javascript_core, minify_js_oxc,
     minify_json_core_inner, minify_markdown_core,
 };
+use crate::text::file_extension::get_extension_internal;
 use crate::types::MinifyResult;
 
 pub(crate) const MAX_SIZE: usize = 1024 * 1024; // 1 MB guard, shared by all FFI content entry points
@@ -97,8 +97,8 @@ fn dispatch_inner(content: &str, file_path: &str) -> DispatchResult {
     let grps = comment_groups(cfg);
 
     match cfg.strategy {
-        "terser" | "conservative" => {
-            let out = if crate::file_extension::is_js_ts_extension(&ext) {
+        "oxc" | "conservative" => {
+            let out = if crate::text::file_extension::is_js_ts_extension(&ext) {
                 minify_js_oxc(content, file_path, true)
                     .unwrap_or_else(|| minify_javascript_core(content))
             } else {

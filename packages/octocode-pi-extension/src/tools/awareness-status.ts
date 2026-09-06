@@ -1,3 +1,4 @@
+import { truncateToWidth } from '../tui/width.js';
 /**
  * awareness-status — a compact shared Awareness projection
  * (plans, tasks, verify debt, locks, manual work presence, and messages).
@@ -18,20 +19,16 @@
 import {
   readExternalAwarenessStatus,
   type ExternalAwarenessStatus,
-  type ExternalAwarenessTaskActivity,
 } from '@octocodeai/octocode-awareness';
 import type { PiContext, PiTheme } from '../types.js';
-import { paint } from '../tui/cli-design.js';
-import { SEP_WIDE } from '../tui/palette.js';
+
+import { SEP_WIDE, paint } from '../tui/palette.js';
 import { renderInlineRows, type InlineSegment } from '../tui/components.js';
-import { truncateToWidth } from './render-helpers.js';
+
 import { capMapSize } from '../utils.js';
 
-export type AwarenessTaskActivity = ExternalAwarenessTaskActivity;
-export type AwarenessStatus = ExternalAwarenessStatus;
-
 /** True when there is any shared state worth showing a panel for. */
-export function hasAwarenessSignal(s: AwarenessStatus): boolean {
+export function hasAwarenessSignal(s: ExternalAwarenessStatus): boolean {
   return (
     s.activePlans > 0 ||
     s.readyTasks > 0 ||
@@ -57,7 +54,7 @@ export function hasAwarenessSignal(s: AwarenessStatus): boolean {
  * Kept as an exported utility in case a future non-frozen injection surface is added.
  */
 export function renderAwarenessSignalAddendum(
-  s: AwarenessStatus | null,
+  s: ExternalAwarenessStatus | null,
   _currentAgentId?: string,
 ): string {
   const unread = s?.unreadInbox ?? 0;
@@ -74,7 +71,7 @@ export function renderAwarenessSignalAddendum(
  * Build explicit Awareness detail lines. Empty array when there is
  * nothing to show; lines clipped at the source when `width` is given.
  */
-export function formatAwarenessPanel(s: AwarenessStatus, theme?: PiTheme, width?: number): string[] {
+export function formatAwarenessPanel(s: ExternalAwarenessStatus, theme?: PiTheme, width?: number): string[] {
   if (!hasAwarenessSignal(s) && !(s.unreadInbox && s.unreadInbox > 0)) return [];
   const debt = s.verifyTasks;
   const segs: string[] = [];
@@ -139,19 +136,19 @@ export function hasCachedAwarenessSignal(cwd: string): boolean {
 }
 
 /** Return the last cached Awareness status for command dashboards. */
-export function getCachedAwarenessStatus(cwd: string): AwarenessStatus | null {
+export function getCachedAwarenessStatus(cwd: string): ExternalAwarenessStatus | null {
   return cache.get(cwd)?.status ?? null;
 }
 
 interface CacheEntry {
-  status: AwarenessStatus | null;
+  status: ExternalAwarenessStatus | null;
   lastRunAt: number;
   running: boolean;
 }
 const cache = new Map<string, CacheEntry>();
 
 /** Typed package reader; injectable without serializing through CLI JSON. */
-export type StatusRunner = (cwd: string, agentId?: string) => Promise<AwarenessStatus | null>;
+export type StatusRunner = (cwd: string, agentId?: string) => Promise<ExternalAwarenessStatus | null>;
 const defaultRunner: StatusRunner = async (cwd, agentId) => {
   try {
     return readExternalAwarenessStatus({ workspace: cwd, agentId });

@@ -293,5 +293,3 @@ export function deleteSession(): boolean {
 export function _resetSessionState(): void {
   resetCacheState();
 }
-
-export { SESSION_FILE, STATS_FILE } from './sessionDiskIO.js';

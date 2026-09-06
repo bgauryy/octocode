@@ -5,8 +5,8 @@ import type { GitHubAPIResponse } from '../githubAPI.js';
 import {
   shouldUseSearchForIssues,
   type IssueSearchParams,
-} from '../queryBuilders.js';
-import { withDataCache } from '../../utils/http/cache.js';
+} from '../queryBuilders/issues.js';
+import { withDataCache } from '../../utils/http/cache/dataCache.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
@@ -31,7 +31,10 @@ export async function fetchIssues(
     cacheKey,
     () => fetchIssuesInternal(params, authInfo),
     {
-      shouldCache: value => 'data' in value && !('error' in value),
+      shouldCache: value =>
+        'data' in value &&
+        !('error' in value) &&
+        !value.data?.incompleteResults,
     }
   );
 }

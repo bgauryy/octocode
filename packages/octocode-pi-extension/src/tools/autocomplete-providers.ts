@@ -24,7 +24,7 @@
  * guarded to once per process; repeat calls are no-ops returning false.
  */
 
-import type { PiAutocompleteItem, PiAutocompleteProvider, PiAutocompleteResult } from '../types.js';
+import type { AutocompleteItem, PiAutocompleteProvider, PiAutocompleteResult } from '../types.js';
 import { truncatePlainToWidth } from './render-helpers.js';
 
 // ─── Injected data sources ───────────────────────────────────────────────────
@@ -89,8 +89,8 @@ function matchesPrefix(candidate: string | undefined, prefix: string): boolean {
 }
 
 /** Build the Octocode items for a matched token; empty array when nothing matches. */
-export function buildSuggestionItems(token: TokenPrefix, deps: OctocodeAutocompleteDeps): PiAutocompleteItem[] {
-  const items: PiAutocompleteItem[] = [];
+export function buildSuggestionItems(token: TokenPrefix, deps: OctocodeAutocompleteDeps): AutocompleteItem[] {
+  const items: AutocompleteItem[] = [];
   if (token.trigger === '@') {
     for (const w of safeList(deps.listWorkers)) {
       if (items.length >= MAX_ITEMS) break;

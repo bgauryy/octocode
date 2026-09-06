@@ -13,6 +13,8 @@
 /** C0/C1 control chars except tab (expanded below) and ESC (0x1B, ANSI). */
 const CONTROL_CHAR_RE = /[\x00-\x08\x0A-\x1A\x1C-\x1F\x7F-\x9F]/g;
 
+export const ANSI_RESET = '\u001b[0m';
+
 /**
  * Replace tabs with 3 spaces and other control characters with a space so a string
  * renders exactly as measured: pi-tui *counts* a tab as 3 columns but emits it raw

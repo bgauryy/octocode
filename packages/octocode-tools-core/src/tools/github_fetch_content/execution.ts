@@ -1,7 +1,7 @@
 import type { CallToolResult, AuthInfo } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import {
   handleCatchError,
@@ -11,19 +11,18 @@ import {
 } from '../utils.js';
 import { FileContentQueryLocalSchema } from './scheme.js';
 import type { MinifyMode } from '../../scheme/fields.js';
-import {
-  fetchDirectoryContents,
-  fetchFileContentToDisk,
-} from '../../github/directoryFetch.js';
+import { fetchDirectoryContents } from '../../github/directoryFetch/fetchDirectoryContents.js';
+import { fetchFileContentToDisk } from '../../github/directoryFetch/fetchFileContentToDisk.js';
 import { resolveDefaultBranch } from '../../github/client.js';
+import { resolveMaterializationRef } from '../../github/directoryFetch/refResolution.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 import {
   mapFileContentProviderResult,
   mapFileContentToolQuery,
-} from '../providerMappers.js';
+} from '../providerMappers/fileContent.js';
 import {
   createLazyProviderContext,
-  createProviderExecutionContext,
+  type createProviderExecutionContext,
   executeProviderOperation,
   providerSupports,
 } from '../providerExecution.js';
@@ -178,53 +177,11 @@ async function handleDirectoryFetch(
     Boolean(query.forceRefresh)
   );
 
-  const hasSubdirectories = (result.skipped?.nonFile ?? 0) > 0;
   const skippedSummary = result.skipped
     ? Object.fromEntries(
         Object.entries(result.skipped).filter(([, v]) => v > 0)
       )
     : undefined;
-
-  const location: Record<string, unknown> = {
-    kind: 'directory',
-    localPath: result.localPath,
-    repoRoot: result.repoRoot,
-    source: 'treeFetch',
-    cached: result.cached,
-    complete: result.complete,
-    verified: result.verified,
-    ...(result.commitSha ? { commitSha: result.commitSha } : {}),
-    ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
-    ...(skippedSummary && Object.keys(skippedSummary).length > 0
-      ? { skippedSummary }
-      : {}),
-    owner: query.owner,
-    repo: query.repo,
-  };
-
-  const next: Record<string, unknown> = {
-    viewStructure: {
-      tool: 'localSearch',
-      query: { operation: 'tree', path: result.localPath },
-    },
-    // When subdirectories were skipped, provide a pre-filled clone hint so
-    // agents can escalate to a complete local copy without constructing the
-    // call manually.
-    ...(hasSubdirectories
-      ? {
-          escalateToClone: {
-            tool: 'ghCloneRepo',
-            why: 'nonFile skips indicate subdirectories were not fetched; clone for full coverage',
-            query: {
-              owner: query.owner,
-              repo: query.repo,
-              ...(query.branch ? { branch: query.branch } : {}),
-              ...(query.path ? { sparsePath: String(query.path) } : {}),
-            },
-          },
-        }
-      : {}),
-  };
 
   const resultData: Record<string, unknown> = {
     localPath: result.localPath,
@@ -237,8 +194,7 @@ async function handleDirectoryFetch(
     directoryEntryCount: result.directoryEntryCount,
     eligibleFileCount: result.eligibleFileCount,
     savedFileCount: result.savedFileCount,
-    // All-zeros skip map is noise (and duplicates location.skippedSummary's
-    // absence); emit the full breakdown only when something was skipped.
+    // Emit skip counts only when something was omitted.
     ...(skippedSummary && Object.keys(skippedSummary).length > 0
       ? { skipped: result.skipped }
       : {}),
@@ -249,8 +205,6 @@ async function handleDirectoryFetch(
     ...(query.branch !== result.branch
       ? { resolvedBranch: result.branch }
       : {}),
-    location,
-    next,
   };
 
   return createSuccessResult(
@@ -269,23 +223,49 @@ async function handleFileFetch(
   authInfo: AuthInfo | undefined,
   providerContext: ReturnType<typeof createProviderExecutionContext>
 ) {
+  const config = getConfigSync();
+  const shouldMaterialize =
+    query.fullContent === true &&
+    query.minify === 'none' &&
+    config.local.enabled &&
+    config.local.enableClone &&
+    config.storage.mode === 'persistent' &&
+    providerContext.provider.type === 'github';
+  const materializationRef = shouldMaterialize
+    ? await resolveMaterializationRef(
+        query.owner,
+        query.repo,
+        query.branch ??
+          (await resolveDefaultBranch(query.owner, query.repo, authInfo)),
+        authInfo,
+        query.forceRefresh === true
+      )
+    : undefined;
+  // Resolve mutable refs once. Both consumers use the same immutable raw cache entry.
+  const readQuery = materializationRef
+    ? { ...query, branch: materializationRef.commitSha }
+    : query;
   const providerResult = await executeProviderOperation(query, () =>
-    providerContext.provider.getFileContent(mapFileContentToolQuery(query))
+    providerContext.provider.getFileContent(mapFileContentToolQuery(readQuery))
   );
 
   if (providerResult.ok === false) {
     return providerResult.result;
   }
 
-  const materialized =
-    query.fullContent === true &&
-    query.minify === 'none' &&
-    getConfigSync().storage.mode === 'persistent'
-      ? await materializeExactFile(query, authInfo)
-      : undefined;
+  const materialized = materializationRef
+    ? await fetchFileContentToDisk(
+        query.owner,
+        query.repo,
+        query.path,
+        materializationRef.commitSha,
+        authInfo,
+        query.forceRefresh === true
+      )
+    : undefined;
 
   const resultData = {
-    ...mapFileContentProviderResult(providerResult.response.data, query),
+    ...mapFileContentProviderResult(providerResult.response.data, readQuery),
     ...(materialized
       ? {
           localPath: materialized.localPath,
@@ -294,8 +274,8 @@ async function handleFileFetch(
           commitSha: materialized.commitSha,
           // Provenance: always name the ref that was actually served, so the
           // answer is citable even when it equals the requested branch.
-          ...(materialized.branch
-            ? { resolvedBranch: materialized.branch }
+          ...(materializationRef
+            ? { resolvedBranch: materializationRef.resolvedRef }
             : {}),
         }
       : {}),
@@ -315,27 +295,5 @@ async function handleFileFetch(
     {
       rawResponse: providerResult.response.rawResponseChars,
     }
-  );
-}
-
-async function materializeExactFile(
-  query: PartialFileContentQuery,
-  authInfo: AuthInfo | undefined
-) {
-  if (!query.owner || !query.repo || typeof query.path !== 'string') {
-    return undefined;
-  }
-
-  const branch =
-    query.branch ??
-    (await resolveDefaultBranch(query.owner, query.repo, authInfo));
-
-  return fetchFileContentToDisk(
-    query.owner,
-    query.repo,
-    query.path,
-    branch,
-    authInfo,
-    Boolean(query.forceRefresh)
   );
 }

@@ -13,9 +13,9 @@ Scale execution, not evidence quality.
 
 ## Proof before edits
 1. Skeleton: map roots/hotspots with structure/files; use graph dependencies/dependents/reachability for file topology and inspect symbols on entry points/move targets.
-2. Contracts: freeze public exports, types, schemas, flags, tool names, env keys, serialized shapes, tests, and package boundaries.
+2. Contracts: name the behavior to preserve and the interfaces explicitly authorized to change. Avoid compatibility aliases unless requested; update affected consumers and remove obsolete owned paths.
 3. Blast: combine graph dependents/path/cycles with semantic references/callers and lexical/structural search across code, tests, scripts, configs, and docs.
-4. Gate: confirm the plan before public rename/delete, cross-package edges, or many consumers.
+4. Authority: carry the authorized scope; resolve only missing consequential decisions before expanding it.
 Record one invariant list and a task ledger with files, contract risk, verification, and rollback.
 
 ## Execute big to small

@@ -1,8 +1,9 @@
+import { extensionWorkspaceRoot } from '../extension-paths.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { getOctocodeHome } from '../env.js';
-import { workspaceAgentRoot } from './session-artifacts.js';
+import { getOctocodeHome } from '@octocodeai/config';
+
 
 export interface DiscoveredMcpServerConfig {
   transport?: 'stdio' | 'http';
@@ -214,7 +215,7 @@ function candidates(cwd: string, options?: string | DiscoverMcpConfigOptions): C
   const project = (relative: string, host: string, format: 'json' | 'toml' = 'json'): Candidate => ({ path: path.join(cwd, relative), host, scope: 'project', format, active: false });
   const user = (relative: string, host: string, format: 'json' | 'toml' = 'json'): Candidate => ({ path: path.join(homeDir, relative), host, scope: 'user', format, active: false });
   return [
-    { path: path.join(workspaceAgentRoot(cwd, octocodeHome), 'mcp', 'servers.json'), host: 'octocode', scope: 'project', format: 'json', active: true, allowRootServers: true },
+    { path: path.join(extensionWorkspaceRoot(cwd, octocodeHome), 'mcp', 'servers.json'), host: 'octocode', scope: 'project', format: 'json', active: true, allowRootServers: true },
     project('.mcp.json', 'claude'), project('.claude/mcp.json', 'claude'),
     project('.cursor/mcp.json', 'cursor'), project('.codex/config.toml', 'codex', 'toml'),
     project('.gemini/settings.json', 'gemini'),

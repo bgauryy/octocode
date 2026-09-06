@@ -642,16 +642,27 @@ mod tests {
     #[test]
     fn prescan_agrees_with_legacy_regexset_on_corpus() {
         use super::super::patterns::REGEX_SET;
-        let jwt = format!("eyJ{}.eyJ{}.{}", "a".repeat(20), "b".repeat(20), "c".repeat(20));
+        let jwt = format!(
+            "eyJ{}.eyJ{}.{}",
+            "a".repeat(20),
+            "b".repeat(20),
+            "c".repeat(20)
+        );
         let corpus: Vec<String> = vec![
             format!("token={FAKE_GH_TOKEN}"),
             format!("AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}"),
             format!("aws_secret_access_key = {}", "A".repeat(40)),
             jwt,
             format!("postgres://user:s3cr3t@db.example.com:5432/app"),
-            format!("-----BEGIN RSA PRIVATE KEY-----\nMII{}\n-----END RSA PRIVATE KEY-----", "A".repeat(64)),
+            format!(
+                "-----BEGIN RSA PRIVATE KEY-----\nMII{}\n-----END RSA PRIVATE KEY-----",
+                "A".repeat(64)
+            ),
             format!("uuid-ish {}", "123e4567-e89b-12d3-a456-426614174000"),
-            format!("telegram 123456789:{}", "AAExampleExampleExampleExampleAAAAA"),
+            format!(
+                "telegram 123456789:{}",
+                "AAExampleExampleExampleExampleAAAAA"
+            ),
             "perfectly clean prose with no secrets at all".to_string(),
             format!("sk-proj-{}", "x".repeat(48)),
             format!("xoxb-1234567890-1234567890123-{}", "x".repeat(24)),
@@ -817,23 +828,14 @@ mod tests {
     //
     // Two complementary checks (both proptest!):
     //
-    // 1. `prop_chunked_matches_single_small` (default-run): byte-identical
-    //    equivalence of `detect_chunked` and `detect_single` across small,
-    //    randomly-shaped inputs incl. multi-byte chars. This is fast — the heavy
-    //    cost lives in the `RegexSet` DFA, whose debug-build execution on a
-    //    multi-hundred-KB string is orders of magnitude slower than release; so
-    //    we keep the default cases small and rely on the dedicated boundary
-    //    unit tests (`detect_chunked_redacts_token_spanning_chunk_boundary`,
-    //    `detect_chunked_terminates_when_tail_shorter_than_overlap`) for the
-    //    million-byte path. Both paths share the same per-pattern replacement
-    //    loop, so small-input agreement is strong evidence of equivalence.
+    // 1. `prop_chunked_matches_single_small`: byte-identical equivalence across
+    //    small, randomly shaped inputs, including multibyte characters.
     //
-    // 2. `prop_chunked_matches_single_boundary` (#[ignore] by default): the same
+    // 2. `prop_chunked_matches_single_boundary`: the same
     //    equivalence on ~500KB inputs with the token placed at boundary-relevant
-    //    offsets, including a multi-byte char near the chunk edge. Run on demand
-    //    (`cargo test -- --ignored`) or in a release-profile CI lane. Not run by
-    //    default because the debug-build `RegexSet` DFA is pathologically slow on
-    //    this input size (tracked separately; correctness is verified).
+    //    offsets, including a multibyte character near the chunk edge. The
+    //    literal prescan bounds regex work sufficiently for this to run in the
+    //    default suite; it no longer depends on the removed RegexSet path.
     //
     // `prop_sanitized_has_no_raw_token_shape` pins the no-re-trigger guarantee:
     // redaction output never re-exposes a raw `ghp_` token shape that a later
@@ -876,16 +878,10 @@ mod tests {
             prop_assert_eq!(s, c);
         }
 
-        /// ~500KB chunk-boundary equivalence. Still `#[ignore]` by default:
-        /// `[profile.dev.package."regex-automata"] opt-level = 3` (Cargo.toml)
-        /// fixes clean-ASCII 500KB inputs, but the DFA is still algorithmically
-        /// slow on the multi-byte-char-near-boundary shape (a 2-byte UTF-8 char
-        /// placed in the overlap window causes the regex crate's DFA to explore
-        /// many more states). This is a fundamental crate behaviour, not a
-        /// compilation issue. Run with `cargo test -- --ignored prop_chunked` or
-        /// in a release CI lane. Correctness is already pinned by the unit tests.
+        /// ~500KB chunk-boundary equivalence, including UTF-8 overlap windows.
+        /// Keep the same case count as the small-input properties so the large
+        /// input path remains part of ordinary correctness validation.
         #[test]
-        #[ignore]
         fn prop_chunked_matches_single_boundary(
             offset_idx in 0usize..5,
             token_idx in 0usize..4,

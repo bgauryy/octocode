@@ -1,16 +1,33 @@
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-export function getReposBaseDir(octocodeDir: string): string {
-  return getCloneBaseDir(octocodeDir);
-}
-
 export function getCloneBaseDir(octocodeDir: string): string {
   return join(octocodeDir, 'tmp', 'clone');
 }
 
 export function getTreeBaseDir(octocodeDir: string): string {
   return join(octocodeDir, 'tmp', 'tree');
+}
+
+export function getTreeLockDir(octocodeDir: string, cacheRoot: string): string {
+  return join(
+    octocodeDir,
+    'tmp',
+    'tree-locks',
+    createHash('sha256').update(cacheRoot).digest('hex')
+  );
+}
+
+export function getCloneLockDir(
+  octocodeDir: string,
+  cacheRoot: string
+): string {
+  return join(
+    octocodeDir,
+    'tmp',
+    'clone-locks',
+    createHash('sha256').update(cacheRoot).digest('hex').slice(0, 16)
+  );
 }
 
 function sparseSuffix(sparsePath?: string): string {
@@ -45,9 +62,13 @@ export function getCloneDir(
   owner: string,
   repo: string,
   branch: string,
-  sparsePath?: string
+  sparsePath?: string,
+  endpoint?: string
 ): string {
-  const dirName = `${safeBranchSegment(branch)}${sparseSuffix(sparsePath)}`;
+  const endpointSuffix = endpoint
+    ? `__host_${createHash('sha256').update(endpoint).digest('hex').slice(0, 16)}`
+    : '';
+  const dirName = `${safeBranchSegment(branch)}${sparseSuffix(sparsePath)}${endpointSuffix}`;
   return join(getCloneBaseDir(octocodeDir), owner, repo, dirName);
 }
 

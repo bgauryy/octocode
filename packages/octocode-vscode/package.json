@@ -130,18 +130,17 @@
   },
   "scripts": {
     "build": "yarn readme:sync && yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "compile": "npm run build",
     "lint": "node ../../node_modules/eslint/bin/eslint.js src",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src --fix",
-    "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies",
+    "package": "yarn vsce package --allow-missing-repository --no-dependencies",
     "prepack": "yarn readme:sync",
-    "publish": "npx @vscode/vsce publish",
+    "publish": "yarn vsce publish",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "tsc --noEmit",
     "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
-    "vscode:prepublish": "yarn compile",
+    "vscode:prepublish": "yarn build",
     "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch"
   }
 }

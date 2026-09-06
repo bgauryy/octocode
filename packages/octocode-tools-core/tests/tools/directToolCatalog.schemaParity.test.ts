@@ -13,7 +13,7 @@ import {
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   DIRECT_TOOL_DEFINITIONS,
   findDirectToolDefinition,
-} from '../../src/tools/directToolCatalog.meta.js';
+} from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import { DIRECT_TOOL_SPECIFICATIONS } from '../../src/tools/directToolCatalog/toolSpecifications.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 

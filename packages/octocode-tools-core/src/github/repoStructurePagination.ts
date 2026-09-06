@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '../toolContract/schemas.js';
+import type { GitHubViewRepoStructureQuerySchema } from '../toolContract/input/resources/tools/githubTreeOperation.js';
 
 type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema
@@ -152,6 +152,18 @@ export function applyStructurePagination(
     repo: cachedResult.repo,
     branch: cachedResult.branch,
     path: cachedResult.path,
+    ...(cachedResult.defaultBranch !== undefined && {
+      defaultBranch: cachedResult.defaultBranch,
+    }),
+    ...(cachedResult.isPartial !== undefined && {
+      isPartial: cachedResult.isPartial,
+    }),
+    ...(cachedResult.terminalLimit !== undefined && {
+      terminalLimit: cachedResult.terminalLimit,
+    }),
+    ...(cachedResult.partialReasons !== undefined && {
+      partialReasons: cachedResult.partialReasons,
+    }),
     apiSource: cachedResult.apiSource,
     summary: {
       totalFiles: allFiles,
@@ -159,6 +171,9 @@ export function applyStructurePagination(
       truncated: hasMore,
       filtered: true,
       originalCount: totalEntries,
+      ...(cachedResult.summary.incompleteTree !== undefined && {
+        incompleteTree: cachedResult.summary.incompleteTree,
+      }),
     },
     structure: sortedStructure,
     ...(fileSizeMap !== undefined && { fileSizeMap }),

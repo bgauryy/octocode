@@ -3,8 +3,9 @@ import { access } from 'node:fs/promises';
 import { ToolErrors } from '../../errors/errorFactories.js';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
+import { createErrorResult } from '../utils.js';
 import { findFiles } from '../local_find_files/findFiles.js';
 import type { FindFilesQuery } from '../local_find_files/scheme.js';
 import { searchContentRipgrep } from '../local_ripgrep/searchContentRipgrep.js';
@@ -21,7 +22,6 @@ import {
   toLegacyTextQuery,
 } from './scheme.js';
 import { LOCAL_SEARCH_TOOL_NAME } from '../toolNames.js';
-export { LOCAL_SEARCH_TOOL_NAME } from '../toolNames.js';
 
 const OPERATION_BY_INTERNAL_RUNNER = {
   'local.text': 'text',
@@ -74,13 +74,22 @@ async function runOperation(
     }
     case 'structural': {
       const { operation: _operation, resultView, ...input } = query;
-      return searchContentRipgrep(
-        LocalRipgrepQuerySchema.parse({
-          ...toLegacyTextQuery(input, resultView as LocalTextResultView),
-          mode: 'structural',
-          output: resultView,
-        }) as RipgrepQuery
-      );
+      const parsed = LocalRipgrepQuerySchema.safeParse({
+        ...toLegacyTextQuery(input, resultView as LocalTextResultView),
+        mode: 'structural',
+        output: resultView,
+      });
+      if (!parsed.success) {
+        return createErrorResult(
+          parsed.error.issues.map(issue => issue.message).join('; '),
+          query,
+          {
+            toolName: LOCAL_SEARCH_TOOL_NAME,
+            extra: { errorCode: 'structural.query.invalid' },
+          }
+        );
+      }
+      return searchContentRipgrep(parsed.data);
     }
     case 'files': {
       const {

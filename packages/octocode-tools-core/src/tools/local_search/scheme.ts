@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LocalSearchQuerySchema as SharedLocalSearchQuerySchema } from '../../toolContract/schemas.js';
+import { LocalSearchQuerySchema as SharedLocalSearchQuerySchema } from '../../toolContract/input/resources/tools/localSearch.js';
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 
 export type LocalTextResultView =

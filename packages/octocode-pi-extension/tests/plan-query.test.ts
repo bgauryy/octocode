@@ -16,10 +16,11 @@ import { openAwareness } from '@octocodeai/octocode-awareness';
 import type { ToolDefinition, PiContext } from '../src/types.js';
 import { handleOctocodePlanCommand, registerPlanTool, setUnifiedPlanProjectorForTests } from '../src/tools/plan-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
-import { completeUnifiedPlanTask } from '../src/tools/awareness-shared.js';
-import { acceptPlanReview, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, proposePlanReview, setPlan, setPlanRfc, updatePlanCoordination } from '../src/tools/active-plan.js';
-import { setInteractionStoreFactoryForTests } from '../src/tools/interaction-broker.js';
+import { completeExternalPlanTask } from '@octocodeai/octocode-awareness';
+import { acceptPlanReview, activePlanScope, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, proposePlanReview, setPlan, setPlanRfc, updatePlanCoordination } from '../src/tools/active-plan.js';
+import { configureInteractionBrokerRoute, setInteractionStoreFactoryForTests, submitHostInteractionAnswer } from '../src/tools/interaction-broker.js';
 import { getCurrentPlanReadModel } from '../src/tools/plan-read-model.js';
+import { runtimeStoreFor } from '../src/tools/runtime-renderer.js';
 import { createSessionArtifactContext } from '../src/tools/session-artifacts.js';
 import { SESSION_AUDIT_RELATIVE_PATH } from '../src/tools/session-audit.js';
 
@@ -418,7 +419,7 @@ test('shared completion compensates a failed check mark and reports verification
     const markFailure = new Error('injected mark failure');
     (lite as unknown as { markCheck: () => never }).markCheck = () => { throw markFailure; };
     assert.throws(
-      () => completeUnifiedPlanTask({
+      () => completeExternalPlanTask({
         workspace,
         taskId: recoverable.taskId,
         agentId,
@@ -434,7 +435,7 @@ test('shared completion compensates a failed check mark and reports verification
     (lite as unknown as { markCheck: () => never }).markCheck = () => { throw new Error('mark unavailable'); };
     (lite as unknown as { reopenTask: () => never }).reopenTask = () => { throw new Error('reopen unavailable'); };
     assert.throws(
-      () => completeUnifiedPlanTask({
+      () => completeExternalPlanTask({
         workspace,
         taskId: debt.taskId,
         agentId,
@@ -772,6 +773,161 @@ test('flat params without queries[] are rejected', async () => {
 });
 
 // ─── renderCall envelope awareness ───────────────────────────────────────────
+
+test('durable noninteractive RFC approval resumes through a bound authorization interaction', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'plan-rpc-start-'));
+  const rfcPath = join(workspace, '.octocode', 'rfc', 'demo', 'RFC.md');
+  mkdirSync(join(workspace, '.octocode', 'rfc', 'demo'), { recursive: true });
+  writeFileSync(rfcPath, '# RPC reviewed design\n');
+  const localCtx = {
+    cwd: workspace,
+    mode: 'rpc',
+    sessionManager: { getSessionId: () => 'rpc-plan-session' },
+  } as unknown as PiContext;
+  const scope = activePlanScope(localCtx);
+  configureInteractionBrokerRoute(localCtx, true);
+  setInteractionStoreFactoryForTests((storeWorkspace) => openAwareness({ workspace: storeWorkspace }));
+  const tool = loadTool();
+  try {
+    const proposed = await tool.execute('id', {
+      queries: [{
+        reasoning: 'propose a reviewed RPC plan',
+        action: 'propose',
+        rfcPath,
+        steps: [{ text: 'Implement reviewed design' }],
+      }],
+    }, undefined, undefined, localCtx) as {
+      details?: {
+        revision?: string;
+        plan?: { planId: string };
+        pendingInteraction?: { interactionId: string; correlationId: string; sessionId: string };
+      };
+    };
+    const request = proposed.details?.pendingInteraction;
+    assert.ok(request, `noninteractive review exposes a durable authorization request: ${JSON.stringify(proposed)}`);
+    const revision = proposed.details?.revision;
+    assert.ok(revision);
+    const planId = proposed.details?.plan?.planId;
+    assert.ok(planId);
+    submitHostInteractionAnswer(localCtx, {
+      version: 1,
+      interactionId: request.interactionId,
+      correlationId: request.correlationId,
+      sessionId: request.sessionId,
+      outcome: { status: 'selected', value: `plan-start:${planId}:${revision}` },
+    });
+
+    const started = await tool.execute('id', {
+      queries: [{
+        reasoning: 'resume the explicit human Start decision',
+        action: 'start',
+        revision,
+        authorizationInteractionId: request.interactionId,
+      }],
+    }, undefined, undefined, localCtx) as { isError?: boolean };
+    assert.notEqual(started.isError, true);
+    assert.equal(getPlanReviewState(scope).phase, 'executing');
+    assert.equal(getPlan(scope)[0]?.status, 'doing');
+  } finally {
+    configureInteractionBrokerRoute(localCtx, false);
+    setInteractionStoreFactoryForTests();
+    clearPlan(scope);
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('review-phase and draft step actions fail instead of reporting a no-op success', async () => {
+  const tool = loadTool();
+  setPlan(CWD, ['A'], 'draft');
+  const started = await tool.execute('id', {
+    queries: [{ reasoning: 'must not bypass review', action: 'start', index: 1 }],
+  }, undefined, undefined, ctx) as { isError?: boolean; details?: { error?: string } };
+  assert.equal(started.isError, true);
+  assert.equal(started.details?.error, 'authorization-required');
+  assert.equal(getPlan(CWD)[0]?.status, 'todo');
+
+  const completed = await tool.execute('id', {
+    queries: [{ reasoning: 'must not complete before Start', action: 'complete', index: 1 }],
+  }, undefined, undefined, ctx) as { isError?: boolean; details?: { error?: string } };
+  assert.equal(completed.isError, true);
+  assert.equal(completed.details?.error, 'phase-not-executing');
+});
+
+test('set activates the first dependency-ready step rather than a blocked first row', async () => {
+  const tool = loadTool();
+  await tool.execute('id', {
+    queries: [{
+      reasoning: 'exercise dependency-aware activation',
+      action: 'set',
+      steps: [{ text: 'Blocked first', dependsOn: [2] }, 'Runnable second'],
+    }],
+  }, undefined, undefined, ctx);
+  assert.deepEqual(getPlan(CWD).map((step) => step.status), ['todo', 'doing']);
+});
+
+test('consequential proposals require an RFC unless an explicit justified override is supplied', async () => {
+  const tool = loadTool();
+  const result = await tool.execute('id', {
+    queries: [{
+      reasoning: 'exercise inferred consequential review',
+      action: 'propose',
+      steps: ['One', 'Two', 'Three', 'Four', 'Five'],
+    }],
+  }, undefined, undefined, ctx) as { isError?: boolean; details?: { error?: string } };
+  assert.equal(result.isError, true);
+  assert.equal(result.details?.error, 'rfc-required');
+
+  const overridden = await tool.execute('id', {
+    queries: [{
+      reasoning: 'record the explicit local-only exception',
+      action: 'propose',
+      steps: ['One', 'Two', 'Three', 'Four', 'Five'],
+      consequential: false,
+      reason: 'The steps are independent local test edits with no public or persistent contract change.',
+    }],
+  }, undefined, undefined, ctx) as { isError?: boolean };
+  assert.notEqual(overridden.isError, true);
+});
+
+test('proposal validation and command delivery failures settle activity instead of leaving Creating plan stuck', async () => {
+  const tool = loadTool();
+  const invalidCtx = { cwd: '/tmp/plan-invalid-rfc-activity' } as unknown as PiContext;
+  const invalid = await tool.execute('id', {
+    queries: [{ reasoning: 'exercise invalid RFC cleanup', action: 'propose', rfcPath: '../outside.md', steps: ['A'] }],
+  }, undefined, undefined, invalidCtx) as { isError?: boolean };
+  assert.equal(invalid.isError, true);
+  const invalidActivity = runtimeStoreFor(invalidCtx)?.getState().activity;
+  assert.ok(!invalidActivity || !('detail' in invalidActivity) || invalidActivity.detail !== 'Creating plan…');
+
+  const notices: string[] = [];
+  await assert.doesNotReject(handleOctocodePlanCommand(
+    'new delivery failure',
+    invalidCtx,
+    (_ctx, message) => notices.push(message),
+    async () => { throw new Error('send failed'); },
+  ));
+  assert.match(notices.join('\n'), /could not start plan mode|send failed/i);
+  assert.equal(runtimeStoreFor(invalidCtx)?.getState().activity.kind, 'failed');
+  clearPlan(invalidCtx.cwd!);
+});
+
+test('plan result renderer preserves failures and distinguishes an empty show from clear', () => {
+  const tool = loadTool();
+  const failure = tool.renderResult?.({
+    content: [{ type: 'text', text: '[PLAN] invalid RFC' }],
+    isError: true,
+    details: { action: 'propose', error: 'rfc-gate' },
+  }, {}, undefined)?.render(80).join('\n') ?? '';
+  assert.match(failure, /invalid RFC/i);
+  assert.doesNotMatch(failure, /cleared/i);
+
+  const empty = tool.renderResult?.({
+    content: [{ type: 'text', text: '[PLAN] no active plan' }],
+    details: { action: 'show', steps: [] },
+  }, {}, undefined)?.render(80).join('\n') ?? '';
+  assert.match(empty, /no active plan/i);
+  assert.doesNotMatch(empty, /cleared/i);
+});
 
 test('renderCall reads action from queries[0]', () => {
   const tool = loadTool();

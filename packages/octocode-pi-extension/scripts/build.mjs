@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import ts from 'typescript';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -315,6 +316,34 @@ function compileTsc() {
   });
 }
 
+/** Keep canonical source imports while packaging the actual zero-dependency loader. */
+function inlineConfigRuntime() {
+  const configOutput = path.join(distDir, 'config.js');
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) { visit(file); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const text = fs.readFileSync(file, 'utf8');
+      const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      const edits = [];
+      for (const statement of source.statements) {
+        if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+          || statement.moduleSpecifier.text !== '@octocodeai/config') continue;
+        let relative = path.relative(path.dirname(file), configOutput).split(path.sep).join('/');
+        if (!relative.startsWith('.')) relative = `./${relative}`;
+        edits.push({ start: statement.moduleSpecifier.getStart(source), end: statement.moduleSpecifier.end, text: JSON.stringify(relative) });
+      }
+      if (!edits.length) continue;
+      let output = text;
+      for (const edit of edits.reverse()) output = output.slice(0, edit.start) + edit.text + output.slice(edit.end);
+      fs.writeFileSync(file, output, 'utf8');
+    }
+  };
+  visit(distDir);
+  copyFile(SOURCE_PATHS.configLoader, configOutput);
+}
+
 async function build() {
   const buildLock = await acquireBuildLock();
   // Each build owns a private staging tree. Concurrent builds must never delete
@@ -332,21 +361,7 @@ async function build() {
   // 1. Compile TypeScript -> dist/ (generates .js + .d.ts for all src/ modules).
   compileTsc();
 
-  // Branded pi entry shim: pi's startup summary labels an extension by the
-  // shortest unique path tail after stripping index.js — a bare dist/index.js
-  // entry displays as "dist". dist/octocode/index.js re-exports the real entry
-  // so the [Extensions] list reads "octocode".
-  fs.mkdirSync(path.join(distDir, 'octocode'), { recursive: true });
-  fs.writeFileSync(
-    path.join(distDir, 'octocode', 'index.js'),
-    "export * from '../index.js';\nexport { default } from '../index.js';\n",
-    'utf8',
-  );
-
-  // Inline the @octocodeai/config source AS dist/env.js — index.js imports './env.js', so
-  // the published extension carries the loader itself (no runtime dep, nothing to publish).
-  // src/env.ts stays a workspace re-export for repo-time (tests, IDE); dist is self-contained.
-  copyFile(SOURCE_PATHS.configLoader, path.join(distDir, 'env.js'));
+  inlineConfigRuntime();
   // The system prompt is one inlined document; compileTsc() emits dist/prompts/system-prompt.js.
   // Import the composed prompt and write it to dist/system/ — no per-section copy needed.
   const { SYSTEM_PROMPT } = await import(
@@ -367,9 +382,7 @@ async function build() {
 
   if (fs.existsSync(SOURCE_PATHS.subagents)) {
     copyDirectory(SOURCE_PATHS.subagents, OUTPUT_PATHS.subagents);
-    const { expandSubagentPrompt, SUBAGENT_PLACEHOLDERS } = await import(
-      pathToFileURL(path.join(distDir, 'prompts', 'subagent-shared.js')).href
-    );
+    const { expandSubagentPrompt, SUBAGENT_PLACEHOLDERS } = await import('@octocodeai/octocode-shared/prompts');
     for (const entry of fs.readdirSync(OUTPUT_PATHS.subagents, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const promptPath = path.join(OUTPUT_PATHS.subagents, entry.name, 'SYSTEM_PROMPT.md');

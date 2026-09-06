@@ -21,18 +21,19 @@ Search results are leads. Findings use exact repository paths, package versions,
 
 ## Tools
 
-Prefer Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx octocode`. Use graph operations for file topology and LSP for symbol identity.
+Prefer current Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx -y octocode`. Choose text for lexical anchors, AST for syntax, LSP for identity, and graph for file topology. A known exact target skips discovery. See `references/tool-examples.md` for all ten tools and `references/references.md` for primary sources.
 
 ## Install
 
 ```bash
-npx octocode skill install octocode-research --platform codex
+npx -y octocode skill install octocode-research --platform codex
 ```
 
 ## Maintainer verification
 
 ```bash
 node scripts/check-description.mjs
+node scripts/check-guidance.mjs --self-test
 ```
 
 Then run the `octocode-skills` review against this folder.

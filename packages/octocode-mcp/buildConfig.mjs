@@ -13,40 +13,14 @@ export const nodeExternals = [
 ];
 
 // Published runtime dependencies stay external, including tools-core. Consumers
-// install them from this package's manifest; native and shared-core dependencies
-// are external for the same reason.
-export const bundledRuntimeDependencies = new Set([]);
+// install them from this package's manifest, preserving the interface → core
+// package boundary in the emitted bundle.
+export const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
-export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
-  dependencyName => !bundledRuntimeDependencies.has(dependencyName)
-);
+export const external = [...nodeExternals, ...runtimeExternals];
 
-// Subpath-export wildcards for the externalized packages (esbuild matches `*`).
-// The base specifiers are already covered by runtimeExternals above; these keep
-// deep imports (e.g. `@octocodeai/octocode-core/types`) external too.
-export const transitiveExternals = [
-  '@octocodeai/octocode-engine/*',
-  '@octocodeai/octocode-core/*',
-  '@modelcontextprotocol/server/*',
-  '@octokit/*',
-];
-
-export const external = [
-  ...nodeExternals,
-  ...runtimeExternals,
-  ...transitiveExternals,
-];
-
-// ESM interop shim: provides require/__filename/__dirname inside the ESM bundle.
-export const shimBanner = [
-  '#!/usr/bin/env node',
-  "import { createRequire as __createRequire } from 'module';",
-  "import { fileURLToPath as __fileURLToPath } from 'url';",
-  "import { dirname as __dirname_fn } from 'path';",
-  'const require = __createRequire(import.meta.url);',
-  'const __filename = __fileURLToPath(import.meta.url);',
-  'const __dirname = __dirname_fn(__filename);',
-].join('\n');
+// Only the executable marker is needed; runtime dependencies stay external.
+export const shimBanner = '#!/usr/bin/env node';
 
 export const sharedBuildOptions = {
   bundle: true,

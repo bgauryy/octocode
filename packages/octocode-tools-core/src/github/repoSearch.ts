@@ -4,7 +4,7 @@ import type {
   GitHubAPIResponse,
 } from './githubAPI.js';
 import type { z } from 'zod';
-import type { GitHubReposSearchSingleQuerySchema } from '../toolContract/schemas.js';
+import type { GitHubReposSearchSingleQuerySchema } from '../toolContract/input/resources/tools/githubRepositoriesOperation.js';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 
 type GitHubReposSearchSingleQuery = z.infer<
@@ -13,9 +13,10 @@ type GitHubReposSearchSingleQuery = z.infer<
 import type { WithOptionalMeta } from '../types/execution.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
-import { buildRepoSearchQuery } from './queryBuilders.js';
+import { buildRepoSearchQuery } from './queryBuilders/codeAndRepo.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
-import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import { generateCacheKey } from '../utils/http/cache/key.js';
+import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
@@ -55,6 +56,7 @@ interface RepoSearchPagination {
 
 interface RepoSearchAPIData {
   repositories: GitHubRepositoryOutput[];
+  incompleteResults?: boolean;
   pagination?: RepoSearchPagination;
 
   nonExistentScope?: boolean;
@@ -102,7 +104,9 @@ export async function searchGitHubReposAPI(
     },
     {
       shouldCache: value =>
-        'data' in value && !(value as { error?: unknown }).error,
+        'data' in value &&
+        !value.data?.incompleteResults &&
+        !(value as { error?: unknown }).error,
     }
   );
 
@@ -129,6 +133,7 @@ async function listGitHubOrgReposAPIInternal(
 
   let repoItems: RepoSearchResultItem[];
   let totalCount: number | undefined;
+  let responseHeaders: { link?: string } | undefined;
 
   try {
     const orgResult = await octokit.rest.repos.listForOrg({
@@ -138,6 +143,7 @@ async function listGitHubOrgReposAPIInternal(
       sort: listSort,
     });
     repoItems = orgResult.data as RepoSearchResultItem[];
+    responseHeaders = orgResult.headers;
     totalCount = undefined;
   } catch (orgErr: unknown) {
     // Only a 404 means "this owner is not an org" — fall back to user listing.
@@ -155,6 +161,7 @@ async function listGitHubOrgReposAPIInternal(
         sort: listSort,
       });
       repoItems = userResult.data as RepoSearchResultItem[];
+      responseHeaders = userResult.headers;
       totalCount = undefined;
     } catch (err: unknown) {
       return handleGitHubAPIError(err);
@@ -193,7 +200,10 @@ async function listGitHubOrgReposAPIInternal(
   });
 
   const fetchedCount = repositories.length;
-  const hasMore = fetchedCount === perPage; // full page → there may be more
+  // Link is authoritative, including a full final page without rel="next".
+  const hasMore = responseHeaders
+    ? /;\s*rel="next"/.test(responseHeaders.link ?? '')
+    : fetchedCount === perPage;
   const seenThroughPage = (currentPage - 1) * perPage + fetchedCount;
   const totalMatches = totalCount ?? seenThroughPage + (hasMore ? 1 : 0);
   const totalMatchesKind =
@@ -333,15 +343,15 @@ async function searchGitHubReposAPIInternal(
     const reportedTotalMatches = result.data.total_count;
     const totalMatches = Math.min(reportedTotalMatches, 1000);
     const totalPages = Math.ceil(totalMatches / perPage);
-    const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
-    const hasMore = clampedPage < totalPages;
+    const hasMore = currentPage < totalPages;
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
       data: {
         repositories: repositories as GitHubRepositoryOutput[],
+        incompleteResults: result.data.incomplete_results,
         pagination: {
-          currentPage: clampedPage,
+          currentPage,
           totalPages,
           perPage,
           totalMatches,
@@ -350,7 +360,7 @@ async function searchGitHubReposAPIInternal(
           totalMatchesKind: 'reported',
           totalMatchesCapped: reportedTotalMatches > totalMatches,
           hasMore,
-          ...(hasMore ? { nextPage: clampedPage + 1 } : {}),
+          ...(hasMore ? { nextPage: currentPage + 1 } : {}),
         },
       },
       status: 200,

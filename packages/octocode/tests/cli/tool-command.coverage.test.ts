@@ -111,7 +111,8 @@ describe('tool-command coverage', () => {
   });
 
   it('showAvailableTools: lists tools grouped by category', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -126,7 +127,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('localSearch');
     expect(output).toContain('Full protocol: context --full');
     expect(output).toContain('ghSearch');
-    expect(output).toContain('Choose operation:"code"');
+    expect(output).toContain('Discover GitHub code with operation:"code"');
     expect(output).toContain('localSearch');
     expect(output).not.toContain('[path*');
     expect(output).not.toContain('workspaceSymbol');
@@ -136,7 +137,8 @@ describe('tool-command coverage', () => {
   });
 
   it('rejects the removed tools --list alias', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -150,7 +152,8 @@ describe('tool-command coverage', () => {
   });
 
   it('rejects the removed tools list alias', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -164,7 +167,8 @@ describe('tool-command coverage', () => {
   });
 
   it('printToolsContext: prints full context to stdout', async () => {
-    const { printToolsContext } = await import('../../src/cli/tool-command.js');
+    const { printToolsContext } =
+      await import('../../src/cli/tool-command/context.js');
 
     await printToolsContext();
 
@@ -179,7 +183,7 @@ describe('tool-command coverage', () => {
 
   it('A2: default context uses compact field lists, not full JSON schemas', async () => {
     const { getToolsContextString } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/context.js');
 
     const compact = await getToolsContextString();
     const full = await getToolsContextString({ full: true });
@@ -189,12 +193,13 @@ describe('tool-command coverage', () => {
     expect(compact).toContain('Protocol: schema first');
     expect(full).toContain('RESEARCH LOOP');
     // full mode includes the complete description text on a separate line
-    expect(full).toContain('Choose operation:"code"');
-    expect(full).toContain('Best for repeated reads');
+    expect(full).toContain('Discover GitHub code with operation:"code"');
+    expect(full).toContain('Create a cached, shallow checkout');
   });
 
   it('A1: --compact emits minified structuredContent only', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
     mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'results:\n  - id: x' }],
       structuredContent: {
@@ -224,7 +229,8 @@ describe('tool-command coverage', () => {
   });
 
   it('A4: --format=tool emits a register-ready tool definition', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -241,7 +247,8 @@ describe('tool-command coverage', () => {
   });
 
   it('A3: unknown tool sets exit code NOT_FOUND (3)', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -258,7 +265,8 @@ describe('tool-command coverage', () => {
     process.env.ENABLE_CLONE = 'false';
     process.env.OCTOCODE_STORAGE_MODE = 'persistent';
     try {
-      const { toolCommand } = await import('../../src/cli/tool-command.js');
+      const { toolCommand } =
+        await import('../../src/cli/tool-command/command.js');
       await toolCommand.handler!({
         command: 'tools',
         args: ['ghCloneRepo'],
@@ -284,7 +292,8 @@ describe('tool-command coverage', () => {
     const previousMode = process.env.OCTOCODE_STORAGE_MODE;
     process.env.OCTOCODE_STORAGE_MODE = 'memory';
     try {
-      const { toolCommand } = await import('../../src/cli/tool-command.js');
+      const { toolCommand } =
+        await import('../../src/cli/tool-command/command.js');
       await toolCommand.handler!({
         command: 'tools',
         args: ['ghCloneRepo'],
@@ -307,7 +316,7 @@ describe('tool-command coverage', () => {
 
   it('getToolsContextString: excludes metadata-only tools that are not active CLI tools', async () => {
     const { getToolsContextString } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/context.js');
 
     const context = await getToolsContextString();
 
@@ -317,7 +326,8 @@ describe('tool-command coverage', () => {
   });
 
   it('rejects an unknown tool name and sets exitCode NOT_FOUND (3)', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -332,13 +342,14 @@ describe('tool-command coverage', () => {
   });
 
   it('showToolHelp: returns false for unknown tool', async () => {
-    const { showToolHelp } = await import('../../src/cli/tool-command.js');
+    const { showToolHelp } = await import('../../src/cli/tool-command/help.js');
     const result = await showToolHelp('nonExistentTool');
     expect(result).toBe(false);
   });
 
   it('showToolHelp: GitHub tool shows goal in auto-filled hint', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -355,7 +366,8 @@ describe('tool-command coverage', () => {
   });
 
   it('showToolHelp: local tool does not expose legacy goal names', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -372,7 +384,8 @@ describe('tool-command coverage', () => {
   });
 
   it('brief schema help emits signatures without verbose field prose', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -390,7 +403,8 @@ describe('tool-command coverage', () => {
   });
 
   it('brief schema help renders union ownership within a lean budget', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -411,7 +425,8 @@ describe('tool-command coverage', () => {
   });
 
   it('keeps unscoped LSP variants in compact schema output', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -437,7 +452,8 @@ describe('tool-command coverage', () => {
 
   it('ghCloneRepo: executes with owner and repo fields', async () => {
     process.env.ENABLE_CLONE = 'true';
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     try {
       await toolCommand.handler!({
@@ -467,7 +483,8 @@ describe('tool-command coverage', () => {
 
   it('ghCloneRepo: branch is forwarded correctly', async () => {
     process.env.ENABLE_CLONE = 'true';
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     try {
       await toolCommand.handler!({
@@ -495,7 +512,8 @@ describe('tool-command coverage', () => {
   });
 
   it('accepts an array of query objects directly', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -517,7 +535,8 @@ describe('tool-command coverage', () => {
   });
 
   it('forwards envelope-level fields like responseCharOffset to the tool', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -538,7 +557,8 @@ describe('tool-command coverage', () => {
   });
 
   it('errors when more than two positional args are supplied', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -556,7 +576,8 @@ describe('tool-command coverage', () => {
   });
 
   it('errors on non-string / non-object / non-array raw payload (e.g. number)', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -570,7 +591,8 @@ describe('tool-command coverage', () => {
   });
 
   it('errors when queries array is empty', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -584,7 +606,8 @@ describe('tool-command coverage', () => {
   });
 
   it('uses canonical query keys for localSearch pagination', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
     const consoleErrorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
@@ -623,7 +646,8 @@ describe('tool-command coverage', () => {
       structuredContent: { status: 'ok', count: 3 },
     });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -643,7 +667,8 @@ describe('tool-command coverage', () => {
       content: [],
     });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -665,7 +690,8 @@ describe('tool-command coverage', () => {
       isError: false,
     });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -696,7 +722,8 @@ describe('tool-command coverage', () => {
       },
     });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -723,7 +750,8 @@ describe('tool-command coverage', () => {
       structuredContent: { answer: 42 },
     });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -747,7 +775,8 @@ describe('tool-command coverage', () => {
       isError: true,
     });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -764,7 +793,8 @@ describe('tool-command coverage', () => {
   it('handles non-Error thrown value in tool execution', async () => {
     mocks.localSearch.mockRejectedValueOnce('string error');
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -783,7 +813,8 @@ describe('tool-command coverage', () => {
   it('handles non-Error thrown by the execution function', async () => {
     mocks.localSearch.mockRejectedValueOnce(42);
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -802,7 +833,7 @@ describe('tool-command coverage', () => {
 
   it('getDisplayFields: returns MCP display fields for canonical tools', async () => {
     const { getDisplayFields, TOOL_DEFINITIONS } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/registry.js');
 
     const githubTool = TOOL_DEFINITIONS.find(tool => tool.name === 'ghSearch');
     const packageTool = TOOL_DEFINITIONS.find(
@@ -830,7 +861,8 @@ describe('tool-command coverage', () => {
   });
 
   it('npmSearch example includes the MCP-owned required fields', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -849,7 +881,8 @@ describe('tool-command coverage', () => {
   });
 
   it('ghSearch repository help includes the unified schema', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -866,7 +899,8 @@ describe('tool-command coverage', () => {
   });
 
   it('buildExampleValue: ghCloneRepo example includes a concrete repo', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -880,7 +914,8 @@ describe('tool-command coverage', () => {
   });
 
   it('reports first failing query in a multi-query array', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -899,7 +934,7 @@ describe('tool-command coverage', () => {
 
   it('sortToolNames: tools in the same category maintain stable relative order', async () => {
     const { getToolsContextString } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/context.js');
 
     const context = await getToolsContextString();
 
@@ -912,7 +947,8 @@ describe('tool-command coverage', () => {
   });
 
   it('preserves user-supplied goal and reasoning', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -946,7 +982,7 @@ describe('tool-command coverage', () => {
     );
 
     const { showAvailableTools } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/list-view.js');
 
     await expect(showAvailableTools()).resolves.toBeUndefined();
 
@@ -960,7 +996,8 @@ describe('tool-command coverage', () => {
       structuredContent: { found: true },
     } as unknown as { content: []; structuredContent: { found: boolean } });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -984,7 +1021,8 @@ describe('tool-command coverage', () => {
       ],
     } as unknown as { content: Array<{ type: string; text?: string }> });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -1006,7 +1044,8 @@ describe('tool-command coverage', () => {
       structuredContent: null,
     } as unknown as { content: Array<{ type: string; text: string }> });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -1029,7 +1068,8 @@ describe('tool-command coverage', () => {
       structuredContent: 'just a string',
     } as unknown as { content: Array<{ type: string; text: string }> });
 
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -1047,7 +1087,8 @@ describe('tool-command coverage', () => {
   });
 
   it('buildExampleValue: lspGetSemantics example exercises semantic enum branches', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -1078,7 +1119,7 @@ describe('tool-command coverage', () => {
 
   it('shows the tool list when no positional tool name is given', async () => {
     const { executeToolCommand } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/execute.js');
 
     const ok = await executeToolCommand({
       command: 'tools',

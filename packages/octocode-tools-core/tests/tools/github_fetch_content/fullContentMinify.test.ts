@@ -27,9 +27,17 @@ vi.mock('../../../src/providers/factory.js', () => ({
 
 // materializeExactFile (triggered by fullContent + minify:none) would otherwise
 // hit disk/network — stub it out.
-vi.mock('../../../src/github/directoryFetch.js', () => ({
+vi.mock('../../../src/github/directoryFetch/fetchFileContentToDisk.js', () => ({
   fetchFileContentToDisk,
+}));
+vi.mock('../../../src/github/directoryFetch/fetchDirectoryContents.js', () => ({
   fetchDirectoryContents,
+}));
+vi.mock('../../../src/github/directoryFetch/refResolution.js', () => ({
+  resolveMaterializationRef: vi.fn(async () => ({
+    commitSha: '0123456789abcdef0123456789abcdef01234567',
+    resolvedRef: 'main',
+  })),
 }));
 
 import { fetchMultipleGitHubFileContents } from '../../../src/tools/github_fetch_content/execution.js';
@@ -65,6 +73,7 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     getFileContent.mockReset();
     getFileContent.mockResolvedValue(providerOk());
     fetchDirectoryContents.mockReset();
+    fetchFileContentToDisk.mockClear();
     setRuntimeSurface('cli');
     process.env.ENABLE_LOCAL = 'true';
     process.env.ENABLE_CLONE = 'true';
@@ -146,6 +155,9 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     } as never);
 
     expect(getFileContent).toHaveBeenCalledTimes(1);
+    expect(getFileContent.mock.calls[0]?.[0]).toMatchObject({
+      ref: '0123456789abcdef0123456789abcdef01234567',
+    });
     expect(minifyOf()).toBe('none');
     expect(JSON.stringify(result.structuredContent)).toContain(
       '0123456789abcdef0123456789abcdef01234567'
@@ -173,6 +185,27 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     expect(JSON.stringify(result.structuredContent)).toContain('const x = 1');
     expect(JSON.stringify(result.structuredContent)).not.toContain('localPath');
   });
+
+  it.each(['ENABLE_LOCAL', 'ENABLE_CLONE'] as const)(
+    'does not write full file content when %s is disabled',
+    async flag => {
+      process.env[flag] = 'false';
+      cleanup();
+      const result = await fetchMultipleGitHubFileContents({
+        queries: [
+          {
+            owner: 'o',
+            repo: 'r',
+            path: 'src/a.ts',
+            branch: 'main',
+            fullContent: true,
+          },
+        ],
+      } as never);
+      expect(fetchFileContentToDisk).not.toHaveBeenCalled();
+      expect(JSON.stringify(result.structuredContent)).toContain('const x = 1');
+    }
+  );
 
   it('an explicit minify still wins over the fullContent default', async () => {
     await fetchMultipleGitHubFileContents({

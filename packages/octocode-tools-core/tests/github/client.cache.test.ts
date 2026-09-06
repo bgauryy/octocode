@@ -34,6 +34,9 @@ vi.mock('@octokit/plugin-throttling', () => ({ throttling: {} }));
 
 import {
   clearOctokitInstances,
+  getOctokit,
+  hashGitHubToken,
+  resolveCacheAuthFingerprint,
   resolveDefaultBranch,
 } from '../../src/github/client.js';
 import { getServerConfig } from '../../src/serverConfig.js';
@@ -120,5 +123,71 @@ describe('resolveDefaultBranch cache workflow', () => {
     ).resolves.toBe('enterprise-b');
 
     expect(mocks.reposGet).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['https://github-b.example/api/v3', 30_000],
+    ['https://github-a.example/other/api/v3', 30_000],
+    ['https://github-a.example/api/v3', 60_000],
+  ])(
+    'isolates client configuration %s with timeout %i',
+    async (githubApiUrl, timeout) => {
+      mockGetServerConfig.mockReturnValue({
+        githubApiUrl: 'https://github-a.example/api/v3',
+        timeout: 30_000,
+      } as ReturnType<typeof getServerConfig>);
+      const first = await getOctokit(auth('shared-token'));
+      expect(await getOctokit(auth('shared-token'))).toBe(first);
+      mockGetServerConfig.mockReturnValue({
+        githubApiUrl,
+        timeout,
+      } as ReturnType<typeof getServerConfig>);
+      const second = await getOctokit(auth('shared-token'));
+      expect(second).not.toBe(first);
+      expect(await getOctokit(auth('shared-token'))).toBe(second);
+    }
+  );
+
+  it('separates branch and response cache identities for different API paths on one host', async () => {
+    mocks.reposGet
+      .mockResolvedValueOnce({ data: { default_branch: 'api-main' } })
+      .mockResolvedValueOnce({ data: { default_branch: 'other-main' } });
+    mockGetServerConfig.mockReturnValue({
+      githubApiUrl: 'https://github.example/api/v3',
+      timeout: 30_000,
+    } as ReturnType<typeof getServerConfig>);
+    const firstIdentity = await resolveCacheAuthFingerprint(
+      auth('shared-token')
+    );
+    expect(await resolveDefaultBranch('o', 'r', auth('shared-token'))).toBe(
+      'api-main'
+    );
+    mockGetServerConfig.mockReturnValue({
+      githubApiUrl: 'https://github.example/other/api/v3',
+      timeout: 30_000,
+    } as ReturnType<typeof getServerConfig>);
+    expect(await resolveCacheAuthFingerprint(auth('shared-token'))).not.toBe(
+      firstIdentity
+    );
+    expect(await resolveDefaultBranch('o', 'r', auth('shared-token'))).toBe(
+      'other-main'
+    );
+    expect(mocks.reposGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the public cache key and normalizes equivalent endpoint URLs', async () => {
+    const token = auth('shared-token');
+    expect(await resolveCacheAuthFingerprint(token)).toBe(
+      hashGitHubToken(token.token)
+    );
+    const firstClient = await getOctokit(token);
+    mockGetServerConfig.mockReturnValue({
+      githubApiUrl: 'https://API.GITHUB.COM:443/',
+      timeout: 30_000,
+    } as ReturnType<typeof getServerConfig>);
+    expect(await resolveCacheAuthFingerprint(token)).toBe(
+      hashGitHubToken(token.token)
+    );
+    expect(await getOctokit(token)).toBe(firstClient);
   });
 });

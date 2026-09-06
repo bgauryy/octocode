@@ -1,9 +1,9 @@
 import path from 'node:path';
+import { statSync } from 'node:fs';
 import { executeDirectTool } from '@octocodeai/octocode-tools-core/direct';
 import { refLabel, type GithubRef } from '../routing.js';
 import { directToolText, parseCloneResult, parseFetchResult } from './parse.js';
 import {
-  cloneSparsePathFor,
   locationKindFor,
   normalizeRepoPath,
   resolveRepoOption,
@@ -39,15 +39,13 @@ async function materializeCloneForCli(
   requestedPath: string,
   request: RemoteMaterializationRequest
 ): Promise<RemoteMaterialization> {
-  const cloneSparsePath = cloneSparsePathFor(requestedPath, request.kind);
-
   const result = (await executeDirectTool('ghCloneRepo', {
     queries: [
       {
         owner: repo.owner,
         repo: repo.repo,
         branch: repo.branch,
-        sparsePath: cloneSparsePath,
+        sparsePath: requestedPath || undefined,
         forceRefresh: request.forceRefresh || undefined,
         goal: `Save ${refLabel(repo)}${requestedPath ? `/${requestedPath}` : ''} locally`,
         reasoning: 'CLI remote-as-local materialization',
@@ -71,27 +69,28 @@ async function materializeCloneForCli(
     : repoRoot;
   const resolvedBranch = cloneLocation.resolvedBranch ?? repo.branch;
   const cached = Boolean(cloneLocation.cached);
+  const complete = cloneLocation.complete === true;
+  const verified = cloneLocation.verified === true;
 
   return {
     owner: repo.owner,
     repo: repo.repo,
-    ...(resolvedBranch ? { branch: resolvedBranch } : {}),
-    requestedPath,
-    localPath,
-    repoRoot,
-    source: 'clone',
-    complete: true,
-    verified: true,
-    cached,
     location: {
-      kind: locationKindFor(request.kind),
+      kind: requestedPath
+        ? statSync(localPath).isFile()
+          ? 'file'
+          : 'directory'
+        : 'repo',
       localPath,
       repoRoot,
       ...(requestedPath ? { requestedPath } : {}),
       source: 'clone',
       cached,
-      complete: true,
-      verified: true,
+      complete,
+      verified,
+      ...(cloneLocation.commitSha
+        ? { commitSha: cloneLocation.commitSha }
+        : {}),
       ...(resolvedBranch ? { resolvedBranch } : {}),
     },
   };
@@ -137,10 +136,8 @@ async function materializeTreeForCli(
   const repoRoot = path.resolve(data.repoRoot ?? data.localPath);
   const resolvedBranch = data.resolvedBranch ?? repo.branch;
   const cached = Boolean(data.cached);
-  // complete/verified/commitSha are only on FetchDirectoryData (type:'directory');
-  // for single-file fetches the fields are absent and default to safe values.
   const dirData = data as FetchDirectoryData;
-  const complete = dirData.complete ?? true;
+  const complete = kind === 'file' ? true : dirData.complete === true;
   const verified = dirData.verified ?? false;
   const commitSha = dirData.commitSha;
   const hasSubdirectories = dirData.hasSubdirectories ?? false;
@@ -149,17 +146,12 @@ async function materializeTreeForCli(
   return {
     owner: repo.owner,
     repo: repo.repo,
-    ...(resolvedBranch ? { branch: resolvedBranch } : {}),
-    requestedPath,
-    localPath,
-    repoRoot,
-    source: 'tree',
-    complete,
-    verified,
-    ...(commitSha ? { commitSha } : {}),
-    ...(hasSubdirectories ? { hasSubdirectories: true } : {}),
-    ...(skippedSummary ? { skippedSummary } : {}),
-    cached,
+    ...(dirData.isPartial ? { isPartial: true } : {}),
+    ...(dirData.partialReasons
+      ? { partialReasons: dirData.partialReasons }
+      : {}),
+    ...(dirData.terminalLimit ? { terminalLimit: true } : {}),
+    ...(dirData.next ? { next: dirData.next } : {}),
     location: {
       kind: locationKindFor(request.kind),
       localPath,

@@ -1,9 +1,18 @@
 import { posix } from 'node:path';
 import { contextUtils } from '../utils/contextUtils.js';
 import { isValidJsSymbolName } from '../utils/jsSymbolNames.js';
-import { resolveImportSpecifier } from './importResolver.js';
-import type { FileFacts, FileGraphEdgeKind, FileNode } from './types.js';
+import type {
+  FileFacts,
+  FileGraphEdgeKind,
+  FileNode,
+  GraphCoverage,
+  RawGraphFacts,
+} from './types.js';
+import { prepareRustResolver } from './rustWorkspace.js';
 import { buildWorkspacePackageExports } from './workspacePackageResolver.js';
+import { prepareMetadataImports } from './metadataImports.js';
+import { canonicalGraphDiagnostics } from './coverage.js';
+import { createFileImportLinker } from './fileImportLinker.js';
 
 export const DEFAULT_DEAD_CODE_EXCLUDE_DIRS = [
   'node_modules',
@@ -25,6 +34,7 @@ export function resolveGraphExcludeDirs(
 }
 
 export interface WalkResult {
+  coverage?: GraphCoverage;
   facts: Map<string, FileFacts>;
   fileGraph: Map<string, FileNode>;
   filesScanned: number;
@@ -38,16 +48,11 @@ export interface WalkResult {
    */
   starReexportTargets: Set<string>;
   /**
-   * Files that are the target of a string-literal dynamic `import('./x')`
-   * somewhere in the scan. A dynamic import resolves the whole module
-   * namespace, not a specific named binding, so — unlike a static
-   * `import { x } from './y'` — there is no reliable way to attribute which
-   * of the target's exports are actually used. Treated the same as
-   * `starReexportTargets`: reachable, and not individually retention-checked,
-   * rather than risk a false-positive "unreferenced export" on a name that's
-   * genuinely read off the dynamically-imported namespace object.
+   * Targets consumed as whole namespaces (dynamic/CommonJS loads, namespace
+   * imports, and C headers). Retain their public surface because syntax facts
+   * cannot attribute the particular exported bindings consumed downstream.
    */
-  dynamicImportTargets: Set<string>;
+  namespaceImportTargets: Set<string>;
   /**
    * Reverse star-re-export edges: target file → the files that
    * `export * from` it. Needed for retention: a NAMED re-export whose barrel
@@ -59,31 +64,6 @@ export interface WalkResult {
   starReexporters: Map<string, string[]>;
 }
 
-interface RawGraphFacts {
-  declarations?: Array<{
-    id: string;
-    name: string;
-    kind: string;
-    line: number;
-    exported?: boolean;
-  }>;
-  imports?: Array<{
-    specifier: string;
-    localName: string;
-    importedName: string;
-    line: number;
-    importKind?: string;
-  }>;
-  calls?: Array<{ caller: string; callee: string; kind?: string }>;
-  exports?: Array<{
-    name: string;
-    line: number;
-    localName?: string;
-    /** Present only for a re-export (`export ... from '...'`). */
-    source?: string;
-  }>;
-}
-
 /**
  * Scan every graph-fact-capable file under `rootAbsolutePath` in one native
  * worker-pool operation, then resolve import specifiers into a file-level graph.
@@ -92,7 +72,8 @@ interface RawGraphFacts {
 export async function buildFileGraph(
   rootAbsolutePath: string,
   excludeDir: string[],
-  maxFiles: number
+  maxFiles: number,
+  rustWorkspace: 'syntax' | 'cargo' = 'syntax'
 ): Promise<WalkResult> {
   const scanResult = await contextUtils.scanGraphFacts({
     path: rootAbsolutePath,
@@ -102,7 +83,6 @@ export async function buildFileGraph(
   });
 
   const entries = scanResult.entries;
-  const truncated = scanResult.truncated;
 
   const knownFiles = new Set(
     scanResult.candidatePaths.map(relativePath =>
@@ -113,32 +93,89 @@ export async function buildFileGraph(
     rootAbsolutePath,
     knownFiles
   );
+  const metadata = prepareMetadataImports(
+    rootAbsolutePath,
+    knownFiles,
+    excludeDir,
+    maxFiles
+  );
 
   const facts = new Map<string, FileFacts>();
   const fileGraph = new Map<string, FileNode>();
   const starReexportTargets = new Set<string>();
-  const dynamicImportTargets = new Set<string>();
+  const namespaceImportTargets = new Set<string>();
   const starReexporters = new Map<string, string[]>();
   let filesSkipped = scanResult.filesSkipped;
+  const coverage: GraphCoverage = {
+    basis: 'syntactic',
+    referenceBasis: 'lexical-occurrence',
+    languages: [],
+    imports: {
+      resolved: 0,
+      external: 0,
+      unresolvedInternal: 0,
+      unsupported: 0,
+    },
+    diagnostics: [],
+  };
 
+  // Parse once. The module declaration inventory must precede linking so a
+  // #[path]/conditional module cannot accidentally resolve via a conventional file.
+  const parsedEntries: Array<{
+    relativePath: string;
+    parsed: RawGraphFacts;
+    referenceCounts: (typeof entries)[number]['referenceCounts'];
+  }> = [];
   for (const entry of entries) {
     const relativePath = posix.normalize(
       entry.relativePath.split('\\').join('/')
     );
-    let parsed: RawGraphFacts;
     try {
-      parsed = JSON.parse(entry.factsJson) as RawGraphFacts;
+      const parsed = JSON.parse(entry.factsJson) as RawGraphFacts;
+      parsedEntries.push({
+        relativePath,
+        parsed,
+        referenceCounts: entry.referenceCounts,
+      });
     } catch {
       filesSkipped++;
-      continue;
     }
+  }
+
+  const resolveRust = await prepareRustResolver(
+    rootAbsolutePath,
+    knownFiles,
+    parsedEntries,
+    rustWorkspace,
+    coverage
+  );
+
+  for (const entry of parsedEntries) {
+    const { relativePath, parsed } = entry;
+
+    const {
+      extension,
+      javascript,
+      python,
+      cFamily,
+      auxiliaryTargets,
+      resolve,
+    } = createFileImportLinker({
+      relativePath,
+      parsed,
+      knownFiles,
+      workspacePackageExports,
+      metadata,
+      resolveRust,
+      coverage,
+    });
 
     const declarations = (parsed.declarations ?? [])
       // Drop declarations the native extractor mis-emitted with a reserved-word
       // name (e.g. a Flow file whose `if`/`let` statements parsed as exported
       // functions) — they can never be a real export, and left in they became
       // bogus `if`/`let` dead-export candidates.
-      .filter(d => isValidJsSymbolName(d.name))
+      .filter(d => !javascript || isValidJsSymbolName(d.name))
       .map(d => ({
         id: d.id,
         name: d.name,
@@ -162,13 +199,9 @@ export async function buildFileGraph(
         localName: exp.localName ?? exp.name,
         importedName: exp.name,
         line: exp.line,
-        importKind: 'value' as const,
-        resolvedTarget: resolveImportSpecifier(
-          exp.source as string,
-          relativePath,
-          knownFiles,
-          workspacePackageExports
-        ),
+        importKind:
+          exp.exportKind === 'type' ? ('type' as const) : ('value' as const),
+        resolvedTarget: resolve(exp.source as string, exp.line),
       }));
 
     // String-literal dynamic `import('./x')` specifiers resolve to a file the
@@ -188,11 +221,13 @@ export async function buildFileGraph(
         importedName: i.importedName,
         line: i.line,
         importKind: i.importKind === 'type' ? 'type' : 'value',
-        resolvedTarget: resolveImportSpecifier(
+        resolvedTarget: resolve(
           i.specifier,
-          relativePath,
-          knownFiles,
-          workspacePackageExports
+          i.line,
+          i.importKind === 'module',
+          i.resolutionHint,
+          i.moduleScope,
+          i.importedName
         ),
       })),
       namedReexports,
@@ -210,45 +245,82 @@ export async function buildFileGraph(
     const dynamicImportsFiles = new Set<string>();
     const edgeKinds = new Map<string, Set<FileGraphEdgeKind>>();
     const addEdge = (target: string, kind: FileGraphEdgeKind): void => {
+      if (extension === 'rs' && target === relativePath) return;
       importsFiles.add(target);
       const kinds = edgeKinds.get(target) ?? new Set<FileGraphEdgeKind>();
       kinds.add(kind);
+      if (metadata.targets.has(target) && !kind.startsWith('type-'))
+        kinds.add('metadata-import');
       edgeKinds.set(target, kinds);
     };
     for (const imp of fileFacts.imports) {
       const target = imp.resolvedTarget;
-      if (target)
+      if (target) {
         addEdge(
           target,
-          imp.importKind === 'type' ? 'type-import' : 'static-import'
+          imp.importKind === 'type'
+            ? 'type-import'
+            : python
+              ? 'python-import'
+              : cFamily
+                ? 'c-include'
+                : 'static-import'
         );
+        if (imp.importedName === '*' || cFamily)
+          namespaceImportTargets.add(target);
+      }
+    }
+    for (const target of auxiliaryTargets) {
+      addEdge(target, 'python-import');
+      namespaceImportTargets.add(target);
     }
     for (const reexport of fileFacts.namedReexports) {
       const target = reexport.resolvedTarget;
-      if (target) addEdge(target, 'named-reexport');
+      if (target)
+        addEdge(
+          target,
+          reexport.importKind === 'type'
+            ? 'type-named-reexport'
+            : 'named-reexport'
+        );
     }
     for (const specifier of dynamicImportSpecifiers) {
-      const target = resolveImportSpecifier(
-        specifier,
-        relativePath,
-        knownFiles,
-        workspacePackageExports
-      );
+      const target = resolve(specifier, 0);
       if (target) {
         addEdge(target, 'dynamic-import');
-        dynamicImportTargets.add(target);
+        namespaceImportTargets.add(target);
+      }
+    }
+    for (const load of parsed.commonJs ?? []) {
+      if (!load.specifier) {
+        coverage.imports.unsupported++;
+        coverage.diagnostics.push({
+          file: relativePath,
+          line: load.line,
+          code: 'unsupported-linking',
+          message: `CommonJS require cannot be linked (${load.reason ?? 'missing-native-provenance'}).`,
+        });
+        continue;
+      }
+      const target = resolve(load.specifier, load.line);
+      if (target) {
+        addEdge(
+          target,
+          load.binding === 'create-require'
+            ? 'create-require'
+            : 'commonjs-require'
+        );
+        namespaceImportTargets.add(target);
       }
     }
     for (const exp of parsed.exports ?? []) {
       if (!exp.source || exp.name !== '*') continue;
-      const target = resolveImportSpecifier(
-        exp.source,
-        relativePath,
-        knownFiles,
-        workspacePackageExports
-      );
+      const target = resolve(exp.source, exp.line);
       if (target) {
-        addEdge(target, 'star-reexport');
+        addEdge(
+          target,
+          exp.exportKind === 'type' ? 'type-star-reexport' : 'star-reexport'
+        );
         starReexportTargets.add(target);
         const list = starReexporters.get(target) ?? [];
         list.push(relativePath);
@@ -270,14 +342,39 @@ export async function buildFileGraph(
     });
   }
 
+  for (const relativePath of metadata.targets) {
+    facts.set(relativePath, {
+      relativePath,
+      declarations: [],
+      imports: [],
+      namedReexports: [],
+      calls: [],
+      referenceCounts: new Map(),
+    });
+    fileGraph.set(relativePath, {
+      relativePath,
+      importsFiles: new Set(),
+      dynamicImportsFiles: new Set(),
+      edgeKinds: new Map(),
+    });
+  }
+  if (metadata.targets.size)
+    coverage.languages.push({
+      language: 'json',
+      files: metadata.targets.size,
+      linking: 'metadata',
+    });
+
+  coverage.diagnostics = canonicalGraphDiagnostics(coverage.diagnostics);
   return {
+    coverage,
     facts,
     fileGraph,
     filesScanned: facts.size,
     filesSkipped,
-    truncated,
+    truncated: scanResult.truncated || metadata.truncated(),
     starReexportTargets,
-    dynamicImportTargets,
+    namespaceImportTargets,
     starReexporters,
   };
 }

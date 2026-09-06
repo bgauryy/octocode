@@ -24,7 +24,7 @@ Why:
 - [x] Support `deadCode`, `cycles`, `dependencies`, `dependents`, `path`, and `reachability` as bounded projections over one graph builder.
 - [x] Move the existing dead-code query fields under the `deadCode` operation and preserve its candidate-grade output semantics.
 - [x] Define compact, paginated responses before implementation. Return summaries and requested slices, not the entire repository graph.
-- [x] Include exact implemented edge provenance (`static-import`, `dynamic-import`, `named-reexport`, `star-reexport`) and syntactic confidence in graph rows, paths, cycles, clusters, and reachability. Reserve `call` and `contains` for a future native-symbol graph contract rather than implying unsupported edges.
+- [x] Include exact implemented edge provenance (`static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`) and syntactic confidence in graph rows, paths, cycles, clusters, and reachability. Reserve `call` and `contains` for a future native-symbol graph contract rather than implying unsupported edges.
 - [x] Replace `LOCAL_FIND_DEAD_CODE`, its MCP registration, CLI catalog entry, documentation, and tests. Do not ship two public graph-analysis tools.
 - [x] Map and migrate every live import, registration, test, and architecture consumer before renaming. A post-change source/docs search finds no `local_dead_code` references outside this historical record.
 - [x] Validate the unified tool on the React reconciler and VS Code editor sparse clones used by the local-tool evaluation.
@@ -143,7 +143,7 @@ Rubrics: tools = schema clarity, routing distinctness, response/continuation qua
 | `ghSearch` (`operation:"repositories"`) | 8.9 | Rich discovery filters and examples; deterministic provider-response coverage offsets its broad query surface. |
 | `ghSearchHistory` | 9.1 | Clear `pullRequests`, `issues`, and `commits` discovery routes with bounded pagination and continuations. |
 | `ghGetHistoryItem` | 9.2 | Exact `pullRequest`, `issue`, `commit`, and `compare` reads use explicit identities and selective content or diff controls. |
-| `ghListReleases` | 8.4 | Distinct, simple operation; opt-in execution lowers default workflow availability. |
+| `ghListReleases` | 8.4 | Focused operation; opt-in execution lowers default workflow availability. |
 | `ghSearchDiscussions` | 8.2 | Valuable distinct evidence surface; GraphQL/provider variability and opt-in execution add friction. |
 | `ghGetFileContent` | 9.5 | Precise extraction modes, pagination, cost controls, and a bounded recorded-response smoke. |
 | `ghSearch` (`operation:"tree"`) | 9.1 | Cheap remote orientation with clean follow-ups and recorded finalization coverage; branch/tree limits remain external. |
@@ -206,7 +206,7 @@ Score: **9.0/10**. Best route: discover live catalog and availability → read t
 - `yarn verify` passes 3,884 tests with 1 skipped: tools-core 1,679; MCP 787; CLI 905; VS Code 21; config 135; engine 357.
 - The focused graph/alias/response/recording suite passes, including 14 alias cases, five deterministic GitHub provider paths, frozen dead-code parity, exact four-kind edge provenance, and one-build-per-batch reuse.
 - The rebuilt local CLI reports all 17 schemas. Every local tool path passes: structure, file discovery, text search, exact read, all six graph operations, and LSP references.
-- Dogfood found and fixed three intuitive-input misses (`entryType:"file"`, `entryType:"both"`, graph `maxDepth`) and one newly introduced unused graph type; LSP proved the type had zero references before removal.
+- Dogfood found and fixed three intuitive-input misses (`entryType:"file"`, `entryType:"both"`, graph `maxDepth`) and one unused graph type; LSP proved the type had zero references before removal.
 - Held-out five-operation compact graph responses stay below the 32 KiB guard: React 26,220 characters and VS Code 30,526 characters. Request-local reuse reduced measured wall time from 3.20s to 0.82s and 2.78s to 0.79s respectively.
 - Documentation verification passes. Style lint reports no errors; pre-existing informational style debt in the long tools reference remains non-blocking.
 - Coverage is reported honestly: the neutral graph substrate has 91.16% statements and 92.64% lines; tools-core overall remains 66.91% statements because broad legacy provider paths are not unit-covered.

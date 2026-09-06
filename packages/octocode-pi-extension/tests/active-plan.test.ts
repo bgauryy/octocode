@@ -17,12 +17,14 @@ import {
   setPlanAwarenessMappings, getPlanCoordination,
   type PlanDecision, type PlanStep,
 } from '../src/tools/active-plan.js';
-import { registerPlanTool, refreshPlanUi, handleOctocodePlanCommand, OCTOCODE_PLAN_COMMAND_COMPLETIONS, planPanelModelLines, setPlanMetricsRefreshForUi } from '../src/tools/plan-tool.js';
+import { registerPlanTool, refreshPlanUi, handleOctocodePlanCommand, OCTOCODE_PLAN_COMMAND_COMPLETIONS, setPlanMetricsRefreshForUi } from '../src/tools/plan-tool.js';
+import { buildPlanFooterSegments } from '../src/extension-ui.js';
+import { renderFooterView } from '../src/tui/footer-view.js';
 import { planArtifactsDir, setPlanOpenerForTests } from '../src/tools/plan-html.js';
 import { isPlanMode, exitPlanMode, planModeToolGate } from '../src/tools/plan-mode.js';
 import { createSessionArtifactContext, readPlanProjection } from '../src/tools/session-artifacts.js';
 import type { PiContext } from '../src/types.js';
-import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext } from '../src/tools/plan-read-model.js';
+import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
 import {
   FORKED_SESSION_FIXTURE,
   RETRY_AFTER_SHARED_COMMIT_FIXTURE,
@@ -271,7 +273,7 @@ test('active-plan prompt metadata cannot terminate or forge the addendum', () =>
 
 test('addStep can carry an activeForm label', () => {
   setPlan(CWD, ['a']);
-  const steps = addStep(CWD, 'Deploy', 'Deploying');
+  const steps = addStep(CWD, { text: 'Deploy', activeForm: 'Deploying' });
   assert.equal(steps[1]!.activeForm, 'Deploying');
 });
 
@@ -371,11 +373,11 @@ test('plan detail projection renders compact progress and the running step activ
   completeStep(cwd, 1); // step 2 becomes doing
   refreshPlanUi(ctx);
   const theme = { fg: (_c: string, t: string) => t } as unknown;
-  const lines = planPanelModelLines(getCurrentPlanReadModel(ctx, cwd), theme as never, 80);
+  const lines = renderFooterView({ rows: [buildPlanFooterSegments(getCurrentPlanReadModel(ctx, cwd))] }, { width: 80, theme: theme as never });
   const joined = lines.join('\n');
-  assert.match(joined, /Plan · Work · 1\/2/, 'header has phase and compact progress');
+  assert.match(joined, /plan 1\/2/, 'footer has compact progress');
   assert.doesNotMatch(joined, /Edit file/, 'completed detail stays out of the persistent panel');
-  assert.match(joined, /▶ 2\. Run tests/, 'running task is explicit');
+  assert.match(joined, /task 2 Run tests/, 'running task is explicit');
   assert.deepEqual(calls.widget, [], 'the footer remains the only persistent state surface');
   clearPlan(cwd);
 });
@@ -391,7 +393,7 @@ test('complete advances the next todo to doing and counts done', () => {
 
 test('addStep appends a todo; start can open a parallel active lane', () => {
   setPlan(CWD, ['a']);
-  addStep(CWD, 'b');
+  addStep(CWD, { text: 'b' });
   startStep(CWD, 2);
   assert.deepEqual(getPlan(CWD).map((s) => s.status), ['doing', 'doing']);
   assert.equal(getPlan(CWD).filter((s) => s.status === 'doing').length, 2);
@@ -917,7 +919,7 @@ test('branch adoption restores complete review metadata and actual entry identit
       customType: PLAN_ENTRY_TYPE,
       timestamp: '2026-01-01T00:00:00.000Z',
       data: {
-        version: 3,
+        version: 4, cleared: false,
         branchSnapshotId: 'actual-branch-entry',
         capturedAt: '2026-01-01T00:00:00.000Z',
         phase: 'accepted',
@@ -979,7 +981,7 @@ function planEntry(steps: Array<Record<string, unknown>>, id?: string): Record<s
     customType: PLAN_ENTRY_TYPE,
     timestamp: capturedAt,
     data: {
-      version: 3,
+      version: 4, cleared: false,
       branchSnapshotId: snapshotId,
       generation: planEntrySequence,
       capturedAt,
@@ -1386,7 +1388,7 @@ test('RFC proposal records requested changes from the same ask widget', async ()
     }
   });
 });
-test('planPanelLines keeps the persistent panel focused on current and next work', () => {
+test('the footer keeps the current task readable while the full plan preserves backlog detail', () => {
   const steps: PlanStep[] = [
     { id: 'setup', text: 'Completed setup', status: 'done' },
     { id: 'change', text: 'A long-ish step description here', activeForm: 'Implementing the focused change', status: 'doing' },
@@ -1394,30 +1396,29 @@ test('planPanelLines keeps the persistent panel focused on current and next work
     { id: 'verify', text: 'Later verification', status: 'todo' },
   ];
   const model = panelModel(steps);
-  const wrapped = planPanelModelLines(model, undefined, 24).join(' ').replace(/\s+/g, ' ');
-  for (const label of ['Implementing the focused change', 'Blocked follow-up', 'Later verification']) {
-    assert.ok(wrapped.includes(label), `narrow panel preserves the complete label: ${label}`);
-  }
+  const wrapped = renderFooterView({ rows: [buildPlanFooterSegments(model)] }, { width: 24 }).join(' ').replace(/\s+/g, ' ');
+  assert.ok(wrapped.includes('Implementing the focused change'), 'narrow footer preserves the complete current label');
   assert.ok(!wrapped.includes('Completed setup'), 'completed detail stays in the canonical full plan, not the persistent panel');
-  const full = planPanelModelLines(model).join('\n');
+  const full = renderPlanReadModel(model, 'terminal') as string;
   assert.match(full, /1\/4/, 'progress remains visible');
-  assert.match(full, /Implementing the focused change/, 'activeForm is the active lane label');
-  assert.match(full, /▶/, 'the active lane is explicit');
-  assert.match(full, /Plan · Work/, 'the current lifecycle phase stays visible without a second stepper');
-  assert.doesNotMatch(full, /Completed setup/, 'completed rows do not crowd the persistent panel');
+  assert.match(full, /\[doing\] A long-ish step description here/, 'the active lane is explicit');
+  assert.match(full, /executing/, 'the current lifecycle phase stays visible');
+  for (const step of steps) assert.ok(full.includes(step.text), 'full inspection retains every task');
 });
 
-test('planPanelLines caps ordinary future work and reports the hidden remainder', () => {
+test('the footer shows current work without discarding tasks from full inspection', () => {
   const steps: PlanStep[] = Array.from({ length: 8 }, (_, index) => ({
     id: `step-${index + 1}`,
     text: `Step ${index + 1}`,
     status: index === 0 ? 'doing' : 'todo',
   }));
-  const lines = planPanelModelLines(panelModel(steps));
-  assert.equal(lines.length, 4, 'one header plus at most three current/next rows');
-  assert.match(lines[0]!, /5 later/);
-  assert.match(lines.join('\n'), /Step 1.*Step 2.*Step 3/s);
+  const model = panelModel(steps);
+  const lines = renderFooterView({ rows: [buildPlanFooterSegments(model)] }, { width: 80 });
+  assert.equal(lines.length, 1, 'footer keeps current work compact');
+  assert.match(lines[0]!, /plan 0\/8.*task 1 Step 1/);
   assert.doesNotMatch(lines.join('\n'), /Step 4/);
+  const full = renderPlanReadModel(model, 'terminal') as string;
+  for (const step of steps) assert.ok(full.includes(step.text));
 });
 
 // ─── Flexible planning: wording never creates an execution restriction ─────────

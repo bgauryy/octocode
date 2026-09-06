@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { recomputeMatchPositions } from '../../src/github/codeSearch.js';
+import { recomputeMatchPositions } from '../../src/github/codeSearch/matchPositions.js';
 import {
   mapCodeSearchProviderResult,
   type CodeSearchGroupedMatch,
@@ -74,8 +74,8 @@ describe('recomputeMatchPositions', () => {
   });
 });
 
-describe('mapCodeSearchProviderResult drops indices beyond the truncated snippet', () => {
-  it('omits matchIndices that truncation cut off', () => {
+describe('mapCodeSearchProviderResult preserves provider fragment matches', () => {
+  it('retains matches beyond the former fragment cut', () => {
     const longContext = 'x'.repeat(600) + 'needleXyz';
     const needleStart = 600;
     const data = {
@@ -102,11 +102,9 @@ describe('mapCodeSearchProviderResult drops indices beyond the truncated snippet
     );
 
     const match = result.results[0]!.matches[0]! as CodeSearchGroupedMatch;
-    // The snippet is truncated to 500 chars + '...' — the second position
-    // (at 600) no longer exists in the shown value and must not be emitted.
-    expect(match.value.length).toBeLessThan(600);
+    expect(match.value).toBe(longContext);
     const indices = match.matchIndices ?? [];
-    expect(indices).toHaveLength(1);
+    expect(indices).toHaveLength(2);
     for (const { start, end } of indices) {
       expect(end).toBeLessThanOrEqual(match.value.length);
       expect(start).toBeGreaterThanOrEqual(0);

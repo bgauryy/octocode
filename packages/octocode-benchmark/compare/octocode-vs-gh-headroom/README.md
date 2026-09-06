@@ -41,7 +41,7 @@ Measured on this repo's toolchain (Headroom 0.33.0, kompress-v2-base):
 | `issue list --json …` (cli/cli, 30) | 6,267 | 3,326 | **47%** | mixed |
 
 (Reduction is char-based — the unit `SCORING.md` grades. Headroom's own
-token-based `ratio` reads lower, e.g. 0.13 on the tree; report chars, not tokens.)
+token-based `ratio` reads lower, for example 0.13 on the tree; report chars, not tokens.)
 
 Structured JSON (`api`, `--json`, tree/issue/PR lists) compresses losslessly —
 SmartCrusher folds repeated keys into one schema header and keeps every value.
@@ -125,7 +125,7 @@ desktop/orchestration truncation cannot silently corrupt the score.
 The shim compresses **once** and does not run the proxy or expose
 `headroom_retrieve`. Nothing re-expands later, so the chars it emits are exactly
 the chars that enter context. **Do not** enable the proxy/MCP retrieve loop for
-this arm — a retrieve call would pull originals back and silently inflate the
+this arm — a retrieve call can pull originals back and silently inflate the
 real context cost that "chars in" is supposed to capture.
 
 ### Determinism
@@ -191,7 +191,7 @@ artifact path. Use the log total, never a runner's reported count.
 
 ---
 
-## Running the benchmark (per-question protocol)
+## Run the benchmark (per-question protocol)
 
 There is no runner harness — benchmarks are run **by hand**. See the top-level
 [`README.md`](../../README.md), [`INSTRUCTIONS.md`](../../skills/octocode-benchmark/references/INSTRUCTIONS.md),
@@ -232,7 +232,7 @@ totals and are reported as workflow waste; because their output was captured,
 they do not invalidate an otherwise complete pass.
 
 The validator defaults to the current 30-question suite. To re-audit a preserved
-historical campaign, pass `--question-count <n>` (e.g. `20` or `17` for older sets).
+historical campaign, pass `--question-count <N>` (for example, `20` or `17` for older sets).
 
 ### Quick smoke test (confirm the arm runs before a full campaign)
 

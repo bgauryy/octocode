@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { executeBulkOperation } from '../../../utils/response/bulk.js';
+import { executeBulkOperation } from '../../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../../types/execution.js';
 import { executeWithToolBoundary } from '../../executionGuard.js';
 import { safeParseOrError } from '../../utils.js';
@@ -8,30 +8,32 @@ import {
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../toolNames.js';
 import {
-  LSP_GET_SEMANTICS_TOOL_NAME,
   type LspGetSemanticsQuery,
   type LspSemanticEnvelope,
 } from '../shared/semanticTypes.js';
 import { attachReadinessWarning } from '../shared/readiness.js';
 import { resolveSymbolAnchor } from '../shared/resolveSymbolAnchor.js';
 import {
-  CONSUMER_SCOPED_TYPES,
+  CONSUMER_SCOPED_PROVIDERS,
   dispatchAnchoredSemantic,
   warmLikelyConsumers,
 } from './semanticAnchored.js';
-import { failedAnchorEnvelope } from './semanticEnvelopes.js';
+import { failedAnchorEnvelope } from './semanticEnvelopes/envelopeHelpers.js';
+import { getDocumentSymbols } from './semanticFileOps/documentSymbols.js';
 import {
-  getDocumentSymbols,
   getFileDiagnostics,
   getWorkspaceSymbols,
-  throwLspUnavailable,
-} from './semanticFileOps.js';
+} from './semanticFileOps/workspaceSymbolsAndDiagnostics.js';
+import { throwLspUnavailable } from './semanticFileOps/anchor.js';
 import {
   attachSemanticRawEvidence,
+  classifySemanticResult,
   formatSemanticResult,
 } from './semanticPresentation.js';
 import { withSemanticNext } from './semanticNext.js';
+import { guardSemanticSnapshot } from './semanticSnapshot.js';
 import { LspGetSemanticsQuerySchema } from './scheme.js';
 
 export async function executeLspGetSemantics(
@@ -51,9 +53,14 @@ export async function executeLspGetSemantics(
         execute: async () => {
           const result = await getSemanticContent(validatedQuery);
           return attachSemanticRawEvidence(
-            withSemanticNext(
+            formatSemanticResult(
               validatedQuery,
-              formatSemanticResult(validatedQuery, result)
+              withSemanticNext(
+                validatedQuery,
+                classifySemanticResult(
+                  guardSemanticSnapshot(validatedQuery, result)
+                )
+              )
             )
           );
         },
@@ -82,6 +89,7 @@ async function getSemanticContent(
 
   const anchor = await resolveSymbolAnchor(query, LSP_GET_SEMANTICS_TOOL_NAME);
   if (anchor.ok === false) {
+    if (anchor.error.status === 'error') return anchor.error;
     const message =
       typeof anchor.error.error === 'string'
         ? anchor.error.error
@@ -111,9 +119,11 @@ async function getSemanticContent(
   }
   const client = clientResult.client;
 
-  const warmupStats = CONSUMER_SCOPED_TYPES.has(query.type)
-    ? await warmLikelyConsumers(client, anchor.value, workspaceRoot)
-    : undefined;
+  const consumerProvider = CONSUMER_SCOPED_PROVIDERS[query.type];
+  const warmupStats =
+    consumerProvider && client.hasCapability(consumerProvider)
+      ? await warmLikelyConsumers(client, anchor.value, workspaceRoot)
+      : undefined;
 
   // Readiness recorded when the pooled client warmed. `undefined` = the wait
   // was skipped for a server that answers immediately (no indexing caveat).

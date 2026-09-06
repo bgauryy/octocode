@@ -3,13 +3,11 @@
  * Bundle the published type surface (dist/public.d.ts) into a single, dependency-
  * light declaration file.
  *
- * Why this exists: @octocodeai/octocode-tools-core is INLINED into the JS bundle
- * and is NOT published to npm (it is a devDependency). tsc, however, emits
- * `export { … } from '@octocodeai/octocode-tools-core'` into the declarations —
- * a dangling reference for any TypeScript consumer, since the package won't be
- * installed. rollup-plugin-dts resolves those tools-core types and inlines them,
- * while keeping still-published packages (@octocodeai/octocode-core, zod) as
- * normal external `import`s.
+ * Why this exists: the MCP package publishes one stable declaration entry point.
+ * rollup-plugin-dts resolves the tools-core types used by that public surface and
+ * inlines them, while preserving the public SDK and zod imports as dependencies.
+ * The JavaScript build keeps tools-core external; declaration bundling does not
+ * change that runtime package boundary.
  *
  * Flow (driven by the `build:types` script):
  *   1. tsc --emitDeclarationOnly --outDir dist/.types   (per-file .d.ts in a temp dir)
@@ -28,10 +26,9 @@ const typesDir = join(distDir, '.types');
 const entry = join(typesDir, 'public.d.ts');
 const out = join(distDir, 'public.d.ts');
 
-// Inline ONLY @octocodeai/octocode-tools-core (it isn't published); keep every
-// other bare specifier — @octocodeai/octocode-core, zod, octokit/@octokit/*,
-// the native engine, node builtins — as an external `import`. They are all real
-// runtime dependencies of octocode-mcp, so consumers resolve them from npm.
+// Inline only the tools-core declarations used by the MCP public API. Keep every
+// other bare specifier external so dependencies such as the MCP SDK and zod are
+// resolved through this package's manifest.
 const INLINE = /^@octocodeai\/octocode-tools-core(\/.*)?$/;
 
 const bundle = await rollup({
@@ -52,4 +49,6 @@ await bundle.close();
 // drop them so the tarball ships only the bundled public.d.ts.
 await rm(typesDir, { recursive: true, force: true });
 
-console.log('✓ bundled dist/public.d.ts (tools-core types inlined, octocode-core external)');
+console.log(
+  '✓ bundled dist/public.d.ts (tools-core types inlined, SDK/zod external)'
+);

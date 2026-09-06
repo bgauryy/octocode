@@ -1,5 +1,5 @@
 import { formatFileSize, parseFileSize } from '../../utils/file/size.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
 import {
   validateToolPath,
   createErrorResult,
@@ -21,10 +21,8 @@ import {
 } from './structureResponse.js';
 import { LOCAL_MAX_LIMIT, MAX_PAGE_NUMBER } from '../../config.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
-import {
-  contextUtils,
-  type FileSystemEntry,
-} from '../../utils/contextUtils.js';
+import { contextUtils } from '../../utils/contextUtils.js';
+import type { FileSystemEntry } from '@octocodeai/octocode-engine';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
 import { buildViewStructureNextMap } from './viewStructureNext.js';
 

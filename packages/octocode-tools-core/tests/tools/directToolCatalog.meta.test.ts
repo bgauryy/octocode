@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
+import { buildDirectToolCommandPatterns } from '../../src/tools/directToolCatalog/toolCommandPatterns.js';
+import { DirectToolInputError } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import {
-  buildDirectToolCommandPatterns,
-  DirectToolInputError,
   getDirectToolDisplayFields,
+  getDirectToolVariantDisplayFields,
+} from '../../src/tools/directToolCatalog/toolSchemaIntrospection.js';
+import {
   getDirectToolSchemaRelations,
   getDirectToolSchemaVariants,
-  getDirectToolVariantDisplayFields,
-  prepareDirectToolInput,
-} from '../../src/tools/directToolCatalog.meta.js';
+} from '../../src/tools/directToolCatalog/toolSchemaRelations.js';
+import { prepareDirectToolInput } from '../../src/tools/directToolCatalog/toolInputPreparation.js';
 
 describe('prepareDirectToolInput', () => {
   const publicToolNames = [
@@ -25,7 +27,7 @@ describe('prepareDirectToolInput', () => {
   ];
 
   it.each([
-    ['npmSearch', {}, 'Set exactly one of packageName or keywords.'],
+    ['npmSearch', {}, 'Set exactly one non-empty packageName or keywords.'],
     [
       'localSearch',
       {},
@@ -170,7 +172,6 @@ describe('prepareDirectToolInput', () => {
       'commit',
       'compare',
     ]);
-
   });
 
   it('keeps every published command pattern inside its strict tool schema', () => {
@@ -279,6 +280,7 @@ describe('prepareDirectToolInput', () => {
       'path',
       'maxDepth',
       'page',
+      'metadataPage',
       'include',
       'pageSize',
     ]);
@@ -413,16 +415,8 @@ describe('prepareDirectToolInput', () => {
       { operation: 'structural', path: '.', pattern: '$A', maxResults: 5 },
       'maxFiles',
     ],
-    [
-      'files',
-      { operation: 'files', path: '.', maxResults: 5 },
-      'limit',
-    ],
-    [
-      'tree',
-      { operation: 'tree', path: '.', maxResults: 5 },
-      'limit',
-    ],
+    ['files', { operation: 'files', path: '.', maxResults: 5 }, 'limit'],
+    ['tree', { operation: 'tree', path: '.', maxResults: 5 }, 'limit'],
   ])(
     'suggests a field valid for the active localSearch %s variant',
     (_operation, query, expectedField) => {

@@ -6,9 +6,11 @@ The **one** canonical v2 set of 30 GitHub research questions. All three GitHub m
 - [`octocode-vs-gh-rtk`](../octocode-vs-gh-rtk/) — `gh` + `rtk`
 - [`octocode-vs-gh-headroom`](../octocode-vs-gh-headroom/) — `gh` + Headroom
 
-Edit a question **here, once**, and every matchup sees it. (A corpus-local matchup — one pinned to a local checkout — would keep its own `questions/`, since its questions are corpus-specific.)
+Edit a question **here, once**, and every matchup sees it. A corpus-local matchup
+that uses a pinned local checkout keeps its own `questions/` because those
+questions are corpus-specific.
 
-Each file is just the title, id, and the question.
+Each file contains only the title, ID, and question.
 
 | File | Title |
 |---|---|

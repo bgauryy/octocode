@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { shapePullRequestForContent } from '../../../src/tools/github_search_pull_requests/contentResponse.js';
 import { normalizePullRequestContentRequest } from '../../../src/tools/github_search_pull_requests/contentRequest.js';
+import { GitHubGetHistoryItemQueryLocalSchema } from '../../../src/tools/github_search_pull_requests/historySchemes.js';
 
 const PR = {
   number: 42,
@@ -23,26 +24,29 @@ describe('pull-request exact-item nextCalls — copy-paste-ready fragments', () 
       false,
       true
     ) as {
-      next: Record<
-        string,
-        { operation?: string; owner?: string; number?: number }
-      >;
+      next: Record<string, { tool: string; query: Record<string, unknown> }>;
     };
 
-    expect(shaped.next.getBody).toMatchObject({
+    for (const call of Object.values(shaped.next)) {
+      expect(call.tool).toBe('ghGetHistoryItem');
+      expect(
+        GitHubGetHistoryItemQueryLocalSchema.safeParse(call.query).success
+      ).toBe(true);
+    }
+    expect(shaped.next.getBody?.query).toMatchObject({
       operation: 'pullRequest',
       owner: 'octo',
       repo: 'engine',
       number: 42,
       content: { body: true },
     });
-    expect(shaped.next.getChangedFiles).toMatchObject({
+    expect(shaped.next.getChangedFiles?.query).toMatchObject({
       owner: 'octo',
       repo: 'engine',
       operation: 'pullRequest',
       number: 42,
     });
-    expect(shaped.next.fullReview).toMatchObject({
+    expect(shaped.next.fullReview?.query).toMatchObject({
       owner: 'octo',
       repo: 'engine',
       operation: 'pullRequest',
@@ -74,16 +78,18 @@ describe('pull-request exact-item nextCalls — copy-paste-ready fragments', () 
       true
     ) as {
       next: {
-        getSelectedPatches?: { content: { patches: { files: string[] } } };
+        getSelectedPatches?: {
+          query: { content: { patches: { files: string[] } } };
+        };
       };
     };
 
-    expect(shaped.next.getSelectedPatches?.content.patches.files).toEqual([
-      'src/real-file.ts',
-    ]);
+    expect(shaped.next.getSelectedPatches?.query.content.patches.files).toEqual(
+      ['src/real-file.ts']
+    );
   });
 
-  it('falls back to the labeled placeholder when changedFiles was not fetched this round', () => {
+  it('offers changed-file discovery without inventing a selected patch path', () => {
     const request = normalizePullRequestContentRequest({} as never);
     const shaped = shapePullRequestForContent(
       PR,
@@ -97,8 +103,8 @@ describe('pull-request exact-item nextCalls — copy-paste-ready fragments', () 
       };
     };
 
-    expect(shaped.next.getSelectedPatches?.content.patches.files).toEqual([
-      'path/from/changedFiles',
-    ]);
+    expect(shaped.next.getSelectedPatches).toBeUndefined();
+    expect(shaped.next).toHaveProperty('getChangedFiles');
+    expect(JSON.stringify(shaped)).not.toContain('path/from/changedFiles');
   });
 });

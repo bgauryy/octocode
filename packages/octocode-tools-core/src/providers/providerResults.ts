@@ -1,4 +1,6 @@
+import type { CollectionStates } from '../github/prContentFetcher/collectionPaging.js';
 import type { PaginationInfo } from '../types/toolResults.js';
+import type { PRProviderLimit } from '../github/githubAPI.js';
 
 export interface UnifiedRepository {
   id: string;
@@ -34,6 +36,8 @@ export interface UnifiedRepository {
   archived?: boolean;
 
   language?: string;
+  license?: string;
+  homepage?: string;
 }
 
 export interface CodeSearchItem {
@@ -91,6 +95,10 @@ export interface FileContentResult {
 
   contentView?: 'none' | 'standard' | 'symbols';
 
+  errorCode?: 'contentSecurityLimit';
+  terminalLimit?: boolean;
+  partialReasons?: Array<'security-selected-view-size-limit'>;
+
   ref: string;
 
   lastModified?: string;
@@ -121,6 +129,7 @@ export interface FileContentResult {
 
 export interface RepoSearchResult {
   repositories: UnifiedRepository[];
+  incompleteResults?: boolean;
 
   totalCount: number;
 
@@ -130,6 +139,7 @@ export interface RepoSearchResult {
 }
 
 export interface PullRequestItem {
+  collectionStates?: CollectionStates;
   number: number;
 
   title: string;
@@ -211,11 +221,22 @@ export interface PullRequestItem {
   }>;
 
   commits?: Array<{
+    filesCollectionState?: import('../github/prContentFetcher/collectionPaging.js').CollectionState;
     sha: string;
     message: string;
     author: string;
     date: string;
+    files?: Array<{
+      filename: string;
+      status: string;
+      additions: number;
+      deletions: number;
+      changes?: number;
+      patch?: string;
+    }>;
   }>;
+
+  providerLimits?: PRProviderLimit[];
 
   fileChanges?: Array<{
     path: string;
@@ -232,6 +253,8 @@ export interface PullRequestSearchResult {
   items: PullRequestItem[];
 
   totalCount: number;
+
+  incompleteResults?: boolean;
 
   pagination: PaginationInfo;
 
@@ -282,5 +305,25 @@ export interface RepoStructureResult {
 
   terminalLimit?: boolean;
 
-  partialReasons?: Array<'providerTreeTruncated' | 'partialTreeFailures'>;
+  partialReasons?: Array<
+    | 'providerTreeTruncated'
+    | 'partialTreeFailures'
+    | 'metadataPagination'
+    | 'metadataFetchFailed'
+    | 'metadataPageLimit'
+  >;
+
+  metadataPagination?: Partial<
+    Record<
+      'contributors' | 'branches' | 'tags' | 'languages',
+      {
+        currentPage: number;
+        perPage: number;
+        returned: number;
+        hasMore: boolean;
+        failed?: boolean;
+        terminalLimit?: boolean;
+      }
+    >
+  >;
 }

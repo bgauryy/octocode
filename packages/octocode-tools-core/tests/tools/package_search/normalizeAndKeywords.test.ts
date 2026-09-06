@@ -14,11 +14,13 @@ vi.mock('../../../src/utils/package/common.js', async importOriginal => {
 
 import {
   normalizeRepoUrl,
-  foldKeywords,
-  isPackageNotFoundError,
   formatPackageData,
   searchPackages,
 } from '../../../src/tools/package_search/execution.js';
+import {
+  foldKeywords,
+  isPackageNotFoundError,
+} from '../../../src/tools/package_search/queryHelpers.js';
 import { NpmSearchBulkQueryLocalSchema } from '../../../src/tools/package_search/scheme.js';
 import { NpmSearchQueryLocalSchema } from '../../../src/tools/package_search/scheme.js';
 
@@ -104,6 +106,21 @@ describe('isPackageNotFoundError', () => {
 });
 
 describe('searchPackages — keywords fold drives the registry query', () => {
+  it.each([
+    { packageName: 'react', keywords: ['state'] },
+    { packageName: 'react', pageSize: 10 },
+    { packageName: 'react', page: 1 },
+    { packageName: 'react', page: 2 },
+    { keywords: [' '] },
+  ])(
+    'rejects invalid mode inputs before reaching the registry: %j',
+    async query => {
+      searchPackageMock.mockReset();
+      const result = await searchPackages({ queries: [query] } as never);
+      expect(searchPackageMock).not.toHaveBeenCalled();
+      expect(JSON.stringify(result.structuredContent)).toContain('error');
+    }
+  );
   it('searches using "state management" when only keywords is given', async () => {
     searchPackageMock.mockReset();
     searchPackageMock.mockResolvedValue({
@@ -119,23 +136,6 @@ describe('searchPackages — keywords fold drives the registry query', () => {
     expect(searchPackageMock).toHaveBeenCalledTimes(1);
     expect(searchPackageMock.mock.calls[0]?.[0]).toMatchObject({
       name: 'state management',
-    });
-  });
-
-  it('lets an explicit packageName win over keywords', async () => {
-    searchPackageMock.mockReset();
-    searchPackageMock.mockResolvedValue({
-      packages: [],
-      totalFound: 0,
-      rawResponseChars: 0,
-    });
-
-    await searchPackages({
-      queries: [{ packageName: 'react', keywords: ['state', 'management'] }],
-    } as never);
-
-    expect(searchPackageMock.mock.calls[0]?.[0]).toMatchObject({
-      name: 'react',
     });
   });
 
@@ -215,7 +215,7 @@ describe('searchPackages — keywords fold drives the registry query', () => {
     searchPackageMock.mockReset();
     searchPackageMock.mockResolvedValue({
       packages: [npmPkg('github:octo/one')],
-      totalFound: 1,
+      totalFound: 1001,
       rawResponseChars: 50,
     });
 

@@ -10,7 +10,7 @@ export type {
   ToolCharSavingsStats,
 } from './types.js';
 
-export { SESSION_FILE, STATS_FILE } from './storage.js';
+export { SESSION_FILE, STATS_FILE } from './sessionDiskIO.js';
 
 export {
   readSession,

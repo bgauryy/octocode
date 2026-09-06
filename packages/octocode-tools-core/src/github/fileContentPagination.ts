@@ -58,6 +58,7 @@ export async function applyContentPagination(
     ...data,
     content: paginationMeta.paginatedContent,
     pagination: {
+      pageCountsKind: 'estimated',
       currentPage: paginationMeta.currentPage,
       totalPages: paginationMeta.totalPages,
       hasMore: paginationMeta.hasMore,

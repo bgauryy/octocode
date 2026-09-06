@@ -16,11 +16,11 @@ The TUI is conversation-first: transcript content is durable, decisions appear i
 
 ## Component and state architecture
 
-- `src/tui/components.ts` owns the pure functional component contract, responsive inline rows, stacks, and cell-perfect closed frames. `src/tui/index.ts` is the single public TUI barrel.
+- `src/tui/components.ts` owns the pure functional component contract, responsive inline rows, stacks, and cell-perfect closed frames. Consumers import directly from the defining TUI modules.
 - `src/tui/footer-view.ts` owns the unified persistent footer. `extension-ui.ts` projects activity, exact context use/current maximum, compact plan/task progress, every visible worker, attention, identity, and settings into it; diagnostic telemetry stays in commands.
-- Every historical `makeRenderer` call/result/message renderer is adapted through the same functional component contract, so width enforcement and invalidation behavior are uniform.
+- Call, result, and message renderers use `makeComponentRenderer` and the same functional component contract, so width enforcement and invalidation behavior are uniform.
 - `runtime-store.ts` is the Zustand source of truth for initialization, statuses, notices, foreground activity, context composition, MCP progress, and footer metrics. Renderers subscribe or read snapshots; they do not keep parallel UI state. Pi working visibility is derived from foreground activity and carries no second message value.
-- Plan and agent mutations request a footer repaint. `status-panel.ts` retains only pure legacy composition and cleanup; it never registers a competing widget.
+- Plan and agent mutations request a footer repaint through the shared runtime state.
 - Box drawing is centralized. New widgets must use `renderFrame`; legacy left-rail cards use `closeFrameLines` during migration. Both reserve the right edge before truncation and preserve the IME cursor marker.
 
 ## Surface hierarchy
@@ -48,8 +48,8 @@ Only one interactive surface owns keyboard focus. Closing or submitting that sur
 | Decision | Single-select `askUser` (`ask-user-tool.ts`) | Recommended choice receives initial focus; only that row expands optional nuance and trade-offs. The widget supports arrow keys, number keys, Enter, filtering, disabled reasons, and free text. |
 | Decision | Multi-select `askUser` (`ask-user-tool.ts`) | Space toggles, Enter confirms, min/max validation stays inline, and selected count remains visible. |
 | Decision | Text and form `askUser` (`ask-user-tool.ts`) | Use Pi's input component for cursor movement, paste, graphemes, validation, and IME positioning. |
-| Decision | Plan/RFC review (`plan-tool.ts`) | Ask only for clarification, proposal approval, or the consequential RFC review surface. Set/start/complete remain non-blocking; acceptance binds an exact revision and never starts implementation. |
-| Status | Compact plan (`plan-tool.ts`, `extension-ui.ts`) | Show progress and current/blocking work in the footer. `/octocode-plan`, Markdown, browser, and RPC retain the complete plan. |
+| Decision | Plan/RFC review (`plan-tool.ts`) | Ask only for clarification or proposal review. One Start decision binds the exact revision and starts implementation. Set/start/complete do not ask presentation-only questions. |
+| Status | Compact plan (`plan-tool.ts`, `extension-ui.ts`) | Show progress and current work in the footer. Explicit compact inspection prioritizes running tasks, then runnable tasks, then blocked backlog. Markdown, browser, and RPC retain the complete plan. |
 | Navigation | Shared select overlay (`ui-overlays.ts`) | Search visible labels and descriptions; preserve focus through filtering; cancel with Escape or Ctrl-C. |
 | Navigation | Shared multi-select overlay (`ui-overlays.ts`, `multi-select-list.ts`) | Use the same focus, selection, validation, and cancellation language as `askUser`. |
 | Navigation | Command palette (`command-palette.ts`) | Filter all public commands and direct actions; dispatch the selected command through the normal message path. |
@@ -113,7 +113,18 @@ Outcome words and glyphs accompany color: `✓ done`, `⚠ blocked`, `✗ failed
 
 ### Consequential plan
 
-`RFC revision ready → terminal Summary with revision, paths, and actions → optional browser review → request changes or accept exact bytes → separate Start decision → shared graph materializes and one executable step is claimed`
+`RFC revision ready → terminal summary with revision, paths, and actions → optional browser review → choose Start implementation or Request changes once → Start authorizes the exact bytes, materializes the shared graph, and claims the first dependency-ready step`
+
+The browser plan uses a left-aligned document layout without surrounding cards.
+During review, the proposal and decision controls precede the task checklist.
+During execution, the checklist precedes feedback. Workflow guidance, dependency
+diagrams, and Markdown remain available in expandable sections. Task details
+retain declared paths, acceptance criteria, and verification commands.
+
+Pending input pauses execution guidance. Completed, failed, and abandoned plans
+report their outcome instead of asking to Start again. Shared task status drives
+dependency readiness, so a failed prerequisite remains blocked in every plan
+projection even if a local snapshot previously marked it done.
 
 ### Long-running work
 
@@ -121,7 +132,7 @@ Outcome words and glyphs accompany color: `✓ done`, `⚠ blocked`, `✗ failed
 
 ### Noninteractive host
 
-`interactive UI unavailable → do not open a picker or browser → return the question, choices, and required reply format inline → agent asks in chat → normal tool flow resumes with the answer`
+`interactive UI unavailable → do not open a picker or browser → create a durable authorization interaction when the host supports continuations → return its correlation and exact reviewed revision → after the host records the human answer, resume Start with that revision and interaction ID; otherwise show the explicit plan commands and never infer approval from prose`
 
 ### Destructive or external mutation
 
@@ -178,7 +189,7 @@ Warnings appear when the context is high, assets are missing, or search falls ba
 Run `/commands` for the live registry grouped into Octocode commands, Pi/extension commands, and skills/templates. It reads `pi.getCommands()` at invocation time, hides private names beginning with `_`, and uses each registered description as when-to-use guidance.
 
 Always-on orientation and health commands: `/commands`, `/octocode`, `/octocode-now`, `/octocode-harness`.
-Work-state commands: `/octocode-plan` (`new <goal>` = plan mode: research → plan `action:"propose"` inside `queries[]` → approve/adjust/reject gate; write tools are **blocked by a `tool_call` hook** until approval — `off` lifts it; a `plan mode` status chip shows while on), `/octocode-tasks`, `/octocode-agents`, `/octocode-inbox`, `/octocode-cron`.
+Work-state commands: `/octocode-plan` (`new <goal>` = research → plan `action:"propose"` inside `queries[]` → Start or Request changes; planning keeps research and RFC authoring tools available, while implementation waits for Start; `off` exits plan mode), `/octocode-tasks`, `/octocode-agents`, `/octocode-inbox`, `/octocode-cron`.
 Configuration and integration commands: `/settings` (complete local control center with the live `pi.getCommands()` public registry, skills, MCP servers/tools, prompt state, sources, and overrides; defaults to `#skills` and accepts section completions), `/mcp` (opens MCP connections), `/octocode-setup`, `/octocode-skills`, `/octocode-skills-update`, `/octocode-theme`, `/octocode-chrome`.
 Modern TUI commands: `/octocode-palette`, `/octocode-dial`, `/octocode-footer` (`legend` explains every segment), `/octocode-permissions` (level cycle: `ctrl+shift+a`), `/octocode-profile` (apply `~/.octocode/profiles.json` live), `/octocode-plan html` (live local plan page), `/octocode-rewind`, `/octocode-watch`, `/octocode-export`.
 

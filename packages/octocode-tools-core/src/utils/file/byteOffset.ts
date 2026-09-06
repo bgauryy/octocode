@@ -1,8 +1,8 @@
-import {
-  contextUtils,
-  type SliceContentOptions,
-  type SliceContentResult,
-} from '../contextUtils.js';
+import { contextUtils } from '../contextUtils.js';
+import type {
+  SliceContentOptions,
+  SliceContentResult,
+} from '@octocodeai/octocode-engine';
 
 export function byteSlice(
   content: string,

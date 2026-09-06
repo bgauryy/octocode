@@ -29,10 +29,10 @@ static MINIFY_CONFIG: LazyLock<HashMap<&'static str, FileTypeConfig>> = LazyLock
     // JS / TS
     macro_rules! insert { ($($ext:literal => $cfg:expr),* $(,)?) => { $(m.insert($ext, $cfg);)* }; }
     insert! {
-        "js"    => FileTypeConfig::with("terser",       &["c-style"]),
-        "jsx"   => FileTypeConfig::with("terser",       &["c-style"]),
-        "mjs"   => FileTypeConfig::with("terser",       &["c-style"]),
-        "cjs"   => FileTypeConfig::with("terser",       &["c-style"]),
+        "js"    => FileTypeConfig::with("oxc",          &["c-style"]),
+        "jsx"   => FileTypeConfig::with("oxc",          &["c-style"]),
+        "mjs"   => FileTypeConfig::with("oxc",          &["c-style"]),
+        "cjs"   => FileTypeConfig::with("oxc",          &["c-style"]),
         "ts"    => FileTypeConfig::with("conservative", &["c-style"]),
         "tsx"   => FileTypeConfig::with("conservative", &["c-style"]),
         "mts"   => FileTypeConfig::with("conservative", &["c-style"]),
@@ -82,6 +82,8 @@ static MINIFY_CONFIG: LazyLock<HashMap<&'static str, FileTypeConfig>> = LazyLock
         "kts"   => FileTypeConfig::with("conservative", &["c-style"]),
         "kotlin"=> FileTypeConfig::with("conservative", &["c-style"]),
         "scala" => FileTypeConfig::with("conservative", &["c-style"]),
+        "sc"    => FileTypeConfig::with("conservative", &["c-style"]),
+        "sbt"   => FileTypeConfig::with("conservative", &["c-style"]),
         "dart"  => FileTypeConfig::with("conservative", &["c-style"]),
         "groovy"=> FileTypeConfig::with("conservative", &["c-style"]),
         "gradle"=> FileTypeConfig::with("conservative", &["c-style"]),

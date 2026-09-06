@@ -1,9 +1,81 @@
 import { describe, expect, it } from 'vitest';
 import { buildPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
 import { buildPlanMarkdownFromModel, buildPlanPageHtmlFromModel } from '../src/tools/plan-html.js';
-import { planPanelModelLines } from '../src/tools/plan-tool.js';
+import { renderFooterView } from '../src/tui/footer-view.js';
+import { buildPlanFooterSegments } from '../src/extension-ui.js';
 
 describe('plan presentation read model', () => {
+  function executionModel(phase: 'executing' | 'complete' | 'failed' = 'executing') {
+    return buildPlanReadModel({
+      steps: [
+        { id: 'current', text: 'Implement core', status: 'doing', awarenessTaskId: 'core' },
+        { id: 'blocked', text: 'Integrate core', status: 'todo', dependsOnStepIds: ['current'] },
+        { id: 'blocked2', text: 'Verify integration', status: 'todo', dependsOnStepIds: ['blocked'] },
+        { id: 'ready', text: 'Document API', status: 'todo' },
+      ],
+      review: { phase, branchSnapshotId: 'flow', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
+      coordination: { mode: 'local', sourcePlanKey: 'flow', coordinationWorkspace: '/repo' },
+    });
+  }
+
+  it('prioritizes the running task in the persistent footer', () => {
+    const lines = renderFooterView({ rows: [buildPlanFooterSegments(executionModel())] }, { width: 80 });
+    expect(lines.join('\n')).toContain('Implement core');
+    expect(lines.join('\n')).not.toContain('Integrate core');
+  });
+
+  it('shows runnable work in the footer when other lanes are blocked', () => {
+    const model = executionModel();
+    model.tasks[0]!.status = 'blocked';
+    model.summary.running = 0;
+    model.summary.blocked += 1;
+    expect(buildPlanFooterSegments(model)[1]?.text).toContain('Document API');
+  });
+
+  it('recomputes dependent readiness from the effective shared task state', () => {
+    const model = buildPlanReadModel({
+      steps: [
+        { id: 'parent', text: 'Parent', status: 'doing', awarenessTaskId: 'p' },
+        { id: 'child', text: 'Child', status: 'todo', dependsOnStepIds: ['parent'], awarenessTaskId: 'c' },
+      ],
+      review: { phase: 'executing', branchSnapshotId: 'shared', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
+      coordination: { mode: 'required', sourcePlanKey: 'shared', coordinationWorkspace: '/repo' },
+      sharedTaskStatuses: { p: 'DONE', c: 'OPEN' },
+    });
+    expect(model.tasks[1]?.status).toBe('todo');
+    const blocked = buildPlanReadModel({
+      steps: [
+        { id: 'parent', text: 'Parent', status: 'done', awarenessTaskId: 'p' },
+        { id: 'child', text: 'Child', status: 'todo', dependsOnStepIds: ['parent'], awarenessTaskId: 'c' },
+      ],
+      review: { phase: 'executing', branchSnapshotId: 'shared', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
+      coordination: { mode: 'required', sourcePlanKey: 'shared', coordinationWorkspace: '/repo' },
+      sharedTaskStatuses: { p: 'FAILED', c: 'OPEN' },
+    });
+    expect(blocked.tasks[1]?.status).toBe('blocked');
+    expect(renderPlanContext(blocked)).toContain('next: resolve blocked dependencies');
+    expect(renderPlanContext(blocked)).not.toContain('Start the next runnable step');
+  });
+
+  it('keeps input gates free of contradictory start or parallel instructions', () => {
+    const model = executionModel();
+    model.pendingInteractionIds = ['question'];
+    const prompt = renderPlanContext(model);
+    expect(prompt).toContain('next: awaiting user input');
+    expect(prompt).not.toContain('parallel-ready:');
+    expect(prompt).not.toContain('Execute active steps');
+  });
+
+  it('reports completed and failed outcomes without claiming implementation never started', () => {
+    for (const phase of ['complete', 'failed'] as const) {
+      const model = executionModel(phase);
+      const prompt = renderPlanContext(model);
+      expect(prompt).toContain(`phase=${phase}`);
+      expect(prompt).not.toContain('Implementation has not started');
+      expect(prompt).not.toContain('awaiting Start');
+    }
+  });
+
   it('keeps terminal, browser, and RPC projections on one versioned source', () => {
     const model = buildPlanReadModel({
       steps: [
@@ -43,7 +115,7 @@ describe('plan presentation read model', () => {
       pendingInteractionIds: ['question-2', 'question-1', 'question-1'],
     });
     const before = JSON.stringify(model);
-    const terminal = planPanelModelLines(model).join('\n');
+    const terminal = renderPlanReadModel(model, 'terminal') as string;
     const browser = buildPlanPageHtmlFromModel(model);
     const markdown = buildPlanMarkdownFromModel(model, { generatedAt: new Date('2026-08-26T00:00:00.000Z') });
     const prompt = renderPlanContext(model);
@@ -62,8 +134,8 @@ describe('plan presentation read model', () => {
         { id: 'ship', status: 'blocked' },
       ],
     });
-    expect(terminal).not.toContain('Research API');
-    expect(terminal).toContain('Plan · Work · 1/3');
+    expect(terminal).toContain('Research API');
+    expect(terminal).toContain('Plan 1/3 · executing');
     for (const output of [browser, markdown, prompt]) {
       expect(output).toContain('Research API');
       expect(output).toMatch(/Build(?:ing)? API/);

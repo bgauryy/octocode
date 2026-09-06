@@ -15,7 +15,7 @@ import {
   setCapabilityCheckForTests,
   setImageVisibilityCheckForTests,
 } from '../src/tools/image-render.js';
-import { makeRenderer } from '../src/tools/render-helpers.js';
+import { makeComponentRenderer } from '../src/tools/render-helpers.js';
 import type { PiTheme, RenderContext } from '../src/types.js';
 
 const theme = { fg: (c: string, t: string) => '<' + c + '>' + t + '</' + c + '>', bold: (t: string) => t } as unknown as PiTheme;
@@ -255,7 +255,7 @@ test('appendImageLines appends image lines after the base renderer lines, untrun
     const dir = tmpDir();
     const p = writePng(dir, 'a-very-long-screenshot-file-name.png');
     const longLine = 'x'.repeat(200);
-    const base = makeRenderer(() => [longLine]);
+    const base = makeComponentRenderer((_props, _context) => [longLine], undefined);
     const ctx = { state: {}, invalidate() {} } as unknown as RenderContext;
 
     const combined = appendImageLines(base, ctx, p, theme);

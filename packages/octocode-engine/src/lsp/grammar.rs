@@ -52,29 +52,32 @@ fn init_grammar_map() -> HashMap<&'static str, GrammarSpec> {
         }
     }
 
-    // LSP-only fallback: when the C++/C# grammars are compiled out the registry
-    // omits them, but the LSP layer still parses those files with the C grammar
-    // as a rough approximation. Signatures/structural intentionally do NOT get
-    // this fallback — they drop to the heuristic path instead.
-    #[cfg(not(feature = "tree-sitter-cpp"))]
-    for &ext in &["cpp", "cc", "cxx", "hpp", "hh", "hxx"] {
-        map.entry(ext).or_insert_with(|| GrammarSpec {
-            language_id: "cpp",
-            language: tree_sitter_c::LANGUAGE.into(),
-        });
-    }
-    #[cfg(not(feature = "tree-sitter-c-sharp"))]
-    map.entry("cs").or_insert_with(|| GrammarSpec {
-        language_id: "csharp",
-        language: tree_sitter_c::LANGUAGE.into(),
-    });
-
     map
 }
 
 #[cfg(test)]
 mod tests {
     use super::grammar_for_file;
+
+    #[test]
+    fn optional_grammars_have_no_cross_language_fallback() {
+        for (enabled, extensions) in [
+            (
+                cfg!(feature = "tree-sitter-cpp"),
+                &["cpp", "cc", "cxx", "hpp", "hh", "hxx"][..],
+            ),
+            (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
+            (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
+        ] {
+            for ext in extensions {
+                assert_eq!(
+                    grammar_for_file(&format!("fixture.{ext}")).is_some(),
+                    enabled,
+                    ".{ext}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn requested_language_matrix_has_native_grammars() {
@@ -96,16 +99,16 @@ mod tests {
             ("demo.rs", "rust", "fn target() {}\n"),
             ("demo.java", "java", "class Target { void target() {} }\n"),
             ("demo.c", "c", "void target() {}\n"),
+            #[cfg(feature = "tree-sitter-cpp")]
             ("demo.cpp", "cpp", "void target() {}\n"),
+            #[cfg(feature = "tree-sitter-c-sharp")]
             ("demo.cs", "csharp", "class Target { void target() {} }\n"),
-            ("demo.sh", "shellscript", "target() { echo ok; }\n"),
             ("demo.json", "json", "{\"target\": true}\n"),
             ("demo.yaml", "yaml", "target: true\n"),
             ("demo.toml", "toml", "target = true\n"),
             ("demo.html", "html", "<div id=\"target\"></div>\n"),
             ("demo.css", "css", ".target { color: red; }\n"),
             ("demo.scss", "scss", ".target { color: red; }\n"),
-            ("demo.less", "less", ".target { color: red; }\n"),
         ];
 
         for (file_name, language_id, source) in cases {

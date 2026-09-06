@@ -12,28 +12,32 @@ export function hashGitHubToken(token: string): string {
   return createHash('sha256').update(token).digest('hex').substring(0, 16);
 }
 
+function normalizeGitHubApiUrl(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return baseUrl;
+  }
+}
+
 /**
  * Auth segment for GitHub API cache keys. Distinct tokens (and Enterprise
- * hosts) must not share cache entries. Never puts the raw token in the key.
+ * endpoints) must not share cache entries. Never puts the raw token in the key.
  */
 export async function resolveCacheAuthFingerprint(
   authInfo?: AuthInfo
 ): Promise<string> {
   const token = authInfo?.token ?? (await getGitHubToken());
   const auth = token ? hashGitHubToken(token) : 'anon';
-  const baseUrl = getServerConfig().githubApiUrl || 'https://api.github.com';
-  try {
-    const host = new URL(baseUrl).host;
-    if (host && host !== 'api.github.com') {
-      return `${auth}@${host}`;
-    }
-  } catch {
-    void 0;
-  }
-  return auth;
+  const baseUrl = normalizeGitHubApiUrl(
+    getServerConfig().githubApiUrl || 'https://api.github.com'
+  );
+  return baseUrl === 'https://api.github.com' ? auth : `${auth}@${baseUrl}`;
 }
 
-export const OctokitWithThrottling = Octokit.plugin(throttling);
+export const OctokitWithThrottling: typeof Octokit = Octokit.plugin(throttling);
 
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 
@@ -129,11 +133,10 @@ const createThrottleOptions = () => ({
 });
 
 function createOctokitInstance(
-  token?: string
+  token: string | undefined,
+  baseUrl: string,
+  timeout: number
 ): InstanceType<typeof OctokitWithThrottling> {
-  const config = getServerConfig();
-  const baseUrl = config.githubApiUrl;
-
   const quietLog = {
     debug: () => {},
     info: () => {},
@@ -146,7 +149,7 @@ function createOctokitInstance(
   } = {
     userAgent: `octocode-mcp/${version}`,
     baseUrl,
-    request: { timeout: config.timeout || 30000, log: quietLog },
+    request: { timeout, log: quietLog },
     throttle: createThrottleOptions(),
     log: quietLog,
     ...(token && { auth: token }),
@@ -161,7 +164,16 @@ export async function getOctokit(
   ensurePurgeTimer();
 
   const token = authInfo?.token ?? (await getGitHubToken());
-  const key = token ? hashGitHubToken(token) : 'ANONYMOUS';
+  const config = getServerConfig();
+  const baseUrl = normalizeGitHubApiUrl(
+    config.githubApiUrl || 'https://api.github.com'
+  );
+  const timeout = config.timeout || 30000;
+  const key = JSON.stringify([
+    token ? hashGitHubToken(token) : 'ANONYMOUS',
+    baseUrl,
+    timeout,
+  ]);
 
   const cached = instances.get(key);
   if (cached && !isExpired(cached)) {
@@ -172,7 +184,11 @@ export async function getOctokit(
     purgeExpiredInstances();
   }
 
-  const newInstance = createOctokitInstance(token ?? undefined);
+  const newInstance = createOctokitInstance(
+    token ?? undefined,
+    baseUrl,
+    timeout
+  );
   instances.set(key, { client: newInstance, createdAt: Date.now() });
   return newInstance;
 }

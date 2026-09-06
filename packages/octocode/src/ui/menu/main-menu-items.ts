@@ -1,8 +1,6 @@
 import { c, bold, dim } from '../../utils/colors.js';
-import {
-  MCP_CLIENTS,
-  type ClientInstallStatus,
-} from '../../utils/mcp-config.js';
+import { MCP_CLIENTS } from '../../utils/mcp-paths.js';
+import { type ClientInstallStatus } from '../../utils/mcp-config.js';
 import type { AppState } from '../state.js';
 import type { OctocodeAuthStatus } from '../../types/index.js';
 import type { MenuChoice } from './types.js';

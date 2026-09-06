@@ -7,7 +7,3 @@ export async function resolveWorkspaceRootForFile(
   if (workspaceRoot) return workspaceRoot;
   return nativeBinding.resolveWorkspaceRootForFile(filePath);
 }
-
-export async function findWorkspaceRoot(filePath: string): Promise<string> {
-  return resolveWorkspaceRootForFile(filePath);
-}

@@ -18,6 +18,8 @@ interface PackageManifest {
 interface DxtManifest {
   version: string;
   icon: string;
+  tools: Array<{ name: string }>;
+  server: { mcp_config: { env: Record<string, string> } };
 }
 
 interface McpRegistryManifest {
@@ -40,6 +42,21 @@ describe('published package release contract', () => {
   const packageJson = readJson<PackageManifest>('package.json');
   const dxtManifest = readJson<DxtManifest>('manifest.json');
   const registryManifest = readJson<McpRegistryManifest>('server.json');
+
+  it('wires desktop user settings to the runtime environment', () => {
+    expect(dxtManifest.server.mcp_config.env).toMatchObject({
+      GITHUB_TOKEN: '${user_config.github_token}',
+      NPM_CONFIG_REGISTRY: '${user_config.npm_registry}',
+    });
+  });
+
+  it('advertises canonical MCP tool names without client prefixes', async () => {
+    const { DIRECT_TOOL_DEFINITIONS } =
+      await import('@octocodeai/octocode-tools-core/schema');
+    expect(dxtManifest.tools.map(tool => tool.name).sort()).toEqual(
+      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
+    );
+  });
 
   it('keeps all published release versions synchronized', () => {
     expect(dxtManifest.version).toBe(packageJson.version);

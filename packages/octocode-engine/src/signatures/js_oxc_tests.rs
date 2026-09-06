@@ -72,7 +72,8 @@ fn extracts_graph_facts_for_imports_exports_and_calls() {
 
 #[test]
 fn distinguishes_declaration_and_specifier_level_type_imports() {
-    let src = "import type { Whole } from './whole';\nimport { type Shape, value } from './mixed';\n";
+    let src =
+        "import type { Whole } from './whole';\nimport { type Shape, value } from './mixed';\n";
     let v = graph(src, "main.ts");
     let imports = v["imports"].as_array().unwrap();
     let kinds = imports
@@ -442,4 +443,65 @@ fn deeply_nested_parens_do_not_crash_symbol_extraction() {
     let _ = extract_js_symbols(&src, "deep.js");
     let _ = extract_graph_facts(&src, "deep.js");
     let _ = find_in_file_references(&src, "deep.js", 0, 9);
+}
+
+#[test]
+fn export_forms_preserve_type_kind_sources_and_arrow_calls() {
+    let value = graph(
+        r#"
+export interface Shape { size: number }
+export type Label = string;
+const local = 1;
+export { local as renamed };
+export type { Shape as PublicShape };
+export { remote as forwarded } from './remote';
+export type { Model } from './model';
+export const expression = () => target();
+export const block = () => { target(); };
+"#,
+        "exports.ts",
+    );
+    assert_eq!(value["diagnostics"], serde_json::json!([]));
+    let exports = value["exports"].as_array().unwrap();
+    for (name, kind, source) in [
+        ("Shape", "type", None),
+        ("Label", "type", None),
+        ("renamed", "value", None),
+        ("PublicShape", "type", None),
+        ("forwarded", "value", Some("./remote")),
+        ("Model", "type", Some("./model")),
+    ] {
+        let item = exports
+            .iter()
+            .find(|item| item["name"] == name)
+            .expect(name);
+        assert_eq!(item["exportKind"], kind, "{name}");
+        assert_eq!(item["source"].as_str(), source, "{name}");
+    }
+    let calls = value["calls"].as_array().unwrap();
+    for caller in ["expression", "block"] {
+        assert!(
+            calls
+                .iter()
+                .any(|call| call["caller"] == caller && call["callee"] == "target"),
+            "{caller}: {calls:?}"
+        );
+    }
+}
+
+#[test]
+fn namespace_external_module_and_global_augmentation_keep_children() {
+    let value = symbols(
+        r#"
+namespace Outer.Inner { export function nested() {} }
+declare module "external" { export function api(): void; }
+declare global { interface Window { custom: string } }
+"#,
+        "namespaces.d.ts",
+    );
+    assert_eq!(names(&value), ["Outer", "external", "global"]);
+    assert_eq!(names(&value[0]["children"]), ["Inner"]);
+    assert_eq!(names(&value[0]["children"][0]["children"]), ["nested"]);
+    assert_eq!(names(&value[1]["children"]), ["api"]);
+    assert_eq!(names(&value[2]["children"]), ["Window"]);
 }

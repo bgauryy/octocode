@@ -119,7 +119,9 @@ Served via the `resources_discover` hook. Installed at `dist/skills/` inside the
 
 | Skill | Source |
 |---|---|
-| `octocode-brainstorming` · `octocode-chrome-devtools` · `octocode-documentation` · `octocode-graph-eval` · `octocode-orchestrator` · `octocode-prompt-optimizer` · `octocode-research` · `octocode-rfc-generator` · `octocode-roast` · `octocode-scraping` · `octocode-skills` · `octocode-subagent` | `@octocodeai/octocode` package `skills/` → synced into `dist/skills/` at build time |
+| `octocode-brainstorming` · `octocode-chrome-devtools` · `octocode-code-graph` · `octocode-documentation` · `octocode-eval-benchmark` · `octocode-orchestrator` · `octocode-prompt-optimizer` · `octocode-research` · `octocode-rfc-generator` · `octocode-roast` · `octocode-scraping` · `octocode-skills` · `octocode-subagent` | `octocode` package `skills/` → synced into `dist/skills/` at build time |
+
+| `octocode-architect` | `@octocodeai/octocode-awareness` package `skills/` → synced into `dist/skills/` at build time |
 
 Env var `OCTOCODE_SKILL_ROOT` is set to the skill root so bundled skills can locate their assets.
 
@@ -214,6 +216,8 @@ Registered via `createHookComposer(pi, …)` (middleware composer that catches a
 ### Awareness
 
 The harness imports `@octocodeai/octocode-awareness` from the package root for automatic registry membership, shared plan projection, mutation-time lock checks and presence, plus first-class `lock`, `message`, and `memory` tools—no child process and no duplicated dispatcher. External agents use the package's `octocode-awareness` binary and share the same workspace-scoped SQLite ledger. Only unread direct-message count reaches the model automatically; global counts stay in the user dashboard. `$OCTOCODE_AWARENESS_CLI` remains available for diagnostics, recovery, and host-installed hooks. Pi coordination is prompt-owned, so the external-agent skill is not added to Pi's model-facing catalog.
+
+Each Pi session also writes one version 2 contract across `manifest.json`, `session.json`, `plan/index.json`, `tasks/index.json`, and `backlog/index.json`, plus `memory.md` and `audit.md`, under the safe flat session root. These files expose stable session/plan/task/backlog IDs for inspection and handoff; they are projections, not a second coordination database. With `storage.mode=memory`, filesystem projections remain available and durable Awareness tools return explicit errors.
 
 ---
 

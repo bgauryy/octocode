@@ -48,7 +48,7 @@ pub fn extract_js_symbols(content: String, file_path: String) -> Option<String> 
 /// Rust and JS sides never drift.
 #[napi(js_name = "getSupportedJsTsExtensions")]
 pub fn get_supported_js_ts_extensions() -> Vec<String> {
-    crate::file_extension::JS_TS_EXTENSIONS
+    crate::text::file_extension::JS_TS_EXTENSIONS
         .iter()
         .map(|ext| (*ext).to_owned())
         .collect()
@@ -131,7 +131,7 @@ pub fn structural_search_detailed(
     pattern: Option<String>,
     rule: Option<String>,
 ) -> Result<crate::structural::StructuralSearchDetailedResult> {
-    let ext = crate::file_extension::get_extension_internal(&file_path, true, "txt");
+    let ext = crate::text::file_extension::get_extension_internal(&file_path, true, "txt");
     std::panic::catch_unwind(|| {
         crate::structural::search_detailed(
             &content,
@@ -180,11 +180,9 @@ pub fn get_supported_structural_extensions() -> Vec<String> {
 /// Returns a sorted list of JS char offsets (UTF-16 code units) where
 /// top-level semantic blocks begin in `content`.
 ///
-/// **Tree-sitter only** (exact AST): `ts tsx js jsx mjs cjs mts cts py pyi go rs
-///   java c h cpp cc cxx hpp hh hxx cs sh bash zsh`. Languages without a wired
-/// grammar and structural-only grammars (HTML/CSS/Scala/JSON/YAML/TOML) return
-/// `[]` — there is no regex/heuristic fallback. Also `[]` for data/config files,
-/// plain text, and files above the 1 MB guard.
+/// Uses registered Tree-sitter body queries; see `getSupportedSignatureExtensions`
+/// for the compiled language set. Unsupported and structural-only languages
+/// return `[]`, as do plain text and files above the 1 MB guard.
 ///
 /// Char offsets match JavaScript `string.substring()` — pass them directly to
 /// JavaScript string slicing without conversion.
@@ -201,7 +199,7 @@ pub fn get_semantic_boundary_offsets(
 
 /// Returns all extensions that have signature-outline support. This is exactly
 /// the set of tree-sitter grammars with a function-body query (no regex
-/// heuristics): structural-only grammars (HTML/CSS/Scala/JSON/YAML/TOML) are
+/// heuristics): structural-only grammars (for example HTML/CSS/JSON/YAML/TOML) are
 /// excluded because they produce no outline.
 #[napi(js_name = "getSupportedSignatureExtensions")]
 pub fn get_supported_signature_extensions() -> Vec<String> {
@@ -221,17 +219,34 @@ mod tests {
     fn supported_signature_extensions_are_tree_sitter_only_and_sorted() {
         let exts = get_supported_signature_extensions();
         // Languages that must have signature extraction (body_query set)
-        for required in [
-            "ts", "py", "rs", "go", "java", "rb", "php", "kt", "ex", "lua", "erl", "zig", "r",
-            "swift", "scala", "sc", "sbt", "tf", "hcl", "tfvars", "proto",
-        ] {
+        for required in ["ts", "py", "rs", "go", "java", "rb", "php", "kt"] {
             assert!(
                 exts.iter().any(|e| e == required),
                 "missing {required} from signature list"
             );
         }
+        for (enabled, optional) in [
+            (cfg!(feature = "tree-sitter-cpp"), &["cpp", "hpp"][..]),
+            (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
+            (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
+            (
+                cfg!(feature = "tree-sitter-extended"),
+                &["lua", "zig", "scala", "sc", "sbt"][..],
+            ),
+        ] {
+            for extension in optional {
+                assert_eq!(
+                    exts.iter().any(|ext| ext == extension),
+                    enabled,
+                    ".{extension} must reflect its compiled grammar feature"
+                );
+            }
+        }
         // Languages that must NOT have signature extraction (no body_query)
-        for absent in ["vue", "svelte", "md", "markdown", "sql", "html", "jl", "ml"] {
+        for absent in [
+            "vue", "svelte", "md", "markdown", "sql", "html", "jl", "ml", "ex", "exs", "tf", "hcl",
+            "tfvars", "proto",
+        ] {
             assert!(
                 !exts.iter().any(|e| e == absent),
                 "{absent} must not have a signature outline (no grammar / structural-only)"

@@ -8,11 +8,11 @@ import {
   getDirectorySizeBytes,
 } from '@octocodeai/octocode-tools-core/fs-utils';
 import { paths } from '@octocodeai/octocode-tools-core/paths';
+import { materializeRemoteForCli } from '../remote-local/materialize.js';
 import {
-  materializeRemoteForCli,
   type RemoteMaterialization,
   type RemoteMaterializationKind,
-} from '../remote-local.js';
+} from '../remote-local/types.js';
 
 const DEPTH_VALUES = new Set(['file', 'tree', 'clone']);
 
@@ -29,21 +29,11 @@ function printUsage(message: string, jsonOutput: boolean): void {
         `    cache status\n` +
         `\n  ${dim('Flow:')}\n` +
         `    cache fetch checks existing tmp materialization first; use --force-refresh to bypass it.\n` +
-        `    Use the returned localPath with search, search --tree, and search --op for LSP semantics.\n`
+        `    Default depth is clone; use --depth file or --depth tree for bounded downloads.\n` +
+        `    Use location.localPath with tools localSearch or tools lspGetSemantics; read the tool schema first.\n`
     );
   }
   process.exitCode = EXIT.USAGE;
-}
-
-/** Infer depth from the requested path when --depth is not given:
- *  - no path → clone the full repo
- *  - path with a file extension (last segment contains '.') → single file
- *  - path without extension → treat as a directory subtree
- */
-function inferDepth(requestedPath: string): 'file' | 'tree' | 'clone' {
-  if (!requestedPath) return 'clone';
-  const last = requestedPath.split('/').pop() ?? '';
-  return last.includes('.') ? 'file' : 'tree';
 }
 
 function depthToKind(depth: string): RemoteMaterializationKind {
@@ -57,12 +47,6 @@ function renderMaterialization(result: RemoteMaterialization): void {
   console.log(
     `  ${c('green', '✓')} Saved ${result.owner}/${result.repo} locally`
   );
-  console.log(`  ${dim('localPath:')} ${c('cyan', result.localPath)}`);
-  console.log(`  ${dim('repoRoot:')}  ${c('cyan', result.repoRoot)}`);
-  if (result.branch) console.log(`  ${dim('ref:')}       ${result.branch}`);
-  if (result.requestedPath) {
-    console.log(`  ${dim('path:')}      ${result.requestedPath}`);
-  }
   console.log();
   const { location } = result;
   console.log('location:');
@@ -103,6 +87,10 @@ function renderMaterialization(result: RemoteMaterialization): void {
       `  ${dim('skippedSummary:')} ${JSON.stringify(location.skippedSummary)}`
     );
   }
+  if (result.partialReasons)
+    console.log(`partialReasons: ${result.partialReasons.join(', ')}`);
+  if (result.next) console.log(`next: ${JSON.stringify(result.next)}`);
+  if (result.terminalLimit) console.log('terminalLimit: true');
   console.log();
 }
 
@@ -245,7 +233,7 @@ export const cacheCommand: CLICommand = {
 
     const repoRef = args.args[1] ?? '';
     const requestedPath = args.args[2] ?? '';
-    const depth = getString(args.options, 'depth') || inferDepth(requestedPath);
+    const depth = getString(args.options, 'depth') || 'clone';
     if (!repoRef) {
       printUsage('cache fetch requires owner/repo[@ref].', jsonOutput);
       return;

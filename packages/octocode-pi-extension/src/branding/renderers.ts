@@ -10,13 +10,7 @@
  * outcomes into the same compact per-query result rows.
  */
 
-import {
-  buildOctocodeRenderCall,
-  buildOctocodeRenderResult,
-  buildQueryCallBlocks,
-  buildQueryResultRows,
-  extractQueryResultRows,
-} from '../tools/render-helpers.js';
+import { buildOctocodeRenderCall, buildOctocodeRenderResult, buildQueryCallBlocks, buildQueryResultRows, extractQueryResultRows } from '../tools/render-helpers.js';
 import type { ToolDefinition, PiTheme, RenderContext, ToolCallResult, RenderResultOptions } from '../types.js';
 
 // ─── Public API ───────────────────────────────────────────────────────────────

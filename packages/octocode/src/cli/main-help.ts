@@ -15,7 +15,10 @@ import {
 } from '@octocodeai/octocode-tools-core/schema';
 import { COMMAND_SPECS } from './commands/specs.js';
 import { REGISTERED_COMMAND_NAMES } from './commands/index.js';
-import { AGENT_TOOL_COMMANDS } from './tool-command/agent-contract.js';
+import {
+  AGENT_TOOL_COMMANDS,
+  CONTINUATION_GUIDANCE,
+} from './tool-command/agent-contract.js';
 import { TOOL_DEFINITIONS } from './tool-command/registry.js';
 
 // Quick (read-first) commands get a rich arg hint; every other command is
@@ -36,7 +39,7 @@ function buildAgentInstructionsBlock(): string[] {
     '  tools <name> --scheme                     full descriptions + relations',
     "  tools <name> --queries '<json>' --compact  lean typed result (default output is YAML)",
     '  Batch with queries[]; results[] preserve zero-based index and isolate errors.',
-    '  Copy row-local data.next exactly while data.pagination.hasMore. responsePagination is text-only.',
+    `  ${CONTINUATION_GUIDANCE}`,
     '  Full MCP protocol + tool guidance: context --full; cheapest index: context --minimal.',
   ];
   return [

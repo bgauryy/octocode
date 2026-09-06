@@ -18,8 +18,9 @@ import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
 import {
   buildPullRequestSearchQuery,
   shouldUseSearchForPRs,
-} from './queryBuilders.js';
-import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+} from './queryBuilders/pullRequests.js';
+import { generateCacheKey } from '../utils/http/cache/key.js';
+import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
 import {
   countSerializedChars,
@@ -27,7 +28,7 @@ import {
 } from '../utils/response/charSavings.js';
 
 import { formatPRForResponse } from './prTransformation.js';
-import { transformPullRequestItemFromSearch } from './prContentFetcher.js';
+import { transformPullRequestItemFromSearch } from './prContentFetcher/transform.js';
 import { fetchGitHubPullRequestByNumberAPIInternal } from './prByNumber.js';
 import {
   createPullRequestEmptyResult,
@@ -113,6 +114,8 @@ export function buildPullRequestSearchCacheKey(
       filePage: params.filePage,
       commentPage: params.commentPage,
       commitPage: params.commitPage,
+      reviewPage: params.reviewPage,
+      collectionPages: params.collectionPages,
       itemsPerPage: params.itemsPerPage,
       auth: authFingerprint,
     },
@@ -138,7 +141,8 @@ export async function searchGitHubPullRequestsAPI(
       );
     },
     {
-      shouldCache: (value: GitHubPullRequestSearchApiResult) => !value.error,
+      shouldCache: (value: GitHubPullRequestSearchApiResult) =>
+        !value.error && !value.incompleteResults,
     }
   );
 
@@ -218,7 +222,8 @@ async function searchGitHubPullRequestsAPIInternal(
         return await transformPullRequestItemFromSearch(
           item,
           searchParams,
-          octokit
+          octokit,
+          authInfo
         );
       })
     );

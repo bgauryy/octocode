@@ -5,26 +5,26 @@ import path from 'node:path';
 import { test, beforeEach, afterEach } from 'vitest';
 import { Type } from 'typebox';
 import type { ToolDefinition } from '../src/types.js';
-import { registerEditTool } from '../src/tools/edit-tool.js';
+import { registerFileTool } from '../src/tools/file-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { clearReadStatesForTests, recordFileReadState } from '../src/tools/file-state.js';
 
 let tmpDir: string;
-let editTool: ToolDefinition;
+let fileTool: ToolDefinition;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'edit-tool-test-'));
   clearReadStatesForTests();
 
   const tools = new Map<string, ToolDefinition>();
-  registerEditTool(
+  registerFileTool(
     { registerTool: (def) => tools.set(def.name, def) },
     Type,
     new Set<string>(),
     registerUniqueTool,
   );
-  editTool = tools.get('edit')!;
-  assert.ok(editTool, 'edit tool must be registered');
+  fileTool = tools.get('file')!;
+  assert.ok(fileTool, 'public file tool must be registered');
 });
 
 afterEach(() => {
@@ -44,13 +44,13 @@ function run(
   cwd = tmpDir,
   signal?: AbortSignal,
 ): ReturnType<ToolDefinition['execute']> {
-  return editTool.execute('call-1', params, signal, undefined, { cwd });
+  return fileTool.execute('call-1', params, signal, undefined, { cwd });
 }
 
 // ─── Schema: universal queries[] envelope ─────────────────────────────────────
 
 test('schema exposes queries and a sequential-only run policy', () => {
-  const schema = editTool.parameters as { properties?: Record<string, unknown>; required?: string[] };
+  const schema = fileTool.parameters as { properties?: Record<string, unknown>; required?: string[] };
   assert.deepEqual(Object.keys(schema.properties ?? {}), ['queries', 'queryRunType']);
   assert.deepEqual((schema.properties?.['queryRunType'] as { enum?: string[] })?.enum, ['sequential']);
   assert.ok(schema.required?.includes('queries'), 'queries must be in required[]');
@@ -58,45 +58,45 @@ test('schema exposes queries and a sequential-only run policy', () => {
 
 test('schema requires per-item reasoning', () => {
   type QuerySchema = { properties?: { queries?: { items?: { properties?: Record<string, unknown>; required?: string[] } } } };
-  const items = (editTool.parameters as QuerySchema).properties?.queries?.items;
+  const items = (fileTool.parameters as QuerySchema).properties?.queries?.items;
   assert.ok(items?.properties?.['reasoning'], 'queries[].reasoning must exist in schema');
   assert.ok(items?.required?.includes('reasoning'), 'reasoning must be in per-query required[]');
 });
 
 test('schema has path and edits in per-query items', () => {
   type QuerySchema = { properties?: { queries?: { items?: { properties?: Record<string, unknown> } } } };
-  const items = (editTool.parameters as QuerySchema).properties?.queries?.items;
+  const items = (fileTool.parameters as QuerySchema).properties?.queries?.items;
   assert.ok(items?.properties?.['path'], 'queries[].path must be in schema');
   assert.ok(items?.properties?.['edits'], 'queries[].edits must be in schema');
 });
 
 test('schema sets minItems:1 on the queries array', () => {
   type QuerySchema = { properties?: { queries?: { minItems?: number } } };
-  const schema = editTool.parameters as QuerySchema;
+  const schema = fileTool.parameters as QuerySchema;
   assert.equal(schema.properties?.queries?.minItems, 1);
 });
 
 test('prepareArguments leaves flat edit input unchanged', () => {
   const input = {
     path: 'a.txt',
-    edits: [{ reasoning: 'fix typo', oldText: 'old', newText: 'new' }],
+    edits: [{  oldText: 'old', newText: 'new' }],
   };
-  assert.deepEqual(editTool.prepareArguments!(input), input);
+  assert.deepEqual(fileTool.prepareArguments!(input), input);
 });
 
 test('prepareArguments fills missing query-level reasoning inside queries[]', () => {
-  const result = editTool.prepareArguments!({
+  const result = fileTool.prepareArguments!({
     queries: [
-      { path: 'a.txt', edits: [{ reasoning: 'from edit', oldText: 'x', newText: 'y' }] },
+      { type: 'edit', path: 'a.txt', edits: [{  oldText: 'x', newText: 'y' }] },
     ],
   }) as { queries: { reasoning: string }[] };
-  assert.equal(result.queries[0]!.reasoning, 'edit operation');
+  assert.equal(result.queries[0]!.reasoning, 'file operation');
 });
 
 test('prepareArguments leaves existing query-level reasoning unchanged', () => {
-  const result = editTool.prepareArguments!({
+  const result = fileTool.prepareArguments!({
     queries: [
-      { reasoning: 'explicit', path: 'a.txt', edits: [{ reasoning: 'inner', oldText: 'x', newText: 'y' }] },
+      { type: 'edit', reasoning: 'explicit', path: 'a.txt', edits: [{  oldText: 'x', newText: 'y' }] },
     ],
   }) as { queries: { reasoning: string }[] };
   assert.equal(result.queries[0]!.reasoning, 'explicit');
@@ -107,10 +107,10 @@ test('prepareArguments leaves existing query-level reasoning unchanged', () => {
 test('single query returns file and replacement details', async () => {
   writeFile('a.txt', 'hello world\n');
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'update greeting',
       path: 'a.txt',
-      edits: [{ reasoning: 'replace hello', oldText: 'hello', newText: 'goodbye' }],
+      edits: [{  oldText: 'hello', newText: 'goodbye' }],
     }],
   });
   assert.equal(result.isError, undefined);
@@ -122,16 +122,16 @@ test('single query returns file and replacement details', async () => {
   assert.equal(fs.readFileSync(path.join(tmpDir, 'a.txt'), 'utf8'), 'goodbye world\n');
 });
 
-test('single query includes per-edit reasoning in result text', async () => {
+test('single query includes query reasoning in result text', async () => {
   writeFile('b.txt', 'alpha beta\n');
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'rename symbol',
       path: 'b.txt',
-      edits: [{ reasoning: 'alpha → gamma', oldText: 'alpha', newText: 'gamma' }],
+      edits: [{  oldText: 'alpha', newText: 'gamma' }],
     }],
   });
-  assert.match((result.content[0] as { text: string }).text, /alpha → gamma/);
+  assert.match((result.content[0] as { text: string }).text, /rename symbol/);
 });
 
 // ─── Execute: multiple ordered queries ───────────────────────────────────────
@@ -141,8 +141,8 @@ test('multiple queries execute in order and both files are updated', async () =>
   writeFile('y.txt', 'bar\n');
   const result = await run({
     queries: [
-      { reasoning: 'update x', path: 'x.txt', edits: [{ reasoning: 'fix', oldText: 'foo', newText: 'FOO' }] },
-      { reasoning: 'update y', path: 'y.txt', edits: [{ reasoning: 'fix', oldText: 'bar', newText: 'BAR' }] },
+      { type: 'edit', reasoning: 'update x', path: 'x.txt', edits: [{  oldText: 'foo', newText: 'FOO' }] },
+      { type: 'edit', reasoning: 'update y', path: 'y.txt', edits: [{  oldText: 'bar', newText: 'BAR' }] },
     ],
   });
   // Multi-query: returns envelope summary, not passthrough
@@ -158,8 +158,8 @@ test('multiple queries: second failure stops execution and first file stays writ
   await assert.rejects(
     () => run({
       queries: [
-        { reasoning: 'fix p', path: 'p.txt', edits: [{ reasoning: 'ok', oldText: 'correct', newText: 'changed' }] },
-        { reasoning: 'fix q', path: 'q.txt', edits: [{ reasoning: 'bad', oldText: 'MISSING_TEXT', newText: 'oops' }] },
+        { type: 'edit', reasoning: 'fix p', path: 'p.txt', edits: [{  oldText: 'correct', newText: 'changed' }] },
+        { type: 'edit', reasoning: 'fix q', path: 'q.txt', edits: [{  oldText: 'MISSING_TEXT', newText: 'oops' }] },
       ],
     }),
     /Could not find|MISSING_TEXT|queries\[1\]/i,
@@ -181,8 +181,8 @@ test('preflight rejects forbidden path before any writes happen', async () => {
     await assert.rejects(
       () => run({
         queries: [
-          { reasoning: 'valid', path: 'ok.txt', edits: [{ reasoning: 'change', oldText: 'original', newText: 'mutated' }] },
-          { reasoning: 'evil', path: '/usr/evil-edit-test.txt', edits: [{ reasoning: 'bad', oldText: 'x', newText: 'y' }] },
+          { type: 'edit', reasoning: 'valid', path: 'ok.txt', edits: [{  oldText: 'original', newText: 'mutated' }] },
+          { type: 'edit', reasoning: 'evil', path: '/usr/evil-edit-test.txt', edits: [{  oldText: 'x', newText: 'y' }] },
         ],
       }),
       /outside|allowed|preflight/i,
@@ -202,7 +202,7 @@ test('missing query-level reasoning throws', async () => {
   await assert.rejects(
     () => run({
       // Note: no reasoning on the query item — bypasses prepareArguments
-      queries: [{ path: 'v.txt', edits: [{ reasoning: 'ok', oldText: 'val', newText: 'new' }] }],
+      queries: [{ type: 'edit', path: 'v.txt', edits: [{  oldText: 'val', newText: 'new' }] }],
     }),
     /reasoning/i,
   );
@@ -212,34 +212,33 @@ test('empty reasoning on query throws', async () => {
   writeFile('v.txt', 'val\n');
   await assert.rejects(
     () => run({
-      queries: [{ reasoning: '   ', path: 'v.txt', edits: [{ reasoning: 'ok', oldText: 'val', newText: 'new' }] }],
+      queries: [{ type: 'edit', reasoning: '   ', path: 'v.txt', edits: [{  oldText: 'val', newText: 'new' }] }],
     }),
     /reasoning/i,
   );
 });
 
-test('missing per-edit reasoning throws', async () => {
+test('query reasoning applies to edits without duplicate per-edit reasoning', async () => {
   writeFile('e.txt', 'data\n');
-  await assert.rejects(
-    () => run({
-      queries: [{
+  const result = await run({
+      queries: [{ type: 'edit',
         reasoning: 'file level ok',
         path: 'e.txt',
         edits: [{ oldText: 'data', newText: 'other' }], // no reasoning
       }],
-    }),
-    /reasoning/i,
-  );
+    });
+  assert.match((result.content[0] as { text: string }).text, /file level ok/);
+  assert.equal(fs.readFileSync(path.join(tmpDir, 'e.txt'), 'utf8'), 'other\n');
 });
 
 test('oldText not found throws descriptive error', async () => {
   writeFile('f.txt', 'hello world\n');
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'update',
         path: 'f.txt',
-        edits: [{ reasoning: 'fix', oldText: 'NOT_PRESENT_IN_FILE', newText: 'x' }],
+        edits: [{  oldText: 'NOT_PRESENT_IN_FILE', newText: 'x' }],
       }],
     }),
     /Could not find/i,
@@ -253,8 +252,8 @@ test('duplicate target paths in queries throws', async () => {
   await assert.rejects(
     () => run({
       queries: [
-        { reasoning: 'first', path: 'dup.txt', edits: [{ reasoning: 'r', oldText: 'abc', newText: 'xyz' }] },
-        { reasoning: 'second', path: 'dup.txt', edits: [{ reasoning: 'r', oldText: 'xyz', newText: 'nnn' }] },
+        { type: 'edit', reasoning: 'first', path: 'dup.txt', edits: [{  oldText: 'abc', newText: 'xyz' }] },
+        { type: 'edit', reasoning: 'second', path: 'dup.txt', edits: [{  oldText: 'xyz', newText: 'nnn' }] },
       ],
     }),
     /duplicate/i,
@@ -265,7 +264,7 @@ test('empty edits array in query throws', async () => {
   writeFile('e.txt', 'data\n');
   await assert.rejects(
     () => run({
-      queries: [{ reasoning: 'something', path: 'e.txt', edits: [] }],
+      queries: [{ type: 'edit', reasoning: 'something', path: 'e.txt', edits: [] }],
     }),
     /edits|replacement/i,
   );
@@ -279,10 +278,10 @@ test('aborted signal before execute resolves with abort error', async () => {
   controller.abort();
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'aborted',
         path: 'ab.txt',
-        edits: [{ reasoning: 'change', oldText: 'data', newText: 'changed' }],
+        edits: [{  oldText: 'data', newText: 'changed' }],
       }],
     }, tmpDir, controller.signal),
     /aborted|Operation aborted/i,
@@ -295,10 +294,10 @@ test('aborted signal before execute resolves with abort error', async () => {
 test('result.details.files contains path, diff, patch, usedModes, and edits per file', async () => {
   writeFile('c.txt', 'original content\n');
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'update content',
       path: 'c.txt',
-      edits: [{ reasoning: 'replace word', oldText: 'original', newText: 'updated' }],
+      edits: [{  oldText: 'original', newText: 'updated' }],
     }],
   });
   const details = result.details as {
@@ -325,10 +324,10 @@ test('result.details.files contains path, diff, patch, usedModes, and edits per 
 test('matchMode:normalized handles whitespace drift', async () => {
   writeFile('n.txt', 'hello   world\n');
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'normalize spacing',
       path: 'n.txt',
-      edits: [{ reasoning: 'match normalized', oldText: 'hello world', newText: 'hi earth', matchMode: 'normalized' }],
+      edits: [{  oldText: 'hello world', newText: 'hi earth', matchMode: 'normalized' }],
     }],
   });
   assert.equal(result.isError, undefined);
@@ -338,10 +337,10 @@ test('matchMode:normalized handles whitespace drift', async () => {
 test('matchMode:lineRange replaces by line numbers', async () => {
   writeFile('lr.txt', 'line1\nline2\nline3\n');
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'replace line 2',
       path: 'lr.txt',
-      edits: [{ reasoning: 'target line', newText: 'REPLACED\n', matchMode: 'lineRange', startLine: 2, endLine: 2 }],
+      edits: [{  newText: 'REPLACED\n', matchMode: 'lineRange', startLine: 2, endLine: 2 }],
     }],
   });
   assert.equal(result.isError, undefined);
@@ -351,10 +350,10 @@ test('matchMode:lineRange replaces by line numbers', async () => {
 test('matchMode:lineRange treats an empty oldText as omitted', async () => {
   writeFile('lr-empty-old.txt', 'line1\nline2\nline3\n');
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'replace line 2 with a range selector',
       path: 'lr-empty-old.txt',
-      edits: [{ reasoning: 'target line', oldText: '', newText: 'REPLACED\n', matchMode: 'lineRange', startLine: 2, endLine: 2 }],
+      edits: [{  oldText: '', newText: 'REPLACED\n', matchMode: 'lineRange', startLine: 2, endLine: 2 }],
     }],
   });
   assert.equal(result.isError, undefined);
@@ -364,33 +363,34 @@ test('matchMode:lineRange treats an empty oldText as omitted', async () => {
 // ─── renderCall / renderResult ────────────────────────────────────────────────
 
 test('renderCall returns a renderer that includes the tool label and file path', () => {
-  assert.ok(typeof editTool.renderCall === 'function');
-  const renderer = editTool.renderCall!(
-    { queries: [{ path: 'src/foo.ts', reasoning: 'fix', edits: [{ reasoning: 'r', oldText: 'x', newText: 'y' }] }] },
+  assert.ok(typeof fileTool.renderCall === 'function');
+  const renderer = fileTool.renderCall!(
+    { queries: [{ type: 'edit', path: 'src/foo.ts', reasoning: 'fix', edits: [{  oldText: 'x', newText: 'y' }] }] },
   );
   assert.ok(renderer);
   const lines = (renderer as { render(width: number): string[] }).render(120);
-  assert.ok(lines.join('\n').includes('edit (Octocode)'), 'label must appear');
+  assert.ok(lines.join('\n').includes('file (Octocode)'), 'public tool label must appear');
   assert.ok(lines.join('\n').includes('src/foo.ts'), 'file path must appear');
 });
 
 test('renderResult for isPartial=true renders progress indicator', () => {
-  assert.ok(typeof editTool.renderResult === 'function');
+  assert.ok(typeof fileTool.renderResult === 'function');
   const result: import('../src/types.js').ToolCallResult = { content: [], isError: undefined };
-  const renderer = editTool.renderResult!(result, { isPartial: true });
+  const renderer = fileTool.renderResult!(result, { isPartial: true });
   const lines = (renderer as { render(width: number): string[] }).render(80);
-  assert.ok(lines.join('\n').includes('edit (Octocode)'), 'partial must name the tool');
+  assert.ok(lines.join('\n').includes('file (Octocode)'), 'partial must name the public tool');
 });
 
 test('renderResult for successful edit includes replacement count', () => {
   const result: import('../src/types.js').ToolCallResult = {
     content: [{ type: 'text' as const, text: 'ok' }],
     details: {
+      operation: 'edit',
       replacements: 3,
       files: [{ path: 'x.ts', edits: [], diff: '', patch: '', usedModes: [], readState: { state: 'fresh' }, reasoning: [] }],
     },
   };
-  const renderer = editTool.renderResult!(result, {});
+  const renderer = fileTool.renderResult!(result, {});
   const lines = (renderer as { render(width: number): string[] }).render(120);
   assert.ok(lines.join('\n').includes('3 replacement'), 'replacement count must appear');
 });
@@ -403,11 +403,11 @@ test('normalized mode tolerates indentation differences only when explicitly req
   writeFile('fallback.ts', 'function foo() {\n  return 1;\n}\n');
 
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'adjust return value',
       path: 'fallback.ts',
       edits: [{
-        reasoning: 'update return',
+
         matchMode: 'normalized',
         // 4-space indent — does not match file’s 2-space exactly
         oldText: 'function foo() {\n    return 1;\n}\n',
@@ -435,10 +435,10 @@ test('Fix 2: when both exact and normalized fail, original exact error is re-thr
   writeFile('nomatch.ts', 'const a = 1;\n');
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'test',
         path: 'nomatch.ts',
-        edits: [{ reasoning: 'r', oldText: 'const b = 999;\n', newText: 'const b = 0;\n' }],
+        edits: [{  oldText: 'const b = 999;\n', newText: 'const b = 0;\n' }],
       }],
     }),
     /Could not find/,
@@ -460,11 +460,11 @@ test('Fix 3: lineRange+oldText proceeds with advisory stale — lineRangeReplace
   //    With Fix 3, contentAnchored=true (lineRange has oldText), so checkReadState
   //    returns advisory instead of throwing.
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'replace second line',
       path: 'lr-stale.ts',
       edits: [{
-        reasoning: 'update line',
+
         matchMode: 'lineRange',
         startLine: 2,
         endLine: 2,
@@ -491,11 +491,11 @@ test('Fix 3: lineRange+oldText fails when oldText does not match the range conte
 
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'test wrong oldText',
         path: 'lr-mismatch.ts',
         edits: [{
-          reasoning: 'test',
+
           matchMode: 'lineRange',
           startLine: 2,
           endLine: 2,
@@ -517,11 +517,11 @@ test('Fix 3: lineRange without oldText + stale state still hard-fails', async ()
 
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'position only',
         path: 'lr-no-old.ts',
         edits: [{
-          reasoning: 'test',
+
           matchMode: 'lineRange',
           startLine: 2,
           endLine: 2,
@@ -540,10 +540,10 @@ test('replaceAll:true replaces every occurrence in the file', async () => {
   fs.writeFileSync(filePath, 'foo\nfoo\nbar\nfoo\n', 'utf8');
   await recordFileReadState(filePath);
   const result = await run({
-    queries: [{
+    queries: [{ type: 'edit',
       reasoning: 'replace all foo',
       path: 'replace-all.ts',
-      edits: [{ reasoning: 'replaceAll', oldText: 'foo', newText: 'baz', replaceAll: true }],
+      edits: [{  oldText: 'foo', newText: 'baz', replaceAll: true }],
     }],
   });
   assert.equal(result.isError, undefined);
@@ -556,10 +556,10 @@ test('replaceAll:true with no matches throws same not-found error', async () => 
   fs.writeFileSync(filePath, 'hello world\n', 'utf8');
   await recordFileReadState(filePath);
   await assert.rejects(() => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'replace missing text',
         path: 'replace-all-miss.ts',
-        edits: [{ reasoning: 'miss', oldText: 'notfound', newText: 'x', replaceAll: true }],
+        edits: [{  oldText: 'notfound', newText: 'x', replaceAll: true }],
       }],
     }));
   assert.equal(fs.readFileSync(filePath, 'utf8'), 'hello world\n', 'failed replacement leaves the file unchanged');
@@ -571,10 +571,10 @@ test('replaceAll:true with lineRange matchMode is rejected', async () => {
   await recordFileReadState(filePath);
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'invalid combination',
         path: 'replace-all-lr.ts',
-        edits: [{ reasoning: 'bad', matchMode: 'lineRange', startLine: 1, endLine: 1, newText: 'x', replaceAll: true }],
+        edits: [{  matchMode: 'lineRange', startLine: 1, endLine: 1, newText: 'x', replaceAll: true }],
       }],
     }),
     /replaceAll.*cannot be used with matchMode|lineRange.*replaceAll/i,
@@ -589,12 +589,12 @@ test('overlapping edits in the same query are rejected before any write', async 
   await recordFileReadState(filePath);
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'overlap test',
         path: 'overlap.ts',
         edits: [
-          { reasoning: 'first', oldText: 'hello world', newText: 'hi world' },
-          { reasoning: 'second', oldText: 'hello', newText: 'hey' },
+          {  oldText: 'hello world', newText: 'hi world' },
+          {  oldText: 'hello', newText: 'hey' },
         ],
       }],
     }),
@@ -611,10 +611,10 @@ test('lineRange out-of-bounds throws a clear error', async () => {
   await recordFileReadState(filePath);
   await assert.rejects(
     () => run({
-      queries: [{
+      queries: [{ type: 'edit',
         reasoning: 'oob test',
         path: 'lr-oob.ts',
-        edits: [{ reasoning: 'oob', matchMode: 'lineRange', startLine: 1, endLine: 99, newText: 'x\n' }],
+        edits: [{  matchMode: 'lineRange', startLine: 1, endLine: 99, newText: 'x\n' }],
       }],
     }),
     /outside|out of range|line range/i,

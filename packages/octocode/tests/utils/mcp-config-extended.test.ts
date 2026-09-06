@@ -5,7 +5,8 @@ vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,
 }));
 
-vi.mock('../../src/utils/mcp-paths.js', () => ({
+vi.mock('../../src/utils/mcp-paths.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/utils/mcp-paths.js')>()),
   getMCPConfigPath: vi.fn(),
   clientConfigExists: vi.fn(),
   configFileExists: vi.fn(),
@@ -45,19 +46,6 @@ describe('MCP Config Extended', () => {
       expect(() => getOctocodeServerConfig('invalid' as any)).toThrow(
         'Unknown install method'
       );
-    });
-  });
-
-  describe('getOctocodeServerConfigWindows', () => {
-    it('should return npx config for npx method', async () => {
-      const { getOctocodeServerConfigWindows } =
-        await import('../../src/utils/mcp-config.js');
-
-      const result = getOctocodeServerConfigWindows('npx');
-
-      expect(result.command).toBe('npx');
-      expect(result.type).toBe('stdio');
-      expect(result.args).toContain('octocode-mcp@latest');
     });
   });
 
@@ -295,6 +283,9 @@ describe('MCP Config Extended', () => {
       expect(result.length).toBeGreaterThan(0);
       expect(result.some(s => s.client === 'cursor')).toBe(true);
       expect(result.some(s => s.client === 'claude-desktop')).toBe(true);
+      for (const client of ['codex', 'gemini-cli', 'goose', 'kiro']) {
+        expect(result.some(status => status.client === client)).toBe(true);
+      }
     });
   });
 

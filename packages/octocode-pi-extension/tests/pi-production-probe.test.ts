@@ -6,10 +6,8 @@ import {
   createPiSdkScenarioSuite,
   type ProductionPiScenarioId,
 } from "../src/adapters/pi-production-probe.js";
-import {
-  APPROVED_PI_HOST_VERSION,
-  createOctocodePiExtension,
-} from "../src/index.js";
+import { createOctocodePiExtension } from "../src/index.js";
+import { APPROVED_PI_HOST_VERSION } from "../src/adapters/pi-host-compatibility.js";
 
 const roots: string[] = [];
 

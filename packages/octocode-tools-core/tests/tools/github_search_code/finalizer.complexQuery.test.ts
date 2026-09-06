@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildGhSearchCodeFinalizer } from '../../../src/tools/github_search_code/finalizer.js';
+import { buildGhSearchCodeFinalizer } from '../../../src/tools/github_search_code/finalizer/build.js';
 
 type AnyRec = Record<string, unknown>;
 

@@ -3,10 +3,7 @@ import { statSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { writeFileContent, writeJsonFile } from '../../src/utils/fs.js';
-import {
-  getOctocodeServerConfig,
-  getOctocodeServerConfigWindows,
-} from '../../src/utils/mcp-config.js';
+import { getOctocodeServerConfig } from '../../src/utils/mcp-config.js';
 
 describe('Finding 3 — writeFileContent uses restrictive permissions', () => {
   const testDir = join(tmpdir(), `octocode-audit-f3-${Date.now()}`);
@@ -56,12 +53,6 @@ describe('Finding 3 — writeFileContent uses restrictive permissions', () => {
 describe('Finding 4 — Direct installer removed (RCE/supply-chain risk)', () => {
   it('direct method throws — curl-pipe pattern is removed', () => {
     expect(() => getOctocodeServerConfig('direct' as any)).toThrow(
-      'Unknown install method'
-    );
-  });
-
-  it('Windows direct method throws — PowerShell Invoke-WebRequest pattern is removed', () => {
-    expect(() => getOctocodeServerConfigWindows('direct' as any)).toThrow(
       'Unknown install method'
     );
   });

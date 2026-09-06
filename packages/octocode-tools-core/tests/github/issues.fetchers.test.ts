@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearAllCache } from '../../src/utils/http/cache/management.js';
 
 const issueGet = vi.fn();
 const listComments = vi.fn();
 
 vi.mock('../../src/github/client.js', () => ({
+  resolveCacheAuthFingerprint: async () => 'issue-fetchers-test',
   getOctokit: vi.fn(async () => ({
     rest: { issues: { get: issueGet, listComments } },
   })),
@@ -14,6 +16,7 @@ const { fetchIssueByNumber } =
 
 describe('fetchIssueByNumber', () => {
   beforeEach(() => {
+    clearAllCache();
     issueGet.mockReset();
     listComments.mockReset();
   });

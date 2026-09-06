@@ -12,7 +12,7 @@ Start with a Surface Plan: local, GitHub, packages, PR/history, web, and reasons
 | Investigate | structure → symptom/symbol search → exact boundary reads → graph for file topology + LSP/AST for identity/shape → history/tests; keep two hypotheses |
 | Plan | current contract/invariants → graph/LSP affected scope → boundary checks → local pattern → options/safest next step |
 
-Package evidence includes publish recency, cadence, maintainers, issue/PR ratio, and dependency freshness. Gate public contracts, cross-package edits, shared deletes/renames, or broad consumer impact.
+For package comparisons, gather decision-relevant version, maintenance, license, and integration evidence when available. Popularity and activity alone do not establish suitability. Apply the authorization rule in `SKILL.md`.
 
 ## Surface Recipes
 ```text
@@ -28,7 +28,7 @@ Dead code: `localAnalyzeGraph(operation:"deadCode")` candidates → exact read +
 ## Cross-Pollination
 - Local dependencies/errors/config feed external queries; upstream fixes/history return to local proof.
 - README competitors become repository/package checks; issue complaints become PR/commit searches.
-- Empty results get one synonym/scope/ref adjustment, then materialization before strong absence.
+- Empty results earn a diagnostic/scope check; choose another query or materialization only when it can change the answer.
 - Compress large outputs into `claim → evidence → confidence → next` before continuing.
 
 ## Advocate / Critic

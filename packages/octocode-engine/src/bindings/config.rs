@@ -5,7 +5,7 @@ use std::collections::HashMap;
 /// Shape: `{ fileTypes: Record<string, { strategy: string, comments: string | string[] | null }> }`
 #[napi(js_name = "getMINIFY_CONFIG")]
 pub fn get_minify_config() -> serde_json::Value {
-    let file_types: HashMap<String, serde_json::Value> = crate::config::minify_config()
+    let file_types: HashMap<String, serde_json::Value> = crate::minify::config::minify_config()
         .iter()
         .map(|(ext, cfg)| {
             let comments: serde_json::Value = match cfg.comments {

@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { Octokit } from 'octokit';
 import { AuthInfo } from '@modelcontextprotocol/server';
-import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/input/resources/tools/githubTreeOperation.js';
 
 type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema
@@ -17,10 +17,8 @@ import {
   resolveCacheAuthFingerprint,
 } from '../client.js';
 import { handleGitHubAPIError } from '../errors.js';
-import {
-  generateCacheKey,
-  withDataCacheConditional,
-} from '../../utils/http/cache.js';
+import { generateCacheKey } from '../../utils/http/cache/key.js';
+import { withDataCacheConditional } from '../../utils/http/cache/conditional.js';
 import { REPOSITORY_ERRORS } from '../../errors/domainErrors.js';
 import {
   countSerializedChars,
@@ -67,6 +65,7 @@ export async function viewGitHubRepositoryStructureAPI(
       branch: params.branch,
       path: params.path,
       depth: params.maxDepth,
+      includeSizes: (params as GitHubStructureFetchQuery).includeSizes === true,
       auth,
     },
     sessionId
@@ -94,7 +93,9 @@ export async function viewGitHubRepositoryStructureAPI(
       };
     },
     {
-      shouldCache: value => !('error' in value),
+      // A same-page retry must re-fetch failed subtrees instead of replaying
+      // the incomplete cached listing.
+      shouldCache: value => !('error' in value) && value.isPartial !== true,
     }
   );
 

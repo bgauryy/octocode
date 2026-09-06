@@ -5,7 +5,7 @@
  * Required index.ts wiring (this module never edits index.ts itself):
  *
  *   import { registerAgentInbox } from './tools/agent-inbox.js';
- *   // after registerAgentTools(...), inside activate():
+ *   // after registerUnifiedAgentTool(...), inside activate():
  *   const agentInbox = registerAgentInbox(pi, notify);
  *   // in the session_shutdown hook (before/alongside cleanupSpawnedAgentsForShutdown):
  *   agentInbox.shutdown();

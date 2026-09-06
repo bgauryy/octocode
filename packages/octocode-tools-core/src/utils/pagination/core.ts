@@ -18,6 +18,14 @@ export function applyPagination(
   const totalBytes = getByteLength(content);
 
   if (length === undefined) {
+    if (offset > 0) {
+      return applyPagination(
+        content,
+        offset,
+        mode === 'bytes' ? totalBytes : totalChars,
+        options
+      );
+    }
     return {
       paginatedContent: content,
       byteOffset: 0,
@@ -120,6 +128,9 @@ export function createPaginationInfo(
   metadata: PaginationMetadata
 ): PaginationInfo {
   return {
+    ...(metadata.pageCountsKind
+      ? { pageCountsKind: metadata.pageCountsKind }
+      : {}),
     currentPage: metadata.currentPage,
     totalPages: metadata.totalPages,
     hasMore: metadata.hasMore,

@@ -62,7 +62,7 @@ const mockGetTokenWithRefresh = vi
   .fn()
   .mockResolvedValue({ token: null, source: 'none' });
 
-vi.mock('../../src/utils/token-storage.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core/credentials', () => ({
   storeCredentials: vi.fn().mockResolvedValue({ success: true }),
   getCredentials: mockGetCredentials,
   getCredentialsSync: vi.fn().mockReturnValue(null),
@@ -267,7 +267,8 @@ describe('OAuth Security Gaps', () => {
 
   describe('getGhCliToken', () => {
     it('returns gh-cli source when gh auth provides token', async () => {
-      const tokenStorage = await import('../../src/utils/token-storage.js');
+      const tokenStorage =
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('ghp_clitoken');
 
       const { getGhCliToken } =
@@ -278,7 +279,8 @@ describe('OAuth Security Gaps', () => {
     });
 
     it('returns source=none when gh CLI has no token', async () => {
-      const tokenStorage = await import('../../src/utils/token-storage.js');
+      const tokenStorage =
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue(null);
 
       const { getGhCliToken } =

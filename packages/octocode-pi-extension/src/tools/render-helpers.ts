@@ -5,13 +5,10 @@
  *  - ANSI-aware line truncation (replaces 3 copies across the codebase)
  *  - Per-tool call-summary extraction (smart param display instead of raw JSON)
  *  - Per-tool result-stats extraction (counts, paths, match totals)
- *  - A tiny `makeRenderer` factory for the Component interface
+ *  - A component runtime for tool-owned terminal views
  */
 
-import {
-  CLI_STATUS_TEXT,
-  paint,
-} from '../tui/cli-design.js';
+import { CLI_STATUS_TEXT } from '../tui/cli-design.js';
 import type { PiTheme, RenderCallReturn, RenderContext, ToolCallResult } from '../types.js';
 import {
   renderToolView,
@@ -30,12 +27,8 @@ import {
 // `@earendil-works/pi-tui` import to the host's bundled copy — so delegating
 // guarantees we can never disagree with the arbiter of that check.
 
-// sanitizeLine lives in palette.ts so cli-design (which render-helpers imports) can
-// reuse it without a cycle. Imported for internal use and re-exported for existing importers.
-import { sanitizeLine } from '../tui/palette.js';
+import { paint } from '../tui/palette.js';
 import { truncateToWidth, visibleWidth } from '../tui/width.js';
-export { sanitizeLine };
-export { truncateToWidth, visibleWidth };
 
 /**
  * Truncate PLAIN text (no ANSI codes) to at most `maxWidth` visible cells,
@@ -116,13 +109,8 @@ export function makeComponentRenderer<Props>(
   };
 }
 
-/** Compatibility adapter: every historical line callback now runs as a TuiComponent. */
-export function makeRenderer(lines: (width: number) => string[]): RenderCallReturn {
-  return makeComponentRenderer((_props: undefined, context) => lines(context.width), undefined);
-}
-
 export function singleLineRenderer(rawLine: string): RenderCallReturn {
-  return makeRenderer((w) => [truncateToWidth(rawLine, w)]);
+  return makeComponentRenderer((line: string) => [line], rawLine);
 }
 
 /** Public adapter for the shared tool-view composition. */
@@ -134,7 +122,7 @@ export function buildToolView(
 }
 
 /**
- * Like makeRenderer but memoizes rendered lines per width (docs/tui.md
+ * Memoizes rendered lines per width (docs/tui.md
  * "Performance"). Use ONLY when the line data is fixed at construction time — the
  * closure must capture no live mutable state. Safe for the tool-row builders
  * below (a fresh renderResult/renderCall call rebuilds them when data changes).

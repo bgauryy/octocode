@@ -1,5 +1,5 @@
-use crate::comment_remover::remove_comments;
-use crate::strategies::code::minify_js_oxc;
+use crate::minify::comment_remover::remove_comments;
+use crate::minify::strategies::code::minify_js_oxc;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 /// Regex baseline — always available, fast.
 pub fn minify_css_core(content: &str) -> String {
     let s = remove_comments(content, &["c-style"]);
-    let rules = crate::comment_remover::rules_for("c-style");
+    let rules = crate::minify::comment_remover::rules_for("c-style");
     let s = super::collapse_whitespace(&s, rules.as_ref());
     let s = super::re_tighten_punct(&s, rules.as_ref());
     s.trim().to_owned()
@@ -55,7 +55,7 @@ static TAG_GAP_WHITESPACE: LazyLock<Regex> =
 /// Regex baseline — always available.
 pub fn minify_html_core(content: &str) -> String {
     let s = remove_comments(content, &["html"]);
-    let rules = crate::comment_remover::rules_for("html");
+    let rules = crate::minify::comment_remover::rules_for("html");
     let s = super::collapse_whitespace(&s, rules.as_ref());
     // `collapse_whitespace` now preserves a `\n` where a whitespace run
     // contained one (see its doc comment), so a single literal-space replace
@@ -81,13 +81,8 @@ pub fn minify_html_quality(content: &str) -> String {
 
 // ── Embedded-language content view (HTML / Vue / Svelte) ───────────────────────
 
-static HTML_COMMENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?s)<!--.*?-->").expect("html comment regex must compile"));
 static STYLE_BLOCK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?is)(<style\b[^>]*>)(.*?)(</style>)").expect("style block regex must compile")
-});
-static SCRIPT_BLOCK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)(<script\b[^>]*>)(.*?)(</script>)").expect("script block regex must compile")
 });
 static ATTR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\btype\s*=\s*["']([^"']*)["']"#).expect("type attr regex must compile")
@@ -102,29 +97,66 @@ static ATTR_LANG: LazyLock<Regex> = LazyLock::new(|| {
 /// readable for an agent. The real byte savings come from minifying the
 /// embedded `<style>` blocks (lightningcss) and `<script>` blocks (oxc, no
 /// mangle — same treatment standalone JS/TS gets in the content view) and from
-/// dropping HTML comments + redundant blank lines. A generic comment-strip
+/// dropping syntax-identified HTML comments. Markup whitespace is preserved.
+/// A generic comment-strip
 /// barely touches these files because the compressible bytes live inside the
 /// embedded languages, not the markup. Each sub-minifier falls back to the
 /// original block text when it cannot handle the content.
-pub fn minify_embedded_web(content: &str, file_path: &str) -> String {
-    // 1) Minify <style> inner content (lightningcss → CSS regex fallback).
-    let after_style = minify_style_blocks(content);
-
-    // 2) Minify <script> inner content (oxc, no mangle). External scripts
-    //    (`src=`) and non-JS payloads (JSON, x-template, etc.) are left intact.
-    let after_script = SCRIPT_BLOCK.replace_all(&after_style, |caps: &regex::Captures| {
-        let (open, inner, close) = (&caps[1], &caps[2], &caps[3]);
-        if inner.trim().is_empty() || !script_is_javascript(open) {
-            return format!("{open}{inner}{close}");
+pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
+    let mut parser = tree_sitter::Parser::new();
+    if parser
+        .set_language(&tree_sitter_html::LANGUAGE.into())
+        .is_err()
+    {
+        return content.to_owned();
+    }
+    let Some(tree) = parser.parse(content, None) else {
+        return content.to_owned();
+    };
+    if tree.root_node().has_error() {
+        return content.to_owned();
+    }
+    let mut edits = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        match node.kind() {
+            "comment" => edits.push((node.start_byte(), node.end_byte(), String::new())),
+            "script_element" | "style_element" => {
+                let mut cursor = node.walk();
+                let children: Vec<_> = node.named_children(&mut cursor).collect();
+                let open = children.iter().find(|n| n.kind() == "start_tag");
+                let inner = children.iter().find(|n| n.kind() == "raw_text");
+                if let (Some(open), Some(inner)) = (open, inner) {
+                    let tag = &content[open.byte_range()];
+                    let source = &content[inner.byte_range()];
+                    let compacted = if node.kind() == "style_element" {
+                        Some(minify_css_quality(source))
+                    } else if script_is_javascript(tag) {
+                        minify_js_oxc(source, &script_virtual_path(tag), false)
+                    } else {
+                        None
+                    };
+                    if let Some(compacted) = compacted.filter(|s| s.len() < source.len()) {
+                        edits.push((inner.start_byte(), inner.end_byte(), compacted));
+                    }
+                }
+            }
+            _ => {
+                let mut cursor = node.walk();
+                stack.extend(node.named_children(&mut cursor));
+            }
         }
-        let virtual_path = script_virtual_path(open, file_path);
-        let min = minify_js_oxc(inner, &virtual_path, false).unwrap_or_else(|| inner.to_string());
-        format!("{open}{}{close}", min.trim())
-    });
-
-    // 3) Drop HTML comments, then collapse trailing whitespace + blank runs.
-    let no_comments = HTML_COMMENT.replace_all(&after_script, "");
-    collapse_blank_lines(&no_comments)
+    }
+    edits.sort_by_key(|e| e.0);
+    let mut output = String::with_capacity(content.len());
+    let mut offset = 0;
+    for (start, end, replacement) in edits {
+        output.push_str(&content[offset..start]);
+        output.push_str(&replacement);
+        offset = end;
+    }
+    output.push_str(&content[offset..]);
+    output
 }
 
 fn minify_style_blocks(content: &str) -> String {
@@ -163,7 +195,7 @@ fn script_is_javascript(open_tag: &str) -> bool {
 
 /// Pick a virtual file path so oxc selects the right parser for an embedded
 /// script, honoring `lang="ts"`/`type="..."` (Vue/Svelte SFCs commonly do this).
-fn script_virtual_path(open_tag: &str, _file_path: &str) -> String {
+fn script_virtual_path(open_tag: &str) -> String {
     let hint = ATTR_LANG
         .captures(open_tag)
         .or_else(|| ATTR_TYPE.captures(open_tag))
@@ -177,30 +209,6 @@ fn script_virtual_path(open_tag: &str, _file_path: &str) -> String {
     } else {
         "embedded.js".to_owned()
     }
-}
-
-/// Trim per-line trailing whitespace and collapse runs of 2+ blank lines to a
-/// single blank line — keeps the document readable without padding.
-fn collapse_blank_lines(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut blank_run = 0u32;
-    for line in s.lines() {
-        let trimmed = line.trim_end();
-        if trimmed.is_empty() {
-            blank_run += 1;
-            if blank_run >= 2 {
-                continue;
-            }
-        } else {
-            blank_run = 0;
-        }
-        out.push_str(trimmed);
-        out.push('\n');
-    }
-    while out.ends_with('\n') {
-        out.pop();
-    }
-    out
 }
 
 #[cfg(test)]

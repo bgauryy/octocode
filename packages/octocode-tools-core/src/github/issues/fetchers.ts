@@ -1,6 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
-import { getOctokit } from '../client.js';
+import { getOctokit, resolveCacheAuthFingerprint } from '../client.js';
+import { withDataCache } from '../../utils/http/cache/dataCache.js';
+import { generateCacheKey } from '../../utils/http/cache/key.js';
 import { resolveCanonicalOwnerRepo } from '../canonicalRepo.js';
 import { rateLimitWarning } from '../responseHeaders.js';
 import { isBotAuthor } from '../botFilter.js';
@@ -9,7 +11,7 @@ import type { GitHubAPIResponse } from '../githubAPI.js';
 import {
   buildIssueSearchQuery,
   type IssueSearchParams,
-} from '../queryBuilders.js';
+} from '../queryBuilders/issues.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
@@ -38,11 +40,13 @@ export async function fetchIssueByNumber(
   }
 
   const octokit = await getOctokit(authInfo);
-  const response = await octokit.rest.issues.get({
-    owner,
-    repo,
-    issue_number: issueNumber,
-  });
+  const auth = await resolveCacheAuthFingerprint(authInfo);
+  const request = { owner, repo, issue_number: issueNumber };
+  const response = await withDataCache(
+    generateCacheKey('gh-issue-detail', { ...request, auth }),
+    () => octokit.rest.issues.get(request),
+    { cacheRole: 'helper' }
+  );
 
   if (hasPullRequestField(response.data)) {
     return createIssueError(
@@ -53,7 +57,7 @@ export async function fetchIssueByNumber(
     );
   }
 
-  const wantBody = params.content?.body !== false;
+  const wantBody = params.content ? params.content.body === true : true;
   const wantComments = params.content?.comments?.discussion === true;
   const includeBots = params.content?.comments?.includeBots === true;
 
@@ -72,24 +76,39 @@ export async function fetchIssueByNumber(
   if (wantComments) {
     const commentPage = Math.max(1, params.commentPage ?? 1);
     const itemsPerPage = Math.max(1, params.itemsPerPage ?? 30);
-    const commentsResult = await octokit.rest.issues.listComments({
-      owner,
-      repo,
-      issue_number: issueNumber,
+    const commentRequest = {
+      ...request,
       per_page: itemsPerPage,
       page: commentPage,
-    });
+    };
+    const commentsResult = await withDataCache(
+      generateCacheKey('gh-issue-comments-page', { ...commentRequest, auth }),
+      () => octokit.rest.issues.listComments(commentRequest),
+      { cacheRole: 'helper' }
+    );
     const kept = includeBots
       ? commentsResult.data
       : commentsResult.data.filter(c => !isBotAuthor(c.user?.login ?? ''));
-    row.comments = kept.map(comment => ({
-      id: String(comment.id),
-      user: comment.user?.login ?? 'unknown',
-      body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
-      createdAt: comment.created_at ?? '',
-      updatedAt: comment.updated_at ?? '',
-      commentType: 'discussion' as const,
-    }));
+    row.comments = kept.map(comment => {
+      const windowed = windowText(
+        ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+        params.charOffset,
+        params.charLength
+      );
+      return {
+        id: String(comment.id),
+        user: comment.user?.login ?? 'unknown',
+        body: windowed.text,
+        ...(windowed.pagination ? { bodyPagination: windowed.pagination } : {}),
+        createdAt: comment.created_at ?? '',
+        updatedAt: comment.updated_at ?? '',
+        commentType: 'discussion' as const,
+      };
+    });
+    const commentBody = row.comments.find(
+      comment => comment.bodyPagination?.hasMore
+    )?.bodyPagination;
+    if (commentBody) contentPagination.commentBody = { ...commentBody };
     const hasMoreComments = parseHasMore(
       commentsResult.headers.link as string | undefined
     );
@@ -143,7 +162,12 @@ export async function searchIssues(
   const searchWarnings: string[] = [];
   let effectiveSearchParams = searchParams;
   if (owner && repo) {
-    const canonical = await resolveCanonicalOwnerRepo(octokit, owner, repo);
+    const canonical = await resolveCanonicalOwnerRepo(
+      octokit,
+      owner,
+      repo,
+      authInfo
+    );
     if (canonical.renamed) {
       searchWarnings.push(
         `Repository ${owner}/${repo} was renamed to ${canonical.owner}/${canonical.repo} — GitHub search does not follow renames, so the canonical name was searched instead.`
@@ -181,8 +205,7 @@ export async function searchIssues(
     .map(item => toIssueRow(item));
 
   const totalMatches = searchResult.data.total_count ?? issues.length;
-  const hasMore =
-    currentPage * perPage < totalMatches && issues.length === perPage;
+  const hasMore = currentPage * perPage < Math.min(totalMatches, 1000);
 
   return {
     data: {

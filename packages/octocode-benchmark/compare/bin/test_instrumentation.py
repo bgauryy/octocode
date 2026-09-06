@@ -94,10 +94,18 @@ class InstrumentationTests(unittest.TestCase):
 
             self.assertEqual(result.stdout, text)
             record = json.loads(log.read_text(encoding="utf-8").strip())
-            self.assertEqual(record["chars"], len(text))
+            self.assertEqual(record["model_in_chars"], len(text))
+            self.assertNotIn("chars", record)
             self.assertEqual(record["char_unit"], "unicode_code_points")
             self.assertEqual(record["exit_code"], 0)
             self.assertEqual(Path(record["artifact"]).read_text(encoding="utf-8"), text)
+            validation = subprocess.run(
+                [sys.executable, str(HERE / "sumlog.py"), str(log), "--strict"],
+                text=True, capture_output=True,
+            )
+            self.assertEqual(validation.returncode, 0, validation.stdout + validation.stderr)
+            from validate_campaign import read_metrics
+            self.assertEqual(read_metrics(log)["model_in_chars"], len(text))
 
     @unittest.skipUnless(HR_AVAILABLE, HR_REASON)
     def test_ghc_records_failed_probe_output_and_exit_status(self) -> None:

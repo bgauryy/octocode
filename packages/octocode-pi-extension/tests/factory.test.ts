@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import octocodeDefault, {
-  createOctocodePiExtension,
-  resolvePromptMode,
-  composeSystemPrompt,
-} from '../src/index.js';
+import octocodeDefault, { createOctocodePiExtension } from '../src/index.js';
+import { resolvePromptMode, composeSystemPrompt } from '../src/prompt.js';
 
 test('default export preserves the single-arg Pi contract (default(pi))', () => {
   assert.equal(typeof octocodeDefault, 'function');

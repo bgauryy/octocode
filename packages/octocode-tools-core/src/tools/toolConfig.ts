@@ -14,7 +14,7 @@ import { executeFetchContent } from './local_fetch_content/execution.js';
 import { executeAnalyzeGraph } from './local_analyze_graph/execution.js';
 import { executeLocalSearch } from './local_search/execution.js';
 import { executeLspGetSemantics } from './lsp/semantic_content/execution.js';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from './lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from './toolNames.js';
 import {
   GITHUB_SEARCH_TOOL_NAME,
   GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
@@ -26,11 +26,7 @@ import {
 import {
   type ToolConfig,
   type ToolDirectExecutionConfig,
-  type ToolDirectSecurity,
 } from './toolCatalogFactory.js';
-
-export type { ToolConfig, ToolDirectExecutionConfig, ToolDirectSecurity };
-export type { ToolInvocationCallback } from '../types/toolResults.js';
 
 interface ToolCatalog {
   GITHUB_SEARCH: ToolConfig;

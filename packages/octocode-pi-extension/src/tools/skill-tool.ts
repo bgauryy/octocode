@@ -1,3 +1,5 @@
+import { truncateToWidth } from '../tui/width.js';
+import { paint } from '../tui/palette.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,13 +12,14 @@ import type { ToolDefinition, ToolCallResult, PiTheme, PiContext, SkillInfo, TSc
 import { getAssetPaths } from '../assets.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 import { stringEnumSchema } from './schema-helpers.js';
-import { paint } from '../tui/cli-design.js';
-import { makeRenderer, truncateToWidth } from './render-helpers.js';
+
+import { makeComponentRenderer } from './render-helpers.js';
 import { isPromptOwnedSkill } from './skill-catalog.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
 import { orchestrate } from './call-skill.js';
 import { getSkillEnablement } from '@octocodeai/octocode-awareness/mcp-state';
 import { openOctocodeDb } from './storage-policy.js';
+import { MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS } from './tool-result-budget.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
 type RegisterFn = typeof registerUniqueTool;
@@ -36,9 +39,12 @@ export interface DiscoveredSkillState extends DiscoveredSkill {
   enabled: boolean;
 }
 
-const SKILL_CONTENT_CAP = 48_000;
+// Leave room for identity, file discovery, and recovery calls inside the 12k
+// model-visible tool-result budget; otherwise the initial page itself spills.
+const SKILL_CONTENT_CAP = 8_000;
 
 const SKILL_FILE_LIST_CAP = 30;
+const SKILL_FILE_LIST_CHAR_CAP = 1_600;
 
 function skillKey(name: string): string {
   return name.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -187,26 +193,44 @@ function result(text: string, details?: unknown, isError = false): ToolCallResul
   return { content: [{ type: 'text', text }], details, isError };
 }
 
-function listSkillFiles(dir: string): string[] {
+type SkillPartialReason = 'content-limit' | 'file-limit' | 'file-depth' | 'file-filter' | 'file-read-error';
+
+function skillContinuation(tool: 'localGetFileContent' | 'localSearch', query: Record<string, unknown>, why: string) {
+  return {
+    tool: 'MCPTool' as const,
+    query: { queries: [{ reasoning: why, action: 'call' as const, server: 'octocode', tool, arguments: { queries: [query] } }] },
+    why,
+  };
+}
+
+function listSkillFiles(dir: string): { files: string[]; partialReasons: SkillPartialReason[] } {
   const files: string[] = [];
+  let fileChars = 0;
+  const partialReasons = new Set<SkillPartialReason>();
   const walk = (current: string, prefix: string, depth: number): void => {
-    if (depth > 2 || files.length >= SKILL_FILE_LIST_CAP) return;
+    if (depth > 2) { partialReasons.add('file-depth'); return; }
+    if (files.length >= SKILL_FILE_LIST_CAP) { partialReasons.add('file-limit'); return; }
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(current, { withFileTypes: true });
     } catch {
+      partialReasons.add('file-read-error');
       return;
     }
     for (const entry of entries) {
-      if (files.length >= SKILL_FILE_LIST_CAP) return;
-      if (entry.name.startsWith('.')) continue;
+      if (files.length >= SKILL_FILE_LIST_CAP) { partialReasons.add('file-limit'); return; }
+      if (entry.name.startsWith('.')) { partialReasons.add('file-filter'); continue; }
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) walk(path.join(current, entry.name), rel, depth + 1);
-      else if (entry.name !== 'SKILL.md') files.push(rel);
+      else if (entry.name !== 'SKILL.md') {
+        if (fileChars + rel.length + 2 > SKILL_FILE_LIST_CHAR_CAP) { partialReasons.add('file-limit'); return; }
+        files.push(rel);
+        fileChars += rel.length + 2;
+      }
     }
   };
   walk(dir, '', 0);
-  return files;
+  return { files, partialReasons: [...partialReasons] };
 }
 
 function loadSkill(skill: DiscoveredSkill): ToolCallResult {
@@ -216,20 +240,48 @@ function loadSkill(skill: DiscoveredSkill): ToolCallResult {
   } catch (error) {
     return result(`skill "${skill.name}": cannot read ${skill.path}: ${(error as Error).message}`, undefined, true);
   }
-  const capped = text.length <= SKILL_CONTENT_CAP
-    ? text
-    : `${text.slice(0, SKILL_CONTENT_CAP)}\n…[truncated ${text.length - SKILL_CONTENT_CAP} chars — read the rest from ${skill.path} if needed]`;
-  const files = listSkillFiles(skill.dir);
+  let returnedChars = Math.min(text.length, SKILL_CONTENT_CAP);
+  if (returnedChars < text.length && (text.charCodeAt(returnedChars - 1) & 0xFC00) === 0xD800) returnedChars -= 1;
+  const { files, partialReasons: filePartialReasons } = listSkillFiles(skill.dir);
+  const buildPage = () => {
+    const contentPartial = returnedChars < text.length;
+    const partialReasons: SkillPartialReason[] = [...(contentPartial ? ['content-limit' as const] : []), ...filePartialReasons];
+    const next = {
+      ...(contentPartial ? { content: skillContinuation('localGetFileContent', {
+        path: skill.path, minify: 'none', charOffset: returnedChars, charLength: SKILL_CONTENT_CAP,
+      }, 'Read the next page of skill instructions before acting.') } : {}),
+      ...(filePartialReasons.length ? { files: skillContinuation('localSearch', {
+        operation: 'files', path: skill.dir, entryType: 'f', excludeDir: [], maxDepth: 100, limit: 10_000, pageSize: 50, sort: 'path',
+      }, 'Discover all supporting files; merge with this preview and follow returned continuations.') } : {}),
+    };
+    const isPartial = partialReasons.length > 0;
+    const lines = [
+      isPartial ? `next: ${JSON.stringify(next)}` : '',
+      `skill: ${skill.name} [${skill.source}]`,
+      `directory: ${skill.dir}`,
+      `Resolve every relative path in the skill against this directory. ${contentPartial ? 'Read the remaining instructions before following the skill.' : 'Follow the skill now.'}`,
+      files.length > 0 ? `files: ${files.join(', ')}` : '',
+      isPartial ? `partial: ${partialReasons.join(', ')}; returned instruction characters: ${returnedChars}/${text.length}` : '',
+      '---',
+      text.slice(0, returnedChars),
+    ].filter(Boolean);
+    return result(lines.join('\n'), {
+      name: skill.name, dir: skill.dir, files, isPartial, partialReasons,
+      content: { returnedChars, totalChars: text.length, isPartial: contentPartial },
+      fileDiscovery: { returnedFiles: files.length, isPartial: filePartialReasons.length > 0, partialReasons: filePartialReasons },
+      ...(isPartial ? { next } : {}),
+    });
+  };
+  let page = buildPage();
+  let pageChars = (page.content[0] as { text: string }).text.length;
+  while (returnedChars > 0 && pageChars > MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) {
+    returnedChars = Math.max(0, returnedChars - (pageChars - MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS));
+    if (returnedChars > 0 && returnedChars < text.length && (text.charCodeAt(returnedChars - 1) & 0xFC00) === 0xD800) returnedChars -= 1;
+    page = buildPage();
+    pageChars = (page.content[0] as { text: string }).text.length;
+  }
   recordSkillLoad(skill.name);
-  const lines = [
-    `skill: ${skill.name} [${skill.source}]`,
-    `directory: ${skill.dir}`,
-    'Resolve every relative path in the skill against this directory. Follow the skill now.',
-    files.length > 0 ? `files: ${files.join(', ')}` : '',
-    '---',
-    capped,
-  ].filter(Boolean);
-  return result(lines.join('\n'), { name: skill.name, dir: skill.dir, files });
+  return page;
 }
 
 function formatSkillList(skills: DiscoveredSkill[]): string {
@@ -396,18 +448,18 @@ export function registerSkillTool(
     const items = Array.isArray(queries) ? queries as Record<string, unknown>[] : [];
     const item = items[0];
     if (!item) {
-      return makeRenderer((width) => [truncateToWidth(`${paint(theme, 'brand', '◆ skill')}`, width)]);
+      return makeComponentRenderer((_props, { width: width }) => [truncateToWidth(`${paint(theme, 'brand', '◆ skill')}`, width)], undefined);
     }
     const type = String(item['type'] ?? 'load');
     if (type === 'call') {
       const skillType = String(item['skillType'] ?? '?');
       const mode = typeof item['mode'] === 'string' ? ` ${item['mode']}` : '';
-      return makeRenderer((width) => [truncateToWidth(
-        `${paint(theme, 'brand', '◆ skill')} ${paint(theme, 'dim', '·')} ${paint(theme, 'title', `call:${skillType}`)}${paint(theme, 'dim', mode)}`, width)]);
+      return makeComponentRenderer((_props, { width: width }) => [truncateToWidth(
+        `${paint(theme, 'brand', '◆ skill')} ${paint(theme, 'dim', '·')} ${paint(theme, 'title', `call:${skillType}`)}${paint(theme, 'dim', mode)}`, width)], undefined);
     }
     const target = item['action'] === 'list' ? 'list' : String(item['name'] ?? '?');
-    return makeRenderer((width) => [truncateToWidth(
-      `${paint(theme, 'brand', '◆ skill')} ${paint(theme, 'dim', '·')} ${paint(theme, 'title', target)}`, width)]);
+    return makeComponentRenderer((_props, { width: width }) => [truncateToWidth(
+      `${paint(theme, 'brand', '◆ skill')} ${paint(theme, 'dim', '·')} ${paint(theme, 'title', target)}`, width)], undefined);
   };
 
   const renderResult = (resultValue: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) => {
@@ -417,20 +469,20 @@ export function registerSkillTool(
     if (!resultValue.isError) {
       const status = String((resultValue.details as Record<string, unknown> | undefined)?.['status'] ?? '');
       const dynamicCallStatuses = new Set(['reuse', 'created', 'proposal', 'declined', 'listed', 'deleted']);
-      if (!dynamicCallStatuses.has(status)) return makeRenderer(() => []);
-      return makeRenderer((width) => [truncateToWidth(
+      if (!dynamicCallStatuses.has(status)) return makeComponentRenderer((_props, _context) => [], undefined);
+      return makeComponentRenderer((_props, { width: width }) => [truncateToWidth(
         `${paint(theme, 'success', '✓')} ${paint(theme, 'title', 'skill')} ${paint(theme, 'dim', `· ${head}`)}`,
         width,
-      )]);
+      )], undefined);
     }
 
-    return makeRenderer((width) => {
+    return makeComponentRenderer((_props, { width: width }) => {
       const lines = [truncateToWidth(`${paint(theme, 'error', '✗')} ${paint(theme, 'title', 'skill')} ${paint(theme, 'dim', `· ${head}`)}`, width)];
       if (opts.expanded) {
         for (const line of text.split('\n').slice(1, 12)) lines.push(truncateToWidth(paint(theme, 'dim', line), width));
       }
       return lines;
-    });
+    }, undefined);
   };
 
   registerFn(pi, registeredToolNames, {

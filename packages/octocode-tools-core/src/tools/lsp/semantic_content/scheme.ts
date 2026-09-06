@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LspGetSemanticsQuerySchema as CoreLspGetSemanticsQuerySchema } from '../../../toolContract/schemas.js';
+import { LspGetSemanticsQuerySchema as CoreLspGetSemanticsQuerySchema } from '../../../toolContract/input/resources/tools/lspGetSemantics.js';
 import { LOCAL_MAX_DEPTH } from '../../../config.js';
 import {
   clampedInt,
@@ -11,7 +11,10 @@ import {
   describeQuerySchema,
 } from '../../../scheme/coreSchemas.js';
 import { getRequiredSchemaField } from '../../../scheme/conditionalSchemas.js';
-import { SEMANTIC_CONTENT_TYPES } from '../shared/semanticTypes.js';
+import {
+  SEMANTIC_CONTENT_TYPES,
+  type ConsumerWarmupStats,
+} from '../shared/semanticTypes.js';
 import type {
   ItemPagination,
   ToolContinuation,
@@ -129,6 +132,8 @@ type LspEmptyCategory =
   | 'unsupportedOperation'
   | 'symbolNotFound'
   | 'anchorFailed'
+  | 'paginationChanged'
+  | 'paginationSnapshotRequired'
   | 'noLocations'
   | 'noReferences'
   | 'noHover'
@@ -162,6 +167,7 @@ interface LspCompactCall {
 
 interface LspCompleteness {
   complete: boolean;
+  consumerWarmupIncomplete?: true;
   truncatedByDepth: boolean;
   truncatedByBudget?: boolean;
   visitedNodeCount?: number;
@@ -197,13 +203,19 @@ interface LspReferencesByFile {
 type LspSemanticPayload =
   | { kind: 'definition'; locations: Array<LspLocation | string> }
   | { kind: 'typeDefinition'; locations: Array<LspLocation | string> }
-  | { kind: 'implementation'; locations: Array<LspLocation | string> }
+  | {
+      kind: 'implementation';
+      locations: Array<LspLocation | string>;
+      warmup?: ConsumerWarmupStats;
+    }
   | {
       kind: 'references';
       locations?: Array<LspLocation | string>;
       byFile?: Array<LspReferencesByFile | string>;
       totalReferences: number;
       totalFiles: number;
+      definitionOnly?: boolean;
+      warmup?: ConsumerWarmupStats;
       empty?: LspEmptyState;
     }
   | {
@@ -213,6 +225,7 @@ type LspSemanticPayload =
       calls: Array<LspCompactCall | string>;
       incomingCalls: number;
       outgoingCalls: number;
+      warmup?: ConsumerWarmupStats;
       completeness: LspCompleteness;
       empty?: LspEmptyState;
     }
@@ -247,7 +260,12 @@ type LspSemanticPayload =
       warningCount: number;
       empty?: LspEmptyState;
     }
-  | { kind: 'empty'; category: LspEmptyCategory; reason: string };
+  | {
+      kind: 'empty';
+      category: LspEmptyCategory;
+      reason: string;
+      warmup?: ConsumerWarmupStats;
+    };
 
 export interface LspGetSemanticsData {
   type: string;
@@ -260,7 +278,8 @@ export interface LspGetSemanticsData {
   // never engaged; present on any path that reached a provider.
   lsp?: LspInfo;
   payload: LspSemanticPayload;
-  pagination?: ItemPagination;
+  pagination?: ItemPagination & { snapshot?: string };
+  snapshot?: { expected?: string; actual?: string };
   summary?: Record<string, unknown>;
   // Ready-to-run follow-ups (e.g. next.readSite).
   next?: Record<string, ToolContinuation>;

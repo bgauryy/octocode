@@ -9,27 +9,32 @@ import {
   compactResolvedSymbol,
   type LspSemanticEnvelope,
   type SymbolAnchoredSemanticQuery,
+  type ConsumerWarmupStats,
 } from '../../shared/semanticTypes.js';
 import type { SymbolAnchor } from '../../shared/resolveSymbolAnchor.js';
 import {
   DEFAULT_LOCATIONS_PER_PAGE,
   paginateItems,
 } from './envelopeHelpers.js';
-import type { ConsumerWarmupStats } from '../semanticAnchored.js';
 
 export function locationsEnvelope(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
   kind: 'definition' | 'typeDefinition' | 'implementation',
   provider: string,
-  locations: CodeSnippet[]
+  locations: CodeSnippet[],
+  warmupStats?: ConsumerWarmupStats
 ): LspSemanticEnvelope {
   const complete = locations.length > 0;
+  const warmup =
+    kind === 'implementation' && warmupStats ? { warmup: warmupStats } : {};
   const compactLocations = locations.map(compactLocation);
   const { pageItems, pagination } = paginateItems(
     compactLocations,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE
+    query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE,
+    query,
+    locations
   );
   return {
     type: query.type,
@@ -37,11 +42,12 @@ export function locationsEnvelope(
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider },
     payload: complete
-      ? { kind, locations: pageItems }
+      ? { kind, locations: pageItems, ...warmup }
       : {
           kind: 'empty',
           category: 'noLocations',
           reason: `${provider} returned no locations`,
+          ...warmup,
         },
     ...(complete ? { pagination } : {}),
   };
@@ -53,20 +59,32 @@ export function referencesEnvelope(
   locations: CodeSnippet[],
   warmupStats?: ConsumerWarmupStats
 ): LspSemanticEnvelope {
-  const refs = locations.map((location): ReferenceLocation => {
-    const isDefinition =
-      location.uri === anchor.uri &&
-      location.range.start.line === anchor.resolvedSymbol.position.line &&
-      location.range.start.character ===
-        anchor.resolvedSymbol.position.character;
-    return { ...location, ...(isDefinition ? { isDefinition: true } : {}) };
-  });
+  const refs = stableReferenceLocations(locations).map(
+    (location): ReferenceLocation => {
+      const isDefinition =
+        referenceUri(location.uri) === referenceUri(anchor.uri) &&
+        location.range.start.line === anchor.resolvedSymbol.position.line &&
+        location.range.start.character ===
+          anchor.resolvedSymbol.position.character;
+      return { ...location, ...(isDefinition ? { isDefinition: true } : {}) };
+    }
+  );
   const byFile = query.groupByFile ? buildReferencesByFile(refs) : undefined;
+  const referenceGroups = new Map<string, ReferenceLocation[]>();
+  if (byFile) {
+    for (const ref of refs) {
+      const group = referenceGroups.get(ref.uri) ?? [];
+      group.push(ref);
+      referenceGroups.set(ref.uri, group);
+    }
+  }
   const referenceItems = byFile ?? refs.map(compactLocation);
   const { pageItems, pagination } = paginateItems(
     referenceItems,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE
+    query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE,
+    query,
+    byFile ? byFile.map(file => referenceGroups.get(file.uri)) : refs
   );
   const empty =
     refs.length === 0
@@ -79,7 +97,7 @@ export function referencesEnvelope(
   const warmupWarnings =
     warmupStats?.possiblyTruncated === true
       ? [
-          `Reference warmup opened ${warmupStats.warmedFiles}/${warmupStats.candidates} candidate file(s) and may be incomplete because the candidate set hit the warmup cap; narrow workspaceRoot/path or confirm with localSearch operation:"text" before unused/safe-delete claims.`,
+          `Reference warmup opened ${warmupStats.warmedFiles}/${warmupStats.candidates} candidate file(s) and was incomplete (${warmupStats.incompleteReasons?.join(', ') ?? 'file cap'}); narrow workspaceRoot/path or confirm with localSearch operation:"text" before unused/safe-delete claims.`,
         ]
       : [];
 
@@ -109,6 +127,39 @@ export function referencesEnvelope(
     pagination,
     ...(warmupWarnings.length > 0 ? { warnings: warmupWarnings } : {}),
   };
+}
+
+function referenceUri(uri: string): string {
+  if (uri.startsWith('file:')) return pathToFileURL(fileURLToPath(uri)).href;
+  return path.isAbsolute(uri) ? pathToFileURL(path.normalize(uri)).href : uri;
+}
+
+// Providers can return the same identities in a different order on each
+// request. Canonical identity and ordering must precede grouping/pagination.
+function stableReferenceLocations(
+  locations: readonly CodeSnippet[]
+): CodeSnippet[] {
+  const unique = new Map<string, CodeSnippet>();
+  for (const location of locations) {
+    const { start, end } = location.range;
+    const uri = referenceUri(location.uri);
+    const key = JSON.stringify([
+      uri,
+      start.line,
+      start.character,
+      end.line,
+      end.character,
+    ]);
+    if (!unique.has(key)) unique.set(key, { ...location, uri });
+  }
+  return [...unique.values()].sort(
+    (left, right) =>
+      (left.uri < right.uri ? -1 : left.uri > right.uri ? 1 : 0) ||
+      left.range.start.line - right.range.start.line ||
+      left.range.start.character - right.range.start.character ||
+      left.range.end.line - right.range.end.line ||
+      left.range.end.character - right.range.end.character
+  );
 }
 
 export async function hoverEnvelope(
@@ -195,3 +246,5 @@ export function stringifyHoverPart(part: unknown): string {
   }
   return String(part);
 }
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';

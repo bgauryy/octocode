@@ -1,9 +1,7 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import type {
-  ProviderResponse,
-  FileContentQuery,
-  FileContentResult,
-} from '../types.js';
+import type { ProviderResponse } from '../types.js';
+import type { FileContentQuery } from '../providerQueries.js';
+import type { FileContentResult } from '../providerResults.js';
 
 import { fetchGitHubFileContentAPI } from '../../github/fileContent.js';
 
@@ -12,7 +10,6 @@ import { isGitHubAPIError } from '../../github/githubAPI.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
-export { parseGitHubProjectId } from './utils.js';
 
 export function transformFileContentResult(
   data: GitHubFileContentApiData,
@@ -31,6 +28,9 @@ export function transformFileContentResult(
     lastModifiedBy: data.lastModifiedBy,
     pagination: data.pagination,
     isPartial: data.isPartial,
+    errorCode: data.errorCode,
+    terminalLimit: data.terminalLimit,
+    partialReasons: data.partialReasons,
     startLine: data.startLine,
     endLine: data.endLine,
     matchRanges: data.matchRanges,

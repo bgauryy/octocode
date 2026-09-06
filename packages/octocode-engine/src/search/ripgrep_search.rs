@@ -28,12 +28,12 @@ use ignore::types::TypesBuilder;
 use ignore::{WalkBuilder, WalkState};
 use napi::{Error, Result, Status};
 
-use crate::classify;
-use crate::ripgrep_parser::{assemble_file, strip_trailing_newline, FileEntry, RawMatch};
+use crate::search::classify;
+use crate::search::ripgrep_parser::{assemble_file, strip_trailing_newline, FileEntry, RawMatch};
+use crate::text::utf8_offsets::byte_to_char_offset_inner;
 use crate::types::{
     RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions, RipgrepStats,
 };
-use crate::utf8_offsets::byte_to_char_offset_inner;
 
 const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
 

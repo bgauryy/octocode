@@ -1,3 +1,4 @@
+import { visibleWidth } from '../src/tui/width.js';
 /**
  * Custom message renderer tests — branded cards for compaction checkpoints and
  * awareness handoffs.
@@ -30,7 +31,7 @@ import {
   registerCompactionHooks,
   resetCompactionCheckpointDedupe,
 } from '../src/tools/compaction-hooks.js';
-import { visibleWidth } from '../src/tools/render-helpers.js';
+
 import { createSessionArtifactContext, readRehydrationLedger, readRehydrationSegmentContents } from '../src/tools/session-artifacts.js';
 import { clearCurrentContextSources, registerCurrentContextSource } from '../src/tools/context-source-registry.js';
 import { initializeSessionMemory, readSessionMemory, SESSION_MEMORY_RELATIVE_PATH, SESSION_MEMORY_TEMPLATE } from '../src/tools/session-memory.js';

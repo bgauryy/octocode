@@ -3,61 +3,26 @@ import type {
   FileContentExecutionQuery,
   GitHubFileContentApiResult,
 } from '../tools/github_fetch_content/types.js';
-import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
-import {
-  generateCacheKey,
-  withDataCache,
-  withDataCacheConditional,
-} from '../utils/http/cache.js';
+import { getOctokit } from './client.js';
+import { generateCacheKey } from '../utils/http/cache/key.js';
+import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
-import {
-  fetchRawGitHubFileContent,
-  type RawContentResult,
-} from './fileContentRaw.js';
+import { fetchCachedRawGitHubFileContent } from './fileContentRaw/cache.js';
 import {
   applyContentPagination,
   fetchFileTimestamp,
-  processFileContentAPI,
-} from './fileContentProcess.js';
+} from './fileContentPagination.js';
+import { processFileContentAPI } from './fileContentProcess.js';
 
 export async function fetchGitHubFileContentAPI(
   params: FileContentExecutionQuery,
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubAPIResponse<GitHubFileContentApiResult>> {
-  const auth = await resolveCacheAuthFingerprint(authInfo);
-  const cacheKey = generateCacheKey(
-    'gh-api-file-content',
-    {
-      owner: params.owner,
-      repo: params.repo,
-      path: params.path,
-      branch: params.branch,
-      auth,
-    },
+  const { rawResult, auth } = await fetchCachedRawGitHubFileContent(
+    params,
+    authInfo,
     sessionId
-  );
-
-  const rawResult = await withDataCacheConditional<
-    GitHubAPIResponse<RawContentResult>
-  >(
-    cacheKey,
-    async ({ ifNoneMatch }) => {
-      const response = await fetchRawGitHubFileContent(params, authInfo, {
-        ifNoneMatch,
-      });
-      const { etag, notModified, ...value } = response;
-      return {
-        value: value as GitHubAPIResponse<RawContentResult>,
-        etag,
-        notModified,
-      };
-    },
-    {
-      shouldCache: (value: GitHubAPIResponse<RawContentResult>) =>
-        'data' in value && !(value as { error?: unknown }).error,
-      forceRefresh: params.forceRefresh === true,
-    }
   );
 
   if (!('data' in rawResult) || !rawResult.data) {
@@ -91,7 +56,16 @@ export async function fetchGitHubFileContentAPI(
     };
   }
 
-  const { signaturesExtracted, ...processedData } = processedResult;
+  // A scanner limit is a terminal selected-view diagnostic, not an empty
+  // successful file to paginate or enrich with a timestamp request.
+  if (processedResult.terminalLimit) {
+    return {
+      data: processedResult,
+      status: 200,
+      rawResponseChars: rawResult.rawResponseChars,
+    };
+  }
+
   const charOffset = params.charOffset ?? 0;
   const charLength = params.charLength;
   // fullContent:true is an explicit "give me the WHOLE file in one shot" request
@@ -100,10 +74,9 @@ export async function fetchGitHubFileContentAPI(
   // still paginate BY DEFAULT; an explicit charOffset/charLength still windows.
   const wantsWholeFile =
     params.fullContent === true && charOffset === 0 && charLength === undefined;
-  const paginatedResult =
-    signaturesExtracted || wantsWholeFile
-      ? processedData
-      : await applyContentPagination(processedData, charOffset, charLength);
+  const paginatedResult = wantsWholeFile
+    ? processedResult
+    : await applyContentPagination(processedResult, charOffset, charLength);
 
   const isContinuationPage = (params.charOffset ?? 0) > 0;
   if (!params.noTimestamp && !isContinuationPage) {

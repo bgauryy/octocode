@@ -11,7 +11,7 @@
  *     their call sites; only stable copy lives here.
  */
 
-import type { ApprovalClass, PermissionLevel } from '../tools/approval.js';
+import { type ApprovalClass, type PermissionLevel } from '@octocodeai/octocode-shared/protocols';
 
 // ─── Brand ─────────────────────────────────────────────────────────────────────
 

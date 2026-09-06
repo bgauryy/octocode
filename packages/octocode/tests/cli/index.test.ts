@@ -29,11 +29,17 @@ vi.mock('../../src/cli/command-help-specs.js', () => ({
   findStaticCommandHelp: mocks.findStaticCommandHelp,
 }));
 
-vi.mock('../../src/cli/tool-command.js', () => ({
+vi.mock('../../src/cli/tool-command/help.js', () => ({
   showToolHelp: mocks.showToolHelp,
-  showAvailableTools: mocks.showAvailableTools,
   showMultipleToolSchemas: mocks.showMultipleToolSchemas,
+}));
+vi.mock('../../src/cli/tool-command/list-view.js', () => ({
+  showAvailableTools: mocks.showAvailableTools,
+}));
+vi.mock('../../src/cli/tool-command/execute.js', () => ({
   executeToolCommand: mocks.executeToolCommand,
+}));
+vi.mock('../../src/cli/tool-command/context.js', () => ({
   getToolsContextString: mocks.getToolsContextString,
   printToolsContext: mocks.printToolsContext,
 }));

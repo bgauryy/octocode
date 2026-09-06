@@ -1,10 +1,10 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
+import type { ProviderResponse } from '../types.js';
+import type { PullRequestQuery } from '../providerQueries.js';
 import type {
-  ProviderResponse,
-  PullRequestQuery,
   PullRequestSearchResult,
   PullRequestItem,
-} from '../types.js';
+} from '../providerResults.js';
 
 import { searchGitHubPullRequestsAPI } from '../../github/pullRequestSearch.js';
 import type { GitHubPullRequestsSearchParams } from '../../github/githubAPI.js';
@@ -16,7 +16,6 @@ import type {
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
-export { parseGitHubProjectId } from './utils.js';
 import { countPaginationMetadata } from './paginationMetadata.js';
 
 export function transformPullRequestResult(
@@ -30,6 +29,10 @@ export function transformPullRequestResult(
   const items: PullRequestItem[] = (data.pullRequests || []).map(
     (pr: GitHubPullRequestApiItem) => ({
       number: pr.number,
+      ...(pr.collectionStates ? { collectionStates: pr.collectionStates } : {}),
+      ...(pr.providerLimits?.length
+        ? { providerLimits: pr.providerLimits }
+        : {}),
       title: pr.title,
       body: pr.body || null,
       ...(pr.bodyPagination && { bodyPagination: pr.bodyPagination }),
@@ -78,9 +81,11 @@ export function transformPullRequestResult(
       })),
       commits: pr.commitDetails?.map(c => ({
         sha: c.sha,
+        filesCollectionState: c.filesCollectionState,
         message: c.message,
         author: c.author,
         date: c.date,
+        ...(c.files ? { files: c.files } : {}),
       })),
       fileChanges: pr.fileChanges?.map(f => ({
         path: f.filename,
@@ -104,6 +109,7 @@ export function transformPullRequestResult(
   return {
     items,
     totalCount: data.totalCount || items.length,
+    ...(data.incompleteResults ? { incompleteResults: true } : {}),
     pagination: {
       currentPage: data.pagination?.currentPage || 1,
       totalPages: data.pagination?.totalPages || 1,
@@ -170,6 +176,8 @@ export function buildGitHubPullRequestsSearchParams(
     filePage: query.filePage,
     commentPage: query.commentPage,
     commitPage: query.commitPage,
+    reviewPage: query.reviewPage,
+    collectionPages: query.collectionPages,
     itemsPerPage: query.itemsPerPage,
     sort: query.sort,
     order: query.order,

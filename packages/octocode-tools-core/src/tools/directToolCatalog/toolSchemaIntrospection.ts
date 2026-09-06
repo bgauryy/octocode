@@ -1,8 +1,6 @@
 /**
- * JSON-schema introspection for the engine-free direct-tool catalog: display
- * field extraction, constraint/type text formatting, and example-value
- * builders. Split out of `directToolCatalog.meta.ts` (still the public
- * barrel) — see that file's header comment for the full P3 rationale.
+ * Engine-free JSON-schema introspection: display fields, constraint text,
+ * and example values.
  */
 import { z } from 'zod';
 import {

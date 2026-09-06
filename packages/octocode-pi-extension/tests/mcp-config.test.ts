@@ -47,7 +47,7 @@ test('loadMcpConfig merges canonical global and project config deterministically
   writeServers(globalPaths[0]!, { shared: { command: 'global-command' }, globalOnly: { command: 'global-only' } });
   writeServers(projectPaths[0]!, { shared: { command: 'project-command' }, projectOnly: { command: 'project-only' } });
 
-  const ctx = { cwd, isProjectTrusted: async () => true } as unknown as PiContext;
+  const ctx = { cwd, isProjectTrusted: () => true } as unknown as PiContext;
   const loaded = await loadMcpConfig(ctx, { homeDir, octocodeHome });
 
   assert.equal(loaded.servers.get('shared')?.command, 'project-command');
@@ -68,7 +68,7 @@ test('HTTP MCP servers accept URL and headers without a command', async () => {
     url: 'https://mcp.example.test/api',
     headers: { Authorization: 'Bearer test' },
   } } }));
-  const loaded = await loadMcpConfig({ cwd, isProjectTrusted: async () => true } as unknown as PiContext, { homeDir, octocodeHome });
+  const loaded = await loadMcpConfig({ cwd, isProjectTrusted: () => true } as unknown as PiContext, { homeDir, octocodeHome });
   assert.equal(loaded.servers.get('remote')?.transport, 'http');
   assert.equal(loaded.servers.get('remote')?.url, 'https://mcp.example.test/api');
 });
@@ -97,7 +97,7 @@ test('untrusted projects skip every project alias but still load global aliases'
   writeServer(globalPaths[0]!, 'globalOnly', 'global-command');
   for (const [index, filePath] of projectPaths.entries()) writeServer(filePath, `project${index}`, `project-command-${index}`);
 
-  const ctx = { cwd, isProjectTrusted: async () => false } as unknown as PiContext;
+  const ctx = { cwd, isProjectTrusted: () => false } as unknown as PiContext;
   const loaded = await loadMcpConfig(ctx, { homeDir, octocodeHome });
 
   assert.equal(loaded.servers.get('globalOnly')?.command, 'global-command');
@@ -116,7 +116,7 @@ test('foreign MCP definitions are discovered read-only and disabled by default',
   writeServer(cursorPath, 'docs', 'docs-mcp');
 
   const loaded = await loadMcpConfig(
-    { cwd, isProjectTrusted: async () => true } as unknown as PiContext,
+    { cwd, isProjectTrusted: () => true } as unknown as PiContext,
     { homeDir, octocodeHome: path.join(homeDir, '.octocode-custom') },
   );
 
@@ -142,7 +142,7 @@ test('an explicit SQLite override enables a discovered definition without copyin
     setMcpServerEnabled(openOctocodeDb(), path.resolve(cwd), 'cursor.docs', true);
 
     const loaded = await loadMcpConfig(
-      { cwd, isProjectTrusted: async () => true } as unknown as PiContext,
+      { cwd, isProjectTrusted: () => true } as unknown as PiContext,
       { homeDir, octocodeHome },
     );
     assert.equal(loaded.servers.get('cursor.docs')?.command, 'docs-mcp');
@@ -162,7 +162,7 @@ test('untrusted projects inventory but never import foreign project definitions'
   writeServer(cursorPath, 'docs', 'docs-mcp');
 
   const loaded = await loadMcpConfig(
-    { cwd, isProjectTrusted: async () => false } as unknown as PiContext,
+    { cwd, isProjectTrusted: () => false } as unknown as PiContext,
     { homeDir, octocodeHome: path.join(homeDir, '.octocode-custom') },
   );
   assert.equal(loaded.configuredServers.has('cursor.docs'), false);

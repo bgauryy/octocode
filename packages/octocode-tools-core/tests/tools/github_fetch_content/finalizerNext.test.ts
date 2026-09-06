@@ -293,7 +293,6 @@ describe('github fetch content finalizer next.continueChars', () => {
 
   it.each([
     'nonFile',
-    'missingDownloadUrl',
     'oversized',
     'binary',
     'fileLimit',
@@ -305,7 +304,6 @@ describe('github fetch content finalizer next.continueChars', () => {
     reason => {
       const skipped = {
         nonFile: 0,
-        missingDownloadUrl: 0,
         oversized: 0,
         binary: 0,
         fileLimit: 0,

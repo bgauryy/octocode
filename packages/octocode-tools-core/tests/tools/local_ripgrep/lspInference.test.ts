@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  inferLspSymbolName,
-  type LocalSearchEngine,
-} from '../../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
+import { inferLspSymbolName } from '../../../src/tools/local_ripgrep/ripgrepResultBuilder/searchNext.js';
+import { type LocalSearchEngine } from '../../../src/tools/local_ripgrep/ripgrepResultBuilder/buildResult.js';
 import type { RipgrepQuery } from '../../../src/tools/local_ripgrep/scheme.js';
 
 // inferLspSymbolName only reads a few fields off the query; the rest of the

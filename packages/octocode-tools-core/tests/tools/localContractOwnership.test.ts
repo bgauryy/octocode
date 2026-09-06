@@ -13,18 +13,14 @@ describe('tool-contract ownership', () => {
   });
 
   it('owns executable schemas and runtime validation locally', async () => {
-    const schemas = await readFile(
-      path.join(CONTRACT_ROOT, 'schemas.ts'),
-      'utf8'
-    );
     const runtime = await readFile(
       path.join(CONTRACT_ROOT, 'runtime.ts'),
       'utf8'
     );
 
-    expect(schemas).toContain("from './input/resources/tools/");
-    expect(schemas).not.toContain('@octocodeai/octocode-core/schemas');
-    expect(runtime).toContain("from './schemas.js'");
+    expect(runtime).toContain(
+      "from './input/resources/tools/localTextOperation.js'"
+    );
     expect(runtime).not.toContain('@octocodeai/octocode-core/schemas');
   });
 

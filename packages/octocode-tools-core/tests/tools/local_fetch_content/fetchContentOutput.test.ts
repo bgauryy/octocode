@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { setRuntimeSurface } from '@octocodeai/config';
-import { executeDirectTool } from '../../../src/tools/directToolCatalog.js';
+import { executeDirectTool } from '../../../src/tools/directToolCatalog.exec.js';
 
 const ROOT = process.cwd();
 

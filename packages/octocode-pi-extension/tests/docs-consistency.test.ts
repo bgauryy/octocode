@@ -2,27 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'vitest';
-import {
-  listExtensionHarness,
-  OCTOCODE_SUPPORT_TOOL_NAMES,
-  OVERRIDDEN_BUILTIN_TOOL_NAMES,
-} from '../src/index.js';
+import { listExtensionHarness } from '../src/index.js';
+import { OCTOCODE_SUPPORT_TOOL_NAMES, OVERRIDDEN_BUILTIN_TOOL_NAMES } from '../src/constants.js';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
-const EXPECTED_BUNDLED_SKILLS = [
-  'octocode-brainstorming',
-  'octocode-chrome-devtools',
-  'octocode-documentation',
-  'octocode-graph-eval',
-  'octocode-orchestrator',
-  'octocode-prompt-optimizer',
-  'octocode-research',
-  'octocode-rfc-generator',
-  'octocode-roast',
-  'octocode-scraping',
-  'octocode-skills',
-  'octocode-subagent',
-] as const;
 
 function readPackageFile(relativePath: string): string {
   return fs.readFileSync(path.join(packageRoot, relativePath), 'utf8');
@@ -150,12 +133,13 @@ test('browser skill uses the current host-neutral agent facade', () => {
 
 test('README bundled-skill count and names match the canonical bundle inventory', () => {
   const readme = readPackageFile('README.md');
-  // package.test.ts separately verifies that these sources were copied to dist.
-  // Keep this documentation check independent of a parallel build replacing
-  // dist/skills.
-  const skills = EXPECTED_BUNDLED_SKILLS;
-
-  assert.equal(skills.length, 12);
+  const skills = fs.readdirSync(path.join(packageRoot, 'dist/skills'), { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && fs.existsSync(path.join(packageRoot, 'dist/skills', entry.name, 'SKILL.md')))
+    .map(entry => entry.name).sort();
+  assert.ok(skills.length > 0, 'build must provide the actual bundled skill inventory');
+  const section = readme.split(/## Bundled skills[^\n]*\n/)[1]?.split(/\n## /)[0] ?? '';
+  const documented = [...section.matchAll(/^- `(octocode-[^`]+)`/gm)].map(match => match[1]).sort();
+  assert.deepEqual(documented, skills, 'README lists exactly the skills shipped by the build');
   assert.match(readme, new RegExp(`## Bundled skills \\(${skills.length}\\)`));
   assert.match(readme, new RegExp(`\\| Bundled main-agent skills \\| ${skills.length} \\|`));
   for (const skill of skills) {

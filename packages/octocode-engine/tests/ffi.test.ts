@@ -745,7 +745,8 @@ describe('structuralSearchDetailed', () => {
     );
 
     expect(result.status).toBe('parserFailed');
-    expect(result.query.kind).toBe('invalid');
+    expect(result.query).toBeDefined();
+    expect(result.query!.kind).toBe('invalid');
     expect(result.diagnostics[0]!.code).toBe('structural.query.invalid');
     expect(result.diagnostics[0]!.recovery).toContain('exactly one');
   });
@@ -815,7 +816,6 @@ describe('getSupportedStructuralExtensions', () => {
       'html',
       'css',
       'scss',
-      'less',
       'scala',
       'json',
       'yaml',
@@ -825,6 +825,26 @@ describe('getSupportedStructuralExtensions', () => {
       'pyi',
     ]) {
       expect(exts).toContain(ext);
+    }
+  });
+
+  it('omits removed grammars from both exported capability lists', () => {
+    for (const ext of [
+      'sh',
+      'bash',
+      'zsh',
+      'less',
+      'ml',
+      'mli',
+      'jl',
+      'r',
+      'erl',
+      'hrl',
+    ]) {
+      expect(addon!.getSupportedStructuralExtensions()).not.toContain(ext);
+      expect(addon!.getSupportedSignatureExtensions()).not.toContain(ext);
+      expect(addon!.SUPPORTED_STRUCTURAL_EXTENSIONS).not.toContain(ext);
+      expect(addon!.SUPPORTED_SIGNATURE_EXTENSIONS).not.toContain(ext);
     }
   });
 });
@@ -1020,22 +1040,15 @@ describe('getSupportedSignatureExtensions', () => {
       'rb',
       'php',
       'kt',
-      'ex',
       'lua',
-      'erl',
       'zig',
-      'r',
       'swift',
       'scala',
-      'tf',
-      'hcl',
-      'tfvars',
-      'proto',
     ]) {
       expect(exts, `${required} must be in signature list`).toContain(required);
     }
     // Data/markup/prose formats and languages without a body_query are excluded.
-    for (const absent of ['md', 'markdown', 'sql', 'html', 'jl', 'ml']) {
+    for (const absent of ['md', 'markdown', 'sql', 'html', 'jl', 'ml', 'ex', 'exs', 'tf', 'hcl', 'tfvars', 'proto']) {
       expect(exts, `${absent} must NOT be in signature list`).not.toContain(
         absent
       );

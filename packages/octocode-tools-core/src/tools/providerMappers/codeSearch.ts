@@ -1,9 +1,8 @@
-import type { CodeSearchResult } from '../../providers/types.js';
+import type { CodeSearchResult } from '../../providers/providerResults.js';
 import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubCodeSearchQuerySchema } from '../../toolContract/input/resources/tools/githubCodeOperation.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
-import { DEFAULT_MATCH_SNIPPET_CHARS } from '../../config.js';
 import {
   countMetadata,
   splitRepositoryPath,
@@ -11,23 +10,6 @@ import {
 } from './shared.js';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-
-/**
- * Char-boundary truncation mirroring the Rust engine's `truncate_unicode`:
- * keeps at most `maxChars` Unicode scalars and appends `...` when it cuts.
- * Never slices UTF-8 mid-codepoint or mid-token — the single data-layer bound
- * for GitHub code-search match fragments (the render layer must not re-trim).
- */
-export function truncateSnippetChars(
-  value: string,
-  maxChars = DEFAULT_MATCH_SNIPPET_CHARS
-): string {
-  if (maxChars <= 0) return '';
-  const chars = [...value];
-  if (chars.length <= maxChars) return value;
-  if (maxChars <= 3) return '.'.repeat(maxChars);
-  return chars.slice(0, maxChars - 3).join('') + '...';
-}
 
 export function mapCodeSearchToolQuery(
   query: WithOptionalMeta<GitHubCodeSearchQuery>
@@ -117,16 +99,16 @@ export function mapCodeSearchProviderResult(
     let emittedMatchForItem = false;
     for (const m of item.matches) {
       if (!m.context) continue;
-      const value = truncateSnippetChars(m.context);
+      // Shared response pagination bounds output without losing fragment tails.
+      const value = m.context;
       const match: CodeSearchGroupedMatch = {
         path: item.path,
         value,
       };
       if (m.positions?.length > 0) {
-        // Truncation shortens the shown snippet; an index past its end would
-        // point at text the agent cannot see. Drop those rather than emit
-        // anchors into the elided tail.
-        const inRange = m.positions.filter(([, end]) => end <= value.length);
+        const inRange = m.positions.filter(
+          ([start, end]) => start >= 0 && end > start && end <= value.length
+        );
         if (inRange.length > 0) {
           match.matchIndices = inRange.map(([start, end]) => ({
             start,

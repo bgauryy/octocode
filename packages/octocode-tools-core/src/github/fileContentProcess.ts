@@ -6,11 +6,6 @@ import { extractMatchingLines } from '../tools/local_fetch_content/contentExtrac
 import type { MinifyMode } from '../scheme/fields.js';
 import { markdownHeadingOutlineToText } from '../utils/markdownOutline.js';
 
-export {
-  applyContentPagination,
-  fetchFileTimestamp,
-} from './fileContentPagination.js';
-
 function sourceSizeFields(sourceChars: number, sourceBytes: number) {
   return { sourceChars, sourceBytes };
 }
@@ -32,7 +27,24 @@ export async function processFileContentAPI(
 ): Promise<GitHubFileContentApiResult> {
   const sourceChars = decodedContent.length;
   const sourceBytes = Buffer.byteLength(decodedContent, 'utf-8');
-  const applyStandardMinify = minify === 'standard' || minify === 'symbols';
+  const securityLimit = (): GitHubFileContentApiResult => ({
+    owner,
+    repo,
+    path: filePath,
+    branch,
+    content: '',
+    totalLines: countLines(decodedContent),
+    ...sourceSizeFields(sourceChars, sourceBytes),
+    errorCode: 'contentSecurityLimit',
+    isPartial: true,
+    terminalLimit: true,
+    partialReasons: ['security-selected-view-size-limit'],
+    warnings: [
+      'The selected content view exceeds the secret scanner size limit. Select a smaller source-line range; character windows cannot safely split unscanned content.',
+    ],
+  });
+  const applyStandardMinify =
+    !matchString && (minify === 'standard' || minify === 'symbols');
   const fallbackContentView = applyStandardMinify ? 'standard' : 'none';
 
   let signaturesSkippedWarning: string | undefined;
@@ -48,6 +60,8 @@ export async function processFileContentAPI(
           markdownOutline,
           filePath
         );
+        if (sanitizedOutline.secretsDetected.includes('content-size-exceeded'))
+          return securityLimit();
         const hints: string[] = [contextUtils.SIGNATURES_ONLY_HINT];
         if (sanitizedOutline.hasSecrets) {
           hints.push(
@@ -64,14 +78,15 @@ export async function processFileContentAPI(
           totalLines: countLines(decodedContent),
           ...sourceSizeFields(sourceChars, sourceBytes),
           isPartial: false,
-          signaturesExtracted: true,
           hints,
         };
       }
-      signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${filePath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
+      signaturesSkippedWarning = `No smaller outline is available for ${filePath}; using the standard content view. The outline may be unsupported, oversized, or unavailable for this source.`;
     }
     if (sigs !== null) {
       const sanitized = ContentSanitizer.sanitizeContent(sigs, filePath);
+      if (sanitized.secretsDetected.includes('content-size-exceeded'))
+        return securityLimit();
       const sigContent = contextUtils.applyContentViewMinification(
         sanitized.content,
         filePath
@@ -97,7 +112,6 @@ export async function processFileContentAPI(
         totalLines: countLines(decodedContent),
         ...sourceSizeFields(sourceChars, sourceBytes),
         isPartial: false,
-        signaturesExtracted: true,
         hints,
       };
     }
@@ -236,6 +250,8 @@ export async function processFileContentAPI(
     finalContent,
     filePath
   );
+  if (sanitizationResult.secretsDetected.includes('content-size-exceeded'))
+    return securityLimit();
   finalContent = applyStandardMinify
     ? contextUtils.applyContentViewMinification(
         sanitizationResult.content,

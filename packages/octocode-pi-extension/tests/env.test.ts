@@ -3,15 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import {
-  parseEnv,
-  PROTECTED_KEYS,
-  loadOctocodeEnv,
-  applyOctocodeEnv,
-  propagateOctocodeEnv,
-  getOctocodeHome,
-  loadOctocoderc,
-} from '../src/env.js';
+import { parseEnv, PROTECTED_KEYS, loadOctocodeEnv, applyOctocodeEnv, propagateOctocodeEnv, getOctocodeHome, loadOctocoderc } from '@octocodeai/config';
 
 test('getOctocodeHome: OCTOCODE_HOME override wins; platform default otherwise', () => {
   assert.equal(getOctocodeHome({ OCTOCODE_HOME: '/custom/home' }), path.resolve('/custom/home'));

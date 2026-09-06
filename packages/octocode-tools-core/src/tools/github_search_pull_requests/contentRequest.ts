@@ -73,8 +73,8 @@ function normalizeComments(
   const comments = content?.comments;
   if (comments) {
     return {
-      discussion: comments.discussion ?? true,
-      reviewInline: comments.reviewInline ?? true,
+      discussion: comments.discussion === true,
+      reviewInline: comments.reviewInline === true,
       includeBots: comments.includeBots ?? false,
       ...(comments.file ? { file: comments.file } : {}),
     };

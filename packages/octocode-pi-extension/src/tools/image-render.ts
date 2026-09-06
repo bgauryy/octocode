@@ -1,3 +1,4 @@
+import { truncateToWidth } from '../tui/width.js';
 /**
  * image-render — inline terminal images for tool renderers (F1).
  *
@@ -27,7 +28,7 @@ import { Image, detectCapabilities } from '@earendil-works/pi-tui';
 
 import { paint } from '../tui/palette.js';
 import type { PiContext, PiTheme, RenderCallReturn, RenderContext } from '../types.js';
-import { truncateToWidth } from './render-helpers.js';
+
 
 // ─── Limits / constants ───────────────────────────────────────────────────────
 
@@ -268,7 +269,7 @@ export function buildImageLinesFromData(
 /**
  * Wrap an existing renderer so it also emits the image at `filePath` after its
  * own (width-truncated) lines. The appended image lines bypass truncation —
- * this is the only sanctioned way to combine makeRenderer output with images.
+ * this is the only sanctioned way to combine component output with images.
  */
 export function appendImageLines(
   base: RenderCallReturn,

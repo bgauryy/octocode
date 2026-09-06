@@ -6,7 +6,7 @@ import { Spinner } from '../../utils/spinner.js';
 import {
   checkAndPrintEnvironmentWithLoader,
   hasEnvironmentIssues,
-} from '../install/index.js';
+} from '../install/environment.js';
 import { printGoodbye, printWelcome } from '../header.js';
 import { getAppState, type AppState } from '../state.js';
 import { runToolTerminalFlow } from '../tool-terminal.js';

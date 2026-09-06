@@ -1,13 +1,15 @@
 // The human-facing `tools` (no args) listing: tools grouped by category with
 // concise descriptions, plus the schema/run/json quick-reference footer.
 import { c, bold, dim } from '../../utils/colors.js';
-import { getDirectToolCategory } from '@octocodeai/octocode-tools-core/schema';
+import {
+  getDirectToolCategory,
+  getToolAvailability,
+} from '@octocodeai/octocode-tools-core/schema';
 import {
   TOOL_CATEGORIES,
   TOOL_DEFINITIONS,
   getOptionalToolMetadata,
   getToolEnableInstruction,
-  getToolAvailability,
 } from './registry.js';
 import { formatConciseToolDescription } from './formatting.js';
 

@@ -13,11 +13,11 @@
     "directory": "packages/octocode-benchmark"
   },
   "scripts": {
-    "build": "echo 'No build step for benchmark package'",
-    "lint": "echo 'Markdown-only package — no scripts to lint'",
-    "typecheck": "echo 'Markdown-only package — nothing to typecheck'",
-    "test": "echo 'Markdown-only package — no automated tests'",
-    "verify": "echo 'Markdown-only package — nothing to verify'"
+    "build": "echo 'Source-only benchmark package; no build artifacts required'",
+    "lint": "node ../../node_modules/eslint/bin/eslint.js tests",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck --types node tests/*.test.ts",
+    "test": "node ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts && python3 -m unittest discover -s compare/bin -p 'test_*.py'",
+    "verify": "yarn lint && yarn typecheck && yarn test"
   },
   "type": "module"
 }

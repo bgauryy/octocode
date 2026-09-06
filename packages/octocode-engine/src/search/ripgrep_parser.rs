@@ -8,10 +8,10 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use serde::Deserialize;
 
+use crate::text::utf8_offsets::byte_to_char_offset_inner;
 use crate::types::{
     RipgrepFile, RipgrepMatch, RipgrepParseOptions, RipgrepParseResult, RipgrepStats,
 };
-use crate::utf8_offsets::byte_to_char_offset_inner;
 
 // ── ripgrep --json wire types ─────────────────────────────────────────────────
 

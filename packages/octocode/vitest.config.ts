@@ -8,12 +8,10 @@ const securityMock = resolve(
   __dirname,
   'tests/__mocks__/octocode-engine-security.ts'
 );
-const mcpPublicSource = resolve(__dirname, '../octocode-mcp/src/public.ts');
 
 export default defineConfig({
   resolve: {
     alias: {
-      'octocode-mcp/public': mcpPublicSource,
       // Redirect every octocode-engine security import to the test stub so
       // vitest never tries to dlopen the native Rust binary.
       '@octocodeai/octocode-engine/mask': securityMock,
@@ -36,10 +34,10 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.ts'],
       thresholds: {
-        statements: 68,
-        branches: 57,
-        functions: 77,
-        lines: 69,
+        statements: 70,
+        branches: 60,
+        functions: 80,
+        lines: 71,
       },
       exclude: [
         'src/index.ts',

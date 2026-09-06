@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PUBLIC_TOOL_DESCRIPTIONS } from '../../../descriptions.js';
 
 import type { ToolSpec } from '../../types/index.js';
 import {
@@ -18,19 +19,24 @@ export const ghGetFileContent: ToolSpec = defineTool({
   type: 'Github',
   shortDescription:
     'Read a file or a specific region from a GitHub repository.',
-  instructions: `Read a known GitHub path after search or structure discovery; a complete search snippet needs no reread. For large files, get a symbols outline, then an exact range or match. Read small config files whole with minify:"none".
-Choose fullContent, matchString, or startLine+endLine. Partial content cannot prove absence; continue with the returned charOffset. matchedLines are LSP anchors; match ranges and offsets are not. type:"directory" returns localPath when local access is enabled; otherwise use ghSearch operation:"tree".`,
+  instructions: PUBLIC_TOOL_DESCRIPTIONS.ghGetFileContent,
   schema: {
+    branch:
+      'Exact branch, tag, or commit ref; defaults to the repository default branch.',
     startLine: 'Requires endLine; exclusive with fullContent/matchString.',
     endLine: 'Requires startLine; must be >= startLine.',
-    fullContent: 'Whole small file; exclusive with range/match.',
-    matchString: 'Anchor returning padded matchRanges and exact matchedLines.',
+    fullContent:
+      'Whole file, default minify:none; only explicit character windows paginate. Exclusive with range/match.',
+    matchString:
+      'Anchor returning padded matchRanges and exact matchedLines; preserves matched text without minification.',
     matchStringIsRegex: 'Makes matchString a regex.',
     matchStringCaseSensitive: 'Case-sensitive matchString.',
     type: '"file" reads; "directory" materializes localPath when clone/local access is enabled—otherwise use ghSearch operation:"tree".',
     forceRefresh: 'Bypass the 24h fetch cache and re-read from GitHub.',
-    charOffset: 'Copy pagination.nextCharOffset.',
-    minify: '"symbols" outline, "standard" compact, "none" exact.',
+    charOffset:
+      'Character continuation offset; copy the complete returned next query.',
+    minify:
+      '"symbols" paginated outline (no range/match selectors), "standard" compact source, "none" unminified. Security redaction applies. Default none for fullContent, standard otherwise; matches force none.',
   },
 });
 

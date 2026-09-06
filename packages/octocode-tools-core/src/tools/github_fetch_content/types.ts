@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '../../toolContract/schemas.js';
+import type { FileContentQuerySchema } from '../../toolContract/input/resources/tools/ghGetFileContent.js';
 import type { MinifyMode } from '../../scheme/fields.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
@@ -26,6 +26,9 @@ export interface GitHubFileContentApiData {
   startLine?: number;
   endLine?: number;
   isPartial?: boolean;
+  errorCode?: 'contentSecurityLimit';
+  terminalLimit?: boolean;
+  partialReasons?: Array<'security-selected-view-size-limit'>;
   totalLines?: number;
   sourceChars?: number;
 
@@ -40,8 +43,6 @@ export interface GitHubFileContentApiData {
   cached?: boolean;
   matchNotFound?: boolean;
   searchedFor?: string;
-
-  signaturesExtracted?: boolean;
 }
 
 interface GitHubFileContentApiResultBase {
@@ -71,7 +72,6 @@ export interface DirectoryFetchResult {
   savedFileCount: number;
   skipped: {
     nonFile: number;
-    missingDownloadUrl: number;
     oversized: number;
     binary: number;
     fileLimit: number;

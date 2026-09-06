@@ -33,7 +33,9 @@ pub fn validate(
             .utf(true)
             .ucp(true)
             .jit_if_available(true)
-            .max_jit_stack_size(Some(crate::ripgrep_search::PCRE2_MAX_JIT_STACK_BYTES));
+            .max_jit_stack_size(Some(
+                crate::search::ripgrep_search::PCRE2_MAX_JIT_STACK_BYTES,
+            ));
         return match builder.build(pattern) {
             Ok(_) => RipgrepPatternValidationResult {
                 valid: true,

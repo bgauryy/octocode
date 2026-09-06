@@ -3,8 +3,6 @@ import type {
   LSPRange,
 } from '@octocodeai/octocode-engine/lsp/types';
 
-export { LSP_GET_SEMANTICS_TOOL_NAME } from '../../toolNames.js';
-
 export const SEMANTIC_CONTENT_TYPES = [
   'definition',
   'references',
@@ -32,6 +30,7 @@ export type SemanticQueryBase = {
   workspaceRoot?: string;
   page?: number;
   pageSize?: number;
+  snapshot?: string;
   contextLines?: number;
   format?: SemanticOutputFormat;
   goal?: string;
@@ -146,6 +145,8 @@ export type SemanticEmptyCategory =
   | 'unsupportedOperation'
   | 'symbolNotFound'
   | 'anchorFailed'
+  | 'paginationChanged'
+  | 'paginationSnapshotRequired'
   | 'noLocations'
   | 'noReferences'
   | 'noHover'
@@ -157,6 +158,14 @@ export type SemanticEmptyCategory =
 export type SemanticEmptyState = {
   category: SemanticEmptyCategory;
   reason: string;
+};
+
+export type ConsumerWarmupStats = {
+  candidates: number;
+  warmedFiles: number;
+  skippedLarge: number;
+  possiblyTruncated: boolean;
+  incompleteReasons?: Array<'fileCap' | 'fileRead' | 'search'>;
 };
 
 export type LspSemanticEnvelope = {
@@ -179,12 +188,8 @@ export type LspSemanticEnvelope = {
         byFile?: unknown[];
         totalReferences: number;
         totalFiles: number;
-        warmup?: {
-          candidates: number;
-          warmedFiles: number;
-          skippedLarge: number;
-          possiblyTruncated: boolean;
-        };
+        definitionOnly?: boolean;
+        warmup?: ConsumerWarmupStats;
         empty?: SemanticEmptyState;
       }
     | {
@@ -194,8 +199,10 @@ export type LspSemanticEnvelope = {
         calls: unknown[];
         incomingCalls?: number;
         outgoingCalls?: number;
+        warmup?: ConsumerWarmupStats;
         completeness: {
           complete: boolean;
+          consumerWarmupIncomplete?: true;
           truncatedByDepth: boolean;
           truncatedByBudget?: boolean;
           visitedNodeCount?: number;
@@ -209,7 +216,11 @@ export type LspSemanticEnvelope = {
       }
     | { kind: 'hover'; markdown?: string; text?: string; range?: LSPRange }
     | { kind: 'typeDefinition'; locations: Array<CompactLocation | string> }
-    | { kind: 'implementation'; locations: Array<CompactLocation | string> }
+    | {
+        kind: 'implementation';
+        locations: Array<CompactLocation | string>;
+        warmup?: ConsumerWarmupStats;
+      }
     | {
         kind: 'documentSymbols';
         symbols: unknown[];
@@ -240,13 +251,18 @@ export type LspSemanticEnvelope = {
         warningCount: number;
         empty?: SemanticEmptyState;
       }
-    | { kind: 'empty'; category: SemanticEmptyCategory; reason: string };
+    | {
+        kind: 'empty';
+        category: SemanticEmptyCategory;
+        reason: string;
+        warmup?: ConsumerWarmupStats;
+      };
   pagination?: unknown;
   warnings?: string[];
   hints?: string[];
   terminalLimit?: boolean;
   truncated?: boolean;
-  partialReasons?: Array<'warmupCap' | 'depth' | 'budget'>;
+  partialReasons?: Array<'warmupCap' | 'warmupIncomplete' | 'depth' | 'budget'>;
   next?: Record<
     string,
     {

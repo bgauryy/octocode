@@ -1,4 +1,5 @@
 import { contextUtils } from '../../../utils/contextUtils.js';
+import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import {
   applyPagination,
   createPaginationInfo,
@@ -18,6 +19,56 @@ import { sourceSizeFields, type FileStats } from './validation.js';
 import type { ExtractionState } from './extraction.js';
 
 export type ContentView = 'none' | 'standard' | 'symbols';
+
+/** Sanitize a complete extracted view before character offsets are assigned. */
+export function sanitizeReturnedText(
+  text: string,
+  queryPath: string
+): { text: string; warning?: string; limited: boolean } {
+  const sanitized = ContentSanitizer.sanitizeContent(text, queryPath);
+  return {
+    text: sanitized.content,
+    limited: sanitized.secretsDetected.includes('content-size-exceeded'),
+    warning: sanitized.hasSecrets
+      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
+      : undefined,
+  };
+}
+
+export function buildSecurityLimitResult(
+  query: FetchContentQuery,
+  totalLines: number,
+  firstSelectedLine = query.startLine ?? 1
+): LocalGetFileContentToolResult {
+  const canReadSmallerLineView =
+    totalLines > 1 &&
+    (query.startLine === undefined || query.startLine !== query.endLine);
+  return {
+    path: query.path,
+    status: 'error',
+    errorCode: 'contentSecurityLimit',
+    error:
+      'The selected content view exceeds the secret scanner size limit. Character windows cannot safely split unscanned content. Select a smaller source-line range.',
+    totalLines,
+    isPartial: true,
+    terminalLimit: true,
+    partialReasons: ['security-selected-view-size-limit'],
+    ...(canReadSmallerLineView && {
+      next: {
+        readBoundedLines: buildNextPageContinuation(
+          'localGetFileContent',
+          {
+            path: query.path,
+            startLine: firstSelectedLine,
+            endLine: firstSelectedLine,
+            minify: 'none',
+          },
+          'The selected view is too large to scan safely. Read one source line; this starts a different source-line view, not a continuation of the rejected character view.'
+        ),
+      },
+    }),
+  } as LocalGetFileContentToolResult;
+}
 
 export interface ContentWindow {
   /** The windowed (paginated) slice of the input content. */
@@ -103,6 +154,8 @@ export async function paginateContentWindow(
       ? { pageSize: effectiveCharLength }
       : undefined
   );
+  // Semantic boundaries vary in size; offsets are exact, page counts are estimates.
+  pagination.pageCountsKind = 'estimated';
 
   let nextBlockChar: number | undefined;
   if (
@@ -182,8 +235,19 @@ export async function buildSuccessResult(
       )
     : extraction.resultContent;
 
+  // Splitting first can divide a recognizable token into harmless-looking
+  // fragments. Continuations must address the same sanitized view on each call.
+  const sanitized = sanitizeReturnedText(outputContent, queryPath);
+  if (sanitized.limited) {
+    return buildSecurityLimitResult(
+      query,
+      totalLines,
+      extraction.actualStartLine
+    );
+  }
+  if (sanitized.warning) warnings.push(sanitized.warning);
   const window = await paginateContentWindow(
-    outputContent,
+    sanitized.text,
     query,
     defaultOutputCharLength
   );

@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { getOctocodeHome } from '../env.js';
+import { getOctocodeHome } from '@octocodeai/config';
 import type { PiContext, PiInstance } from '../types.js';
 import { runMultiSelectOverlay, type SelectOverlayItem } from './ui-overlays.js';
 

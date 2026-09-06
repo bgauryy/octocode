@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { executeBulkOperation } from '../../src/utils/response/bulk.js';
+import { executeBulkOperation } from '../../src/utils/response/bulk/response.js';
 import { formatFinalizedResponse } from '../../src/utils/response/groupedFinalizer.js';
 
 describe('executeBulkOperation batch correlation', () => {
@@ -101,7 +101,8 @@ describe('executeBulkOperation batch correlation', () => {
     expect(row?.meta.diagnostics?.codes ?? []).not.toContain(
       'continuationMissing'
     );
-    const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
+    const text =
+      result.content[0]?.type === 'text' ? result.content[0].text : '';
     expect(text).not.toContain('continuationMissing');
     expect(text).toContain('nextPage');
   });

@@ -6,8 +6,8 @@
  * `rankFiles` composes the scoring engine (`scoreFileWithRarity`,
  * `buildCandidateTermRarity`) over the whole candidate set: it applies the
  * candidate cap, builds candidate-local term rarity once, scores every file,
- * and produces a total, deterministic order. See the module doc in
- * `../rankingProfile.ts` for the full contract.
+ * and produces a total, deterministic order: score descending, match count
+ * descending, then path ascending. Equal inputs always produce equal rankings.
  */
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 

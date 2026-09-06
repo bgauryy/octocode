@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findDirectToolDefinition } from '../../src/tools/directToolCatalog.js';
+import { findDirectToolDefinition } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
 import { buildGitHubSearchFinalizer } from '../../src/tools/github_search/finalizer.js';
 

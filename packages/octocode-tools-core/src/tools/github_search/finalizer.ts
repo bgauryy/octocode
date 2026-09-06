@@ -2,7 +2,7 @@ import type { BulkFinalizer } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
 import { MAX_PAGE_NUMBER } from '../../config.js';
 import { formatFinalizedResponse } from '../../utils/response/groupedFinalizer.js';
-import { buildGhSearchCodeFinalizer } from '../github_search_code/finalizer.js';
+import { buildGhSearchCodeFinalizer } from '../github_search_code/finalizer/build.js';
 import type { GitHubSearchQuery } from './scheme.js';
 
 const GITHUB_SEARCH_RESULT_WINDOW = 1000;
@@ -220,7 +220,6 @@ function addProviderPartialState(
   operation: GitHubSearchQuery['operation'],
   query: GitHubSearchQuery
 ): Record<string, unknown> {
-  if (data.terminalLimit === true) return data;
   const incompleteResults = data.incompleteResults === true;
   const existingReasons = Array.isArray(data.partialReasons)
     ? data.partialReasons.filter(
@@ -289,15 +288,17 @@ function normalizeContinuations<T>(value: T): T {
     if (record.query && typeof record.query === 'object') {
       const query = { ...(record.query as Record<string, unknown>) };
       if (operation === 'tree') {
-        query.pageSize = query.itemsPerPage;
+        if (query.itemsPerPage !== undefined)
+          query.pageSize = query.itemsPerPage;
         delete query.itemsPerPage;
       } else if (operation === 'repositories') {
-        query.pageSize = query.limit;
+        if (query.limit !== undefined) query.pageSize = query.limit;
         delete query.limit;
-        query.topics = query.topicsToSearch;
+        if (query.topicsToSearch !== undefined)
+          query.topics = query.topicsToSearch;
         delete query.topicsToSearch;
       } else if (operation === 'code') {
-        query.pageSize = query.limit;
+        if (query.limit !== undefined) query.pageSize = query.limit;
         delete query.limit;
       }
       record.query = {

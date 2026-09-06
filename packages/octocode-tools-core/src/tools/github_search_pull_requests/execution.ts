@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../toolNames.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { handleCatchError, safeParseOrError } from '../utils.js';
 import { createLazyProviderContext } from '../providerExecution.js';

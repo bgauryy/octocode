@@ -11,7 +11,7 @@ import type {
 } from '../scheme.js';
 import type { RepoState } from '../execution.js';
 
-import { type CodeSearchPagination } from '../../providerMappers.js';
+import { type CodeSearchPagination } from '../../providerMappers/codeSearch.js';
 import {
   applyExactMatchRanking,
   hasScopedGitHubQuery,
@@ -134,6 +134,7 @@ export function buildGhSearchCodeFinalizer<
           ...(meta ? { meta } : {}),
           data: {
             files: [],
+            pagination: paginationByQuery.get(index),
             ...(nonExistentScope ? { nonExistentScope } : {}),
             ...(incompleteResults ? { incompleteResults } : {}),
           },
@@ -244,7 +245,6 @@ export function buildGhSearchCodeFinalizer<
       });
     }
 
-    // Complex code queries can silently under-match instead of returning 422.
     const COMPLEX_QUERY_KEYWORD_THRESHOLD = 8;
     const unexplainedComplexEmpty = emptyQueries.filter(
       ({ index, nonExistentScope, incompleteResults }) => {

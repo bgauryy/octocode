@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RipgrepQuerySchema as CoreRipgrepQuerySchema } from '../../toolContract/schemas.js';
+import { RipgrepQuerySchema as CoreRipgrepQuerySchema } from '../../toolContract/input/resources/tools/localTextOperation.js';
 import {
   LOCAL_MAX_DEPTH,
   MAX_MATCH_CONTENT_LENGTH,
@@ -121,19 +121,28 @@ const LocalRipgrepBaseQuerySchema = describeQuerySchema(
 export const LocalRipgrepQuerySchema = LocalRipgrepBaseQuerySchema.superRefine(
   (query, ctx) => {
     if (query.mode === 'structural') {
-      if (!query.pattern && !query.rule) {
+      if (query.pattern === undefined && query.rule === undefined) {
         ctx.addIssue({
           code: 'custom',
           message: 'mode:"structural" requires `pattern` or `rule`.',
           path: ['pattern'],
         });
       }
-      if (query.pattern && query.rule) {
+      if (query.pattern !== undefined && query.rule !== undefined) {
         ctx.addIssue({
           code: 'custom',
           message: '`pattern` and `rule` are mutually exclusive.',
           path: ['rule'],
         });
+      }
+      for (const field of ['pattern', 'rule'] as const) {
+        if (query[field] !== undefined && query[field].trim().length === 0) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `Structural \`${field}\` must not be empty or whitespace.`,
+            path: [field],
+          });
+        }
       }
       // Search knobs are meaningless on an AST query — reject non-default values.
       if (query.wholeWord) {
@@ -322,7 +331,15 @@ export interface LocalSearchCodeData {
   next?: Record<string, ToolContinuation>;
   terminalLimit?: boolean;
   truncated?: boolean;
-  partialReasons?: Array<'maxFiles'>;
+  partialReasons?: Array<'maxFiles' | 'structuralLimit' | 'skippedFiles'>;
+  diagnostics?: Array<{
+    code: string;
+    severity: string;
+    stage: string;
+    message: string;
+    path?: string;
+    recovery?: string;
+  }>;
 }
 
 export type LocalSearchCodeOutput = BulkToolOutput<LocalSearchCodeData>;

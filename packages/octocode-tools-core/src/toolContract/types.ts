@@ -1,10 +1,3 @@
-export type {
-  ToolNames,
-  ToolSchema,
-  ToolSpec,
-  ToolType,
-} from './input/types/index.js';
-
 import type { ToolNames } from './input/types/index.js';
 
 export interface LocalCompleteMetadata {

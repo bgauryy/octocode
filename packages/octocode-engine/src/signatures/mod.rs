@@ -9,7 +9,7 @@ pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Optio
 pub mod languages;
 pub mod renderer;
 
-use crate::file_extension::get_extension_internal;
+use crate::text::file_extension::get_extension_internal;
 use extractor::{extract, LangExtractConfig};
 
 /// Runs `f` (a parse + AST/tree walk) on a dedicated thread with a much
@@ -49,11 +49,11 @@ pub const SIGNATURES_ONLY_HINT: &str = concat!(
 /// `extract_signatures_inner` but skips the renderer, so callers can map line
 /// numbers to char offsets without string parsing.
 ///
-/// Returns an empty Vec for data/config files (`NO_SYMBOL_EXTS`), files above
-/// the 1 MB guard, and any language without a tree-sitter grammar (there is no
+/// Returns an empty Vec for files above the 1 MB guard and any language without
+/// a registered signature body query (there is no
 /// regex/heuristic fallback — only real AST parsing produces boundaries).
 pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usize, String)> {
-    if content.len() > crate::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE {
         return Vec::new();
     }
     // Wrap the tree-sitter parser path in `catch_unwind` so a parser panic on
@@ -62,11 +62,8 @@ pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usiz
     // guard on the sibling `extract_signatures_inner`.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let ext = get_extension_internal(file_path, true, "txt");
-        if NO_SYMBOL_EXTS.contains(&ext.as_str()) {
-            return Vec::new();
-        }
         // Tree-sitter is the ONLY signature path. Grammars wired for structural
-        // search only (empty body_query: HTML/CSS/SCSS/LESS/Scala/config) and
+        // search only (empty body_query: markup, stylesheets, and data) and
         // languages with no grammar produce no boundaries.
         let Some(entry) = languages::find_entry(&ext).filter(|e| !e.body_query.is_empty()) else {
             return Vec::new();
@@ -240,7 +237,7 @@ pub fn get_semantic_boundary_offsets_inner(content: &str, file_path: &str) -> Ve
 /// Extract a structural skeleton from `content`.
 /// Returns `NNN| text` rendered string or `None`.
 pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     let skeleton = std::panic::catch_unwind(|| {
@@ -249,14 +246,8 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
     })
     .unwrap_or(None)?;
 
-    // Universal anti-growth guard (applied centrally, after rendering, for every
-    // language path). A symbol skeleton exists to COMPRESS — its whole value is
-    // handing the agent fewer bytes than the source file. When the heuristic
-    // fails to drop bodies (a config-shaped `.cjs`/`.mjs`, or a language whose
-    // extractor falls through to the generic brace-depth fallback: Lua, Erlang,
-    // Clojure, VB) the rendered outline can equal or exceed the source. That is
-    // pure loss, so return None and let the caller fall back to the standard/none
-    // view of the real file instead of emitting a bloated "outline".
+    // Return the source view when the rendered outline is no smaller. A file
+    // with few body lines can grow once the outline includes line gutters.
     //
     // The comparison is on the rendered output the agent actually receives
     // (gutter included) — that is the byte count we promise never to inflate.
@@ -269,44 +260,10 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
     Some(skeleton)
 }
 
-/// Extensions where symbol extraction has no semantic value:
-/// data/config formats have key-value pairs, not code signatures;
-/// most prose formats have no reliable navigation anchors. These short-circuit
-/// to None before the tree-sitter lookup (some have grammars wired for
-/// structural search, but their outline would be noise).
-const NO_SYMBOL_EXTS: &[&str] = &[
-    // Data / config — no code signatures whatsoever
-    "json",
-    "jsonc",
-    "json5",
-    "yaml",
-    "yml",
-    "toml",
-    "ini",
-    "cfg",
-    "conf",
-    "config",
-    "properties",
-    "env",
-    "csv",
-    "tsv",
-    "xml",
-    "svg",
-    // Prose/docs without a dedicated outline extractor.
-    "rst",
-    "txt",
-    "log",
-];
-
 fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
-    // Data/config formats have no code signatures.
-    if NO_SYMBOL_EXTS.contains(&ext) {
-        return None;
-    }
-
     // Tree-sitter is the ONLY signature path — real AST parsing, no regex
-    // heuristics. Grammars wired for structural search only (empty body_query:
-    // HTML/CSS/SCSS/LESS/Scala/config) and any language without a grammar return
+    // heuristics. Grammars wired for structural search only (empty body_query)
+    // and any language without a grammar return
     // None, and the caller falls back to the standard/none view of the file.
     let entry = languages::find_entry(ext).filter(|e| !e.body_query.is_empty())?;
     let cfg = LangExtractConfig {
@@ -423,7 +380,7 @@ mod tests {
         assert!(!s.contains("printf"), "body dropped");
     }
 
-    // ── NO_SYMBOL_EXTS denylist: data / config / unsupported prose return None ─
+    // Data / config / unsupported prose have no signature grammar.
     #[test]
     fn data_and_unsupported_prose_formats_return_none() {
         let cases: &[(&str, &str)] = &[
@@ -440,16 +397,33 @@ mod tests {
                 extract(content, path).is_none(),
                 "{path} has no code signatures — must return None"
             );
+            assert!(extract_boundary_lines_inner(content, path).is_empty());
+            assert!(get_semantic_boundary_offsets_inner(content, path).is_empty());
         }
     }
 
     #[test]
-    fn languages_without_a_grammar_return_none() {
-        // Tree-sitter is the only signature path. Languages wired for structural
-        // search only (empty body_query: Lua, Erlang, SQL, Kotlin, HCL, Zig, R,
-        // Julia, OCaml, Proto, …) and languages with no grammar at all (Markdown,
-        // GraphQL) produce no outline — the caller shows the real file instead.
-        // Ruby, PHP, and Elixir now have body_queries and do produce outlines.
+    fn structural_only_grammars_never_produce_signature_views() {
+        for entry in languages::all_entries()
+            .iter()
+            .filter(|entry| entry.body_query.is_empty())
+        {
+            for ext in entry.extensions {
+                let path = format!("fixture.{ext}");
+                let content = "function example() {\n  return value;\n}\n";
+                assert!(extract_signatures_inner(content, &path).is_none(), ".{ext}");
+                assert!(
+                    extract_boundary_lines_inner(content, &path).is_empty(),
+                    ".{ext}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_or_nonshrinking_outlines_return_none() {
+        // Unsupported/structural-only languages have no outline. The tiny Lua
+        // example also returns None because rendering would not shrink it.
         for (content, path) in &[
             ("local x = 1\nfunction f() return x end\n", "a.lua"),
             ("-module(d).\nrev(L) -> L.\n", "a.erl"),
@@ -635,6 +609,7 @@ mod tests {
                 markers: &["public class Fixture", "    public Fixture", "    public void handle"],
                 excluded_markers: &[],
             },
+            #[cfg(feature = "tree-sitter-c-sharp")]
             BoundaryFixture {
                 name: "C#",
                 path: "Fixture.cs",

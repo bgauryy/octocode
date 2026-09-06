@@ -1,3 +1,7 @@
+import type {
+  CollectionPages,
+  CollectionStates,
+} from './prContentFetcher/collectionPaging.js';
 import type { components } from '@octokit/openapi-types';
 import type { RestEndpointMethodTypes } from '@octokit/plugin-rest-endpoint-methods';
 import type { DiffPreview } from '../utils/parsers/diff.js';
@@ -18,9 +22,11 @@ export type IssueSearchResultItem =
 
 export type DiffEntry = components['schemas']['diff-entry'];
 
-export type PullRequestItem = components['schemas']['pull-request'];
+export type PullRequestItem =
+  RestEndpointMethodTypes['pulls']['get']['response']['data'];
 
-export type PullRequestSimple = components['schemas']['pull-request-simple'];
+export type PullRequestSimple =
+  RestEndpointMethodTypes['pulls']['list']['response']['data'][number];
 
 export type IssueComment = components['schemas']['issue-comment'];
 
@@ -48,6 +54,7 @@ export interface CommitInfo {
   author: string;
   date: string;
   files: CommitFileInfo[];
+  filesCollectionState?: import('./prContentFetcher/collectionPaging.js').CollectionState;
 }
 
 export interface HistoryCommitFile {
@@ -56,6 +63,9 @@ export interface HistoryCommitFile {
   additions: number;
   deletions: number;
   patch?: string;
+  isPartial?: true;
+  terminalLimit?: true;
+  patchUnavailable?: { reason: 'providerOmittedPatch' };
   patchPagination?: {
     charOffset: number;
     charLength: number;
@@ -232,6 +242,13 @@ export interface PRCommentItem {
   inReplyToId?: number | null;
 }
 
+export interface PRProviderLimit {
+  reason: 'providerResultCap';
+  surface: 'commits' | 'changedFiles' | 'commitFiles';
+  maxResults: number;
+  sha?: string;
+}
+
 export type GitHubPullRequestItem = Pick<
   IssueSearchResultItem,
   | 'number'
@@ -263,6 +280,8 @@ export type GitHubPullRequestItem = Pick<
   };
   commits?: CommitInfo[];
   reviews?: PRReviewInfo[];
+  collectionStates?: CollectionStates;
+  providerLimits?: PRProviderLimit[];
   _sanitization_warnings?: string[];
 };
 
@@ -312,6 +331,8 @@ export interface GitHubPullRequestsSearchParams {
   filePage?: number;
   commentPage?: number;
   commitPage?: number;
+  reviewPage?: number;
+  collectionPages?: CollectionPages;
   itemsPerPage?: number;
 }
 

@@ -1,5 +1,5 @@
 import NodeCache from 'node-cache';
-import { incrementGitHubCacheHits } from '../../../shared/index.js';
+import { incrementGitHubCacheHits } from '../../../shared/session/index.js';
 import type { CacheStats } from '../../core/types.js';
 
 export const PENDING_REQUEST_MAX_AGE_MS = 5 * 60 * 1000;

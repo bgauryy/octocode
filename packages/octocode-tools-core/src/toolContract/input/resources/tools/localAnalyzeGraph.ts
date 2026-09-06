@@ -31,6 +31,13 @@ export const localAnalyzeGraph: ToolSpec = defineTool({
     limit: 'Result cap applied before pagination.',
     page: 'Result page, 1-based; advance only while pagination.hasMore.',
     pageSize: 'Results returned per page.',
+    diagnosticPage:
+      'Coverage diagnostic page, independent of result pagination.',
+    diagnosticPageSize: 'Coverage diagnostics per page (default 25).',
+    diagnosticSnapshot:
+      'Snapshot from next.nextDiagnostics; restart if diagnostics changed.',
+    rustWorkspace:
+      'Rust resolution: syntax (default) or opt-in cargo workspace metadata.',
   },
 });
 
@@ -71,6 +78,29 @@ const commonFields = {
   pageSize: clampedInt(1, MAX_LOCAL_ITEMS_PER_PAGE)
     .optional()
     .describe('Results returned per page.'),
+  diagnosticPage: clampedInt(1, MAX_PAGE_NUMBER)
+    .optional()
+    .describe(
+      'Coverage diagnostic page, 1-based and independent of result page.'
+    ),
+  diagnosticPageSize: clampedInt(1, 100)
+    .optional()
+    .describe(
+      'Coverage diagnostics returned per page (default 25, maximum 100).'
+    ),
+  diagnosticSnapshot: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional()
+    .describe(
+      'Diagnostic snapshot from next.nextDiagnostics; detects changes between pages.'
+    ),
+  rustWorkspace: z
+    .enum(['syntax', 'cargo'])
+    .optional()
+    .describe(
+      'Rust resolution: syntax by default; cargo opts into workspace metadata.'
+    ),
 } as const;
 
 const entrypointFields = {

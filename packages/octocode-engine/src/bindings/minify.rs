@@ -8,13 +8,13 @@ use napi_derive::napi;
 /// unchanged; unknown file types use the general strategy.
 #[napi(js_name = "minifyContentSync")]
 pub fn minify_content_sync(content: String, file_path: String) -> String {
-    crate::minifier::minify_content_sync_inner(&content, &file_path)
+    crate::minify::minifier::minify_content_sync_inner(&content, &file_path)
 }
 
 /// Synchronous full minification result.
 #[napi(js_name = "minifyContentResult")]
 pub fn minify_content_result(content: String, file_path: String) -> MinifyResult {
-    crate::minifier::minify_content_result_inner(&content, &file_path)
+    crate::minify::minifier::minify_content_result_inner(&content, &file_path)
 }
 
 /// Full minification on libuv's worker pool.
@@ -33,7 +33,7 @@ pub fn apply_minification(content: String, file_path: String) -> String {
     // test thread — pathologically nested input can crash the whole process
     // on this synchronous, main-thread-blocking entry point.
     crate::signatures::run_on_deep_stack(move || {
-        crate::apply::apply_minification_inner(&content, &file_path)
+        crate::minify::apply::apply_minification_inner(&content, &file_path)
     })
 }
 
@@ -42,7 +42,7 @@ pub fn apply_minification(content: String, file_path: String) -> String {
 #[napi(js_name = "applyContentViewMinification")]
 pub fn apply_content_view_minification(content: String, file_path: String) -> String {
     crate::signatures::run_on_deep_stack(move || {
-        crate::apply::apply_content_view_minification_inner(&content, &file_path)
+        crate::minify::apply::apply_content_view_minification_inner(&content, &file_path)
     })
 }
 
@@ -58,7 +58,7 @@ pub fn remove_comments(content: String, comment_types: serde_json::Value) -> Str
 #[napi(js_name = "minifyConservativeCore")]
 pub fn minify_conservative_core(content: String, config: FileTypeMinifyConfig) -> String {
     with_comment_refs(&config, |comments| {
-        crate::strategies::minify_conservative(&content, comments)
+        crate::minify::strategies::minify_conservative(&content, comments)
     })
 }
 
@@ -67,7 +67,7 @@ pub fn minify_conservative_core(content: String, config: FileTypeMinifyConfig) -
 #[napi(js_name = "minifyAggressiveCore")]
 pub fn minify_aggressive_core(content: String, config: FileTypeMinifyConfig) -> String {
     with_comment_refs(&config, |comments| {
-        crate::strategies::minify_aggressive(&content, comments)
+        crate::minify::strategies::minify_aggressive(&content, comments)
     })
 }
 
@@ -75,81 +75,83 @@ pub fn minify_aggressive_core(content: String, config: FileTypeMinifyConfig) -> 
 /// commas) is stripped before parsing; unparseable input is returned trimmed.
 #[napi(js_name = "minifyJsonCore")]
 pub fn minify_json_core(content: String) -> MinifyResult {
-    json_minify_result(crate::strategies::minify_json_core_inner(&content))
+    json_minify_result(crate::minify::strategies::minify_json_core_inner(&content))
 }
 
 /// Readable JSON view: keeps formatting, strips JSONC noise and trailing
 /// whitespace, collapses blank runs. Valid JSON passes through unchanged.
 #[napi(js_name = "minifyJsonReadable")]
 pub fn minify_json_readable(content: String) -> MinifyResult {
-    json_minify_result(crate::strategies::minify_json_readable_inner(&content))
+    json_minify_result(crate::minify::strategies::minify_json_readable_inner(
+        &content,
+    ))
 }
 
 /// Whitespace-only code cleanup: trim line ends, collapse 3+ blank lines,
 /// preserve indentation.
 #[napi(js_name = "minifyCodeCore")]
 pub fn minify_code_core(content: String) -> String {
-    crate::strategies::minify_code_core(&content)
+    crate::minify::strategies::minify_code_core(&content)
 }
 
 /// Generic text cleanup for unknown file types: trim + collapse blank runs.
 #[napi(js_name = "minifyGeneralCore")]
 pub fn minify_general_core(content: String) -> String {
-    crate::strategies::minify_general_core(&content)
+    crate::minify::strategies::minify_general_core(&content)
 }
 
 /// Markdown view: drops HTML comments, badges, and generated TOCs; compacts
 /// tables and headings; preserves code fences and frontmatter verbatim.
 #[napi(js_name = "minifyMarkdownCore")]
 pub fn minify_markdown_core(content: String) -> String {
-    crate::strategies::minify_markdown_core(&content)
+    crate::minify::strategies::minify_markdown_core(&content)
 }
 
 /// Lightweight CSS cleanup (comment strip + whitespace). See
 /// `minifyCSSQuality` for the lightningcss-backed variant.
 #[napi(js_name = "minifyCSSCore")]
 pub fn minify_css_core(content: String) -> String {
-    crate::strategies::minify_css_core(&content)
+    crate::minify::strategies::minify_css_core(&content)
 }
 
 /// Lightweight HTML/XML cleanup (comment strip + whitespace). See
 /// `minifyHTMLQuality` for the style-aware built-in variant.
 #[napi(js_name = "minifyHTMLCore")]
 pub fn minify_html_core(content: String) -> String {
-    crate::strategies::minify_html_core(&content)
+    crate::minify::strategies::minify_html_core(&content)
 }
 
 /// Heuristic JS minifier (comment strip + whitespace tightening) used when
 /// the OXC pipeline declines the input.
 #[napi(js_name = "minifyJavaScriptCore")]
 pub fn minify_javascript_core(content: String) -> String {
-    crate::strategies::minify_javascript_core(&content)
+    crate::minify::strategies::minify_javascript_core(&content)
 }
 
 /// CSS minification via lightningcss — parser-grade, strips comments and
 /// redundant units.
 #[napi(js_name = "minifyCSSQuality")]
 pub fn minify_css_quality(content: String) -> String {
-    crate::strategies::minify_css_quality(&content)
+    crate::minify::strategies::minify_css_quality(&content)
 }
 
 /// Style-aware HTML cleanup: strips comments, tightens whitespace, and minifies
 /// embedded `<style>` blocks through the existing CSS pipeline.
 #[napi(js_name = "minifyHTMLQuality")]
 pub fn minify_html_quality(content: String) -> String {
-    crate::strategies::minify_html_quality(&content)
+    crate::minify::strategies::minify_html_quality(&content)
 }
 
 /// Remove Python docstrings (module/class/function level) while preserving
 /// all runtime code.
 #[napi(js_name = "stripPythonDocstrings")]
 pub fn strip_python_docstrings(content: String) -> String {
-    crate::comment_remover::strip_python_docstrings(&content)
+    crate::minify::comment_remover::strip_python_docstrings(&content)
 }
 
 fn remove_comments_for_groups(content: &str, groups: &[String]) -> String {
     let refs: Vec<&str> = groups.iter().map(String::as_str).collect();
-    crate::comment_remover::remove_comments(content, &refs)
+    crate::minify::comment_remover::remove_comments(content, &refs)
 }
 
 fn with_comment_refs<R>(

@@ -1,3 +1,4 @@
+import { visibleWidth } from '../tui/width.js';
 /**
  * multi-select-list — pure list state for a checkbox-style multi-select overlay.
  *
@@ -8,7 +9,7 @@
  */
 
 import { Key, matchesKey } from '@earendil-works/pi-tui';
-import { truncatePlainToWidth, visibleWidth } from './render-helpers.js';
+import { truncatePlainToWidth } from './render-helpers.js';
 import { TOKEN, type SemanticToken } from '../tui/palette.js';
 import { SEP } from '../tui/palette.js';
 

@@ -6,7 +6,7 @@ import {
   GITHUB_STRUCTURE_DEFAULT_ENTRIES_PER_PAGE,
   GITHUB_STRUCTURE_MAX_ENTRIES_PER_PAGE,
 } from '../../src/config.js';
-import { buildRepoSearchQuery } from '../../src/github/queryBuilders.js';
+import { buildRepoSearchQuery } from '../../src/github/queryBuilders/codeAndRepo.js';
 import { GitHubSearchQuerySchema } from '../../src/tools/github_search/scheme.js';
 import { GitHubCodeSearchQueryLocalSchema } from '../../src/tools/github_search_code/scheme.js';
 import { GitHubReposSearchSingleQueryLocalSchema } from '../../src/tools/github_search_repos/scheme.js';

@@ -9,8 +9,9 @@ import {
   isPathInsideSessionRoot,
   readPlanProjection,
   resolveSessionIdentity,
+  SESSION_ARTIFACT_VERSION,
   writePlanBranchSnapshot,
-  type PlanProjectionV1,
+  type PlanBranchSnapshotV1,
 } from '../src/tools/session-artifacts.js';
 import { extensionHome } from '../src/extension-paths.js';
 
@@ -129,8 +130,10 @@ test('manifest tracks bounded producer paths and NDJSON events append complete p
   ctx.registerProducer('compaction', 'compaction/first.md');
 
   const manifest = ctx.inspect()!;
-  assert.equal(manifest.version, 1);
+  assert.equal(manifest.version, SESSION_ARTIFACT_VERSION);
+  assert.equal(manifest.sessionId, 'manifest-test');
   assert.equal(manifest.sessionKey, ctx.identity.sessionKey);
+  assert.match(manifest.backlogId, /^pi-backlog-[a-f0-9]{24}$/);
   assert.equal(manifest.identitySource, 'session-id');
   assert.equal('rawId' in manifest, false);
   assert.deepEqual(manifest.producers.plan?.paths, ['plan/state.json']);
@@ -157,7 +160,7 @@ test('branch snapshots are immutable/idempotent and projection CAS rejects stale
   assert.equal(writePlanBranchSnapshot(firstCtx, snapshot), snapshotPath);
   assert.throws(() => writePlanBranchSnapshot(firstCtx, { ...snapshot, state: { phase: 'accepted' } }), /integrity|immutable|conflict/i);
 
-  const generationOne: PlanProjectionV1<{ phase: string }> = { ...snapshot };
+  const generationOne: PlanBranchSnapshotV1<{ phase: string }> = { ...snapshot };
   const winner = compareAndSwapPlanProjection(firstCtx, null, generationOne);
   assert.equal(winner.ok, true);
 
@@ -168,7 +171,7 @@ test('branch snapshots are immutable/idempotent and projection CAS rejects stale
   const stale = compareAndSwapPlanProjection(firstCtx, 0, { ...generationOne, generation: 2 });
   assert.deepEqual(stale, { ok: false, reason: 'generation-conflict', actualGeneration: 1 });
 
-  const generationTwo: PlanProjectionV1<{ phase: string }> = {
+  const generationTwo: PlanBranchSnapshotV1<{ phase: string }> = {
     ...generationOne,
     sourceEntryId: 'entry/two',
     generation: 2,

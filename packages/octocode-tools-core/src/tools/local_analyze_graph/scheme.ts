@@ -5,7 +5,8 @@ import type {
   LocalItemPagination,
   ToolContinuation,
 } from '../../scheme/pagination.js';
-import { LocalAnalyzeGraphQuerySchema } from '../../toolContract/schemas.js';
+import { LocalAnalyzeGraphQuerySchema } from '../../toolContract/input/resources/tools/localAnalyzeGraph.js';
+import type { GraphCoverage } from '../../graph/types.js';
 
 export { LocalAnalyzeGraphQuerySchema };
 
@@ -38,6 +39,7 @@ export interface DeadClusterOutput {
 }
 
 export interface AnalyzeGraphOutput {
+  coverage?: GraphCoverage;
   status?: 'empty' | 'error';
   error?: string;
   errorCode?: string;
@@ -48,7 +50,15 @@ export interface AnalyzeGraphOutput {
   filesSkipped?: number;
   truncated?: boolean;
   terminalLimit?: boolean;
-  partialReasons?: Array<'maxFiles' | 'limit' | 'filesSkipped'>;
+  partialReasons?: Array<
+    | 'maxFiles'
+    | 'limit'
+    | 'filesSkipped'
+    | 'parseRecovery'
+    | 'unresolvedImports'
+    | 'unsupportedLinking'
+    | 'diagnosticPage'
+  >;
   totalAvailable?: number;
   results?: Array<Record<string, unknown>>;
   summary?: Record<string, unknown>;
@@ -56,32 +66,5 @@ export interface AnalyzeGraphOutput {
   next?: Record<string, ToolContinuation>;
   warnings?: string[];
   confidence?: 'low';
-  [key: string]: unknown;
-}
-
-// Internal compatibility type while dead-code policy remains in its existing
-// module. It is not exported as a public tool or schema.
-export type FindDeadCodeQuery =
-  Extract<AnalyzeGraphQuery, { operation: 'deadCode' }> extends infer T
-    ? T extends object
-      ? Omit<T, 'operation'>
-      : never
-    : never;
-
-export interface FindDeadCodeOutput {
-  status?: 'empty' | 'error';
-  error?: string;
-  errorCode?: string;
-  rawResponseChars?: number;
-  path?: string;
-  filesScanned?: number;
-  filesSkipped?: number;
-  entrypointsResolved?: string[];
-  deadExports?: DeadExportOutput[];
-  deadClusters?: DeadClusterOutput[];
-  pagination?: LocalItemPagination;
-  next?: Record<string, ToolContinuation>;
-  confidence?: 'low';
-  warnings?: string[];
   [key: string]: unknown;
 }

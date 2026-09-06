@@ -11,19 +11,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { test, beforeEach, afterEach } from 'vitest';
+import { test, beforeEach, afterEach, vi } from 'vitest';
 import { Type } from 'typebox';
 import {
   spawnRpcAgent,
-  registerAgentTools,
   setAgentProcessFactoryForTests,
   isSubagentProcess,
   MAX_AGENT_RECORDS,
   MAX_ACTIVE_AGENTS,
   DEFAULT_SPAWN_POLICY,
-  DEFAULT_IDLE_REAP_MS,
   evaluateStepBudget,
-  findReapableIdleAgents,
   formatElapsed,
   formatAgentLedgerDetails,
   getWorkerTranscript,
@@ -32,13 +29,17 @@ import {
   isLedgerTickerActiveForTests,
   stopLedgerTickerForTests,
   extractDeltaSummary,
-  agentPanelLines,
+  listVisibleWorkerLedgerEntries,
   handleOctocodeAgentsCommand,
+  waitForAgent,
+  findLivePlanWorker,
 } from '../src/tools/agent-tools.js';
-import { registerSpawnSubagentTool } from '../src/tools/spawn-subagent-tool.js';
+import { registerUnifiedAgentTool } from '../src/tools/unified-agent-tool.js';
 import type { ToolDefinition } from '../src/types.js';
 import { makeMockAgentProcess } from './helpers/mock-process.js';
-import { workspaceAgentRoot } from '../src/tools/session-artifacts.js';
+import { extensionWorkspaceRoot } from '../src/extension-paths.js';
+import { activePlanScope, clearPlan, setPlan } from '../src/tools/active-plan.js';
+import { registerPlanTool } from '../src/tools/plan-tool.js';
 
 test('extractDeltaSummary prefers the latest structured worker line', () => {
   const out = '[STATUS] booting\nsome noise\n[ACTION] editing src/foo.ts\ntrailing chatter';
@@ -78,21 +79,6 @@ test('evaluateStepBudget disabled for non-positive budget', () => {
   assert.equal(evaluateStepBudget(1000, Number.NaN).exceeded, false);
 });
 
-test('findReapableIdleAgents: terminal always reapable, idle only past TTL', () => {
-  const now = 1_000_000_000_000;
-  const recs = [
-    { id: 'exited-1', status: 'exited' as const, updatedAt: now },
-    { id: 'failed-1', status: 'failed' as const, updatedAt: now },
-    { id: 'killed-1', status: 'killed' as const, updatedAt: now },
-    { id: 'idle-fresh', status: 'idle' as const, updatedAt: now - 60_000 },
-    { id: 'idle-stale', status: 'idle' as const, updatedAt: now - (DEFAULT_IDLE_REAP_MS + 1) },
-    { id: 'running-1', status: 'running' as const, updatedAt: now - DEFAULT_IDLE_REAP_MS * 10 },
-  ];
-  const { terminal, idle } = findReapableIdleAgents(recs, { now });
-  assert.deepEqual(terminal.sort(), ['exited-1', 'failed-1', 'killed-1']);
-  assert.deepEqual(idle, ['idle-stale']); // fresh idle + running excluded
-});
-
 // ─── Setup / teardown ─────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -119,6 +105,29 @@ test('H4: sendRpc EPIPE marks agent status as "failed"', () => {
   // The fix must transition the record to 'failed', not leave it in 'running'.
   assert.equal(record.status, 'failed', `Expected status 'failed' after EPIPE; got '${record.status}'`);
   assert.ok(record.error, 'record.error must be populated after EPIPE');
+});
+
+test('agent spawn requires task and rejects the retired prompt alias', () => {
+  const factory = vi.fn(() => makeMockAgentProcess() as never);
+  setAgentProcessFactoryForTests(factory);
+  assert.throws(() => spawnRpcAgent({ prompt: 'retired assignment spelling' } as never), /requires task/);
+  assert.equal(factory.mock.calls.length, 0);
+});
+
+test('agent CLI uses canonical commands and rejects status and clear aliases', async () => {
+  const notices: Array<{ message: string; level?: string }> = [];
+  const ctx = { hasUI: false, ui: { notify: (message: string, level?: string) => notices.push({ message, level }) } } as never;
+  setAgentProcessFactoryForTests(() => makeMockAgentProcess() as never);
+  spawnRpcAgent({ task: 'visible worker' });
+  await handleOctocodeAgentsCommand('hide', ctx);
+  await handleOctocodeAgentsCommand('status', ctx);
+  assert.equal(notices.at(-1)?.level, 'warning');
+  assert.equal(listVisibleWorkerLedgerEntries().length, 0);
+  await handleOctocodeAgentsCommand('list', ctx);
+  assert.equal(listVisibleWorkerLedgerEntries().length, 1);
+  await handleOctocodeAgentsCommand('clear', ctx);
+  assert.equal(notices.at(-1)?.level, 'warning');
+  assert.equal(listVisibleWorkerLedgerEntries().length, 1);
 });
 
 test('H4: waiters are resolved immediately when EPIPE transitions agent to failed', async () => {
@@ -189,7 +198,7 @@ test('spawnRpcAgent assigns a globally durable workspace-scoped handback and inj
     const record = spawnRpcAgent({ task: 'Goal: test\nContext: ctx\nScope: scope\nOwnership: read\nAcceptance: done\nReturn: result', cwd: tmpDir, resourceMode: 'lean' });
     const initialPrompt = String(mock.writes[0]?.['message'] ?? '');
 
-    assert.equal(record.handbackPath, path.join(workspaceAgentRoot(tmpDir), 'workers', record.id, 'handback.md'));
+    assert.equal(record.handbackPath, path.join(extensionWorkspaceRoot(tmpDir), 'workers', record.id, 'handback.md'));
     assert.equal(record.handbackPath.startsWith(tmpDir), false);
     assert.equal(fs.existsSync(path.dirname(record.handbackPath)), true, 'handback directory should be created before the worker starts');
     assert.match(initialPrompt, /durable handback file:/);
@@ -215,7 +224,7 @@ test('spawnRpcAgent keeps handbacks global when the workspace path is invalid', 
     fallbackAgentDir = path.dirname(record.handbackPath);
     const initialPrompt = String(mock.writes[0]?.['message'] ?? '');
 
-    assert.equal(record.handbackPath, path.join(workspaceAgentRoot(invalidWorkspace), 'workers', record.id, 'handback.md'));
+    assert.equal(record.handbackPath, path.join(extensionWorkspaceRoot(invalidWorkspace), 'workers', record.id, 'handback.md'));
     assert.match(record.handbackPath, /handback\.md$/);
     assert.equal(fs.existsSync(fallbackAgentDir), true);
     assert.equal(record.policyWarnings.some(warning => /temporary fallback/.test(warning)), false);
@@ -425,7 +434,7 @@ test('SEV-1: AgentMessage wait cleanup ignores a context invalidated while waiti
   setAgentProcessFactoryForTests(() => mock as never);
   const record = spawnRpcAgent({ task: 'wait across replacement', resourceMode: 'lean' }, ctx);
   const tools = new Map<string, ToolDefinition>();
-  registerAgentTools(
+  registerUnifiedAgentTool(
     { registerTool: (definition: ToolDefinition) => tools.set(definition.name, definition) } as never,
     Type,
     new Set<string>(),
@@ -435,18 +444,131 @@ test('SEV-1: AgentMessage wait cleanup ignores a context invalidated while waiti
     },
   );
 
-  const waiting = tools.get('AgentMessage')!.execute(
+  const waiting = tools.get('agent')!.execute(
     'wait-stale-context',
-    { action: 'wait', agentId: record.id, timeoutMs: 1_000 },
+    { queries: [{ reasoning: 'Collect worker output', type: 'wait', agentId: record.id, timeoutMs: 1_000 }] },
     undefined,
     undefined,
     ctx,
   );
+  await vi.waitFor(() => assert.equal(statusCalls.length, 1));
   stale = true;
   mock._emit('stdout:data', Buffer.from(`${JSON.stringify({ type: 'agent_end', messages: [] })}\n`));
 
   await assert.doesNotReject(waiting);
   assert.deepEqual(statusCalls, [['agent-wait', `\u29D7 Waiting for \u201C${record.name}\u201D\u2026`]]);
+});
+
+test('agent wait cancellation releases waiters and probes without terminating the worker', async () => {
+  if (isSubagentProcess()) return;
+  vi.useFakeTimers();
+  const mock = makeMockAgentProcess();
+  setAgentProcessFactoryForTests(() => mock as never);
+  const record = spawnRpcAgent({ task: 'keep working after cancelled wait', resourceMode: 'lean' });
+  const tools = new Map<string, ToolDefinition>();
+  registerUnifiedAgentTool({}, Type, new Set(), (_pi, _names, definition) => {
+    tools.set(definition.name, definition);
+  });
+  const controller = new AbortController();
+  let settled = false;
+  const waiting = tools.get('agent')!.execute('cancel-wait', {
+    queries: [{ reasoning: 'Collect worker result', type: 'wait', agentId: record.id, timeoutMs: 10, remove: true }],
+  }, controller.signal).then(
+    () => { settled = true; return 'completed'; },
+    (error: Error) => { settled = true; return error.message; },
+  );
+  try {
+    await vi.advanceTimersByTimeAsync(10);
+    assert.equal(record.pendingProbes.size, 1, 'silence check has an active RPC probe');
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    assert.equal(settled, true, 'cancellation must release the active public tool wait immediately');
+    assert.match(await waiting, /abort/i);
+    assert.equal(record.waiters.size, 0);
+    assert.equal(record.activityListeners.size, 0);
+    assert.equal(record.pendingProbes.size, 0);
+    assert.equal(record.status, 'running', 'cancelling a wait must not cancel or remove its worker');
+    assert.ok(listWorkerLedgerEntries().some((entry) => entry.agentId === record.id));
+    assert.equal(mock.writes.some((write) => write.type === 'abort'), false);
+  } finally {
+    mock._emit('stdout:data', Buffer.from(`${JSON.stringify({ type: 'agent_end', messages: [] })}\n`));
+    await waiting;
+    vi.useRealTimers();
+  }
+});
+
+test('pre-aborted agent wait rejects before retaining worker listeners', async () => {
+  const mock = makeMockAgentProcess();
+  setAgentProcessFactoryForTests(() => mock as never);
+  const record = spawnRpcAgent({ task: 'reject cancelled observation', resourceMode: 'lean' });
+  await assert.rejects(waitForAgent(record, { signal: AbortSignal.abort() }), { name: 'AbortError' });
+  assert.equal(record.waiters.size, 0);
+  assert.equal(record.activityListeners.size, 0);
+  assert.equal(record.pendingProbes.size, 0);
+});
+
+test('plan worker ownership follows live processes within the same session and plan', () => {
+  const mock = makeMockAgentProcess();
+  setAgentProcessFactoryForTests(() => mock as never);
+  const record = spawnRpcAgent({ task: 'assigned task', resourceMode: 'lean', planScope: 'session-one', planId: 'plan-one', planStep: 'step-one' });
+  assert.equal(findLivePlanWorker('session-one', 'plan-one', 'step-one'), record.id);
+  assert.equal(findLivePlanWorker('session-two', 'plan-one', 'step-one'), undefined);
+  assert.equal(findLivePlanWorker('session-one', 'plan-two', 'step-one'), undefined);
+  mock._emit('stdout:data', Buffer.from(`${JSON.stringify({ type: 'agent_end', messages: [] })}\n`));
+  assert.equal(findLivePlanWorker('session-one', 'plan-one', 'step-one'), record.id, 'idle process still owns the assignment');
+  mock.exitCode = 0;
+  mock._emit('close', 0, null);
+  assert.equal(findLivePlanWorker('session-one', 'plan-one', 'step-one'), undefined);
+});
+
+test('public plan assignment reaches the worker RPC prompt and prevents duplicate ownership', async () => {
+  if (isSubagentProcess()) return;
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-plan-delegation-'));
+  const ctx = { cwd: workspace, sessionManager: { getSessionId: () => 'plan-worker-session' } } as never;
+  const scope = activePlanScope(ctx);
+  const mock = makeMockAgentProcess();
+  setAgentProcessFactoryForTests(() => mock as never);
+  const tools = new Map<string, ToolDefinition>();
+  registerUnifiedAgentTool({}, Type, new Set(), (_pi, _names, definition) => tools.set(definition.name, definition));
+  registerPlanTool({}, Type, new Set(), (_pi, _names, definition) => tools.set(definition.name, definition));
+  try {
+    setPlan(scope, [{ text: 'Implement endpoint', paths: ['src/endpoint.ts'], acceptance: 'Endpoint verified', checkCommand: 'yarn test endpoint' }]);
+    const shown = await tools.get('plan')!.execute('show-plan', { queries: [{ reasoning: 'Read the active task identity', action: 'show' }] }, undefined, undefined, ctx);
+    const shownText = shown.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n');
+    const taskId = /Task IDs for agent\.planStep: 1=([^\s,]+)/.exec(shownText)?.[1];
+    assert.ok(taskId, 'model-visible plan text must provide the stable ID required by agent.planStep');
+    const params = { queries: [{ reasoning: 'Delegate independent endpoint work', type: 'spawn', task: 'Implement the endpoint', planStep: taskId }] };
+    await tools.get('agent')!.execute('assigned-spawn', params, undefined, undefined, ctx);
+    const prompt = String(mock.writes.find((write) => write.type === 'prompt')?.message);
+    assert.ok(prompt.includes(taskId));
+    assert.ok(prompt.includes('src/endpoint.ts'));
+    assert.ok(prompt.includes('Endpoint verified'));
+    assert.ok(prompt.includes('yarn test endpoint'));
+    await assert.rejects(tools.get('agent')!.execute('duplicate-spawn', params, undefined, undefined, ctx), /already has live worker/);
+    assert.equal(listWorkerLedgerEntries().length, 1);
+  } finally {
+    mock.exitCode = 0;
+    mock._emit('close', 0, null);
+    clearPlan(scope);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('cancelling one agent wait preserves another waiter and normal completion', async () => {
+  const mock = makeMockAgentProcess();
+  setAgentProcessFactoryForTests(() => mock as never);
+  const record = spawnRpcAgent({ task: 'independent result observers', resourceMode: 'lean' });
+  const controller = new AbortController();
+  const cancelled = assert.rejects(waitForAgent(record, { signal: controller.signal }), { name: 'AbortError' });
+  const collecting = waitForAgent(record);
+  controller.abort();
+  await cancelled;
+  assert.equal(record.waiters.size, 1);
+  assert.equal(record.activityListeners.size, 1);
+  mock._emit('stdout:data', Buffer.from(`${JSON.stringify({ type: 'agent_end', messages: [] })}\n`));
+  assert.deepEqual(await collecting, { reason: 'terminal', stillRunning: false, probedAlive: false });
+  assert.equal(record.waiters.size, 0);
+  assert.equal(record.activityListeners.size, 0);
 });
 
 test('L2: live ledger ticker runs while a worker is active and stops when it finishes', () => {
@@ -491,7 +613,7 @@ test('L3: refreshAgentLedgerUi with no agents stops the ticker without creating 
   stopLedgerTickerForTests();
 });
 
-test('/octocode-agents hide suppresses unified footer detail until list/status shows it again', async () => {
+test('/octocode-agents hide suppresses unified footer detail until list shows it again', async () => {
   if (isSubagentProcess()) return;
   const statusCalls: unknown[] = [];
   const widgetCalls: unknown[] = [];
@@ -506,15 +628,15 @@ test('/octocode-agents hide suppresses unified footer detail until list/status s
   const mock = makeMockAgentProcess({ stdinThrows: false, exitImmediately: false });
   setAgentProcessFactoryForTests(() => mock as never);
   spawnRpcAgent({ task: 'visible worker', resourceMode: 'lean' }, ctx);
-  assert.ok(agentPanelLines().length > 0, 'agent panel starts visible');
+  assert.ok(listVisibleWorkerLedgerEntries().length > 0, 'agent panel starts visible');
 
   await handleOctocodeAgentsCommand('hide', ctx);
-  assert.equal(agentPanelLines().length, 0, 'hide suppresses the shared visible-ledger row builder');
+  assert.equal(listVisibleWorkerLedgerEntries().length, 0, 'hide suppresses the shared visible-ledger row builder');
   assert.deepEqual(statusCalls, [], 'hide does not create a duplicate status surface');
   assert.deepEqual(widgetCalls, [], 'worker state never creates a duplicate below-editor surface');
 
   await handleOctocodeAgentsCommand('list', ctx);
-  assert.ok(agentPanelLines().length > 0, 'list shows the footer ledger rows again');
+  assert.ok(listVisibleWorkerLedgerEntries().length > 0, 'list shows the footer ledger rows again');
 
   stopLedgerTickerForTests();
 });
@@ -609,7 +731,7 @@ test('SEV-1: modelRegistry rejects mismatched model/provider pairs before spawni
   );
 });
 
-test('SEV-1: spawnSubagent inherits the parent provider when the caller does not pass one', async () => {
+test('SEV-1: agent typed profile inherits the parent provider when the caller does not pass one', async () => {
   if (isSubagentProcess()) return;
   const mock = makeMockAgentProcess({ stdinThrows: false, exitImmediately: false });
   let capturedArgs: string[] = [];
@@ -618,7 +740,7 @@ test('SEV-1: spawnSubagent inherits the parent provider when the caller does not
     return mock as never;
   });
   const tools = new Map<string, ToolDefinition>();
-  registerSpawnSubagentTool(
+  registerUnifiedAgentTool(
     { registerTool: (def) => tools.set(def.name, def) },
     Type,
     new Set<string>(),
@@ -631,13 +753,13 @@ test('SEV-1: spawnSubagent inherits the parent provider when the caller does not
     ui: { setStatus: () => {}, setWidget: () => {} },
   } as never;
 
-  await tools.get('spawnSubagent')!.execute('id', {
-    agent: 'researcher',
+  await tools.get('agent')!.execute('id', { queries: [{ reasoning: 'Check typed worker provider inheritance', type: 'spawn',
+    profile: 'researcher',
     task: 'Goal: test\nContext: test\nScope: test\nOwnership: test\nAcceptance: test\nReturn: test',
-  }, undefined, undefined, ctx);
+  }] }, undefined, undefined, ctx);
 
   const providerIdx = capturedArgs.indexOf('--provider');
-  assert.equal(providerIdx >= 0, true, 'spawnSubagent should pass an inherited --provider');
+  assert.equal(providerIdx >= 0, true, 'typed profile must pass an inherited --provider');
   assert.equal(capturedArgs[providerIdx + 1], 'guy-provider-anthropic');
 });
 

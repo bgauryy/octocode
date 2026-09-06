@@ -1,3 +1,4 @@
+import { truncateToWidth } from './tui/width.js';
 /**
  * ui-extras — pure formatting helpers for Octocode's TUI surfaces.
  *
@@ -8,7 +9,7 @@
 import { contextGauge, paint, SEP, type PaintTheme, type SemanticToken } from './tui/palette.js';
 // Route width helpers through render-helpers (which sanitizes tabs/control chars) rather
 // than raw pi-tui, so footer/session strings are measured and cut at the true cell width.
-import { truncateToWidth, truncatePlainToWidth } from './tools/render-helpers.js';
+import { truncatePlainToWidth } from './tools/render-helpers.js';
 import { estimateTokens } from './utils.js';
 import type { WorkerMessageActivity } from './types.js';
 
@@ -358,13 +359,12 @@ function agentStateToken(status: string): { token: SemanticToken; attention: boo
  * One footer row per subagent — live workers first (most recently updated
  * first), then finished ones — so the operator sees every worker's name,
  * state, and current activity without opening /octocode-agents. Pure: pass
- * `nowMs` for deterministic elapsed times. Every visible worker receives a row;
- * `overflow` remains zero for compatibility with the footer contract.
+ * `nowMs` for deterministic elapsed times. Every visible worker receives a row.
  */
 export function buildAgentFooterRows(
   entries: readonly AgentFooterEntry[],
   nowMs: number = Date.now(),
-): { rows: AgentFooterRow[]; overflow: number } {
+): { rows: AgentFooterRow[] } {
   const isLive = (e: AgentFooterEntry): boolean => !AGENT_TERMINAL.has(effectiveAgentStatus(e));
   const ordered = [...entries].sort((a, b) => {
     const liveDelta = Number(isLive(b)) - Number(isLive(a));
@@ -406,7 +406,7 @@ export function buildAgentFooterRows(
       doing,
     };
   });
-  return { rows, overflow: 0 };
+  return { rows };
 }
 
 export interface ShortcutHint {

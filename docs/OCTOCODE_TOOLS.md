@@ -43,7 +43,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | Lowest-priority GitHub token env var. |
 | `GITHUB_API_URL` | GitHub Enterprise API base URL. |
 | `ENABLE_LOCAL` | Turns local tools on or off. Defaults to `true` on both CLI and MCP. |
-| `ENABLE_CLONE` | Controls `ghCloneRepo` and `ghGetFileContent(type="directory")`. Defaults to `true`; set `false` to disable them. |
+| `ENABLE_CLONE` | Controls `ghCloneRepo` and `ghGetFileContent(type="directory")`. Defaults to `false`; set `true` to enable them. Persistent storage and local access are also required. |
 
 Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`; `limit` is a pre-pagination cap where that distinct control exists. When more results remain, run the matching schema-valid `next.*` call: `nextPage`/`nextMatchPage`, `expandLimit`/`expandScan`, or a line/character continuation. At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` is a complete all-matches selector, while explicit line/character windows continue independently. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode tools <toolName> --scheme --json --compact` for the exact active schema and operation scopes.
 
@@ -109,13 +109,13 @@ Key fields:
 | `contextLines` | Context around `matchString`. |
 | `matchStringIsRegex`, `matchStringCaseSensitive` | Match behavior. |
 | `charOffset`, `charLength` | File-content pagination. |
-| `minify` | `standard` (default, strips comments/blank lines), `none` (exact raw text), or `symbols` (structural skeleton only). |
+| `minify` | `standard` (lossy, language-dependent compression), `none` (no minification), or `symbols` (structural outline). Defaults to `none` with `fullContent:true`, otherwise `standard`. Security redaction still applies. |
 
-File extraction modes are mutually exclusive: use one of `fullContent`, `startLine`/`endLine`, `matchString`, or `minify: "symbols"`.
+Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Explicit character windows apply to every view, including `fullContent:true`.
 
 Directory mode:
 
-- Enabled by default. Requires clone and local tools not to be explicitly disabled.
+- Requires enabled clone and local access, plus compatible storage configuration. Clone is opt-in; inspect the live catalog and configured gates.
 - Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` entries for `localSearch` text and tree operations with ready-to-use paths.
 - Rejects file-only extraction fields.
 
@@ -134,18 +134,23 @@ Cost by mode:
 | `startLine`/`endLine` (small) | Exact line range | ~100-500 |
 | `minify: "symbols"` | Imports and signatures, bodies stripped | 5-20% of the full file |
 | `startLine`/`endLine` (large chunk) | Up to `charLength` chars of a range | 1k-10k |
-| `fullContent` | Entire file, minified | Can exceed 50k |
+| `fullContent` | Entire file; defaults to no minification | Can exceed 50k |
 
 Behaviors worth knowing:
 
-- `matchString` returns **all** occurrences as separate slices. The response carries
-  `matchCount`, `matchedLines`, and `matchRanges`, each slice with its own
-  `contextLines`. You do not need to re-read line by line.
-- `matchString` searches the raw file, not the minified view. Minification runs on
-  the extracted slice afterwards, so comments and whitespace in your search string
-  still match.
-- `minify: "symbols"` ignores `matchString` and returns the whole skeleton. Read the
-  line numbers from the gutter, then follow up with `startLine`/`endLine`.
+- `matchString` selects all occurrences with context and source anchors in
+  `matchedLines` and `matchRanges`. Follow character continuations if the selected
+  content exceeds a window. Both readers disable minification for matches;
+  security redaction still applies.
+- `minify: "symbols"` returns a paginated outline. Read its source-line gutter,
+  then follow up with `startLine`/`endLine` and `minify:"none"`.
+- Semantic character windows can expand beyond the requested target. Execute
+  `next` unchanged; offsets are exact and `pageCountsKind:"estimated"` identifies
+  approximate page counters. Continuations retain the requested character target.
+- `standard` compacts source without JS/TS optimization or type-declaration
+  removal. It still removes comments and rewrites formatting. Use `none` for
+  source quotes and comment-sensitive evidence. See
+  [minification coverage](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
 - Files too large for the `/contents/` API fall back to the Git tree and blob API
   automatically. You do not need to switch to `ghCloneRepo` for size alone.
 
@@ -194,21 +199,56 @@ identity is the `base` + `head` pair.
 Request selected PR patches instead of every patch for large PRs, and leave
 commit diffs off until the relevant commit is known.
 
+PR details accept `minify:"none"` or `"standard"`. `none` preserves selected
+body, discussion/inline comments, reviews, and all/selected patch text after
+security redaction. `standard` compacts Markdown and unchanged diff context
+before computing offsets; it preserves changed source lines regardless of
+language. Match-filtered reads preserve source anchors.
+
+Issue, commit, and compare details do not accept `minify`; they return exact
+selected text after redaction. Issue bodies and comment bodies use
+`charOffset`/`charLength`, with automatic 12,000-character windows.
+Comment-item continuations reset the text offset. Follow each returned
+continuation independently: body, comment body, item page, file, and patch
+windows address different parts of the response.
+
+PR collection reads fetch at most one provider batch per requested source:
+100 changed files, discussion comments, inline comments, or reviews, and 50
+commit summaries. `pageSize` bounds displayed items within each batch.
+`reviewPage` pages reviews independently; review bodies retain their text
+continuations. Follow the returned `next.*` calls, including when filtering
+produces an empty batch. Those calls carry `collectionPages` positions and
+reset the relevant item and text windows when advancing. A zero position marks
+an exhausted comment source, which is no longer fetched. Counts labeled
+`countScope: "providerBatch"` describe that batch, not the complete collection.
+
+Nested `content.commits.includeFiles` reads fetch one file batch for each
+displayed commit and return at most `pageSize` files per commit. Each commit's
+`next.nextFilePage` and `next.continuePatch` call `ghGetHistoryItem` with its
+exact SHA. Exact commit reads carry `fileBatch` across provider batches and
+retain independent file and patch windows. Cached batches are isolated by
+authentication identity. Provider caps and omitted patches remain explicit
+terminal limits; a provider cap does not establish completeness.
+
 ### `ghCloneRepo`
 
 Clone a repository or sparse subtree into Octocode's local cache.
 
-Enabled by default. Set `ENABLE_CLONE=false` to disable clone-backed workflows.
+Clone is opt-in. Enable it through the supported configuration and inspect the
+live catalog; local-access and storage gates also apply.
 
 Key fields:
 
 | Field | Meaning |
 |-------|---------|
 | `owner`, `repo` | Required repository. |
-| `branch` | Branch to clone. Omit to use default branch. |
-| `sparsePath` | Optional subdirectory sparse checkout. |
+| `branch` | Branch, tag, or exact commit SHA. Omit to use the default branch. |
+| `sparsePath` | Optional file or directory sparse checkout. |
 
-Returns `localPath` (absolute), `location` (kind/source/cached/complete), and `next` with ready-to-use `localSearch` and `viewStructure` query params — pass `next.localSearch.query` or `next.viewStructure.query` directly to the respective tool.
+Returns a location with an absolute path, requested-scope completeness, commit
+identity, and cache/verification state. Execute `next.viewStructure` using its
+named tool, `localSearch operation:"tree"`; it is a continuation key, not a
+separate tool.
 
 Examples:
 
@@ -222,50 +262,34 @@ Rules:
 - Use `sparsePath` for large monorepos.
 - Use `ghGetFileContent` when you only need one file.
 - Cached clones are reused.
-- `next.localSearch.query.path` and `next.viewStructure.query.path` equal `localPath` — use them as-is.
+- Use the returned path as-is. Cached HEAD identity does not verify uncommitted
+  working-tree bytes; check `verified` separately from `complete`.
 
 ### `npmSearch`
 
-Resolve npm packages to metadata and source repositories.
-
-Key fields:
+Resolve exact npm packages to metadata and source repositories, or discover packages with keyword search.
 
 | Field | Meaning |
 |-------|---------|
-| `name` | Exact npm package name or npm keyword query. |
-| `npmFetchMetadata` | Fetch heavier npm metadata when needed. |
-| `page` | Page keyword-search results. |
-| `pageSize` | Return 1–100 keyword-search results per page; partial pages include executable `next.nextPage`. |
-
-Examples:
+| `packageName` | Exact package name, including `@scope/name` for scoped packages. Mutually exclusive with `keywords`. |
+| `keywords` | Non-empty search terms, joined with spaces. |
+| `registry` | Optional HTTP or HTTPS registry URL. Overrides default and scope routing; omit to use npm configuration. Do not include credentials in the URL. |
+| `page` | Keyword-search page; omitted for exact lookup. |
+| `pageSize` | Return 1–100 keyword results per page. Follow `next.nextPage` for more results. |
 
 ```json
-{ "name": "react" }
-{ "name": "typescript eslint", "page": 2, "pageSize": 20 }
+{ "packageName": "react" }
+{ "keywords": ["typescript", "eslint"], "pageSize": 20 }
+{ "packageName": "@example/widget", "registry": "https://registry.example.com/" }
 ```
 
-Use `npmSearch` before GitHub repository search when you already have a package name.
+Registry selection follows the effective npm environment and `.npmrc` configuration. Exact scoped names honor `@scope:registry`; an explicit `registry` takes precedence. Without configuration, npm uses `https://registry.npmjs.org/`. Keyword search targets one registry and does not aggregate every scope mapping.
 
-Field reliability:
+Authentication comes from registry-scoped npm configuration, including environment interpolation. Use npm login or your existing `.npmrc`; tokens are not tool inputs. Exact reads and keyword pages use the same authenticated transport. Configuration is reloaded per query, result caches separate effective registry and configuration identities, and continuations preserve the selected registry. A configured private registry must support npm's search endpoint for keyword discovery.
 
-| Data point | Reliability |
-|-----------|------------|
-| `version` | High, from `npm view` or the registry directly |
-| `repository.url` | High, from `package.json` |
-| `homepage` | High |
-| `description` | High |
-| `weeklyDownloads` | Low: a separate endpoint with an 8-second timeout and no retry |
-| `entrypoints` (main, module, types) | Medium, parsed from the `package.json` exports map |
+Exact reads return the registry's latest package metadata. Keyword pages use search metadata without per-result enrichment. Results include name and available version, description, license, and source repository details; shared repository data can be factored into the `repositories` map. A repository link does not establish that its latest Git release matches the npm version.
 
-Behaviors worth knowing:
-
-- Every network call has an 8-second timeout, and the weekly-downloads fetch runs
-  with `maxRetries: 0`. On a VPN, corporate proxy, or CI runner, `weeklyDownloads`
-  is absent, with no warning and no fallback hint. Read it from
-  `https://api.npmjs.org/downloads/point/last-week/<name>` when you need it.
-- When the registry is unreachable the tool tries a web-search fallback, then returns
-  an error hinting at `ghSearch(operation:"repositories")`. Acting on that hint is your call, not automatic.
-- Scoped packages need the full `@scope/name`.
+Requests have an 8-second timeout and at most one retry. Authentication and unavailable-search errors remain errors. Only an exact package 404 becomes an empty lookup. There is no automatic CLI, CDN, or web-search fallback. Use the returned source-repository links for subsequent code research.
 
 ### Token cost control by goal
 
@@ -346,7 +370,7 @@ Useful local-tool environment variables:
 | `ENABLE_LOCAL` | Enables local filesystem tools. Defaults to `true` on both CLI and MCP; set `false` to disable them. |
 | `WORKSPACE_ROOT` | Root used to resolve relative local paths. Overrides `local.workspaceRoot` in config. |
 | `ALLOWED_PATHS` | Optional comma-separated allowlist of extra roots, added on top of the always-allowed home directory. Empty means home directory only (paths outside home are denied). |
-| `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. Defaults to `true`; set `false` to disable them. |
+| `ENABLE_CLONE` | Enables clone-backed workflows and GitHub directory fetches that materialize local files. Defaults to `false`; set `true` to enable them. Persistent storage and local access are also required. |
 | `TOOLS_TO_RUN` | Strict tool allowlist; include every tool that must remain enabled. Removed compatibility names are rejected. |
 
 Config reference: [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
@@ -385,7 +409,7 @@ Use native pagination first for result lists, then char pagination only when a s
 | Need | Use |
 |------|-----|
 | "Which directories/files exist here?" | `localSearch(operation:"tree")` |
-| "Find files named `*.test.ts` or changed recently." | `localSearch(operation:"files")` |
+| "Find files named `*.test.ts` or modified within a time window." | `localSearch(operation:"files")` |
 | "Search for text, regex, imports, TODOs, or identifiers." | `localSearch(operation:"text")` |
 | "Read this exact file section." | `localGetFileContent` |
 | "Find files containing a pattern without match bodies." | `localSearch(operation:"text", resultView:"files", ...)` |
@@ -482,7 +506,43 @@ localSearch(operation="text", path="src", searchText="class\\s+\\w+Service", reg
 
 Use `operation:"structural"` for code-shape queries regex cannot express (find all `await` inside `for` loops, calls with N args, functions missing `try/catch`).
 
-**Supported languages:** ts, tsx, js, jsx, mjs, cjs, py, go, rs, java, c/h, cpp/cc/cxx, cs, sh/bash/zsh.
+Structural results distinguish file-scan caps from execution limits. A scan cap
+sets `truncated` and supplies `next.expandScan` while the bound can grow. Parser
+or matcher exhaustion preserves completed files and reports staged
+`diagnostics`, `partialReasons: ["structuralLimit"]`, and `terminalLimit` when
+no continuation can complete the execution. Zero matches in an incomplete
+result do not establish absence. `maxDepth: 0` includes files directly in the
+root; depth filtering happens before the file-scan cap.
+
+**Supported structural extensions:** `c`, `cc`, `cjs`, `cpp`, `cs`, `css`,
+`cts`, `cxx`, `gemspec`, `go`, `h`, `hh`, `hpp`, `htm`, `html`, `hxx`,
+`java`, `js`, `json`, `jsonc`, `jsx`, `kt`, `kts`, `lua`, `mjs`, `mts`,
+`php`, `py`, `pyi`, `rake`, `rb`, `rs`, `ru`, `sbt`, `sc`, `scala`, `scss`,
+`sql`, `swift`, `toml`, `ts`, `tsx`, `yaml`, `yml`, and `zig`. Query the
+compiled engine capability API when optional grammar features are disabled.
+
+When a code-shaped pattern returns zero matches, tools-core can retry a
+semicolon-normalized form or a relaxed return-type form. CLI and MCP output do
+expose the retry as a typed `structural.query.rewritten` diagnostic, including
+the requested pattern, effective pattern, and an executable continuation that
+repeats the effective query explicitly. Use an explicit `rule` query when exact
+query equivalence matters.
+
+HTML pattern `<$TAG>` matches parsed start tags, including `script`, `style`,
+and self-closing tags. Tag-shaped text inside raw-text elements is not treated
+as markup. YAML `kind` rules are checked against the selected grammar before
+execution; an unknown node kind returns a typed compile diagnostic instead of a
+high-confidence zero-match result.
+
+Java call patterns and CSS/SCSS declaration patterns may omit their trailing
+semicolon. The structural compiler supplies grammar-checked statement context
+for direct patterns and patterns nested anywhere in a YAML rule; already
+complete patterns keep their original parse, match ranges, and captures.
+Structural failures retain native public codes such as
+`structural.query.invalid`, `structural.query.compileFailed`,
+`structural.language.unsupported`, and `structural.content.tooLarge`. Content
+size exhaustion is a typed terminal limit rather than a generic execution
+failure.
 
 ```bash
 localSearch(operation="structural", path="src", pattern="track($$$ARGS)")
@@ -542,7 +602,7 @@ Metadata search for files and directories.
 #### Best for
 
 - Finding files by name, extension, regex, path slice, size, permission, or modified time.
-- Locating tests, configs, generated files, or recently changed files.
+- Locating tests, configs, generated files, or files modified within a time window.
 - Metadata search when content search is not needed.
 
 #### Key parameters
@@ -614,8 +674,25 @@ Do not combine `fullContent` with match or line-range extraction. Do not combine
 | `matchStringIsRegex` | Treat `matchString` as regex. |
 | `matchStringCaseSensitive` | Case-sensitive match search. |
 | `charOffset` / `charLength` | Character pagination for large content. |
-| `minify` | `symbols` for skeleton, `standard` for compact readable content, `none` for exact bytes. |
-| `charOffset` | Continue character pagination when the response advertises more content. |
+| `minify` | `symbols` for an outline, `standard` for lossy compression, `none` for unminified source. Security redaction still applies. |
+
+`matchString` extraction returns verbatim anchored lines even when the request
+sets `minify:"standard"`. The public response does not report that it ignored
+minification, so check `contentView` before treating the content as minified.
+
+Local character windows can expand to a semantic boundary. Execute the returned
+`next` query unchanged; do not compute the next offset by adding the requested
+`charLength`. `fullContent:true` and local line ranges default to
+`minify:"none"`; ordinary reads default to `standard`. Anchored matching reads
+force `none` as described above.
+
+Redaction runs on the selected, transformed view before character pagination,
+so a secret cannot be reconstructed from separate windows. `returnedChars`
+and character offsets describe that sanitized view; source sizes describe the
+original file. A selected view above the security scanner's 10,000,000-byte
+limit returns `contentSecurityLimit` with a bounded-line alternative where
+possible. A single oversized line is an explicit terminal limit. Bounded
+line/match reads from a larger file remain available.
 
 #### Examples
 
@@ -629,7 +706,36 @@ localGetFileContent(path="src/index.ts", minify="symbols")
 
 ### `localAnalyzeGraph`
 
-One bounded repository graph with six explicit operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds` (`static-import`, `type-import`, `dynamic-import`, `named-reexport`, or `star-reexport`) with syntactic confidence. Dependency traversal also reports immediate dominators, topological layers, and transitively redundant condensation-DAG edges. Cycle results distinguish `runtimeCycle` from type-only SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the current public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
+The `coverage` object separates parser inventory from module-linking support.
+It reports language coverage, resolved and external import counts, unresolved
+internal imports, unsupported linking, and parse-recovery diagnostics. These
+gaps make the result partial even when every result page has been returned.
+Inspect coverage before interpreting an empty dependency or cycle result.
+Coverage diagnostics default to 25 rows per page. Aggregate
+`coverage.diagnosticCounts` and import counts describe the full scan. Follow
+`next.nextDiagnostics` to retrieve the remaining rows; its snapshot token
+prevents combining different diagnostic inventories. If diagnostics change,
+follow `next.restartDiagnostics`. Use `diagnosticPageSize` to request up to 100
+rows per page. Diagnostic pagination and graph-result pagination are independent.
+
+Rust analysis defaults to `rustWorkspace: "syntax"`, which uses explicit module
+declarations and supported literal `#[path]` attributes. Set
+`rustWorkspace: "cargo"` to inspect Cargo target roots and dependency aliases
+with the host Cargo executable. This opt-in mode runs offline metadata discovery
+without compiling the project, with a five-second execution budget and a
+one-MiB output bound. Include the Cargo manifest within the scan root. Missing
+tools, excluded targets, conditional dependencies, cfg, and macro expansion
+remain explicit coverage gaps when the analyzer cannot resolve them.
+
+Declaration IDs identify scoped source occurrences; unresolved call references
+are not proof of symbol identity. Lexical occurrence counts are conservative
+retention evidence and still require LSP confirmation for deletion decisions.
+
+One bounded repository graph provides six operations: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, and `deadCode`. Import edges come from native syntax facts. Traversal and path results report exact `edgeKinds`: `static-import`, `type-import`, `dynamic-import`, `named-reexport`, `star-reexport`, `type-named-reexport`, `type-star-reexport`, `commonjs-require`, `create-require`, `python-import`, `c-include`, and `metadata-import`. Type-only import and reexport edges do not create runtime cycles.
+
+Cross-file resolution covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Literal CommonJS loads link only when `require`, `module.require`, or an imported `createRequire(import.meta.url)` binding is not shadowed or reassigned. Dynamic and ambiguous loaders remain explicit diagnostics. Python wildcard and ambiguous package-attribute imports remain diagnostics, as do C/C++ system and macro includes. Explicit relative `package.json` imports can link to a manifest inside the root or the nearest ancestor boundary; these manifests are validated, limited to 64 KiB, count against `maxFiles`, and remain metadata leaves. Namespace-style imports conservatively retain target exports during dead-code analysis.
+
+Dependency traversal also reports immediate dominators, topological layers, and transitively redundant condensation-DAG edges. Cycle results distinguish `runtimeCycle` from type-only SCCs, expose condensation metadata, and return deterministic directed witnesses in `cycleEdges` and `runtimeCycleEdges`; every witness edge includes `from`, `to`, and `edgeKinds`. Native facts also contain `call` and `contains` relations, but the public operations don't project those symbol-level edges. `deadCode` results are candidates, not deletion proof.
 
 #### Best for
 
@@ -765,7 +871,7 @@ Octocode exposes **one** public semantic tool:
 
 | Tool | Use it for |
 |------|------------|
-| `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document symbols, type definitions, and implementations. |
+| `lspGetSemantics` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document, and workspace symbols, type definitions, implementations, type hierarchy, and diagnostics. |
 
 Semantic operations are local-only. Local tools default on for both CLI and MCP; set `ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearch` first when you need a symbol `lineHint`; `operation:"structural"` matches can provide AST-derived anchors before LSP proves symbol identity.
 
@@ -775,7 +881,8 @@ For external repos: clone first with `ghCloneRepo` (or fetch a subtree with `ghG
 
 1. Search with `localSearch(operation:"text")` or `localSearch(operation:"structural")` and capture the exact `lineHint`.
 2. Query `lspGetSemantics` with `uri`, `type`, `symbolName`, and `lineHint`.
-3. Page large symbol or call-flow results with `page` and `pageSize`.
+3. Page large symbol or call-flow results by executing `next.nextPage` unchanged;
+   pages after the first require its snapshot token.
 4. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
 
 ### `lspGetSemantics`
@@ -784,7 +891,7 @@ Required fields:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `uri` | Yes, except `workspaceSymbol` | Absolute local file path. |
+| `uri` | Yes for anchored and document operations; recommended for `workspaceSymbol` | Absolute local file path. For `workspaceSymbol`, the URI selects one language server. |
 | `type` | No | Defaults to `definition`. |
 | `symbolName` | For anchored operations and `workspaceSymbol` | Exact symbol text at the target line. |
 | `lineHint` | For anchored operations | 1-based line number from search results. |
@@ -798,6 +905,7 @@ Optional fields:
 | `contextLines` | Adds source previews to call-flow results. Keep `0` unless previews are needed. |
 | `page` | Result page for `documentSymbols` and call-flow results. |
 | `pageSize` | Semantic items per page. Defaults to `40` for `documentSymbols`, `10` for call-flow. Max `100`. |
+| `snapshot` | Content-addressed result-set token copied from `next.nextPage`. Omit on page 1; required on later pages. |
 | `depth` | Call-flow recursion depth. Keep `1` unless you need nested calls. |
 | `includeDeclaration` | For `references`; defaults to `true`. |
 | `groupByFile` | For `references`; adds per-file rollups. |
@@ -806,8 +914,8 @@ Semantic types:
 
 | `type` | Best for | Output |
 |--------|----------|--------|
-| `definition` | Jumping from usage/import to declaration. For local TypeScript/JavaScript import aliases, definitions follow the import to the exported declaration when the language server first returns the import binding. | `payload.kind="definition"`, `locations[]`. |
-| `references` | Blast radius for functions, types, variables, constants, classes. | `locations[]`, `totalReferences`, `totalFiles`, optional `byFile`. |
+| `definition` | Jumping from usage/import to declaration. TypeScript uses the full semantic server from its first request, so imports and path aliases resolve without a synthetic location. Unresolved provider locations are preserved unchanged. | `payload.kind="definition"`, `locations[]`. |
+| `references` | Affected references for functions, types, variables, constants, and classes. | `locations[]`, `totalReferences`, `totalFiles`, optional `byFile`. |
 | `callers` | Static incoming calls to a callable symbol. | Compact `calls[]`, `summary.incomingCalls`, pagination. |
 | `callees` | Static outgoing calls made by a callable symbol. | Compact `calls[]`, `summary.outgoingCalls`, pagination. |
 | `callHierarchy` | Bidirectional call-flow snapshot. | Incoming and outgoing calls in one compact page. |
@@ -815,6 +923,10 @@ Semantic types:
 | `documentSymbols` | File outline and symbol inventory. | Compact `symbols[]`, `summary.kinds`, pagination. |
 | `typeDefinition` | Declared type behind a symbol. | `locations[]`. |
 | `implementation` | Concrete implementation behind an interface/abstract symbol when the server supports it. | `locations[]`. |
+| `workspaceSymbol` | Symbols reported by one language server for a workspace. Provide `uri` to select the language. This operation does not merge results from every language server. | `symbols[]`, `totalSymbols`. |
+| `supertypes` | Direct or recursive supertypes when the server advertises type hierarchy. | Type-hierarchy items or typed `unsupportedOperation`. |
+| `subtypes` | Direct or recursive subtypes when the server advertises type hierarchy. | Type-hierarchy items or typed `unsupportedOperation`. |
+| `diagnostic` | Pull diagnostics when the server advertises a pull-diagnostic provider. Servers that publish diagnostics only through push notifications return `unsupportedOperation`. | Diagnostics or typed `empty`. |
 
 All semantic responses use this envelope:
 
@@ -824,16 +936,36 @@ All semantic responses use this envelope:
 | `uri` | Resolved local file path. |
 | `resolvedSymbol` | Symbol anchor for symbol-based requests. |
 | `lsp` | Server availability and provider/source metadata. |
-| `evidence` | Confidence, completeness, and reason when incomplete. |
+| `meta.evidence` | Confidence for the bulk result. |
+| `meta.diagnostics` | Typed partial-state and terminal-limit information. |
 | `summary` | Agent-readable totals for symbol and call-flow requests. |
 | `payload` | Typed semantic payload. |
 | `pagination` | Native semantic pagination for symbol and call-flow requests. |
-| `warnings` | Incomplete or unavailable evidence reasons. |
-| `hints` | Suggested next steps. |
+| `next` | Executable reads, searches, completeness checks, or pagination requests. |
 
-Empty semantic payloads use `payload.kind="empty"` with a machine-readable `category`, such as `symbolNotFound`, `noLocations`, `noReferences`, `noHover`, or `noCalls`. The CLI maps these semantic misses to exit code `3` (`not found`) so scripts can fail without parsing the JSON envelope.
+Empty semantic payloads use `payload.kind="empty"` with a machine-readable
+`category`, such as `symbolNotFound`, `noLocations`, `noReferences`, `noHover`,
+or `noCalls`. A successfully executed semantic miss exits with code `0`.
+Scripts must inspect the typed payload instead of using the process exit code to
+distinguish an empty result.
+
+Reference results preserve typed warmup, definition-only, empty, partial, and
+continuation metadata in structured and compact presentations. An incomplete
+warmup supplies an executable lexical verification query; zero references do
+not establish absence while that partial state is present.
+
+Paginated semantic results are sorted deterministically and fingerprint the
+canonical query plus the complete result set. Follow `next.nextPage` unchanged.
+If the server's results change between requests, Octocode returns no page rows,
+the typed `paginationChanged` diagnostic, and `next.restartPagination`; discard
+previously collected pages and restart at page 1. A later page without a token
+returns `paginationSnapshotRequired`. Tokens validate a recomputed result set
+across processes; they do not retain historical rows.
 
 Call-flow payloads are compact by default. Each call includes the target item, sampled call ranges, `rangeCount`, and `rangeSampleCount`. Use `contextLines>0` only when source previews are useful.
+An `expandDepth` continuation appears only when unvisited project calls remain;
+filtered standard-library calls do not make an otherwise complete result look
+depth-truncated.
 
 ### Root selection
 
@@ -870,9 +1002,19 @@ fallback keeps cloned or external workspaces working without installing a
 language server inside every analyzed repository; the CLI path is run through the
 current Node executable.
 
+Octocode starts `typescript-language-server` with
+`tsserver.useSyntaxServer:"never"`. This can add startup latency, but it avoids
+first-request definition results from the partial syntax server. Definition
+locations remain language-server output; Octocode no longer rewrites import
+targets with regular expressions.
+
 ### Language servers
 
-TypeScript and JavaScript are bundled through `typescript-language-server` and `typescript`; JS/TS also has the server-free native path above. Other languages require their language server to be installed or configured.
+TypeScript and JavaScript are bundled through `typescript-language-server` and
+`typescript`; JS/TS also has the server-free document-symbol path above.
+Python, YAML, JSON, HTML, CSS, SCSS, and Less also have packaged server
+resolvers. Rust and C/C++ support managed downloads. The remaining built-in
+routes resolve host or user-provided executables.
 
 Common environment overrides:
 
@@ -892,12 +1034,18 @@ Common environment overrides:
 | `OCTOCODE_JSON_SERVER_PATH` | JSON |
 | `OCTOCODE_YAML_SERVER_PATH` | YAML |
 | `OCTOCODE_HTML_SERVER_PATH` | HTML |
-| `OCTOCODE_CSS_SERVER_PATH` | CSS/SCSS/LESS |
+| `OCTOCODE_CSS_SERVER_PATH` | CSS/SCSS/Less |
+| `OCTOCODE_RUBY_SERVER_PATH` | Ruby |
+| `OCTOCODE_KOTLIN_SERVER_PATH` | Kotlin |
+| `OCTOCODE_LUA_SERVER_PATH` | Lua |
+| `OCTOCODE_ELIXIR_SERVER_PATH` | Elixir |
+| `OCTOCODE_ZIG_SERVER_PATH` | Zig |
 
 #### Custom / bring-your-own servers
 
-To add a language with **no built-in server** (for example, Scala, Kotlin, or Ruby) — or to replace a
-built-in one — register it in a JSON config. Loaded in precedence order:
+Scala and TOML have no built-in server. To support either language, or to
+replace a built-in server, register it in a JSON config. Octocode loads the
+configuration in this precedence order:
 
 1. `$OCTOCODE_LSP_CONFIG` (explicit file path)
 2. `<workspace>/.octocode/lsp-servers.json` (per-project)
@@ -915,8 +1063,8 @@ for that extension:
 ```
 
 `command` and `languageId` are required; `args` (default `[]`) and `initializationOptions`
-(passed verbatim in `initialize`) are optional. With the config present, every semantic op works
-for that language; without it the extension is unsupported and semantic ops throw
+(passed verbatim in `initialize`) are optional. With the config present, the server can answer the
+semantic operations it advertises; without it the extension is unsupported and semantic ops throw
 `lspServerUnavailable` (→ fall back to `localSearch`). See
 [`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
 
@@ -954,7 +1102,7 @@ Paginated call flow:
   "type": "callHierarchy",
   "symbolName": "printSchema",
   "lineHint": 133,
-  "limit": 5,
+  "pageSize": 5,
   "page": 1
 }
 ```
@@ -964,7 +1112,7 @@ Diagnostics:
 ```json
 {
   "uri": "/workspace/src/run.ts",
-  "severity": "all"
+  "type": "diagnostic"
 }
 ```
 
@@ -1249,7 +1397,7 @@ Step 3: Search within the fetched subtree
 
 Step 4: Find files by metadata
   localSearch(operation="files", path=localPath, names=["*.ts"], time={"modifiedWithin":"30d"})
-  → Recently modified TypeScript files in the compiler
+  → TypeScript files in the compiler modified within 30 days
 ```
 
 ---
@@ -1264,12 +1412,13 @@ Step 4: Find files by metadata
 | **Response marker** | A result whose primary response payload was served from cache includes `cache: 1`. Fresh results and helper-only cache hits omit `cache`; no other marker value is valid. The contract is identical in CLI and MCP output. |
 | **Clone cache** | `ghCloneRepo` uses the clone/materialization cache |
 | **Live tools** | `localSearch`, `localGetFileContent`, `localAnalyzeGraph`, and `lspGetSemantics` read the workspace directly and don't cache tool results |
-| **Location** | Clones: `<octocode-home>/tmp/clone/{owner}/{repo}/{branch}/`; file/tree fetches: `<octocode-home>/tmp/tree/{owner}/{repo}/{commitSha}/`; remote response L2: `<octocode-home>/tmp/response/` |
-| **Identity** | The API resolves an omitted branch, then pins file/tree bytes and paths to the resolved commit SHA |
+| **Location** | Use returned paths. Clone cache keys include ref, sparse scope, and host. File/tree generations live under `<octocode-home>/tmp/tree/{owner}/{repo}/{commitSha}/snapshots/{generation}/`; remote response L2 uses `<octocode-home>/tmp/response/` |
+| **Identity** | The API resolves an omitted branch, then pins file/tree bytes and paths to the resolved commit SHA. Clones accept branch, tag, or full commit SHA and return the actual HEAD as `location.commitSha` |
 | **Ref pointer** | Auth-scoped branch/tag-to-commit results are cached for 60 seconds; `forceRefresh` bypasses the pointer |
 | **Sparse clones** | Separate cache: `{branch}__sp_{hash}/` |
 | **Coexistence** | Full clone and sparse clones of the same repository can coexist |
-| **Cache hit** | Reuses immutable tree bytes; ref resolution can make one request after the 60-second pointer expires |
+| **Cache hit** | Reuses a published tree generation or clone checkout. Cached working files are not reverified; inspect `verified` separately from scoped `complete`. Ref resolution can make one request after the 60-second pointer expires |
+| **Tree publication** | A per-repository/commit lock serializes overlapping writes. A fully written generation is published through an atomic metadata-pointer replacement; failed updates preserve earlier paths. Whole-entry TTL/capacity eviction owns old generations |
 | **Clone vs directory** | Clone-cache and directory/file materialization are separate; directory fetch never overwrites a git clone |
 | **Expired** | Owned entries are evicted when requested and by the shared 24-hour lifecycle |
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
@@ -1334,9 +1483,9 @@ This playbook verifies that every Octocode MCP tool works as a research tool, no
 
 The active MCP tool catalog is defined in [packages/octocode-tools-core/src/tools/toolConfig.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/tools/toolConfig.ts). Local schema helpers live in [packages/octocode-tools-core/src/scheme/fields.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/scheme/fields.ts); each GitHub/package/LSP tool owns its independent `scheme.ts` beside the tool implementation, for example [packages/octocode-tools-core/src/tools/github_search_pull_requests/scheme.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/tools/github_search_pull_requests/scheme.ts) and [packages/octocode-tools-core/src/tools/lsp/semantic_content/scheme.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/tools/lsp/semantic_content/scheme.ts).
 
-Response behavior is shared through [packages/octocode-tools-core/src/utils/response/bulk.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/utils/response/bulk.ts), [packages/octocode-tools-core/src/utils/pagination/core.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/utils/pagination/core.ts), [packages/octocode-tools-core/src/utils/pagination/hints.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/utils/pagination/hints.ts), and [packages/octocode-tools-core/src/scheme/responseEnvelope.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/scheme/responseEnvelope.ts).
+Response behavior is shared through [packages/octocode-tools-core/src/utils/response/bulk/response.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/utils/response/bulk/response.ts), [packages/octocode-tools-core/src/utils/pagination/core.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/utils/pagination/core.ts), [packages/octocode-tools-core/src/utils/pagination/hints.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/utils/pagination/hints.ts), and [packages/octocode-tools-core/src/types/toolOutput.ts](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/src/types/toolOutput.ts).
 
-This playbook extends the existing contract tests: [the all-tools pagination contract test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-mcp/tests/tools/all-tools.pagination-contract.test.ts), [the all-tools schema contract test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-mcp/tests/scheme/all-tools.schema-contract.test.ts), [the execution-boundaries flow test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-mcp/tests/tools/executionBoundaries.flows.test.ts), and [the response contract test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/tests/utils/response/responses.contract.test.ts).
+This playbook extends the existing contract tests: [the all-tools pagination contract test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-mcp/tests/tools/all-tools.pagination-contract.test.ts), [the all-tools schema contract test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-mcp/tests/scheme/all-tools.schema-contract.test.ts), [the private-registry flow test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/tests/tools/package_search/privateRegistry.test.ts), and [the response contract test](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/tests/utils/response/responses.contract.test.ts).
 
 ### Verification goals
 
@@ -1434,10 +1583,10 @@ Primary code: [packages/octocode-tools-core/src/tools/package_search/](https://g
 | Surface | Checks |
 | --- | --- |
 | Params | Set exactly one of `packageName` for exact lookup or `keywords` for discovery; `page` paginates discovery. |
-| Implementation | npm registry metadata is normalized, repository URLs are parsed into owner/repo when possible, deprecated packages add warning context, and package-not-found is empty. |
-| Pagination | `page` continues discovery. Top-level `responseCharLength` still pages large metadata responses. |
+| Implementation | Verify authenticated registry requests, scoped routing, explicit overrides, cache isolation after credential changes, and exact package-name identity. Only exact 404 responses are empty. |
+| Pagination | Execute `next.nextPage` until the fixture union is complete; the continuation must preserve registry and page size. |
 | Empty | Empty search returns package-specific recovery without pretending the package exists. |
-| Research quality | Results must include package identity, version, description, repository URL or owner/repo, homepage, weekly downloads if fetched, license, keywords, and freshness metadata when available. |
+| Research quality | Preserve package identity and available version, description, license, and repository/subdirectory details. Do not claim unrequested download statistics or enrichment. |
 
 #### Verify `ghCloneRepo`
 
@@ -1566,7 +1715,6 @@ From `packages/octocode-mcp/`, run the focused suites first:
 ```bash
 yarn test tests/tools/all-tools.pagination-contract.test.ts
 yarn test tests/scheme/all-tools.schema-contract.test.ts
-yarn test tests/tools/executionBoundaries.flows.test.ts
 yarn test tests/tools/pagination-hints-fixes.test.ts
 yarn test tests/tools/stats_emission_contract.test.ts
 ```

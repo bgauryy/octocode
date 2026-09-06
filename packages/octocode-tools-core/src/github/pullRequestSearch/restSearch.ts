@@ -18,7 +18,7 @@ import {
 } from '../../utils/response/charSavings.js';
 
 import { formatPRForResponse } from '../prTransformation.js';
-import { transformPullRequestItemFromREST } from '../prContentFetcher.js';
+import { transformPullRequestItemFromREST } from '../prContentFetcher/transform.js';
 
 export function createPullRequestErrorResult(
   apiError: GitHubAPIError,

@@ -1,6 +1,6 @@
 import { openAwareness } from '@octocodeai/octocode-awareness';
 import { openOctocodeDb as openExtensionStateDb } from '@octocodeai/octocode-awareness/mcp-state';
-import { isPersistentStorageEnabled } from '../env.js';
+import { isPersistentStorageEnabled } from '@octocodeai/config';
 import { extensionStateDbPath } from '../extension-paths.js';
 
 /** Open SQLite state only when the resolved policy permits machine persistence. */

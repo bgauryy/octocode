@@ -29,17 +29,15 @@ build on a matching CI runner, or pass `--node-bin <target-node>` to `scripts/re
 
 ## Publish to GitHub
 
-```bash
-git tag v1.0.2 && git push origin v1.0.2
-gh release create v1.0.2 releases/mcp/* releases/cli/* \
-  --title "Octocode v1.0.2" --generate-notes
-```
+Choose an unused release version, complete the repository publish checks, and
+then create the tag and release through the normal release process. Upload the
+matching files from `releases/mcp/` and `releases/cli/`.
 
 Users then install with:
 
 ```bash
 curl -fsSL -o octocode-mcp \
-  https://github.com/bgauryy/octocode-mcp/releases/latest/download/octocode-mcp-darwin-arm64
+  https://github.com/bgauryy/octocode/releases/latest/download/octocode-mcp-darwin-arm64
 chmod +x octocode-mcp
 ```
 
@@ -59,7 +57,8 @@ CLI:
 
 ```bash
 ./octocode-<platform> tools                    # list tools
-./octocode-<platform> search <text> <path>     # quick research
+./octocode-<platform> tools localSearch --scheme --compact
+./octocode-<platform> tools localSearch --queries '{"operation":"text","path":"/ABS/repo","searchText":"symbol"}' --compact
 ```
 
 Local tools work with zero setup. GitHub tools read `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN`.

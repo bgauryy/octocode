@@ -1,7 +1,8 @@
+import { visibleWidth } from '../src/tui/width.js';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { renderFooterView, type FooterViewProps } from '../src/tui/footer-view.js';
-import { visibleWidth } from '../src/tools/render-helpers.js';
+
 
 const FULL: FooterViewProps = {
   rows: [
@@ -37,12 +38,12 @@ test('footer retains each semantic state category at every supported width', () 
 
 test('footer removes empty segments and preserves caller-owned row order', () => {
   const lines = renderFooterView({
-    segments: [
+    rows: [[
       { text: 'main' },
       { text: 'session 0s' },
       { text: 'context ▓▓▓▓▓▓▓▓ 96% · 192k/200k', attention: true },
       { text: 'failed 2', attention: true },
-    ],
+    ]],
     agents: [],
   }, { width: 36 });
   assert.ok(lines.length >= 2);

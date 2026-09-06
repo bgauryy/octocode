@@ -54,7 +54,7 @@ fn in_literal_at(ranges: &[(usize, usize)], ri: &mut usize, pos: usize) -> Optio
 }
 
 /// Collapse runs of whitespace to a single space, treating any byte ranges
-/// reported by `crate::comment_remover::literal_ranges` (when `rules` is
+/// reported by `crate::minify::comment_remover::literal_ranges` (when `rules` is
 /// given) as opaque — copied verbatim, never collapsed, so string/regex/
 /// template-literal content is never mutated by the aggressive strategy.
 ///
@@ -65,10 +65,10 @@ fn in_literal_at(ranges: &[(usize, usize)], ri: &mut usize, pos: usize) -> Optio
 /// (spaces/tabs) is safe everywhere and still happens unconditionally.
 pub(super) fn collapse_whitespace(
     s: &str,
-    rules: Option<&crate::comment_remover::CommentRules>,
+    rules: Option<&crate::minify::comment_remover::CommentRules>,
 ) -> String {
     let ranges = rules
-        .map(|r| crate::comment_remover::literal_ranges(s, r))
+        .map(|r| crate::minify::comment_remover::literal_ranges(s, r))
         .unwrap_or_default();
     let mut ri = 0usize;
     let bytes = s.as_bytes();
@@ -110,10 +110,10 @@ pub(super) fn collapse_whitespace(
 /// string/regex/template literal are never touched.
 pub(super) fn re_tighten_punct(
     s: &str,
-    rules: Option<&crate::comment_remover::CommentRules>,
+    rules: Option<&crate::minify::comment_remover::CommentRules>,
 ) -> String {
     let ranges = rules
-        .map(|r| crate::comment_remover::literal_ranges(s, r))
+        .map(|r| crate::minify::comment_remover::literal_ranges(s, r))
         .unwrap_or_default();
     let mut ri = 0usize;
     let bytes = s.as_bytes();

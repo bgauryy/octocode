@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '../../../toolContract/schemas.js';
+import type { FileContentQuerySchema } from '../../../toolContract/input/resources/tools/ghGetFileContent.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import type { PaginationInfo } from '../../../types/toolResults.js';
@@ -23,6 +23,9 @@ export type FileEntry = {
   commitSha?: string;
   pagination?: PaginationInfo;
   isPartial?: boolean;
+  errorCode?: 'contentSecurityLimit';
+  terminalLimit?: boolean;
+  partialReasons?: Array<'security-selected-view-size-limit'>;
   startLine?: number;
   endLine?: number;
   matchRanges?: Array<{ start: number; end: number }>;
@@ -38,6 +41,12 @@ export type FileEntry = {
 };
 
 export type FileContentNextMap = {
+  readBoundedLines?: {
+    tool: 'ghGetFileContent';
+    query: Record<string, unknown>;
+    why: string;
+    confidence: 'exact';
+  };
   continueChars?: {
     tool: 'ghGetFileContent';
     query: Record<string, unknown>;
@@ -81,7 +90,6 @@ export type DirectoryEntry = {
   savedFileCount?: number;
   skipped?: {
     nonFile: number;
-    missingDownloadUrl: number;
     oversized: number;
     binary: number;
     fileLimit: number;

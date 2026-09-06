@@ -2,7 +2,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { SymbolResolver, resolveSymbolPosition } from '../../src/lsp/resolver.js';
+import { SymbolResolver } from '../../src/lsp/resolver.js';
 import { toUri, fromUri, fromUriSafe } from '../../src/lsp/uri.js';
 import { safeReadFile, validateLSPServerPath } from '../../src/lsp/validation.js';
 import { resolveWorkspaceRootForFile } from '../../src/lsp/workspaceRoot.js';
@@ -39,8 +39,15 @@ describe('native core wrappers', () => {
 
     expect(
       resolver.resolvePositionFromContent(content, { symbolName: 'target' })
-    ).toMatchObject({ foundAtLine: 2 });
-    await expect(resolveSymbolPosition(file, 'target')).resolves.toMatchObject({
+    ).toEqual({
+      position: { line: 1, character: 9 },
+      foundAtLine: 2,
+      lineOffset: 0,
+      lineContent: 'function target() {}',
+    });
+    await expect(
+      resolver.resolvePosition(file, { symbolName: 'target' })
+    ).resolves.toMatchObject({
       foundAtLine: 2,
     });
   });

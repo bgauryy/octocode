@@ -1,4 +1,4 @@
-# Octocode Engine Architecture
+# Octocode engine architecture
 
 `octocode-engine` is a napi-rs native package **plus a TypeScript orchestration
 layer**. Rust modules (reached through thin NAPI bindings in `src/bindings/`)
@@ -45,7 +45,7 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
   `commandValidator`, `mask`, `regexes/`) for orchestration. Both ship under
   the engine package via the `./security/*` subpath exports.
 
-## Research Graph Direction
+## Research graph direction
 
 Reachability/dead-code detection lives today in
 `octocode-tools-core/src/tools/local_analyze_graph/` (the `localAnalyzeGraph` MCP
@@ -69,6 +69,29 @@ definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
 is discovery only; `localAnalyzeGraph` output is candidate-grade and must be
 confirmed with `lspGetSemantics` before a deletion claim, matching that rule.
 
+Graph declaration IDs identify occurrences using scope and source position.
+Same-named methods and separate Rust declaration/implementation occurrences
+remain distinct. An unresolved call spelling is a reference candidate, not a
+resolved same-file symbol. The public graph reports linking coverage separately
+from parser support: declared Rust modules, literal `#[path]` modules, and JS/TS
+relative imports have linkers. Tools-core can opt into bounded, offline Cargo
+metadata to identify custom crate roots, editions, and workspace dependency aliases.
+Conditional compilation and macro expansion remain unsupported; unresolved internal imports and parse recovery
+produce explicit coverage diagnostics. Same-file lexical occurrence counts are
+conservative retention evidence, not semantic references.
+
+Structural prefilters derive necessary literals from parsed rules. Negation
+does not supply a positive anchor, and an unrestricted OR branch disables a
+restrictive prefilter. Native file scans report `scanTruncated` when an extra
+candidate exists beyond `maxFiles`; result pagination can expand that scan.
+The asynchronous scan result carries the query plan used for that same scan,
+so callers can explain zero matches without repeating a synchronous directory
+walk on the JavaScript event loop.
+Execution limits instead carry staged diagnostics and an incomplete status.
+Completed files remain available, while exhausted matching cannot establish
+absence or satisfy a negation. Public tools preserve these diagnostics and
+report terminal limits when no continuation can complete the execution.
+
 **Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has live consumers
 through both the single-file API and `scanGraphFacts` — it is not orphaned. A
 native Rust port of the graph algorithms above
@@ -85,8 +108,8 @@ TypeScript implementation; see that doc's status before reviving the idea.
 - Stateful orchestration that must persist across NAPI calls (LSP client pool,
   security registry) belongs in the TS tier (`src/lsp/*.ts`, `src/security/*.ts`),
   not Rust.
-- Preserve root re-exports in `lib.rs` when moving modules to avoid churn in
-  internal call sites.
+- Declare the public NAPI and Rust benchmark exports explicitly in `lib.rs`.
+  Internal callers import from the owning module; avoid wildcard relay exports.
 - Avoid duplicate helpers across domains. Shared LSP command/path checks live in
   `src/lsp/commands.rs`.
 
@@ -97,19 +120,23 @@ TypeScript implementation; see that doc's status before reviving the idea.
 `optionalDependencies`, and every `npm/<platform>/package.json` to match it.
 
 - NAPI: `napi`, `napi-derive`; build: `napi-build`; dev: `napi`.
-- Serialization/text: `serde`, `serde_json`, `serde_yaml_ng`, `regex`, `url`.
-- Async/process/LSP: `tokio`, `lsp-types`, `which`.
-- Search: `grep`, `ignore`.
+- Serialization/text: `serde`, `serde_json`, `serde_yaml_ng`, `regex`,
+  `regex-syntax`, `aho-corasick`, `similar`, and `url`.
+- Async/process/LSP: `tokio`, `which`.
+- Search: `grep`, `ignore`; patched transitive security floors are pinned for
+  `crossbeam-epoch` and `memmap2`.
 - Minify/JS/CSS: `lightningcss`, `oxc_allocator`, `oxc_ast`, `oxc_codegen`,
   `oxc_minifier`, `oxc_parser`, `oxc_span`, `oxc_semantic`.
-- Structural search: `tree-sitter`, `tree-sitter-language`.
+- Structural search: `tree-sitter`.
 - Grammars: `tree-sitter-typescript`, `tree-sitter-javascript`,
   `tree-sitter-python`, `tree-sitter-go`, `tree-sitter-rust`,
   `tree-sitter-java`, `tree-sitter-c`, `tree-sitter-cpp`,
-  `tree-sitter-c-sharp`, `tree-sitter-bash`, `tree-sitter-json`,
+  `tree-sitter-c-sharp`, `tree-sitter-ruby`, `tree-sitter-php`,
+  `tree-sitter-kotlin-ng`, `tree-sitter-json`,
   `tree-sitter-yaml`, `tree-sitter-toml-ng`, `tree-sitter-html`,
-  `tree-sitter-css`, `tree-sitter-scss`, `tree-sitter-less`,
-  `tree-sitter-scala`.
+  `tree-sitter-css`, `tree-sitter-scss`, `tree-sitter-scala`,
+  `tree-sitter-lua`, `tree-sitter-sequel`, `tree-sitter-zig`, and
+  `tree-sitter-swift`.
 
 ## Distribution
 
@@ -130,7 +157,7 @@ Publish the six platform packages first, then publish the engine root. Interface
 packages (`octocode-mcp` and `octocode`) are published only after this package is
 available on npm because they depend on it directly at runtime.
 
-## Cross-Compile Build Prerequisites
+## Cross-compile build prerequisites
 
 `yarn build:all` cross-compiles the native addon for all 6 target platforms.
 The default `rustup` install only ships the host target; the others require:

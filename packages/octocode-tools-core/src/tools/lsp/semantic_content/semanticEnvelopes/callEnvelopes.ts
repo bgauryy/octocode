@@ -9,6 +9,7 @@ import {
   compactResolvedSymbol,
   type LspSemanticEnvelope,
   type SymbolAnchoredSemanticQuery,
+  type ConsumerWarmupStats,
 } from '../../shared/semanticTypes.js';
 import type { SymbolAnchor } from '../../shared/resolveSymbolAnchor.js';
 import {
@@ -23,10 +24,15 @@ import {
   paginateItems,
 } from './envelopeHelpers.js';
 
+function isTypeScriptStdlibTarget(call: OutgoingCall): boolean {
+  return /node_modules\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(call.to.uri);
+}
+
 export async function callsEnvelope(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
-  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>
+  client: NonNullable<Awaited<ReturnType<typeof acquirePooledClient>>>,
+  warmupStats?: ConsumerWarmupStats
 ): Promise<LspSemanticEnvelope> {
   const items = await client.prepareCallHierarchy(
     anchor.absolutePath,
@@ -47,6 +53,7 @@ export async function callsEnvelope(
     truncatedByBudget: false,
     visitedNodeCount: 0,
     requestCount: 0,
+    excludedCallCount: 0,
   } as const;
   const incomingResult =
     query.type === 'callers' || query.type === 'callHierarchy'
@@ -65,24 +72,20 @@ export async function callsEnvelope(
           root,
           depth,
           new Set([createCallItemKey(root)]),
-          query.contextLines ?? 0
+          query.contextLines ?? 0,
+          undefined,
+          isTypeScriptStdlibTarget
         )
       : emptyTraversal;
 
-  const isStdlibTarget = (call: OutgoingCall): boolean =>
-    /node_modules\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(call.to.uri);
-  const stdlibCallsExcluded =
-    outgoingResult.calls.filter(isStdlibTarget).length;
-  const projectOutgoingCalls = outgoingResult.calls.filter(
-    call => !isStdlibTarget(call)
-  );
+  const stdlibCallsExcluded = outgoingResult.excludedCallCount ?? 0;
 
   const calls = [
     ...incomingResult.calls.map(call => ({
       direction: 'incoming' as const,
       ...call,
     })),
-    ...projectOutgoingCalls.map(call => ({
+    ...outgoingResult.calls.map(call => ({
       direction: 'outgoing' as const,
       ...call,
     })),
@@ -95,7 +98,9 @@ export async function callsEnvelope(
   const { pageItems, pagination } = paginateItems(
     compactCalls,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_CALLS_PER_PAGE
+    query.pageSize ?? DEFAULT_CALLS_PER_PAGE,
+    query,
+    calls
   );
   const direction =
     query.type === 'callers'
@@ -120,9 +125,13 @@ export async function callsEnvelope(
       direction,
       calls: pageItems,
       incomingCalls: incomingResult.calls.length,
-      outgoingCalls: projectOutgoingCalls.length,
+      outgoingCalls: outgoingResult.calls.length,
+      ...(warmupStats ? { warmup: warmupStats } : {}),
       completeness: {
-        complete: traversalComplete,
+        complete: traversalComplete && !warmupStats?.possiblyTruncated,
+        ...(warmupStats?.possiblyTruncated
+          ? { consumerWarmupIncomplete: true as const }
+          : {}),
         truncatedByDepth:
           incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
         truncatedByBudget:
@@ -140,7 +149,10 @@ export async function callsEnvelope(
         ? {
             empty: {
               category: 'noCalls' as const,
-              reason: 'callHierarchyProvider returned no calls',
+              reason:
+                stdlibCallsExcluded > 0
+                  ? 'No project calls remain after excluding TypeScript standard-library targets.'
+                  : 'callHierarchyProvider returned no calls',
             },
           }
         : {}),
@@ -178,7 +190,8 @@ export async function typeHierarchyEnvelope(
   const { pageItems, pagination } = paginateItems(
     relatives,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE,
+    query
   );
 
   return {

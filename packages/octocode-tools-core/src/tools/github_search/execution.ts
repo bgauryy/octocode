@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { createLazyProviderContext } from '../providerExecution.js';
 import { searchGitHubCode } from '../github_search_code/execution.js';
 import { searchGitHubRepos } from '../github_search_repos/execution.js';

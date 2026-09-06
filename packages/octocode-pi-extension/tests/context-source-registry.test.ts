@@ -109,6 +109,56 @@ describe('production current-context source registry', () => {
     expect(mergeCurrentContextSources(ctx, []).map((source) => source.segment.id)).toEqual(['selected-skill:review']);
   });
 
+  it('preserves capture owners when restore-only tool history reaches the registry limit', () => {
+    registerCurrentContextSource(ctx, {
+      version: 1, id: 'session-memory', kind: 'memory-lead', origin: 'session-memory', authority: 'external-data',
+      scope: 'session', visibility: 'inspectable', rehydrate: 'always', readCurrent: () => 'session notes',
+    });
+    for (let index = 0; index < 200; index += 1) {
+      registerCurrentContextSource(ctx, {
+        version: 1, id: `tool:${index}`, kind: 'tool-result', origin: `session-tool:${index}`, authority: 'external-data',
+        scope: 'turn', visibility: 'transcript', rehydrate: 'summary-only', capture: false, readCurrent: () => 'tool bytes',
+      });
+    }
+
+    expect(captureCurrentContextSources(ctx).contents).toEqual({ 'session-memory': 'session notes' });
+    const owners = captureCurrentContextSources(ctx, { includeRestoreOnly: true }).segments.map((segment) => segment.id);
+    expect(owners).toHaveLength(128);
+    expect(owners).toContain('tool:199');
+    expect(owners).not.toContain('tool:0');
+
+    const replacement = {
+      version: 1 as const, id: 'tool:199', kind: 'tool-result' as const, origin: 'session-tool:199', authority: 'external-data' as const,
+      scope: 'turn' as const, visibility: 'transcript' as const, rehydrate: 'summary-only' as const, capture: false,
+      readCurrent: () => 'replacement bytes',
+    };
+    const disposePrior = registerCurrentContextSource(ctx, replacement);
+    registerCurrentContextSource(ctx, { ...replacement, readCurrent: () => 'newest bytes' });
+    disposePrior();
+    const replaced = captureCurrentContextSources(ctx, { includeRestoreOnly: true });
+    expect(replaced.segments).toHaveLength(128);
+    expect(replaced.contents['tool:199']).toBe('newest bytes');
+    expect(replaced.contents['session-memory']).toBe('session notes');
+  });
+
+  it('keeps the bound without evicting capture owners for a new restore-only source', () => {
+    for (let index = 0; index < 128; index += 1) {
+      registerCurrentContextSource(ctx, {
+        version: 1, id: `memory:${index}`, kind: 'memory-lead', origin: `memory:${index}`, authority: 'external-data',
+        scope: 'task', visibility: 'inspectable', rehydrate: 'always', readCurrent: () => 'memory bytes',
+      });
+    }
+    registerCurrentContextSource(ctx, {
+      version: 1, id: 'tool:new', kind: 'tool-result', origin: 'session-tool:new', authority: 'external-data',
+      scope: 'turn', visibility: 'transcript', rehydrate: 'summary-only', capture: false, readCurrent: () => 'tool bytes',
+    });
+
+    const captured = captureCurrentContextSources(ctx, { includeRestoreOnly: true });
+    expect(captured.segments).toHaveLength(128);
+    expect(captured.contents['memory:0']).toBe('memory bytes');
+    expect(captured.contents['tool:new']).toBeUndefined();
+  });
+
   it('rebuilds transcript-owned sources from durable session entries after restart', () => {
     const transcriptCtx = {
       cwd: '/workspace',
@@ -145,5 +195,50 @@ describe('production current-context source registry', () => {
     expect(sources.map((source) => [source.segment.id, source.content])).toEqual([
       ['request', 'original request'], ['tool', 'tool bytes'], ['peer', 'peer bytes'],
     ]);
+  });
+
+  it('resolves current sources only from the active branch after navigating the session tree', () => {
+    const activeRequest = { type: 'message', message: { role: 'user', content: 'active request' } };
+    const abandonedEntries = [
+      { type: 'message', message: { role: 'user', content: 'abandoned request' } },
+      { type: 'message', message: { role: 'toolResult', toolCallId: 'abandoned-tool', content: 'abandoned result' } },
+      { type: 'message', message: { customType: 'octocode-peer-event', content: 'abandoned peer', details: { eventId: 'abandoned-peer' } } },
+    ];
+    const branchCtx = {
+      ...ctx,
+      sessionManager: {
+        ...ctx.sessionManager,
+        getEntries: () => [activeRequest, ...abandonedEntries],
+        getBranch: () => [activeRequest],
+      },
+    } as PiContext;
+
+    expect(readLatestSessionUserRequest(branchCtx)).toBe('active request');
+    expect(readSessionToolResult(branchCtx, 'abandoned-tool')).toBeUndefined();
+    expect(readSessionPeerEvent(branchCtx, 'abandoned-peer')).toBeUndefined();
+    expect(resolveSessionCheckpointSources(branchCtx, [{
+      version: 1,
+      id: 'peer-event:abandoned-peer',
+      kind: 'peer-event',
+      origin: sessionPeerEventOrigin('abandoned-peer'),
+      authority: 'external-data',
+      digest: contentDigest('abandoned peer'),
+      scope: 'turn',
+      visibility: 'inspectable',
+      rehydrate: 'always',
+    }])).toEqual([]);
+  });
+
+  it('does not fall back to another branch when the current branch is empty', () => {
+    const branchCtx = {
+      ...ctx,
+      sessionManager: {
+        ...ctx.sessionManager,
+        getEntries: () => [{ type: 'message', message: { role: 'user', content: 'abandoned request' } }],
+        getBranch: () => [],
+      },
+    } as PiContext;
+
+    expect(readLatestSessionUserRequest(branchCtx)).toBeUndefined();
   });
 });

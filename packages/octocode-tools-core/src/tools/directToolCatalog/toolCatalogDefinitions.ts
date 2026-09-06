@@ -1,8 +1,6 @@
 /**
- * Engine-free direct-tool catalog: registry of tool definitions (name +
- * display/bulk zod schemas) plus category/sort/output-field helpers. Split out
- * of `directToolCatalog.meta.ts` (still the public barrel) — see that file's
- * header comment for the full P3 engine-free rationale.
+ * Engine-free registry of tool definitions, schemas, categories, and output fields.
+ * Public schema consumers import @octocodeai/octocode-tools-core/schema.
  */
 import { z } from 'zod';
 import {
@@ -13,7 +11,7 @@ import {
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
   LOCAL_SEARCH_TOOL_NAME,
 } from '../toolNames.js';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import {
   DIRECT_TOOL_SPECIFICATIONS,
   type DirectToolSpecification,

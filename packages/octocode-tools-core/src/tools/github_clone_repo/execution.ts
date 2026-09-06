@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { getCheckedOutSizeBytes } from './contentSize.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { markResponseCacheHit } from '../../utils/http/cache/trace.js';
 import type {
   ToolExecutionArgs,
@@ -81,6 +81,8 @@ export async function executeCloneRepo(
             localPath: result.localPath,
             source: 'clone',
             cached: result.cached,
+            commitSha: result.commitSha,
+            verified: result.verified,
             // Completeness is relative to the requested clone scope. A sparse
             // checkout contains every reachable entry under sparsePath.
             complete: true,

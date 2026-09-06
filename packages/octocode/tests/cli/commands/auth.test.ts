@@ -82,7 +82,7 @@ vi.mock('../../../src/features/github-oauth.js', () => {
   };
 });
 
-vi.mock('../../../src/utils/token-storage.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core/credentials', () => ({
   getCredentials: vi.fn().mockResolvedValue(null),
 }));
 
@@ -142,9 +142,14 @@ describe('cli/commands/auth', () => {
   async function loadAuthModule() {
     const oauth = await import('../../../src/features/github-oauth.js');
     const gh = await import('../../../src/features/gh-auth.js');
-    const storage = await import('../../../src/utils/token-storage.js');
+    const storage = await import('@octocodeai/octocode-tools-core/credentials');
     const prompts = await import('../../../src/utils/prompts.js');
-    const auth = await import('../../../src/cli/commands/auth.js');
+    const { authCommand } =
+      await import('../../../src/cli/commands/auth/auth-command.js');
+    const { loginCommand } =
+      await import('../../../src/cli/commands/auth/login-command.js');
+    const { logoutCommand } =
+      await import('../../../src/cli/commands/auth/logout-command.js');
     const { hasEnvToken, getEnvTokenSource } =
       await import('@octocodeai/config');
     return {
@@ -152,7 +157,9 @@ describe('cli/commands/auth', () => {
       ...gh,
       ...storage,
       ...prompts,
-      ...auth,
+      authCommand,
+      loginCommand,
+      logoutCommand,
       hasEnvToken,
       getEnvTokenSource,
     };

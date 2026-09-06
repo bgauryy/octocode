@@ -1,12 +1,11 @@
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { delimiter, dirname, join } from 'path';
+import { TOOLING_ALLOWED_ENV_VARS, PROXY_ENV_VARS } from './spawn/env.js';
 import {
-  TOOLING_ALLOWED_ENV_VARS,
-  PROXY_ENV_VARS,
   spawnWithTimeout,
   spawnCheckSuccess,
   validateArgs,
-} from './spawn.js';
+} from './spawn/wrappers.js';
 
 type NpmInvocation = {
   command: string;
@@ -61,6 +60,22 @@ function resolveNpmInvocation(): NpmInvocation {
   };
 }
 
+/** Locate npm's builtin configuration without invoking or reading credentials. */
+export function resolveNpmConfigRoot(): string {
+  const invocation = resolveNpmInvocation();
+  const script = invocation.argsPrefix[0] ?? invocation.command;
+  try {
+    const bin = realpathSync(script);
+    const root = dirname(dirname(bin));
+    if (existsSync(join(root, 'bin', 'npm-cli.js'))) return root;
+    const windowsRoot = join(dirname(bin), 'node_modules', 'npm');
+    if (existsSync(join(windowsRoot, 'bin', 'npm-cli.js'))) return windowsRoot;
+  } catch {
+    // npm need not be installed: the library still supplies standard defaults.
+  }
+  return join(dirname(process.execPath), 'node_modules', 'npm');
+}
+
 const ALLOWED_NPM_COMMANDS = [
   'view',
   'search',
@@ -87,6 +102,14 @@ interface NpmExecResult {
 const NETWORK_ALLOWED_ENV_VARS = [
   ...TOOLING_ALLOWED_ENV_VARS,
   ...PROXY_ENV_VARS,
+  // npm owns registry configuration and .npmrc token interpolation. Keep these
+  // confined to the npm subprocess; general tooling never receives them.
+  'NPM_CONFIG_REGISTRY',
+  'npm_config_registry',
+  'NPM_CONFIG_USERCONFIG',
+  'npm_config_userconfig',
+  'NPM_TOKEN',
+  'NODE_AUTH_TOKEN',
 ] as const;
 
 export async function checkNpmAvailability(

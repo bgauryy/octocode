@@ -1,9 +1,10 @@
-import type { IssueSearchParams } from '../queryBuilders.js';
+import type { IssueSearchParams } from '../queryBuilders/issues.js';
 
 export type IssueCommentRow = {
   id: string;
   user: string;
   body: string;
+  bodyPagination?: NonNullable<IssueRow['contentPagination']>['body'];
   createdAt: string;
   updatedAt: string;
   commentType: 'discussion';
@@ -21,6 +22,7 @@ export type IssueRow = {
   body?: string;
   comments?: IssueCommentRow[];
   contentPagination?: {
+    commentBody?: NonNullable<IssueRow['contentPagination']>['body'];
     body?: {
       charOffset: number;
       charLength: number;

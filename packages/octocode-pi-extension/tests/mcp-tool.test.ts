@@ -7,20 +7,8 @@ import {
 } from "@octocodeai/octocode-awareness/mcp-state";
 import { openOctocodeDb } from "../src/tools/storage-policy.js";
 import { afterEach, beforeEach, test } from "vitest";
-import {
-  OCTOCODE_MCP_ENV_DEFAULTS,
-  __test__ as mcpTestHooks,
-  getCachedMcpCatalogAddendum,
-  getCachedMcpCounts,
-  isCompactMcpEnabled,
-  isMcpAiGuideEnabled,
-  formatMcpSchemaValidationErrors,
-  mcpCatalogReady,
-  resolveMcpCallContent,
-  resolveMcpCallText,
-  stopAllMcpServers,
-  warmMcpCatalog,
-} from "../src/tools/mcp-tool.js";
+import { __test__ as mcpTestHooks, getCachedMcpCatalogAddendum, getCachedMcpCounts, isCompactMcpEnabled, isMcpAiGuideEnabled, formatMcpSchemaValidationErrors, mcpCatalogReady, resolveMcpCallContent, resolveMcpCallText, stopAllMcpServers, warmMcpCatalog } from '../src/tools/mcp-tool.js';
+import { OCTOCODE_MCP_ENV_DEFAULTS } from '../src/tools/mcp-config.js';
 import { buildMcpCatalogSnapshot } from "../src/tools/mcp-catalog.js";
 import { projectMcpPath } from "../src/tools/mcp-config.js";
 
@@ -241,7 +229,7 @@ test("MCP client capability handlers expose only trusted roots and deny headless
     cwd,
     hasUI: false,
     mode: "rpc",
-    isProjectTrusted: async () => true,
+    isProjectTrusted: () => true,
   } as import("../src/types.js").PiContext);
   const roots = (await requests.get("roots/list")!({ params: {} })) as {
     roots: Array<{ uri: string }>;
@@ -910,7 +898,7 @@ function createDelayedMcpFixture(delayMs: number): {
   return {
     ctx: {
       cwd,
-      isProjectTrusted: async () => true,
+      isProjectTrusted: () => true,
     } as unknown as import("../src/types.js").PiContext,
     serverPath,
     discoveryMarker,
@@ -973,7 +961,7 @@ function createCallGateMcpFixture(): {
   return {
     ctx: {
       cwd,
-      isProjectTrusted: async () => true,
+      isProjectTrusted: () => true,
     } as unknown as import("../src/types.js").PiContext,
     callMarker,
     cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
@@ -1004,7 +992,7 @@ function createFailingMcpFixture(): {
   return {
     ctx: {
       cwd,
-      isProjectTrusted: async () => true,
+      isProjectTrusted: () => true,
     } as unknown as import("../src/types.js").PiContext,
     cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
   };
@@ -1316,6 +1304,8 @@ test("replacement session owns a fresh MCP warm and superseded context failures 
     releaseTrust = resolve;
   });
   let stale = false;
+  // Adversarial host: an out-of-contract deferred callback must still be
+  // discarded after session replacement, even when it eventually throws.
   const staleCtx = {
     cwd: fixture.ctx.cwd,
     isProjectTrusted: async () => {
@@ -1365,11 +1355,7 @@ test("replacement session owns a fresh MCP warm and superseded context failures 
 });
 
 // ─── add / remove server (mcp.json CRUD, no agent restart) ────────────────────
-import {
-  upsertServerInFile,
-  removeServerFromFile,
-  configSignature,
-} from "../src/tools/mcp-tool.js";
+import { upsertServerInFile, removeServerFromFile, configSignature } from '../src/tools/mcp-config.js';
 
 function freshDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-crud-"));
@@ -1490,7 +1476,7 @@ function trustedCtx() {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-ctx-"));
   return {
     cwd,
-    isProjectTrusted: async () => true,
+    isProjectTrusted: () => true,
   } as unknown as import("../src/types.js").PiContext;
 }
 
@@ -1509,7 +1495,7 @@ function approvedProjectCtx() {
     cwd,
     mode: "tui",
     hasUI: true,
-    isProjectTrusted: async () => true,
+    isProjectTrusted: () => true,
     ui: {
       // runSelectOverlay calls ctx.ui.custom(setupFn, opts): Promise<T>.
       // Returning 'allow' directly simulates the user choosing Allow.
@@ -1780,19 +1766,14 @@ test(
 );
 
 // ─── config watcher: reconcile + lifecycle ────────────────────────────────────
-import {
-  computeReload,
-  configSignature as sig,
-  startMcpConfigWatcher,
-  stopMcpConfigWatchers,
-} from "../src/tools/mcp-tool.js";
+import { computeReload, startMcpConfigWatcher, stopMcpConfigWatchers } from '../src/tools/mcp-tool.js';
 
 test("computeReload flags drifted and removed servers, ignores unchanged", () => {
   const a = { command: "node", args: ["a.js"] };
   const running = new Map<string, string>([
-    ["stable", sig(a)],
-    ["drifted", sig({ command: "node", args: ["old.js"] })],
-    ["gone", sig({ command: "x" })],
+    ["stable", configSignature(a)],
+    ["drifted", configSignature({ command: "node", args: ["old.js"] })],
+    ["gone", configSignature({ command: "x" })],
   ]);
   const servers = new Map([
     ["stable", a],
@@ -2089,7 +2070,7 @@ test("parallel MCP batches overlap read operations and preserve source-order rec
   try {
     const ctx = {
       cwd,
-      isProjectTrusted: async () => true,
+      isProjectTrusted: () => true,
     } as unknown as import("../src/types.js").PiContext;
     const def = buildMcpToolDef();
     const res = await def.execute(
@@ -2137,6 +2118,7 @@ test("parallel MCP calls may target the same server and report each result indep
     assert.match((res.content[1] as { text: string }).text, /first/i);
     assert.match((res.content[2] as { text: string }).text, /second/i);
   } finally {
+    stopAllMcpServers();
     fixture.cleanup();
   }
 });
@@ -2144,7 +2126,7 @@ test("parallel MCP calls may target the same server and report each result indep
 test("single-query passthrough: result is returned directly (not aggregate)", async () => {
   const ctx = {
     cwd: fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-sq-")),
-    isProjectTrusted: async () => true,
+    isProjectTrusted: () => true,
   } as unknown as import("../src/types.js").PiInstance;
   const def = buildMcpToolDef();
   const params = {
@@ -2208,7 +2190,7 @@ test("multi-query: every MCP result is returned directly to the agent", async ()
     assert.equal(
       res.isError ?? false,
       false,
-      "multi-query must succeed when all calls are valid",
+      `multi-query must succeed when all calls are valid: ${JSON.stringify(res)}`,
     );
     assert.deepEqual(
       res.content,

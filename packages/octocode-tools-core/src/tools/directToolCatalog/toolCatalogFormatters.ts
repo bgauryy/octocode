@@ -1,9 +1,5 @@
 /**
- * Engine-free direct-tool catalog: schema and metadata formatters. Split out
- * of `toolCatalogDefinitions.ts` to keep that
- * registry module under the max-lines budget — both are re-exported by the
- * `directToolCatalog.meta.ts` barrel. See that file's header comment for the
- * full P3 engine-free rationale.
+ * Engine-free schema and metadata formatters for the direct-tool catalog.
  */
 import { z } from 'zod';
 import {

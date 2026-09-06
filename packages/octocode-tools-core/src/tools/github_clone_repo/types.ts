@@ -1,4 +1,4 @@
-export type CacheSource = 'clone' | 'directoryFetch' | 'treeFetch';
+export type CacheSource = 'clone' | 'treeFetch';
 
 export interface CloneCacheMeta {
   clonedAt: string;
@@ -11,11 +11,16 @@ export interface CloneCacheMeta {
   sparsePath?: string;
   source: CacheSource;
   sizeBytes?: number;
+  /** Immutable materialization generation selected by this atomic cache record. */
+  snapshotId?: string;
 }
 
 export interface CloneRepoResult {
   localPath: string;
   cached: boolean;
+  commitSha: string;
+  /** Fresh checkout verification; cached working-tree contents are not reverified. */
+  verified: boolean;
   owner: string;
   repo: string;
   branch: string;

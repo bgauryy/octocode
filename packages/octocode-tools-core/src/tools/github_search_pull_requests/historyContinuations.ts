@@ -78,7 +78,8 @@ export function sanitizePullRequestContent(
     ...(patches && Object.keys(patches).length > 0 ? { patches } : {}),
     ...(comments && Object.keys(comments).length > 0 ? { comments } : {}),
     reviews: trueFlag(value.reviews),
-    ...(commits && Object.keys(commits).length > 0 ? { commits } : {}),
+    // An empty commits selector requests summaries and must survive paging.
+    ...(commits ? { commits } : {}),
   });
   return Object.keys(content).length > 0 ? content : undefined;
 }
@@ -106,6 +107,8 @@ export function publicPullRequestContinuationQuery(
       'filePage',
       'commentPage',
       'commitPage',
+      'reviewPage',
+      'collectionPages',
       'charOffset',
       'commentBodyOffset',
       'charLength',
@@ -129,6 +132,7 @@ export function publicCommitContinuationQuery(
       'repo',
       'ref',
       'includeDiff',
+      'fileBatch',
       'path',
       'filePage',
       'pageSize',
@@ -194,6 +198,7 @@ const SEARCH_FIELDS = {
     'pageSize',
   ],
   commits: [
+    'keywords',
     'owner',
     'repo',
     'path',

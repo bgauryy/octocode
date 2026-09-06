@@ -5,7 +5,7 @@ import {
   type CodeSearchFlatResult,
   type CodeSearchGroupedMatch,
   type CodeSearchGroupedResult,
-} from '../../providerMappers.js';
+} from '../../providerMappers/codeSearch.js';
 
 export function hasScopedGitHubQuery(
   emptyQueries: readonly { index: number }[],

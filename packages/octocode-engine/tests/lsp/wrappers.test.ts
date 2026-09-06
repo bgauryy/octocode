@@ -8,9 +8,11 @@ function nativeMock() {
   const client = {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
-    waitForReady: vi.fn().mockResolvedValue(undefined),
+    waitForReady: vi.fn().mockResolvedValue('progressIdle'),
+    hasCapability: vi.fn().mockReturnValue(true),
     getRecentStderr: vi.fn((): string[] => []),
     openDocument: vi.fn().mockResolvedValue(undefined),
+    closeDocument: vi.fn().mockResolvedValue(undefined),
     getDefinition: vi.fn().mockResolvedValue([{ uri: 'file:///a.ts' }]),
     getReferences: vi.fn().mockResolvedValue([{ uri: 'file:///b.ts' }]),
     getHover: vi.fn().mockResolvedValue({ contents: 'hover' }),
@@ -20,8 +22,16 @@ function nativeMock() {
     prepareCallHierarchy: vi.fn().mockResolvedValue([{ name: 'call' }]),
     incomingCalls: vi.fn().mockResolvedValue([{ from: { name: 'caller' } }]),
     outgoingCalls: vi.fn().mockResolvedValue([{ to: { name: 'callee' } }]),
+    workspaceSymbol: vi.fn().mockResolvedValue([{ name: 'workspaceSymbol' }]),
+    prepareTypeHierarchy: vi.fn().mockResolvedValue([{ name: 'type' }]),
+    typeHierarchySupertypes: vi
+      .fn()
+      .mockResolvedValue([{ name: 'supertype' }]),
+    typeHierarchySubtypes: vi.fn().mockResolvedValue([{ name: 'subtype' }]),
+    getDiagnostics: vi.fn().mockResolvedValue([{ message: 'diagnostic' }]),
+    isAlive: vi.fn().mockResolvedValue(true),
   };
-  const NativeLspClient = vi.fn(function NativeLspClient() {
+  const NativeLspClient = vi.fn(function NativeLspClient(_config: unknown) {
     return client;
   });
   return {
@@ -36,9 +46,9 @@ function nativeMock() {
       })),
       resolvePositionFromContent: vi.fn(() => ({
         position: { line: 1, character: 2 },
-        found_at_line: 2,
-        line_offset: 0,
-        line_content: 'function target() {}',
+        foundAtLine: 2,
+        lineOffset: 0,
+        lineContent: 'function target() {}',
       })),
       toUri: vi.fn((filePath: string) => `file://${filePath}`),
       fromUri: vi.fn((uri: string) => uri.replace(/^file:\/\//, '')),
@@ -74,6 +84,89 @@ async function withMockedNative<T>(
 }
 
 describe('TypeScript wrappers delegate to nativeBinding only', () => {
+  it('does not report success when required native lifecycle methods are missing', async () => {
+    await withMockedNative(async mock => {
+      const { LSPClient } = await import('../../src/lsp/client.js');
+      const client = new LSPClient({
+        command: 'server',
+        workspaceRoot: '/workspace',
+      });
+      await client.start();
+      for (const method of [
+        'hasCapability',
+        'isAlive',
+        'getRecentStderr',
+        'closeDocument',
+      ]) {
+        Reflect.deleteProperty(mock.client, method);
+      }
+      expect(() => client.hasCapability('definitionProvider')).toThrow(TypeError);
+      await expect(client.isAlive()).rejects.toThrow(TypeError);
+      expect(() => client.getRecentStderr()).toThrow(TypeError);
+      await expect(client.closeDocument('/workspace/a.ts')).rejects.toThrow(
+        TypeError
+      );
+    });
+  });
+
+  it.each(['progressIdle', 'settledFallback', 'timeout'])(
+    'preserves native readiness %s without inferring indexing completion',
+    async readiness => {
+      await withMockedNative(async mock => {
+        const { LSPClient } = await import('../../src/lsp/client.js');
+        const client = new LSPClient({
+          command: 'server',
+          workspaceRoot: '/workspace',
+        });
+        expect(client.getReadiness()).toBeUndefined();
+        mock.client.waitForReady.mockResolvedValueOnce(readiness);
+        await expect(client.waitForReady(12)).resolves.toBe(readiness);
+        expect(client.getReadiness()).toBe(readiness);
+        expect(mock.client.waitForReady).toHaveBeenCalledWith(12);
+      });
+    }
+  );
+
+  it('preserves non-TypeScript provider initialization options', async () => {
+    await withMockedNative(async mock => {
+      const { LSPClient } = await import('../../src/lsp/client.js');
+      const initializationOptions = { strict: true };
+      new LSPClient({
+        command: 'pyright-langserver',
+        workspaceRoot: '/workspace',
+        languageId: 'python',
+        initializationOptions,
+      });
+      expect(
+        mock.nativeBinding.NativeLspClient.mock.calls[0]?.[0]
+      ).toMatchObject({ initializationOptions });
+    });
+  });
+  it('uses the full TypeScript semantic server for cold requests while preserving other initialization settings', async () => {
+    await withMockedNative(async mock => {
+      const { LSPClient } = await import('../../src/lsp/client.js');
+      new LSPClient({
+        command: 'typescript-language-server',
+        args: ['--stdio'],
+        workspaceRoot: '/workspace',
+        languageId: 'typescript',
+        initializationOptions: {
+          strict: true,
+          tsserver: { logVerbosity: 'off' },
+          preferences: { quotePreference: 'single' },
+        },
+      });
+      expect(
+        mock.nativeBinding.NativeLspClient.mock.calls[0]?.[0]
+      ).toMatchObject({
+        initializationOptions: {
+          strict: true,
+          tsserver: { useSyntaxServer: 'never', logVerbosity: 'off' },
+          preferences: { quotePreference: 'single' },
+        },
+      });
+    });
+  });
   it('delegates every LSPClient operation to the native client', async () => {
     await withMockedNative(async mock => {
       const { LSPClient } = await import('../../src/lsp/client.js');
@@ -139,49 +232,39 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       ]);
       mock.client.outgoingCalls.mockResolvedValueOnce(null);
       await expect(client.getOutgoingCalls(item)).resolves.toEqual([]);
+      await expect(client.workspaceSymbol('target')).resolves.toEqual([
+        { name: 'workspaceSymbol' },
+      ]);
+      mock.client.workspaceSymbol.mockResolvedValueOnce(null);
+      await expect(client.workspaceSymbol('missing')).resolves.toEqual([]);
+      await expect(
+        client.prepareTypeHierarchy(filePath, position)
+      ).resolves.toEqual([{ name: 'type' }]);
+      mock.client.prepareTypeHierarchy.mockResolvedValueOnce(null);
+      await expect(
+        client.prepareTypeHierarchy(filePath, position)
+      ).resolves.toEqual([]);
+      await expect(client.typeHierarchySupertypes(item)).resolves.toEqual([
+        { name: 'supertype' },
+      ]);
+      mock.client.typeHierarchySupertypes.mockResolvedValueOnce(null);
+      await expect(client.typeHierarchySupertypes(item)).resolves.toEqual([]);
+      await expect(client.typeHierarchySubtypes(item)).resolves.toEqual([
+        { name: 'subtype' },
+      ]);
+      mock.client.typeHierarchySubtypes.mockResolvedValueOnce(null);
+      await expect(client.typeHierarchySubtypes(item)).resolves.toEqual([]);
+      await expect(client.getDiagnostics(filePath)).resolves.toEqual([
+        { message: 'diagnostic' },
+      ]);
+      await expect(client.isAlive()).resolves.toBe(true);
       await client.openDocument(filePath, 'content');
       await expect(client.closeDocument(filePath)).resolves.toBeUndefined();
+      expect(mock.client.closeDocument).toHaveBeenCalledWith(filePath);
       await client.stop();
       expect(client.hasCapability('definitionProvider')).toBe(false);
       expect(client.getRecentStderr()).toEqual([]);
       expect(mock.client.getDefinition).toHaveBeenCalled();
-      await rm(root, { recursive: true, force: true });
-    });
-  });
-
-  it('resolves import-location definitions through local JS/TS modules', async () => {
-    await withMockedNative(async () => {
-      const { resolveImportAliasDefinitions } = await import(
-        '../../src/lsp/resolver.js'
-      );
-      const root = await mkdtemp(
-        path.join(os.tmpdir(), 'octocode-engine-import-alias-')
-      );
-      const importer = path.join(root, 'importer.ts');
-      const target = path.join(root, 'target.ts');
-      await writeFile(importer, "import { original as target } from './target.js';\n");
-      await writeFile(target, 'export const original = 1;\n');
-
-      const [resolved] = await resolveImportAliasDefinitions({
-        anchorUri: importer,
-        symbolName: 'target',
-        locations: [
-          {
-            uri: importer,
-            range: {
-              start: { line: 0, character: 9 },
-              end: { line: 0, character: 15 },
-            },
-            content: "import { original as target } from './target.js';",
-          },
-        ],
-      });
-
-      expect(resolved).toMatchObject({
-        uri: target,
-        displayRange: { startLine: 1, endLine: 1 },
-        content: 'export const original = 1;',
-      });
       await rm(root, { recursive: true, force: true });
     });
   });
@@ -242,51 +325,27 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       const workspaceModule = await import('../../src/lsp/workspaceRoot.js');
       const filePath = '/workspace/a.ts';
 
-      const defaultResolver = new resolverModule.SymbolResolver();
-      expect(defaultResolver.lineSearchRadius).toBe(5);
       expect(
-        new resolverModule.SymbolResolutionError('target', 3, 'missing', 9)
+        new resolverModule.SymbolResolutionError('target', 3, 'missing')
       ).toMatchObject({
         name: 'SymbolResolutionError',
         symbolName: 'target',
         lineHint: 3,
         reason: 'missing',
-        searchRadius: 9,
+        searchRadius: 5,
       });
-      const resolver = new resolverModule.SymbolResolver({
-        lineSearchRadius: 7,
-      });
-      expect(resolver.lineSearchRadius).toBe(7);
+      const resolver = new resolverModule.SymbolResolver();
       await expect(
         resolver.resolvePosition(filePath, { symbolName: 'target' })
       ).resolves.toMatchObject({ foundAtLine: 2 });
       expect(
         resolver.resolvePositionFromContent('content', { symbolName: 'target' })
       ).toMatchObject({ foundAtLine: 2 });
-      await expect(
-        resolverModule.resolveSymbolPosition(filePath, 'target', 2, 0)
-      ).resolves.toMatchObject({ foundAtLine: 2 });
-      mock.nativeBinding.resolvePosition.mockReturnValueOnce({
-        position: { line: 0, character: 0 },
-      } as ReturnType<typeof mock.nativeBinding.resolvePosition>);
-      await expect(
-        resolverModule.resolveSymbolPosition(filePath, 'target')
-      ).resolves.toMatchObject({
-        foundAtLine: 0,
-        lineOffset: 0,
-        lineContent: '',
-      });
-      expect(
-        resolverModule.resolveSymbolPosition('content', {
-          symbolName: 'target',
-        })
-      ).toMatchObject({ foundAtLine: 2 });
       mock.nativeBinding.resolvePosition.mockImplementationOnce(() => {
         throw new resolverModule.SymbolResolutionError(
           'target',
           3,
-          'already normalized',
-          11
+          'already normalized'
         );
       });
       await expect(
@@ -296,7 +355,7 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
         })
       ).rejects.toMatchObject({
         reason: 'already normalized',
-        searchRadius: 11,
+        searchRadius: 5,
       });
       mock.nativeBinding.resolvePosition.mockImplementationOnce(() => {
         throw new Error('native missing');
@@ -307,7 +366,7 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
         symbolName: 'target',
         lineHint: 0,
         reason: 'native missing',
-        searchRadius: 7,
+        searchRadius: 5,
       });
       mock.nativeBinding.resolvePositionFromContent.mockImplementationOnce(
         () => {
@@ -328,7 +387,7 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
         symbolName: 'target',
         lineHint: 6,
         reason: 'native string',
-        searchRadius: 7,
+        searchRadius: 5,
       });
 
       expect(uriModule.toUri(filePath)).toBe('file:///workspace/a.ts');
@@ -395,9 +454,6 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       await expect(
         workspaceModule.resolveWorkspaceRootForFile(filePath)
       ).resolves.toBe('/workspace');
-      await expect(workspaceModule.findWorkspaceRoot(filePath)).resolves.toBe(
-        '/workspace'
-      );
     });
   });
 });

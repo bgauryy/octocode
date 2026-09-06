@@ -1,7 +1,8 @@
+import type { PromptMode } from '@octocodeai/octocode-shared/protocols';
 import fs from 'node:fs';
 import path from 'node:path';
-import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabled } from './env.js';
-import { extensionHome } from './extension-paths.js';
+import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabled } from '@octocodeai/config';
+import { extensionWorkspaceRoot, extensionHome } from './extension-paths.js';
 import { connectDb, defaultDbPath, insertEditLog } from '@octocodeai/octocode-awareness';
 import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/mcp-state';
 import { openPersistentAwareness } from './tools/storage-policy.js';
@@ -98,7 +99,8 @@ import {
   sessionToolResultOrigin,
   sessionUserRequestOrigin,
 } from './tools/context-source-registry.js';
-import { APPROVAL_CLASSES, PERMISSION_LEVELS, applyStartupPermissionLevel, approvedClasses, cyclePermissionLevel, getPermissionLevel, parsePermissionLevel, resetApprovalStore, revokeAlways, setPermissionLevel, type ApprovalClass } from './tools/approval.js';
+import { applyStartupPermissionLevel, approvedClasses, cyclePermissionLevel, getPermissionLevel, parsePermissionLevel, resetApprovalStore, revokeAlways, setPermissionLevel } from './tools/approval.js';
+import { APPROVAL_CLASSES, PERMISSION_LEVELS, type ApprovalClass } from '@octocodeai/octocode-shared/protocols';
 import { getCachedMcpCatalogAddendum, getCachedMcpCounts, getMcpDiscoverySnapshot, isCompactMcpEnabled, mcpCatalogReady, registerMcpTool, startMcpConfigWatcher, stopAllMcpServers, stopMcpConfigWatchers, warmMcpCatalog } from './tools/mcp-tool.js';
 import { openMcpManager } from './tools/mcp-html.js';
 import { getDynamicCapabilitiesAddendum } from './tools/dynamic-catalog.js';
@@ -111,7 +113,11 @@ import {
   type InteractionBrokerAdapterRegistry,
   type RegisteredInteractionBrokerAdapter,
 } from './tools/interaction-broker-adapter.js';
-import { configureInteractionBrokerRoute } from './tools/interaction-broker.js';
+import {
+  brokerSessionId,
+  clearInMemoryInteractionState,
+  configureInteractionBrokerRoute,
+} from './tools/interaction-broker.js';
 import { registerMemoryTool } from './tools/memory-tool.js';
 import { registerAwarenessCoordinationTools } from './tools/awareness-coordination-tools.js';
 import { awarenessEventStatusText, registerAwarenessEventConsumer } from './tools/awareness-event-consumer.js';
@@ -135,8 +141,9 @@ import { probeGitHubAuth } from './tools/github-auth-status.js';
 import { registerOctocodeAutocomplete } from './tools/autocomplete-providers.js';
 import { registerOctocodeMessageRenderers } from './tools/custom-messages.js';
 import { initCheckpointStore, type CheckpointEngine } from './tools/checkpoints.js';
-import { createSessionArtifactContext, workspaceAgentRoot, type SessionArtifactContext } from './tools/session-artifacts.js';
+import { createSessionArtifactContext, type SessionArtifactContext } from './tools/session-artifacts.js';
 import { initializeSessionMemory, readSessionMemory, renderSessionArtifactPaths, SESSION_MEMORY_MAX_BYTES } from './tools/session-memory.js';
+import { initializeSessionIndexes } from './tools/session-index.js';
 import { appendSessionAuditEntry, appendSessionAuditForContext, initializeSessionAudit } from './tools/session-audit.js';
 import { cleanupEphemeralToolOutputs } from './tools/ephemeral-tool-output.js';
 import { consumeValidatedRehydration, runAndRecordRehydration, REHYDRATION_RECEIPT_ENTRY_TYPE, type CurrentRehydrationSource } from './tools/rehydration-orchestrator.js';
@@ -170,7 +177,7 @@ import {
 import { createPiCanonicalRegistryComposition } from './adapters/pi-registry-adapters.js';
 import { registerExportCommand } from './tools/export-command.js';
 import { assertPathAllowed } from './tools/path-guard.js';
-import { makeRenderer } from './tools/render-helpers.js';
+import { makeComponentRenderer } from './tools/render-helpers.js';
 import { renderBannerWithTagline, type BannerSessionInfo, type BannerTheme } from './branding/banner.js';
 import { pickProvider } from './web.js';
 import { createHookComposer } from './hook-composer.js';
@@ -189,124 +196,11 @@ import type {
   PiContext,
   PiModel,
   OctocodePiExtensionOptions,
-  PromptMode,
   SessionShutdownEvent,
   ThinkingLevelEvent,
   SkillInfo,
   NotifyFn,
 } from './types.js';
-
-export {
-  DISABLED_BUILTIN_TOOL_NAMES,
-  OVERRIDDEN_BUILTIN_TOOL_NAMES,
-  OCTOCODE_SUPPORT_TOOL_NAMES,
-} from './constants.js';
-export {
-  PACKAGE_NAME,
-  SYSTEM_PROMPT_MARKER,
-  MANAGED_BLOCK_START,
-  MANAGED_BLOCK_END,
-} from './constants.js';
-export { getAssetPaths, readTextIfExists, listBundledSkills, getInstallSource, getAwarenessCLIPath, buildAwarenessCommand } from './assets.js';
-export {
-  buildSurfaceSpec,
-  loadProfile,
-  profileToPiArgs,
-} from './surfaces.js';
-export type { Profile, SurfaceSpec, SurfaceVerb } from './surfaces.js';
-export {
-  renderSystemPromptAddendum,
-  renderManagedAppendSystem,
-  mergeManagedAppendSystem,
-  resolvePromptMode,
-  composeSystemPrompt,
-  stripProjectContext,
-  stripPiSkillsSection,
-} from './prompt.js';
-export {
-  splitArgs,
-  parseSetupScope,
-  getAppendSystemTarget,
-  truncateUserVisibleToolOutput,
-} from './utils.js';
-export { runWebTool, renderWebResult, pickProvider } from './web.js';
-export {
-  createHookComposer,
-  OctocodeHookComposer,
-  runHookMiddleware,
-} from './hook-composer.js';
-export {
-  APPROVED_PI_HOST_VERSION,
-  PiHostCompatibilityError,
-  assertSupportedPiHostVersion,
-  resolveInstalledPiHostVersion,
-  resolvePiHostVersion,
-} from './adapters/pi-host-compatibility.js';
-export {
-  PI_LIFECYCLE_MAPPINGS,
-  bindPiLifecycleBus,
-  createPiEventEnvelope,
-  isPiLifecycleEvent,
-  mapPiHookResultToDecision,
-} from './adapters/pi-lifecycle-adapter.js';
-export {
-  PiToolRegistryAdapter,
-  PiCommandRegistryAdapter,
-  createPiCanonicalRegistryComposition,
-  getPiRegistryRegistrationReceipts,
-} from './adapters/pi-registry-adapters.js';
-export { PiSettingsAdapter } from './adapters/pi-settings-adapter.js';
-export { PiPluginEventAdapter } from './adapters/pi-plugin-adapter.js';
-export { discoverCodexHookSources } from './adapters/pi-hook-discovery.js';
-export {
-  createOctocodeCronScheduler,
-  formatOctocodeCronStatus,
-  handleOctocodeCronCommand,
-  OCTOCODE_CRON_COMMAND_COMPLETIONS,
-  OCTOCODE_CRON_COMMAND_USAGE,
-} from './scheduler.js';
-export type {
-  OctocodeCronJobDefinition,
-  OctocodeCronJobSnapshot,
-  OctocodeCronRunResult,
-  OctocodeCronScheduler,
-  OctocodeCronSchedulerOptions,
-} from './scheduler.js';
-export {
-  cleanupSpawnedAgentsForShutdown,
-  DEFAULT_SPAWN_POLICY,
-  evaluateSpawnPolicy,
-  OCTOCODE_AGENTS_COMMAND_COMPLETIONS,
-  OCTOCODE_AGENTS_COMMAND_DESCRIPTIONS,
-  OCTOCODE_AGENTS_COMMAND_USAGE,
-  formatAgentLedger,
-  formatAgentLedgerDetails,
-  handleOctocodeAgentsCommand,
-  listWorkerLedgerEntries,
-  normalizeWorkerOutput,
-  evaluateWorkerRecoveryRisk,
-  refreshAgentLedgerUi,
-  setAgentProcessFactoryForTests,
-  setAgentWorktreeGitRunnerForTests,
-} from './tools/agent-tools.js';
-export type {
-  PromptMode,
-  OctocodePiExtensionOptions,
-  SkillInfo,
-  BuildSystemPromptOptions,
-  LedgerEvent,
-  SpawnPolicy,
-  SpawnPolicyResult,
-  WorkerLedgerEntry,
-  WorkerLedgerEvent,
-  WorkerLedgerEventType,
-} from './types.js';
-export {
-  applyOctocodeUi,
-  getThinkingStatus,
-  OCTOCODE_BANNER_ENTRY_TYPE,
-} from './extension-ui.js';
-export type { OctocodeMetricsState } from './extension-ui.js';
 
 // getAwarenessAgentId is single-sourced in tools/awareness-shared.ts (shared
 // with the first-class coordination tools) and imported above.
@@ -400,7 +294,7 @@ export function getInternalErrorLogPath(
       return createSessionArtifactContext({ cwd, sessionManager }).resolve('logs/error.txt');
     } catch { /* fallback when cwd is unavailable */ }
   }
-  return path.join(workspaceAgentRoot(cwd), 'logs', 'error.txt');
+  return path.join(extensionWorkspaceRoot(cwd), 'logs', 'error.txt');
 }
 
 function normalizeError(error: unknown): { name?: string; message: string; stack?: string; cause?: string } {
@@ -1028,8 +922,9 @@ function registerRuntimeUiPhase({ pi, notify }: RuntimeUiRegistrationArgs): void
       data?.model || data?.provider || data?.thinking
         ? { model: data.model, provider: data.provider, thinking: data.thinking }
         : undefined;
-    return makeRenderer((width) =>
+    return makeComponentRenderer((_props, { width }) =>
       renderBannerWithTagline(theme as BannerTheme, width, readOwnVersion(getAssetPaths().baseDir), sessionInfo),
+      undefined,
     );
   });
 }
@@ -1340,6 +1235,13 @@ async function wireOctocodePiExtension(
       const closedChrome = closeAllChromeConnections();
       if (closedChrome > 0 && canUseShutdownContext) notify(ctx, `Closed ${closedChrome} cached CDP connection(s).`, 'info');
       setPeerWipStatusPainter(undefined);
+      const interactionWorkspace = ctx?.cwd ?? latestSessionCwd;
+      if (interactionWorkspace) {
+        clearInMemoryInteractionState({
+          workspace: interactionWorkspace,
+          ...(ctx ? { sessionId: brokerSessionId(ctx) } : {}),
+        });
+      }
       latestSessionCtx = undefined;
       latestSessionCwd = undefined;
       resetOctocodeFooterRegistration(ctx);
@@ -1413,6 +1315,7 @@ async function wireOctocodePiExtension(
         try {
           const artifacts = createSessionArtifactContext(ctx);
           sessionArtifactContext = artifacts;
+          initializeSessionIndexes(artifacts);
           const memoryPath = initializeSessionMemory(artifacts);
           const auditPath = initializeSessionAudit(artifacts);
           sessionArtifactPathsContext = renderSessionArtifactPaths({ memoryPath, auditPath });
@@ -2621,14 +2524,7 @@ export function createOctocodePiExtension(
   };
 }
 
-export type {
-  ProductionPiLifecycleCapture,
-  ProductionPiScenarioInput,
-  ProductionPiScenarioProbe,
-  ProductionPiScenarioReceipt,
-  ProductionPiScenarioSuite,
-  ProductionPiScenarioId,
-} from './adapters/pi-production-probe.js';
+
 
 /** Exercise supported conformance scenarios through the installed Pi SDK composition. */
 export function createProductionPiScenarioSuite(

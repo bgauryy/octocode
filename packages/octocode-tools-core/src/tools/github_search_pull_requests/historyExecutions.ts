@@ -4,7 +4,7 @@ import type { z } from 'zod';
 import { fetchCommit } from '../../github/commit.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { createLazyProviderContext } from '../providerExecution.js';
 import {
   GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
@@ -29,7 +29,7 @@ import {
   GitHubSearchHistoryQueryLocalSchema,
 } from './historySchemes.js';
 import { GitHubPullRequestSearchQueryLocalSchema } from './scheme.js';
-import { publicCommitContinuationQuery } from './historyContinuations.js';
+import { withDiffContinuations } from './historyDiffContinuations.js';
 import { withContentContinuations } from './historyPartialContinuations.js';
 import {
   withSearchPageContinuation,
@@ -47,44 +47,6 @@ function parseInternalQuery(query: Record<string, unknown>) {
 function withoutOperation(query: Record<string, unknown>) {
   const { operation: _operation, ...rest } = query;
   return rest;
-}
-
-function withDiffContinuations(
-  data: Record<string, unknown>,
-  query: Record<string, unknown>
-): Record<string, unknown> {
-  const filesPagination = data.filesPagination as
-    { nextFilePage?: unknown } | undefined;
-  const files = Array.isArray(data.files) ? data.files : [];
-  const firstPatch = files.find(
-    file =>
-      file &&
-      typeof file === 'object' &&
-      typeof (file as { patchPagination?: { nextCharOffset?: unknown } })
-        .patchPagination?.nextCharOffset === 'number'
-  ) as { patchPagination?: { nextCharOffset?: number } } | undefined;
-  const next: Record<string, unknown> = {};
-  if (typeof filesPagination?.nextFilePage === 'number') {
-    next.nextFilePage = {
-      tool: GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
-      query: publicCommitContinuationQuery(query, {
-        filePage: filesPagination.nextFilePage,
-      }),
-      why: 'Continue the changed-file list.',
-      confidence: 'exact',
-    };
-  }
-  if (typeof firstPatch?.patchPagination?.nextCharOffset === 'number') {
-    next.continuePatch = {
-      tool: GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
-      query: publicCommitContinuationQuery(query, {
-        charOffset: firstPatch.patchPagination.nextCharOffset,
-      }),
-      why: 'Continue the current patch window.',
-      confidence: 'exact',
-    };
-  }
-  return Object.keys(next).length > 0 ? { ...data, next } : data;
 }
 
 async function executeSearchQuery(
@@ -165,6 +127,9 @@ async function executeItemQuery(
         owner: String(item.owner),
         repo: String(item.repo),
         ref: String(item.ref),
+        ...(typeof item.fileBatch === 'number'
+          ? { fileBatch: item.fileBatch }
+          : {}),
         ...(typeof item.includeDiff !== 'boolean'
           ? {}
           : { includeDiff: item.includeDiff }),

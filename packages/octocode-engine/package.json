@@ -17,7 +17,6 @@
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
-    "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },
   "engines": {
@@ -209,10 +208,8 @@
     "directory": "packages/octocode-engine"
   },
   "scripts": {
-    "ast:check": "yarn workspace @octocodeai/octocode-benchmark ast:check",
     "audit": "yarn audit:rust",
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
-    "benchmark": "yarn workspace @octocodeai/octocode-benchmark benchmark",
     "binary-size:check": "node scripts/check-binary-size.cjs",
     "build": "yarn readme:sync && node scripts/prebuild.cjs && napi build --platform --release && node scripts/postbuild.cjs && yarn build:types-deps && tsc -p tsconfig.build.json",
     "build:all": "yarn clean:binaries && yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && yarn build:ts",
@@ -238,11 +235,7 @@
     "lint:fix": "yarn fmt:rust",
     "lint:rust": "cargo clippy --all-targets --all-features -- -D warnings",
     "loader:check": "node scripts/check-loader-entries.cjs",
-    "lsp:check": "yarn workspace @octocodeai/octocode-benchmark lsp:check",
-    "lsp:live": "yarn workspace @octocodeai/octocode-benchmark lsp:live",
     "manifest:gen": "node scripts/gen-server-manifest.mjs",
-    "matrix:check": "yarn workspace @octocodeai/octocode-benchmark matrix:check",
-    "minify:check": "yarn workspace @octocodeai/octocode-benchmark minify:check",
     "pack:check": "node scripts/check-pack-size.cjs",
     "platforms:check": "node scripts/check-platform-binaries.cjs",
     "prepack": "yarn readme:sync",
@@ -250,7 +243,6 @@
     "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "registry:check": "node scripts/check-registry-consistency.cjs",
-    "support:gen": "yarn workspace @octocodeai/octocode-benchmark support:gen",
     "test": "vitest run --coverage",
     "test:node": "vitest run",
     "test:node:coverage": "yarn test",
@@ -259,7 +251,7 @@
     "test:watch": "vitest watch",
     "typecheck": "tsc --noEmit",
     "udeps:rust": "cargo +nightly udeps --all-targets --all-features",
-    "verify": "yarn verify:patterns && yarn verify:manifest && yarn typecheck && yarn verify:rust && yarn test && yarn benchmark && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
+    "verify": "yarn verify:patterns && yarn verify:manifest && yarn typecheck && yarn verify:rust && yarn test && yarn pack:check && yarn version:check && yarn loader:check && yarn binary-size:check",
     "verify:manifest": "node scripts/gen-server-manifest.mjs && git diff --exit-code src/lsp/serverManifestData.ts || (echo 'ERROR: src/lsp/serverManifestData.ts is out of sync with serverManifest.json — run yarn manifest:gen and commit the result' && exit 1)",
     "verify:napi-abi": "node scripts/check-napi-abi.cjs",
     "verify:patterns": "node scripts/gen-patterns.mjs && git diff --exit-code src/security/patterns.rs || (echo 'ERROR: src/security/patterns.rs is out of sync with the TS source — run yarn gen and commit the result' && exit 1)",

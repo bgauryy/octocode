@@ -109,10 +109,10 @@ describe('CLI command content is sourced from its canonical registry', () => {
   it('runtime command options carry no local descriptions', () => {
     const commandDir = join(packageRoot, 'src/cli/commands');
     const files = [
-      ...readdirSync(commandDir)
+      ...readdirSync(commandDir, { recursive: true, encoding: 'utf8' })
         .filter(file => file.endsWith('.ts'))
         .map(file => join(commandDir, file)),
-      join(packageRoot, 'src/cli/tool-command.ts'),
+      join(packageRoot, 'src/cli/tool-command/command.ts'),
     ];
     const offenders: string[] = [];
 

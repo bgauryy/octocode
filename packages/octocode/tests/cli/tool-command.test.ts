@@ -117,7 +117,8 @@ describe('toolCommand', () => {
   });
 
   it('rejects positional JSON payloads and requires --queries', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -136,7 +137,8 @@ describe('toolCommand', () => {
   });
 
   it('accepts JSON bulk payloads from --queries', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -167,7 +169,8 @@ describe('toolCommand', () => {
   });
 
   it('supports JSON output mode for canonical tool execution', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -186,7 +189,8 @@ describe('toolCommand', () => {
   });
 
   it('shows schema help when a tool is selected without input', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -209,7 +213,8 @@ describe('toolCommand', () => {
   });
 
   it('shows schema help when --scheme is provided', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -229,7 +234,8 @@ describe('toolCommand', () => {
   });
 
   it('treats removed --input as an unsupported tool flag', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -248,7 +254,8 @@ describe('toolCommand', () => {
   });
 
   it('rejects legacy tool-specific flags and requires one JSON payload', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -267,7 +274,8 @@ describe('toolCommand', () => {
   });
 
   it('rejects invalid JSON payloads for canonical tool usage', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -285,7 +293,8 @@ describe('toolCommand', () => {
   });
 
   it('schema validation failure should show error', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -308,7 +317,8 @@ describe('toolCommand', () => {
 
   it('rejects unknown raw tool fields without executing the tool', async () => {
     process.env.ENABLE_CLONE = 'true';
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     try {
       await toolCommand.handler!({
@@ -331,7 +341,8 @@ describe('toolCommand', () => {
   });
 
   it('suggests only fields valid for the selected tool variant', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -353,8 +364,10 @@ describe('toolCommand', () => {
     const err = new Error('Ripgrep launcher failed.');
     publicMocks.localSearch.mockRejectedValueOnce(err);
 
-    const { executeToolCommand, toolCommand } =
-      await import('../../src/cli/tool-command.js');
+    const { executeToolCommand } =
+      await import('../../src/cli/tool-command/execute.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     const ok = await executeToolCommand({
       command: 'tools',
@@ -395,7 +408,8 @@ describe('toolCommand', () => {
   });
 
   it('shows multiple tool schemas when given multiple tool-name args', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -409,7 +423,8 @@ describe('toolCommand', () => {
   });
 
   it('emits one lean JSON envelope for multiple compact schemas', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -448,7 +463,8 @@ describe('toolCommand', () => {
   });
 
   it('keeps the combined GitHub history schema envelope within its frozen budget', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -474,7 +490,8 @@ describe('toolCommand', () => {
   });
 
   it('shows error and tool help when --queries input cannot be parsed into a valid tool input', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -487,7 +504,8 @@ describe('toolCommand', () => {
   });
 
   it('prints machine-readable JSON for raw tool validation errors with --json', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -505,7 +523,8 @@ describe('toolCommand', () => {
   });
 
   it('gives a specific error when localSearch keywords is an array', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -527,7 +546,7 @@ describe('toolCommand', () => {
 
   it('builds tools context from MCP instructions and tool schemas (--full)', async () => {
     const { getToolsContextString } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/context.js');
 
     const context = await getToolsContextString({ full: true });
 
@@ -549,7 +568,7 @@ describe('toolCommand', () => {
     );
     expect(context).toContain('inspect each row status for mixed batches');
     expect(context).toContain(
-      'Follow row data.next only while row data.pagination.hasMore. responsePagination windows content[].text only and remains visible in structuredContent.'
+      'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination windows content[].text only and remains visible in structuredContent.'
     );
     expect(context).not.toContain('mode:"discovery"');
     expect(context).not.toContain('Cheap modes: concise:true');
@@ -559,26 +578,29 @@ describe('toolCommand', () => {
     expect(context).not.toContain(
       'Follow returned data.next/data.pagination only when hasMore.'
     );
+    expect(context).not.toContain('only while row data.pagination.hasMore');
     expect(context).not.toMatch(
       /Quick commands \([^)]*\b(?:search|ls|cat|repo|history|binary|unzip|diff|pkg|lsp|find|grep)\b/
     );
     // full mode includes complete tool descriptions
-    expect(context).toContain('Choose operation:"code"');
-    expect(context).toContain('Best for repeated reads');
+    expect(context).toContain('Discover GitHub code with operation:"code"');
+    expect(context).toContain('Create a cached, shallow checkout');
   });
 
   it('builds a lean default tools context (compact field lists)', async () => {
-    const { getToolsContextString, TOOL_DEFINITIONS } =
-      await import('../../src/cli/tool-command.js');
+    const { getToolsContextString } =
+      await import('../../src/cli/tool-command/context.js');
+    const { TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command/registry.js');
 
     const context = await getToolsContextString();
 
     // lean mode includes short tool descriptions inline
-    expect(context).toContain('1. ghSearch — Choose operation:"code"');
+    expect(context).toContain('1. ghSearch — Discover GitHub code');
     expect(context).not.toContain('"$schema"');
     expect(context).toContain('Protocol: schema first');
     expect(context).toContain(
-      'Follow row data.next only while row data.pagination.hasMore. responsePagination windows content[].text only and remains visible in structuredContent.'
+      'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination windows content[].text only and remains visible in structuredContent.'
     );
     expect(context).not.toContain('Use Octocode tools carefully.');
     expect(context.length).toBeLessThanOrEqual(4000);
@@ -588,8 +610,10 @@ describe('toolCommand', () => {
   });
 
   it('supports minimal agent context for cheapest tool-name orientation', async () => {
-    const { getToolsContextString, TOOL_DEFINITIONS } =
-      await import('../../src/cli/tool-command.js');
+    const { getToolsContextString } =
+      await import('../../src/cli/tool-command/context.js');
+    const { TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command/registry.js');
 
     const context = await getToolsContextString({ minimal: true });
 
@@ -610,8 +634,9 @@ describe('toolCommand', () => {
   // tool name (regression: OQL_TOOL_NAME was referenced but never defined, so
   // the --json envelope section of showToolHelp blew up at runtime).
   it('renders --scheme help for every direct tool without throwing', async () => {
-    const { showToolHelp, TOOL_DEFINITIONS } =
-      await import('../../src/cli/tool-command.js');
+    const { showToolHelp } = await import('../../src/cli/tool-command/help.js');
+    const { TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command/registry.js');
 
     for (const tool of TOOL_DEFINITIONS) {
       await expect(showToolHelp(tool.name)).resolves.toBe(true);
@@ -621,7 +646,8 @@ describe('toolCommand', () => {
   // Bug 2: bare `tools --json` (no tool name) must emit a lean machine-readable
   // discovery catalog, not the human-readable help text or every full schema.
   it('emits a lean JSON tool catalog for bare `tools --json`', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -657,7 +683,8 @@ describe('toolCommand', () => {
     expect(parsed.commands.fullCatalog).toBe('tools --json --full');
     expect(parsed.commands.run).toContain('--compact');
 
-    const { TOOL_DEFINITIONS } = await import('../../src/cli/tool-command.js');
+    const { TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command/registry.js');
     const names = parsed.tools.map(entry => entry.name);
     expect(names).toEqual(TOOL_DEFINITIONS.map(t => t.name));
     expect(parsed.toolCount).toBe(TOOL_DEFINITIONS.length);
@@ -690,7 +717,8 @@ describe('toolCommand', () => {
   });
 
   it('keeps the full all-tool schema dump behind `tools --json --full`', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -733,7 +761,8 @@ describe('toolCommand', () => {
   });
 
   it('emits a single machine-readable schema for `tools <name> --scheme --json`', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -794,7 +823,8 @@ describe('toolCommand', () => {
   });
 
   it('pretty-prints compact JSON when --pretty is supplied', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -812,7 +842,8 @@ describe('toolCommand', () => {
   });
 
   it('deduplicates prose in compact tool schemas', async () => {
-    const { toolCommand } = await import('../../src/cli/tool-command.js');
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
 
     await toolCommand.handler!({
       command: 'tools',
@@ -914,7 +945,7 @@ describe('toolCommand', () => {
     });
 
     const { executeToolCommand } =
-      await import('../../src/cli/tool-command.js');
+      await import('../../src/cli/tool-command/execute.js');
     const ok = await executeToolCommand({
       command: 'tools',
       args: ['ghGetFileContent'],

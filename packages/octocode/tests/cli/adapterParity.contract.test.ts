@@ -55,7 +55,8 @@ describe('raw tools command adapter parity', () => {
   }
 
   it('exposes the exact canonical fixture tool set from the schema registry', async () => {
-    const { TOOL_DEFINITIONS } = await import('../../src/cli/tool-command.js');
+    const { TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command/registry.js');
     const { DIRECT_TOOL_DISCOVERY_DEFINITIONS } =
       await import('@octocodeai/octocode-tools-core/schema');
     expect(TOOL_DEFINITIONS.map(tool => tool.name)).toEqual(
@@ -69,11 +70,42 @@ describe('raw tools command adapter parity', () => {
     }
   });
 
+  it('marks every local tool disabled when ENABLE_LOCAL=false', async () => {
+    process.env.ENABLE_LOCAL = 'false';
+    const { TOOL_DEFINITIONS } =
+      await import('../../src/cli/tool-command/registry.js');
+    const localNames = [
+      'localSearch',
+      'localGetFileContent',
+      'localAnalyzeGraph',
+      'lspGetSemantics',
+      'ghCloneRepo',
+    ];
+    for (const name of localNames) {
+      expect(
+        TOOL_DEFINITIONS.find(tool => tool.name === name)?.disabled
+      ).toEqual({ envVar: 'ENABLE_LOCAL' });
+    }
+  });
+
+  it.each([
+    ['TOOLS_TO_RUN', 'npmSearch', 'add ghSearch to TOOLS_TO_RUN'],
+    ['DISABLE_TOOLS', 'ghSearch', 'remove ghSearch from DISABLE_TOOLS'],
+  ])('explains the effective %s gate', async (key, value, instruction) => {
+    process.env[key] = value;
+    const { getToolEnableInstruction } =
+      await import('../../src/cli/tool-command/registry.js');
+    expect(getToolEnableInstruction('ghSearch')).toBe(instruction);
+    expect(getToolEnableInstruction('npmSearch')).toBeUndefined();
+  });
+
   it.each(ADAPTER_PARITY_CASES)(
     '$name preserves schema, result, row error, outer error, and executable continuation contracts',
     async testCase => {
-      const { TOOL_DEFINITIONS, executeToolCommand } =
-        await import('../../src/cli/tool-command.js');
+      const { TOOL_DEFINITIONS } =
+        await import('../../src/cli/tool-command/registry.js');
+      const { executeToolCommand } =
+        await import('../../src/cli/tool-command/execute.js');
       const definition = TOOL_DEFINITIONS.find(
         tool => tool.name === testCase.name
       )!;

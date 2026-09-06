@@ -1,12 +1,16 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import type {
-  ProviderResponse,
-  RepoStructureQuery,
-  RepoStructureResult,
-} from '../types.js';
+import type { ProviderResponse } from '../types.js';
+import type { RepoStructureQuery } from '../providerQueries.js';
+import type { RepoStructureResult } from '../providerResults.js';
 
-import { viewGitHubRepositoryStructureAPI } from '../../github/repoStructure.js';
-import { getOctokit } from '../../github/client.js';
+import { viewGitHubRepositoryStructureAPI } from '../../github/repoStructure/fetchOrchestration.js';
+import {
+  getOctokit,
+  resolveCacheAuthFingerprint,
+} from '../../github/client.js';
+import { generateCacheKey } from '../../utils/http/cache/key.js';
+import { withDataCache } from '../../utils/http/cache/dataCache.js';
+import { MAX_PAGE_NUMBER } from '../../toolContract/input/resources/tools/_toolkit.js';
 
 /**
  * Best-effort per-language byte breakdown via GitHub's `/languages` endpoint —
@@ -18,99 +22,155 @@ async function fetchRepoLanguages(
   owner: string,
   repo: string,
   authInfo?: AuthInfo
-): Promise<
-  { languages: Record<string, number>; dominantLanguage: string } | undefined
-> {
+): Promise<{
+  languages?: Record<string, number>;
+  dominantLanguage?: string;
+  rawResponseChars: number;
+  metadataPagination?: RepoStructureResult['metadataPagination'];
+}> {
   try {
-    const octokit = await getOctokit(authInfo);
-    const resp = await octokit.rest.repos.listLanguages({ owner, repo });
-    const entries = Object.entries(resp.data as Record<string, number>).sort(
-      (a, b) => b[1] - a[1]
+    const auth = await resolveCacheAuthFingerprint(authInfo);
+    const key = generateCacheKey('gh-repo-metadata', {
+      owner,
+      repo,
+      kind: 'languages',
+      auth,
+    });
+    return await withDataCache(
+      key,
+      async () => {
+        const octokit = await getOctokit(authInfo);
+        const resp = await octokit.rest.repos.listLanguages({ owner, repo });
+        const entries = Object.entries(
+          resp.data as Record<string, number>
+        ).sort((a, b) => b[1] - a[1]);
+        return {
+          languages: Object.fromEntries(entries),
+          dominantLanguage: entries[0]?.[0],
+          rawResponseChars: countSerializedChars(resp.data),
+        };
+      },
+      { cacheRole: 'helper' }
     );
-    if (entries.length === 0) return undefined;
+  } catch {
     return {
-      languages: Object.fromEntries(entries),
-      dominantLanguage: entries[0]![0],
+      rawResponseChars: 0,
+      metadataPagination: {
+        languages: {
+          currentPage: 1,
+          perPage: 1,
+          returned: 0,
+          hasMore: false,
+          failed: true,
+        },
+      },
     };
-  } catch {
-    return undefined;
   }
 }
 
-/** Top contributors by commit count (login + contributions), best-effort. */
-async function fetchRepoContributors(
-  owner: string,
-  repo: string,
-  authInfo?: AuthInfo
-): Promise<
-  { contributors: Array<{ login: string; contributions: number }> } | undefined
-> {
-  try {
-    const octokit = await getOctokit(authInfo);
-    const resp = await octokit.rest.repos.listContributors({
-      owner,
-      repo,
-      per_page: 30,
-    });
-    const list = (
-      resp.data as Array<{ login?: string; contributions?: number }>
-    )
-      .filter(c => typeof c.login === 'string')
-      .map(c => ({ login: c.login!, contributions: c.contributions ?? 0 }));
-    return list.length > 0 ? { contributors: list } : undefined;
-  } catch {
-    return undefined;
-  }
-}
+type MetadataKind = 'contributors' | 'branches' | 'tags';
+type MetadataPage = NonNullable<
+  RepoStructureResult['metadataPagination']
+>[MetadataKind];
 
-/** Branch names (capped), best-effort. */
-async function fetchRepoBranches(
+/** One bounded page. Link headers, not list length, determine continuation. */
+async function fetchRepoMetadata(
+  kind: MetadataKind,
   owner: string,
   repo: string,
+  page: number,
   authInfo?: AuthInfo
-): Promise<{ branches: string[] } | undefined> {
+): Promise<{
+  contributors?: Array<{ login: string; contributions: number }>;
+  branches?: string[];
+  tags?: Array<{ name: string; sha: string }>;
+  metadataPagination: Partial<Record<MetadataKind, MetadataPage>>;
+  rawResponseChars: number;
+}> {
+  const perPage = { contributors: 30, branches: 100, tags: 50 }[kind];
   try {
-    const octokit = await getOctokit(authInfo);
-    const resp = await octokit.rest.repos.listBranches({
+    const auth = await resolveCacheAuthFingerprint(authInfo);
+    const cacheKey = generateCacheKey('gh-repo-metadata', {
       owner,
       repo,
-      per_page: 100,
+      kind,
+      page,
+      perPage,
+      auth,
     });
-    const names = (resp.data as Array<{ name?: string }>)
-      .map(b => b.name)
-      .filter((n): n is string => typeof n === 'string');
-    return names.length > 0 ? { branches: names } : undefined;
+    return await withDataCache(
+      cacheKey,
+      async () => {
+        const octokit = await getOctokit(authInfo);
+        const params = { owner, repo, page, per_page: perPage };
+        const response = await (kind === 'contributors'
+          ? octokit.rest.repos.listContributors(params)
+          : kind === 'branches'
+            ? octokit.rest.repos.listBranches(params)
+            : octokit.rest.repos.listTags(params));
+        const link = Object.entries(response.headers ?? {}).find(
+          ([name]) => name.toLowerCase() === 'link'
+        )?.[1];
+        const hasMore =
+          typeof link === 'string' && /rel=["']next["']/.test(link);
+        const items = response.data;
+        const data =
+          kind === 'contributors'
+            ? {
+                contributors: (
+                  items as Array<{ login?: string; contributions?: number }>
+                )
+                  .filter(c => typeof c.login === 'string')
+                  .map(c => ({
+                    login: c.login!,
+                    contributions: c.contributions ?? 0,
+                  })),
+              }
+            : kind === 'branches'
+              ? {
+                  branches: (items as Array<{ name: string }>).map(b => b.name),
+                }
+              : {
+                  tags: (
+                    items as Array<{ name: string; commit: { sha: string } }>
+                  ).map(t => ({ name: t.name, sha: t.commit.sha })),
+                };
+        return {
+          ...data,
+          rawResponseChars: countSerializedChars(items),
+          metadataPagination: {
+            [kind]: {
+              currentPage: page,
+              perPage,
+              returned: Object.values(data)[0]!.length,
+              hasMore,
+              ...(hasMore && page >= MAX_PAGE_NUMBER
+                ? { terminalLimit: true }
+                : {}),
+            },
+          },
+        };
+      },
+      { cacheRole: 'helper' }
+    );
   } catch {
-    return undefined;
-  }
-}
-
-/** Recent tags (name + sha), best-effort. */
-async function fetchRepoTags(
-  owner: string,
-  repo: string,
-  authInfo?: AuthInfo
-): Promise<{ tags: Array<{ name: string; sha: string }> } | undefined> {
-  try {
-    const octokit = await getOctokit(authInfo);
-    const resp = await octokit.rest.repos.listTags({
-      owner,
-      repo,
-      per_page: 50,
-    });
-    const tags = (
-      resp.data as Array<{ name?: string; commit?: { sha?: string } }>
-    )
-      .filter(t => typeof t.name === 'string')
-      .map(t => ({ name: t.name!, sha: t.commit?.sha ?? '' }));
-    return tags.length > 0 ? { tags } : undefined;
-  } catch {
-    return undefined;
+    return {
+      rawResponseChars: 0,
+      metadataPagination: {
+        [kind]: {
+          currentPage: page,
+          perPage,
+          returned: 0,
+          hasMore: false,
+          failed: true,
+        },
+      },
+    };
   }
 }
 
 import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/input/resources/tools/githubTreeOperation.js';
 
 type GitHubViewRepoStructureQuery = z.infer<
   typeof GitHubViewRepoStructureQuerySchema
@@ -122,7 +182,6 @@ import {
   createGitHubProviderErrorFromResult,
   parseGitHubProjectId,
 } from './utils.js';
-export { parseGitHubProjectId } from './utils.js';
 
 export function transformRepoStructureResult(
   data: GitHubRepositoryStructureResult
@@ -141,7 +200,17 @@ export function transformRepoStructureResult(
       totalFiles: data.summary?.totalFiles || 0,
       totalFolders: data.summary?.totalFolders || 0,
       truncated: data.summary?.truncated || false,
+      ...(data.summary?.incompleteTree !== undefined && {
+        incompleteTree: data.summary.incompleteTree,
+      }),
     },
+    ...(data.isPartial !== undefined && { isPartial: data.isPartial }),
+    ...(data.partialReasons !== undefined && {
+      partialReasons: data.partialReasons,
+    }),
+    ...(data.terminalLimit !== undefined && {
+      terminalLimit: data.terminalLimit,
+    }),
     pagination: data.pagination,
     hints: data.hints,
   };
@@ -178,8 +247,8 @@ export async function getRepoStructure(
     reasoning: query.reasoning,
   } as GitHubViewRepoStructureQuery & { includeSizes?: boolean };
 
-  // Fetch the tree and every opt-in repo enrichment concurrently — one
-  // round-trip regardless of how many enrichments were requested.
+  // Fetch the tree and each opt-in enrichment concurrently. Each uncached
+  // enrichment makes its own API request; metadata caches span tree pages.
   const [result, languageInfo, contributorInfo, branchInfo, tagInfo] =
     await Promise.all([
       viewGitHubRepositoryStructureAPI(githubQuery, authInfo),
@@ -187,13 +256,31 @@ export async function getRepoStructure(
         ? fetchRepoLanguages(owner, repo, authInfo)
         : Promise.resolve(undefined),
       query.includeContributors
-        ? fetchRepoContributors(owner, repo, authInfo)
+        ? fetchRepoMetadata(
+            'contributors',
+            owner,
+            repo,
+            query.metadataPage ?? 1,
+            authInfo
+          )
         : Promise.resolve(undefined),
       query.includeBranches
-        ? fetchRepoBranches(owner, repo, authInfo)
+        ? fetchRepoMetadata(
+            'branches',
+            owner,
+            repo,
+            query.metadataPage ?? 1,
+            authInfo
+          )
         : Promise.resolve(undefined),
       query.includeTags
-        ? fetchRepoTags(owner, repo, authInfo)
+        ? fetchRepoMetadata(
+            'tags',
+            owner,
+            repo,
+            query.metadataPage ?? 1,
+            authInfo
+          )
         : Promise.resolve(undefined),
     ]);
 
@@ -207,23 +294,52 @@ export async function getRepoStructure(
     );
   }
 
+  const transformed = transformRepoStructureResult(result);
+  const metadataPagination: NonNullable<
+    RepoStructureResult['metadataPagination']
+  > = {
+    ...contributorInfo?.metadataPagination,
+    ...branchInfo?.metadataPagination,
+    ...tagInfo?.metadataPagination,
+    ...languageInfo?.metadataPagination,
+  };
+  const pages: MetadataPage[] = Object.values(metadataPagination);
+  const partialReasons = new Set(transformed.partialReasons);
+  for (const metadata of pages) {
+    if (metadata?.failed) partialReasons.add('metadataFetchFailed');
+    else if (metadata?.terminalLimit) partialReasons.add('metadataPageLimit');
+    else if (metadata?.hasMore) partialReasons.add('metadataPagination');
+  }
+
   return {
     data: {
-      ...transformRepoStructureResult(result),
-      ...(languageInfo
+      ...transformed,
+      ...(languageInfo?.languages
         ? {
             languages: languageInfo.languages,
             dominantLanguage: languageInfo.dominantLanguage,
           }
         : {}),
-      ...(contributorInfo
+      ...(contributorInfo?.contributors
         ? { contributors: contributorInfo.contributors }
         : {}),
-      ...(branchInfo ? { branches: branchInfo.branches } : {}),
-      ...(tagInfo ? { tags: tagInfo.tags } : {}),
+      ...(branchInfo?.branches ? { branches: branchInfo.branches } : {}),
+      ...(tagInfo?.tags ? { tags: tagInfo.tags } : {}),
+      ...(pages.length > 0 ? { metadataPagination } : {}),
+      ...(partialReasons.size > 0
+        ? { isPartial: true, partialReasons: [...partialReasons] }
+        : {}),
+      ...(pages.some(metadata => metadata?.terminalLimit)
+        ? { terminalLimit: true }
+        : {}),
     },
     status: 200,
     provider: 'github',
-    rawResponseChars: result.rawResponseChars ?? countSerializedChars(result),
+    rawResponseChars:
+      (result.rawResponseChars ?? countSerializedChars(result)) +
+      (contributorInfo?.rawResponseChars ?? 0) +
+      (branchInfo?.rawResponseChars ?? 0) +
+      (tagInfo?.rawResponseChars ?? 0) +
+      (languageInfo?.rawResponseChars ?? 0),
   };
 }

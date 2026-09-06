@@ -1,30 +1,31 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import type { NpmSearchQueryLocalSchema } from './scheme.js';
+import { NpmSearchQueryLocalSchema } from './scheme.js';
 
 type NpmSearchQuery = z.input<typeof NpmSearchQueryLocalSchema> & {
   pageSize?: number;
 };
 import { searchPackage } from '../../utils/package/common.js';
-import { isExactPackageName } from '../../utils/package/npm.js';
 import { foldKeywords, isPackageNotFoundError } from './queryHelpers.js';
-// Re-exported so importers/tests of './execution.js' keep a single entry point.
-export { foldKeywords, isPackageNotFoundError } from './queryHelpers.js';
 import type {
   NpmSearchAPIResult,
   NpmSearchError,
   PackageResult,
   NpmPackageResult,
-} from '../../utils/package/common.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
-import { createSuccessResult, createErrorResult } from '../utils.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+} from '../../utils/package/types.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
+import {
+  createSuccessResult,
+  createErrorResult,
+  safeParseOrError,
+} from '../utils.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { getToolAvailability } from '../toolAvailability.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import {
   buildPackagePageContinuation,
   buildPackagePagination,
 } from './pagination.js';
-export { buildPackagePagination } from './pagination.js';
 
 function isNpmSearchError(
   result: NpmSearchAPIResult | NpmSearchError
@@ -162,15 +163,21 @@ function buildNext(
       tool: 'ghSearch',
       query: { operation: 'code', owner, repo },
     },
-    cloneRepo: {
+  };
+  if (getToolAvailability('ghCloneRepo').enabled) {
+    next.cloneRepo = {
       tool: 'ghCloneRepo',
       query: {
         owner,
         repo,
         ...(repositoryDirectory ? { sparsePath: repositoryDirectory } : {}),
       },
-    },
-  };
+    };
+  }
+  for (const [key, continuation] of Object.entries(next)) {
+    if (!getToolAvailability((continuation as { tool: string }).tool).enabled)
+      delete next[key];
+  }
   return next;
 }
 
@@ -255,6 +262,9 @@ export async function searchPackages(
     args.queries,
     async (query: NpmSearchQuery) => {
       try {
+        const parsed = safeParseOrError(NpmSearchQueryLocalSchema, query);
+        if (parsed.ok === false) return parsed.error;
+        query = parsed.data!;
         // Validation permits exactly one lookup mode. Fold keyword terms into
         // the registry's space-delimited query when discovery mode is selected.
         const searchName =
@@ -270,6 +280,8 @@ export async function searchPackages(
 
         const apiResult = await searchPackage({
           name: searchName,
+          registry: query.registry,
+          mode: isKeyword ? 'keywords' : 'exact',
           page: (query as { page?: number }).page,
           ...(isKeyword && typeof query.pageSize === 'number'
             ? { itemsPerPage: query.pageSize }
@@ -279,19 +291,15 @@ export async function searchPackages(
         });
 
         if (isNpmSearchError(apiResult)) {
-          // A genuine not-found (registry has nothing under this name/terms) —
-          // whether an exact lookup or a keyword miss — is a guided empty, not
-          // a hard error. Only true network/transport failures stay errors.
-          if (isPackageNotFoundError(apiResult.error)) {
-            const exact = isExactPackageName(searchName);
+          // A missing search endpoint is a provider failure, not an empty
+          // keyword result. Only exact package misses get spelling guidance.
+          if (!isKeyword && isPackageNotFoundError(apiResult.error)) {
             return createSuccessResult(
               query,
               {
                 packages: [],
                 hints: [
-                  exact
-                    ? `No package named "${searchName}". Check spelling and scope.`
-                    : `No packages matched "${searchName}". Try fewer keywords or an exact name.`,
+                  `No package named "${searchName}". Check spelling and scope.`,
                 ],
               },
               false,
@@ -316,7 +324,10 @@ export async function searchPackages(
         );
 
         const compacted = compactPackageRepositories(packages);
-        const next = buildPackagePageContinuation(query, pagination);
+        const next = buildPackagePageContinuation(
+          { ...query, registry: apiResult.registry ?? query.registry },
+          pagination
+        );
         const data = {
           ...compacted,
           pagination,

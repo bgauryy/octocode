@@ -37,10 +37,7 @@ import { finalizeGraphOutput, paginateGraphResults } from './pagination.js';
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_DEPTH = 1;
 
-/**
- * Walk up from an absolute file path until we find a directory that contains
- * package.json.  Falls back to the file's own directory when no marker is found.
- */
+/** Find the nearest package root; fall back to the source file's directory. */
 export function inferRootFromAbsoluteFile(absoluteFile: string): string {
   let dir = dirname(absoluteFile);
   while (true) {
@@ -65,9 +62,7 @@ export function summarizeEntrypoints(
   entrypoints: string[]
 ): Record<string, unknown> {
   return {
-    // This is the only structured list of resolved entrypoints in the graph
-    // response. Slicing it made the omitted values unreachable despite a count
-    // and truncation flag, so preserve the complete list.
+    // Preserve every entrypoint; slicing this only list makes omitted paths unreachable.
     entrypointsResolved: entrypoints,
     entrypointsResolvedCount: entrypoints.length,
   };
@@ -81,9 +76,7 @@ function errorOutput(
     error: message,
     errorCode: 'invalidGraphQuery',
     operation: query.operation,
-    // Keep this helper safe when it is called with a schema-level query whose
-    // optional path has not been narrowed by a caller yet.
-    path: query.path ?? '',
+    path: query.path,
     results: [],
   };
 }
@@ -119,13 +112,22 @@ export async function analyzeGraph(
 
   const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
   const maxFiles = query.maxFiles ?? DEFAULT_MAX_FILES;
-  const built = await (context.getGraph?.(query.path, excludeDir, maxFiles) ??
-    buildFileGraph(query.path, excludeDir, maxFiles));
+  const built = await (context.getGraph?.(
+    query.path,
+    excludeDir,
+    maxFiles,
+    query.rustWorkspace
+  ) ?? buildFileGraph(query.path, excludeDir, maxFiles, query.rustWorkspace));
   const finalize = (
     output: AnalyzeGraphOutput,
     why: string
   ): AnalyzeGraphOutput =>
-    finalizeGraphOutput(output, query, built.truncated, why);
+    finalizeGraphOutput(
+      { ...output, ...(built.coverage ? { coverage: built.coverage } : {}) },
+      query,
+      built.truncated,
+      why
+    );
 
   if (query.operation === 'deadCode') {
     const scan = await scanForDeadCode(query.path, query, built);
@@ -275,27 +277,31 @@ export async function analyzeGraph(
     const condensed = condenseGraph(graph);
     const layerByComponent = componentLayerMap(condensed.layers);
     const redundantEdges = findTransitiveEdges(condensed.edges);
-    const immediateDominators = computeImmediateDominators(graph, file);
-    const items = traverseGraph(graph, file, query.depth ?? DEFAULT_DEPTH).map(
-      result => {
-        const resultFile = result.file as string;
-        const via = result.via as string;
-        const fromComponent = condensed.componentOf.get(via);
-        const toComponent = condensed.componentOf.get(resultFile);
-        return {
-          ...result,
-          immediateDominator: immediateDominators.get(resultFile) ?? null,
-          topologicalLayer:
-            toComponent === undefined
-              ? undefined
-              : layerByComponent.get(toComponent),
-          transitiveEdge:
-            fromComponent !== undefined && toComponent !== undefined
-              ? redundantEdges.has(`${fromComponent}:${toComponent}`)
-              : false,
-        };
-      }
-    );
+    const depth = query.depth ?? DEFAULT_DEPTH;
+    // Every direct neighbor has a one-edge path from the source, so no
+    // intervening node can dominate it. Deeper queries still need the full
+    // reachable graph: paths outside the requested depth can change dominators.
+    const immediateDominators =
+      depth > 1 ? computeImmediateDominators(graph, file) : undefined;
+    const items = traverseGraph(graph, file, depth).map(result => {
+      const resultFile = result.file as string;
+      const via = result.via as string;
+      const fromComponent = condensed.componentOf.get(via);
+      const toComponent = condensed.componentOf.get(resultFile);
+      return {
+        ...result,
+        immediateDominator:
+          depth === 1 ? file : (immediateDominators?.get(resultFile) ?? null),
+        topologicalLayer:
+          toComponent === undefined
+            ? undefined
+            : layerByComponent.get(toComponent),
+        transitiveEdge:
+          fromComponent !== undefined && toComponent !== undefined
+            ? redundantEdges.has(`${fromComponent}:${toComponent}`)
+            : false,
+      };
+    });
     return finalize(
       {
         ...base,

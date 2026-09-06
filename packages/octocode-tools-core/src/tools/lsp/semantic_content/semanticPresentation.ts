@@ -38,6 +38,23 @@ export function attachSemanticRawEvidence<T extends object>(result: T): T {
   return attachRawResponseChars(result, countSerializedChars(result));
 }
 
+export function classifySemanticResult(
+  result: LspSemanticEnvelope | Record<string, unknown>
+): LspSemanticEnvelope | Record<string, unknown> {
+  if (
+    isSemanticEnvelope(result) &&
+    result.payload.kind === 'empty' &&
+    ['unsupportedOperation', 'symbolNotFound', 'anchorFailed'].includes(
+      result.payload.category
+    )
+  ) {
+    // No semantic answer was obtained. The shared bulk envelope consumes this
+    // confidence field instead of inferring high confidence from the tool name.
+    return { ...result, status: 'empty', confidence: 'low' };
+  }
+  return result;
+}
+
 export function formatSemanticResult(
   query: LspGetSemanticsQuery,
   result: LspSemanticEnvelope | Record<string, unknown>
@@ -75,23 +92,21 @@ export function compactSemanticPayload(
     case 'typeDefinition':
     case 'implementation':
       return {
-        kind: payload.kind,
+        ...payload,
         locations: payload.locations.map(formatLocationRow),
       };
     case 'references':
       return {
-        kind: 'references',
+        ...payload,
         ...(payload.byFile
           ? { byFile: payload.byFile.map(formatReferenceFileRow) }
           : { locations: (payload.locations ?? []).map(formatLocationRow) }),
-        totalReferences: payload.totalReferences,
-        totalFiles: payload.totalFiles,
       };
     case 'callers':
     case 'callees':
     case 'callHierarchy':
       return {
-        kind: payload.kind,
+        ...payload,
         ...(payload.root ? { root: formatCallTargetRow(payload.root) } : {}),
         direction: payload.direction,
         calls: payload.calls.map(formatCallRow),
@@ -105,7 +120,7 @@ export function compactSemanticPayload(
       };
     case 'documentSymbols':
       return {
-        kind: 'documentSymbols',
+        ...payload,
         symbols: payload.symbols.map(formatSymbolRow),
       };
     case 'hover':

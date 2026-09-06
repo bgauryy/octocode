@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearAllCache,
-  generateCacheKey,
   getCacheStats,
-  withDataCacheConditional,
-} from '../../src/utils/http/cache.js';
+} from '../../src/utils/http/cache/management.js';
+import { generateCacheKey } from '../../src/utils/http/cache/key.js';
+import { withDataCacheConditional } from '../../src/utils/http/cache/conditional.js';
 import { extractEtag } from '../../src/github/responseHeaders.js';
 import { RequestError } from 'octokit';
-import { fetchRawGitHubFileContent } from '../../src/github/fileContentRaw.js';
+import { fetchRawGitHubFileContent } from '../../src/github/fileContentRaw/fetch.js';
 
 vi.mock('../../src/github/client.js', () => ({
   getOctokit: vi.fn(),

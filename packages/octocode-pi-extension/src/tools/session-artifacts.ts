@@ -2,11 +2,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { assertContextSegmentAuthority, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
-import { workspaceAgentKey } from '@octocodeai/octocode-shared/paths';
-import { getOctocodeHome } from '../env.js';
-import { extensionHome, extensionWorkspaceRoot } from '../extension-paths.js';
+import { getOctocodeHome } from '@octocodeai/config';
+import { extensionHome } from '../extension-paths.js';
 
-export const SESSION_MANIFEST_VERSION = 1 as const;
+export const SESSION_ARTIFACT_VERSION = 2 as const;
 export const PLAN_SNAPSHOT_VERSION = 1 as const;
 
 const PRIVATE_DIR_MODE = 0o700;
@@ -46,6 +45,7 @@ export type SessionArtifactProducer =
   | 'browser'
   | 'log'
   | 'checkpoint-ref'
+  | 'session-index'
   | 'export';
 
 interface ProducerManifestRecord {
@@ -54,9 +54,11 @@ interface ProducerManifestRecord {
   paths: string[];
 }
 
-export interface SessionArtifactManifestV1 {
-  version: 1;
+export interface SessionArtifactManifest {
+  version: typeof SESSION_ARTIFACT_VERSION;
+  sessionId: string;
   sessionKey: string;
+  backlogId: string;
   identitySource: SessionIdentitySource;
   workspace: string;
   createdAt: string;
@@ -69,7 +71,7 @@ export interface SessionArtifactContext {
   root: string;
   manifestPath: string;
   resolve(...segments: string[]): string;
-  inspect(): SessionArtifactManifestV1 | undefined;
+  inspect(): SessionArtifactManifest | undefined;
   registerProducer(producer: SessionArtifactProducer, relativePath: string): void;
   writeText(relativePath: string, text: string): void;
   writeBinary(relativePath: string, bytes: Uint8Array): void;
@@ -78,7 +80,7 @@ export interface SessionArtifactContext {
 }
 
 interface InternalContext {
-  mutateManifest(mutator: (manifest: SessionArtifactManifestV1) => void): SessionArtifactManifestV1;
+  mutateManifest(mutator: (manifest: SessionArtifactManifest) => void): SessionArtifactManifest;
 }
 
 const internals = new WeakMap<SessionArtifactContext, InternalContext>();
@@ -99,6 +101,15 @@ function slug(value: string): string {
 
 function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+export function sessionBacklogId(identity: Pick<SessionIdentity, 'rawId' | 'workspace'>): string {
+  return `pi-backlog-${sha256(`${identity.rawId}\0${identity.workspace}`).slice(0, 24)}`;
+}
+
+export function sessionDocumentId(identity: SessionIdentity): string {
+  if (identity.source === 'session-id') return identity.rawId;
+  return `pi-session-${sha256(`${identity.source}\0${identity.rawId}\0${identity.workspace}`).slice(0, 24)}`;
 }
 
 export function resolveSessionIdentity(input: SessionIdentityInput = {}): SessionIdentity {
@@ -128,15 +139,14 @@ export function resolveSessionIdentity(input: SessionIdentityInput = {}): Sessio
   return { workspace, rawId, source, sessionKey: `${slug(readable)}-${suffix}` };
 }
 
-export { workspaceAgentKey };
-/** @deprecated Internal compatibility name; resolves to the Pi extension workspace root. */
-export const workspaceAgentRoot = extensionWorkspaceRoot;
+
+
 
 export function sessionArtifactRoot(input: SessionIdentityInput = {}): string {
   const identity = resolveSessionIdentity(input);
   const octocodeHome = input.octocodeHome ?? getOctocodeHome();
   // Sessions live flat under extensionHome/sessions/ — no workspace nesting.
-  // Workspace-level state (discovery.json, mcp/, lsp/) stays under workspaceAgentRoot.
+  // Workspace-level state (discovery.json, mcp/, lsp/) stays under extensionWorkspaceRoot.
   return path.join(extensionHome(octocodeHome), 'sessions', identity.sessionKey);
 }
 
@@ -302,20 +312,31 @@ function withLock<T>(root: string, lockPath: string, body: () => T): T {
   }
 }
 
-function readManifest(file: string): SessionArtifactManifestV1 | undefined {
+function readManifest(file: string, identity: SessionIdentity): SessionArtifactManifest | undefined {
   if (!fs.existsSync(file)) return undefined;
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as SessionArtifactManifestV1;
-  if (parsed.version !== 1 || typeof parsed.sessionKey !== 'string' || !parsed.producers) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<SessionArtifactManifest>;
+  if (
+    parsed.version !== SESSION_ARTIFACT_VERSION
+    || typeof parsed.sessionId !== 'string'
+    || typeof parsed.sessionKey !== 'string'
+    || typeof parsed.backlogId !== 'string'
+    || !parsed.producers
+  ) {
     throw new Error(`Invalid session artifact manifest: ${file}`);
   }
-  return parsed;
+  if (parsed.sessionKey !== identity.sessionKey || parsed.workspace !== identity.workspace) {
+    throw new Error(`Session artifact manifest identity mismatch: ${file}`);
+  }
+  return parsed as SessionArtifactManifest;
 }
 
-function createManifest(identity: SessionIdentity): SessionArtifactManifestV1 {
+function createManifest(identity: SessionIdentity): SessionArtifactManifest {
   const now = new Date().toISOString();
   return {
-    version: SESSION_MANIFEST_VERSION,
+    version: SESSION_ARTIFACT_VERSION,
+    sessionId: sessionDocumentId(identity),
     sessionKey: identity.sessionKey,
+    backlogId: sessionBacklogId(identity),
     identitySource: identity.source,
     workspace: identity.workspace,
     createdAt: now,
@@ -350,13 +371,14 @@ export function createSessionArtifactContext(input: SessionIdentityInput = {}): 
   const manifestPath = path.join(root, 'manifest.json');
   writeExclusive(manifestPath, `${JSON.stringify(createManifest(identity), null, 2)}\n`);
   const manifestLock = path.join(root, '.manifest.lock');
+  withLock(root, manifestLock, () => readManifest(manifestPath, identity));
 
   const context: SessionArtifactContext = {
     identity,
     root,
     manifestPath,
     resolve: (...segments) => resolveInside(root, segments),
-    inspect: () => readManifest(manifestPath),
+    inspect: () => readManifest(manifestPath, identity),
     registerProducer: (producer, relativePath) => {
       const relative = normalizeRelativePath(relativePath);
       if (relative.length > MAX_PRODUCER_PATH_CHARS) throw new Error('Session artifact producer path is too long');
@@ -412,7 +434,7 @@ export function createSessionArtifactContext(input: SessionIdentityInput = {}): 
 
   const internal: InternalContext = {
     mutateManifest: (mutator) => withLock(root, manifestLock, () => {
-      const manifest = readManifest(manifestPath) ?? createManifest(identity);
+      const manifest = readManifest(manifestPath, identity) ?? createManifest(identity);
       mutator(manifest);
       manifest.updatedAt = new Date().toISOString();
       atomicWrite(root, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -435,10 +457,9 @@ export interface PlanBranchSnapshotV1<T = unknown> {
   state: T;
 }
 
-export interface PlanProjectionV1<T = unknown> extends PlanBranchSnapshotV1<T> {}
 
 export type ProjectionCasResult<T = unknown> =
-  | { ok: true; value: PlanProjectionV1<T> }
+  | { ok: true; value: PlanBranchSnapshotV1<T> }
   | { ok: false; reason: 'generation-conflict'; actualGeneration: number | null };
 
 function snapshotFilename(sourceEntryId: string): string {
@@ -469,21 +490,21 @@ export function writePlanBranchSnapshot<T>(ctx: SessionArtifactContext, snapshot
   return destination;
 }
 
-function parseProjection<T>(file: string): PlanProjectionV1<T> | undefined {
+function parseProjection<T>(file: string): PlanBranchSnapshotV1<T> | undefined {
   if (!fs.existsSync(file)) return undefined;
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as PlanProjectionV1<T>;
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as PlanBranchSnapshotV1<T>;
   validateSnapshot(parsed);
   return parsed;
 }
 
-export function readPlanProjection<T>(ctx: SessionArtifactContext): PlanProjectionV1<T> | undefined {
+export function readPlanProjection<T>(ctx: SessionArtifactContext): PlanBranchSnapshotV1<T> | undefined {
   return parseProjection<T>(ctx.resolve('plan/state.json'));
 }
 
 export function compareAndSwapPlanProjection<T>(
   ctx: SessionArtifactContext,
   expectedGeneration: number | null,
-  next: PlanProjectionV1<T>,
+  next: PlanBranchSnapshotV1<T>,
 ): ProjectionCasResult<T> {
   validateSnapshot(next);
   const projectionPath = ctx.resolve('plan/state.json');

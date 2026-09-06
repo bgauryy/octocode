@@ -5,30 +5,24 @@ import type {
   OptimizedCodeSearchResult,
 } from './githubAPI.js';
 import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '../toolContract/schemas.js';
-
+import type { GitHubCodeSearchQuerySchema } from '../toolContract/input/resources/tools/githubCodeOperation.js';
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
-import { contextUtils } from '../utils/contextUtils.js';
+import { compactMatchedFragment } from './codeSearch/compactFragment.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
-import { buildCodeSearchQuery } from './queryBuilders.js';
+import { buildCodeSearchQuery } from './queryBuilders/codeAndRepo.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
-import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
-import { shouldIgnoreFile } from '../utils/file/filters.js';
+import { generateCacheKey } from '../utils/http/cache/key.js';
+import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
-
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
 } from '../config.js';
-import { recomputeMatchPositions } from './codeSearch/matchPositions.js';
-export { recomputeMatchPositions };
-const RAW_API_DEFAULT_LIMIT = GITHUB_SEARCH_DEFAULT_LIMIT;
-
 export async function searchGitHubCodeAPI(
   params: WithOptionalMeta<GitHubCodeSearchQuery>,
   authInfo?: AuthInfo,
@@ -52,7 +46,6 @@ export async function searchGitHubCodeAPI(
     },
     sessionId
   );
-
   const result = await withDataCache<
     GitHubAPIResponse<OptimizedCodeSearchResult>
   >(
@@ -62,13 +55,13 @@ export async function searchGitHubCodeAPI(
     },
     {
       shouldCache: (value: GitHubAPIResponse<OptimizedCodeSearchResult>) =>
-        'data' in value && !(value as { error?: unknown }).error,
+        'data' in value &&
+        !value.data?.incompleteResults &&
+        !(value as { error?: unknown }).error,
     }
   );
-
   return result;
 }
-
 async function searchGitHubCodeAPIInternal(
   params: WithOptionalMeta<GitHubCodeSearchQuery>,
   authInfo?: AuthInfo
@@ -98,7 +91,9 @@ async function searchGitHubCodeAPIInternal(
     }
 
     const perPage = Math.min(
-      typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
+      typeof params.limit === 'number'
+        ? params.limit
+        : GITHUB_SEARCH_DEFAULT_LIMIT,
       GITHUB_SEARCH_MAX_LIMIT
     );
     const currentPage = params.page || 1;
@@ -119,17 +114,14 @@ async function searchGitHubCodeAPIInternal(
       result.data.total_count
     );
 
-    // GitHub sets incomplete_results:true when the code-search index timed out
-    // or could not fully complete. The HTTP status is still 200, so without
-    // this flag an empty/partial result is indistinguishable from a true
-    // no-match. Propagate it so the agent isn't blind to index degradation.
+    // HTTP 200 can still contain an incomplete search index result. Preserve
+    // that distinction so an empty page is not treated as proven absence.
     const incompleteResults = result.data.incomplete_results === true;
 
     const reportedTotalMatches = optimizedResult.total_count;
     const totalMatches = Math.min(reportedTotalMatches, 1000);
     const totalPages = Math.ceil(totalMatches / perPage);
-    const clampedPage = Math.min(currentPage, Math.max(1, totalPages));
-    const hasMore = clampedPage < totalPages;
+    const hasMore = currentPage < totalPages;
     const reachableTotalMatches = Math.min(totalMatches, totalPages * perPage);
 
     return {
@@ -144,7 +136,7 @@ async function searchGitHubCodeAPIInternal(
         minificationTypes: optimizedResult.minificationTypes,
         _researchContext: optimizedResult._researchContext,
         pagination: {
-          currentPage: clampedPage,
+          currentPage,
           totalPages,
           perPage,
           totalMatches,
@@ -153,7 +145,7 @@ async function searchGitHubCodeAPIInternal(
           totalMatchesKind: 'reported',
           totalMatchesCapped: reportedTotalMatches > totalMatches,
           hasMore,
-          ...(hasMore ? { nextPage: clampedPage + 1 } : {}),
+          ...(hasMore ? { nextPage: currentPage + 1 } : {}),
           uniqueFileCount: optimizedResult._researchContext?.uniqueFileCount,
         },
       },
@@ -164,7 +156,9 @@ async function searchGitHubCodeAPIInternal(
   } catch (error: unknown) {
     if (isNoResultsSearchError(error)) {
       const perPage = Math.min(
-        typeof params.limit === 'number' ? params.limit : RAW_API_DEFAULT_LIMIT,
+        typeof params.limit === 'number'
+          ? params.limit
+          : GITHUB_SEARCH_DEFAULT_LIMIT,
         GITHUB_SEARCH_MAX_LIMIT
       );
       return {
@@ -205,14 +199,12 @@ async function transformToOptimizedFormat(
 
   const foundFiles = new Set<string>();
 
-  const filteredItems = items.filter(item => !shouldIgnoreFile(item.path));
-
   let droppedItems = 0;
   let droppedMatches = 0;
 
   const itemResults = await Promise.allSettled(
-    filteredItems.map(async item => {
-      foundFiles.add(item.path);
+    items.map(async item => {
+      foundFiles.add(`${item.repository.full_name}/${item.path}`);
 
       const itemMinificationTypes: string[] = [];
 
@@ -237,41 +229,24 @@ async function transformToOptimizedFormat(
             );
           }
 
-          try {
-            const minifyResult = await contextUtils.minifyContent(
-              processedFragment || '',
-              item.path
-            );
-            processedFragment = minifyResult.content;
-
-            if (minifyResult.failed) {
-              hasMinificationFailures = true;
-            } else if (minifyResult.type !== 'failed') {
-              itemMinificationTypes.push(minifyResult.type);
-              allMinificationTypes.push(minifyResult.type);
-            }
-          } catch {
-            hasMinificationFailures = true;
-          }
-
           const rawPositions =
             match.matches?.flatMap(m =>
               Array.isArray(m.indices) && m.indices.length >= 2
                 ? [[m.indices[0], m.indices[1]] as [number, number]]
                 : []
             ) || [];
-
-          return {
-            context: processedFragment || '',
-            // GitHub's indices point into the RAW fragment; the context above
-            // is sanitized+minified, so re-anchor them (or drop the ones the
-            // transform removed) instead of passing stale offsets through.
-            positions: recomputeMatchPositions(
-              match.fragment || '',
-              rawPositions,
-              processedFragment || ''
-            ),
-          };
+          const fragment = await compactMatchedFragment(
+            match.fragment || '',
+            sanitizationResult.content,
+            rawPositions,
+            item.path
+          );
+          if (fragment.failed) hasMinificationFailures = true;
+          if (fragment.minificationType) {
+            itemMinificationTypes.push(fragment.minificationType);
+            allMinificationTypes.push(fragment.minificationType);
+          }
+          return { context: fragment.context, positions: fragment.positions };
         })
       );
 
@@ -334,8 +309,7 @@ async function transformToOptimizedFormat(
 
   const result: OptimizedCodeSearchResult = {
     items: optimizedItems,
-    total_count:
-      apiTotalCount !== undefined ? apiTotalCount : filteredItems.length,
+    total_count: apiTotalCount !== undefined ? apiTotalCount : items.length,
     _researchContext: {
       uniqueFileCount: foundFiles.size,
       repositoryContext: singleRepo

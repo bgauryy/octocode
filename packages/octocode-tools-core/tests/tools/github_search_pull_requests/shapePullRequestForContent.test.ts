@@ -31,15 +31,13 @@ describe('pull-request exact-item content shaping', () => {
     expect(shaped.next).toBeDefined();
     const next = shaped.next as Record<
       string,
-      { target?: { operation?: string; number?: number } }
+      { tool: string; query: { operation?: string; number?: number } }
     >;
-    expect(next.target).toBeDefined();
-    expect((shaped.next as { target: { number: number } }).target.number).toBe(
-      42
-    );
-    expect(
-      (shaped.next as { target: { operation: string } }).target.operation
-    ).toBe('pullRequest');
+    expect(next.getBody).toMatchObject({
+      tool: 'ghGetHistoryItem',
+      query: { number: 42, operation: 'pullRequest' },
+    });
+    expect(next.target).toBeUndefined();
   });
 
   it('omits next when showContentMap is explicitly false', () => {

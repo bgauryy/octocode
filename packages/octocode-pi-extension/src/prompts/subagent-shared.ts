@@ -1,9 +1,0 @@
-export {
-  COORDINATION_PLACEHOLDER,
-  SUBAGENT_COORDINATION,
-  SUBAGENT_FRAGMENTS,
-  SUBAGENT_PLACEHOLDERS,
-  SUBAGENT_SKILLS_INTRO,
-  SUBAGENT_SURFACE,
-  expandSubagentPrompt,
-} from '@octocodeai/octocode-shared/prompts';

@@ -9,27 +9,26 @@ const rootDir = resolve(__dirname, '..');
 const rootReadme = join(rootDir, 'README.md');
 const packagesDir = join(rootDir, 'packages');
 
-// Packages with hand-authored READMEs that must never be overwritten by this
-// script. They are committed to git and explicitly un-ignored in .gitignore
-// via the !/packages/<name>/README.md rules.
-const PROTECTED_PACKAGES = new Set([
-  'octocode-awareness',
-]);
+function readPackageManifest(packageDir) {
+  return JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf-8'));
+}
 
-// Every other public (non-`private`) package under packages/ gets the shared
+function ownsReadme(packageManifest) {
+  return packageManifest.octocode?.readmeSync === false;
+}
+
+// Every public (non-`private`) package that does not own its README gets the shared
 // root README synced into its own README.md at build/prepack time — this is
 // what actually ships on its npm page. Discovered dynamically so a new
 // package is covered automatically instead of silently shipping stale or
-// missing docs.
+// missing docs. Packages opt out through package.json#octocode.readmeSync.
 function discoverSyncTargets() {
   return readdirSync(packagesDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && !PROTECTED_PACKAGES.has(entry.name))
+    .filter(entry => entry.isDirectory())
     .filter(entry => existsSync(join(packagesDir, entry.name, 'package.json')))
     .filter(entry => {
-      const pkg = JSON.parse(
-        readFileSync(join(packagesDir, entry.name, 'package.json'), 'utf-8')
-      );
-      return pkg.private !== true;
+      const pkg = readPackageManifest(join(packagesDir, entry.name));
+      return pkg.private !== true && !ownsReadme(pkg);
     })
     .map(entry => join('packages', entry.name))
     .sort();
@@ -45,19 +44,16 @@ const targets = requestedTarget
   : discoverSyncTargets();
 
 for (const target of targets) {
-  const packageName = relative('packages', target);
-  if (PROTECTED_PACKAGES.has(packageName)) {
-    throw new Error(
-      `Cannot sync root README.md to ${target} — it has a hand-authored README.md ` +
-      `committed to git. Remove it from the sync target list.`,
-    );
-  }
-
   const packageDir = join(rootDir, target);
   const packageJsonPath = join(packageDir, 'package.json');
 
   if (!existsSync(packageJsonPath) || !statSync(packageDir).isDirectory()) {
     throw new Error(`Expected a package directory with package.json: ${packageDir}`);
+  }
+
+  if (ownsReadme(readPackageManifest(packageDir))) {
+    console.log(`✓ Package owns README.md in ${relative(rootDir, packageDir)}`);
+    continue;
   }
 
   copyFileSync(rootReadme, join(packageDir, 'README.md'));

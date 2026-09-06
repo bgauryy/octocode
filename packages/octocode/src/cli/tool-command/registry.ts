@@ -5,62 +5,25 @@
 import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
-  getDirectToolCategory,
   getDirectToolDisplayFields,
   loadToolContent,
-  STATIC_TOOL_NAMES,
+  getToolAvailability,
   type DirectToolDefinition,
   type DirectToolDisplayField,
 } from '@octocodeai/octocode-tools-core/schema';
-import { getConfigSync } from '@octocodeai/config';
 
 export type ToolDefinition = DirectToolDefinition & {
   disabled?: { envVar: string };
 };
 export const TOOL_CATEGORIES = DIRECT_TOOL_CATEGORIES;
 
-function cloneDisabledBy(): string | undefined {
-  try {
-    const config = getConfigSync();
-    if (config.storage.mode === 'memory') return 'OCTOCODE_STORAGE_MODE';
-    return config.local.enableClone ? undefined : 'ENABLE_CLONE';
-  } catch {
-    return undefined;
-  }
-}
-
-const cloneDisabledEnvVar = cloneDisabledBy();
-const toolConfig = getConfigSync().tools;
-const explicitlyEnabledTools = new Set(toolConfig.enabled ?? []);
-const explicitlyDisabledTools = new Set(toolConfig.disabled ?? []);
-const hasToolAllowlist = explicitlyEnabledTools.size > 0;
-
 export const TOOL_DEFINITIONS: ToolDefinition[] =
   DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => {
-    if (
-      tool.name === STATIC_TOOL_NAMES.GITHUB_CLONE_REPO &&
-      cloneDisabledEnvVar
-    ) {
-      return { ...tool, disabled: { envVar: cloneDisabledEnvVar } };
-    }
-    if (hasToolAllowlist && !explicitlyEnabledTools.has(tool.name)) {
-      return { ...tool, disabled: { envVar: 'TOOLS_TO_RUN' } };
-    }
-    if (!hasToolAllowlist && explicitlyDisabledTools.has(tool.name)) {
-      return { ...tool, disabled: { envVar: 'DISABLE_TOOLS' } };
-    }
-    return tool;
+    const availability = getToolAvailability(tool.name);
+    return availability.envVar
+      ? { ...tool, disabled: { envVar: availability.envVar } }
+      : tool;
   });
-
-export function getToolAvailability(toolName: string): {
-  enabled: boolean;
-  envVar?: string;
-} {
-  const tool = findToolDefinition(toolName);
-  return tool?.disabled
-    ? { enabled: false, envVar: tool.disabled.envVar }
-    : { enabled: true };
-}
 
 export function getToolEnableInstruction(toolName: string): string | undefined {
   const availability = getToolAvailability(toolName);
@@ -83,12 +46,6 @@ let toolMetadataPromise: Promise<
 
 export function findToolDefinition(name: string): ToolDefinition | undefined {
   return TOOL_DEFINITIONS.find(tool => tool.name === name);
-}
-
-export function getToolCategory(
-  toolName: string
-): ReturnType<typeof getDirectToolCategory> {
-  return getDirectToolCategory(toolName);
 }
 
 export function getDisplayFields(

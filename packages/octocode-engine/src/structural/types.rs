@@ -35,6 +35,7 @@ pub struct StructuralMatch {
 }
 
 #[napi(object)]
+#[derive(Clone)]
 pub struct StructuralDiagnostic {
     pub code: String,
     pub severity: String,
@@ -88,7 +89,7 @@ pub struct StructuralSearchFilesOptions {
     /// Bypass `.gitignore`/`.ignore` rules. `None` preserves defaults; `Some(true)`
     /// searches files normally hidden by ignore files (mirrors local-search `noIgnore`).
     pub no_ignore: Option<bool>,
-    /// Maximum directory descent depth (0 = just the root). `None` = unbounded.
+    /// Maximum path depth below a directory root (1 = direct files; 0 = no descent). `None` = unbounded.
     pub max_depth: Option<u32>,
     pub max_files: Option<u32>,
     pub max_file_bytes: Option<u32>,
@@ -102,6 +103,13 @@ pub struct StructuralSearchFileResult {
 
 #[napi(object)]
 pub struct StructuralSearchFilesResult {
+    pub scan_truncated: bool,
+    pub status: String,
+    /// Query planning evidence computed before the scan. Keeping it on the
+    /// asynchronous result lets callers explain zero matches without repeating
+    /// the full directory walk on the JavaScript event loop.
+    pub query: Option<StructuralQueryExplanation>,
+    pub diagnostics: Vec<StructuralDiagnostic>,
     pub files: Vec<StructuralSearchFileResult>,
     pub total_matches: u32,
     pub parsed_files: u32,
@@ -140,6 +148,7 @@ pub struct StructuralSearchDetailedFileResult {
 
 #[napi(object)]
 pub struct StructuralSearchFilesDetailedResult {
+    pub scan_truncated: bool,
     pub files: Vec<StructuralSearchDetailedFileResult>,
     pub total_matches: u32,
     pub parsed_files: u32,

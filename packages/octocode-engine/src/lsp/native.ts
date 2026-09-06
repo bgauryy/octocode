@@ -1,21 +1,19 @@
 import { createRequire } from 'node:module';
 
-import type { LspReadiness } from './types.js';
+import type { ExactPosition, FuzzyPosition, LspReadiness } from './types.js';
 
 const require = createRequire(import.meta.url);
 
+// The wrapper and addon ship together; these methods are the required contract.
 export type NativeLspClientBinding = {
   start(): Promise<void>;
   stop(): Promise<void>;
-  // The native addon resolves to an `LspReadiness` string once rebuilt; an
-  // older addon (pre-readiness) resolves to `undefined`, which the LSPClient
-  // wrapper coerces to the conservative `settledFallback`.
-  waitForReady(timeoutMs?: number): Promise<LspReadiness | undefined>;
-  hasCapability?(capability: string): boolean;
-  isAlive?(): Promise<boolean>;
-  getRecentStderr?(): string[];
+  waitForReady(timeoutMs?: number): Promise<LspReadiness>;
+  hasCapability(capability: string): boolean;
+  isAlive(): Promise<boolean>;
+  getRecentStderr(): string[];
   openDocument(filePath: string, content: string): Promise<void>;
-  closeDocument?(filePath: string): Promise<void>;
+  closeDocument(filePath: string): Promise<void>;
   getDefinition(
     filePath: string,
     line: number,
@@ -57,10 +55,17 @@ export type NativeLspClientBinding = {
   getDiagnostics(filePath: string): Promise<unknown>;
 };
 
+interface ResolvedSymbol {
+  position: ExactPosition;
+  foundAtLine: number;
+  lineOffset: number;
+  lineContent: string;
+}
+
 type NativeBinding = {
   NativeLspClient: new (config: unknown) => NativeLspClientBinding;
-  resolvePosition(filePath: string, fuzzy: unknown): unknown;
-  resolvePositionFromContent(content: string, fuzzy: unknown): unknown;
+  resolvePosition(filePath: string, fuzzy: FuzzyPosition): ResolvedSymbol;
+  resolvePositionFromContent(content: string, fuzzy: FuzzyPosition): ResolvedSymbol;
   toUri(path: string): string;
   fromUri(uri: string): string;
   resolveWorkspaceRootForFile(filePath: string): string;
@@ -77,8 +82,6 @@ type NativeBinding = {
     contextLines: number
   ): string;
   validateLspServerPath(command: string): string;
-  convertSymbolKind(kind?: number): string;
-  toLspSymbolKind(kind: string): number;
 };
 
 // Embedded single-file builds (Node SEA) pre-load the addon and publish it on

@@ -35,7 +35,7 @@ def main() -> int:
 
     artifact_dir = Path(args.artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact_id = f"{time.time_ns()}-{process.pid if hasattr(process, 'pid') else 'command'}"
+    artifact_id = f"{time.time_ns()}-command"
     artifact = artifact_dir / f"{artifact_id}.txt"
     artifact.write_text(text, encoding="utf-8")
 
@@ -46,8 +46,6 @@ def main() -> int:
         "cmd": args.label,
         "argv": command,
         "char_unit": "unicode_code_points",
-        # legacy field: output pulled into context (model-in direction)
-        "chars": model_in_chars,
         "bytes": len(raw),
         # directional accounting: ALL chars through the model = in + out
         "model_out_chars": model_out_chars,

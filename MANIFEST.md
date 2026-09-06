@@ -363,7 +363,7 @@ Each action operates with a **fresh context window**, utilizing only the *output
 
 ## Part 5: The Practice — Proven Workflows
 
-The theory above, instantiated. Every chain and pattern in this part was validated live in an eval campaign in which octocode diagnosed and improved itself, gated by the [live tool benchmark](packages/octocode-benchmark/benchmark/octocode/README.md). One rule governs everything: **every result carries the exact inputs of the next call** — `next.*` hints, `matchRanges`, line anchors, `localPath`, PR numbers, pagination params. Reuse them verbatim; never recompute or guess. This is "output bridges actions" (Part 2) made mechanical.
+The theory above, instantiated. Every chain and pattern in this part was validated live in an eval campaign in which octocode diagnosed and improved itself, gated by the [live tool benchmark](packages/octocode-benchmark/README.md). One rule governs everything: **every result carries the exact inputs of the next call** — `next.*` hints, `matchRanges`, line anchors, `localPath`, PR numbers, pagination params. Reuse them verbatim; never recompute or guess. This is "output bridges actions" (Part 2) made mechanical.
 
 ### The core loop
 

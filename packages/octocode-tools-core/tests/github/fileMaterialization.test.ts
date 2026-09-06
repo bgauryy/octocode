@@ -12,14 +12,15 @@ const mocks = vi.hoisted(() => ({
   fetchRaw: vi.fn(),
 }));
 
-vi.mock('../../src/shared/index.js', async importOriginal => {
+vi.mock('../../src/shared/paths.js', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('../../src/shared/index.js')>();
-  return {
-    ...actual,
-    getOctocodeDir: () => mocks.home,
-    getDirectorySizeBytes: vi.fn(() => 0),
-  };
+    await importOriginal<typeof import('../../src/shared/paths.js')>();
+  return { ...actual, getOctocodeDir: () => mocks.home };
+});
+vi.mock('../../src/shared/fs-utils.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/shared/fs-utils.js')>();
+  return { ...actual, getDirectorySizeBytes: vi.fn(() => 0) };
 });
 
 vi.mock('../../src/github/client.js', () => ({
@@ -30,13 +31,14 @@ vi.mock('../../src/github/client.js', () => ({
   resolveDefaultBranch: vi.fn(async () => 'main'),
 }));
 
-vi.mock('../../src/github/fileContentRaw.js', () => ({
+vi.mock('../../src/github/fileContentRaw/fetch.js', () => ({
   fetchRawGitHubFileContent: (...args: unknown[]) => mocks.fetchRaw(...args),
 }));
 
 const { fetchFileContentToDisk } =
-  await import('../../src/github/directoryFetch.js');
-const { clearAllCache } = await import('../../src/utils/http/cache.js');
+  await import('../../src/github/directoryFetch/fetchFileContentToDisk.js');
+const { clearAllCache } =
+  await import('../../src/utils/http/cache/management.js');
 
 describe('exact file materialization identity', () => {
   beforeEach(() => {

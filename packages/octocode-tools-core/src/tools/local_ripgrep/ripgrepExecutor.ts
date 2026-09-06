@@ -5,16 +5,14 @@ import {
 import { validateRipgrepQuery } from '../../toolContract/runtime.js';
 import { LocalRipgrepQuerySchema, type RipgrepQuery } from './scheme.js';
 import { RESOURCE_LIMITS } from '../../utils/core/constants.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
-import { buildSearchResult } from './ripgrepResultBuilder.js';
+import { buildSearchResult } from './ripgrepResultBuilder/buildResult.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
-import {
-  contextUtils,
-  type RipgrepSearchOptions,
-} from '../../utils/contextUtils.js';
+import { contextUtils } from '../../utils/contextUtils.js';
+import type { RipgrepSearchOptions } from '@octocodeai/octocode-engine';
 
 /** Filesystem sorts the native engine understands. */
 type EngineSort = 'path' | 'created' | 'modified' | 'accessed';

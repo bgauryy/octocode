@@ -6,7 +6,8 @@ vi.mock('../../src/utils/platform.js', () => ({
   isWindows: false,
 }));
 
-vi.mock('../../src/utils/mcp-paths.js', () => ({
+vi.mock('../../src/utils/mcp-paths.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/utils/mcp-paths.js')>()),
   getMCPConfigPath: vi.fn(),
   clientConfigExists: vi.fn(),
   configFileExists: vi.fn(),
@@ -101,20 +102,6 @@ describe('MCP Config Coverage Tests', () => {
           githubToken: 'ghp_token',
         })
       ).toThrow('Unknown install method');
-    });
-  });
-
-  describe('getOctocodeServerConfigWindows with env options', () => {
-    it('should delegate to getOctocodeServerConfig for npx method with env', async () => {
-      const { getOctocodeServerConfigWindows } =
-        await import('../../src/utils/mcp-config.js');
-
-      const result = getOctocodeServerConfigWindows('npx', {
-        enableLocal: true,
-      });
-
-      expect(result.command).toBe('npx');
-      expect(result.env!.ENABLE_LOCAL).toBe('true');
     });
   });
 
@@ -693,7 +680,7 @@ describe('MCP Config Coverage Tests', () => {
   });
 
   describe('getAllClientInstallStatus comprehensive', () => {
-    it('should check all 8 supported clients', async () => {
+    it('should check every supported client without custom or duplicate entries', async () => {
       const { getMCPConfigPath, configFileExists } =
         await import('../../src/utils/mcp-paths.js');
       const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
@@ -706,8 +693,13 @@ describe('MCP Config Coverage Tests', () => {
         await import('../../src/utils/mcp-config.js');
       const result = getAllClientInstallStatus();
 
-      expect(result.length).toBe(11);
+      expect(result.length).toBe(15);
       const clients = result.map(s => s.client);
+      expect(new Set(clients).size).toBe(clients.length);
+      expect(clients).not.toContain('custom');
+      expect(clients).toEqual(
+        expect.arrayContaining(['codex', 'gemini-cli', 'goose', 'kiro'])
+      );
       expect(clients).toContain('cursor');
       expect(clients).toContain('claude-desktop');
       expect(clients).toContain('claude-code');

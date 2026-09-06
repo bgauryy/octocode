@@ -1,3 +1,4 @@
+import type { CollectionPages } from '../github/prContentFetcher/collectionPaging.js';
 type ProviderType = 'github';
 
 interface BaseProviderQuery {
@@ -181,6 +182,8 @@ export interface PullRequestQuery extends BaseProviderQuery {
   commentPage?: number;
 
   commitPage?: number;
+  reviewPage?: number;
+  collectionPages?: CollectionPages;
 
   itemsPerPage?: number;
 
@@ -221,4 +224,6 @@ export interface RepoStructureQuery extends BaseProviderQuery {
   includeBranches?: boolean;
 
   includeTags?: boolean;
+
+  metadataPage?: number;
 }

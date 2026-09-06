@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubViewRepoStructureQuerySchema } from '../../toolContract/input/resources/tools/githubTreeOperation.js';
 import type {
   GitHubViewRepoStructureToolResult,
   GitHubRepoStructureDirectoryEntry,
@@ -12,16 +12,19 @@ type GitHubViewRepoStructureQuery = z.infer<
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
-import { shouldIgnoreFile, shouldIgnoreDir } from '../../utils/file/filters.js';
+import {
+  shouldIgnoreDiscoveryFile,
+  shouldIgnoreDiscoveryDir,
+} from '@octocodeai/octocode-engine/security';
 import { handleCatchError, createSuccessResult } from '../utils.js';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import {
   mapRepoStructureProviderResult,
   mapRepoStructureToolQuery,
-} from '../providerMappers.js';
+} from '../providerMappers/repoStructure.js';
 import {
   createLazyProviderContext,
   executeProviderOperation,
@@ -105,15 +108,19 @@ export function filterStructure(
   for (const [dirPath, entry] of Object.entries(structure)) {
     // Skip top-level entries for directories that should be ignored
     const dirName = dirPath.split('/').pop() ?? dirPath;
-    if (dirPath !== '' && dirPath !== '.' && shouldIgnoreDir(dirName)) {
+    if (
+      dirPath !== '' &&
+      dirPath !== '.' &&
+      shouldIgnoreDiscoveryDir(dirName)
+    ) {
       continue;
     }
 
     const filteredFiles = entry.files.filter(
-      fileName => !shouldIgnoreFile(fileName)
+      fileName => !shouldIgnoreDiscoveryFile(fileName)
     );
     const filteredFolders = entry.folders.filter(
-      folderName => !shouldIgnoreDir(folderName)
+      folderName => !shouldIgnoreDiscoveryDir(folderName)
     );
 
     if (filteredFiles.length > 0 || filteredFolders.length > 0) {
@@ -186,13 +193,19 @@ export async function exploreRepositoryStructure(
     const filteredStructure = filterStructure(
       providerResult.response.data.structure
     );
-    const hasContent = Object.keys(filteredStructure).length > 0;
     const resultData = mapRepoStructureProviderResult(
       providerResult.response.data,
       query,
       filteredStructure,
       effectiveBranch
     );
+    const hasContent =
+      Object.keys(filteredStructure).length > 0 ||
+      resultData.isPartial === true ||
+      resultData.languages !== undefined ||
+      ['contributors', 'branches', 'tags'].some(
+        key => Array.isArray(resultData[key]) && resultData[key].length > 0
+      );
     if (branchFallbackWarning) {
       (resultData as Record<string, unknown>).branchFallback = {
         requestedBranch: explicitBranch,
@@ -223,6 +236,7 @@ export async function exploreRepositoryStructure(
         })()
       : undefined;
     (resultData as Record<string, unknown>).next = {
+      ...(resultData.next as Record<string, unknown> | undefined),
       ...(firstFile
         ? {
             fetchFile: {

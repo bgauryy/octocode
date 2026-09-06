@@ -115,7 +115,7 @@ export async function resolveSymbolAnchor(
     };
   }
 
-  const resolver = new SymbolResolver({ lineSearchRadius: 5 });
+  const resolver = new SymbolResolver();
   try {
     const resolved = resolver.resolvePositionFromContent(file.value.content, {
       symbolName: query.symbolName,

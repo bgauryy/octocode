@@ -1,39 +1,21 @@
 /**
  * Pi runtime API type definitions.
  *
- * Prefer Pi's published public types and keep only Octocode compatibility
- * aliases/augmentations here. The local aliases stay intentionally loose so the
- * extension can still run against older Pi hosts that may omit newer fields.
+ * Pi's published types define host contracts; local interfaces describe
+ * Octocode's tool results, runtime state, and UI projections.
  */
 
 import type { PromptMode } from '@octocodeai/octocode-shared/protocols';
-export type { PromptMode } from '@octocodeai/octocode-shared/protocols';
 
 import type {
   BuildSystemPromptOptions as PiBuildSystemPromptOptions,
   ContextUsage as PiContextUsage,
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-  ExtensionUIContext,
   ReadonlyFooterDataProvider,
   ToolDefinition as PiToolDefinition,
   ToolRenderResultOptions,
   WorkingIndicatorOptions,
 } from '@earendil-works/pi-coding-agent';
 import type { Theme as OfficialPiTheme } from '@earendil-works/pi-coding-agent';
-
-// ─── Official Pi public types ────────────────────────────────────────────────
-
-export type PiApi = ExtensionAPI;
-export type PiOfficialContext = ExtensionContext;
-export type PiOfficialCommandContext = ExtensionCommandContext;
-export type PiOfficialUi = ExtensionUIContext;
-export type PiOfficialTheme = OfficialPiTheme;
-export type PiFooterData = ReadonlyFooterDataProvider;
-export type PiRenderContext<TState = any, TArgs = any> = RenderContext & { state?: TState; args?: TArgs };
-export type PiRenderResultOptions = ToolRenderResultOptions;
-export type PiWorkingIndicator = WorkingIndicatorOptions;
 
 // ─── TypeBox ─────────────────────────────────────────────────────────────────
 
@@ -149,7 +131,6 @@ export interface SpawnPolicyResult {
   reason?: string;
 }
 
-export type LedgerEvent = WorkerLedgerEvent;
 
 export interface RenderCallReturn {
   render(width: number): string[];
@@ -159,7 +140,7 @@ export interface RenderCallReturn {
 /**
  * Context object Pi passes as the third argument to renderCall and renderResult.
  * Provides component reuse, cross-slot shared state, and system-level metadata.
- * All fields are optional — not all Pi versions expose every field.
+ * Optional fields depend on the render slot and execution state.
  * Pi docs: renderCall(args, theme, context) / renderResult(result, opts, theme, context)
  */
 export interface RenderContext {
@@ -186,24 +167,18 @@ export interface RenderContext {
   showImages?: boolean;
 }
 
-export interface RenderResultOptions extends Partial<PiRenderResultOptions> {
+export interface RenderResultOptions extends Partial<ToolRenderResultOptions> {
   expanded?: boolean;
   isPartial?: boolean;
 }
 
 // ─── Pi theme / UI ───────────────────────────────────────────────────────────
 
-export interface PiTheme extends Pick<PiOfficialTheme, 'fg' | 'bold'> {}
-
-export interface PiAutocompleteItem {
-  value: string;
-  label: string;
-  description?: string;
-}
+export interface PiTheme extends Pick<OfficialPiTheme, 'fg' | 'bold'> {}
 
 export interface PiAutocompleteResult {
   prefix: string;
-  items: PiAutocompleteItem[];
+  items: AutocompleteItem[];
 }
 
 export interface PiAutocompleteProvider {
@@ -211,23 +186,11 @@ export interface PiAutocompleteProvider {
   getSuggestions(
     lines: string[], line: number, col: number, options: { signal?: AbortSignal; force?: boolean },
   ): Promise<PiAutocompleteResult | undefined>;
-  applyCompletion(lines: string[], line: number, col: number, item: PiAutocompleteItem, prefix: string): { lines: string[]; cursorLine: number; cursorCol: number };
+  applyCompletion(lines: string[], line: number, col: number, item: AutocompleteItem, prefix: string): { lines: string[]; cursorLine: number; cursorCol: number };
   shouldTriggerFileCompletion?(lines: string[], line: number, col: number): boolean;
 }
 
-export interface PiTextContent {
-  type: 'text';
-  text: string;
-}
-
-export interface PiImageContent {
-  type: 'image';
-  /** Base64 image payload; Pi's Image component takes base64 + MIME, not file paths or Buffers. */
-  data: string;
-  mimeType: string;
-}
-
-export type PiMessageContent = string | Array<PiTextContent | PiImageContent>;
+export type PiMessageContent = string | ContentPart[];
 
 export interface PiDialogOptions {
   signal?: AbortSignal;
@@ -248,12 +211,12 @@ export interface PiUi {
   setHiddenThinkingLabel?(label: string): void;
   setStatus?(name: string, text: string | undefined): void;
   setWidget?(name: string, content: string[] | ((tui: unknown, theme: PiTheme) => unknown) | undefined, opts?: { placement?: 'aboveEditor' | 'belowEditor' }): void;
-  setFooter?(factory: ((tui: unknown, theme: PiTheme, footerData?: PiFooterData) => unknown) | undefined): void;
+  setFooter?(factory: ((tui: unknown, theme: PiTheme, footerData?: ReadonlyFooterDataProvider) => unknown) | undefined): void;
   setHeader?(factory: ((tui: unknown, theme: PiTheme) => unknown) | undefined): void;
   setTitle?(title: string): void;
   setWorkingMessage?(message?: string): void;
   setWorkingVisible?(visible: boolean): void;
-  setWorkingIndicator?(indicator?: PiWorkingIndicator): void;
+  setWorkingIndicator?(indicator?: WorkingIndicatorOptions): void;
   // Editor
   setEditorText?(text: string): void;
   getEditorText?(): string;
@@ -330,8 +293,8 @@ export interface PiContext {
   hasUI?: boolean;
   /** 'tui' = interactive terminal, 'rpc' = JSON RPC, 'json' = event stream, 'print' = -p flag */
   mode?: 'tui' | 'rpc' | 'json' | 'print';
-  /** Pi's real contract is synchronous boolean (types.d.ts:226); Promise kept in the union for older call sites that await it. */
-  isProjectTrusted?(): boolean | Promise<boolean>;
+  /** Pi reports project trust synchronously. */
+  isProjectTrusted?(): boolean;
   compact?(opts: CompactOptions): void;
   /** `tokens` is null when unknown — e.g. right after compaction (mirrors Pi's ContextUsage). */
   getContextUsage?(): (Partial<PiContextUsage> & { tokens: number | null; contextWindow: number }) | null | undefined;

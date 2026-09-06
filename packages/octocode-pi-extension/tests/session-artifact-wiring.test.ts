@@ -16,8 +16,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
-import { resolveSessionIdentity, createSessionArtifactContext, workspaceAgentRoot } from '../src/tools/session-artifacts.js';
-import { extensionHome } from '../src/extension-paths.js';
+import { resolveSessionIdentity, createSessionArtifactContext, SESSION_ARTIFACT_VERSION } from '../src/tools/session-artifacts.js';
+import { extensionWorkspaceRoot, extensionHome } from '../src/extension-paths.js';
 import { planArtifactsDir } from '../src/tools/plan-html.js';
 import { getSessionDir, getScreenshotDir } from '../src/chrome-debug.js';
 import { writeCompactionArtifact } from '../src/tools/compaction-artifacts.js';
@@ -189,7 +189,7 @@ test('getInternalErrorLogPath shape: session manager → global workspace sessio
 });
 
 test('getInternalErrorLogPath shape: no session manager → global workspace logs', () => {
-  const fallback = path.join(workspaceAgentRoot(tmpRoot, tmpHome), 'logs', 'error.txt');
+  const fallback = path.join(extensionWorkspaceRoot(tmpRoot, tmpHome), 'logs', 'error.txt');
   assert.equal(fallback.startsWith(tmpRoot), false, 'fallback must not be workspace-local');
 });
 
@@ -209,12 +209,12 @@ test('getInternalErrorLogPath: session path is deterministic across calls (no I/
 
 test('getSessionDir: with sessionKey routes to browser/port-N inside session tree', () => {
   const dir = getSessionDir('/ws', 9222, 'my-key-abc');
-  assert.equal(dir, path.join(workspaceAgentRoot('/ws'), 'sessions', 'my-key-abc', 'browser', 'port-9222'));
+  assert.equal(dir, path.join(extensionWorkspaceRoot('/ws'), 'sessions', 'my-key-abc', 'browser', 'port-9222'));
 });
 
 test('getScreenshotDir: with cwd + sessionKey routes to browser/screenshots inside session tree', () => {
   const dir = getScreenshotDir('/ws', 'my-key-abc');
-  assert.equal(dir, path.join(workspaceAgentRoot('/ws'), 'sessions', 'my-key-abc', 'browser', 'screenshots'));
+  assert.equal(dir, path.join(extensionWorkspaceRoot('/ws'), 'sessions', 'my-key-abc', 'browser', 'screenshots'));
 });
 
 // ---------------------------------------------------------------------------
@@ -372,8 +372,10 @@ test('createSessionArtifactContext: manifest is created on first context creatio
   const ctx = createSessionArtifactContext({ cwd: tmpRoot, sessionManager: makeSessionManager('manifest-init') });
   const manifest = ctx.inspect();
   assert.ok(manifest, 'manifest must exist after context creation');
-  assert.equal(manifest!.version, 1);
+  assert.equal(manifest!.version, SESSION_ARTIFACT_VERSION);
+  assert.equal(manifest!.sessionId, 'manifest-init');
   assert.equal(manifest!.sessionKey, ctx.identity.sessionKey);
+  assert.match(manifest!.backlogId, /^pi-backlog-[a-f0-9]{24}$/);
   assert.equal(manifest!.workspace, tmpRoot);
 });
 

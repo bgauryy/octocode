@@ -1,3 +1,4 @@
+import { sanitizeLine } from '../tui/palette.js';
 /**
  * desktop-notify — dependency-free terminal "desktop" notifications.
  *
@@ -15,7 +16,7 @@
  */
 
 import type { PiContext } from '../types.js';
-import { sanitizeLine } from './render-helpers.js';
+
 
 /** Hard cap for the OSC 9 payload — long messages get ellipsized to this many chars. */
 export const OSC9_MAX_CHARS = 120;

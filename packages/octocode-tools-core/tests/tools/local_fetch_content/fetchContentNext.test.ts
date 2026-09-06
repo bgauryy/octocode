@@ -272,10 +272,8 @@ describe('fetchContent minify:"symbols" char pagination', () => {
       query: {
         path: manyFnFile,
         charOffset: pagination.nextCharOffset,
-        // The continuation echoes the actual (semantic-snapped) page length,
-        // not the originally requested charLength — a page that snapped to a
-        // boundary continues at that snapped width.
-        charLength: pagination.charLength,
+        // Keep the caller's target stable; only the offset follows the snapped boundary.
+        charLength: 400,
         minify: 'symbols',
       },
     });

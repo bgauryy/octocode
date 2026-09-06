@@ -1,4 +1,4 @@
-import { toolNames } from '../toolContract/schemas.js';
+import { toolNames } from '../toolContract/input/resources/global.js';
 
 export const LOCAL_ANALYZE_GRAPH_TOOL_NAME = toolNames.LOCAL_ANALYZE_GRAPH;
 export const LOCAL_SEARCH_TOOL_NAME = 'localSearch';

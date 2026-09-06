@@ -15,7 +15,7 @@ pub fn json_to_yaml_string(
         .and_then(|c| c.keys_priority.as_deref())
         .map(<[_]>::to_vec)
         .unwrap_or_default();
-    crate::yaml_utils::json_to_yaml_string_inner(json_object, sort_keys, &priority_keys)
+    crate::text::yaml_utils::json_to_yaml_string_inner(json_object, sort_keys, &priority_keys)
 }
 
 #[cfg(test)]

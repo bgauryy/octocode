@@ -45,7 +45,6 @@ function readDirectorySkipped(
   if (!isRecord(value)) return undefined;
   return {
     nonFile: readRequiredNumber(value, 'nonFile'),
-    missingDownloadUrl: readRequiredNumber(value, 'missingDownloadUrl'),
     oversized: readRequiredNumber(value, 'oversized'),
     binary: readRequiredNumber(value, 'binary'),
     fileLimit: readRequiredNumber(value, 'fileLimit'),
@@ -93,6 +92,9 @@ export function readPagination(value: unknown): PaginationInfo | undefined {
     return undefined;
   }
   const result: PaginationInfo = { currentPage, totalPages, hasMore };
+  if (value.pageCountsKind === 'estimated') result.pageCountsKind = 'estimated';
+  if (value.chunkMode === 'semantic' || value.chunkMode === 'char-limit')
+    result.chunkMode = value.chunkMode;
   for (const field of OPTIONAL_PAGINATION_NUMERIC_FIELDS) {
     const candidate = value[field];
     if (typeof candidate === 'number' && Number.isFinite(candidate)) {
@@ -116,7 +118,7 @@ function buildContinueChars(
     'ghGetFileContent',
     {
       ...continuationQuery,
-      charLength: pagination?.charLength ?? query.charLength,
+      charLength: query.charLength ?? pagination?.charLength,
     },
     pagination
   ) as FileContentNextMap | undefined;
@@ -220,12 +222,40 @@ export function readFileEntry(
       ? { cloneForSemantics: buildCloneForSemanticsHint(query) }
       : {}),
   };
+  if (
+    data.errorCode === 'contentSecurityLimit' &&
+    (readNumber(data.totalLines) ?? 0) > 1 &&
+    (query.startLine === undefined || query.startLine !== query.endLine)
+  ) {
+    const line = query.startLine ?? 1;
+    next.readBoundedLines = {
+      tool: 'ghGetFileContent',
+      query: {
+        owner: query.owner,
+        repo: query.repo,
+        path: query.path,
+        ...(query.branch !== undefined ? { branch: query.branch } : {}),
+        startLine: line,
+        endLine: line,
+        minify: 'none',
+      },
+      why: 'The selected view is too large to scan safely. Read one source line; this starts a different source-line view, not a continuation of the rejected character view.',
+      confidence: 'exact',
+    };
+  }
   const filePath = readString(data.path) ?? String(query.path ?? '');
   // Omit fileType entirely when classification is uncertain (undefined).
   const fileType = filePath ? classifyFileType(filePath) : undefined;
   return {
     path: filePath,
     content: typeof data.content === 'string' ? data.content : '',
+    ...(data.errorCode === 'contentSecurityLimit'
+      ? {
+          errorCode: 'contentSecurityLimit' as const,
+          terminalLimit: true,
+          partialReasons: ['security-selected-view-size-limit' as const],
+        }
+      : {}),
     ...(fileType ? { fileType } : {}),
     localPath: readString(data.localPath),
     repoRoot: readString(data.repoRoot),

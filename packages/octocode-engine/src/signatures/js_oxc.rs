@@ -14,19 +14,20 @@
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration,
-    ExportDefaultDeclarationKind, ExportNamedDeclaration, Expression, Function, ImportDeclaration,
+    BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration, ExportDeclaration,
+    ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function, ImportDeclaration,
     ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind, ModuleExportName,
-    Program, PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName, TSInterfaceDeclaration,
-    TSModuleDeclaration, TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature,
-    TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
+    Program, PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName,
+    TSExternalModuleDeclaration, TSGlobalDeclaration, TSInterfaceDeclaration,
+    TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration,
+    VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::{GetSpan, SourceType, Span};
 use serde::Serialize;
 
-use crate::file_extension::is_js_ts_extension;
+use crate::text::file_extension::is_js_ts_extension;
 
 use super::run_on_deep_stack;
 
@@ -80,6 +81,7 @@ struct GraphFacts {
     imports: Vec<GraphImport>,
     exports: Vec<GraphExport>,
     calls: Vec<GraphCall>,
+    common_js: Vec<GraphCommonJsLoad>,
     edges: Vec<GraphEdge>,
     diagnostics: Vec<String>,
 }
@@ -137,6 +139,18 @@ struct GraphCall {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct GraphCommonJsLoad {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    specifier: Option<String>,
+    line: u32,
+    kind: &'static str,
+    binding: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GraphEdge {
     id: String,
     from: String,
@@ -144,6 +158,7 @@ struct GraphEdge {
     relation: &'static str,
     source: &'static str,
     line: u32,
+    resolution: &'static str,
 }
 
 /// Maps byte offsets to LSP `(line, character)` positions, where `character`
@@ -180,15 +195,21 @@ fn span_contains(span: Span, offset: u32) -> bool {
     span.start <= offset && offset < span.end
 }
 
-fn source_type_for(ext: &str) -> SourceType {
-    match ext {
+fn source_type_for(ext: &str, file_path: &str) -> SourceType {
+    let source_type = match ext {
         "ts" | "mts" | "cts" => SourceType::ts(),
         "tsx" => SourceType::tsx(),
         "jsx" => SourceType::jsx(),
         "mjs" => SourceType::mjs(),
         "cjs" => SourceType::cjs(),
         _ => SourceType::default(), // js
-    }
+    };
+    // The final extension alone loses ambient declaration-file mode (.d.ts,
+    // .d.mts, .d.cts). Preserve the existing module/JSX policy and let OXC
+    // identify declaration files from their complete path.
+    let declaration_file = SourceType::from_path(file_path)
+        .is_ok_and(|source_type| source_type.is_typescript_definition());
+    source_type.with_typescript_definition(declaration_file)
 }
 
 /// Native JS/TS document symbols as a JSON `DocumentSymbol[]`.
@@ -196,7 +217,7 @@ fn source_type_for(ext: &str) -> SourceType {
 /// Returns `None` for: oversized input, a hard parse failure (caller falls back
 /// to tree-sitter), or a file with no extractable top-level symbols.
 pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     let content = content.to_owned();
@@ -213,12 +234,12 @@ pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
 }
 
 fn extract_js_symbols_inner(content: &str, file_path: &str) -> Option<String> {
-    let ext = crate::file_extension::get_extension_internal(file_path, true, "ts");
+    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
     if !is_js_ts_extension(&ext) {
         return None;
     }
     let allocator = Allocator::default();
-    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext)).parse();
+    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext, file_path)).parse();
 
     // Hard parse failure with nothing recovered → let the caller fall back to
     // the more error-tolerant tree-sitter path rather than emit a stub outline.
@@ -250,7 +271,7 @@ pub fn find_in_file_references(
     line: u32,
     character: u32,
 ) -> Option<String> {
-    if content.len() > crate::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     let content = content.to_owned();
@@ -270,27 +291,37 @@ pub fn find_in_file_references(
 /// avoids type inference and cross-file resolution; callers combine it with LSP
 /// proof when they need semantic identity.
 pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     let content = content.to_owned();
     let file_path = file_path.to_owned();
     run_on_deep_stack(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            extract_graph_facts_inner(&content, &file_path)
+            extract_graph_facts_inner::<true>(&content, &file_path)
         }))
         .unwrap_or(None)
     })
 }
 
-fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
-    let ext = crate::file_extension::get_extension_internal(file_path, true, "ts");
+fn extract_graph_facts_inner<const COMMON_JS: bool>(
+    content: &str,
+    file_path: &str,
+) -> Option<String> {
+    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
     if !is_js_ts_extension(&ext) {
         return None;
     }
 
     let allocator = Allocator::default();
-    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext)).parse();
+    let parser = Parser::new(&allocator, content, source_type_for(&ext, file_path));
+    let parser_ret = if COMMON_JS {
+        parser
+            .with_config(oxc_parser::config::TokensParserConfig)
+            .parse()
+    } else {
+        parser.parse()
+    };
     if parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty() {
         return None;
     }
@@ -325,17 +356,63 @@ fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
 
     let mut calls = Vec::new();
     collect_program_calls(&parser_ret.program, &line_index, &mut calls);
-    for call in &calls {
+    // OXC tokens make this an absence check, not a binding claim. Candidate
+    // loaders still require the full native scope inventory, including escapes.
+    let common_js = if COMMON_JS && commonjs::may_contain_loader(&parser_ret.tokens, content) {
+        commonjs::collect_common_js_loads(&parser_ret.program, &line_index)
+    } else {
+        Vec::new()
+    };
+    let mut declarations_by_name: std::collections::HashMap<&str, Vec<&GraphDeclaration>> =
+        std::collections::HashMap::new();
+    for declaration in &declarations {
+        declarations_by_name
+            .entry(&declaration.name)
+            .or_default()
+            .push(declaration);
+    }
+    for (index, call) in calls.iter_mut().enumerate() {
+        // Names are display labels. Source ranges identify the enclosing occurrence;
+        // callee binding resolution requires semantics and remains explicitly unknown.
+        call.id = format!(
+            "call:{}@{}:{}:{index}",
+            file_path, call.range.start.line, call.range.start.character
+        );
+        let caller = declarations_by_name
+            .get(call.caller.as_str())
+            .into_iter()
+            .flat_map(|items| items.iter().copied())
+            .filter(|declaration| {
+                (
+                    declaration.range.start.line,
+                    declaration.range.start.character,
+                ) <= (call.range.start.line, call.range.start.character)
+                    && (declaration.range.end.line, declaration.range.end.character)
+                        >= (call.range.end.line, call.range.end.character)
+            })
+            .min_by_key(|declaration| {
+                (
+                    declaration.range.end.line - declaration.range.start.line,
+                    declaration
+                        .range
+                        .end
+                        .character
+                        .saturating_sub(declaration.range.start.character),
+                )
+            });
         edges.push(GraphEdge {
-            id: format!(
-                "{}:{}->{}:{}",
-                file_path, call.caller, call.callee, call.line
+            id: format!("edge:{}", call.id),
+            from: caller
+                .map(|declaration| declaration.id.clone())
+                .unwrap_or_else(|| format!("file:{file_path}")),
+            to: format!(
+                "reference:{}@{}:{}:{index}",
+                file_path, call.range.start.line, call.range.start.character
             ),
-            from: format!("symbol:{}#{}", file_path, call.caller),
-            to: format!("symbol:{}#{}", file_path, call.callee),
             relation: call.kind,
             source: "ast",
             line: call.line,
+            resolution: "unresolved",
         });
     }
 
@@ -348,6 +425,7 @@ fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
         imports,
         exports,
         calls,
+        common_js,
         edges,
         diagnostics: parser_ret
             .diagnostics
@@ -364,13 +442,13 @@ fn find_in_file_references_inner(
     line: u32,
     character: u32,
 ) -> Option<String> {
-    let ext = crate::file_extension::get_extension_internal(file_path, true, "ts");
+    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
     if !is_js_ts_extension(&ext) {
         return None;
     }
 
     let allocator = Allocator::default();
-    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext)).parse();
+    let parser_ret = Parser::new(&allocator, content, source_type_for(&ext, file_path)).parse();
     if parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty() {
         return None;
     }
@@ -432,8 +510,28 @@ fn collect_module_facts(
     for stmt in &program.body {
         match stmt {
             Statement::ImportDeclaration(decl) => collect_import_declaration(decl, li, imports),
+            Statement::ExportDeclaration(decl) => {
+                collect_export_declaration(decl, li, exports, export_names);
+            }
             Statement::ExportNamedDeclaration(decl) => {
-                collect_export_named(decl, li, exports, export_names);
+                collect_export_specifiers(
+                    &decl.specifiers,
+                    decl.export_kind,
+                    None,
+                    li,
+                    exports,
+                    export_names,
+                );
+            }
+            Statement::ExportFromDeclaration(decl) => {
+                collect_export_specifiers(
+                    &decl.specifiers,
+                    decl.export_kind,
+                    Some(decl.source.value.as_str()),
+                    li,
+                    exports,
+                    export_names,
+                );
             }
             Statement::ExportDefaultDeclaration(decl) => {
                 let range = li.range(decl.span);
@@ -520,28 +618,39 @@ fn collect_import_declaration(
     }
 }
 
-fn collect_export_named(
-    decl: &ExportNamedDeclaration,
+fn collect_export_declaration(
+    decl: &ExportDeclaration,
     li: &LineIndex,
     out: &mut Vec<GraphExport>,
     export_names: &mut Vec<String>,
 ) {
-    if let Some(inner) = &decl.declaration {
-        for name in declaration_names(inner) {
-            let range = li.range(decl.span);
-            export_names.push(name.clone());
-            out.push(GraphExport {
-                id: format!("export:{}:{}", name, range.start.line + 1),
-                name,
-                line: range.start.line + 1,
-                export_kind: import_export_kind(decl.export_kind),
-                local_name: None,
-                source: decl.source.as_ref().map(|s| s.value.as_str().to_string()),
-            });
-        }
+    let export_kind = match &decl.declaration {
+        Declaration::TSInterfaceDeclaration(_) | Declaration::TSTypeAliasDeclaration(_) => "type",
+        _ => "value",
+    };
+    for name in declaration_names(&decl.declaration) {
+        let range = li.range(decl.span);
+        export_names.push(name.clone());
+        out.push(GraphExport {
+            id: format!("export:{}:{}", name, range.start.line + 1),
+            name,
+            line: range.start.line + 1,
+            export_kind,
+            local_name: None,
+            source: None,
+        });
     }
+}
 
-    for (index, specifier) in decl.specifiers.iter().enumerate() {
+fn collect_export_specifiers(
+    specifiers: &[ExportSpecifier],
+    export_kind: ImportOrExportKind,
+    source: Option<&str>,
+    li: &LineIndex,
+    out: &mut Vec<GraphExport>,
+    export_names: &mut Vec<String>,
+) {
+    for (index, specifier) in specifiers.iter().enumerate() {
         let name = module_export_name(&specifier.exported)
             .or_else(|| module_export_name(&specifier.local))
             .unwrap_or_else(|| "unknown".to_string());
@@ -551,9 +660,13 @@ fn collect_export_named(
             id: format!("export:{}:{}:{}", name, range.start.line + 1, index),
             name,
             line: range.start.line + 1,
-            export_kind: import_export_kind(specifier.export_kind),
+            export_kind: if export_kind == ImportOrExportKind::Type {
+                "type"
+            } else {
+                import_export_kind(specifier.export_kind)
+            },
             local_name: module_export_name(&specifier.local),
-            source: decl.source.as_ref().map(|s| s.value.as_str().to_string()),
+            source: source.map(str::to_owned),
         });
     }
 }
@@ -605,10 +718,11 @@ fn declaration_names(decl: &Declaration) -> Vec<String> {
             vec![interface.id.name.as_str().to_string()]
         }
         Declaration::TSEnumDeclaration(en) => vec![en.id.name.as_str().to_string()],
-        Declaration::TSModuleDeclaration(module) => match &module.id {
-            TSModuleDeclarationName::Identifier(id) => vec![id.name.as_str().to_string()],
-            TSModuleDeclarationName::StringLiteral(s) => vec![s.value.as_str().to_string()],
-        },
+        Declaration::TSNamespaceDeclaration(module) => vec![module.id.name.as_str().to_string()],
+        Declaration::TSExternalModuleDeclaration(module) => {
+            vec![module.id.value.as_str().to_string()]
+        }
+        Declaration::TSGlobalDeclaration(_) => vec!["global".to_string()],
         Declaration::TSTypeAliasDeclaration(alias) => vec![alias.id.name.as_str().to_string()],
         _ => Vec::new(),
     }
@@ -623,7 +737,14 @@ fn flatten_symbols(
     edges: &mut Vec<GraphEdge>,
 ) {
     for symbol in symbols {
-        let id = format!("symbol:{}#{}", file_path, symbol.name);
+        let id = format!(
+            "declaration:{}#{}@{}:{}:{}",
+            file_path,
+            symbol.name,
+            symbol.selection_range.start.line,
+            symbol.selection_range.start.character,
+            symbol_kind_name(symbol.kind)
+        );
         let line = symbol.selection_range.start.line + 1;
         declarations.push(GraphDeclaration {
             id: id.clone(),
@@ -632,7 +753,7 @@ fn flatten_symbols(
             line,
             range: symbol_range(symbol),
             selection_range: symbol_selection_range(symbol),
-            exported: export_names.iter().any(|name| name == &symbol.name),
+            exported: parent.is_none() && export_names.iter().any(|name| name == &symbol.name),
             parent: parent.map(str::to_string),
         });
         if let Some(parent_id) = parent {
@@ -643,6 +764,7 @@ fn flatten_symbols(
                 relation: "contains",
                 source: "ast",
                 line,
+                resolution: "syntactic",
             });
         }
         flatten_symbols(
@@ -656,9 +778,206 @@ fn flatten_symbols(
     }
 }
 
+#[cfg(test)]
+mod graph_occurrence_tests {
+    use super::extract_graph_facts;
+
+    fn common_js(source: &str) -> serde_json::Value {
+        let facts: serde_json::Value =
+            serde_json::from_str(&extract_graph_facts(source, "entry.ts").unwrap()).unwrap();
+        facts["commonJs"].clone()
+    }
+
+    #[test]
+    fn commonjs_links_literal_loads_with_scope_provenance() {
+        let loads =
+            common_js("const value = require('./value.cjs'); module.require('./other.cjs');");
+        assert_eq!(loads[0]["specifier"], "./value.cjs");
+        assert_eq!(loads[0]["binding"], "unshadowed-global");
+        assert_eq!(loads[0]["kind"], "commonjs-require");
+        assert_eq!(loads[1]["specifier"], "./other.cjs");
+    }
+
+    #[test]
+    fn commonjs_does_not_link_shadowed_loader_names() {
+        let loads = common_js(
+            "function run(require, module) { require('./fake'); module.require('./fake'); } const text = \"require('./fake')\";",
+        );
+        assert!(loads.as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn commonjs_covers_nested_escaped_and_computed_loader_syntax() {
+        let loads = common_js(
+            r#"function nested() { requ\u0069re('./nested.cjs'); } module['require']('./computed.cjs');"#,
+        );
+        assert_eq!(loads.as_array().unwrap().len(), 2);
+        assert_eq!(loads[0]["specifier"], "./nested.cjs");
+        assert_eq!(loads[1]["specifier"], "./computed.cjs");
+    }
+
+    #[test]
+    fn commonjs_precheck_preserves_template_and_escaped_string_loaders() {
+        for source in [
+            "const text = `result: ${require /* comment */ ('./value.cjs')}`;",
+            "module['require']('./value.cjs');",
+            r#"module['requ\ire']('./value.cjs');"#,
+            r#"import { 'creat\u0065Require' as factory } from 'node:module'; const load = factory(import.meta.url); load('./value.cjs');"#,
+        ] {
+            let loads = common_js(source);
+            assert_eq!(loads.as_array().unwrap().len(), 1, "{source}");
+            assert_eq!(loads[0]["specifier"], "./value.cjs", "{source}");
+        }
+    }
+
+    #[test]
+    fn commonjs_rejects_nonlocal_create_require_and_mutated_constants() {
+        let loads = common_js(
+            "import { createRequire } from 'node:module'; const load = createRequire('/elsewhere/index.js'); load('./value.cjs'); const target = './old.cjs'; target = changed; require(target);",
+        );
+        assert_eq!(loads[0]["reason"], "non-local-loader-base");
+        assert!(loads[0].get("specifier").is_none());
+        assert!(loads[1].get("specifier").is_none());
+    }
+
+    #[test]
+    fn commonjs_tracks_create_require_and_constant_specifiers_by_binding() {
+        let loads = common_js(
+            "import { createRequire as makeLoader } from 'node:module'; const load = makeLoader(import.meta.url); const target = './value.cjs'; load(target); function nested(target) { load(target); }",
+        );
+        assert_eq!(loads[0]["specifier"], "./value.cjs");
+        assert_eq!(loads[0]["binding"], "create-require");
+        assert!(loads[1].get("specifier").is_none());
+        assert_eq!(loads[1]["reason"], "non-literal-specifier");
+    }
+
+    #[test]
+    fn commonjs_keeps_dynamic_and_reassigned_loader_coverage_explicit() {
+        let loads = common_js("require(name); require = replacement; require('./value.cjs');");
+        assert_eq!(loads.as_array().unwrap().len(), 2);
+        assert!(loads[0].get("specifier").is_none());
+        assert!(loads[1].get("specifier").is_none());
+        assert_eq!(loads[1]["reason"], "loader-reassigned");
+    }
+
+    #[test]
+    fn commonjs_member_writes_preserve_prior_calls_and_reject_later_calls() {
+        for target in [
+            "module.require",
+            "module['require']",
+            r#"module['requ\u0069re']"#,
+        ] {
+            let loads = common_js(&format!(
+                "module.require('./before.cjs'); {target} = module.require('./rhs.cjs'); module.require('./after.cjs'); module['require']('./computed-after.cjs');"
+            ));
+            assert_eq!(loads.as_array().unwrap().len(), 4, "{target}");
+            assert_eq!(loads[0]["specifier"], "./before.cjs", "{target}");
+            assert_eq!(loads[1]["specifier"], "./rhs.cjs", "{target}");
+            for load in &loads.as_array().unwrap()[2..] {
+                assert!(load.get("specifier").is_none(), "{target}: {load}");
+                assert_eq!(load["reason"], "loader-reassigned", "{target}");
+            }
+        }
+    }
+
+    #[test]
+    fn commonjs_shadowed_member_writes_do_not_poison_global_loader() {
+        let loads = common_js(
+            "function replace(module) { module.require = replacement; module['require'] = replacement; } module.require('./real.cjs');",
+        );
+        assert_eq!(loads.as_array().unwrap().len(), 1);
+        assert_eq!(loads[0]["specifier"], "./real.cjs");
+    }
+
+    #[test]
+    fn commonjs_member_writes_do_not_assume_deferred_call_order() {
+        for source in [
+            "function later() { module.require('./fake.cjs'); } module.require = replacement; later();",
+            "module.require = () => module.require('./fake.cjs'); module.require();",
+            "function replace() { module.require = replacement; } replace(); module.require('./fake.cjs');",
+        ] {
+            let loads = common_js(source);
+            for load in loads.as_array().unwrap() {
+                assert!(load.get("specifier").is_none(), "{source}: {load}");
+                assert_eq!(load["reason"], "loader-reassigned", "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn ambient_declaration_files_do_not_report_missing_initializers() {
+        for path in ["index.d.ts", "index.d.mts", "index.d.cts"] {
+            let value: serde_json::Value = serde_json::from_str(
+                &extract_graph_facts(
+                    "export const value: string; export function read(): string;",
+                    path,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(value["diagnostics"], serde_json::json!([]), "{path}");
+            assert!(value["declarations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|declaration| declaration["name"] == "value"));
+        }
+        let value: serde_json::Value = serde_json::from_str(
+            &extract_graph_facts("export const value: string;", "index.ts").unwrap(),
+        )
+        .unwrap();
+        assert!(!value["diagnostics"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn equal_method_names_have_distinct_occurrences_and_unresolved_call_targets() {
+        let value: serde_json::Value = serde_json::from_str(&extract_graph_facts(
+            "export function run() {} class A { run() { work(); work(); } } class B { run() { work(); } }",
+            "names.ts",
+        ).unwrap()).unwrap();
+        let declarations = value["declarations"].as_array().unwrap();
+        let ids: std::collections::HashSet<_> = declarations
+            .iter()
+            .map(|d| d["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids.len(), declarations.len());
+        assert_eq!(
+            declarations
+                .iter()
+                .filter(|d| d["name"] == "run" && d["exported"] == true)
+                .count(),
+            1
+        );
+        let calls = value["calls"].as_array().unwrap();
+        let call_ids: std::collections::HashSet<_> =
+            calls.iter().map(|c| c["id"].as_str().unwrap()).collect();
+        assert_eq!(call_ids.len(), calls.len());
+        let mut callers = std::collections::HashSet::new();
+        for edge in value["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["relation"] == "calls")
+        {
+            assert!(ids.contains(edge["from"].as_str().unwrap()));
+            callers.insert(edge["from"].as_str().unwrap());
+            assert!(edge["to"].as_str().unwrap().starts_with("reference:"));
+            assert_eq!(edge["resolution"], "unresolved");
+        }
+        assert_eq!(callers.len(), 2);
+    }
+}
+
 #[path = "js_oxc_calls.rs"]
 mod calls;
 use calls::collect_program_calls;
+
+#[path = "js_oxc_commonjs.rs"]
+mod commonjs;
+
+#[cfg(test)]
+#[path = "js_oxc_commonjs_bench.rs"]
+mod commonjs_bench;
 
 fn module_export_name(name: &ModuleExportName) -> Option<String> {
     match name {
@@ -731,12 +1050,12 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
         Statement::VariableDeclaration(v) => collect_variable(v, li, out),
         Statement::TSInterfaceDeclaration(i) => push_opt(out, interface_symbol(i, li)),
         Statement::TSEnumDeclaration(e) => push_opt(out, enum_symbol(e, li)),
-        Statement::TSModuleDeclaration(m) => push_opt(out, namespace_symbol(m, li)),
+        Statement::TSNamespaceDeclaration(m) => push_opt(out, namespace_symbol(m, li)),
+        Statement::TSExternalModuleDeclaration(m) => push_opt(out, external_module_symbol(m, li)),
+        Statement::TSGlobalDeclaration(m) => push_opt(out, global_symbol(m, li)),
         Statement::TSTypeAliasDeclaration(t) => push_opt(out, type_alias_symbol(t, li)),
-        Statement::ExportNamedDeclaration(e) => {
-            if let Some(decl) = &e.declaration {
-                collect_declaration(decl, li, out);
-            }
+        Statement::ExportDeclaration(e) => {
+            collect_declaration(&e.declaration, li, out);
         }
         Statement::ExportDefaultDeclaration(e) => match &e.declaration {
             ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
@@ -756,7 +1075,9 @@ fn collect_declaration(decl: &Declaration, li: &LineIndex, out: &mut Vec<Documen
         Declaration::VariableDeclaration(v) => collect_variable(v, li, out),
         Declaration::TSInterfaceDeclaration(i) => push_opt(out, interface_symbol(i, li)),
         Declaration::TSEnumDeclaration(e) => push_opt(out, enum_symbol(e, li)),
-        Declaration::TSModuleDeclaration(m) => push_opt(out, namespace_symbol(m, li)),
+        Declaration::TSNamespaceDeclaration(m) => push_opt(out, namespace_symbol(m, li)),
+        Declaration::TSExternalModuleDeclaration(m) => push_opt(out, external_module_symbol(m, li)),
+        Declaration::TSGlobalDeclaration(m) => push_opt(out, global_symbol(m, li)),
         Declaration::TSTypeAliasDeclaration(t) => push_opt(out, type_alias_symbol(t, li)),
         _ => {}
     }
@@ -854,29 +1175,58 @@ fn enum_symbol(decl: &TSEnumDeclaration, li: &LineIndex) -> Option<DocumentSymbo
     ))
 }
 
-fn namespace_symbol(decl: &TSModuleDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
-    let (name, name_span) = match &decl.id {
-        TSModuleDeclarationName::Identifier(id) => (id.name.as_str().to_string(), id.span),
-        TSModuleDeclarationName::StringLiteral(s) => (s.value.as_str().to_string(), s.span),
-    };
+fn namespace_symbol(decl: &TSNamespaceDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
     let mut children = Vec::new();
-    if let Some(body) = &decl.body {
-        match body {
-            TSModuleDeclarationBody::TSModuleBlock(block) => {
-                for stmt in &block.body {
-                    collect_statement(stmt, li, &mut children);
-                }
+    match &decl.body {
+        TSNamespaceDeclarationBody::TSModuleBlock(block) => {
+            for stmt in &block.body {
+                collect_statement(stmt, li, &mut children);
             }
-            TSModuleDeclarationBody::TSModuleDeclaration(inner) => {
-                push_opt(&mut children, namespace_symbol(inner, li));
-            }
+        }
+        TSNamespaceDeclarationBody::TSNamespaceDeclaration(inner) => {
+            push_opt(&mut children, namespace_symbol(inner, li));
         }
     }
     Some(container(
-        &name,
+        decl.id.name.as_str(),
         kind::NAMESPACE,
         decl.span,
-        name_span,
+        decl.id.span,
+        children,
+        li,
+    ))
+}
+
+fn external_module_symbol(
+    decl: &TSExternalModuleDeclaration,
+    li: &LineIndex,
+) -> Option<DocumentSymbol> {
+    let mut children = Vec::new();
+    if let Some(body) = &decl.body {
+        for stmt in &body.body {
+            collect_statement(stmt, li, &mut children);
+        }
+    }
+    Some(container(
+        decl.id.value.as_str(),
+        kind::NAMESPACE,
+        decl.span,
+        decl.id.span,
+        children,
+        li,
+    ))
+}
+
+fn global_symbol(decl: &TSGlobalDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
+    let mut children = Vec::new();
+    for stmt in &decl.body.body {
+        collect_statement(stmt, li, &mut children);
+    }
+    Some(container(
+        "global",
+        kind::NAMESPACE,
+        decl.span,
+        decl.global_span,
         children,
         li,
     ))

@@ -10,11 +10,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   createCacheMeta,
-  getCloneDir,
-  getTreeDir,
   writeCacheMeta,
 } from '../src/tools/github_clone_repo/cache.js';
-import { getDiskCacheEntryPath } from '../src/utils/http/cache.js';
+import {
+  getCloneDir,
+  getTreeDir,
+} from '../src/tools/github_clone_repo/cachePaths.js';
+import { getDiskCacheEntryPath } from '../src/utils/http/cache/diskStore.js';
 import {
   CACHE_MAINTENANCE_INTERVAL_MS,
   getCacheMaintenanceDelayMs,
@@ -50,7 +52,8 @@ describe('cache maintenance lifecycle', () => {
     vi.useRealTimers();
     if (previousDiskCache === undefined) delete process.env.OCTOCODE_DISK_CACHE;
     else process.env.OCTOCODE_DISK_CACHE = previousDiskCache;
-    if (previousStorageMode === undefined) delete process.env.OCTOCODE_STORAGE_MODE;
+    if (previousStorageMode === undefined)
+      delete process.env.OCTOCODE_STORAGE_MODE;
     else process.env.OCTOCODE_STORAGE_MODE = previousStorageMode;
     rmSync(home, { recursive: true, force: true });
   });

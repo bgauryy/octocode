@@ -30,6 +30,6 @@ Stars/downloads are tiebreakers, never validation.
 `repo clusters → ranked table → finalist proof → reusable pieces → integration path → incompatibilities/license/dependencies → remaining proof → next prototype`
 
 Stop after finalist proof converges, retries stay thin, license/service risk needs user choice, or deeper work requires unapproved clone/execution.
-Ask before cloning many repos, running untrusted code, or writing artifacts.
+Apply the authorization rule in `SKILL.md` before expanding the campaign or executing source; a requested report already authorizes its artifact.
 
 Next: when a finalist needs exact in-repository proof load `references/workflow-external.md`; when the winner must wire into local code load `references/workflow-combination.md`; when the ranking must survive as a durable brief load `references/long-research.md`.

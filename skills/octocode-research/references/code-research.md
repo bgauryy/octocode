@@ -16,7 +16,7 @@ Load for code investigation, review, refactor, architecture, dead-code, or blast
 
 ## Workflow
 1. State goal, scope, and expected output: research, review, plan, or patch.
-2. Map structure/change before body reads; keep a likely and alternate hypothesis.
+2. Use known anchors directly; map unfamiliar structure or changed scope when needed. Keep an alternate hypothesis for causal claims.
 3. Read exact slices; use `localAnalyzeGraph` for file topology, AST for shape, and LSP for symbol identity.
 4. For edits, find a local pattern, and patch only the evidence-supported boundary.
 5. Run the declared test/build/typecheck/lint/smoke or deterministic read/search check.
@@ -24,12 +24,12 @@ Load for code investigation, review, refactor, architecture, dead-code, or blast
 7. Report `confirmed`, `likely`, or `uncertain`; snippets and model judgment remain leads.
 
 ## Gates
-Ask before public contracts, cross-layer/package changes, shared deletes/renames, many consumers, or product/architecture tradeoffs.
+Apply the authorization rule in `SKILL.md`; record consequences of contract or cross-package changes before editing.
 
 Review findings lead and include `file:line`, impact, evidence, confidence, and fix. Changes cannot claim success until verification runs; unavailable checks cap confidence below confirmed.
 
 ## Proof Ladder
-`candidate search/graph → exact read → AST shape → LSP identity/references → independent test/history/spec/check → verdict`
+`candidate → exact evidence → claim-specific corroboration → applicable verification → verdict`. AST, LSP, and graph are alternatives or complements, not compulsory consecutive calls.
 
 | Finding | Minimum corroboration |
 |---|---|

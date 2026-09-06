@@ -35,7 +35,7 @@ export function shouldFetchDiscussionComments(
 ): boolean {
   const cfg = getCommentsConfig(params);
   if (!cfg) return false;
-  return cfg.discussion !== false;
+  return cfg.discussion === true;
 }
 
 export function shouldFetchInlineComments(
@@ -43,7 +43,7 @@ export function shouldFetchInlineComments(
 ): boolean {
   const cfg = getCommentsConfig(params);
   if (!cfg) return false;
-  return cfg.reviewInline !== false;
+  return cfg.reviewInline === true;
 }
 
 export function shouldFetchCommits(
@@ -84,13 +84,4 @@ export function shouldIncludeBotComments(
   const content = params.content as
     { comments?: { includeBots?: boolean } } | undefined;
   return Boolean(content?.comments?.includeBots);
-}
-
-export function stripMachineBlobs(body: string): string {
-  return body
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/^\[vc\]:\s*#.*$/gm, '')
-    .replace(/^[A-Za-z0-9+/]{120,}={0,2}$/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
 }

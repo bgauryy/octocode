@@ -1,3 +1,4 @@
+import { extensionWorkspaceRoot } from '../src/extension-paths.js';
 /**
  * Tests for the chromeDebug Pi tool.
  *
@@ -46,7 +47,7 @@ import {
   type CdpSession,
   type CdpTargetInfo,
 } from '../src/chrome-debug.js';
-import { workspaceAgentRoot } from '../src/tools/session-artifacts.js';
+
 import { closeAllChromeConnections } from '../src/chrome-connection-cache.js';
 
 import {
@@ -811,7 +812,7 @@ describe('captureScreenshot', () => {
 describe('getScreenshotDir', () => {
   test('resolves under workspace cwd when provided', () => {
     const dir = getScreenshotDir('/my/workspace', 'session-test');
-    assert.equal(dir, path.join(workspaceAgentRoot('/my/workspace'), 'sessions', 'session-test', 'browser', 'screenshots'));
+    assert.equal(dir, path.join(extensionWorkspaceRoot('/my/workspace'), 'sessions', 'session-test', 'browser', 'screenshots'));
   });
 
   test('keeps browser artifacts isolated by session key', () => {

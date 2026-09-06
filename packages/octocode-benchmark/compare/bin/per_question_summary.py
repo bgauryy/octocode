@@ -52,9 +52,8 @@ def log_total_chars(path: Path) -> int | None:
         if not line:
             continue
         rec = json.loads(line)
-        default_in = int(rec.get("out_chars", rec.get("chars", 0)))
-        model_in += int(rec.get("model_in_chars", default_in))
-        model_out += int(rec.get("model_out_chars", 0))
+        model_in += int(rec["model_in_chars"])
+        model_out += int(rec["model_out_chars"])
     return model_in + model_out
 
 

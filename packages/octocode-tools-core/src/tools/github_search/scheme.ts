@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubSearchQuerySchema as SharedGitHubSearchQuerySchema } from '../../toolContract/schemas.js';
+import { GitHubSearchQuerySchema as SharedGitHubSearchQuerySchema } from '../../toolContract/input/resources/tools/ghSearch.js';
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 
 function hasText(value: unknown): boolean {

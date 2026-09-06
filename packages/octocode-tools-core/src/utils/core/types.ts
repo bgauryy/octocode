@@ -21,9 +21,6 @@ export interface ExecOptions {
   tolerateOutputLimit?: boolean;
 }
 
-/** Canonical pagination type — single source in types/toolResults.ts. */
-export type { PaginationInfo } from '../../types/toolResults.js';
-
 export interface SearchStats {
   totalOccurrences?: number;
   totalStructuralMatches?: number;

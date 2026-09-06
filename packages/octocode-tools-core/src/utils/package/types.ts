@@ -1,5 +1,7 @@
 export interface NpmSearchInput {
   name: string;
+  registry?: string;
+  mode: 'exact' | 'keywords';
   itemsPerPage?: number;
   page?: number;
   goal?: string;
@@ -52,6 +54,7 @@ export interface NpmPackageResult {
 export type PackageResult = MinimalPackageResult | NpmPackageResult;
 
 export interface NpmSearchAPIResult {
+  registry?: string;
   packages: PackageResult[];
   totalFound: number;
   rawResponseChars?: number;

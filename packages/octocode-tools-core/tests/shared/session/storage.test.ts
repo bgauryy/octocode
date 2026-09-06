@@ -4,6 +4,8 @@ import { dirname } from 'node:path';
 import {
   SESSION_FILE,
   STATS_FILE,
+} from '../../../src/shared/session/sessionDiskIO.js';
+import {
   readSession,
   writeSession,
   getOrCreateSession,

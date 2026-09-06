@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 
 import { nativeBinding, type NativeLspClientBinding } from './native.js';
 import { validateLSPServerPath } from './validation.js';
+import { TSSERVER_LANGUAGE_IDS } from './initConstants.js';
 import type {
   CallHierarchyItem,
   CodeSnippet,
@@ -22,12 +23,25 @@ export class LSPClient {
 
   constructor(config: LanguageServerConfig) {
     this.command = config.command;
+    const initializationOptions = config.initializationOptions;
+    const tsserver = initializationOptions?.tsserver;
     this.nativeClient = new nativeBinding.NativeLspClient({
       command: config.command,
       args: config.args,
       workspaceRoot: config.workspaceRoot,
       languageId: config.languageId,
-      initializationOptions: config.initializationOptions,
+      initializationOptions: TSSERVER_LANGUAGE_IDS.has(config.languageId ?? '')
+        ? {
+            ...initializationOptions,
+            tsserver: {
+              ...(tsserver && typeof tsserver === 'object' ? tsserver : {}),
+              // The syntax server answers cold definitions with local import
+              // bindings while the semantic project loads. Agent requests need
+              // the full provider from the first query, without guessed paths.
+              useSyntaxServer: 'never',
+            },
+          }
+        : initializationOptions,
       env: config.env,
     });
   }
@@ -53,13 +67,10 @@ export class LSPClient {
 
   /**
    * Wait for the server to finish post-`initialized` indexing and record the
-   * readiness signal. Runtime tolerance: until the native addon is rebuilt with
-   * the readiness return, the old binding resolves to `undefined` — treat that
-   * as the conservative `settledFallback` (we cannot confirm indexing finished).
+   * readiness signal supplied by the native client.
    */
   async waitForReady(timeoutMs = 45_000): Promise<LspReadiness> {
-    const readiness = await this.nativeClient.waitForReady(timeoutMs);
-    this.lastReadiness = readiness ?? 'settledFallback';
+    this.lastReadiness = await this.nativeClient.waitForReady(timeoutMs);
     return this.lastReadiness;
   }
 
@@ -204,30 +215,26 @@ export class LSPClient {
   }
 
   hasCapability(capability: string): boolean {
-    return (
-      this.initialized &&
-      (this.nativeClient.hasCapability?.(capability) ?? true)
-    );
+    return this.initialized && this.nativeClient.hasCapability(capability);
   }
 
   /**
    * `false` once the server process/connection has died (crashed mid-session)
    * — lets the shared client pool evict this entry at the next `acquire()`
    * instead of returning a client whose requests will just fail until the
-   * idle timer eventually reaps it. An unrebuilt native binding (missing
-   * `isAlive`) degrades to always-alive, the same tolerance `hasCapability`
-   * uses.
+   * idle timer eventually reaps it.
    */
   async isAlive(): Promise<boolean> {
-    return this.initialized && ((await this.nativeClient.isAlive?.()) ?? true);
+    return this.initialized && (await this.nativeClient.isAlive());
   }
 
   getRecentStderr(): string[] {
-    return this.nativeClient.getRecentStderr?.() ?? [];
+    return this.nativeClient.getRecentStderr();
   }
 
   async openDocument(filePath: string, content?: string): Promise<void> {
-    const documentContent = content ?? (await this.readDocumentForOpen(filePath));
+    const documentContent =
+      content ?? (await this.readDocumentForOpen(filePath));
     await this.nativeClient.openDocument(filePath, documentContent);
   }
 
@@ -245,6 +252,6 @@ export class LSPClient {
     // Drives the native `textDocument/didClose` and clears the document's
     // version state, so a later openDocument starts a fresh didOpen. A no-op
     // here leaves the server holding stale in-memory documents forever.
-    await this.nativeClient.closeDocument?.(filePath);
+    await this.nativeClient.closeDocument(filePath);
   }
 }

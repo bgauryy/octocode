@@ -2,14 +2,14 @@ use super::types::{StructuralDiagnostic, StructuralQueryExplanation};
 
 /// Describes how the ripgrep pre-filter is applied before AST parsing.
 #[derive(Debug, PartialEq)]
-pub(super) enum Prefilter<'a> {
+pub(super) enum Prefilter {
     /// No safe literal anchor — must parse all candidate files.
     None,
     /// Single literal anchor; ripgrep uses `--fixed-strings` for fastest path.
-    Single(&'a str),
+    Single(String),
     /// Union of literals from `any:` branches; ripgrep uses regex alternation.
     /// A file must contain at least one to match any alternative — sound prefilter.
-    Union(Vec<&'a str>),
+    Union(Vec<String>),
 }
 
 #[derive(Clone, Copy)]
@@ -42,10 +42,10 @@ impl<'a> StructuralQuery<'a> {
     }
 
     /// Returns the full prefilter descriptor for the ripgrep candidate-selection step.
-    pub(super) fn prefilter(self) -> Prefilter<'a> {
+    pub(super) fn prefilter(self) -> Prefilter {
         match (self.pattern, self.rule) {
             (Some(pattern), _) => match derive_literal_anchor(pattern) {
-                Some(anchor) => Prefilter::Single(anchor),
+                Some(anchor) => Prefilter::Single(anchor.to_owned()),
                 None => Prefilter::None,
             },
             (_, Some(rule)) => derive_rule_prefilter(rule),
@@ -53,19 +53,10 @@ impl<'a> StructuralQuery<'a> {
         }
     }
 
-    /// Returns the single literal anchor if any, for backward-compatible callers.
-    /// Returns `None` for union prefilters; use `prefilter()` for the full descriptor.
-    #[cfg(test)]
-    pub(super) fn literal_anchor(self) -> Option<&'a str> {
-        match self.prefilter() {
-            Prefilter::Single(s) => Some(s),
-            _ => None,
-        }
-    }
-
     pub(super) fn explanation(self) -> StructuralQueryExplanation {
         let prefilter = self.prefilter();
-        let unsafe_reason = self.unsafe_prefilter_reason().map(str::to_owned);
+        let unsafe_reason = (self.is_rule() && matches!(prefilter, Prefilter::None))
+            .then(|| "no literal is required by every matching rule branch".to_owned());
         let mut diagnostics = Vec::new();
         if let Some(reason) = unsafe_reason.as_deref() {
             diagnostics.push(
@@ -96,19 +87,6 @@ impl<'a> StructuralQuery<'a> {
 
     fn source(self) -> Option<&'a str> {
         self.pattern.or(self.rule)
-    }
-
-    fn unsafe_prefilter_reason(self) -> Option<&'static str> {
-        let rule = self.rule?;
-        // `not:` + `any:` together: a file without any listed literal could still
-        // match the `not:` arm, so no single anchor (or union) is sound.
-        // `not:` alone is safe — the top-level positive `pattern:` anchor still
-        // implies the file must contain it; `not:` only narrows matches further.
-        // `any:` alone is handled by the union prefilter; no reason to disable.
-        if rule.contains("not:") && rule.contains("any:") {
-            return Some("`not:` combined with `any:` makes a single anchor unsound");
-        }
-        None
     }
 }
 
@@ -217,64 +195,46 @@ fn is_safe_anchor_token(token: &str) -> bool {
             .all(|ch| !ch.is_ascii_alphanumeric() && !ch.is_whitespace())
 }
 
-/// Derive a prefilter from a rule's `pattern:` declaration(s).
-///
-/// - `any:` without `not:`: extract one anchor per `pattern:` branch; the union
-///   prefilter is sound (a file must contain ≥1 literal to match any alternative).
-/// - `not:` alone: use the top-level positive `pattern:` anchor — `not:` only
-///   narrows matches found by the positive arm, so the file must still contain it.
-/// - `not:` + `any:` together: bail. A file could satisfy the `not:` arm without
-///   containing any of the `any:` anchors, so no anchor set is sound.
-/// - Neither: use the first `pattern:` line anchor.
-fn derive_rule_prefilter(rule: &str) -> Prefilter<'_> {
-    let has_not = rule.contains("not:");
-    let has_any = rule.contains("any:");
-
-    if has_not && has_any {
+/// Infer necessary file literals from the same parsed rule that compilation uses.
+/// Conjunction may use any proven necessary condition; disjunction needs one
+/// from every branch. A negated matcher never proves a positive file literal.
+fn derive_rule_prefilter(rule: &str) -> Prefilter {
+    let Ok(raw) = super::octo::parse_rule(rule) else {
         return Prefilter::None;
-    }
-
-    if has_any {
-        // Collect an anchor from every `pattern:` line inside the `any:` block.
-        // All branches are candidates for the union prefilter.
-        let mut anchors: Vec<&str> = rule
-            .lines()
-            .filter_map(|line| {
-                let trimmed = line.trim_start();
-                // Accept both `pattern: value` and `- pattern: value` (YAML list item).
-                trimmed
-                    .strip_prefix("- pattern:")
-                    .or_else(|| trimmed.strip_prefix("pattern:"))
-                    .map(|rest| rest.trim().trim_matches(['\'', '"']))
-            })
-            .filter_map(derive_literal_anchor)
-            .collect();
-        return match anchors.len() {
-            0 => Prefilter::None,
-            // `remove(0)` is infallible here (len == 1) and keeps this
-            // clippy-clean under `deny(clippy::unwrap_used)`.
-            1 => Prefilter::Single(anchors.remove(0)),
-            _ => Prefilter::Union(anchors),
-        };
-    }
-
-    // Simple rule (possibly with `not:` but no `any:`): use the first positive pattern.
-    for line in rule.lines() {
-        // Skip lines that are inside a `not:` block heuristically — they start
-        // with `not:` or belong to an indented sub-key. Since we iterate top-down,
-        // we stop at the first `pattern:` that isn't under `not:`.
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("not:") {
-            continue;
+    };
+    rule_anchors(&raw).map_or(Prefilter::None, |mut anchors| {
+        anchors.sort();
+        anchors.dedup();
+        if anchors.len() == 1 {
+            Prefilter::Single(anchors.remove(0))
+        } else {
+            Prefilter::Union(anchors)
         }
-        if let Some(rest) = trimmed.strip_prefix("pattern:") {
-            let value = rest.trim().trim_matches(['\'', '"']);
-            if let Some(anchor) = derive_literal_anchor(value) {
-                return Prefilter::Single(anchor);
-            }
+    })
+}
+
+fn rule_anchors(rule: &super::octo::RawRule) -> Option<Vec<String>> {
+    let mut required = Vec::new();
+    if let Some(anchor) = rule.pattern.as_deref().and_then(derive_literal_anchor) {
+        required.push(vec![anchor.to_owned()]);
+    }
+    for child in rule
+        .all
+        .iter()
+        .flatten()
+        .chain(rule.has.iter().map(Box::as_ref))
+        .chain(rule.inside.iter().map(Box::as_ref))
+    {
+        if let Some(anchors) = rule_anchors(child) {
+            required.push(anchors);
         }
     }
-    Prefilter::None
+    if let Some(any) = rule.any.as_ref().filter(|rules| !rules.is_empty()) {
+        if let Some(branches) = any.iter().map(rule_anchors).collect::<Option<Vec<_>>>() {
+            required.push(branches.into_iter().flatten().collect());
+        }
+    }
+    required.into_iter().min_by_key(Vec::len)
 }
 
 #[cfg(test)]
@@ -294,12 +254,36 @@ mod tests {
     }
 
     #[test]
+    fn parsed_yaml_literals_and_composition_keep_required_anchors() {
+        for rule in [
+            "pattern: |\n  foo($X)\n",
+            "pattern: \"\\u0066oo($X)\"",
+            "all: [{any: [{pattern: foo($X)}, {kind: call_expression}]}, {pattern: foo($Y)}]",
+            "has: {pattern: foo($X), stopBy: end}",
+        ] {
+            assert_eq!(
+                derive_rule_prefilter(rule),
+                Prefilter::Single("foo".to_owned()),
+                "{rule}"
+            );
+        }
+        for rule in [
+            "not: {pattern: foo($X)}",
+            "any: [{pattern: foo($X)}, {pattern: $X}]",
+            "any: [{pattern: foo($X)}, {not: {pattern: bar($X)}}]",
+            "unknown: {pattern: foo($X)}",
+        ] {
+            assert_eq!(derive_rule_prefilter(rule), Prefilter::None, "{rule}");
+        }
+    }
+
+    #[test]
     fn prefilter_covers_simple_rule_pattern() {
         assert_eq!(
             StructuralQuery::new(None, Some("rule:\n  pattern: await $C\n"))
                 .expect("valid query")
                 .prefilter(),
-            Prefilter::Single("await")
+            Prefilter::Single("await".to_owned())
         );
     }
 
@@ -307,31 +291,34 @@ mod tests {
     fn prefilter_uses_positive_anchor_when_not_present_without_any() {
         // `not:` alone is safe — the top-level positive `pattern:` implies the
         // file must contain the literal; `not:` only filters what's found.
-        // The heuristic skips the `not:` line and picks the `pattern:` line.
+        // Only the parsed positive pattern supplies the required anchor.
         let rule = "rule:\n  pattern: await $C\n  not:\n    pattern: bar\n";
         let q = StructuralQuery::new(None, Some(rule)).expect("valid query");
-        assert_eq!(q.prefilter(), Prefilter::Single("await"));
+        assert_eq!(q.prefilter(), Prefilter::Single("await".to_owned()));
     }
 
     #[test]
     fn prefilter_any_with_single_anchor_uses_single() {
         let rule = "rule:\n  any:\n    - pattern: foo($X)\n";
         let q = StructuralQuery::new(None, Some(rule)).expect("valid query");
-        assert_eq!(q.prefilter(), Prefilter::Single("foo"));
+        assert_eq!(q.prefilter(), Prefilter::Single("foo".to_owned()));
     }
 
     #[test]
     fn prefilter_any_with_multiple_anchors_uses_union() {
         let rule = "rule:\n  any:\n    - pattern: foo($X)\n    - pattern: bar($X)\n";
         let q = StructuralQuery::new(None, Some(rule)).expect("valid query");
-        assert_eq!(q.prefilter(), Prefilter::Union(vec!["foo", "bar"]));
+        assert_eq!(
+            q.prefilter(),
+            Prefilter::Union(vec!["bar".to_owned(), "foo".to_owned()])
+        );
     }
 
     #[test]
-    fn prefilter_not_plus_any_bails() {
+    fn prefilter_not_does_not_hide_required_any_anchor() {
         let rule = "rule:\n  not:\n    pattern: bar\n  any:\n    - pattern: foo($X)\n";
         let q = StructuralQuery::new(None, Some(rule)).expect("valid query");
-        assert_eq!(q.prefilter(), Prefilter::None);
+        assert_eq!(q.prefilter(), Prefilter::Single("foo".to_owned()));
     }
 
     #[test]
@@ -347,8 +334,8 @@ mod tests {
         assert_eq!(
             StructuralQuery::new(Some("$A && $A()"), None)
                 .expect("valid query")
-                .literal_anchor(),
-            Some("&&")
+                .prefilter(),
+            Prefilter::Single("&&".to_owned())
         );
     }
 
@@ -357,14 +344,14 @@ mod tests {
         assert_eq!(
             StructuralQuery::new(Some("console.log($$$ARGS)"), None)
                 .expect("valid query")
-                .literal_anchor(),
-            Some("console")
+                .prefilter(),
+            Prefilter::Single("console".to_owned())
         );
         assert_eq!(
             StructuralQuery::new(Some("foo($X)"), None)
                 .expect("valid query")
-                .literal_anchor(),
-            Some("foo")
+                .prefilter(),
+            Prefilter::Single("foo".to_owned())
         );
     }
 }

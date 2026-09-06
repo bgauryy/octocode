@@ -21,7 +21,7 @@ Load after analysis produces deduped findings, verification receipts, and a reco
 Report recommendation, risk, verification, guidelines status, and findings ordered by severity. Use full blob URLs for remote PR code and `file:line` locally; distinguish requirements from preferences.
 
 ## Optional Document
-Ask before writing. After approval:
+Write when the user requested a saved report or already authorized it; otherwise keep the review in chat. Paths:
 - PR: `.octocode/reviewPR/<session>/PR_<number>.md`
 - Local: `.octocode/reviewLocal/<session>/REVIEW_<branch>_<timestamp>.md`
 

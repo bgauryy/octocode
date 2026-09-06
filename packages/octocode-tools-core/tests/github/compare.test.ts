@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock getOctokit so compareRefs never makes real network calls
 vi.mock('../../src/github/client.js', () => ({
@@ -10,6 +10,7 @@ vi.mock('../../src/github/client.js', () => ({
 
 import { getOctokit } from '../../src/github/client.js';
 import { compareRefs } from '../../src/github/compare.js';
+import { clearAllCache } from '../../src/utils/http/cache/management.js';
 
 const mockGetOctokit = vi.mocked(getOctokit);
 
@@ -47,6 +48,7 @@ function makeCompareResponse(overrides: Record<string, unknown> = {}) {
 }
 
 describe('compareRefs', () => {
+  beforeEach(() => clearAllCache());
   it('returns ahead/behind counts and commit list', async () => {
     mockGetOctokit.mockResolvedValue({
       rest: {

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
-import { getDirectorySizeBytes } from '../../shared/index.js';
+import { getDirectorySizeBytes } from '../../shared/fs-utils.js';
 
 /**
  * Size of a clone's checked-out working tree, excluding the top-level `.git`

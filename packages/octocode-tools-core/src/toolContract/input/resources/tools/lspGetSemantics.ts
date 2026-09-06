@@ -24,6 +24,8 @@ documentSymbols/diagnostic need uri; workspaceSymbol needs symbolName; other ope
   schema: {
     pageSize: 'References or symbols returned per page.',
     page: 'Reference/symbol result page.',
+    snapshot:
+      'Result-set token from next.nextPage; required after page 1. On paginationChanged, discard prior pages and execute next.restartPagination.',
     type: 'Identity, usage, hierarchy, hover, symbol, or diagnostic operation.',
     uri: 'Target file path/URI; required for every type except workspaceSymbol.',
     symbolName: 'Bare anchored identifier, or fuzzy workspace symbol query.',
@@ -68,6 +70,7 @@ export const LspGetSemanticsQuerySchema = buildObject(lspGetSemantics.schema, {
   groupByFile: z.boolean().optional(),
   page: pageNumber(),
   pageSize: intRange(1, MAX_LSP_ITEMS_PER_PAGE).optional(),
+  snapshot: z.string().min(1).max(128).optional(),
   contextLines: contextLines(),
   format: z.enum(['structured', 'compact']).default('structured'),
   workspaceRoot: z.string().optional(),

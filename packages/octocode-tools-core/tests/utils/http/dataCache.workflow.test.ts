@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  clearAllCache,
-  withDataCache,
-  withDataCacheConditional,
-} from '../../../src/utils/http/cache.js';
+import { clearAllCache } from '../../../src/utils/http/cache/management.js';
+import { withDataCache } from '../../../src/utils/http/cache/dataCache.js';
+import { withDataCacheConditional } from '../../../src/utils/http/cache/conditional.js';
 import {
   pendingRequests,
   PENDING_REQUEST_MAX_AGE_MS,

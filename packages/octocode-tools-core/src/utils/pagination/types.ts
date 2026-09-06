@@ -1,4 +1,5 @@
 export interface PaginationMetadata {
+  pageCountsKind?: 'estimated';
   paginatedContent: string;
 
   byteOffset: number;

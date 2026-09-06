@@ -28,16 +28,6 @@ export function normalizeRepoPath(
   return normalized === '.' ? '' : normalized;
 }
 
-export function cloneSparsePathFor(
-  requestedPath: string,
-  kind: RemoteMaterializationKind
-): string | undefined {
-  if (!requestedPath) return undefined;
-  if (kind !== 'file') return requestedPath;
-  const parent = path.posix.dirname(requestedPath);
-  return parent === '.' ? undefined : parent;
-}
-
 export function resolveRepoOption(repoRef: string, branch?: string): GithubRef {
   const ref = resolveRef(repoRef, branch || undefined);
   if (!isGithubRef(ref)) {
@@ -55,13 +45,4 @@ export function locationKindFor(
 ): RemoteLocationKind {
   if (kind === 'tree') return 'directory';
   return kind;
-}
-
-export function isFullRepoOption(options: {
-  readonly repo?: string;
-  readonly owner?: string;
-}): boolean {
-  return Boolean(
-    options.repo?.includes('/') || (!options.owner && options.repo)
-  );
 }

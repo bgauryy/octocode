@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import type { PiAutocompleteItem, PiAutocompleteProvider } from '../src/types.js';
+import type { AutocompleteItem, PiAutocompleteProvider } from '../src/types.js';
 import {
   extractTokenPrefix,
   buildSuggestionItems,
@@ -182,7 +182,7 @@ test('provider delegates shouldTriggerFileCompletion to current', () => {
 test('applyCompletion replaces token on a single line and moves the cursor', () => {
   const { provider: current } = fakeCurrent();
   const p = createOctocodeAutocompleteProvider(current, deps());
-  const item: PiAutocompleteItem = { value: '@alpha-1', label: '@alpha-1' };
+  const item: AutocompleteItem = { value: '@alpha-1', label: '@alpha-1' };
   const out = p.applyCompletion(['say @al'], 0, 7, item, 'al');
   assert.deepEqual(out, { lines: ['say @alpha-1'], cursorLine: 0, cursorCol: 12 });
 });
@@ -190,7 +190,7 @@ test('applyCompletion replaces token on a single line and moves the cursor', () 
 test('applyCompletion works mid-line with a suffix and on multi-line input', () => {
   const { provider: current } = fakeCurrent();
   const p = createOctocodeAutocompleteProvider(current, deps());
-  const item: PiAutocompleteItem = { value: '#12', label: '#12 step' };
+  const item: AutocompleteItem = { value: '#12', label: '#12 step' };
   const out = p.applyCompletion(['first', 'x #1 y'], 1, 4, item, '1');
   assert.deepEqual(out, { lines: ['first', 'x #12 y'], cursorLine: 1, cursorCol: 5 });
 });

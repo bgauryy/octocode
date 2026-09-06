@@ -8,9 +8,9 @@ import {
   createErrorResult,
   validateToolPath,
 } from '../../utils/file/toolHelpers.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
 import { safeParseOrError } from '../utils.js';
 import { analyzeGraph, inferRootFromAbsoluteFile } from './analyzeGraph.js';
 import {
@@ -43,12 +43,18 @@ export async function executeAnalyzeGraph(
   const getGraph = (
     path: string,
     excludeDir: string[],
-    maxFiles: number
+    maxFiles: number,
+    rustWorkspace: 'syntax' | 'cargo' = 'syntax'
   ): Promise<WalkResult> => {
-    const key = JSON.stringify([path, [...excludeDir].sort(), maxFiles]);
+    const key = JSON.stringify([
+      path,
+      [...excludeDir].sort(),
+      maxFiles,
+      rustWorkspace,
+    ]);
     const existing = graphCache.get(key);
     if (existing) return existing;
-    const pending = buildFileGraph(path, excludeDir, maxFiles);
+    const pending = buildFileGraph(path, excludeDir, maxFiles, rustWorkspace);
     graphCache.set(key, pending);
     return pending;
   };

@@ -4,11 +4,13 @@ import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import {
   classifyPathRole,
   isLowSignalQueryPath,
-  rankFiles,
-  scoreFile,
   selectProfile,
+} from '../../../src/tools/local_ripgrep/rankingProfile/rankingProfiles.js';
+import { rankFiles } from '../../../src/tools/local_ripgrep/rankingProfile/rankingResults.js';
+import {
+  scoreFileWithRarity,
   type RankContext,
-} from '../../../src/tools/local_ripgrep/rankingProfile.js';
+} from '../../../src/tools/local_ripgrep/rankingProfile/rankingScoring.js';
 
 function file(
   path: string,
@@ -76,7 +78,7 @@ describe('classifyPathRole', () => {
   });
 });
 
-describe('scoreFile — the motivating broad-term example', () => {
+describe('scoreFileWithRarity — the motivating broad-term example', () => {
   // RFC example: searching `fallback` should rank the file where it is a
   // declaration in src/ above a file with many incidental occurrences in dist/.
   const declInSrc = file('/repo/src/util/fallback.ts', 1, [
@@ -89,13 +91,13 @@ describe('scoreFile — the motivating broad-term example', () => {
   ]);
 
   it('declaration in source outscores incidental matches in generated output', () => {
-    const a = scoreFile(declInSrc, ctx());
-    const b = scoreFile(incidentalInDist, ctx());
+    const a = scoreFileWithRarity(declInSrc, ctx());
+    const b = scoreFileWithRarity(incidentalInDist, ctx());
     expect(a.score).toBeGreaterThan(b.score);
   });
 
   it('explains the score via reasons', () => {
-    const a = scoreFile(declInSrc, ctx());
+    const a = scoreFileWithRarity(declInSrc, ctx());
     expect(a.profile).toBe('typescript');
     expect(a.pathRole).toBe('source');
     expect(a.reasons.join(' ')).toMatch(/declaration line/);
@@ -276,8 +278,8 @@ describe('false-positive hardening — regex fallback (no engine kind)', () => {
     const commented = file('/repo/src/b.ts', 1, [
       '// export function fallback() {}',
     ]);
-    const liveScore = scoreFile(live, ctx());
-    const commentedScore = scoreFile(commented, ctx());
+    const liveScore = scoreFileWithRarity(live, ctx());
+    const commentedScore = scoreFileWithRarity(commented, ctx());
     expect(commentedScore.score).toBeLessThan(liveScore.score);
     expect(commentedScore.reasons.join(' ')).toMatch(/comment match \(weak\)/);
     expect(commentedScore.reasons.join(' ')).not.toMatch(/declaration line/);
@@ -288,7 +290,7 @@ describe('false-positive hardening — regex fallback (no engine kind)', () => {
     const f = file('/repo/src/a.ts', 1, [
       'doStuff(); // fallback handler here',
     ]);
-    const s = scoreFile(f, ctx());
+    const s = scoreFileWithRarity(f, ctx());
     expect(s.reasons.join(' ')).toMatch(/comment match \(weak\)/);
   });
 
@@ -297,7 +299,7 @@ describe('false-positive hardening — regex fallback (no engine kind)', () => {
     const f = file('/repo/src/a.ts', 1, [
       'const msg = "export function fallback";',
     ]);
-    const s = scoreFile(f, ctx());
+    const s = scoreFileWithRarity(f, ctx());
     expect(s.reasons.join(' ')).toMatch(/string literal \(weak\)/);
     expect(s.reasons.join(' ')).not.toMatch(/declaration line/);
   });
@@ -309,15 +311,15 @@ describe('false-positive hardening — regex fallback (no engine kind)', () => {
     const f = file('/repo/src/a.ts', 1, [
       'export function other() {\n  return "fallback";\n}',
     ]);
-    const s = scoreFile(f, ctx());
+    const s = scoreFileWithRarity(f, ctx());
     expect(s.reasons.join(' ')).not.toMatch(/declaration line/);
   });
 
   // Fix #5: exactness only fires for a plain-identifier search.
   it('regex keyword does not get whole-word exactness', () => {
     const f = file('/repo/src/a.ts', 1, ['const fallback = 1']);
-    const plain = scoreFile(f, ctx({ keyword: 'fallback' }));
-    const regexy = scoreFile(f, ctx({ keyword: 'fall.*back' }));
+    const plain = scoreFileWithRarity(f, ctx({ keyword: 'fallback' }));
+    const regexy = scoreFileWithRarity(f, ctx({ keyword: 'fall.*back' }));
     expect(plain.reasons.join(' ')).toMatch(/whole-word match/);
     expect(regexy.reasons.join(' ')).not.toMatch(/whole-word match/);
   });
@@ -388,8 +390,8 @@ describe('engine AST kind (Phase 2) is preferred over regex heuristics', () => {
       matchCount: 1,
       matches: [{ line: 1, value: 'fallback' }],
     };
-    const a = scoreFile(astDecl, ctx());
-    const b = scoreFile(plain, ctx());
+    const a = scoreFileWithRarity(astDecl, ctx());
+    const b = scoreFileWithRarity(plain, ctx());
     expect(a.score).toBeGreaterThan(b.score);
     expect(a.reasons.join(' ')).toMatch(/AST: declaration/);
   });
@@ -406,7 +408,7 @@ describe('engine AST kind (Phase 2) is preferred over regex heuristics', () => {
         } as never,
       ],
     };
-    const a = scoreFile(astComment, ctx());
+    const a = scoreFileWithRarity(astComment, ctx());
     // Regex would have scored this as a declaration+export (~12); the engine
     // says it is actually inside a comment, so it must not.
     expect(a.reasons.join(' ')).toMatch(/AST: comment/);
@@ -430,8 +432,8 @@ describe('language profiles — high-signal lines per language', () => {
       const mention = file(path.replace(/\.(\w+)$/, '.other.$1'), 1, [
         'some text handler in prose',
       ]);
-      const declScore = scoreFile(decl, ctx({ keyword: 'handler' }));
-      const mentionScore = scoreFile(mention, ctx({ keyword: 'handler' }));
+      const declScore = scoreFileWithRarity(decl, ctx({ keyword: 'handler' }));
+      const mentionScore = scoreFileWithRarity(mention, ctx({ keyword: 'handler' }));
       expect(declScore.score).toBeGreaterThan(mentionScore.score);
     }
   );

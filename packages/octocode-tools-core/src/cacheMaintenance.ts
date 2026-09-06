@@ -12,8 +12,8 @@ import {
   evictExpiredClones,
   evictExpiredTrees,
 } from './tools/github_clone_repo/cache.js';
-import { cleanupStaleCloneArtifacts } from './tools/github_clone_repo/cacheArtifacts.js';
-import { sweepDiskCacheNow } from './utils/http/cache.js';
+import { cleanupStaleMaterializationArtifacts } from './tools/github_clone_repo/cacheArtifacts.js';
+import { sweepDiskCacheNow } from './utils/http/cache/diskStore.js';
 
 export const CACHE_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -116,7 +116,7 @@ async function runMaintenance(
     try {
       evictExpiredClones(octocodeHome);
       evictExpiredTrees(octocodeHome);
-      cleanupStaleCloneArtifacts(octocodeHome, now);
+      cleanupStaleMaterializationArtifacts(octocodeHome, now);
       await sweepDiskCacheNow(octocodeHome, now);
       writeMaintenanceMarker(octocodeHome, now);
       return true;

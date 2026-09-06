@@ -1,12 +1,11 @@
+import { SearchPullRequestsQuerySchema } from './historyPullRequestInput.js';
 import { z } from 'zod';
 
-import type { ToolSpec } from '../../types/index.js';
 import {
   buildObject,
   charLength,
   charOffset,
   DEFAULT_GITHUB_SEARCH_LIMIT,
-  defineTool,
   intRange,
   MAX_GITHUB_SEARCH_LIMIT,
   MAX_LINE_NUMBER,
@@ -18,52 +17,43 @@ import {
 
 // Internal schema primitive shared by the canonical history tools. It is never
 // registered directly; public routing uses operation-discriminated schemas.
-const githubHistorySchemaSpec: ToolSpec = defineTool({
-  name: 'githubHistory',
-  type: 'Github',
-  shortDescription: 'Search and read GitHub pull requests and commit history.',
-  instructions: `Use for PR/commit archaeology — not current code (ghSearch operation:"code"/ghGetFileContent). type:"prs" lists/reads PRs; type:"commits" walks history.
-Param relations: list mode uses filters+sort/page; detail mode needs owner+repo+prNumber and content selectors. patches.mode:"selected" requires files or ranges. Body/patch/comment windows continue via returned charOffset/commentBodyOffset; file/comment/commit lists use their page fields. For code identity, clone and use local/LSP.`,
-  schema: {
-    type: '"prs" for pull requests; "commits" for commit history.',
-    keywords: 'PR search terms; ignored in commits mode.',
-    match:
-      'PR text fields searched by keywords; ghSearch operation:"code" instead uses match to select file content or paths.',
-    prNumber: 'Switches to PR detail mode; needs owner+repo.',
-    issueNumber: 'Switches to issue detail mode; needs owner+repo.',
-    concise: 'PR list triage; ignored with prNumber.',
-    path: 'Commit-mode file/dir prefix; trailing / scopes subtree.',
-    includeDiff: 'Commit-mode diffs; costly.',
-    order: 'asc+created helps archaeology.',
-    comments: 'Comment-count range filter (">5"); not comment content.',
-    reactions: 'Reaction-count range filter (">10").',
-    interactions: 'Combined comment+reaction count range (">20").',
-    project: 'Project board: "owner/number".',
-    'team-mentions': 'Team mention: "org/team-slug".',
-    filePage: 'Changed-files page from contentPagination.',
-    commentPage: 'Comments page from contentPagination.',
-    commitPage: 'PR commits page from contentPagination.',
-    reviewMode: '"full" fetches all PR detail surfaces.',
-    content: 'Detail selector for prNumber.',
-    'content.body': 'Full PR description; windowed by charOffset.',
-    'content.changedFiles': 'File list with status and +/- counts.',
-    'content.patches.mode':
-      '"none", "selected" (cheapest; needs files or ranges), or "all".',
-    'content.patches.ranges': 'Line ranges for selected patch hunks.',
-    'content.comments.reviewInline':
-      'Inline review comments; in_reply_to_id marks threads.',
-    'content.comments.includeBots': 'Include bot/CI comments.',
-    'content.reviews': 'Review verdicts per reviewer.',
-    'content.commits': 'PR-bound commits selector.',
-    matchString: 'Substring filter for body/patch/comment windows.',
-    charOffset: 'Body/patch continuation offset from nextQuery.',
-    commentBodyOffset: 'Comment-body continuation offset from nextQuery.',
-    minify:
-      '"standard" compact patches; "none" exact diff; "symbols" not available.',
-  },
-});
-
-const prose = githubHistorySchemaSpec.schema;
+const prose = {
+  type: '"prs" for pull requests; "commits" for commit history.',
+  keywords: 'PR search terms; ignored in commits mode.',
+  match:
+    'PR text fields searched by keywords; ghSearch operation:"code" instead uses match to select file content or paths.',
+  prNumber: 'Switches to PR detail mode; needs owner+repo.',
+  issueNumber: 'Switches to issue detail mode; needs owner+repo.',
+  concise: 'PR list triage; ignored with prNumber.',
+  path: 'Commit-mode file/dir prefix; trailing / scopes subtree.',
+  includeDiff: 'Commit-mode diffs; costly.',
+  order: 'asc+created helps archaeology.',
+  comments: 'Comment-count range filter (">5"); not comment content.',
+  reactions: 'Reaction-count range filter (">10").',
+  interactions: 'Combined comment+reaction count range (">20").',
+  project: 'Project board: "owner/number".',
+  'team-mentions': 'Team mention: "org/team-slug".',
+  filePage: 'Changed-files page from contentPagination.',
+  commentPage: 'Comments page from contentPagination.',
+  commitPage: 'PR commits page from contentPagination.',
+  reviewMode: '"full" fetches all PR detail surfaces.',
+  content: 'Detail selector for prNumber.',
+  'content.body': 'Full PR description; windowed by charOffset.',
+  'content.changedFiles': 'File list with status and +/- counts.',
+  'content.patches.mode':
+    '"none", "selected" (cheapest; needs files or ranges), or "all".',
+  'content.patches.ranges': 'Line ranges for selected patch hunks.',
+  'content.comments.reviewInline':
+    'Inline review comments; in_reply_to_id marks threads.',
+  'content.comments.includeBots': 'Include bot/CI comments.',
+  'content.reviews': 'Review verdicts per reviewer.',
+  'content.commits': 'PR-bound commits selector.',
+  matchString: 'Substring filter for body/patch/comment windows.',
+  charOffset: 'Body/patch continuation offset from nextQuery.',
+  commentBodyOffset: 'Comment-body continuation offset from nextQuery.',
+  minify:
+    '"standard" compacts PR body/comments/reviews and trims diff context; "none" preserves selected text after redaction. Match reads retain source text. No symbols mode.',
+};
 
 export const GitHubPullRequestSearchQuerySchema = buildObject(prose, {
   ...metaFields,
@@ -119,6 +109,8 @@ export const GitHubPullRequestSearchQuerySchema = buildObject(prose, {
   filePage: optionalPageNumber(),
   commentPage: optionalPageNumber(),
   commitPage: optionalPageNumber(),
+  reviewPage: SearchPullRequestsQuerySchema.shape.reviewPage,
+  collectionPages: SearchPullRequestsQuerySchema.shape.collectionPages,
   reviewMode: z.literal('full').optional(),
   content: buildObject(
     prose,

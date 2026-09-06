@@ -1,16 +1,12 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
-  AWARENESS_PEER_EVENT_MESSAGE_TYPE,
   createAwarenessEventConsumer,
   type AwarenessEventObservability,
   type AwarenessEventStore,
   type AwarenessPeerDelivery,
 } from '@octocodeai/octocode-awareness';
 import type { PiContext, PiInstance } from '../types.js';
-
-export { AWARENESS_PEER_EVENT_MESSAGE_TYPE, createAwarenessEventConsumer };
-export type { AwarenessEventObservability, AwarenessEventStore, AwarenessPeerDelivery };
 
 /** Render only current-drain delivery pressure; lifetime totals are diagnostic history. */
 export function awarenessEventStatusText(stats: AwarenessEventObservability): string | undefined {

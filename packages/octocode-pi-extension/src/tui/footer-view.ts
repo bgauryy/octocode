@@ -1,8 +1,9 @@
+import { truncateToWidth } from './width.js';
 /** Pure footer view: state collection stays outside, layout stays testable here. */
 import type { PiTheme } from '../types.js';
 import { renderInlineRows, type InlineSegment, type TuiRenderContext } from './components.js';
 import { paint, SEP, type SemanticToken } from './palette.js';
-import { truncateToWidth } from '../tools/render-helpers.js';
+
 
 export interface FooterAgentView {
   label: string;
@@ -21,9 +22,7 @@ export interface FooterViewProps {
    * repository identity, metrics) so a narrow terminal never hides an entire
    * category of live state.
    */
-  rows?: readonly (readonly InlineSegment[])[];
-  /** Backward-compatible single-row input for small callers. */
-  segments?: readonly InlineSegment[];
+  rows: readonly (readonly InlineSegment[])[];
   agents?: readonly FooterAgentView[];
 }
 
@@ -38,8 +37,7 @@ function agentRow(agent: FooterAgentView, context: TuiRenderContext): string[] {
 
 /** Unified persistent state: responsive semantic rows plus every visible worker. */
 export function renderFooterView(props: FooterViewProps, context: TuiRenderContext & { theme?: PiTheme }): string[] {
-  const rows = props.rows ?? (props.segments ? [props.segments] : []);
-  const header = rows.flatMap((segments) => renderInlineRows({ segments }, context));
+  const header = props.rows.flatMap((segments) => renderInlineRows({ segments }, context));
   const agents = (props.agents ?? [])
     .filter((agent) => agent.state !== 'killed')
     .map((agent, index) => ({ agent, index }))

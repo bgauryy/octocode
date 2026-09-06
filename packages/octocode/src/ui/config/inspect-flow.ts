@@ -3,12 +3,11 @@ import { select, confirm, loadInquirer } from '../../utils/prompts.js';
 import { separatorChoice } from '../../utils/prompt-separator.js';
 import {
   getAllClientInstallStatus,
-  readMCPConfig,
-  writeMCPConfig,
   removeExternalMCPConfig,
-  MCP_CLIENTS,
   type ClientInstallStatus,
 } from '../../utils/mcp-config.js';
+import { readMCPConfig, writeMCPConfig } from '../../utils/mcp-io.js';
+import { MCP_CLIENTS } from '../../utils/mcp-paths.js';
 import type { MCPServer } from '../../types/index.js';
 import { Spinner } from '../../utils/spinner.js';
 

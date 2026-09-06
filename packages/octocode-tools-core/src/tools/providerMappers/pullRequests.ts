@@ -1,4 +1,4 @@
-import type { PullRequestSearchResult as ProviderPullRequestSearchResult } from '../../providers/types.js';
+import type { PullRequestSearchResult as ProviderPullRequestSearchResult } from '../../providers/providerResults.js';
 import type { z } from 'zod';
 import type { GitHubPullRequestSearchQueryLocalSchema } from '../github_search_pull_requests/scheme.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
@@ -61,6 +61,8 @@ export function mapPullRequestToolQuery(query: PartialPRQuery) {
     filePage: (query as { filePage?: number }).filePage,
     commentPage: (query as { commentPage?: number }).commentPage,
     commitPage: (query as { commitPage?: number }).commitPage,
+    reviewPage: query.reviewPage,
+    collectionPages: query.collectionPages,
     itemsPerPage: (query as { pageSize?: number }).pageSize,
     sort: query.sort as
       | 'created'
@@ -188,6 +190,10 @@ export function mapPullRequestProviderResultData(
     const reviewSummary = buildReviewSummary(comments, pr.reviews);
     return {
       number: pr.number,
+      ...(pr.collectionStates ? { collectionStates: pr.collectionStates } : {}),
+      ...(pr.providerLimits?.length
+        ? { providerLimits: pr.providerLimits }
+        : {}),
       title: pr.title,
       body: pr.body ?? undefined,
       ...(pr.bodyPagination && { bodyPagination: pr.bodyPagination }),
@@ -219,7 +225,12 @@ export function mapPullRequestProviderResultData(
         }),
       ...(pr.reviews && { reviews: pr.reviews }),
       ...(pr.commits && { commits: pr.commits }),
-      ...(reviewSummary && { reviewSummary }),
+      ...(reviewSummary && {
+        reviewSummary: {
+          ...reviewSummary,
+          ...(pr.collectionStates ? { countScope: 'providerBatch' } : {}),
+        },
+      }),
       ...(fileChanges && includeFileChanges ? { fileChanges } : {}),
       ...(Array.isArray(pr.sanitizationWarnings) &&
       pr.sanitizationWarnings.length > 0
@@ -248,6 +259,14 @@ export function mapPullRequestProviderResultData(
     pullRequests,
     resultData: {
       pullRequests,
+      ...(data.incompleteResults ? { incompleteResults: true } : {}),
+      ...(data.items.some(pr => pr.providerLimits?.length)
+        ? {
+            isPartial: true,
+            terminalLimit: true,
+            partialReasons: ['providerResultCap'],
+          }
+        : {}),
       // Echo the exact search-qualifier string when the search path ran —
       // the transparency signal that distinguishes real keyword matches
       // from a plain recent-PR listing (issue history does the same).

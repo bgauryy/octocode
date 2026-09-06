@@ -21,7 +21,7 @@ async function loadRegisteredWebTool(
   const propagateOctocodeEnv = vi.fn(() => ({ applied: [], skippedExisting: [], skippedProtected: [], keys: [], sources: {} }));
   const getOctocodeHome = vi.fn(() => '/mock/home');
   vi.doMock('../src/web.js', () => ({ runWebTool, renderWebResult }));
-  if (options.mockEnv) vi.doMock('../src/env.js', () => ({ propagateOctocodeEnv, getOctocodeHome }));
+  if (options.mockEnv) vi.doMock('@octocodeai/config', () => ({ propagateOctocodeEnv, getOctocodeHome }));
 
   const { registerWebTool } = await import('../src/tools/web-tool.js');
   const tools = new Map<string, ToolDefinition>();
@@ -48,7 +48,7 @@ async function loadRegisteredWebTool(
 
 afterEach(() => {
   vi.doUnmock('../src/web.js');
-  vi.doUnmock('../src/env.js');
+  vi.doUnmock('@octocodeai/config');
   vi.resetModules();
 });
 

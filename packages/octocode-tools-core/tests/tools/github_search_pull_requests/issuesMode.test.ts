@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchIssues = vi.fn();
-vi.mock('../../../src/github/issues.js', () => ({
+vi.mock('../../../src/github/issues/orchestrator.js', () => ({
   fetchIssues: (...args: unknown[]) => fetchIssues(...args),
 }));
 

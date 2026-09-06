@@ -152,8 +152,8 @@ const variants: Record<string, ToolSchemaVariant[]> = {
     },
     {
       name: 'reachability',
-      when: 'Find files unreachable from selected roots',
-      requires: ['path', 'operation', 'entrypoints'],
+      when: 'Classify files from explicit or inferred roots',
+      requires: ['path', 'operation'],
       example: {
         path: '.',
         operation: 'reachability',

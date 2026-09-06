@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapCodeSearchProviderResult } from '../../../src/tools/providerMappers.js';
+import { mapCodeSearchProviderResult } from '../../../src/tools/providerMappers/codeSearch.js';
 
 // The `verbose`/`url` branch keyed off a field that is not in the code-search
 // schema, so it was dead. These tests pin that no `url` ever leaks onto a

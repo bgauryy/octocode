@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FindFilesQuerySchema as CoreFindFilesQuerySchema } from '../../toolContract/schemas.js';
+import { FindFilesQuerySchema as CoreFindFilesQuerySchema } from '../../toolContract/input/resources/tools/localFilesOperation.js';
 import { LOCAL_MAX_FILES_PER_PAGE, LOCAL_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,

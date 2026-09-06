@@ -12,7 +12,8 @@ import {
 } from '../src/tools/active-plan.js';
 import { buildPlanPageHtmlFromModel } from '../src/tools/plan-html.js';
 import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
-import { planPanelModelLines } from '../src/tools/plan-tool.js';
+import { buildPlanFooterSegments } from '../src/extension-ui.js';
+import { renderFooterView } from '../src/tui/footer-view.js';
 import { getLocalServerBaseUrl, listLocalServerMounts, serveDirectory, stopLocalServer } from '../src/tools/local-server.js';
 import { setInteractionStoreFactoryForTests } from '../src/tools/interaction-broker.js';
 import { bindRuntimeRenderer } from '../src/tools/runtime-renderer.js';
@@ -157,7 +158,7 @@ test('drives AskUser, explicit browser Start, shared work, verification, and eve
 // integration boundary a bounded, explicit budget rather than a flaky default.
 }, 30_000);
 
-test('terminal plan widget keeps current and next work visible and width-safe throughout a complex mocked agent flow', () => {
+test('terminal footer keeps current work visible and width-safe while the canonical plan retains every task', () => {
   const steps = [
     { id: 'research', text: 'Research the existing data, session, agent, and instruction contracts', activeForm: 'Researching all contracts', status: 'done' as const },
     { id: 'implement', text: 'Implement a deliberately long cross-layer change with mocked agent responses', activeForm: 'Implementing the cross-layer change', status: 'doing' as const, dependsOnStepIds: ['research'] },
@@ -172,18 +173,15 @@ test('terminal plan widget keeps current and next work visible and width-safe th
       review: { phase: 'executing', branchSnapshotId: 'widget-test', generation: 0, decisions: [], blockingQuestions: [], comments: [] },
       coordination: { mode: 'local', sourcePlanKey: 'widget-test', coordinationWorkspace: '' },
     });
-    const lines = planPanelModelLines(model, undefined, width);
+    const lines = renderFooterView({ rows: [buildPlanFooterSegments(model)] }, { width });
     for (const line of lines) assert.ok(visibleWidth(line) <= width, `line fits width ${width}: ${line}`);
     const normalized = lines.join(' ').replace(/\s+/g, ' ');
-    for (const label of [
-      'Implementing the cross-layer change',
-      'Validate browser callback revision and origin handling',
-      'Validate RPC cancellation, restart, and duplicate answer handling',
-    ]) assert.ok(normalized.includes(label), `current/next task remains visible at width ${width}: ${label}`);
+    assert.ok(normalized.includes('Implementing the cross-layer change'), `current task remains visible at width ${width}`);
     assert.ok(!normalized.includes(steps[0]!.text), 'completed detail stays in the durable full plan');
     assert.ok(!normalized.includes(steps[4]!.text), 'later work stays collapsed in the persistent panel');
-    assert.match(normalized, /1 later/);
-    assert.match(normalized, /▶/, 'the active lane remains identifiable at every width');
+    assert.match(normalized, /task 2/, 'the active lane remains identifiable at every width');
+    const full = renderPlanReadModel(model, 'terminal') as string;
+    for (const step of steps) assert.ok(full.includes(step.text), 'the full plan retains every task');
   }
 });
 

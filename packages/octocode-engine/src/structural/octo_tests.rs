@@ -1,11 +1,175 @@
 use super::*;
 use crate::signatures::languages;
 
+#[test]
+fn ast_audit_special_pattern_preserves_repeated_capture_equality() {
+    let source = "left: right\nsame: same\n";
+    let direct = run_pattern(source, "yml", "$X: $X");
+    let rule = run_rule(source, "yml", "pattern: \"$X: $X\"");
+    assert_eq!(direct.len(), 1);
+    assert_eq!(direct[0].text, "same: same");
+    assert_eq!(direct[0].metavars, rule[0].metavars);
+    let direct_range = &direct[0].metavar_ranges["X"][0];
+    let rule_range = &rule[0].metavar_ranges["X"][0];
+    assert_eq!(direct_range.line, rule_range.line);
+    assert_eq!(direct_range.column, rule_range.column);
+}
+
+#[test]
+fn ast_audit_html_open_tag_range_respects_quoted_greater_than() {
+    for source in ["<div title=\"a > b\">text</div>", "<input title='a > b' />"] {
+        let matches = run_pattern(source, "html", "<$TAG>");
+        assert_eq!(matches.len(), 1);
+        let expected_end = source.rfind('>').expect("closing delimiter");
+        let expected = if source.starts_with("<div") {
+            "<div title=\"a > b\">"
+        } else {
+            &source[..=expected_end]
+        };
+        assert_eq!(matches[0].text, expected);
+        assert_eq!(matches[0].end_col as usize, expected.len());
+    }
+}
+
+#[test]
+fn ast_audit_html_tags_cover_script_style_without_matching_raw_text() {
+    let source = r#"<main><script title="a > b">const tpl = "<b>fake</b>";</script><style data-note='a > b'>.x::before{content:"<i>fake</i>"}</style><input /></main>"#;
+    let expected = [
+        "<main>",
+        r#"<script title="a > b">"#,
+        "<style data-note='a > b'>",
+        "<input />",
+    ];
+    for matches in [
+        run_pattern(source, "html", "<$TAG>"),
+        run_rule(source, "html", "pattern: '<$TAG>'"),
+    ] {
+        assert_eq!(
+            matches
+                .iter()
+                .map(|matched| matched.text.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        for (matched, tag) in matches.iter().zip(["main", "script", "style", "input"]) {
+            assert_eq!(matched.metavars["TAG"], [tag]);
+            assert_eq!(
+                matched.end_col - matched.start_col,
+                matched.text.len() as u32
+            );
+        }
+    }
+}
+
+#[test]
+fn ast_audit_rule_rejects_unknown_kinds_at_every_level() {
+    for rule in [
+        "kind: not_a_real_node_kind_astro_999",
+        "kind: function_declaration\nhas:\n  kind: not_a_real_node_kind_astro_999",
+        "any:\n  - kind: identifier\n  - not:\n      kind: not_a_real_node_kind_astro_999",
+    ] {
+        let error = CompiledRule::new(&lang("ts"), rule)
+            .err()
+            .expect("unknown kinds must fail during rule compilation");
+        assert!(error.contains("unknown node kind"), "{error}");
+    }
+    assert!(CompiledRule::new(&lang("ts"), "kind: ERROR").is_ok());
+    assert!(run_rule("const x = 1;", "ts", "kind: function_declaration").is_empty());
+}
+
+#[cfg(feature = "tree-sitter-cpp")]
+#[test]
+fn ast_audit_cpp_multi_capture_body_matches_statements() {
+    let pattern = "int $NAME($$$ARGS) { $$$BODY }";
+    for ext in ["cpp", "hpp", "cc", "cxx", "hh", "hxx"] {
+        for (source, body) in [
+            ("int demo(int x) {}", Vec::<&str>::new()),
+            ("int demo(int x) { return x; }", vec!["return x;"]),
+            (
+                "int demo(int x) { int y = x; return y; }",
+                vec!["int y = x;", "return y;"],
+            ),
+        ] {
+            for matches in [
+                run_pattern(source, ext, pattern),
+                run_rule(source, ext, &format!("pattern: '{pattern}'")),
+            ] {
+                assert_eq!(matches.len(), 1, "{ext}: {source}");
+                assert_eq!(matches[0].metavars["NAME"], ["demo"]);
+                assert_eq!(matches[0].metavars["BODY"], body);
+            }
+        }
+    }
+    let matches = run_pattern("int x{1};", "cpp", "int x{$VALUE};");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].metavars["VALUE"], ["1"]);
+}
+
 fn lang(ext: &str) -> AgLanguage {
     AgLanguage::new(
         ext,
         languages::find_entry(ext).expect("test language should exist"),
     )
+}
+
+fn assert_fragment_context(ext: &str, source: &str, bare: &str, expected: &str) {
+    for capture in ["VALUE", "X"] {
+        let bare = bare.replace("$VALUE", &format!("${capture}"));
+        let terminated = format!("{bare};");
+        for pattern in [bare.as_str(), terminated.as_str()] {
+            let rule = format!("all:\n  - pattern: '{pattern}'\n  - regex: '.'");
+            for matches in [
+                run_pattern(source, ext, pattern),
+                run_rule(source, ext, &rule),
+            ] {
+                assert_eq!(matches.len(), 1, "{ext}: {pattern}");
+                assert_eq!(matches[0].text, expected, "{ext}: {pattern}");
+                assert_eq!(matches[0].metavars[capture], ["value"]);
+                let range = &matches[0].metavar_ranges[capture][0];
+                assert_eq!(range.text, "value");
+                assert_eq!(range.end_column - range.column, 5);
+            }
+        }
+    }
+}
+
+#[test]
+fn shared_pattern_context_accepts_bare_java_calls() {
+    let source = "class Demo { void run() { target(value); other(value); } }";
+    assert_fragment_context("java", source, "target($VALUE)", "target(value)");
+    assert!(run_pattern(source, "java", "absent($VALUE)").is_empty());
+    assert_eq!(
+        run_pattern(source, "java", "class $NAME { $$$BODY }").len(),
+        1
+    );
+}
+
+#[test]
+fn shared_pattern_context_accepts_bare_css_declarations() {
+    let source = ".demo { color: value; background: other; }";
+    assert_fragment_context("css", source, "color: $VALUE", "color: value;");
+    assert!(run_pattern(source, "css", "width: $VALUE").is_empty());
+    assert_eq!(
+        run_pattern(source, "css", ".demo { color: $VALUE; background: other; }").len(),
+        1
+    );
+}
+
+#[cfg(feature = "tree-sitter-extended")]
+#[test]
+fn shared_pattern_context_accepts_bare_scss_declarations() {
+    let source = "$theme: blue; .demo { color: value; background: $theme; }";
+    assert_fragment_context("scss", source, "color: $VALUE", "color: value;");
+    assert!(run_pattern(source, "scss", "width: $VALUE").is_empty());
+    assert_eq!(
+        run_pattern(
+            source,
+            "scss",
+            ".demo { color: $VALUE; background: $theme; }"
+        )
+        .len(),
+        1
+    );
 }
 
 #[test]
@@ -28,7 +192,11 @@ fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
         StructuralQuery::new(Some(pattern), None).expect("query"),
     )
     .expect("compile pattern");
-    matcher(src).into_iter().map(|m| m.matched).collect()
+    matcher(src)
+        .expect("complete execution")
+        .into_iter()
+        .map(|m| m.matched)
+        .collect()
 }
 
 fn run_rule(src: &str, ext: &str, rule: &str) -> Vec<StructuralMatch> {
@@ -37,7 +205,42 @@ fn run_rule(src: &str, ext: &str, rule: &str) -> Vec<StructuralMatch> {
         StructuralQuery::new(None, Some(rule)).expect("query"),
     )
     .expect("compile rule");
-    matcher(src).into_iter().map(|m| m.matched).collect()
+    matcher(src)
+        .expect("complete execution")
+        .into_iter()
+        .map(|m| m.matched)
+        .collect()
+}
+
+#[cfg(feature = "tree-sitter-extended")]
+#[test]
+fn expression_patterns_match_inside_sql_documents() {
+    let cases = [(
+        "sql",
+        "SELECT target FROM users;\n",
+        "SELECT $COL FROM users",
+        "COL",
+        "target",
+    )];
+    let mut failures = Vec::new();
+    for (ext, source, pattern, capture, expected) in cases {
+        let language = lang(ext);
+        let pattern_source = language.preprocess_pattern(pattern);
+        let pattern_tree = parse_tree(&language.tree_sitter_language(), &pattern_source).unwrap();
+        let source_tree = parse_tree(&language.tree_sitter_language(), source).unwrap();
+        let matches = run_pattern(source, ext, pattern);
+        if matches.len() != 1
+            || matches[0].metavars.get(capture) != Some(&vec![expected.to_owned()])
+        {
+            failures.push(format!(
+                ".{ext}: {} matches\npattern: {}\nsource: {}",
+                matches.len(),
+                pattern_tree.root_node().to_sexp(),
+                source_tree.root_node().to_sexp()
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
 #[test]
@@ -112,13 +315,19 @@ fn multi_capture_body_matches_in_c_despite_missing_sibling() {
         "c",
         "int $NAME($$$ARGS) { $$$BODY }",
     );
-    assert_eq!(matches.len(), 1, "C matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "C matched {} times, expected 1",
+        matches.len()
+    );
     assert_eq!(
         matches[0].metavars.get("NAME").map(Vec::as_slice),
         Some(&["foo".to_string()][..])
     );
 }
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn multi_capture_body_matches_in_csharp_despite_missing_sibling() {
     // C# has no top-level member syntax at all — `public int Foo(...) {...}`
@@ -137,13 +346,19 @@ fn multi_capture_body_matches_in_csharp_despite_missing_sibling() {
         "cs",
         "public int $NAME($$$ARGS) { $$$BODY }",
     );
-    assert_eq!(matches.len(), 1, "C# matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "C# matched {} times, expected 1",
+        matches.len()
+    );
     assert_eq!(
         matches[0].metavars.get("NAME").map(Vec::as_slice),
         Some(&["Foo".to_string()][..])
     );
 }
 
+#[cfg(feature = "tree-sitter-c-sharp")]
 #[test]
 fn class_shaped_pattern_still_matches_in_csharp_despite_synthetic_wrap() {
     // The synthetic wrapper class must unwrap ONLY itself (matched by its
@@ -157,13 +372,19 @@ fn class_shaped_pattern_still_matches_in_csharp_despite_synthetic_wrap() {
         "cs",
         "class $NAME { $$$BODY }",
     );
-    assert_eq!(matches.len(), 1, "C# matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "C# matched {} times, expected 1",
+        matches.len()
+    );
     assert_eq!(
         matches[0].metavars.get("NAME").map(Vec::as_slice),
         Some(&["Box".to_string()][..])
     );
 }
 
+#[cfg(feature = "tree-sitter-extended")]
 #[test]
 fn multi_capture_body_matches_in_zig_despite_missing_sibling() {
     let matches = run_pattern(
@@ -171,7 +392,12 @@ fn multi_capture_body_matches_in_zig_despite_missing_sibling() {
         "zig",
         "pub fn $NAME($$$ARGS) i32 { $$$BODY }",
     );
-    assert_eq!(matches.len(), 1, "Zig matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "Zig matched {} times, expected 1",
+        matches.len()
+    );
 }
 
 #[test]
@@ -366,10 +592,16 @@ fn multiple_multi_captures_terminate_within_attempt_budget() {
     );
 }
 
+#[cfg(feature = "tree-sitter-extended")]
 #[test]
 fn lua_pattern_matches_a_real_function_call() {
     let matches = run_pattern("local x = 1\nprint(x)\n", "lua", "print(x)");
-    assert_eq!(matches.len(), 1, "Lua matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "Lua matched {} times, expected 1",
+        matches.len()
+    );
     assert_eq!(matches[0].start_line, 2);
 }
 
@@ -380,17 +612,18 @@ fn php_pattern_matches_a_real_assignment() {
     // HTML/text, not code) — `text` never appears as a candidate when
     // walking a real (tagged) document, so this always matched nothing.
     let matches = run_pattern("<?php\n$x = 5;\n", "php", "$x = 5;");
-    assert_eq!(matches.len(), 1, "PHP matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "PHP matched {} times, expected 1",
+        matches.len()
+    );
 
     // A call-argument pattern also exercises the wrap since `$ARG` metavars
     // (PHP keeps `$` as its own expando, for real `$var` patterns) sit in a
     // valid expression position here, unlike a bare-word position such as a
     // function name.
-    let call_matches = run_pattern(
-        "<?php\nfindMe($a, $b);\n",
-        "php",
-        "findMe($ARG1, $ARG2)",
-    );
+    let call_matches = run_pattern("<?php\nfindMe($a, $b);\n", "php", "findMe($ARG1, $ARG2)");
     assert_eq!(
         call_matches.len(),
         1,
@@ -399,26 +632,7 @@ fn php_pattern_matches_a_real_assignment() {
     );
 }
 
-#[test]
-fn erlang_pattern_with_metavars_matches_a_real_function() {
-    let matches = run_pattern(
-        "-module(m).\nfindMe(A, B) -> A + B.\n",
-        "erl",
-        "$NAME($$$ARGS) -> $$$BODY.",
-    );
-    assert_eq!(matches.len(), 1, "Erlang matched {} times, expected 1", matches.len());
-}
-
-#[test]
-fn elixir_pattern_with_metavars_matches_a_real_def() {
-    let matches = run_pattern(
-        "defmodule M do\n  def findMe(a, b) do\n    a + b\n  end\nend\n",
-        "ex",
-        "def $NAME($$$ARGS) do $$$BODY end",
-    );
-    assert_eq!(matches.len(), 1, "Elixir matched {} times, expected 1", matches.len());
-}
-
+#[cfg(feature = "tree-sitter-extended")]
 #[test]
 fn zig_pattern_with_metavars_matches_a_real_function() {
     let matches = run_pattern(
@@ -426,17 +640,16 @@ fn zig_pattern_with_metavars_matches_a_real_function() {
         "zig",
         "pub fn $NAME($$$ARGS) i32 { $$$BODY }",
     );
-    assert_eq!(matches.len(), 1, "Zig matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "Zig matched {} times, expected 1",
+        matches.len()
+    );
 }
 
-// PHP and Bash both keep `$` as `Expando::primary` (so `$ARG`-shaped
-// argument/variable patterns stay valid PHP/Bash syntax), but neither
-// language accepts a `$`-prefixed token at a *bare-word* position — a
-// function name is a plain identifier in both. `Expando::bare_word` (`_`,
-// valid in both) is substituted there instead; `meta_from_node` recognizes
-// either character (see its doc comment). One test per language, each
-// checking both the previously-broken bare-word position AND that the
-// existing `$ARG`-position behavior didn't regress.
+// PHP variables keep `$`, while function names require a plain identifier.
+// Verify both positions after substituting `_` only for function names.
 
 #[test]
 fn php_pattern_matches_a_function_with_bare_word_name_position() {
@@ -445,7 +658,12 @@ fn php_pattern_matches_a_function_with_bare_word_name_position() {
         "php",
         "function $NAME($a, $b) { $$$BODY }",
     );
-    assert_eq!(matches.len(), 1, "PHP matched {} times, expected 1", matches.len());
+    assert_eq!(
+        matches.len(),
+        1,
+        "PHP matched {} times, expected 1",
+        matches.len()
+    );
     assert_eq!(
         matches[0].metavars.get("NAME").map(Vec::as_slice),
         Some(&["findMe".to_string()][..])
@@ -457,11 +675,7 @@ fn php_pattern_matches_a_function_with_bare_word_name_position() {
 
     // $ARG-position (call argument) metavars are unaffected by the
     // bare-word-position special case — same expando ($) either way.
-    let call_matches = run_pattern(
-        "<?php\nfindMe($a, $b);\n",
-        "php",
-        "findMe($ARG1, $ARG2)",
-    );
+    let call_matches = run_pattern("<?php\nfindMe($a, $b);\n", "php", "findMe($ARG1, $ARG2)");
     assert_eq!(
         call_matches.len(),
         1,
@@ -471,19 +685,36 @@ fn php_pattern_matches_a_function_with_bare_word_name_position() {
 }
 
 #[test]
-fn bash_pattern_matches_a_function_with_bare_word_name_position() {
-    let matches = run_pattern(
-        "findMe() {\n  echo hi\n}\n",
-        "sh",
-        "$NAME() {\n  $$$BODY\n}",
+fn structural_review_parser_interruption_resets_cached_parser() {
+    let language = lang("ts").tree_sitter_language();
+    let source = "const x = 1;\n".repeat(10_000);
+    let error =
+        parse_tree_with_deadline(&language, &source, Instant::now()).expect_err("cancel parse");
+    assert_eq!(error.code, "structural.parse.interrupted");
+    let next = parse_tree(&language, "probe();").expect("next independent document parses");
+    assert_eq!(next.root_node().end_byte(), 8);
+}
+
+#[test]
+fn structural_review_expired_match_deadline_is_explicit() {
+    let language = lang("ts").tree_sitter_language();
+    let tree = parse_tree(&language, "probe();").expect("tree");
+    let error = visit_named(tree.root_node(), Instant::now(), &mut |_| Ok(()))
+        .expect_err("expired deadline");
+    assert_eq!(error.code, "structural.match.deadline");
+}
+
+#[test]
+fn rust_raw_identifier_borrow_parses_without_recovery_and_matches() {
+    let source = "fn main() { let raw = 1; inspect(&raw); }";
+    let language = lang("rs").tree_sitter_language();
+    let tree = parse_tree(&language, source).expect("valid Rust parses");
+    assert!(
+        !tree.root_node().has_error(),
+        "borrowing an identifier named raw is valid Rust: {}",
+        tree.root_node().to_sexp()
     );
-    assert_eq!(matches.len(), 1, "Bash matched {} times, expected 1", matches.len());
-    assert_eq!(
-        matches[0].metavars.get("NAME").map(Vec::as_slice),
-        Some(&["findMe".to_string()][..])
-    );
-    assert_eq!(
-        matches[0].metavars.get("BODY").map(Vec::as_slice),
-        Some(&["echo hi".to_string()][..])
-    );
+    let matches = run_pattern(source, "rs", "inspect($X)");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].metavars["X"], vec!["&raw"]);
 }

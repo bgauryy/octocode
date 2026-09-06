@@ -1,6 +1,6 @@
 import { open, readFile, stat } from 'fs/promises';
 import { RESOURCE_LIMITS } from '../../../utils/core/constants.js';
-import { TOOL_NAMES } from '../../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../../toolMetadata/names.js';
 import { createErrorResult } from '../../../utils/file/toolHelpers.js';
 import type { LocalGetFileContentToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { FetchContentQuery } from '../scheme.js';

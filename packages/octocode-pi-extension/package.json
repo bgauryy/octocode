@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/pi-extension",
   "version": "18.3.0",
-  "description": "Official Octocode Pi package: native tools, npx CLI wiring, Awareness skill assets, prompts, and harness wiring.",
+  "description": "Official Octocode Pi package: research CLI and MCP integration, support tools, skills, prompts, and agent coordination.",
   "keywords": [
     "ai-coding",
     "coding-agent",
@@ -27,11 +27,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./shell": {
-      "types": "./dist/shell/index.d.ts",
-      "import": "./dist/shell/index.js",
-      "default": "./dist/shell/index.js"
-    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -40,10 +35,11 @@
     "docs/**",
     ".env.example",
     "README.md",
+    "HARNESS.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "dependencies": {
     "@earendil-works/pi-tui": "0.84.4",
@@ -56,9 +52,10 @@
     "chrome-launcher": "^1.2.1",
     "marked": "^18.0.5",
     "octocode": "^18.3.0",
-    "octocode-mcp": "^18.3.0",
+    "octocode-mcp": "^19.0.0",
     "smol-toml": "^1.8.0",
     "typebox": "^1.3.16",
+    "undici": "^8.10.2",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -90,7 +87,7 @@
   },
   "pi": {
     "extensions": [
-      "./dist/octocode/index.js"
+      "./dist/index.js"
     ],
     "themes": [
       "./themes"
@@ -108,10 +105,5 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.4"
-  },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    }
   }
 }

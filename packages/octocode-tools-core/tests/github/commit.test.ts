@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/github/client.js', () => ({
   getOctokit: vi.fn(),
+  resolveCacheAuthFingerprint: vi.fn(async () => 'test'),
 }));
 
 import { getOctokit } from '../../src/github/client.js';
 import { fetchCommit } from '../../src/github/commit.js';
+import { clearAllCache } from '../../src/utils/http/cache/management.js';
 
 const mockGetOctokit = vi.mocked(getOctokit);
 
@@ -60,6 +62,7 @@ function commitResponse() {
 }
 
 describe('fetchCommit', () => {
+  beforeEach(() => clearAllCache());
   it('uses the exact commit endpoint with the caller ref', async () => {
     const getCommit = vi.fn().mockResolvedValue(commitResponse());
     mockGetOctokit.mockResolvedValue({
@@ -76,6 +79,8 @@ describe('fetchCommit', () => {
       owner: 'octo',
       repo: 'repo',
       ref: 'feature~2',
+      per_page: 100,
+      page: 1,
     });
     expect(result.data).toMatchObject({
       type: 'commit',

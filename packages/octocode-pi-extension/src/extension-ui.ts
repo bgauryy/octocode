@@ -9,7 +9,7 @@ import {
 import { recordSessionTitle } from './tools/desktop-notify.js';
 import { getActiveDialLevel } from './tools/effort-dial.js';
 import { peerWipCount } from './tools/peer-wip.js';
-import { makeRenderer } from './tools/render-helpers.js';
+import { makeComponentRenderer } from './tools/render-helpers.js';
 import {
   activityPresentation,
   runtimeStoreFor,
@@ -46,7 +46,6 @@ export function getThinkingStatus(ctx: PiContext | undefined, level?: string): s
   return level ?? '';
 }
 
-export type OctocodeMetricsState = RuntimeFooterState;
 
 export function formatContextUsage(ctx: PiContext | undefined): { text: string; percent?: number } {
   const usage = ctx?.getContextUsage?.();
@@ -81,8 +80,8 @@ export function buildPlanFooterSegments(model: PlanReadModelV1): InlineSegment[]
     attention: model.summary.blocked > 0,
   }];
   const task = model.tasks.find((item) => item.status === 'doing')
-    ?? model.tasks.find((item) => item.status === 'blocked')
-    ?? model.tasks.find((item) => item.status === 'todo');
+    ?? model.tasks.find((item) => item.status === 'todo')
+    ?? model.tasks.find((item) => item.status === 'blocked');
   if (task) {
     const state = task.status === 'doing' ? '' : `${task.status} `;
     const extra = model.summary.running > 1 ? ` (+${model.summary.running - 1} active)` : '';
@@ -110,7 +109,7 @@ const footerRequestRenderByCtx = new WeakMap<object, () => void>();
 
 function buildOctocodeFooterLines(
   ctx: PiContext,
-  state: OctocodeMetricsState,
+  state: RuntimeFooterState,
   width: number,
   theme: PiTheme,
   footerData: { getGitBranch?: () => string | null | undefined } | undefined,
@@ -242,7 +241,7 @@ export function updateOctocodeMetricsUi(ctx: PiContext | undefined, _now = Date.
     footerRegisteredCtxs.add(ctx);
     setManagedFooter(ctx, (tui: unknown, theme, footerData) => {
       footerRequestRenderByCtx.set(ctx, () => (tui as { requestRender?: () => void } | undefined)?.requestRender?.());
-      const renderer = makeRenderer((width) => buildOctocodeFooterLines(ctx, store.getState().footer, width, theme, footerData));
+      const renderer = makeComponentRenderer((_props, { width }) => buildOctocodeFooterLines(ctx, store.getState().footer, width, theme, footerData), undefined);
       const repaint = () => {
         renderer.invalidate();
         footerRequestRenderByCtx.get(ctx)?.();

@@ -3,7 +3,7 @@ import { createSuccessResult } from '../../utils.js';
 import {
   mapPullRequestProviderResultData,
   mapPullRequestToolQuery,
-} from '../../providerMappers.js';
+} from '../../providerMappers/pullRequests.js';
 import {
   createLazyProviderContext,
   executeProviderOperation,

@@ -1,3 +1,5 @@
+import { truncateToWidth } from '../tui/width.js';
+import { paint } from '../tui/palette.js';
 /**
  * Octocode `bash` — same-name override of Pi's built-in bash.
  * Keeps full shell power for git/builds/sed, but blocks redirects / tee /
@@ -13,8 +15,8 @@ import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
 import { getShellConfig } from '@earendil-works/pi-coding-agent';
 import type { TSchema, ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
-import { paint } from '../tui/cli-design.js';
-import { buildToolView, makeRenderer, truncateToWidth } from './render-helpers.js';
+
+import { buildToolView, makeComponentRenderer } from './render-helpers.js';
 import { assertPathAllowed } from './path-guard.js';
 import { classifySensitiveCommand, requestApproval, type ApprovalRequest } from './approval.js';
 import type { PiContext } from '../types.js';
@@ -684,7 +686,7 @@ export function registerBashTool(
 
         if (queryResults) {
           const qCount = queryResults.length;
-          return makeRenderer((width) => {
+          return makeComponentRenderer((_props, { width: width }) => {
             const lines: string[] = buildToolView({
               name: BASH_TOOL_DISPLAY_NAME,
               state: ok ? 'success' : 'error',
@@ -723,7 +725,7 @@ export function registerBashTool(
               lines.push(truncateToWidth(paint(theme, 'muted', '  ctrl+o to expand full output'), width));
             }
             return lines;
-          });
+          }, undefined);
         }
 
         // Single query: status header + last N lines (tail is most useful for

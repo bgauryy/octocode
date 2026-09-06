@@ -15,14 +15,14 @@ Frame one question -> Act with one cheap call -> Observe status/results -> Learn
 ### Ledger
 
 Carry anchors forward exactly: paths, lines, match ranges, repository/package/PR ids, branch/ref, cursors, returned `next.*`. Never invent offsets or paths. Keep at least two plausible explanations alive while the answer is unsettled. <!-- style-lint: ignore-line passive-voice -->
-Default budget: 3-5 decisive iterations or about 15 minutes for normal tasks. Ask before extending the loop when the next step needs cloning/running code, expensive external research, broad repository scans, or a product/architecture decision.
+Use 3-5 decisive iterations as a checkpoint for ordinary investigations. Reassess the remaining uncertainty and continue authorized work when another useful check exists; explicit user budgets control stopping.
 
 ### Stop Tests
 
 Stop when any is true:
 - framed question is answered with grounded evidence and the alternate is killed; <!-- style-lint: ignore-line passive-voice -->
 - no cheap next step can change the conclusion;
-- iteration/token/wall-clock budget is hit;
+- an explicit user budget or an external prerequisite prevents continuation;
 - last iterations changed no state.
 
 If a loop stalls on the same `empty`/`error`, change surface or query shape: local ↔ GitHub ↔ npm ↔ history, text ↔ AST ↔ LSP ↔ path, broad ↔ narrow.

@@ -14,6 +14,9 @@
  * and only the top-level packages/<pkg>/package.json + root are scanned (the
  * exact-pinned native platform sub-packages under the per-package npm folders
  * are intentionally excluded).
+ * A runtime dependency repeated in devDependencies is also rejected: runtime
+ * dependencies are installed for development already, so the second entry can
+ * only drift or obscure ownership.
  */
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -81,12 +84,30 @@ const mismatches = Object.entries(declared).filter(
   ([, ranges]) => Object.keys(ranges).length > 1
 );
 
-if (mismatches.length === 0) {
-  console.log('✓ deps in sync — no version mismatches across workspace packages');
+const redundantDevDependencies = pkgs.flatMap(({ file, json }) => {
+  const runtime = json.dependencies || {};
+  const development = json.devDependencies || {};
+  return Object.keys(development)
+    .filter((name) => Object.hasOwn(runtime, name))
+    .map((name) => ({
+      file,
+      packageName: json.name || '(root)',
+      dependencyName: name,
+      runtimeRange: runtime[name],
+      developmentRange: development[name],
+    }));
+});
+
+if (mismatches.length === 0 && redundantDevDependencies.length === 0) {
+  console.log(
+    '✓ dependency declarations are consistent across workspace packages'
+  );
   process.exit(0);
 }
 
-console.log(`Found ${mismatches.length} dependency version mismatch(es):\n`);
+if (mismatches.length > 0) {
+  console.log(`Found ${mismatches.length} dependency version mismatch(es):\n`);
+}
 const target = {};
 for (const [name, ranges] of mismatches.sort((a, b) => a[0].localeCompare(b[0]))) {
   const winner = Object.keys(ranges).reduce(higher);
@@ -98,8 +119,25 @@ for (const [name, ranges] of mismatches.sort((a, b) => a[0].localeCompare(b[0]))
   }
 }
 
+if (redundantDevDependencies.length > 0) {
+  console.log(
+    `${mismatches.length > 0 ? '\n' : ''}Found ${redundantDevDependencies.length} redundant runtime/dev dependency declaration(s):\n`
+  );
+  for (const duplicate of redundantDevDependencies) {
+    const ranges =
+      duplicate.runtimeRange === duplicate.developmentRange
+        ? duplicate.runtimeRange
+        : `${duplicate.runtimeRange} (runtime), ${duplicate.developmentRange} (dev)`;
+    console.log(
+      `  ${duplicate.packageName}: ${duplicate.dependencyName}@${ranges}`
+    );
+  }
+}
+
 if (!FIX) {
-  console.log('\nRun `yarn deps:dedupe:fix` to align all to the highest version, then `yarn install`.');
+  console.log(
+    '\nRun `yarn deps:dedupe:fix` to align versions and remove redundant dev declarations, then `yarn install`.'
+  );
   process.exit(1);
 }
 
@@ -120,11 +158,17 @@ for (const { file, json } of pkgs) {
       }
     }
   }
+  for (const duplicate of redundantDevDependencies) {
+    if (duplicate.file === file && json.devDependencies?.[duplicate.dependencyName]) {
+      delete json.devDependencies[duplicate.dependencyName];
+      dirty = true;
+    }
+  }
   if (dirty) {
     writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
     changed++;
   }
 }
 console.log(
-  `\n✓ Aligned ${mismatches.length} dep(s) across ${changed} package.json file(s). Run \`yarn install\`.`
+  `\n✓ Aligned ${mismatches.length} dep(s) and removed ${redundantDevDependencies.length} redundant dev declaration(s) across ${changed} package.json file(s). Run \`yarn install\`.`
 );

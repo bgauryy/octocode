@@ -31,7 +31,7 @@ They are not separate implementations.
 
 Use `npx octocode <command> --help` for the live command help for any command.
 
-## Quick Start
+## Quick start
 
 ```bash
 npx octocode --help
@@ -49,7 +49,7 @@ Replace `npx octocode` with `octocode` when the package is installed globally.
 
 ---
 
-## `tools` — The Research Command
+## `tools` — the research command
 
 `tools` is the unified command for read-only research. Every capability MCP
 clients get — GitHub code/repo/PR/commit search, local text/AST search, file
@@ -91,8 +91,8 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```bash
 npx octocode tools localSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode/src"}'
 npx octocode tools localSearch --queries '{"operation":"text","path":"/ABS/repo/packages/octocode/src","searchText":"executeDirectTool","resultView":"discovery"}'
-npx octocode tools localGetFileContent --queries '{"path":"/ABS/repo/packages/octocode/src/cli/tool-command.ts","matchString":"executeDirectTool"}'
-npx octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/packages/octocode/src/cli/tool-command.ts","type":"references","symbolName":"executeToolCommand","lineHint":90}'
+npx octocode tools localGetFileContent --queries '{"path":"/ABS/repo/packages/octocode/src/cli/tool-command/execute.ts","matchString":"executeDirectTool"}'
+npx octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/packages/octocode/src/cli/tool-command/execute.ts","type":"references","symbolName":"executeToolCommand","lineHint":111}'
 ```
 
 ### Key flags for `tools`
@@ -110,7 +110,7 @@ npx octocode tools lspGetSemantics --queries '{"uri":"/ABS/repo/packages/octocod
 
 ---
 
-## `ghCloneRepo` — Materialize a GitHub Repo
+## `ghCloneRepo` — materialize a GitHub repository
 
 ```bash
 npx octocode tools ghCloneRepo --queries '{"owner":"vercel","repo":"next.js"}'
@@ -127,6 +127,13 @@ or `tools lspGetSemantics` on the returned absolute local path.
 ---
 
 ## Materialize remote files with `cache`
+
+`cache fetch` defaults to a clone, using a sparse checkout when a path is supplied.
+It does not guess file type from extensions. Choose `--depth file` for one text file
+or `--depth tree` for a bounded directory download. JSON output has one `location`
+object for paths, ref, cache status, and completeness. Partial downloads preserve
+`partialReasons` and executable `next` recovery calls, or `terminalLimit` when
+recovery is unavailable. A cached checkout does not imply fresh verification.
 
 ```bash
 npx octocode cache fetch vercel/next.js README.md --depth file
@@ -153,7 +160,7 @@ or `tools lspGetSemantics`.
 
 ---
 
-## `install` — MCP Client Setup
+## `install` — MCP client setup
 
 ```bash
 npx octocode install --ide cursor
@@ -181,7 +188,7 @@ Humans: run `login` once. Agents and CI: pass `OCTOCODE_TOKEN`, `GH_TOKEN`, or
 
 ---
 
-## `lsp-server` — Language Server Management
+## `lsp-server` — language server management
 
 ```bash
 npx octocode lsp-server list
@@ -192,9 +199,21 @@ npx octocode lsp-server install --all
 
 Use when `tools lspGetSemantics` reports an LSP server is unavailable.
 
+`lsp-server list` reports the managed-download servers, the
+toolchain-required servers, and a note naming packaged servers. It does not list
+every resolve-if-installed command. Use `lsp-server status FILE_PATH` to inspect
+the complete resolution ladder for one extension, including overrides,
+project-local executables, packaged servers, ecosystem locations, and managed
+downloads.
+
+Managed installation supports `rust-analyzer` and `clangd`. Ruby, Kotlin, Lua,
+Elixir, SQL, and Zig have built-in PATH/override routes but are not managed by
+`lsp-server install`. Scala and TOML require a custom
+`.octocode/lsp-servers.json` entry.
+
 ---
 
-## `skill` — Agent Skills
+## `skill` — agent skills
 
 The `octocode` package bundles the canonical Octocode skills from this repo's
 `skills/` directory at build/publish time. Install can use a bundled skill or
@@ -230,7 +249,7 @@ the canonical command syntax.
 
 ---
 
-## `context` — Agent Protocol
+## `context` — agent protocol
 
 ```bash
 npx octocode context --minimal   # cheapest: protocol + active tool names
@@ -243,7 +262,7 @@ Prints the research protocol and active tool descriptions. Use `--minimal` for t
 
 ---
 
-## Recommended Workflows
+## Recommended workflows
 
 ### Orient in a local codebase
 
@@ -302,7 +321,7 @@ npx octocode tools localSearch --queries '{"operation":"text","path":"./src","se
 
 ---
 
-## Output, Flags, and Exit Codes
+## Output, flags, and exit codes
 
 ### Common flags
 
@@ -321,10 +340,10 @@ npx octocode tools localSearch --queries '{"operation":"text","path":"./src","se
 
 | Code | Meaning |
 |---:|---|
-| `0` | Success. |
+| `0` | Successful execution, including a typed empty semantic payload. |
 | `1` | General error. |
 | `2` | Invalid input or unsupported flags. |
-| `3` | Not found: unknown command/tool, missing symbol, or empty semantic result. |
+| `3` | A command or tool execution failed with a classified not-found error. |
 | `4` | Authentication failure. |
 | `5` | Tool or API execution error. |
 | `7` | Rate limited. |
@@ -349,7 +368,7 @@ client must retain. Removed compatibility names are rejected.
 
 ---
 
-## How the CLI Aligns with MCP
+## How the CLI aligns with MCP
 
 | CLI surface | MCP alignment |
 |---|---|
@@ -362,14 +381,14 @@ client must retain. Removed compatibility names are rejected.
 
 The code boundary is intentionally thin:
 - `@octocodeai/octocode-tools-core` owns tool schemas, descriptions, and execution logic.
-- `@octocodeai/octocode-core` currently supplies the shared system prompt and reusable output types.
+- `@octocodeai/octocode-core` supplies the shared system prompt and reusable output types.
 - `@octocodeai/octocode-engine` owns native primitives (minify, structural search, LSP, secret scanning).
 - `octocode` renders commands in a terminal.
 - `octocode-mcp` registers the same tools for MCP clients.
 
 ---
 
-## Further Reading
+## Further reading
 
 - [Authentication Setup](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)
 - [MCP Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md)

@@ -1,8 +1,9 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../../toolNames.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
-import { fetchIssues } from '../../../github/issues.js';
+import { fetchIssues } from '../../../github/issues/orchestrator.js';
 import { isGitHubAPIError } from '../../../github/githubAPI.js';
+import { sanitizePullRequestContent } from '../historyContinuations.js';
 import type { ProcessedBulkResult } from '../../../types/toolResults.js';
 import type {
   GitHubPullRequestSearchInput,
@@ -112,7 +113,9 @@ export async function handleIssuesMode(
         owner: q.owner,
         repo: q.repo,
         number: issueNumber,
-        content: q.content,
+        content: sanitizePullRequestContent(q.content),
+        ...(q.pageSize === undefined ? {} : { pageSize: q.pageSize }),
+        ...(q.charOffset === undefined ? {} : { charOffset: q.charOffset }),
         ...(q.commentPage === undefined ? {} : { commentPage: q.commentPage }),
         ...(q.charLength === undefined ? {} : { charLength: q.charLength }),
       };
@@ -120,14 +123,29 @@ export async function handleIssuesMode(
       if (typeof body?.nextCharOffset === 'number') {
         body.nextQuery = {
           ...baseQuery,
+          content: { body: true },
           charOffset: body.nextCharOffset,
+        };
+      }
+      const commentBody = pagination.commentBody;
+      if (typeof commentBody?.nextCharOffset === 'number') {
+        commentBody.nextQuery = {
+          ...baseQuery,
+          content: sanitizePullRequestContent({
+            comments: q.content?.comments,
+          }),
+          charOffset: commentBody.nextCharOffset,
         };
       }
       const comments = pagination.comments;
       if (typeof comments?.nextCommentPage === 'number') {
         comments.nextQuery = {
           ...baseQuery,
+          content: sanitizePullRequestContent({
+            comments: q.content?.comments,
+          }),
           commentPage: comments.nextCommentPage,
+          charOffset: 0,
         };
       }
     }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildIssueSearchQuery,
   shouldUseSearchForIssues,
-} from '../../src/github/queryBuilders.js';
+} from '../../src/github/queryBuilders/issues.js';
 
 describe('buildIssueSearchQuery', () => {
   it('emits is:issue and never is:pr', () => {

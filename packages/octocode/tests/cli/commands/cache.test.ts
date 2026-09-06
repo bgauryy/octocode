@@ -18,7 +18,11 @@ const { mockPaths, getDirectorySizeBytes, existsSync, rmSync } = vi.hoisted(
   })
 );
 
-vi.mock('node:fs', () => ({ existsSync, rmSync }));
+vi.mock('node:fs', () => ({
+  existsSync,
+  rmSync,
+  statSync: () => ({ isFile: () => false }),
+}));
 
 vi.mock('@octocodeai/octocode-tools-core/paths', () => ({ paths: mockPaths }));
 vi.mock('@octocodeai/octocode-tools-core/fs-utils', () => ({
@@ -223,11 +227,15 @@ describe('cache command', () => {
       };
     };
     expect(parsed.success).toBe(true);
-    expect(parsed.source).toBe('tree');
-    expect(parsed.repoRoot).toBe('/tmp/octocode/tmp/tree/facebook/react/main');
-    expect(parsed.localPath).toBe(
+    expect(parsed.location.source).toBe('tree');
+    expect(parsed.location.repoRoot).toBe(
+      '/tmp/octocode/tmp/tree/facebook/react/main'
+    );
+    expect(parsed.location.localPath).toBe(
       '/tmp/octocode/tmp/tree/facebook/react/main/packages/react/index.js'
     );
+    expect(parsed).not.toHaveProperty('localPath');
+    expect(parsed).not.toHaveProperty('repoRoot');
     expect(parsed.location.kind).toBe('file');
     expect(parsed.location.source).toBe('tree');
     expect(parsed.location.localPath).toBe(
@@ -283,13 +291,17 @@ describe('cache command', () => {
       };
     };
     expect(parsed.success).toBe(true);
-    expect(parsed.localPath).toBe(
+    expect(parsed.location.localPath).toBe(
       '/tmp/octocode/tmp/tree/facebook/react/main/packages/react'
     );
-    expect(parsed.repoRoot).toBe('/tmp/octocode/tmp/tree/facebook/react/main');
-    expect(parsed.complete).toBe(true);
-    expect(parsed.verified).toBe(true);
-    expect(parsed.commitSha).toBe('0123456789abcdef0123456789abcdef01234567');
+    expect(parsed.location.repoRoot).toBe(
+      '/tmp/octocode/tmp/tree/facebook/react/main'
+    );
+    expect(parsed.location.complete).toBe(true);
+    expect(parsed.location.verified).toBe(true);
+    expect(parsed.location.commitSha).toBe(
+      '0123456789abcdef0123456789abcdef01234567'
+    );
     expect(parsed.location.kind).toBe('directory');
     expect(parsed.location.source).toBe('tree');
     expect(parsed.location.localPath).toBe(
@@ -301,6 +313,34 @@ describe('cache command', () => {
     expect(parsed.location.complete).toBe(true);
     expect(parsed.location.verified).toBe(true);
   });
+
+  it.each(['LICENSE', '.github', 'src/a.ts'])(
+    'uses clone as the unambiguous default for %s',
+    async remotePath => {
+      executeDirectTool.mockResolvedValue({
+        structuredContent: {
+          results: [
+            {
+              data: {
+                location: {
+                  localPath: '/tmp/repo',
+                  complete: true,
+                  cached: false,
+                },
+              },
+            },
+          ],
+        },
+      });
+      await run(['fetch', 'facebook/react', remotePath], { json: true });
+      expect(executeDirectTool).toHaveBeenCalledWith(
+        'ghCloneRepo',
+        expect.objectContaining({
+          queries: [expect.objectContaining({ sparsePath: remotePath })],
+        })
+      );
+    }
+  );
 
   // Regression: fetching a directory at the default `file` depth used to surface
   // the raw tool error "Use github.tree" — which lists, but doesn't bring
@@ -317,7 +357,7 @@ describe('cache command', () => {
       structuredContent: {},
     });
 
-    await run(['fetch', 'facebook/react', 'packages/react']);
+    await run(['fetch', 'facebook/react', 'packages/react'], { depth: 'file' });
 
     const errOut = vi.mocked(console.error).mock.calls.flat().join(' ');
     expect(errOut).toMatch(/--depth tree/);
@@ -337,7 +377,10 @@ describe('cache command', () => {
       structuredContent: {},
     });
 
-    await run(['fetch', 'facebook/react', 'packages/react'], { json: true });
+    await run(['fetch', 'facebook/react', 'packages/react'], {
+      json: true,
+      depth: 'file',
+    });
 
     const output = vi.mocked(console.log).mock.calls.flat().join('\n');
     const parsed = JSON.parse(output) as { success: boolean; error: string };

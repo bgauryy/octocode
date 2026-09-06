@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PUBLIC_TOOL_DESCRIPTIONS } from '../../../descriptions.js';
 
 import type { ToolSpec } from '../../types/index.js';
 import { defineTool } from './_toolkit.js';
@@ -11,8 +12,7 @@ export const ghSearch: ToolSpec = defineTool({
   type: 'Github',
   shortDescription:
     'Search GitHub code or repositories, or browse a repository tree.',
-  instructions: `Choose operation:"code" for code contents or file paths, "repositories" to discover repositories, or "tree" to browse a known repository.
-Each operation has a strict input branch; fields from other operations are rejected. Use ghGetFileContent only after a path is known. Empty GitHub search results do not prove absence.`,
+  instructions: PUBLIC_TOOL_DESCRIPTIONS.ghSearch,
   schema: {
     operation: 'Required: "code", "repositories", or "tree".',
   },

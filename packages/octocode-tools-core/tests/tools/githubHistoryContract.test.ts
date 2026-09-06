@@ -26,6 +26,48 @@ function expectSchemaResult(
 }
 
 describe('two-tool GitHub history public contract', () => {
+  it.each(['pullRequests', 'issues', 'commits'])(
+    'rejects unused minify on %s discovery in runtime and exported JSON schemas',
+    operation => {
+      for (const minify of ['none', 'standard']) {
+        expectSchemaResult(
+          GitHubSearchHistoryQueryLocalSchema,
+          { operation, owner: 'o', repo: 'r', minify },
+          false
+        );
+      }
+      expect(
+        GitHubSearchHistoryQueryLocalSchema.parse({
+          operation,
+          owner: 'o',
+          repo: 'r',
+        })
+      ).not.toHaveProperty('minify');
+    }
+  );
+  it.each([
+    { matchString: 'bug' },
+    { commentBodyOffset: 10 },
+    { minify: 'none' },
+  ])('rejects controls not implemented for issue details: %j', controls => {
+    expectSchemaResult(
+      GitHubGetHistoryItemQueryLocalSchema,
+      { operation: 'issue', owner: 'o', repo: 'r', number: 1, ...controls },
+      false
+    );
+    expectSchemaResult(
+      GitHubGetHistoryItemQueryLocalSchema,
+      {
+        operation: 'pullRequest',
+        owner: 'o',
+        repo: 'r',
+        number: 1,
+        ...controls,
+      },
+      true
+    );
+  });
+
   it('hard-cuts the three legacy public tools from catalog and specifications', () => {
     const expected = ['ghSearchHistory', 'ghGetHistoryItem'];
     const retired = [
@@ -327,11 +369,10 @@ describe('two-tool GitHub history public contract', () => {
         since: '3m',
       },
       {
-        operation: 'compare',
+        operation: 'commit',
         owner: 'o',
         repo: 'r',
-        base: 'main',
-        head: 'next',
+        ref: 'main',
         page: 2,
       },
       {

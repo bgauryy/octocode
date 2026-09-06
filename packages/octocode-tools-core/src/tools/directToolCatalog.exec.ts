@@ -2,8 +2,8 @@
  * Direct-tool EXECUTION path (P3). This module imports the engine (native LSP
  * client pool) and every tool's execution function via `ALL_TOOLS`, so it is the
  * one that loads the native `.node` addon at eval. It is reached only when a tool
- * actually runs — schema/help/`--scheme`/`context` use `directToolCatalog.meta.ts`
- * (and the `@octocodeai/octocode-tools-core/schema` subpath), which is engine-free.
+ * actually runs. Schema, help, and context use the engine-free
+ * `@octocodeai/octocode-tools-core/schema` entry point.
  */
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { initialize } from '../serverConfig.js';
@@ -11,7 +11,7 @@ import { initializeProviders } from '../providers/factory.js';
 import { getConfigSync } from '@octocodeai/config';
 import { runCacheMaintenanceIfDue } from '../cacheMaintenance.js';
 import { getOctocodeDir } from '../shared/paths.js';
-import type { ToolConfig } from './toolConfig.js';
+import type { ToolConfig } from './toolCatalogFactory.js';
 import { ALL_TOOLS } from './toolConfig.js';
 import {
   buildToolErrorResult,
@@ -25,7 +25,7 @@ import {
   DirectToolInputError,
   type DirectToolDefinition,
   type DirectToolInput,
-} from './directToolCatalog.meta.js';
+} from './directToolCatalog/toolCatalogDefinitions.js';
 
 type DirectToolRuntimeDefinition = DirectToolDefinition & {
   execute: (input: DirectToolInput) => Promise<CallToolResult>;
@@ -111,15 +111,14 @@ export async function executeDirectTool(
   name: string,
   input: unknown
 ): Promise<CallToolResult> {
-  const tool = findDirectToolRuntimeDefinition(name);
-  if (!tool) {
-    throw new Error(`Unknown tool: ${name}`);
-  }
-
   // LSP client cleanup is handled by the pool's idle timer (idleTimeoutMs,
   // unref()'d). Do not call releaseAllPooledClients() here — it would tear down
   // clients shared by concurrent LSP tool invocations in MCP server mode.
   try {
+    const tool = findDirectToolRuntimeDefinition(name);
+    if (!tool) {
+      throw new Error(`Unknown tool: ${name}`);
+    }
     const parsedInput = parseDirectToolInput(tool, input);
     assertDirectToolEnabled(tool);
     await ensureDirectToolRuntimeReady(tool);
@@ -128,7 +127,7 @@ export async function executeDirectTool(
     // Input parsing and runtime readiness can throw; convert to the same
     // structured error envelope as execution failures so non-CLI consumers
     // get a consistent result shape instead of an exception.
-    return buildToolErrorResult(tool.name, error);
+    return buildToolErrorResult(name, error);
   }
 }
 

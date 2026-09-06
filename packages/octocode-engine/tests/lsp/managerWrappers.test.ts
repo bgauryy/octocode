@@ -10,6 +10,7 @@ async function withMockedManager(
       ? vi.fn().mockRejectedValue(options.startError)
       : vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
+    isAlive: vi.fn().mockResolvedValue(true),
   };
   const LSPClient = vi.fn(function LSPClient() {
     return client;

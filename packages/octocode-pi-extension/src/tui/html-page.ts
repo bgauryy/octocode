@@ -36,6 +36,8 @@ export interface OctocodePageOptions {
   eyebrow?: string;
   /** Use the wider application shell for settings/control-center pages. */
   wide?: boolean;
+  /** Left-aligned document flow without panel containers, for plan review. */
+  layout?: 'document';
   /** Optional pre-escaped footer content. */
   footerHtml?: string;
 }
@@ -173,11 +175,15 @@ ${refresh}
   footer { color:var(--muted); font-size:.78rem; margin:1.6rem 0 .4rem; padding:1rem 1.15rem; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.72); }
   footer code { color:var(--violet); }
   @media (max-width:700px) { body{padding:.85rem}.brand-head{align-items:flex-start}.row{align-items:flex-start;flex-direction:column}section{border-radius:14px}table{display:block;overflow-x:auto} }
+  main.document { max-width:1100px; margin:0; text-align:left; }
+  .document section { background:none; border:0; border-radius:0; padding:0; box-shadow:none; margin:0 0 1.8rem; }
+  .document pre.mermaid { justify-content:flex-start; border:0; background:none; padding:0; }
+  .document footer { border:0; border-top:1px solid var(--line); border-radius:0; background:none; padding:1rem 0; }
 </style>
 ${mermaid}
 </head>
 <body>
-<main class="${opts.wide ? 'wide' : ''}">
+<main class="${opts.layout === 'document' ? 'document' : opts.wide ? 'wide' : ''}">
 <header class="brand-head"><div class="brand-mark" aria-hidden="true">O</div><div><p class="eyebrow">${escapeHtml(opts.eyebrow ?? 'Octocode · local control')}</p><h1>${escapeHtml(opts.title)}</h1><div class="sub">private, loopback-only workspace surface${live}</div></div></header>
 ${opts.bodyHtml}
 <footer>${opts.footerHtml ?? 'Configuration lives in <code>/settings</code> — your single place for MCP servers, tool enablement, skills, and prompt visibility.'}</footer>

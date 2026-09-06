@@ -60,8 +60,10 @@ vi.mock('../../src/github/client.js', () => ({
   resolveCacheAuthFingerprint: mocks.resolveCacheAuthFingerprint,
 }));
 
-vi.mock('../../src/utils/http/cache.js', () => ({
+vi.mock('../../src/utils/http/cache/key.js', () => ({
   generateCacheKey: mocks.generateCacheKey,
+}));
+vi.mock('../../src/utils/http/cache/dataCache.js', () => ({
   withDataCache: mocks.withDataCache,
 }));
 

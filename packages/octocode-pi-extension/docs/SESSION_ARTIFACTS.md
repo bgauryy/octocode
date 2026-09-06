@@ -13,7 +13,7 @@ during `session_shutdown` after the bounded result has exposed a chunk-read path
 Durable session outputs are written under:
 
 ```
-$OCTOCODE_HOME/extension/workspaces/<workspace-key>/sessions/<session-key>/
+$OCTOCODE_HOME/extension/sessions/<session-key>/
 ```
 
 Extension-private SQLite state for MCP and skill overrides, catalog metadata, and
@@ -27,7 +27,12 @@ This extension-owned database is separate from shared Awareness coordination and
 memory state. Plans, tasks, interactions, and memories continue to use the canonical
 shared database opened by `openAwareness` under `$OCTOCODE_HOME/agent`; they are an
 explicit exception to the extension-private storage root and are not copied or forked.
-With `storage.mode=memory`, the extension-private SQLite database is not opened.
+With `storage.mode=memory`, the extension-private SQLite database is not opened; the
+filesystem session indexes still work, while `lock`, `message`, and durable `memory`
+operations return an actionable disabled-persistence error.
+
+The JSON indexes are inspectable projections, not canonical coordination state. They
+never copy message bodies or durable memory rows from Awareness.
 
 The `session-key` is derived from the session ID (from the Pi session manager)
 combined with a SHA-256 fingerprint of the session + workspace, so:
@@ -35,6 +40,8 @@ combined with a SHA-256 fingerprint of the session + workspace, so:
 - **Different sessions** in the same workspace get different keys.
 - **Same session** always resolves to the same directory, even after restart.
 - The key format is: `<slug-of-session-id>-<12-char-hex-hash>` (for example, `my-session-a3f4b9c12d01`).
+- When Pi has no real session ID, documents use an opaque deterministic `pi-session-*` ID;
+  private session-file paths are not copied into the manifest or indexes.
 
 ---
 
@@ -42,6 +49,12 @@ combined with a SHA-256 fingerprint of the session + workspace, so:
 
 | What | Path inside `<session-key>/` | Written by |
 |------|------------------------------|------------|
+| Session identity and links | `session.json` | Session lifecycle |
+| Session memory | `memory.md` | Agent, bounded by prompt contract |
+| Session audit | `audit.md` | System lifecycle hooks |
+| Plan identity index | `plan/index.json` | Session lifecycle and `plan` tool |
+| Task projections | `tasks/index.json` | `plan` tool |
+| Backlog projection | `backlog/index.json` | Session lifecycle and `plan` tool |
 | Plan page (HTML) | `plan/plan.html` | `plan` tool |
 | Plan page (Markdown) | `plan/plan.md` | `plan` tool |
 | Plan state snapshot | `plan/state.json` | `plan` tool |
@@ -72,14 +85,22 @@ at the session root. You can open it any time to see exactly what the current
 session has produced:
 
 ```json
-// $OCTOCODE_HOME/extension/workspaces/<workspace-key>/sessions/<session-key>/manifest.json
+// $OCTOCODE_HOME/extension/sessions/<session-key>/manifest.json
 {
-  "version": 1,
+  "version": 2,
+  "sessionId": "my-session",
   "sessionKey": "my-session-a3f4b9c12d01",
+  "backlogId": "pi-backlog-8f1d2c3b4a59687766554433",
+  "identitySource": "session-id",
   "workspace": "/Users/you/myproject",
   "createdAt": "2026-08-24T10:00:00.000Z",
   "updatedAt": "2026-08-24T11:30:42.000Z",
   "producers": {
+    "session-index": {
+      "firstSeenAt": "2026-08-24T10:00:00.000Z",
+      "lastSeenAt": "2026-08-24T11:30:42.000Z",
+      "paths": ["session.json", "plan/index.json", "tasks/index.json", "backlog/index.json"]
+    },
     "plan": {
       "firstSeenAt": "2026-08-24T10:01:00.000Z",
       "lastSeenAt": "2026-08-24T11:30:42.000Z",
@@ -97,6 +118,11 @@ session has produced:
 }
 ```
 
+The manifest plus `session.json`, `plan/index.json`, `tasks/index.json`, and
+`backlog/index.json` all use the single current session artifact version (`2`). Earlier
+versions are rejected rather than upgraded or mixed. Read `session.json` when you need
+the explicit `sessionId`, `backlogId`, active `planId`, task IDs, or index paths.
+
 ---
 
 ## View the plan page
@@ -106,7 +132,7 @@ reloads only when the generated plan revision changes. You can
 open it in a browser directly:
 
 ```sh
-open "$(ls -dt "$OCTOCODE_HOME"/extension/workspaces/<workspace-key>/sessions/*/plan/plan.html | head -1)"
+open "$(ls -dt "$OCTOCODE_HOME"/extension/sessions/*/plan/plan.html | head -1)"
 ```
 
 Or use the `localServer` tool inside Octocode to serve it:
@@ -130,7 +156,7 @@ hook exceptions, and provider HTTP errors ≥ 400.
 
 ```sh
 # Find the current session's error log
-ls -t "$OCTOCODE_HOME"/extension/workspaces/<workspace-key>/sessions/*/logs/error.txt | head -1 | xargs cat
+ls -t "$OCTOCODE_HOME"/extension/sessions/*/logs/error.txt | head -1 | xargs cat
 ```
 
 Each entry includes: timestamp, uptime, source, cwd, model, severity, duration
@@ -252,10 +278,10 @@ few MB depending on screenshot count). You can safely delete old session trees:
 
 ```sh
 # List all session trees, sorted by age
-ls -lt "$OCTOCODE_HOME"/extension/workspaces/<workspace-key>/sessions/
+ls -lt "$OCTOCODE_HOME"/extension/sessions/
 
 # Remove trees older than 30 days
-find "$OCTOCODE_HOME"/extension/workspaces/<workspace-key>/sessions -maxdepth 1 -type d -mtime +30 -print
+find "$OCTOCODE_HOME"/extension/sessions -maxdepth 1 -type d -mtime +30 -print
 
 # After reviewing the printed paths, remove only the exact session directories you selected.
 ```

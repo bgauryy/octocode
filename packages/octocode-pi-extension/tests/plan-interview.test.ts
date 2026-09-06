@@ -23,7 +23,7 @@ vi.mock('../src/tools/ask-user-tool.js', () => ({
 }));
 
 import { registerPlanTool } from '../src/tools/plan-tool.js';
-import { getPlanDecisions, clearPlan } from '../src/tools/active-plan.js';
+import { getPlanDecisions, clearPlan, getPlanReviewState } from '../src/tools/active-plan.js';
 import { runtimeStoreFor } from '../src/tools/runtime-renderer.js';
 import type { ForegroundActivity } from '../src/tools/runtime-store.js';
 
@@ -99,6 +99,8 @@ test('plan(clarify) halts on cancel and keeps only prior answers', async () => {
   const res = await clarify([{ prompt: 'First?' }, { prompt: 'Second?' }, { prompt: 'Third?' }]);
   assert.deepEqual(getPlanDecisions(CWD), [{ q: 'First?', a: 'Yes' }], 'only the answered question is recorded');
   assert.match(res.content[0]!.text, /cancelled/i);
+  assert.equal(getPlanReviewState(CWD).phase, 'draft', 'cancellation returns to a stable draft');
+  assert.equal(res.activity?.kind, 'planning', 'footer no longer claims input is still pending');
 });
 
 test('plan(clarify) exposes a durable pending interaction instead of losing RPC correlation', async () => {

@@ -64,7 +64,7 @@ incomplete reports are removed rather than included with caveats in the
 headline calculation.
 
 Write new reports as
-`<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` using
+`<COMPARISON_NAME>-<TIME>-<DATE>.md` using
 [REPORT_TEMPLATE.md](../skills/octocode-benchmark/references/REPORT_TEMPLATE.md). Measurement is in Unicode
 characters delivered to the runner; correctness takes precedence over
 footprint. Failed probes inside a complete run remain counted.
@@ -74,4 +74,4 @@ footprint. Failed probes inside a complete run remain counted.
 | Comparison | Report | Outcome |
 |---|---|---|
 | Live 3-arm run (`octocode@18.2.2` vs `gh`+RTK and `gh`+Headroom) | [live-3arm-130222](live-3arm-130222-2026-08-09.md) | 30×1 fresh live run with three isolated runner agents and two blind judges. All 90 logs strict-valid. Octocode was leaner than RTK on 19/30 (geo 1.58×) and leaner than Headroom on 20/30 (geo 1.56×). Single pass only — not a headline replacement. |
-| Octocode (local build, prompt+desc fixes) vs `gh` + RTK | [localfix-020431](octocode-vs-gh-rtk-localfix-020431-2026-08-06.md) | 25×1, arm B = local out/octocode.js. Octocode more correct this pass (mean 9.72/9.24; paired B 5 win/17 tie/3 loss, p≈0.73 n.s.), ~3.2× leaner (geo-mean 3.24×), leaner 20/25. Targeted fixes improved Q21 (verbatim node value) & Q25 (diff-over-comment). Local-build probe, not a published-CLI headline; Q25 contested. |
+| Octocode (local build, prompt+description fixes) vs `gh` + RTK | [localfix-020431](octocode-vs-gh-rtk-localfix-020431-2026-08-06.md) | 25×1, arm B = local out/octocode.js. Octocode more correct this pass (mean 9.72/9.24; paired B 5 win/17 tie/3 loss, p≈0.73 n.s.), ~3.2× leaner (geo-mean 3.24×), leaner 20/25. Targeted fixes improved Q21 (verbatim node value) and Q25 (diff-over-comment). Local-build probe, not a published-CLI headline; Q25 contested. |

@@ -5,14 +5,16 @@ import type { SearchStats } from '../../../utils/core/types.js';
 import { RESOURCE_LIMITS } from '../../../utils/core/constants.js';
 import { MAX_MATCH_CONTENT_LENGTH, MAX_PAGE_NUMBER } from '../../../config.js';
 import type { RipgrepQuery } from '../scheme.js';
+import { rankFiles } from '../rankingProfile/rankingResults.js';
 import {
-  rankFiles,
   isLowSignalQueryPath,
-  type FileScore,
-  type RankContext,
   type RankSort,
   type RankingProfileId,
-} from '../rankingProfile.js';
+} from '../rankingProfile/rankingProfiles.js';
+import {
+  type FileScore,
+  type RankContext,
+} from '../rankingProfile/rankingScoring.js';
 
 import { buildSearchNextMap, type SearchNextMap } from './searchNext.js';
 
@@ -213,27 +215,8 @@ export async function buildSearchResult(
     matchPage: aligned.matchPage || 1,
     matchesPerPage,
     hasFileWithMoreMatches: filesWithMoreMatches.length > 0,
+    scanCapReached: stats?.capReached,
   });
-  const currentMaxFiles =
-    configuredQuery.maxFiles ?? RESOURCE_LIMITS.MAX_FILES_DEFAULT;
-  if (
-    stats?.capReached === true &&
-    currentMaxFiles < MAX_MATCH_CONTENT_LENGTH
-  ) {
-    next.expandScan = {
-      tool: 'local.text',
-      query: {
-        ...configuredQuery,
-        maxFiles: Math.min(
-          MAX_MATCH_CONTENT_LENGTH,
-          Math.max(currentMaxFiles + 1, currentMaxFiles * 2)
-        ),
-        page: 1,
-      },
-      why: 'Re-run with a larger file-scan bound because this search is partial.',
-      confidence: 'exact',
-    };
-  }
 
   const fullResult: LocalSearchResultWithNext = {
     searchEngine,
@@ -259,18 +242,7 @@ export async function buildSearchResult(
       : {}),
   };
 
-  return finalizeRipgrepResult(fullResult, configuredQuery, {
-    totalMatches,
-    totalFiles,
-  });
-}
-
-export function finalizeRipgrepResult(
-  result: LocalSearchCodeToolResult,
-  _query: RipgrepQuery,
-  _totals: { totalMatches: number; totalFiles: number }
-): LocalSearchCodeToolResult {
-  return result;
+  return fullResult;
 }
 
 type RankingDebug = {

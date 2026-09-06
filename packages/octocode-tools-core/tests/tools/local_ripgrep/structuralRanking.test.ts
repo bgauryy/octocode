@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSearchResult } from '../../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
+import { buildSearchResult } from '../../../src/tools/local_ripgrep/ripgrepResultBuilder/buildResult.js';
 import type { RipgrepQuery } from '../../../src/tools/local_ripgrep/scheme.js';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 

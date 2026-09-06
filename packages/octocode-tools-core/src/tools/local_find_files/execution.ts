@@ -1,7 +1,7 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { type FindFilesQuery, LocalFindFilesQuerySchema } from './scheme.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { findFiles } from './findFiles.js';
 import { safeParseOrError } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';

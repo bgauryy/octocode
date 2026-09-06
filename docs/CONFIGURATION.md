@@ -213,6 +213,16 @@ Conditional file and structure requests can retain a stale body and ETag for up 
 
 ---
 
+### npm registries and authentication
+
+`npmSearch` loads npm configuration for each query: environment settings, project and user `.npmrc`, global configuration, and npm defaults. `NPM_CONFIG_REGISTRY` selects the default registry; `NPM_CONFIG_USERCONFIG` selects your npm configuration file. npm's lowercase equivalents are supported.
+
+Exact `@scope/package` queries honor `@scope:registry`. The tool's optional `registry` field overrides routing for one query and its returned continuations. Keyword search uses one selected registry. Without overrides, the default is `https://registry.npmjs.org/`.
+
+Keep credentials in registry-scoped npm configuration. Environment values such as `${NPM_TOKEN}` are expanded by npm's configuration loader; setting a token variable alone does not associate it with a registry. Both exact reads and keyword search use the resolved credentials. Do not put tokens into tool arguments or registry URLs. Results cached under one configuration identity are not reused under a different identity.
+
+---
+
 ### `.env` — third-party API keys
 
 **What it is:** A plain key=value file for third-party API keys used by Octocode's web search and any agent skills you install. It is **not** for Octocode's own settings.
@@ -600,12 +610,11 @@ npx octocode status --json
 | No token / 401 | Run `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
-| `ghCloneRepo` unavailable | Clone is opt-in (off by default). Set `ENABLE_CLONE=true` in your shell/env block, or `local.enableClone: true` in `.octocoderc`. Also check that `OCTOCODE_STORAGE_MODE` is not `memory`, and that `TOOLS_TO_RUN` / `DISABLE_TOOLS` don't exclude it. |
+| `ghCloneRepo` unavailable | Check `tools --json` for the effective availability gate. Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`. Materialization also requires `OCTOCODE_STORAGE_MODE=persistent`; tool allowlists and disable lists still apply. |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
-| A legacy local tool is unavailable | Add its exact name to `TOOLS_TO_RUN` or `tools.enabled`; include every other required tool because the list is strict |
-| A tool is missing | Check `TOOLS_TO_RUN` (strict allowlist) and `DISABLE_TOOLS` |
+| A tool is missing | Inspect `tools --json` for registered names and availability. Check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
-| Web search low quality | Add `TAVILY_API_KEY` to `~/.octocode/.env` |
+| A skill's external search is unavailable | Follow that skill's provider and credential instructions. The ten-tool Octocode catalog does not expose a general web-search tool. |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` in your shell or MCP `env` block (off by default) |
 | `.env` key ignored | Octocode blocks token vars in `.env` — use your shell or the MCP `env` block |
 | `.env` key not loading | Confirm the agent session restarted and the project is trusted |

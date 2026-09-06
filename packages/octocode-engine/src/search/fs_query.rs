@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
-use crate::file_extension::get_extension_internal;
+use crate::text::file_extension::get_extension_internal;
 use crate::types::{FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult};
 
 const DEFAULT_LIMIT: usize = 10_000;
@@ -175,8 +175,9 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
     };
 
     for dir_entry in read_dir {
-        if query.stop_at_limit && state.entries.len() >= query.limit {
-            state.total_discovered = state.total_discovered.saturating_add(1);
+        // Look ahead to one additional matching entry before declaring overflow.
+        // Reaching the stored-entry cap alone does not prove the scan is partial.
+        if query.stop_at_limit && state.total_discovered as usize > query.limit {
             return;
         }
         let dir_entry = match dir_entry {
@@ -217,7 +218,7 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
 
         if query.recursive && is_directory {
             walk_children(&path, depth + 1, query, state);
-            if query.stop_at_limit && state.entries.len() >= query.limit {
+            if query.stop_at_limit && state.total_discovered as usize > query.limit {
                 return;
             }
         }
@@ -313,8 +314,14 @@ fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) ->
 }
 
 fn matches_extension(path: &Path, metadata: &fs::Metadata, extensions: &[String]) -> bool {
-    if extensions.is_empty() || metadata.is_dir() {
+    if extensions.is_empty() {
         return true;
+    }
+    // Directories are traversal state, not extension matches. `walk_children`
+    // recurses independently after this predicate, so excluding them from the
+    // result set does not prune descendants that may have an allowed extension.
+    if !metadata.is_file() {
+        return false;
     }
     let extension = get_extension_internal(&file_name(path), true, "");
     !extension.is_empty() && extensions.iter().any(|allowed| allowed == &extension)
@@ -729,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_files_by_extension_without_pruning_directories() {
+    fn filters_files_by_extension_without_returning_traversal_directories() {
         let root = temp_root("extension");
         fs::create_dir_all(root.join("src")).expect("create src");
         File::create(root.join("src/a.TS")).expect("create ts");
@@ -749,7 +756,7 @@ mod tests {
             .map(|entry| entry.name.as_str())
             .collect::<Vec<_>>();
         names.sort_unstable();
-        assert_eq!(names, vec!["a.TS", "src"]);
+        assert_eq!(names, vec!["a.TS"]);
         fs::remove_dir_all(root).expect("cleanup");
     }
 

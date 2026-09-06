@@ -28,6 +28,7 @@ describe('first-class Awareness coordination tools', () => {
   let ws: string;
   let tools: Map<string, ToolDefinition>;
   const prevAgent = process.env['OCTOCODE_AGENT_ID'];
+  const prevStorageMode = process.env['OCTOCODE_STORAGE_MODE'];
 
   const run = async (name: string, args: Record<string, unknown>): Promise<{ result: ToolCallResult; text: string; json: unknown }> => {
     const tool = tools.get(name)!;
@@ -52,6 +53,8 @@ describe('first-class Awareness coordination tools', () => {
   afterEach(() => {
     if (prevAgent === undefined) delete process.env['OCTOCODE_AGENT_ID'];
     else process.env['OCTOCODE_AGENT_ID'] = prevAgent;
+    if (prevStorageMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
+    else process.env['OCTOCODE_STORAGE_MODE'] = prevStorageMode;
     rmSync(ws, { recursive: true, force: true });
   });
 
@@ -149,6 +152,20 @@ describe('first-class Awareness coordination tools', () => {
     const rendered = message.renderResult?.(sent.result, {}, undefined)?.render(80).join('\n') ?? '';
     expect(rendered).toMatch(/message/i);
     expect(rendered.length).toBeLessThan(sent.text.length);
+  });
+
+  it('returns actionable errors for lock and message when persistent storage is disabled', async () => {
+    process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
+
+    const lock = await run('lock', one({ action: 'acquire', file: 'memory-mode.ts' }));
+    expect(lock.result.isError).toBe(true);
+    expect(lock.text).toMatch(/storage\.mode=memory/i);
+    expect(lock.text).toMatch(/persistent storage is disabled/i);
+
+    const message = await run('message', one({ action: 'read' }));
+    expect(message.result.isError).toBe(true);
+    expect(message.text).toMatch(/storage\.mode=memory/i);
+    expect(message.text).toMatch(/persistent storage is disabled/i);
   });
 
   it('renders a held lock as a tool-specific warning', async () => {

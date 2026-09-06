@@ -7,12 +7,16 @@ import {
   getCloneDir,
   getTreeDir,
   getCloneBaseDir,
+} from '../../../src/tools/github_clone_repo/cachePaths.js';
+import {
   createCacheMeta,
   writeCacheMeta,
   evictExpiredClones,
-  cleanupStaleCloneArtifacts,
-  writeCloneLockMeta,
 } from '../../../src/tools/github_clone_repo/cache.js';
+import {
+  cleanupStaleMaterializationArtifacts,
+  writeCloneLockMeta,
+} from '../../../src/tools/github_clone_repo/cacheArtifacts.js';
 
 describe('slash-branch cache directory encoding', () => {
   let octocodeDir: string;
@@ -117,36 +121,42 @@ describe('clone temporary artifact cleanup', () => {
     rmSync(octocodeDir, { recursive: true, force: true });
   });
 
-  it('removes stale clone temporaries but preserves unrelated tmp state', () => {
-    const stale = join(octocodeDir, 'tmp', 'clone-tmp', 'stale');
-    const sentinel = join(octocodeDir, 'tmp', 'plan', 'keep');
-    mkdirSync(stale, { recursive: true });
-    mkdirSync(sentinel, { recursive: true });
+  it.each(['clone-tmp', 'tree-staging'])(
+    'removes stale %s temporaries but preserves unrelated tmp state',
+    folder => {
+      const stale = join(octocodeDir, 'tmp', folder, 'stale');
+      const sentinel = join(octocodeDir, 'tmp', 'plan', 'keep');
+      mkdirSync(stale, { recursive: true });
+      mkdirSync(sentinel, { recursive: true });
 
-    const evicted = cleanupStaleCloneArtifacts(
-      octocodeDir,
-      Date.now() + 20 * 60 * 1000
-    );
+      const evicted = cleanupStaleMaterializationArtifacts(
+        octocodeDir,
+        Date.now() + 20 * 60 * 1000
+      );
 
-    expect(evicted).toBe(1);
-    expect(existsSync(stale)).toBe(false);
-    expect(existsSync(sentinel)).toBe(true);
-  });
+      expect(evicted).toBe(1);
+      expect(existsSync(stale)).toBe(false);
+      expect(existsSync(sentinel)).toBe(true);
+    }
+  );
 
-  it('reclaims a stale dead-owner lock but preserves a live-owner lock', () => {
-    const locks = join(octocodeDir, 'tmp', 'clone-locks');
-    const dead = join(locks, 'dead');
-    const live = join(locks, 'live');
-    mkdirSync(dead, { recursive: true });
-    mkdirSync(live, { recursive: true });
-    const old = Date.now() - 10 * 60 * 1000;
-    writeCloneLockMeta(dead, 2_147_483_647, old);
-    writeCloneLockMeta(live, process.pid, old);
+  it.each(['clone-locks', 'tree-locks'])(
+    'reclaims a stale dead-owner %s lock but preserves a live-owner lock',
+    folder => {
+      const locks = join(octocodeDir, 'tmp', folder);
+      const dead = join(locks, 'dead');
+      const live = join(locks, 'live');
+      mkdirSync(dead, { recursive: true });
+      mkdirSync(live, { recursive: true });
+      const old = Date.now() - 10 * 60 * 1000;
+      writeCloneLockMeta(dead, 2_147_483_647, old);
+      writeCloneLockMeta(live, process.pid, old);
 
-    const evicted = cleanupStaleCloneArtifacts(octocodeDir);
+      const evicted = cleanupStaleMaterializationArtifacts(octocodeDir);
 
-    expect(evicted).toBe(1);
-    expect(existsSync(dead)).toBe(false);
-    expect(existsSync(live)).toBe(true);
-  });
+      expect(evicted).toBe(1);
+      expect(existsSync(dead)).toBe(false);
+      expect(existsSync(live)).toBe(true);
+    }
+  );
 });

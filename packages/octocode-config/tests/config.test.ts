@@ -1494,6 +1494,14 @@ describe('resolveSession', () => {
 // ─── isStatsEnabled ───────────────────────────────────────────────────────────
 
 describe('isStatsEnabled', () => {
+  it.each(['TRUE', ' true ', ' 1 '])('uses the shared Boolean parser for %s', value => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: value, OCTOCODE_STORAGE_MODE: 'persistent' })).toBe(true);
+  });
+
+  it('normalizes the memory storage gate before allowing stats writes', () => {
+    expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: ' MEMORY ' })).toBe(false);
+  });
+
   it('returns false when env var is unset', () => {
     expect(isStatsEnabled({})).toBe(false);
   });

@@ -1,12 +1,10 @@
 import { z } from 'zod';
 
-import type { ToolSpec } from '../../types/index.js';
 import {
   buildObject,
   charLength,
   charOffset,
   DEFAULT_GITHUB_SEARCH_LIMIT,
-  defineTool,
   intRange,
   MAX_GITHUB_SEARCH_LIMIT,
   MAX_LINE_NUMBER,
@@ -15,73 +13,68 @@ import {
   StringArray,
 } from './_toolkit.js';
 
-const pullRequestHistoryContract: ToolSpec = defineTool({
-  name: 'ghSearchHistory',
-  type: 'Github',
-  shortDescription:
-    "Search GitHub pull requests, or read one PR's files, diffs, and reviews.",
-  instructions: `Use for PR history, diffs, and review context; use code tools for current bytes, commits for history, and issues for issue threads. Conversation is context: prove landed behavior from selected patches or the merge SHA.
-List mode uses search filters; detail mode needs owner, repo, prNumber, and explicit content selectors. Selected patches need files or ranges. Continue windows and lists with returned offsets/pages. Use local/LSP for symbol identity.`,
-  schema: {
-    keywords: 'PR search terms.',
-    match:
-      'PR text fields searched by keywords: title, body, comments. ghSearch operation:"code" instead uses match to select file content or paths.',
-    prNumber: 'PR detail mode; requires owner+repo.',
-    concise: 'PR list triage; list mode only.',
-    state: 'open, closed, or merged.',
-    assignee: 'Assigned GitHub login.',
-    author: 'PR author login.',
-    commenter: 'Commenter login.',
-    mentions: 'Mentioned login.',
-    'review-requested': 'Requested reviewer login.',
-    'reviewed-by': 'Reviewer login.',
-    checks: 'success, failure, or pending.',
-    review: 'approved, changes_requested, required, or none.',
-    comments: 'Comment-count range filter (">5"); not comment content.',
-    reactions: 'Reaction-count range filter (">10").',
-    created: 'Created date/range, e.g. ">2024-01-01" or "a..b".',
-    updated: 'Updated-date filter (same format as created).',
-    closed: 'Closed-date filter (same format as created).',
-    'merged-at': 'Merged-date filter (same format as created).',
-    head: 'Head branch name filter.',
-    base: 'Base branch name filter.',
-    label: 'Label name(s); multiple are ANDed.',
-    draft: 'true = only drafts; false = exclude drafts.',
-    archived: 'Include PRs from archived repos.',
-    sort: 'created, updated, comments, reactions, best-match.',
-    order: 'asc/desc; asc+created helps archaeology.',
-    filePage: 'Changed-files page from contentPagination.',
-    commentPage: 'Comments page from contentPagination.',
-    commitPage: 'PR commits page from contentPagination.',
-    content: 'Detail selector for prNumber.',
-    'content.body': 'Include the PR description body.',
-    'content.changedFiles': 'Include changed files and +/- counts.',
-    'content.patches': 'Patch selector for changed files.',
-    'content.patches.mode': '"selected" or "all"; selected is cheapest.',
-    'content.patches.files':
-      'Restrict selected patches to these files (mode:"selected").',
-    'content.patches.ranges': 'Line ranges for selected patch hunks.',
-    'content.patches.ranges.file': 'File the line range applies to.',
-    'content.patches.ranges.additions': 'Added-side line numbers to include.',
-    'content.patches.ranges.deletions': 'Deleted-side line numbers to include.',
-    'content.comments': 'Conversation and inline-review selectors.',
-    'content.comments.discussion': 'Include the PR conversation timeline.',
-    'content.comments.reviewInline': 'Include inline review threads.',
-    'content.comments.includeBots': 'Include bot/CI comments.',
-    'content.comments.file': 'Filter comments to one file path.',
-    'content.reviews': 'Include review verdicts per reviewer.',
-    'content.commits': 'PR-bound commits selector.',
-    'content.commits.includeFiles': 'Attach per-commit file changes.',
-    matchString: 'Substring filter for body/patch/comment windows.',
-    charOffset: 'Body/patch continuation offset from nextQuery.',
-    commentBodyOffset: 'Comment-body continuation offset from nextQuery.',
-    minify:
-      '"standard" compact patches; "none" exact diff; "symbols" not available.',
-    pageSize: 'PRs or detail-list items returned per page.',
-  },
-});
-
-const prose = pullRequestHistoryContract.schema;
+const prose = {
+  keywords: 'PR search terms.',
+  match:
+    'PR text fields searched by keywords: title, body, comments. ghSearch operation:"code" instead uses match to select file content or paths.',
+  prNumber: 'PR detail mode; requires owner+repo.',
+  concise: 'PR list triage; list mode only.',
+  state: 'open, closed, or merged.',
+  assignee: 'Assigned GitHub login.',
+  author: 'PR author login.',
+  commenter: 'Commenter login.',
+  mentions: 'Mentioned login.',
+  'review-requested': 'Requested reviewer login.',
+  'reviewed-by': 'Reviewer login.',
+  checks: 'success, failure, or pending.',
+  review: 'approved, changes_requested, required, or none.',
+  comments: 'Comment-count range filter (">5"); not comment content.',
+  reactions: 'Reaction-count range filter (">10").',
+  created: 'Created date/range, e.g. ">2024-01-01" or "a..b".',
+  updated: 'Updated-date filter (same format as created).',
+  closed: 'Closed-date filter (same format as created).',
+  'merged-at': 'Merged-date filter (same format as created).',
+  head: 'Head branch name filter.',
+  base: 'Base branch name filter.',
+  label: 'Label name(s); multiple are ANDed.',
+  draft: 'true = only drafts; false = exclude drafts.',
+  archived: 'Include PRs from archived repos.',
+  sort: 'created, updated, comments, reactions, best-match.',
+  order: 'asc/desc; asc+created helps archaeology.',
+  filePage: 'Changed-files page from contentPagination.',
+  commentPage: 'Comments page from contentPagination.',
+  commitPage: 'PR commits page within the current provider batch.',
+  reviewPage:
+    'Reviews page within the current provider batch; copy next.nextReviewsPage.',
+  collectionPages:
+    'Provider batch positions from next.*; copy unchanged. Zero marks an exhausted source. Each call fetches at most one page per requested source.',
+  content: 'Detail selector for prNumber.',
+  'content.body': 'Include the PR description body.',
+  'content.changedFiles': 'Include changed files and +/- counts.',
+  'content.patches': 'Patch selector for changed files.',
+  'content.patches.mode': '"selected" or "all"; selected is cheapest.',
+  'content.patches.files':
+    'Restrict selected patches to these files (mode:"selected").',
+  'content.patches.ranges': 'Line ranges for selected patch hunks.',
+  'content.patches.ranges.file': 'File the line range applies to.',
+  'content.patches.ranges.additions': 'Added-side line numbers to include.',
+  'content.patches.ranges.deletions': 'Deleted-side line numbers to include.',
+  'content.comments':
+    'Select discussion and/or reviewInline explicitly; omitted surfaces are not fetched.',
+  'content.comments.discussion': 'Include the PR conversation timeline.',
+  'content.comments.reviewInline': 'Include inline review threads.',
+  'content.comments.includeBots': 'Include bot/CI comments.',
+  'content.comments.file': 'Filter comments to one file path.',
+  'content.reviews': 'Include review verdicts per reviewer.',
+  'content.commits': 'PR-bound commits selector.',
+  'content.commits.includeFiles': 'Attach per-commit file changes.',
+  matchString: 'Substring filter for body/patch/comment windows.',
+  charOffset: 'Body/patch continuation offset from nextQuery.',
+  commentBodyOffset: 'Comment-body continuation offset from nextQuery.',
+  minify:
+    '"standard" compacts PR body/comments/reviews and trims diff context; "none" preserves selected text after redaction. Match reads retain source text. No symbols mode.',
+  pageSize: 'PRs or detail-list items returned per page.',
+};
 
 export const SearchPullRequestsQuerySchema = buildObject(prose, {
   ...metaFields,
@@ -124,6 +117,22 @@ export const SearchPullRequestsQuerySchema = buildObject(prose, {
   filePage: optionalPageNumber(),
   commentPage: optionalPageNumber(),
   commitPage: optionalPageNumber(),
+  reviewPage: optionalPageNumber(),
+  collectionPages: z
+    .object({
+      changedFiles: z.number().int().min(0).max(30).optional(),
+      discussion: z
+        .number()
+        .int()
+        .min(0)
+        .max(Number.MAX_SAFE_INTEGER)
+        .optional(),
+      inline: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+      reviews: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+      commits: z.number().int().min(0).max(5).optional(),
+    })
+    .strict()
+    .optional(),
   content: buildObject(
     prose,
     {
@@ -159,7 +168,16 @@ export const SearchPullRequestsQuerySchema = buildObject(prose, {
           file: z.string().optional(),
         },
         'content.comments'
-      ).optional(),
+      )
+        .refine(
+          comments =>
+            comments.discussion === true || comments.reviewInline === true,
+          {
+            message:
+              'content.comments needs discussion:true and/or reviewInline:true.',
+          }
+        )
+        .optional(),
       reviews: z.literal(true).optional(),
       commits: buildObject(
         prose,
@@ -182,6 +200,8 @@ export const SearchPullRequestsQuerySchema = buildObject(prose, {
     'filePage',
     'commentPage',
     'commitPage',
+    'reviewPage',
+    'collectionPages',
     'matchString',
     'commentBodyOffset',
     'charOffset',

@@ -1,894 +1,218 @@
 # Octocode research manifest
 
-**Abstract.** Agentic code research fails in two symmetric ways. An LLM
-reasoning without deterministic backing hallucinates line numbers and
-generalizes from one grep; deterministic tools without an LLM directing them
-cannot decide what the question even is. This manifest specifies the routing
-algorithm that avoids both failure modes for Octocode's 17-tool surface (grep,
-AST, LSP, and provider search spanning local disk, GitHub/npm, and a
-federated query layer), and it describes how each tool behaves in practice
-rather than what its documentation claims. Where a behavior is config-gated
-or a known gap, it is flagged inline instead of smoothed over. §0 through §2b
-build the model, §3 through §8 are the operational algorithm, §9 through §11
-are the mechanics, §12 and §13 are anti-patterns and known limitations, and
-§14 places this work against the context-engineering literature.
+Octocode research connects a question to inspectable code evidence. The agent
+chooses the scope and evaluates the evidence; tools retrieve source, syntax,
+repository topology, language-server results, and provider records. A successful
+search locates a candidate. It does not by itself establish identity, completeness,
+or behavior.
 
-**Related work.** This manifest covers *deterministic* retrieval (grep, AST,
-LSP, provider index) at per-query granularity. Adjacent art: SWE-agent's
-agent-computer-interface theory ([arXiv:2405.15793](https://arxiv.org/abs/2405.15793))
-designs tool *interfaces* but no operational routing; aider's
-[repo-map](https://aider.chat/docs/repomap.md) does graph-ranked context selection
-under a token budget (a whole-context optimization this doc does not attempt);
-OpenDev ([arXiv:2603.05344](https://arxiv.org/html/2603.05344v1)) ships anchor-based
-retrieval selection and layered LSP without evidence-grading or verification;
-tool surveys (for example, rywalker's code-intelligence comparison, March 2026) give
-per-*product* guidance where this doc routes per-*query*. AutoWiki-style
-generators (Factory AutoWiki, Devin DeepWiki, Google Code Wiki, LangChain
-OpenWiki) solve a different problem, continuously-regenerated repository narrative,
-and are consumed, not implemented, by this manifest: see §1c. For the retrieval
-lanes this manifest deliberately does not use, see §1b. For where this manifest's
-own retrieval-layer scope sits against the wider 2025–2026 context-engineering
-literature (compaction, memory, sub-agent isolation), see §14.
+This page explains how to choose and combine the ten public tools. Use the
+[tool reference](OCTOCODE_TOOLS.md) for parameters, the
+[research skill](https://github.com/bgauryy/octocode/blob/main/skills/octocode-research/SKILL.md) for executable workflows,
+and the [contributor acceptance guide](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
+for validation requirements.
 
-**Contents.** [0](#0-the-thesis-agentic-research-not-agentic-guessing) The
-thesis, [1](#1-the-core-model) Core model, [1b](#1b-the-lanes-this-manifest-does-not-use-embeddings-and-knowledge-graphs)
-Lanes not used, [1c](#1c-existing-wikisdocs-as-a-lead-not-a-lane-not-proof)
-Wikis as a lead, [1d](#1d-three-dimensions-read-together-structure-stream-connections)
-Three dimensions, [2](#2-tool-matrix) Tool matrix, [2b](#2b-bulk-queries-parallelism-and-triangulation)
-Bulk triangulation, [3](#3-the-router-primary-decision-tree) The router,
-[4](#4-where-does-the-code-live-local-vs-external-gate) Local/external gate,
-[4b](#4b-matchstring-the-anchor-read-primitive-use-it-by-default) matchString,
-[5](#5-local-algorithm-the-loop-in-full) LOCAL algorithm, [6](#6-external-algorithm-github--npm)
-EXTERNAL algorithm, [7](#7-node_modules-first-before-any-external-hop) node_modules-first,
-[8](#8-local--external-bridges) Local/external bridges, [9](#9-minification-modes-and-tradeoffs)
-Minification, [9b](#9b-smart-schema-pay-for-the-contract-only-when-youre-about-to-use-it)
-Smart schema, [10](#10-pagination-cursor-families) Pagination,
-[11](#11-failure-semantics-and-recovery) Failure semantics, [12](#12-anti-patterns-each-observed-to-cost-real-round-trips)
-Anti-patterns, [13](#13-strengths-and-known-limitations)
-Strengths and limitations, [14](#14-where-this-sits-in-the-context-engineering-literature)
-Literature position, [Appendix](#appendix-tool-agnostic-mapping) Tool-agnostic mapping.
+## Discover the contract before the query
 
----
+Run these commands from the monorepo root after building the CLI:
 
-## 0. The thesis: agentic research, not agentic guessing
-
-Agentic research works when an LLM's judgment (what to look for, when evidence
-is enough, which lane to trust, what "impact" or "unused" even means here) is
-paired with tooling that is deterministic and semantic exactly where an LLM is
-not: exact line numbers, exhaustive matches, provable call graphs, canonical
-continuations. Octocode's tools exist to carry that second half so the agent's
-reasoning budget goes to judgment, not bookkeeping. Reasoning without
-deterministic backing hallucinates line numbers and "confirms" from one grep;
-deterministic tools without an agent directing them can't decide what the
-question even is. The local/external/federated loop in §1 isn't incidental
-plumbing to route around. It's the mechanism that makes agentic research
-work at all.
-
-**The semantic fallback ladder.** When the strongest lane can't answer, the
-next lane down still can, which is what makes "I don't know" rare instead of
-a dead end: LSP unsupported for a language (§5, Rust `documentSymbols`) falls
-back to `minify:"symbols"` (tree-sitter, language-wide, not LSP-dependent) or
-lexical grep; GitHub's provider index returns `providerUnindexed` or a false
-zero (§6) falls back to materializing the path and grepping it locally;
-LSP call-hierarchy returns zero callers, which is a capability signal, not an
-absence proof (§11), so cross-check lexically before concluding. Worked
-example with the exact tool output: §5.5.
-
-Seven mechanisms make the loop cheap in practice:
-
-1. **Hints: the tool plans your next call.** Direct tool results ship
-   prefilled, copy-paste follow-up fields, not only a path. A text hit for a
-   symbol returns `next.lspDefinition` (a semantic query anchored on the
-   containing file) and `next.fetch` (a content query anchored on the
-   match), both directly executable. Each continuation carries its own
-   `why` and `confidence`, explaining *why* it is offered, not only that one
-   exists.
-2. **Pagination: follow executable continuations, not numeric hints.**
-   Every bounded or partial axis exposes a schema-valid `next.*` call. Page,
-   match-page, scan, limit, line, character, and provider-incomplete axes each
-   get their corresponding continuation. When a public or provider cap cannot
-   be continued, `meta.diagnostics.codes` contains `terminalLimitReached`.
-   Numeric `nextPage`, `nextCharOffset`, cursors, and raw `nextQuery` objects
-   are supporting metadata, not runnable continuations (§10).
-3. **Smart schema: pay for what you ask for, not what you might ask for.**
-   Schema is tiered and opt-in. The tool catalog (`tools --json`, names and
-   one-liners) is what an agent sees by default; a tool's full field-level
-   schema (`tools <name> --scheme --json`) is far larger and is fetched only
-   right before that tool is called raw. Full breakdown: §9b.
-4. **Smart moves across local/external/federated.** The bridge is explicit
-   at three depths (§8: `ghCloneRepo`, `ghCloneRepo sparsePath`,
-   `ghGetFileContent type:"directory"`); one call converts remote code to
-   local-grade evidence. Treat those explicit bridge calls as the reliable
-   mechanism — a GitHub read never implicitly materializes, so call one of
-   them deliberately. Separately: a query
-   against `colinhacks/zod/packages` surfaces §7's warning directly. The
-   current default branch is a `packages/` monorepo (v3/v4 split), not the
-   flat `src/` layout an agent might assume. GitHub's tree is not the
-   installed version's shape.
-5. **Smart token management: minify on demand, never by default surprise.**
-   Three views of the same file, in decreasing size: exact content, a
-   `standard` view that strips comments and blanks, and a `symbols` view
-   that keeps only signatures and constants with a line-gutter number. Pull
-   the outline first (§9); pay for full bodies only on the lines that matter.
-6. **Reasoning fields: state the goal before you fire, honestly scoped.**
-   Every query object carries `id`, `mainResearchGoal`, `researchGoal`,
-   `reasoning`. Traced through the source (`utils/response/bulk.ts`): `id`
-   is resolved by `resolveQueryId()` and genuinely echoed back on every bulk
-   result for correlation, but `mainResearchGoal`/`researchGoal`/`reasoning`
-   are accepted and typed, then explicitly excluded from the echoed payload
-   by name (`bulk.ts`'s `excludedKeys` set): accepted and typed, not (yet)
-   consumed downstream. Their real value is forcing the *agent* to state
-   what it's trying to learn and why this specific call advances it before
-   the call fires. That's a discipline against impulsive, ungrounded queries,
-   not a server-side feature. Use the discipline; don't oversell what isn't
-   wired up yet.
-7. **Multi-angle batching: one call, several angles, not only several
-   independent lookups.** The 5-query batch (§2) isn't only for unrelated
-   parallel lookups. Fire the SAME question through different lanes in one
-   call and let disagreement between the angles be the finding. Worked
-   example: §2b.
-
----
-
-## 1. The core model
-
-Two research surfaces, bridged explicitly, one loop:
-
-```
-LOCAL      workspace files, node_modules, cloned/materialized repos
-           → localSearch, localGetFileContent, localAnalyzeGraph,
-             lspGetSemantics
-
-EXTERNAL   GitHub (code, trees, files, PRs, commits) and npm
-           → ghSearch, ghGetFileContent, ghSearchHistory, ghGetHistoryItem,
-             npmSearch
-
-BRIDGE     ghCloneRepo (or ghGetFileContent type:"directory") converts
-           remote code to local-grade evidence, then LOCAL tools take over
+```bash
+node packages/octocode/out/octocode.js tools --json
+node packages/octocode/out/octocode.js tools localSearch --scheme --json --compact
+node packages/octocode/out/octocode.js tools ghGetHistoryItem --scheme --json
 ```
 
-There is no single query planned across both surfaces — call the bridge
-explicitly, then run local tools on the result.
+The catalog shows available tools and configuration gates. A compact schema
+exposes fields, operation variants, and conditional relations. Read the full
+schema when a nested selector is abbreviated: for example, selected PR patches
+support both file selection and added/deleted line ranges.
 
-Evidence has grades. Treat them differently:
+Raw execution uses `tools TOOL_NAME --queries 'JSON' --compact`; replace
+`TOOL_NAME` with a catalog name and `JSON` with an object or a batch of up to five
+query objects. Batch independent queries for the same tool. Sequence calls when
+one needs an identity, path, source line, or continuation from another.
 
-| Grade | Source | Trust |
+Queries can include the optional `goal` and `reasoning` fields shown in the full
+schema. Result `index` identifies the corresponding query. Do not add fields
+from another operation or assume a former tool name remains an alias.
+
+## Choose the evidence surface
+
+| Tool | Question it answers | Evidence boundary |
 |---|---|---|
-| **semantic** | LSP (definitions, references, callers) | Proven identity, but scoped to the language project; blind to scripts, re-exports-as-text, strings, docs |
-| **structural** | AST match with metavar ranges | Proven shape: complete-node semantics, exact captures |
-| **lexical** | ripgrep text/regex (rows come pre-classified: `kind: declaration/callsite/import/comment` + scoreHint) | Total coverage: sees everything, proves nothing about identity |
-| **provider** | GitHub search index | Weakest: default-branch only, unindexed/archived repositories return false zeros. `providerSemanticsApproximate` gives no line numbers |
+| `localSearch` | Where is text, syntax, a path, or a directory entry? | Text proves occurrence; AST proves syntax within the searched scope. |
+| `localGetFileContent` | What does a known local file contain? | `none` preserves selected source apart from security redaction; transformed views are lossy. |
+| `localAnalyzeGraph` | Which files depend on one another or form paths and cycles? | Syntactic file topology; unresolved imports and excluded files limit coverage. |
+| `lspGetSemantics` | Which definition, references, callers, or types does the server resolve? | Server and project scope limit semantic evidence. |
+| `ghSearch` | Which indexed code, repositories, or tree paths are candidates? | Code search uses GitHub's indexed default branch; a tree query can select a ref. |
+| `ghGetFileContent` | What is in a known remote file or directory snapshot? | Pin the ref for reproducibility; file views and provider limits still apply. |
+| `ghSearchHistory` | Which PRs, issues, or commits are candidates? | Discovery identifies records; it does not fetch every detail surface. |
+| `ghGetHistoryItem` | What does a known PR, issue, commit, or comparison contain? | Selected detail can have independent list and content continuations. |
+| `ghCloneRepo` | How can remote source become a local checkout? | Cloning supplies source; local analysis supplies proof. |
+| `npmSearch` | Which package metadata and source repository match the request? | Package metadata does not prove source behavior or installed-version equivalence. |
 
-**A core guideline:** avoid concluding from a single
-grade. Semantic and lexical lanes each miss things the other catches. LSP
-`callers` of a function can miss a diverged duplicate implementation in a
-`.mjs` script or a barrel re-export; a grep pass catches both. Grep alone,
-conversely, cannot distinguish a call from a comment. The *disagreement
-between lanes is itself a finding*.
+Tool availability, a recognized extension, a parser fixture, and a running
+language server are separate facts. The
+[language and feature reference](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md)
+separates structural grammars, outlines, graph extraction, LSP routing, and
+minification configuration.
 
----
+## Local workflow
 
-## 1b. The lanes this manifest does NOT use: embeddings and knowledge graphs
+Start at the cheapest step that resolves the missing evidence. A known path does
+not need another repository-wide search.
 
-Two retrieval families exist in the field that this toolset deliberately omits;
-know when they would beat you, and say so rather than pretending they don't exist.
+1. **Orient when the area is unfamiliar.** Use `localSearch` with `operation:"tree"`
+   for layout or `operation:"files"` for names and metadata. Supply an absolute
+   `path`; use `names` for file patterns and `namePattern` for tree filtering.
+2. **Locate an anchor.** Use `operation:"text"` with `searchText` for identifiers,
+   messages, and literals. Choose the regex mode explicitly when interpretation
+   matters. Use `operation:"structural"` with exactly one of `pattern` or `rule`
+   when the question concerns a syntax shape.
+3. **Read the relevant source.** Use `localGetFileContent` with a returned line
+   range or `matchString`. Set `minify:"none"` when quoting or examining precise
+   syntax. An outline helps identify declarations before reading their bodies.
+4. **Map topology when needed.** Use graph `dependencies`, `dependents`, `path`,
+   `cycles`, `reachability`, or `deadCode`. Review diagnostics for skipped files,
+   unresolved edges, and bounded results.
+5. **Resolve identity when needed.** Use `lspGetSemantics` with a real `uri`,
+   `symbolName`, and `lineHint` for anchored operations. `documentSymbols` and
+   `diagnostic` operate on a document; `workspaceSymbol` searches the server's
+   workspace without requiring a symbol line.
+6. **Validate the conclusion.** Read relevant callers and imports, check lexical
+   wiring outside the language project, and run affected tests before deleting
+   code or asserting changed behavior.
 
-**Indexed/semantic retrieval (embeddings, vector search).** Tools like
-claude-context (embeddings+BM25) and grepai index the repository and answer *fuzzy
-concept queries* ("where is retry logic handled?") without exact terms. If it
-existed here it would slot into §1's table as **indexed**: high recall on
-fuzzy concepts across huge unfamiliar corpora, proves nothing about identity,
-adds index-staleness risk (results reflect the index, not the working tree).
-Vendor token-reduction claims (40-97%) are mostly self-reported, so weigh
-accordingly.
+AST patterns establish shape, not server-resolved identity. A zero-match pattern
+can indicate a grammar or pattern mismatch. An empty LSP result can indicate
+server capability or project scope. Neither is sufficient evidence of no usage.
+Graph dead-code results are candidates, especially where imports cannot resolve.
 
-**When the deterministic loop still wins:** you hold *any* concrete handle
-(identifier, filename, error string, code shape), and the router (§3) reaches
-proof-grade evidence with zero index setup and zero staleness. **When an
-index wins:** purely conceptual queries over very large unfamiliar codebases
-where synonym-regex grep fans out too wide. This manifest's fallback for that
-case is orientation (§3 "nothing" branch: tree, hotspot map, symbols
-skeletons), slower than a good index, but always fresh and evidence-graded.
+Use the installed dependency version when investigating local runtime behavior.
+If repository access rules permit reading installed packages, inspect their
+metadata and entrypoints. Otherwise, use the lockfile and source version evidence
+available within the authorized scope. Do not substitute the upstream default
+branch for the installed version without checking the relationship.
 
-**Knowledge graphs / code graphs.** Graph tools precompute blast-radius and
-impact edges. Here that job is done at query time by LSP call hierarchy plus
-the mandatory cross-check (§5.3-5.5): correct per-query, but not precomputed.
-For repository-wide impact sweeps at very large monorepo scale, expect a
-precomputed graph to be materially cheaper; this loop has not been validated
-at that scale.
+## External workflow
 
-**Positioning in one line:** deterministic-first, evidence-graded, zero-index,
-and honest that fuzzy-concept recall at mega-scale is the one job where an
-indexed lane is the better entry point (the router still applies for the
-verification steps that follow).
+When a repository is unknown, start with `npmSearch` or `ghSearch(operation:"repositories")` repository
+discovery. For npm, choose exactly one of `packageName` or `keywords`; pagination
+applies to keyword discovery. Preserve the returned repository subdirectory when
+the package lives in a monorepo.
 
----
+Use `ghSearch(operation:"tree")` to establish layout and path case. Use
+`operation:"code"` for indexed candidates: `match:"path"` searches paths and
+`match:"file"` searches file content. Code-search snippets can be transformed and
+are not an exact-source substitute. An empty result does not prove absence on a
+different branch or outside the provider index.
 
-## 1c. Existing wikis/docs as a lead: not a lane, not proof
+Read a selected path with `ghGetFileContent`. Supply an observed commit SHA in
+`branch` when the claim depends on a fixed revision. Record the resolved identity;
+a branch name can move between calls. Fetch exact source before quoting a search
+snippet or interpreting a diff in isolation.
 
-AutoWiki-style tools (Factory AutoWiki, Devin DeepWiki, Google Code Wiki,
-LangChain OpenWiki) generate and continuously refresh repository-level narrative
-docs, architecture summaries, module maps, sometimes a chat layer, synced
-through `git diff` on push. When a repository already has one (`ARCHITECTURE.md`,
-`droid-wiki/`, `openwiki/`, `.devin/wiki.json`, a GitHub Wiki tab, or a
-DeepWiki/Code Wiki page), it is a **fast orientation lead**, not a new evidence
-grade: treat its claims exactly like a provider snippet, useful for naming
-entry points and shaping the first query, worthless for "impact is X" or
-"unused" without the §5.5 cross-check. Two failure modes to watch for: the
-doc describes an old shape of the code (staleness, worse than no doc, because
-it's confidently wrong), and the doc's own confidence reads as proof when it
-isn't. This manifest does not generate or maintain such docs (out of scope,
-that is the cited tools' job); it only consumes them as a router input (§3).
+For repeated reads, AST queries, graph analysis, or semantic verification, use
+`ghCloneRepo` and then the local tools on its returned path. A sparse checkout or
+`ghGetFileContent(type:"directory")` can materialize a smaller scope. These
+operations require persistent storage and their configured availability gates.
+Inspect catalog diagnostics rather than assuming cloning is enabled.
 
----
+Materialization does not install dependencies or language servers, and a sparse
+scope can omit files required for resolution. Reading or cloning external source
+does not itself authorize executing that source.
 
-## 1d. Three dimensions, read together: structure, stream, connections
+## History workflow
 
-Every codebase question can be approached from three angles, each individually
-incomplete and only additive when combined:
+Use `ghSearchHistory` with plural operations: `pullRequests`, `issues`, or
+`commits`. PR discovery can be global; issue and commit queries require `owner`
+and `repo`. Commit discovery supports path, time, author, and branch constraints.
+Fields belonging to one operation are not interchangeable with another.
 
-```
-STRUCTURE    the tree: where things live, how big, how named, how nested
-             → localSearch operation:"tree" or "files", ghSearch operation:"tree"
+Pass the returned identity to `ghGetHistoryItem`:
 
-STREAM       the text: what is actually written, exact bytes or an outline
-             → localGetFileContent, ghGetFileContent, localSearch (lexical)
-
-CONNECTIONS  the graph: who calls/imports/extends/implements what, proven shapes
-             → lspGetSemantics, localSearch operation:"structural"
-```
-
-None of the three substitutes for the others, and each is silent about what
-it can't see rather than flagging the gap:
-
-- **Structure alone** gives layout, not meaning: a file named `auth.ts` sitting
-  next to `session.ts` proves nothing about what either does, or whether they
-  interact.
-- **Stream alone** (grep/read) sees everything but proves nothing about
-  identity: it cannot tell a real call from a comment, a string, or a
-  same-named symbol in an unrelated scope (§1's lexical grade).
-- **Connections alone** (LSP/AST) is proof-grade but capability-scoped:
-  unsupported languages, dynamic dispatch, string-based wiring, and
-  non-project scripts are invisible to it (§1's semantic grade; §11's
-  `serverUnavailable` means capability absence, not "no usage").
-
-This is not a fourth lane on top of §1's evidence grades, it is a naming of a
-pattern that is already load-bearing elsewhere in this manifest, made
-explicit so it is reached for on purpose rather than by accident: §5's
-ORIENT → MAP → PROVE sequence walks exactly structure → stream → connections
-for one target; §3's "nothing" branch opens with a tree call (structure)
-before a hotspot grep (stream); §2b's triangulation worked example is a
-stream/connections disagreement on the same claim, and the mismatch itself
-was the finding. Combined orientation is where those threads generalize:
-before concluding anything nontrivial about an unfamiliar area, pull at
-least two of the three dimensions, not only the one that happens to be
-cheapest or most habitual. An agent that only ever greps (never checks
-structure, never proves with LSP) or only ever calls LSP (never rereads the
-tree, never falls back to text) builds a systematically partial model of the
-code and has no signal that it's partial, because each dimension only
-answers what it was asked and stays silent on the rest. The cost of the
-extra dimension is small (one `localSearch`, one
-`minify:"symbols"` pass, §9) relative to the cost of a wrong "impact is X"
-or "this is unused" built on a single angle (§12, item 2).
-
----
-
-## 2. Tool matrix
-
-| Tool | Surface | Role | Reach for it when |
-|---|---|---|---|
-| `localSearch` | local | text/regex/AST, file metadata, and tree discovery | any local discovery question; choose an operation first |
-| `localGetFileContent` | local | read file / matchString slices / line ranges | reading after you have coordinates |
-| `lspGetSemantics` | local | definitions, references, callers/callees, hover, symbols, types | proving identity and impact |
-| `ghSearch` | external | GitHub code/path, repository, and tree discovery through strict operations | locating and orienting in repositories you don't have |
-| `ghGetFileContent` | external | read GitHub file (slices/ranges/symbols); `type:"directory"` materializes a subtree | reading remote files; bridging remote→local |
-| `ghSearchHistory` | external | search PR, issue, or commit candidates through strict plural operations | locate history evidence and its stable identity |
-| `ghGetHistoryItem` | external | fetch a PR/issue by `number`, commit by `ref`, or comparison by `base`+`head` | inspect why code changed or what a thread established |
-| `npmSearch` | external | package → source repository (+ `repositoryDirectory`) | resolving a dependency to its home |
-| `ghCloneRepo` | bridge | full/sparse clone (**default on; `ENABLE_CLONE=false` disables**) | whole-repository local analysis |
-
-Bulk: every tool takes up to 5 parallel queries per call with per-query `id`.
-Batch independent probes into ONE call: it is the cheapest parallelism you have.
-That is only half the value of the batch. See §2b for using it to triangulate
-one question instead of merely parallelizing unrelated ones.
-
----
-
-## 2b. Bulk queries: parallelism AND triangulation
-
-The 5-query batch is usually read as a speed feature (5 independent lookups,
-1 round-trip). It is also a **correctness** feature: fire the same question
-through different lanes (lexical, structural with one shape, structural with
-another shape) in a single call, and treat any disagreement between the
-angles as the actual finding, not noise to average away.
-
-Worked example: one `localSearch` bulk call against this repository's own
-`packages/octocode-awareness/src/db.ts`, asking one question three ways:
-*"is the `_db` module singleton ever reassigned or read-guarded outside
-`connectDb`?"*
-
-| Angle | Query | Result |
+| Operation | Identity | Detail selection |
 |---|---|---|
-| lexical | `keywords:"_db\s*="` (regex) | 1 hit, the assignment inside `connectDb` |
-| structural (assignment shape) | `pattern:"_db = $VAL"` | 1 hit, AST-proven, same assignment, now identity-confirmed |
-| structural (guard shape, guessed) | `pattern:"if (!_db) { $$$BODY }"` | **0 hits** |
-
-The third angle's zero looked like "no read-guard exists." It was wrong about
-the *shape*, not the *fact*. A follow-up lexical angle (`matchString:"!_db"`)
-immediately found `if (!_db) throw new Error('Database not connected...')` in
-`getDb()`, a real guard, but brace-less, so the guessed AST pattern
-(`{ $$$BODY }`) could not match a single-statement `if`. One angle alone would
-have closed the question wrong ("no guard"); three-plus angles in one batch
-turned the mismatch itself into a finding (§11: structural 0 matches is a
-shape signal, not an absence proof) instead of a silently wrong conclusion.
-
-**When to spend a batch slot on a second angle instead of a second file:**
-whenever the question is a claim ("this is unused", "this is never
-reassigned", "this is always guarded") rather than a location lookup. Location
-lookups want 5 independent files/paths; claims want 2-3 angles on the *same*
-target: lexical for total coverage, structural for shape-proof, and (per
-§5.5) semantic when a callable identity is in question.
-
----
-
-## 3. The router (primary decision tree)
-
-Route by **what you already hold**, not by a fixed pipeline order.
-Running grep first when you hold a symbol name wastes a hop; running LSP first
-when you hold only a concept cannot work at all. Whichever branch you enter,
-the destination is still at least two of §1d's three dimensions
-(structure/stream/connections) before you conclude anything, not only the
-one the branch started with.
-
-```
-WHAT DO I HOLD?
-│
-├─ Nothing, AND a wiki/doc artifact already exists (§1c: ARCHITECTURE.md,
-│  droid-wiki/, openwiki/, .devin/wiki.json, GitHub Wiki, DeepWiki/Code Wiki)
-│    → read it first for orientation and named entry points ← a lead, not proof
-│    → re-enter router (§3) to verify any specific claim before relying on it
-│
-├─ Nothing (unfamiliar codebase, no wiki/doc artifact)
-│    → localSearch operation:"tree", maxDepth 1-2
-│    → localSearch operation:"text", resultView:"countMatches" on the domain term
-│    → then re-enter router with what you learned
-│
-├─ A concept / behavior (words, no identifier)
-│    → localSearch operation:"text" with synonym regex: "halfLife|half_life|HALF_LIFE"
-│    → top file → localGetFileContent minify:"symbols"          ← the anchor sheet
-│
-├─ An identifier (function/class/const name)
-│    → lspGetSemantics workspaceSymbol                          ← skip grep for locating
-│    → callers/callees (callables) or references groupByFile (everything else)
-│
-├─ A code shape ("all X calls that do Y")
-│    → localSearch operation:"structural" with a rule       ← metavars = typed extraction
-│
-├─ A package name
-│    → node_modules FIRST (§7), npmSearch only to find the repo
-│
-├─ A "why" / history question
-│    → ghSearchHistory operation:"pullRequests" (title-first) or operation:"commits" (owner/repo/path)
-```
-
----
-
-## 4. Where does the code live? (LOCAL vs EXTERNAL gate)
-
-Before any external call, ask: **is the code already on disk?**
-
-```
-Is it my workspace code?                → LOCAL tools. Done.
-Is it a dependency I have installed?    → node_modules IS local. Search it (§7). Done.
-Is it a repo I already materialized?    → the localPath from a previous fetch/clone. Done.
-Only then                               → EXTERNAL (GitHub/npm), and consider
-                                          materializing early if >2 reads are coming (§8).
-```
-
-`localSearch` over `node_modules/zod` (with `excludeDir: []` and
-`noIgnore: true`, since node_modules is excluded by default) finds the exact
-installed source fast, with the version that runs, which GitHub's
-default branch is NOT guaranteed to be.
-
----
-
-## 4b. matchString: the anchor-read primitive (use it by default)
-
-`matchString` on `localGetFileContent` / `ghGetFileContent` is the most effective
-read mode in the toolset. Instead of guessing line ranges or paging a whole file,
-you hand it the string (or regex) you care about and get back only the relevant
-slices, **plus machine-usable anchors for the next step**. This works the same
-way on workspace files and on clone-materialized files:
-
-```
-localGetFileContent / ghGetFileContent
-  matchString: "sanitizeStructuredContent"       ← literal, case-insensitive default
-  matchString: "export function (decayScore|decayComponents)"
-    + matchStringIsRegex: true                    ← regex anchors
-  contextLines: N                                 ← raise to capture whole bodies
-```
-
-What you get:
-- **Merged slices, not N reads**: repeated occurrences of the same string in
-  a file come back merged into a handful of slices with real
-  `... [N lines omitted] ...` separators, one call instead of one read per
-  occurrence.
-- **`matchRanges[]`**: exact `{start,end}` line ranges per slice. Feed them
-  straight into `startLine/endLine` follow-ups or LSP `lineHint`.
-- **The warning text names your anchors**: a message like "Found occurrences
-  on lines X, Y, Z, and more. These lines are lineHint anchors for
-  lspGetSemantics." The tool is literally handing you the next call.
-- **Regex mode fetches multiple related definitions in one read** (several
-  function definitions plus their signatures through one regex, with surrounding
-  context lines).
-- **Works identically remote**: same anchors from a GitHub file, so you can go
-  ghSearch operation:"code" (which file) to ghGetFileContent matchString (which lines) to
-  materialize to LSP at those lines, without ever reading a full file.
-- **Direct tool results go further than a warning string**: a code-search
-  row's `next` object is a directly-executable query, not prose. `next.fetch`
-  and `next.lspDefinition` come back pre-populated with the target tool and params
-  filled in (§0). Each continuation carries `why` and `confidence`,
-  explaining *why* that continuation was offered — for example, `"Read the code at
-  this symbol location."` / `confidence:"exact"`. That's reasoning support,
-  not only a pointer.
-
-Default read policy: **matchString first, line ranges second, fullContent last**
-(small files only). If you know *what* you're looking for but not *where*, this
-is always the cheapest correct read. Related but different: `ghGetHistoryItem`
-detail selectors bound PR patches/comments to the requested sections (same idea,
-different surface).
-
----
-
-## 5. LOCAL algorithm (the loop, in full)
-
-Steps 0-3 below are §1d's three dimensions in sequence for one target:
-ORIENT is structure, MAP is stream (outlined), PROVE is connections. Step 5
-folds stream back in as a cross-check on what connections alone proved.
-
-```
-0. ORIENT     (skip if you know the area)
-   localSearch operation:"tree" - shape of the directory
-   resultView:"countMatches"  - which files carry the concern, instantly: one
-                                `keywords:"session"` call over
-                                octocode-awareness/src ranked sessions.ts,
-                                pi-hooks.ts, intents.ts, db.ts at the top,
-                                a hotspot map with zero snippets read
-
-1. LOCATE     (router entry, §3)
-
-2. MAP        localGetFileContent minify:"symbols" on the winning file: a
-              small skeleton (§9), every signature kept with a line-gutter
-              number that is a ready LSP anchor. This one call often
-              answers concept questions outright.
-
-3. PROVE      lspGetSemantics from a real anchor (grep line / symbols line):
-              - callers/callees/callHierarchy for callables (impact analysis)
-              - references includeDeclaration:false, groupByFile:true for the rest
-              - lineHint SELF-CORRECTS (passed 261, resolved to 263 and
-                reported `foundAtLine`; reproduced on a different symbol:
-                passed 260, resolved to 264), but avoid guessing it from nothing
-              - READ the completeness block: truncatedByDepth, dynamicCallsExcluded,
-                stdlibCallsExcluded, failedRequestCount tell you what you did NOT see
-
-4. EXTRACT    localSearch operation:"structural" when you need the complete node or
-              typed captures. On this repo's own code
-              (`packages/octocode-awareness/src/db.ts`), a pattern like
-              `db.exec($$$SQL)` captures a multiline `CREATE TABLE` statement
-              whole, as one `$SQL` metavar, something grep only sees one line
-              of inside a many-line template literal. Isolating a single call
-              out of several matches needs the pattern **nested inside** a
-              rule, not passed alongside it:
-              `rule: "pattern: db.exec($$$SQL)\nhas:\n  regex: ALTER TABLE\n  stopBy: end"`.
-              Passing `pattern` and `rule` as sibling fields is rejected
-              (`"provide either pattern or rule, not both"`).
-              Rules of the mode:
-              - a `pattern` must match a COMPLETE AST node (body, return type, all
-                required syntax). Partial shape gives 0 matches (pattern queries get
-                a guidance warning; rule queries currently do not).
-              - method calls are not plain calls: on the same file, bare
-                `exec($$$A)` matches nothing while `$RECV.exec($$$A)` matches
-                the identical calls. `parse($$$A)` does not match `x.parse($$$A)`.
-              - for partial/relational matches use a YAML rule (kind/has/inside/not/any,
-                stopBy: end) with `pattern` nested inside the rule string, not as a
-                sibling field. Bare rule YAML and `rule:`-wrapped are both accepted
-                on recent engine versions; older engines require the `rule:` wrapper.
-              - `$$$LIST` captures currently include comma separators as elements, so filter them.
-
-5. CROSS-CHECK  (non-negotiable before "impact is X" / "unused" / "only used in Y")
-              One package-wide grep of the symbol INCLUDING tests/scripts/configs.
-              Diff lexical hits vs semantic hits. Every lexical hit LSP didn't report
-              is a finding: re-export, shadow copy, string/SQL/config reference, doc.
-              (This exact step can expose a diverged duplicate scorer in a
-              skills/*.mjs script that LSP callers cannot see. Separately,
-              `callHierarchy` can report zero incoming calls for a symbol
-              registered through a dispatch table
-              (`dynamicCallsExcluded`), while a plain lexical count in the
-              same call finds real occurrences the semantic lane missed.)
-
-6. READ       matchString first (§4b): merged slices plus matchRanges anchors;
-              startLine/endLine when you already hold exact coordinates.
-              minify:"none" whenever you will quote, diff, or edit. Lossy modes
-              rewrite whitespace and quote style (standard mode rewrites `'..'`
-              to `` `..` ``).
-```
-
-LSP capability notes: pull `diagnostic` may be unsupported (the server
-pushes instead, and the tool says so rather than returning a fake empty); native
-`documentSymbols` is JS/TS-only, so for Rust and others use `localGetFileContent
-minify:"symbols"`, which is tree-sitter based and language-wide.
-`serverUnavailable`/`unsupported` means capability absence, NOT "no usage".
-
----
-
-## 6. EXTERNAL algorithm (GitHub + npm)
-
-```
-0. RESOLVE    package name → npmSearch → owner/repo + repositoryDirectory.
-              Skip if you already know owner/repo.
-
-1. ORIENT     ghSearch operation:"tree" at repositoryDirectory (or root).
-              resolvedBranch in the result is the branch every follow-up should use.
-
-2. LOCATE     ghSearch operation:"code":
-              - match:"path" first when a filename fragment is known (far cheaper)
-              - keywords are ANDed; alternatives go in separate bulk queries
-              - scope hard: owner+repo, path prefix, extension/language
-              - concise:true until snippets/matchIndices actually matter
-
-3. READ       ghGetFileContent:
-              - matchString anchor → merged slices + matchRanges (line anchors)
-              - minify:"symbols" works on GitHub files too, at essentially the
-                same ratio as local for the same file content (§9). A GitHub
-                default branch a few commits behind the local working tree
-                will differ slightly, but the compression behavior is the
-                same. Minification is not a local-only shortcut, so orient
-                before pulling bodies
-              - startLine/endLine for known ranges; fullContent only for small files
-
-4. WHY        PR/issue/commit history:
-              - PR triage (`ghSearchHistory` operation:"pullRequests"): keywords + match:["title"] + concise:true,
-                then `ghGetHistoryItem` operation:"pullRequest" + owner+repo+number + explicit content selectors
-                (body/changedFiles/patches/comments/reviews/commits) for depth
-              - archaeology: state:"merged" sort:"created" order:"asc"
-              - commit lane (`ghSearchHistory` operation:"commits"): owner/repo/path (trailing "/" = subtree), then fetch by `ref`
-
-5. ESCALATE   the moment you need AST, LSP, multi-file grep, or >2 more reads:
-              materialize and go local (§8).
-```
-
-**GitHub index blind spots (known):** default-branch-only; archived
-repositories return zero code hits; renamed repositories redirect for content APIs but silently
-fail for search; the code-search API has an announced upstream deprecation.
-Therefore: **an empty `ghSearch(operation:"code")` is NOT absence.** Verify with
-`ghSearch(operation:"tree")` (does the path exist?) or `ghGetFileContent`, or materialize
-and grep locally. Avoid reporting "X does not exist in repository Y" from provider search alone.
-
----
-
-## 7. node_modules FIRST (before any external hop)
-
-The installed dependency is (a) already on disk, (b) the exact version that runs,
-(c) searchable in milliseconds. GitHub shows you a default branch that may be
-newer, older, or restructured.
-
-```
-Question about a dependency's behavior?
-  1. localSearch operation:"tree" node_modules/<pkg> - what shipped
-  2. localSearch operation:"text" path:node_modules/<pkg> - set excludeDir: []
-       + noIgnore: true                               (defaults skip node_modules)
-  3. localGetFileContent on the hit                 - .d.ts and shipped src are gold
-  4. LSP hover/definition often resolves INTO node_modules types for free
-       when anchored from your own importing file
-  5. ONLY IF the answer isn't in the shipped artifact (needs git history, tests,
-     unshipped sources): npmSearch, then the repo, then the §6 external loop
-```
-
-Gotchas: `excludeDir: []` is mandatory. The default exclusion list
-silently skips node_modules, and a "no matches" there means "didn't look."
-Watch for dual hits (src/ + dist/ in the same package); prefer the one your
-resolver loads when semantics matter.
-
-**A scoping nuance worth knowing exactly:**
-pointing `path` directly AT `node_modules/<pkg>` reaches it fine with no
-`excludeDir` override at all. The default exclusion filters directory names
-encountered *while walking*, not the root path you hand it. But searching a
-parent path (`.`, for example) with an explicit `include: "node_modules/**"` glob is
-still fully blocked by default (`zeroMatches`). `include` does not override
-`excludeDir`; only clearing `excludeDir` (`""`/`[]`) plus `noIgnore:true`
-does, and once cleared the same query reaches files nested several
-`node_modules` levels deep (for example, a transitive dependency's own bundled
-`node_modules`).
-So scoping `path` straight into a known package is always safe. Scoping a
-wider search and hoping `include` reaches into `node_modules` is not.
-
-A path-scoped search into a dependency's current default branch on GitHub
-can show a very different layout than what's installed (a monorepo split,
-a rename, a restructure) from what an agent might remember or assume from
-an older snapshot. The installed copy under `node_modules` is unaffected by
-any of that upstream restructuring; it is still the one true source for
-"what runs."
-
----
-
-## 8. LOCAL ↔ EXTERNAL bridges
-
-### External to Local (materialize, then analyze): three depths
-
-Enabled by default; `ENABLE_CLONE=false` disables these flows and returns a typed error.
-The full §5 loop runs unmodified on the result at any of the three depths:
-
-| Depth | Call | What lands on disk | Use when |
-|---|---|---|---|
-| **file** | `ghCloneRepo` + `sparsePath: "path/to/file.ts"` | sparse checkout: the file's subtree **plus repo-root files** (README, package.json, configs; git sparse-checkout keeps root); `complete:false` flagged | one file needs repeated matchString/LSP reads |
-| **tree** | `ghGetFileContent type:"directory"` | only that subtree under `~/.octocode/tmp/tree/<owner>/<repo>/<commit-sha>/...`, with immutable `commitSha` identity, per-reason skip accounting (`oversized`/`binary`/`fileLimit`/...), and disclosed size/count limits; partiality warning when limits bite | analyzing one directory |
-| **repository** | `ghCloneRepo` (no sparsePath) | full shallow clone, `complete:true`, cached for a period (`forceRefresh` to bust) | repository-wide grep/AST/LSP, dead-code, reachability |
-
-Every result carries `localPath` + prefilled `next.localSearch` / `next.viewStructure`.
-File and tree paths are commit-addressed. A moving branch produces a new path;
-the previous commit remains available until the normal 24-hour cache eviction.
-
-**Post-bridge:** structural AST rules, native LSP `documentSymbols`, and
-matchString anchor reads all run unmodified on the materialized paths. Remote code
-becomes fully local-grade evidence after ONE bridge call.
-
-**When to materialize:** you need AST/structural, LSP, multi-file regex, or you're
-about to make a 3rd+ read call into the same remote area.
-
-**Honesty caveats (from the tool itself, respect them):** tree materialization is
-bounded, so check `skipped` counts before any "not present" claim on a materialized
-tree; sparse clones are `complete:false` by definition; prefer depth=repository before
-repository-wide reachability/dead-code conclusions (the warning says exactly this).
-
-### Local → External (context enrichment)
-
-- symbol came from a dependency → §7 first, then npmSearch → repository → docs/tests/history
-- "why is this code like this" → `ghSearchHistory(operation:"commits")` on the file path,
-  then `ghGetHistoryItem(operation:"commit", ref)` and the matching PR fetched by `number`
-- "has someone solved this" → `ghSearch(operation:"repositories", concise:true)` → §6 on candidates
-
----
-
-## 9. Minification: modes and tradeoffs
-
-| Mode | What it does | Relative size | Use when | Avoid when |
-|---|---|---|---|---|
-| `none` | verbatim bytes | full size | quoting, diffing, editing, regex-sensitive reads | n/a |
-| `standard` (default) | strips comments/blanks, compacts whitespace, may rewrite quote style | noticeably smaller, file-dependent on comment and blank-line density | general reading | anything you'll quote verbatim, since it is LOSSY (rewrites `'x'` to `` `x` ``, drops comments) |
-| `symbols` | signatures + constants outline with `NNN\|` line gutter | smallest by far, file-dependent | orientation, building an anchor sheet, API surface review | reading logic bodies |
-
-Works identically on local and GitHub files. The `symbols` gutter numbers are
-valid `lineHint`/`startLine` anchors.
-
-Search-side equivalents: `concise:true` (gh tools) for triage lists,
-`resultView:"files"`/`resultView:"countMatches"` (local) for maps, `format:"compact"`/`groupByFile`
-(LSP) for wide result sets, `content.patches mode:"selected"` + `ranges` (PRs) to
-avoid whole-diff pulls.
-
----
-
-## 9b. Smart schema: pay for the contract only when you're about to use it
-
-Schemas are large by nature (every field, type, bound, default), and an agent
-does not need most of them most of the time. The design answer is tiering,
-not omission:
-
-| What you ask for | Relative size | When |
+| `pullRequest` | `owner`, `repo`, `number` | `content` selects body, files, patches, comments, reviews, and commits. |
+| `issue` | `owner`, `repo`, `number` | `content` selects body and discussion comments. |
+| `commit` | `owner`, `repo`, `ref` | `includeDiff` requests patches; `path` can narrow files. |
+| `compare` | `owner`, `repo`, `base`, `head` | `includeDiff` requests patches; commit and file pages are separate. |
+
+For a PR, first request the surfaces needed to answer the question. Selected
+patches can use `mode:"selected"` with `files` or `ranges`; read the full schema
+for the range object. Do not request all comments, commits, and patches merely
+because they are available.
+
+Follow each returned continuation independently. Finishing the changed-file list
+does not finish a long patch, PR body, comment body, review collection, or commit
+list. Preserve selectors and immutable identities from continuation queries.
+Provider-omitted patches and terminal caps remain limitations after reachable
+pages are consumed. Review comments explain intent; source at the relevant
+revision establishes implementation.
+
+## Content views and smart output
+
+`minify`, `concise`, schema compaction, semantic chunking, and response pagination
+serve different purposes. Treat them as separate controls.
+
+| Control | Purpose | How to use the result |
 |---|---|---|
-| `tools --json`: tool catalog, names + one-liners | small | default orientation: which tool in the live catalog is this? |
-| `tools <name> --scheme --json`: one tool's full field-level schema | large | right before calling that tool raw, avoid guessing a field |
+| `minify:"none"` | Preserve selected source or supported exact history content, apart from security redaction. | Use for quotes, syntax, comments, and diff evidence. |
+| `minify:"standard"` | Reduce content with a file- or surface-specific transformation. | Inspect the effective view; do not infer that removed text was absent in source. |
+| `minify:"symbols"` | Extract a file outline where supported. | Use line anchors to read bodies; it is not a complete source view. |
+| `concise` | Select a smaller discovery payload where the operation supports it. | Inspect the operation schema; it is not a universal minification flag. |
+| `--compact` | Reduce CLI envelope and repeated metadata. | Resolve `base` and top-level `shared` values before interpreting rows. |
+| Character window | Bound the selected or transformed content. | Follow returned continuations; offsets are not source-line numbers. |
 
-Read the tool catalog before any single tool's schema, and read a single
-tool's schema before ever calling it with guessed field names (§12
-anti-pattern: avoid guessing a field that a one-line schema read would have
-shown you).
+File reads expose `none`, `standard`, and `symbols`. History is operation-specific:
+PR detail exposes `none`/`standard`; discovery, issue detail, and
+commit/compare operations do not accept a `minify` field. History has no
+`symbols` mode. Do not send file-read modes to an operation that rejects them.
 
----
+Read defaults, match preservation, fallback behavior, and window semantics in
+the [tool reference](OCTOCODE_TOOLS.md). Do not infer local/remote equivalence
+from equal field names. A minification extension entry is not evidence of a
+structural grammar, outline extractor, graph resolver, or installed LSP server.
 
-## 10. Pagination: cursor families
+## Follow the complete continuation contract
 
-**Key principle: cursors are OPAQUE. Copy them from the response
-(`pagination.nextCharOffset`, `nextPage`, `next.*` prefilled queries) and avoid
-computing your own.** Every paginator here is lossless; nothing is silently dropped.
+Inspect every result row, including `status`, `meta.evidence`,
+`meta.diagnostics`, and the tool's `data`. Public response shaping removes
+free-form `warnings`; rely on typed diagnostics and effective content metadata.
+Compact output can hoist shared values and shorten displayed paths. Use returned
+executable queries rather than reconstructing paths from display strings.
 
-| Family | Fields | Tools | Behavior |
-|---|---|---|---|
-| Char window (file) | `charOffset`/`charLength` → `nextCharOffset`, `isPartial` | local/gh GetFileContent | a capped `charLength` on a large file returns `pagination.hasMore:true` plus a ready, copy-paste `next.continueChars` query pre-filled with the next offset. That continuation carries `why:"Continue with the next character window."` and its confidence. Nothing to compute, nothing silently dropped. |
-| Result page | `page` → `hasMore`/`nextPage` | all search tools, structure tools | later pages return the next slice of rows with a `reported`/`reachable`/`capped` breakdown |
-| Per-file match page | `matchPage` + `maxMatchesPerFile` | localSearch | walks a noisy file without re-fetching others |
-| List pages | `pageSize` + `page`; `filePage`/`commentPage`/`commitPage` | LSP lists, PR content surfaces | large symbol lists page cleanly across calls |
-| Response window | `responseCharLength`/`responseCharOffset` | EVERY tool (outermost) | wraps the whole bulk response; advance only on `hasMore`. Wrinkle: on multi-query bulk repo-search, prefer bigger `responseCharLength` or per-query pages over advancing this offset |
+For each partial surface, execute the relevant `next.*` call with its supplied
+tool and query. Do not advance every counter together or calculate the next
+offset from the requested character length. Semantic chunking can expand a
+window to a boundary; page counters can be estimates while the continuation
+offset is authoritative.
 
-Budget levers, cheapest first: tighter scope (path/owner/repo/langType) → leaner mode
-(concise/symbols/filesOnly/counts) → smaller pages (`maxFiles`, `maxMatchesPerFile`,
-`limit`) → THEN paginate what's left. GitHub `matchIndices` are snippet offsets, not
-line numbers, so get lines from `ghGetFileContent matchString`.
-
----
-
-## 11. Failure semantics and recovery
-
-| Signal | Meaning | Move |
-|---|---|---|
-| `status:"empty"` + stats (`filesSearched`, `bytesSearched`) | proven negative *for that scope* | widen scope / synonyms / drop filters; only then conclude, and quote the stats |
-| `status:"error"` + `errorCode` + hint | typed failure with a `repair` field naming the recovery move (for example, a nonexistent local path returns *"Verify the path exists (orient with target:'structure' on a known-good parent), fix typos, or materialize the remote source first."*) | follow the hint; do not retry verbatim |
-| structural 0 matches | usually an incomplete pattern, NOT absence | add `$$$BODY`/return type, or switch to a rule; check the guidance warning (example, §2b: `if (!_db) { $$$BODY }` → 0 hits on a real, brace-less `if (!_db) throw ...` guard) |
-| LSP `serverUnavailable`/`unsupported` | capability absence, NOT "no usage" | fall back to grep / symbols view |
-| LSP `completeness.complete:false` | results truncated by depth/dynamic-call exclusion | deepen or supplement with grep before claiming full impact |
-| gh empty / `providerUnindexed` | index blind spot, NOT absence | verify path exists → materialize → grep locally |
-| `resolvedBranch` ≠ requested | ref fell back to default branch | re-check which branch you're reading |
-| `warnings[]` | redaction, fallback engine, pre-filter skips, pagination notes | read them, they change what the result means |
-
-`Pre-filter skipped parsing N file(s) (literal anchor absent)` on structural results
-is an optimization disclosure, not data loss: those files could not contain the
-literal anchor.
-
----
-
-## 12. Anti-patterns (each observed to cost real round-trips)
-
-1. **Fixed pipeline instead of routing.** grep→AST→LSP is not a law; enter where
-   your knowledge already points (§3).
-2. **Concluding impact from one evidence lane.** The lexical/semantic diff is the
-   deliverable, not a nicety (§5.5).
-3. **Trusting GitHub search zeros.** Default-branch-only + unindexed repositories =
-   false absence machine (§6).
-4. **Reading before mapping.** `minify:"symbols"` first; bodies only for the slices
-   that matter (§5.2, §9).
-5. **Skipping node_modules.** You debug the installed version, not the default branch (§7).
-6. **Guessing lineHint / computing charOffset.** Anchors come from prior results;
-   cursors come from `pagination.*` (§5.3, §10).
-7. **Staying remote too long.** 3+ reads into one remote area ⇒ materialize (§8).
-8. **Ignoring `next.*` hints.** They are prefilled, correct continuation queries.
-   The tool has already planned your next call, including a self-correcting
-   grep-to-LSP anchor handoff.
-9. **quoting from `minify:"standard"` output.** It rewrites quotes and strips
-   comments; quote only from `minify:"none"` (§9).
-10. **Serial single queries.** Up to 5 queries per call, per tool. Batch.
-11. **Calling a raw tool with a guessed field name instead of reading its schema
-    first.** The catalog and per-tool schema are both cheap to read; a wrong
-    field costs a full extra round-trip and, worse, a silently-ignored
-    parameter (§9b).
-12. **Spending a claim on one angle instead of one batch on several.** "Is X
-    unused / always guarded / never reassigned" is a claim, not a location
-    lookup. One structural pattern guessing the wrong shape returns a clean
-    0 that reads exactly like a proven negative (§2b: a real brace-less
-    guard, invisible to one guessed pattern, obvious to a second lexical
-    angle in the same batch).
-
----
-
-## 13. Strengths and known limitations
-
-Read this as a summary of the evidence already shown, not a new claim, and
-not a scorecard. Each algorithm's strengths and the gaps that limit it:
-
-| Algorithm | Strengths | What holds it back |
-|---|---|---|
-| **LOCAL loop (§5)** | Full evidence stack (lexical + structural + semantic + binary) with self-correcting anchors, merged matchString slices, honest completeness metadata, and typed recovery on every failure. | The lexical/semantic cross-check is agent discipline rather than a tool-emitted delta, and per-language LSP gaps remain (Rust documentSymbols, pull diagnostics). |
-| **EXTERNAL/GitHub loop (§6)** | Orient, search, matchString-read, history is a strong sequence, and symbols/matchString work identically remote. | Capped by provider physics the tool can't fix: default-branch-only index, archived/renamed blind spots, no remote AST/LSP. The clone bridge is the mitigation; escalating early effectively lifts this to local-grade. |
-| **NPM / node_modules-first (§7)** | The installed-version-is-ground-truth rule is cheap and correct; npmSearch resolves package→repository→`repositoryDirectory` in one call. | The `excludeDir: []` footgun (a forgotten default silently skips node_modules) and src/dist dual-hit ambiguity. |
-| **Bridge: external→local (§8)** | One call converts remote code to full local-grade evidence at any of three depths, with per-file skip accounting and self-describing partiality. | Config-gated (`ENABLE_CLONE`), and tree-depth limits require reading the `skipped` counts. |
-
-**Standing gaps**, stated plainly rather than scored away. No embeddings/KG
-lane (addressed as a position statement in §1b, not as tooling). Everything
-above describes deterministic mechanisms, not task-success rates: **open: a
-task-level A/B benchmark of this routed loop against a grep-only baseline
-does not exist** (§14 returns to this point rather than restating it as
-solved). Scale beyond a large monorepo is untested. And the lexical/semantic
-cross-check (§5.5) is agent discipline enforced by this document, not a
-delta the tools compute and emit themselves. What differentiates this
-algorithm from a generic grep-AST-LSP pipeline is route-by-what-you-hold
-(§3), node_modules-first (§7), typed failure semantics (§11), and
-anchor-passing ergonomics (§4b), but "differentiated" is a design claim, not
-a measured one. The gaps above are what would need to close before it
-could become one.
-
----
-
-## 14. Where this sits in the context-engineering literature
-
-Since late 2025, "context engineering" (curating the finite token budget an
-LLM sees per turn) has converged into a named discipline with a shared
-vocabulary (Anthropic, [Sep 2025](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents);
-Sourcegraph, [2026](https://sourcegraph.com/blog/context-engineering)). That
-literature splits the problem into four layers: instructions, retrieval,
-memory, and tools. This manifest is entirely about one of those four,
-**retrieval**, and about the tool-provider side of it specifically, not the
-agent-harness side. Naming that boundary precisely, instead of implying this
-manifest covers ground it doesn't, is the point of this section.
-
-**Where the manifest's mechanisms match the field's best-known patterns:**
-
-| Field pattern | Source | This manifest's answer | Verdict |
-|---|---|---|---|
-| Just-in-time retrieval: hold a lightweight identifier, load content on demand instead of pre-loading it | Anthropic | `matchString` anchors and `next.fetch`/LSP continuations (§4b). The toolset never had a pre-load path to begin with | Matches by construction |
-| Memory pointers: a short reference token stands in for content that can be re-fetched | StackOne | Materialized `localPath` (§8) | Matches |
-| Built-in filters as the pragmatic middle ground for tool *providers* (vs. sandboxed code-mode, which StackOne calls "heavy... most won't build it") | StackOne | `countMatchesPerFile`, `filesOnly`, `discovery`, structural metavars, `concise` (§9, §12) | Matches: independent validation of an existing design choice, not self-assessment |
-| Tiered/on-demand schema so tool definitions don't burn the budget up front | StackOne ("Tool Definition Catch-22") | §9b: a small tool catalog vs. a much larger per-tool schema | Matches: same discipline applied at the field level since the tool count (12) never grew large enough to need discovery-by-search |
-| Pre-flight cost awareness: let the agent see or estimate cost before committing | StackOne ("dry-run... their survival becomes their responsibility") | No dry-run/explain planner exists for direct tool calls | Gap: an `estimatedTokens` field and a 30k/50k token-warning path exist in `utils/pagination/{core,hints}.ts` but are unwired into any CLI-reachable response (dead code) — not shipped |
-| Structural/semantic code intelligence beats plain text retrieval for coding agents, measured | Sourcegraph (CodeScaleBench: file recall 0.127 to 0.277, P@5 0.140 to 0.478, F1@5 0.099 to 0.262 with an MCP code-graph layer vs. grep-only) | §1/§5 evidence grades (semantic > structural > lexical > provider) argue the same ordering qualitatively | Same conclusion, weaker proof: this manifest has never run the equivalent task-level A/B (§13 already lists this as an open item, not restated as new) |
-
-**Where this manifest doesn't compete, on purpose:**
-
-Compaction (Anthropic, the Claude context-engineering cookbook, and
-LangChain's Deep Agents SDK all treat LLM-driven summarization of an agent's
-own conversation history as one of 2-3 mandatory levers for long-horizon
-tasks) has no equivalent here, and shouldn't. This manifest's tools answer
-one query at a time and hand results back. They do not own the calling
-agent's conversation, so there is nothing in this layer to summarize. Checked
-directly rather than assumed: `packages/octocode-awareness/src` has no
-LLM-driven summarization step, but it is not silent on the topic either.
-`endSession` accepts a caller-supplied `summary` field on the session record,
-and `pi-hooks.ts` wires `handleSessionShutdown` to the *host's own*
-`session_before_compact` and `session_shutdown` lifecycle events, so a
-session is captured to persistent memory at the moment the host compacts or
-ends it. That is reacting to host-level compaction, not performing it: a
-different, complementary layer, not a gap disguised as a design choice.
-
-Sub-agent isolation and "code mode" (Anthropic, StackOne) are, likewise, a
-harness-level concern: a tool provider doesn't spawn or isolate sub-agents.
-`octocode-awareness`, a separate package from the search/retrieval tools
-this manifest documents, does carry adjacent primitives that don't appear
-in any of the seven external sources reviewed for this section at all:
-file-level locks (`fileLock`/`releaseFileLock`) and multi-agent handoff
-(`registerAgent`/`agentSignal`) for *concurrent, cooperating* agents editing
-the same repository, plus decay-scored cross-session memory retrieval
-(`insertMemory`/`decayScore`/`findSimilarMemories`) and a verify-before-conclude
-audit trail (`auditUnverified`/`markVerified`). Every article surveyed here
-frames context engineering around a single agent's own loop; none addresses
-concurrent multi-agent coordination. Worth stating precisely rather than
-folding into this manifest's numbers: it is a different package solving a
-different problem, not evidence for the retrieval claims above.
-
-**The one gap that's real, not only unaddressed by design:** §13 already
-states it as an open item and this section does not add a new claim on top.
-No task-level benchmark (recall/precision/F1, wall-clock completion time)
-exists for the routed loop against a baseline, the way Sourcegraph's
-CodeScaleBench exists for a comparable 13-tool MCP server. That gap stays a
-gap here; closing it is future work, not something this manifest asserts.
-
----
-
-## 15. Conclusion
-
-The claim this manifest makes is narrow on purpose: given a concrete handle
-(an identifier, a shape, a path, an error string), route by what you already
-hold (§3) through evidence graded by what it proves (§1), cross-check
-across lanes before any claim of impact or absence (§5.5, §2b), and let the
-tools' own hints, pagination, and schema tiering (§0, §9b, §10) keep the
-reasoning budget on judgment instead of bookkeeping. That is also this
-manifest's honest limit: it describes a *procedure*, not a measured
-*outcome*. §13's assessment is a qualitative summary, not a task-success
-benchmark against a baseline, and §14 places it as the retrieval layer of a
-larger context-engineering picture, not the whole of it. Where the strongest
-lane can't answer, the next one down still can (§0's fallback ladder); where
-this manifest itself can't answer (task-level benchmarking, embeddings/KG
-lanes, very large monorepo scale), §1b and §13 name the gap rather than
-paper over it.
-
----
-
-## Appendix: tool-agnostic mapping
-
-The method (route → map → prove → cross-check → read) transfers to any toolset
-with lexical/structural/semantic lanes. Octocode primitive → common equivalents:
-
-| Octocode primitive | Generic equivalent |
+| Surface | Independent bounds to inspect |
 |---|---|
-| `localSearch` (text/regex, classified rows) | ripgrep (`rg -n --json`); classification (`declaration/callsite/comment`) you approximate manually |
-| `localSearch operation:"structural"` + rule | ast-grep (`sg run -p / --rule`), tree-sitter queries, Comby |
-| `lspGetSemantics` | Serena MCP, `mcp-language-server`, or any LSP client (definitions/references/callHierarchy) |
-| `localGetFileContent minify:"symbols"` | aider repo-map (per-repo), ctags/tree-sitter outline (per-file) |
-| `localGetFileContent matchString` + `matchRanges` | `rg -n -C<k>` then read the line spans; no merged-slice or anchor handoff, that's the gap |
-| `localSearch operation:"tree"|"files"` | `tree`/`eza`, `fd` |
-| `ghSearch` / `ghGetFileContent` | `gh search code`, `gh search repos`, `gh api repos/.../git/trees`, `gh api .../contents` (same default-branch index limits apply) |
-| `ghCloneRepo sparsePath` / `type:"directory"` | `git clone --depth 1 --filter=blob:none --sparse` + `git sparse-checkout set <path>` |
-| `ghSearchHistory` / `ghGetHistoryItem` | `gh pr list/view`, `gh issue list/view`, `gh search prs`; `git log/show -- <path>` |
-| `npmSearch` → `repositoryDirectory` | `npm view <pkg> repository`, then the repository's `directory` field |
-| evidence grades + dual-lane cross-check (§1, §5.5) | pure method, apply with any of the above |
+| Local discovery | File, match, traversal, and result limits. |
+| File reads | Selected source lines and transformed-content characters. |
+| Graph | Result rows, nested topology, and diagnostics. |
+| LSP | Result pages, snapshots, hierarchy depth, and server coverage. |
+| GitHub discovery | Search pages, tree scope, metadata pages, and provider limits. |
+| History | Records, files, comments, reviews, commits, bodies, and patches. |
+| npm discovery | Keyword-result pages and registry limits. |
+| Response text | Envelope-level text windows, separate from underlying tool data. |
 
-What does NOT transfer: prefilled `next.*` continuation queries, lineHint
-self-correction, merged matchString slices, per-row match classification, and
-typed empty-vs-error semantics. Those are interaction-layer features of the
-toolset itself, and the reason the loop is cheaper here than hand-composed.
+The acceptance contract requires a schema-valid executable continuation for
+reachable partial data, or an explicit terminal-limit diagnostic when the bound
+cannot be continued. That contract is a testing requirement, not proof that a
+particular response or provider is complete. Repeating content, missing
+continuations, or unreachable offsets are defects to reproduce and report.
+
+## State what the evidence establishes
+
+Record the claim, source path and revision, evidence type, traversed scope, and
+remaining uncertainty. Source paths and line numbers support code claims; PR and
+commit identities support history claims. A transformed view needs an exact read
+before it supports a quote.
+
+Stop when the question has sufficient evidence. Extend the investigation when a
+coverage gap changes the decision. A provider cap, unavailable language server,
+unresolved graph edge, or excluded file prevents a universal absence claim; it
+does not require repeating the same unproductive query.

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDirectToolCommandPatterns,
   buildDirectToolExampleQuery,
+} from '../../src/tools/directToolCatalog/toolCommandPatterns.js';
+import {
   DIRECT_TOOL_CATEGORIES,
   getDirectToolCategory,
-} from '../../src/tools/directToolCatalog.meta.js';
+} from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import {
   LSP_GET_SEMANTICS_TOOL_NAME,
   LOCAL_SEARCH_TOOL_NAME,

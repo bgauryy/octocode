@@ -9,7 +9,7 @@ pub struct LanguageEntry {
     /// is the single source the LSP grammar map derives from (no second table).
     pub language_id: Option<&'static str>,
     /// Pre-built `Language` handle. `Language` is `Clone + Send + Sync` but
-    /// NOT `Copy` in tree-sitter 0.26 — always use `.clone()` at call sites.
+    /// NOT `Copy` in tree-sitter 0.27 — always use `.clone()` at call sites.
     pub language: Language,
     /// Tree-sitter S-expression query whose `@body` captures are the nodes the
     /// signature extractor drops. An **empty** string is a sentinel meaning
@@ -17,13 +17,13 @@ pub struct LanguageEntry {
     /// path (`extract_by_ext` / `extract_boundary_lines_inner`) skips the
     /// tree-sitter route for it and returns no outline (tree-sitter is the only
     /// signature path; there is no regex/heuristic fallback). Used by
-    /// markup/style grammars (HTML/CSS/SCSS/LESS) that have no function-body
+    /// markup/style grammars (HTML/CSS/SCSS) that have no function-body
     /// concept to strip.
     pub body_query: &'static str,
     pub comment_style: &'static str,
 }
 
-const TS_BODY_QUERY: &str = r#"[
+const JS_TS_BODY_QUERY: &str = r#"[
   (function_declaration        body: (statement_block) @body)
   (function_expression         body: (statement_block) @body)
   (arrow_function              body: (statement_block) @body)
@@ -31,8 +31,6 @@ const TS_BODY_QUERY: &str = r#"[
   (generator_function          body: (statement_block) @body)
   (method_definition           body: (statement_block) @body)
 ]"#;
-
-const JS_BODY_QUERY: &str = TS_BODY_QUERY;
 
 const PY_BODY_QUERY: &str = r#"[
   (function_definition body: (block) @body)
@@ -74,10 +72,6 @@ const CS_BODY_QUERY: &str = r#"[
   (lambda_expression         body: (block) @body)
 ]"#;
 
-const BASH_BODY_QUERY: &str = r#"
-  (function_definition body: (compound_statement) @body)
-"#;
-
 const RUBY_BODY_QUERY: &str = r#"[
   (method body: (body_statement) @body)
   (singleton_method body: (body_statement) @body)
@@ -87,26 +81,6 @@ const PHP_BODY_QUERY: &str = r#"[
   (function_definition body: (compound_statement) @body)
   (method_declaration body: (compound_statement) @body)
 ]"#;
-
-/// Elixir: match `def`/`defp`/`defmacro`/`defmacrop` bodies structurally — NO predicates.
-///
-/// The structural key: `def foo(a) do…end` has `(arguments (call))` — the first argument
-/// is a function-call-shaped node like `foo(a)`. `defmodule M do…end` has `(arguments
-/// (alias))` — the argument is a bare module alias, not a call. By requiring `(arguments
-/// (call))` we capture `def`/`defp`/`defmacro`/`defmacrop` (whose arg is a function
-/// signature) while excluding `defmodule`/`defprotocol`/`defimpl`/`use` (whose arg is
-/// an alias or atom).
-///
-/// Note: `#any-of?` is a tree-sitter built-in predicate — in Rust it is NOT returned by
-/// `query.general_predicates()` and is NOT automatically applied by `cursor.matches()`.
-/// The structural approach avoids this API gap entirely.
-#[cfg(feature = "tree-sitter-extended")]
-const ELIXIR_BODY_QUERY: &str = r#"
-  (call
-    (arguments
-      (call))
-    (do_block) @body)
-"#;
 
 const KOTLIN_BODY_QUERY: &str = r#"[
   (function_declaration (function_body) @body)
@@ -119,11 +93,7 @@ const LUA_BODY_QUERY: &str = r#"[
   (function_definition body: (block) @body)
 ]"#;
 
-#[cfg(feature = "tree-sitter-extended")]
-const ERLANG_BODY_QUERY: &str = r#"
-  (function_clause body: (clause_body) @body)
-"#;
-
+#[cfg(feature = "tree-sitter-swift")]
 const SWIFT_BODY_QUERY: &str = r#"
   (function_declaration body: (function_body) @body)
 "#;
@@ -131,30 +101,6 @@ const SWIFT_BODY_QUERY: &str = r#"
 #[cfg(feature = "tree-sitter-extended")]
 const ZIG_BODY_QUERY: &str = r#"
   (function_declaration body: (block) @body)
-"#;
-
-#[cfg(feature = "tree-sitter-extended")]
-const R_BODY_QUERY: &str = r#"
-  (function_definition body: (braced_expression) @body)
-"#;
-
-/// HCL/Terraform: strip block bodies so only resource/variable/output headers are shown.
-/// The `body` node is an unqualified child of `block` — it contains the attributes and
-/// nested blocks. Indent-style (first byte ≠ `{`), starts on the line after the header,
-/// so `sig_shares_row = false` → body lines are dropped; closing `}` remains (kept since
-/// `}` is part of the `block` node, not the `body`).
-#[cfg(feature = "tree-sitter-extended")]
-const HCL_BODY_QUERY: &str = r#"
-  (block (body) @body)
-"#;
-
-/// Protobuf: strip message field definitions — keep message/enum names as signatures.
-/// The `message_body` node starts with `{` (brace-style) → opening `{` line kept,
-/// interior and closing `}` dropped. Service bodies are NOT captured (no service_body
-/// node in the grammar), so RPC declarations remain visible — useful for API overview.
-#[cfg(feature = "tree-sitter-extended")]
-const PROTO_BODY_QUERY: &str = r#"
-  (message (message_body) @body)
 "#;
 
 /// Scala: strip function/method bodies. Class/object/trait bodies are intentionally NOT
@@ -183,21 +129,21 @@ fn init_language_table() -> Vec<LanguageEntry> {
             extensions: &["ts", "mts", "cts"],
             language_id: Some("typescript"),
             language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            body_query: TS_BODY_QUERY,
+            body_query: JS_TS_BODY_QUERY,
             comment_style: "c",
         },
         LanguageEntry {
             extensions: &["tsx"],
             language_id: Some("typescriptreact"),
             language: tree_sitter_typescript::LANGUAGE_TSX.into(),
-            body_query: TS_BODY_QUERY,
+            body_query: JS_TS_BODY_QUERY,
             comment_style: "c",
         },
         LanguageEntry {
             extensions: &["js", "jsx", "mjs", "cjs"],
             language_id: Some("javascript"),
             language: tree_sitter_javascript::LANGUAGE.into(),
-            body_query: JS_BODY_QUERY,
+            body_query: JS_TS_BODY_QUERY,
             comment_style: "c",
         },
         LanguageEntry {
@@ -237,14 +183,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
-            extensions: &["sh", "bash", "zsh"],
-            language_id: Some("shellscript"),
-            language: tree_sitter_bash::LANGUAGE.into(),
-            body_query: BASH_BODY_QUERY,
-            comment_style: "hash",
-        },
-        // ── Priority-1 language additions ────────────────────────────────────
-        LanguageEntry {
             extensions: &["rb", "rake", "gemspec", "ru"],
             language_id: Some("ruby"),
             language: tree_sitter_ruby::LANGUAGE.into(),
@@ -269,29 +207,12 @@ fn init_language_table() -> Vec<LanguageEntry> {
         },
         #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
-            extensions: &["ex", "exs"],
-            language_id: Some("elixir"),
-            language: tree_sitter_elixir::LANGUAGE.into(),
-            body_query: ELIXIR_BODY_QUERY,
-            comment_style: "hash",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["tf", "hcl", "tfvars"],
-            language_id: Some("terraform"),
-            language: tree_sitter_hcl::LANGUAGE.into(),
-            body_query: HCL_BODY_QUERY,
-            comment_style: "hash",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
             extensions: &["lua"],
             language_id: Some("lua"),
             language: tree_sitter_lua::LANGUAGE.into(),
             body_query: LUA_BODY_QUERY,
             comment_style: "c",
         },
-        // ── Priority-2 language additions ────────────────────────────────────
         #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
             extensions: &["sql"],
@@ -302,60 +223,11 @@ fn init_language_table() -> Vec<LanguageEntry> {
         },
         #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
-            extensions: &["proto"],
-            language_id: Some("proto"),
-            language: tree_sitter_proto::LANGUAGE.into(),
-            body_query: PROTO_BODY_QUERY,
-            comment_style: "c",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["ml"],
-            language_id: Some("ocaml"),
-            language: tree_sitter_ocaml::LANGUAGE_OCAML.into(),
-            body_query: "", // structural-only; complex functional grammar
-            comment_style: "c",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["mli"],
-            language_id: Some("ocaml"),
-            language: tree_sitter_ocaml::LANGUAGE_OCAML_INTERFACE.into(),
-            body_query: "",
-            comment_style: "c",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
             extensions: &["zig"],
             language_id: Some("zig"),
             language: tree_sitter_zig::LANGUAGE.into(),
             body_query: ZIG_BODY_QUERY,
             comment_style: "c",
-        },
-        // ── Priority-3 language additions ────────────────────────────────────
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["r"],
-            language_id: Some("r"),
-            language: tree_sitter_r::LANGUAGE.into(),
-            body_query: R_BODY_QUERY,
-            comment_style: "hash",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["jl"],
-            language_id: Some("julia"),
-            language: tree_sitter_julia::LANGUAGE.into(),
-            body_query: "", // structural-only; Julia function bodies have no block container node
-            comment_style: "hash",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            extensions: &["erl", "hrl"],
-            language_id: Some("erlang"),
-            language: tree_sitter_erlang::LANGUAGE.into(),
-            body_query: ERLANG_BODY_QUERY,
-            comment_style: "hash",
         },
         // ── Markup / style grammars: structural-search only ──────────────────
         // These grammars are already linked (the LSP layer uses them). They are
@@ -380,13 +252,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             extensions: &["scss"],
             language_id: Some("scss"),
             language: tree_sitter_scss::language(),
-            body_query: "",
-            comment_style: "c",
-        },
-        LanguageEntry {
-            extensions: &["less"],
-            language_id: Some("less"),
-            language: tree_sitter_less::language(),
             body_query: "",
             comment_style: "c",
         },
@@ -483,7 +348,7 @@ pub fn supported_extensions() -> Vec<&'static str> {
 
 /// Extensions that produce a signature outline: tree-sitter grammars with a
 /// non-empty `body_query`. Excludes structural-search-only grammars
-/// (HTML/CSS/SCSS/LESS/Scala/JSON/YAML/TOML), which have no function bodies to
+/// (HTML/CSS/SCSS/JSON/YAML/TOML), which have no function bodies to
 /// strip and therefore no outline.
 pub fn signature_extensions() -> Vec<&'static str> {
     LANGUAGE_TABLE
@@ -492,3 +357,7 @@ pub fn signature_extensions() -> Vec<&'static str> {
         .flat_map(|e| e.extensions.iter().copied())
         .collect()
 }
+
+#[cfg(test)]
+#[path = "languages_tests.rs"]
+mod tests;

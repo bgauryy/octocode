@@ -1,86 +1,87 @@
 import { PRCommentItem, PRReviewInfo, IssueComment } from '../githubAPI.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
-import { contextUtils } from '../../utils/contextUtils.js';
 import { OctokitWithThrottling } from '../client.js';
+import type { AuthInfo } from '@modelcontextprotocol/server';
 import { isBotAuthor } from '../botFilter.js';
+import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import {
-  attachRawResponseChars,
-  countSerializedChars,
-} from '../../utils/response/charSavings.js';
-import { stripMachineBlobs } from './flags.js';
-import { fetchAllPaginated } from './commits.js';
+  fetchCollectionPage,
+  type CollectionArray,
+} from './collectionPaging.js';
 
 export async function fetchPRComments(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
   repo: string,
   prNumber: number,
-  includeBots: boolean = false
-): Promise<{ comments: PRCommentItem[]; note?: string }> {
-  try {
-    const raw: IssueComment[] = [];
-    let rawResponseChars = 0;
-    let page = 1;
-    let keepFetching = true;
-    do {
-      const commentsResult = await octokit.rest.issues.listComments({
+  includeBots: boolean = false,
+  authInfo?: AuthInfo,
+  collectionPage = 1
+): Promise<{ comments: CollectionArray<PRCommentItem>; note?: string }> {
+  const {
+    items: raw,
+    rawResponseChars,
+    collectionState,
+  } = await fetchCollectionPage<IssueComment>(
+    { owner, repo, prNumber, surface: 'discussion' },
+    collectionPage,
+    page =>
+      octokit.rest.issues.listComments({
         owner,
         repo,
         issue_number: prNumber,
         per_page: 100,
         page,
-      });
-      rawResponseChars += countSerializedChars(commentsResult.data);
-      raw.push(...commentsResult.data);
-      keepFetching = commentsResult.data.length === 100;
-      page++;
-    } while (keepFetching);
+      }),
+    authInfo
+  );
 
-    const kept = includeBots
-      ? raw
-      : raw.filter((c: IssueComment) => !isBotAuthor(c.user?.login ?? ''));
-    const botsDropped = raw.length - kept.length;
+  const kept = includeBots
+    ? raw
+    : raw.filter((c: IssueComment) => !isBotAuthor(c.user?.login ?? ''));
+  const botsDropped = raw.length - kept.length;
 
-    const comments = kept.map((comment: IssueComment): PRCommentItem => {
-      const stripped = contextUtils.minifyMarkdownCore(
-        stripMachineBlobs(comment.body ?? '')
-      );
-      return {
-        id: String(comment.id),
-        user: comment.user?.login ?? 'unknown',
-        body: ContentSanitizer.sanitizeContent(stripped).content,
-        createdAt: comment.created_at ?? '',
-        updatedAt: comment.updated_at ?? '',
-        commentType: 'discussion',
-      };
-    });
-
-    const notes: string[] = [];
-    if (botsDropped > 0) {
-      notes.push(
-        `${botsDropped} bot comment(s) hidden (set content.comments.includeBots:true to include)`
-      );
-    }
-
+  const comments = kept.map((comment: IssueComment): PRCommentItem => {
     return {
-      comments: attachRawResponseChars(comments, rawResponseChars),
-      note: notes.length > 0 ? notes.join('; ') : undefined,
+      id: String(comment.id),
+      user: comment.user?.login ?? 'unknown',
+      body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+      createdAt: comment.created_at ?? '',
+      updatedAt: comment.updated_at ?? '',
+      commentType: 'discussion',
     };
-  } catch {
-    return { comments: attachRawResponseChars([], 0) };
+  });
+
+  const notes: string[] = [];
+  if (botsDropped > 0) {
+    notes.push(
+      `${botsDropped} bot comment(s) hidden (set content.comments.includeBots:true to include)`
+    );
   }
+
+  return {
+    comments: attachRawResponseChars(
+      Object.assign(comments, { collectionState }),
+      rawResponseChars
+    ),
+    note: notes.length > 0 ? notes.join('; ') : undefined,
+  };
 }
 
 export async function fetchPRReviews(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   owner: string,
   repo: string,
-  prNumber: number
-): Promise<PRReviewInfo[]> {
-  try {
-    const { items, rawResponseChars } = await fetchAllPaginated<
+  prNumber: number,
+  authInfo?: AuthInfo,
+  collectionPage = 1
+): Promise<CollectionArray<PRReviewInfo>> {
+  const { items, rawResponseChars, collectionState } =
+    await fetchCollectionPage<
       Awaited<ReturnType<typeof octokit.rest.pulls.listReviews>>['data'][number]
     >(
+      { owner, repo, prNumber, surface: 'reviews' },
+      collectionPage,
       page =>
         octokit.rest.pulls.listReviews({
           owner,
@@ -92,25 +93,24 @@ export async function fetchPRReviews(
           data: Awaited<
             ReturnType<typeof octokit.rest.pulls.listReviews>
           >['data'];
-        }>
+        }>,
+      authInfo
     );
 
-    return attachRawResponseChars(
+  return attachRawResponseChars(
+    Object.assign(
       items.map(review => ({
         id: String(review.id),
         user: review.user?.login ?? 'unknown',
         state: review.state ?? '',
-        body: ContentSanitizer.sanitizeContent(
-          contextUtils.minifyMarkdownCore(stripMachineBlobs(review.body ?? ''))
-        ).content,
+        body: ContentSanitizer.sanitizeContent(review.body ?? '').content,
         submittedAt: review.submitted_at ?? undefined,
         commitId: review.commit_id ?? undefined,
       })),
-      rawResponseChars
-    );
-  } catch {
-    return attachRawResponseChars([], 0);
-  }
+      { collectionState }
+    ),
+    rawResponseChars
+  );
 }
 
 export async function fetchPRInlineComments(
@@ -118,67 +118,65 @@ export async function fetchPRInlineComments(
   owner: string,
   repo: string,
   prNumber: number,
-  includeBots: boolean = false
-): Promise<{ comments: PRCommentItem[]; note?: string }> {
-  try {
-    type ReviewComment = Awaited<
-      ReturnType<typeof octokit.rest.pulls.listReviewComments>
-    >['data'][number];
+  includeBots: boolean = false,
+  authInfo?: AuthInfo,
+  collectionPage = 1
+): Promise<{ comments: CollectionArray<PRCommentItem>; note?: string }> {
+  type ReviewComment = Awaited<
+    ReturnType<typeof octokit.rest.pulls.listReviewComments>
+  >['data'][number];
 
-    const raw: ReviewComment[] = [];
-    let rawResponseChars = 0;
-    let page = 1;
-    let keepFetching = true;
-    do {
-      const result = await octokit.rest.pulls.listReviewComments({
+  const {
+    items: raw,
+    rawResponseChars,
+    collectionState,
+  } = await fetchCollectionPage<ReviewComment>(
+    { owner, repo, prNumber, surface: 'inline' },
+    collectionPage,
+    page =>
+      octokit.rest.pulls.listReviewComments({
         owner,
         repo,
         pull_number: prNumber,
         per_page: 100,
         page,
-      });
-      rawResponseChars += countSerializedChars(result.data);
-      raw.push(...result.data);
-      keepFetching = result.data.length === 100;
-      page++;
-    } while (keepFetching);
+      }),
+    authInfo
+  );
 
-    const kept = includeBots
-      ? raw
-      : raw.filter((c: ReviewComment) => !isBotAuthor(c.user?.login ?? ''));
-    const botsDropped = raw.length - kept.length;
+  const kept = includeBots
+    ? raw
+    : raw.filter((c: ReviewComment) => !isBotAuthor(c.user?.login ?? ''));
+  const botsDropped = raw.length - kept.length;
 
-    const comments = kept.map((comment: ReviewComment): PRCommentItem => {
-      const stripped = contextUtils.minifyMarkdownCore(
-        stripMachineBlobs(comment.body ?? '')
-      );
-      return {
-        id: String(comment.id),
-        user: comment.user?.login ?? 'unknown',
-        body: ContentSanitizer.sanitizeContent(stripped).content,
-        createdAt: comment.created_at ?? '',
-        updatedAt: comment.updated_at ?? '',
-        commentType: 'review_inline',
-        path: comment.path,
-        line: comment.line ?? comment.original_line ?? undefined,
-        ...(comment.in_reply_to_id != null
-          ? { inReplyToId: comment.in_reply_to_id }
-          : {}),
-      };
-    });
-
-    const notes: string[] = [];
-    if (botsDropped > 0) {
-      notes.push(
-        `${botsDropped} bot inline comment(s) hidden (set content.comments.includeBots:true to include)`
-      );
-    }
-
+  const comments = kept.map((comment: ReviewComment): PRCommentItem => {
     return {
-      comments: attachRawResponseChars(comments, rawResponseChars),
-      note: notes.length > 0 ? notes.join('; ') : undefined,
+      id: String(comment.id),
+      user: comment.user?.login ?? 'unknown',
+      body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+      createdAt: comment.created_at ?? '',
+      updatedAt: comment.updated_at ?? '',
+      commentType: 'review_inline',
+      path: comment.path,
+      line: comment.line ?? comment.original_line ?? undefined,
+      ...(comment.in_reply_to_id != null
+        ? { inReplyToId: comment.in_reply_to_id }
+        : {}),
     };
-  } catch {
-    return { comments: attachRawResponseChars([], 0) };
+  });
+
+  const notes: string[] = [];
+  if (botsDropped > 0) {
+    notes.push(
+      `${botsDropped} bot inline comment(s) hidden (set content.comments.includeBots:true to include)`
+    );
   }
+
+  return {
+    comments: attachRawResponseChars(
+      Object.assign(comments, { collectionState }),
+      rawResponseChars
+    ),
+    note: notes.length > 0 ? notes.join('; ') : undefined,
+  };
 }

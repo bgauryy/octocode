@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubCodeSearchQuerySchema as CoreGitHubCodeSearchQuerySchema } from '../../toolContract/schemas.js';
+import { GitHubCodeSearchQuerySchema as CoreGitHubCodeSearchQuerySchema } from '../../toolContract/input/resources/tools/githubCodeOperation.js';
 import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,

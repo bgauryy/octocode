@@ -29,7 +29,7 @@ vi.mock('../../src/providers/factory.js', () => ({
   getProvider: () => recordedProvider,
 }));
 
-import { prepareDirectToolInput } from '../../src/tools/directToolCatalog.meta.js';
+import { prepareDirectToolInput } from '../../src/tools/directToolCatalog/toolInputPreparation.js';
 import { cleanup, initialize } from '../../src/serverConfig.js';
 import { fetchMultipleGitHubFileContents } from '../../src/tools/github_fetch_content/execution.js';
 import { executeGitHubSearch } from '../../src/tools/github_search/execution.js';

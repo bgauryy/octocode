@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { afterEach, test } from 'vitest';
 import {
   discoverSkillStates,
@@ -250,6 +252,76 @@ test('type:load action:load returns SKILL.md content, directory, and shipped fil
   assert.match(text, /# demo-flow/, 'full SKILL.md body returned');
   assert.equal(getSkillUsage().get('demo-flow')?.count, 1, 'load recorded for observability');
 });
+
+test('partial skill content and file lists recover completely through executable Octocode continuations', async () => {
+  // The canonical local tools permit the user's home by default. Keep this
+  // isolated fixture inside that boundary instead of weakening path guards.
+  const cwd = fs.mkdtempSync(path.join(os.homedir(), '.octo-skill-recovery-'));
+  try {
+    const extras = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`references/part-${i}.md`, `Part ${i}`]));
+    extras['references/deep/nested/last.md'] = 'Deep reference';
+    extras['.hidden-note.md'] = 'Hidden reference';
+    const dir = makeSkillDir(path.join(cwd, '.agents', 'skills'), 'large-flow', 'Large fixture.', extras);
+    const skillPath = path.join(dir, 'SKILL.md');
+    const original = fs.readFileSync(skillPath, 'utf8') + Array.from({ length: 2200 }, (_, i) => `Requirement ${i}: preserve café and 🧭.\n`).join('');
+    fs.writeFileSync(skillPath, original);
+    const def = await makeTool();
+    const res = await run(def, q([{ reasoning: 'Load fixture.', name: 'large-flow', reason: 'Verify complete retrieval.' }]), cwd);
+    const details = res.details as {
+      isPartial: boolean; partialReasons: string[]; files: string[];
+      content: { returnedChars: number };
+      next: Record<string, { tool: string; query: { queries: Array<{ action: string; server: string; tool: string; arguments: { queries: Record<string, unknown>[] } }> } }>;
+    };
+    assert.equal(details.isPartial, true);
+    assert.ok(details.partialReasons.includes('content-limit'));
+    assert.ok(details.partialReasons.includes('file-limit'));
+    assert.ok(details.partialReasons.includes('file-depth'));
+    assert.ok(details.partialReasons.includes('file-filter'));
+    const visible = res.content.flatMap((part) => part.type === 'text' ? [part.text] : []).join('\n');
+    assert.ok(visible.includes(original.slice(0, details.content.returnedChars)), 'the entire first page survives the model-visible result budget');
+    assert.ok(visible.includes('MCPTool') && visible.includes('charOffset'), 'recovery is visible to the model');
+    const cli = fileURLToPath(new URL('../../octocode/out/octocode.js', import.meta.url));
+    const execute = (tool: string, query: Record<string, unknown>) => {
+      const child = spawnSync(process.execPath, [cli, 'tools', tool, '--queries', JSON.stringify(query), '--compact'], { cwd, encoding: 'utf8', timeout: 20_000, env: { ...process.env, ENABLE_LOCAL: 'true' } });
+      assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
+      const response = JSON.parse(child.stdout);
+      const row = response.results[0];
+      assert.notEqual(row.status, 'error', JSON.stringify(row));
+      return { ...row.data, base: response.base ?? cwd };
+    };
+    const unwrap = (name: string) => {
+      const next = details.next[name]!;
+      assert.equal(next.tool, 'MCPTool');
+      const call = next.query.queries[0]!;
+      assert.equal(call.action, 'call');
+      assert.equal(call.server, 'octocode');
+      return { tool: call.tool, query: call.arguments.queries[0]! };
+    };
+    let contentNext: { tool: string; query: Record<string, unknown> } | undefined = unwrap('content');
+    let recovered = original.slice(0, details.content.returnedChars);
+    let pages = 0;
+    while (contentNext) {
+      assert.ok(++pages < 30, 'content recovery makes bounded progress');
+      const data = execute(contentNext.tool, contentNext.query);
+      recovered += data.content;
+      contentNext = data.next?.continueChars;
+      if (data.isPartial) assert.ok(contentNext, 'every partial read supplies its next call');
+    }
+    assert.equal(recovered, original, 'prefix and canonical continuation pages cover every instruction exactly');
+    let filesNext: { tool: string; query: Record<string, unknown> } | undefined = unwrap('files');
+    const recoveredFiles = new Set(details.files);
+    pages = 0;
+    while (filesNext) {
+      assert.ok(++pages < 30, 'file recovery makes bounded progress');
+      const data = execute(filesNext.tool, filesNext.query);
+      for (const file of data.files ?? []) recoveredFiles.add(path.relative(dir, path.resolve(data.base, file.path)));
+      filesNext = data.next?.nextPage ?? data.next?.expandLimit;
+    }
+    for (const name of Object.keys(extras)) assert.ok(recoveredFiles.has(name), `recovered ${name}`);
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}, 30_000);
 
 test('type:load is default when type field omitted — load action also default', async () => {
   const cwd = tmpWorkspace();

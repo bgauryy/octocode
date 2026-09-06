@@ -1,3 +1,5 @@
+import { truncateToWidth } from '../tui/width.js';
+import { paint } from '../tui/palette.js';
 /**
  * create-image-tool — registers the `createImage` tool: turn agent-authored
  * markup into a real image and render it inline in the TUI (Kitty graphics /
@@ -26,8 +28,8 @@ import { Resvg } from '@resvg/resvg-js';
 import type { TSchema, ToolCallResult, ToolDefinition, PiContext, PiTheme, RenderContext } from '../types.js';
 import { createSessionArtifactContext } from './session-artifacts.js';
 import type { registerUniqueTool } from './octocode-tools.js';
-import { cliStatusGlyph, cliStatusToken, cliToolTitle, paint } from '../tui/cli-design.js';
-import { makeRenderer, truncateToWidth } from './render-helpers.js';
+import { cliStatusGlyph, cliStatusToken, cliToolTitle } from '../tui/cli-design.js';
+import { makeComponentRenderer } from './render-helpers.js';
 import { assertPathAllowed } from './path-guard.js';
 import { resolveFilePath } from './file-state.js';
 import { appendImageLines, effectiveInlineImages, formatBytes, isTerminalImageCapable } from './image-render.js';
@@ -319,7 +321,7 @@ export async function createImageFromHtml(
  * Persist a rendered PNG so it can be opened when the terminal can't display
  * it inline.
  *
- * Primary: `$OCTOCODE_HOME/extension/workspaces/<workspace>/sessions/<session-key>/images/<name>.png`
+ * Primary: `$OCTOCODE_HOME/extension/sessions/<session-key>/images/<name>.png`
  * (registered as an `image` producer in the session artifact manifest).
  * Fallback: `$OCTOCODE_HOME/extension/tmp/images/<session-id>/` when session context
  * is unavailable or the artifact dir cannot be created.
@@ -495,15 +497,15 @@ export function registerCreateImageTool(
       const mode = typeof input['html'] === 'string' ? 'html' : 'svg';
       const name = typeof input['name'] === 'string' ? (input['name'] as string) : mode;
       const title = cliToolTitle(theme, 'createImage');
-      return makeRenderer((width) => [truncateToWidth(`${title} ${paint(theme, 'dim', `${mode} \u00b7 ${name}`)}`, width)]);
+      return makeComponentRenderer((_props, { width: width }) => [truncateToWidth(`${title} ${paint(theme, 'dim', `${mode} \u00b7 ${name}`)}`, width)], undefined);
     },
 
     renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme, context?: RenderContext) {
-      if (opts.isPartial) return makeRenderer(() => [paint(theme, 'brand', '… rendering image')]);
+      if (opts.isPartial) return makeComponentRenderer((_props, _context) => [paint(theme, 'brand', '… rendering image')], undefined);
       const ok = !result.isError;
       const note = (result.content.find((c) => c.type === 'text') as { text?: string } | undefined)?.text ?? (ok ? 'image created' : 'render failed');
       const icon = paint(theme, cliStatusToken(ok), cliStatusGlyph(ok));
-      const base = makeRenderer((width) => [truncateToWidth(`${icon} ${cliToolTitle(theme, 'createImage')} · ${note}`, width)]);
+      const base = makeComponentRenderer((_props, { width: width }) => [truncateToWidth(`${icon} ${cliToolTitle(theme, 'createImage')} · ${note}`, width)], undefined);
       if (!ok) return base;
 
       // When showToModel put an image block in content, pi's tool-execution

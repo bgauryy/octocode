@@ -33,9 +33,11 @@ struct UserServerSpec {
 }
 
 pub fn detect_language_id(file_path: String) -> Option<String> {
-    grammar_for_file(&file_path)
+    // The protocol ID can differ from the parser grammar: JSX uses the
+    // JavaScript grammar but must be opened as javascriptreact by the server.
+    spec_for_file(&file_path)
         .map(|spec| spec.language_id.to_owned())
-        .or_else(|| spec_for_file(&file_path).map(|spec| spec.language_id.to_owned()))
+        .or_else(|| grammar_for_file(&file_path).map(|spec| spec.language_id.to_owned()))
 }
 
 pub fn default_server_for_file(
@@ -233,7 +235,7 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_CLANGD_SERVER_PATH"),
         },
-        ".cpp" | ".cc" | ".cxx" | ".hpp" => ServerSpec {
+        ".cpp" | ".cc" | ".cxx" | ".hpp" | ".hh" | ".hxx" => ServerSpec {
             language_id: "cpp",
             command: "clangd",
             args: &[],
@@ -599,12 +601,13 @@ mod tests {
     }
 
     #[test]
-    fn detects_requested_language_matrix_from_native_grammar_registry() {
+    fn detects_protocol_language_ids_with_grammar_fallback() {
         let cases = [
             ("demo.ts", "typescript"),
             ("demo.tsx", "typescriptreact"),
             ("demo.js", "javascript"),
-            ("demo.jsx", "javascript"),
+            ("demo.jsx", "javascriptreact"),
+            ("demo.JSX", "javascriptreact"),
             ("demo.py", "python"),
             ("demo.go", "go"),
             ("demo.rs", "rust"),
@@ -628,6 +631,17 @@ mod tests {
                 Some(expected),
                 "{file_name}"
             );
+        }
+    }
+
+    #[test]
+    fn all_cpp_extensions_resolve_to_clangd() {
+        for extension in ["cpp", "cc", "cxx", "hpp", "hh", "hxx"] {
+            let config =
+                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
+                    .expect(extension);
+            assert_eq!(config.command, "clangd");
+            assert_eq!(config.language_id.as_deref(), Some("cpp"));
         }
     }
 

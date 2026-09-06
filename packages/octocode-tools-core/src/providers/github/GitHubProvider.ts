@@ -3,17 +3,21 @@ import type {
   ICodeHostProvider,
   ProviderConfig,
   ProviderResponse,
-  CodeSearchQuery,
-  CodeSearchResult,
-  FileContentQuery,
-  FileContentResult,
-  RepoSearchQuery,
-  RepoSearchResult,
-  PullRequestQuery,
-  PullRequestSearchResult,
-  RepoStructureQuery,
-  RepoStructureResult,
 } from '../types.js';
+import type {
+  CodeSearchQuery,
+  FileContentQuery,
+  RepoSearchQuery,
+  PullRequestQuery,
+  RepoStructureQuery,
+} from '../providerQueries.js';
+import type {
+  CodeSearchResult,
+  FileContentResult,
+  RepoSearchResult,
+  PullRequestSearchResult,
+  RepoStructureResult,
+} from '../providerResults.js';
 
 import * as githubSearch from './githubSearch.js';
 import * as githubContent from './githubContent.js';

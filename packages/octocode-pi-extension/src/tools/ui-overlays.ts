@@ -1,3 +1,4 @@
+import { truncateToWidth, visibleWidth } from '../tui/width.js';
 /**
  * ui-overlays — reusable Octocode TUI overlay helpers built on `@earendil-works/pi-tui`.
  *
@@ -12,7 +13,7 @@
 import { SelectList } from "@earendil-works/pi-tui";
 import type { PiTheme, PiContext } from "../types.js";
 import { MultiSelectList, multiSelectKeyAction, type MultiSelectTheme } from "./multi-select-list.js";
-import { truncateToWidth, visibleWidth } from "./render-helpers.js";
+
 import { TOKEN, type SemanticToken } from "../tui/palette.js";
 import { OVERLAY_HELP_MULTI, OVERLAY_HELP_SELECT, OVERLAY_HELP_SELECT_FILTER } from "../tui/content.js";
 

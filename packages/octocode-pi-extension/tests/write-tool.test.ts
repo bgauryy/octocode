@@ -1,5 +1,5 @@
 /**
- * TDD tests for write-tool.ts (registerWriteTool)
+ * Public file-tool write behavior tests.
  *
  * Tests validate the path-guard, param validation, directory creation,
  * overwrite semantics, and read-state recording.
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { test, beforeEach, afterEach } from 'vitest';
 import { Type } from 'typebox';
 import type { ToolDefinition } from '../src/types.js';
-import { registerWriteTool } from '../src/tools/write-tool.js';
+import { registerFileTool } from '../src/tools/file-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import {
   checkReadState,
@@ -19,16 +19,16 @@ import {
 } from '../src/tools/file-state.js';
 
 let tmpDir: string;
-let writeTool: ToolDefinition;
+let fileTool: ToolDefinition;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'write-tool-test-'));
   clearReadStatesForTests();
 
   const tools = new Map<string, ToolDefinition>();
-  registerWriteTool({ registerTool: (def) => tools.set(def.name, def) }, Type, new Set<string>(), registerUniqueTool);
-  writeTool = tools.get('write')!;
-  assert.ok(writeTool, 'write tool must be registered');
+  registerFileTool({ registerTool: (def) => tools.set(def.name, def) }, Type, new Set<string>(), registerUniqueTool);
+  fileTool = tools.get('file')!;
+  assert.ok(fileTool, 'public file tool must be registered');
 });
 
 afterEach(() => {
@@ -44,17 +44,17 @@ function run(
   const withReasoning = Object.hasOwn(params, 'reasoning')
     ? params
     : { ...params, reasoning: 'test write operation' };
-  const envelope = { queries: [withReasoning] };
-  const prepared = writeTool.prepareArguments?.(envelope) as Record<string, unknown> | undefined;
-  return writeTool.execute('call-1', prepared ?? envelope, signal, undefined, { cwd });
+  const envelope = { queries: [{ type: 'write', ...withReasoning }] };
+  const prepared = fileTool.prepareArguments?.(envelope) as Record<string, unknown> | undefined;
+  return fileTool.execute('call-1', prepared ?? envelope, signal, undefined, { cwd });
 }
 
 // ─── Registration ─────────────────────────────────────────────────────────────
 
-test('registerWriteTool registers the "write" tool with correct metadata', () => {
-  assert.equal(writeTool.name, 'write');
-  assert.match(writeTool.description ?? '', /path-guard/);
-  const schema = writeTool.parameters as {
+test('public file tool exposes guarded write queries', () => {
+  assert.equal(fileTool.name, 'file');
+  assert.match(fileTool.description ?? '', /guarded/);
+  const schema = fileTool.parameters as {
     properties?: Record<string, unknown>;
   };
   assert.deepEqual(Object.keys(schema.properties ?? {}), ['queries', 'queryRunType']);
@@ -95,7 +95,7 @@ test('overwrites an existing file', async () => {
 test('rejects file_path instead of path', async () => {
   await assert.rejects(
     () => run({ file_path: 'unsupported.txt', content: 'x' }),
-    /path must be a non-empty string/,
+    /requires a non-empty path/,
   );
 });
 
@@ -140,11 +140,11 @@ test('aborts before writing without creating the target file', async () => {
 // ─── Param validation ────────────────────────────────────────────────────────
 
 test('rejects when path is missing', async () => {
-  await assert.rejects(() => run({ content: 'no path' }), /path must be a non-empty string/);
+  await assert.rejects(() => run({ content: 'no path' }), /requires a non-empty path/);
 });
 
 test('rejects when path is empty string', async () => {
-  await assert.rejects(() => run({ path: '', content: 'empty path' }), /path must be a non-empty string/);
+  await assert.rejects(() => run({ path: '', content: 'empty path' }), /requires a non-empty path/);
 });
 
 test('rejects when content is not a string', async () => {
@@ -156,7 +156,7 @@ test('rejects when content is not a string', async () => {
 
 test('rejects when reasoning is missing', async () => {
   await assert.rejects(
-    () => writeTool.execute('call-missing-reasoning', { queries: [{ path: 'file.txt', content: 'hi' }] }, undefined, undefined, { cwd: tmpDir }),
+    () => fileTool.execute('call-missing-reasoning', { queries: [{ type: 'write', path: 'file.txt', content: 'hi' }] }, undefined, undefined, { cwd: tmpDir }),
     /requires non-empty reasoning/,
   );
 });
@@ -178,17 +178,17 @@ test('blocks writes to a path outside all allowed roots', async () => {
 });
 
 test('prepareArguments does not convert flat input or path aliases', () => {
-  assert.ok(writeTool.prepareArguments, 'prepareArguments must be defined');
+  assert.ok(fileTool.prepareArguments, 'prepareArguments must be defined');
   const input = { file_path: 'x.txt', content: 'hi' };
-  assert.deepEqual(writeTool.prepareArguments!(input), input);
+  assert.deepEqual(fileTool.prepareArguments!(input), input);
 });
 
 test('prepareArguments fills reasoning only inside queries[]', () => {
-  const input = { queries: [{ path: 'x.txt', content: 'hi' }] };
-  const result = writeTool.prepareArguments!(input) as { queries: Array<Record<string, unknown>> };
+  const input = { queries: [{ type: 'write', path: 'x.txt', content: 'hi' }] };
+  const result = fileTool.prepareArguments!(input) as { queries: Array<Record<string, unknown>> };
   const query = (result['queries'] as Array<Record<string, unknown>>)[0]!;
   assert.equal(query['path'], 'x.txt');
-  assert.equal(query['reasoning'], 'write operation');
+  assert.equal(query['reasoning'], 'file operation');
 });
 
 // ─── renderCall ──────────────────────────────────────────────────────
@@ -198,28 +198,28 @@ const theme = {
   fg: (_color: string, t: string) => t,
 };
 
-test('renderCall returns a renderer that produces the override label, path, and line count', () => {
-  assert.ok(writeTool.renderCall, 'renderCall must be defined');
-  const renderer = writeTool.renderCall!({
-    queries: [{ path: 'src/foo.ts', content: 'line1\nline2\nline3', reasoning: 'create fixture file' }],
+test('renderCall identifies the public file operation, path, and reasoning', () => {
+  assert.ok(fileTool.renderCall, 'renderCall must be defined');
+  const renderer = fileTool.renderCall!({
+    queries: [{ type: 'write', path: 'src/foo.ts', content: 'line1\nline2\nline3', reasoning: 'create fixture file' }],
   }, theme);
   assert.ok(renderer, 'renderCall must return a renderer');
   const lines = (renderer as { render(width: number): string[] }).render(80);
-  assert.ok(lines.join('\n').includes('write (Octocode)'), 'label must identify the Octocode override');
+  assert.ok(lines.join('\n').includes('file (Octocode)'), 'label must identify the public tool');
   assert.ok(lines.join('\n').includes('src/foo.ts'), 'label must contain file path');
-  assert.ok(lines.join('\n').includes('3 lines'), 'label must show line count');
+  assert.ok(lines.join('\n').includes('write'), 'label must show the operation');
   assert.ok(lines.join('\n').includes('create fixture file'), 'label must show reasoning');
 });
 
 test('renderCall handles missing path gracefully', () => {
-  assert.ok(writeTool.renderCall);
-  const renderer = writeTool.renderCall!({ queries: [{ reasoning: 'test missing path', content: 'hello' }] });
+  assert.ok(fileTool.renderCall);
+  const renderer = fileTool.renderCall!({ queries: [{ type: 'write', reasoning: 'test missing path', content: 'hello' }] });
   const lines = (renderer as { render(width: number): string[] }).render(80);
   assert.ok(lines.join('\n').includes('missing path'), 'must note missing path');
 });
 
 test('renderCall with no theme still renders', () => {
-  const renderer = writeTool.renderCall!({ queries: [{ reasoning: 'write output', path: 'out.txt', content: 'hi' }] });
+  const renderer = fileTool.renderCall!({ queries: [{ type: 'write', reasoning: 'write output', path: 'out.txt', content: 'hi' }] });
   const lines = (renderer as { render(width: number): string[] }).render(80);
   assert.ok(lines.length > 0);
 });
@@ -227,25 +227,24 @@ test('renderCall with no theme still renders', () => {
 // ─── renderResult ────────────────────────────────────────────────────
 
 test('renderResult for isPartial=true renders a progress indicator', () => {
-  assert.ok(writeTool.renderResult);
+  assert.ok(fileTool.renderResult);
   const result: import('../src/types.js').ToolCallResult = { content: [], isError: undefined };
-  const renderer = writeTool.renderResult!(result, { isPartial: true }, theme);
+  const renderer = fileTool.renderResult!(result, { isPartial: true }, theme);
   const lines = (renderer as { render(width: number): string[] }).render(80);
-  assert.ok(lines.join('\n').includes('writing'), 'partial result must mention writing');
-  assert.ok(lines.join('\n').includes('write (Octocode)'), 'partial result must identify the Octocode override');
+  assert.ok(lines.join('\n').includes('editing'), 'partial result must show mutation progress');
+  assert.ok(lines.join('\n').includes('file (Octocode)'), 'partial result must identify the public tool');
 });
 
 test('renderResult for successful write renders the path and size', () => {
   const result: import('../src/types.js').ToolCallResult = {
-    content: [{ type: 'text' as const, text: 'ok' }], isError: undefined, details: { path: 'src/a.ts', bytes: 42 },
+    content: [{ type: 'text' as const, text: 'ok' }], isError: undefined, details: { operation: 'write', path: 'src/a.ts', bytes: 42 },
   };
-  const renderer = writeTool.renderResult!(result, {}, theme);
+  const renderer = fileTool.renderResult!(result, {}, theme);
   const lines = (renderer as { render(width: number): string[] }).render(80);
-  assert.equal(lines.length, 1);
-  assert.match(lines[0]!, /✓/);
-  assert.match(lines[0]!, /write \(Octocode\)/);
-  assert.match(lines[0]!, /src\/a\.ts/);
-  assert.match(lines[0]!, /42 bytes/);
+  assert.match(lines.join('\n'), /✓/);
+  assert.match(lines.join('\n'), /file \(Octocode\)/);
+  assert.match(lines.join('\n'), /src\/a\.ts/);
+  assert.match(lines.join('\n'), /42 bytes/);
 });
 
 test('renderResult for error renders the error text', () => {
@@ -253,14 +252,14 @@ test('renderResult for error renders the error text', () => {
     content: [{ type: 'text' as const, text: 'permission denied' }],
     isError: true,
   };
-  const renderer = writeTool.renderResult!(result, {}, theme);
+  const renderer = fileTool.renderResult!(result, {}, theme);
   const lines = (renderer as { render(width: number): string[] }).render(80);
   assert.ok(lines.join('\n').includes('permission denied'));
 });
 
-test('renderResult for error with no content text falls back to "write failed"', () => {
+test('renderResult for error with no content text retains the public tool identity', () => {
   const result: import('../src/types.js').ToolCallResult = { content: [], isError: true };
-  const renderer = writeTool.renderResult!(result, {});
+  const renderer = fileTool.renderResult!(result, {});
   const lines = (renderer as { render(width: number): string[] }).render(80);
-  assert.ok(lines.join('\n').includes('write failed'));
+  assert.ok(lines.join('\n').includes('file (Octocode)'));
 });

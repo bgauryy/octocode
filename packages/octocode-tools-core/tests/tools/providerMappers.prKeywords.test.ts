@@ -5,7 +5,7 @@ import { buildGitHubPullRequestsSearchParams } from '../../src/providers/github/
 import {
   buildPullRequestSearchQuery,
   shouldUseSearchForPRs,
-} from '../../src/github/queryBuilders.js';
+} from '../../src/github/queryBuilders/pullRequests.js';
 
 type PRArg = Parameters<typeof mapPullRequestToolQuery>[0];
 

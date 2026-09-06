@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FileContentQuerySchema as CoreFileContentQuerySchema } from '../../toolContract/schemas.js';
+import { FileContentQuerySchema as CoreFileContentQuerySchema } from '../../toolContract/input/resources/tools/ghGetFileContent.js';
 import { MAX_CHAR_LENGTH } from '../../config.js';
 import {
   clampedInt,
@@ -113,7 +113,6 @@ export interface GitHubFetchDirectoryEntry {
   savedFileCount?: number;
   skipped?: {
     nonFile: number;
-    missingDownloadUrl: number;
     oversized: number;
     binary: number;
     fileLimit: number;

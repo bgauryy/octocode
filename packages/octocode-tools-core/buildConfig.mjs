@@ -7,14 +7,10 @@ const pkg = require('./package.json');
 
 export const nodeExternals = [
   ...builtinModules,
-  ...builtinModules.map((m) => `node:${m}`),
+  ...builtinModules.map(m => `node:${m}`),
 ];
 
-export const bundledRuntimeDependencies = new Set([]);
-
-export const runtimeExternals = Object.keys(pkg.dependencies ?? {}).filter(
-  (dependencyName) => !bundledRuntimeDependencies.has(dependencyName)
-);
+export const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
 export const external = [...nodeExternals, ...runtimeExternals];
 
@@ -50,11 +46,29 @@ export const entryPoints = [
   // @octocodeai/octocode-engine import and loads no native addon at eval.
   { entryPoints: ['src/schema.ts'], outfile: 'dist/schema.js' },
   { entryPoints: ['src/zod.ts'], outfile: 'dist/zod.js' },
-  { entryPoints: ['src/shared/credentials/index.ts'], outfile: 'dist/shared/credentials/index.js' },
-  { entryPoints: ['src/shared/platform/index.ts'], outfile: 'dist/shared/platform/index.js' },
-  { entryPoints: ['src/shared/session/index.ts'], outfile: 'dist/shared/session/index.js' },
-  { entryPoints: ['src/shared/config/index.ts'], outfile: 'dist/shared/config/index.js' },
+  {
+    entryPoints: ['src/shared/credentials/index.ts'],
+    outfile: 'dist/shared/credentials/index.js',
+  },
+  {
+    entryPoints: ['src/shared/platform/index.ts'],
+    outfile: 'dist/shared/platform/index.js',
+  },
+  {
+    entryPoints: ['src/shared/session/index.ts'],
+    outfile: 'dist/shared/session/index.js',
+  },
+  {
+    entryPoints: ['src/shared/config/index.ts'],
+    outfile: 'dist/shared/config/index.js',
+  },
   { entryPoints: ['src/shared/paths.ts'], outfile: 'dist/shared/paths.js' },
-  { entryPoints: ['src/shared/fs-utils.ts'], outfile: 'dist/shared/fs-utils.js' },
-  { entryPoints: ['src/shared/credentials/testing.ts'], outfile: 'dist/shared/credentials/testing.js' },
+  {
+    entryPoints: ['src/shared/fs-utils.ts'],
+    outfile: 'dist/shared/fs-utils.js',
+  },
+  {
+    entryPoints: ['src/shared/credentials/testing.ts'],
+    outfile: 'dist/shared/credentials/testing.js',
+  },
 ];

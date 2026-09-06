@@ -26,6 +26,7 @@ export const ContentSanitizer = {
 };
 
 export class PathValidator {
+  addAllowedRoot(_path: string): void {}
   isAllowed(_path: string) {
     return true;
   }

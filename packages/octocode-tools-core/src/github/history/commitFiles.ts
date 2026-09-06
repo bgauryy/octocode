@@ -1,6 +1,17 @@
 import type { HistoryCommitFile } from '../githubAPI.js';
 import { MAX_PAGE_NUMBER } from '../../config.js';
 
+/** A missing provider patch does not establish whether a file is binary or too large. */
+export function patchAvailability(patch: unknown) {
+  return typeof patch === 'string'
+    ? {}
+    : {
+        isPartial: true as const,
+        terminalLimit: true as const,
+        patchUnavailable: { reason: 'providerOmittedPatch' as const },
+      };
+}
+
 export function windowPatch(
   patch: string | undefined,
   charOffset: number | undefined,
@@ -17,7 +28,7 @@ export function windowPatch(
       };
     }
   | undefined {
-  if (!patch) return undefined;
+  if (patch === undefined) return undefined;
   if (!charLength && !charOffset) return { patch };
 
   const totalChars = patch.length;
@@ -80,6 +91,7 @@ export function shapeCommitDirFiles(
         : undefined;
     return {
       filename: f.filename,
+      ...patchAvailability(f.patch),
       status: f.status,
       additions: f.additions,
       deletions: f.deletions,

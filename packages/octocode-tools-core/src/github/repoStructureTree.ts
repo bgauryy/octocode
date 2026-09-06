@@ -75,8 +75,10 @@ export function isGitStructureTreesEnabled(
 }
 
 /**
- * Fetch a repo tree via `git.getTree({ recursive: 'true' })` and filter to the
- * requested path/depth. Resolves branch → tree SHA in two REST calls total.
+ * Resolve the requested directory's immutable tree SHA, then fetch its tree.
+ * Root queries use branch metadata; scoped queries find the directory in its
+ * parent's Contents listing. Both paths use two REST calls, without downloading
+ * unrelated recursive subtrees for a scoped query.
  */
 export async function fetchStructureViaGitTree(
   octokit: Octokit,
@@ -89,13 +91,32 @@ export async function fetchStructureViaGitTree(
     ifNoneMatch?: string;
   }
 ): Promise<FilteredGitTree> {
-  const { data: branchData } = await octokit.rest.repos.getBranch({
-    owner: params.owner,
-    repo: params.repo,
-    branch: params.workingBranch,
-  });
-
-  const treeSha = branchData.commit.commit.tree.sha;
+  const prefix = (params.pathPrefix ?? '').replace(/^\/+|\/+$/g, '');
+  let treeSha: string | undefined;
+  let resolutionChars: number;
+  if (prefix && prefix !== '.') {
+    const parent = prefix.includes('/')
+      ? prefix.slice(0, prefix.lastIndexOf('/'))
+      : '';
+    const { data } = await octokit.rest.repos.getContent({
+      owner: params.owner,
+      repo: params.repo,
+      path: parent,
+      ref: params.workingBranch,
+    });
+    resolutionChars = countSerializedChars(data);
+    treeSha = Array.isArray(data)
+      ? data.find(entry => entry.path === prefix && entry.type === 'dir')?.sha
+      : undefined;
+  } else {
+    const { data } = await octokit.rest.repos.getBranch({
+      owner: params.owner,
+      repo: params.repo,
+      branch: params.workingBranch,
+    });
+    resolutionChars = countSerializedChars(data);
+    treeSha = data.commit.commit.tree.sha;
+  }
   if (!treeSha) {
     throw new Error(
       `Could not resolve tree SHA for ${params.owner}/${params.repo}@${params.workingBranch}`
@@ -128,16 +149,22 @@ export async function fetchStructureViaGitTree(
 
   const treeData = treeResponse.data;
   const etag = extractEtag(treeResponse.headers);
-  const items = filterGitTreeEntries(treeData.tree as GitTreeEntry[], {
-    pathPrefix: params.pathPrefix,
+  const scopedPrefix = prefix === '.' ? '' : prefix;
+  const entries = scopedPrefix
+    ? treeData.tree.map(entry => ({
+        ...entry,
+        path: entry.path ? `${scopedPrefix}/${entry.path}` : undefined,
+      }))
+    : treeData.tree;
+  const items = filterGitTreeEntries(entries as GitTreeEntry[], {
+    pathPrefix: scopedPrefix,
     maxDepth: params.maxDepth,
   });
 
   return {
     items,
     truncated: Boolean(treeData.truncated),
-    rawResponseChars:
-      countSerializedChars(branchData) + countSerializedChars(treeData),
+    rawResponseChars: resolutionChars + countSerializedChars(treeData),
     ...(etag ? { etag } : {}),
   };
 }

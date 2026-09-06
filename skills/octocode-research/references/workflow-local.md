@@ -1,34 +1,39 @@
-# Workflow: local research
+# Local research
 
-Use when the running repository, local checkout, or installed dependency is source of truth.
-Read `references/algorithm.md` first; read `references/octocode.md` only when tool or CLI syntax is unclear.
+Load when a checkout, local artifact, or resolved dependency is the evidence source. Use the router in `references/algorithm.md`; this reference owns local tool selection and completeness.
 
-```text
-localSearch tree / files
--> localSearch text for terms, identifiers, or changed anchors
--> localGetFileContent(minify:"symbols" for orientation; matchString or line range with minify:"none" for exact proof)
--> localAnalyzeGraph for file topology when the question is dependencies, dependents, paths, cycles, reachability, or dead code
--> lspGetSemantics for symbol identity: definition, references, callers, callees, hover
--> localSearch structural for code shape
-```
-
-| Question | Graph operation and required fields | Proof upgrade |
+## Choose the missing evidence
+A known file or path can skip discovery and orientation: read the relevant lines directly. Otherwise choose one starting point:
+| Question | Tool and selection | Evidence |
 |---|---|---|
-| What does this file import? | `dependencies` + `file` (+ optional `depth`) | exact-read returned import edges |
-| What imports this file? | `dependents` + `file` (+ optional `depth`) | LSP references/callers for changed symbols |
-| How can source reach target? | `path` + `file` + `target` | exact-read every returned edge |
-| Which files form cycles? | `cycles` | inspect SCC imports before changing architecture |
-| What is reachable from roots? | `reachability` + optional `entrypoints`/`includeTests` | verify inferred roots and truncation |
-| What can be dead? | `deadCode` + optional `entrypoints`/`includeTests` | exact read + LSP/search/tests before deletion |
+| Names, strings, errors, configuration | `localSearch operation:"text"`, `searchText` | lexical candidates |
+| Paths or directory layout | `localSearch operation:"files"` or `"tree"` | files inside the stated scope |
+| Call/declaration/import shape | `localSearch operation:"structural"`, exactly one `pattern` or `rule` | AST syntax, not resolved identity |
+| Exact behavior or quote | `localGetFileContent`, `minify:"none"`, bounded lines or match | source text |
+| Symbol identity and use | `lspGetSemantics` | server-resolved definitions/references/callers |
+| Relationships between files | `localAnalyzeGraph` | syntactic topology |
 
-Local-first defaults:
-- For package behavior, inspect `node_modules/<pkg>` before GitHub; it is the version that runs.
-- For impact, use graph `dependents`/`path` to map files, then LSP references/callers to prove changed symbols.
-- For deletion, use graph `deadCode` as candidates, then exact read + LSP excluding declarations + broad search + tests/build.
-- Graph edges are syntactic file evidence; LSP is semantic symbol evidence. Do not run the graph for a lookup.
-- `minify:"standard"` might compact or rewrite code and `minify:"symbols"` is outline-only; neither is quote-safe. Use `minify:"none"` for exact evidence, and execute every returned character or match continuation before claiming absence.
-- For edits, find a local pattern first, patch the smallest scope, then run the targeted verification.
+Use an absolute `path` and an explicit `operation` for local search. Text uses `searchText`, structural uses `pattern`/`rule`; do not mix fields. Use files/count views when bodies are unnecessary. Outline with `minify:"symbols"` only when useful; `standard` may rewrite text.
 
-Use external surfaces only when they answer something local cannot: upstream intent, fixes in newer versions, PR/commit history, source repository tests, or ecosystem alternatives — see `references/workflow-external.md`.
+## AST and LSP
+- AST: inspect diagnostics before relaxing a zero-match pattern. Incomplete or partial execution cannot prove absence. A `terminalLimit` requires narrowing/simplifying, while a returned continuation can recover a scan or display bound.
+- `structural.query.rewritten` identifies a different executed pattern; report it and use that explicit pattern when repeating the search. Keep captures off unless needed and inspect compacted-match recovery.
+- Anchored LSP queries need `uri` + `symbolName` + a real `lineHint` from search/read. `workspaceSymbol` needs a name; `documentSymbols` and `diagnostic` need a URI.
+- Use `definition` for identity, `references` for uses, `callers`/`callees` for call flow, and `hover`/`implementation`/type queries for their specific questions.
+- Inspect server capabilities, `warmup`, partial state, and pagination. Unsupported diagnostics are not a clean bill of health. For usage checks set `includeDeclaration:false`; zero references still needs entrypoint/export/runtime checks before deletion.
 
-Next: when remote code must be proven with local-grade tools bridge through `references/workflow-combination.md`; for the proof ladder on a local claim load `references/code-research.md`; when the local finding turns into an edit go to `references/workflow-change.md`.
+## Graph
+| Question | Operation and inputs | Corroboration |
+|---|---|---|
+| Imports or importing files | `dependencies` / `dependents` + `file`; optional `depth` | exact edges; LSP for affected symbols |
+| Connection between files | `path` + `file` + `target` | inspect returned edges |
+| Cycles | `cycles` | distinguish type-only edges from runtime effects |
+| Reachable files | `reachability`; optional `entrypoints`/`includeTests` | prefer explicit roots; verify inferred roots and exclusions |
+| Dead-code candidates | `deadCode`; optional `entrypoints`/`includeTests` | exact imports, LSP, registrations, tests/build |
+
+Set `path` to the relevant package/repository. Inspect `entrypointsResolved` and confidence when roots are inferred; unclassified files with no resolved roots are not proven unreachable. Inspect coverage: unresolved imports and unsupported dynamic or ambiguous CommonJS loaders weaken completeness. Results and diagnostics paginate independently; follow `diagnosticPage` continuations with their snapshot. `rustWorkspace:"syntax"` and `"cargo"` use different workspace evidence; Cargo metadata does not prove feature-dependent runtime reachability. Never delete from graph output alone.
+
+## Validate
+Inspect the installed/resolved version when access permits; honor repository restrictions on vendor/generated files. Package metadata and upstream source are alternatives, but record version gaps. After an edit, run the matching change/refactor verification; do not force AST, LSP, and graph into every lookup.
+
+Next: for symbol/deletion proof use `references/code-research.md`; for upstream intent use `references/workflow-external.md`; for implementation use `references/workflow-change.md`.

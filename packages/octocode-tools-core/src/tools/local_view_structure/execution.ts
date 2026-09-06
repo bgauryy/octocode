@@ -3,8 +3,8 @@ import {
   type ViewStructureQuery,
   LocalViewStructureQuerySchema,
 } from './scheme.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { viewStructure } from './local_view_structure.js';
 import { safeParseOrError } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';

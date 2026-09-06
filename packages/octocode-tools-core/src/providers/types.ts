@@ -1,24 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
 
-export type {
-  CodeSearchQuery,
-  FileContentQuery,
-  RepoSearchQuery,
-  PullRequestQuery,
-  RepoStructureQuery,
-} from './providerQueries.js';
-
-export type {
-  UnifiedRepository,
-  CodeSearchItem,
-  CodeSearchResult,
-  FileContentResult,
-  RepoSearchResult,
-  PullRequestItem,
-  PullRequestSearchResult,
-  RepoStructureResult,
-} from './providerResults.js';
-
 import type {
   CodeSearchQuery,
   FileContentQuery,

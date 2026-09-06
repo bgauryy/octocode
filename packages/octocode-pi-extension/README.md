@@ -2,9 +2,11 @@
 
 The official Octocode package for Pi. It combines Octocode research through MCP with guarded file and shell operations, subagents, skills, media workflows, planning, and a live settings interface.
 
+The Pi host SDK (`@earendil-works/pi-coding-agent` 0.84.4) is a required peer dependency because the extension imports its runtime APIs.
+
 ## Install
 
-Requires Node.js 22 or later.
+Requires Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+.
 
 ```bash
 pi install npm:@octocodeai/pi-extension
@@ -23,7 +25,7 @@ The live source inventory is authoritative. Use `/octocode-harness` inside Pi fo
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
 | Slash command entries | 24 |
-| Bundled main-agent skills | 12 |
+| Bundled main-agent skills | 14 |
 
 ### Support tools
 
@@ -69,7 +71,7 @@ Existing `.octocoderc` files remain valid. The optional storage setting is backw
 
 Set `OCTOCODE_HOME` to change the Octocode home directory. Set `OCTOCODE_STORAGE_MODE=memory` for an environment override. In memory mode, Octocode disables response-disk caching, clone and exact-file materialization, session/stat persistence, and the extension's SQLite-backed Awareness state. The extension keeps active interaction and authorization state in process memory until exit. It does not delete existing files or disable user-authored configuration and credentials. Invalid environment values do not weaken a valid `.octocoderc` memory setting.
 
-See the repository [configuration guide](../../docs/CONFIGURATION.md) for every supported key and [docs/SETTINGS.md](docs/SETTINGS.md) for Pi's control center, persistence, and security behavior.
+See the repository [configuration guide](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for every supported key and [docs/SETTINGS.md](docs/SETTINGS.md) for Pi's control center, persistence, and security behavior.
 
 ## Slash command entries (24)
 
@@ -102,14 +104,16 @@ See the repository [configuration guide](../../docs/CONFIGURATION.md) for every 
 
 Command arguments and lifecycle details are documented in [HARNESS.md](HARNESS.md).
 
-## Bundled skills (12)
+## Bundled skills (14)
 
 The build copies these main-agent skills into `dist/skills/`:
 
+- `octocode-architect`
 - `octocode-brainstorming`
 - `octocode-chrome-devtools`
+- `octocode-code-graph`
 - `octocode-documentation`
-- `octocode-graph-eval`
+- `octocode-eval-benchmark`
 - `octocode-orchestrator`
 - `octocode-prompt-optimizer`
 - `octocode-research`

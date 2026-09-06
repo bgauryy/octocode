@@ -5,24 +5,15 @@ import type {
   MCPServer,
   MCPClient,
 } from '../types/index.js';
+import { getMCPConfigPath, clientConfigExists } from '../utils/mcp-paths.js';
+import { readMCPConfig, writeMCPConfig } from '../utils/mcp-io.js';
 import {
-  getMCPConfigPath,
-  readMCPConfig,
-  writeMCPConfig,
   mergeOctocodeConfig,
   isOctocodeConfigured,
-  clientConfigExists,
   getOctocodeServerConfig,
-  getOctocodeServerConfigWindows,
   getConfiguredMethod,
 } from '../utils/mcp-config.js';
-import { DETECTABLE_MCP_CLIENTS } from '../utils/mcp-paths.js';
 import { fileExists } from '../utils/fs.js';
-import { isWindows } from '../utils/platform.js';
-
-function ideToMCPClient(ide: IDE): MCPClient {
-  return ide;
-}
 
 interface InstallOptions {
   ide: IDE;
@@ -65,7 +56,7 @@ export function checkExistingInstallation(ide: IDE): {
   configPath: string;
   configExists: boolean;
 } {
-  const configPath = getMCPConfigPath(ideToMCPClient(ide));
+  const configPath = getMCPConfigPath(ide);
   const configExists = fileExists(configPath);
 
   if (!configExists) {
@@ -86,7 +77,7 @@ export function checkExistingInstallation(ide: IDE): {
 
 export function installOctocode(options: InstallOptions): InstallResult {
   const { ide, method, force = false } = options;
-  const configPath = getMCPConfigPath(ideToMCPClient(ide));
+  const configPath = getMCPConfigPath(ide);
 
   let config: MCPConfig = readMCPConfig(configPath) || { mcpServers: {} };
 
@@ -136,12 +127,10 @@ export function getInstallPreview(
   ide: IDE,
   method: InstallMethod
 ): InstallPreview {
-  const configPath = getMCPConfigPath(ideToMCPClient(ide));
+  const configPath = getMCPConfigPath(ide);
   const existing = checkExistingInstallation(ide);
   const existingConfig = readMCPConfig(configPath);
-  const serverConfig = isWindows
-    ? getOctocodeServerConfigWindows(method)
-    : getOctocodeServerConfig(method);
+  const serverConfig = getOctocodeServerConfig(method);
 
   let action: InstallPreview['action'] = 'create';
   if (existing.installed) {
@@ -260,9 +249,7 @@ export function getInstallPreviewForClient(
       : getMCPConfigPath(client, customPath);
   const existing = checkExistingClientInstallation(client, customPath);
   const existingConfig = readMCPConfig(configPath);
-  const serverConfig = isWindows
-    ? getOctocodeServerConfigWindows(method, envOptions)
-    : getOctocodeServerConfig(method, envOptions);
+  const serverConfig = getOctocodeServerConfig(method, envOptions);
 
   let action: ClientInstallPreview['action'] = 'create';
   if (existing.installed) {
@@ -279,16 +266,4 @@ export function getInstallPreviewForClient(
     action,
     existingMethod: existingConfig ? getConfiguredMethod(existingConfig) : null,
   };
-}
-
-export function detectAvailableClients(): MCPClient[] {
-  const available: MCPClient[] = [];
-
-  for (const client of DETECTABLE_MCP_CLIENTS) {
-    if (clientConfigExists(client)) {
-      available.push(client);
-    }
-  }
-
-  return available;
 }

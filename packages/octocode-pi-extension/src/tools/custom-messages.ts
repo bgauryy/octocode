@@ -1,3 +1,4 @@
+import { truncateToWidth } from '../tui/width.js';
 /**
  * custom-messages — branded transcript cards for Octocode lifecycle moments.
  *
@@ -15,11 +16,11 @@
  * system.
  */
 
-import { paint } from '../tui/cli-design.js';
-import { BRAND_DIAMOND, SEP } from '../tui/palette.js';
+
+import { BRAND_DIAMOND, SEP, paint } from '../tui/palette.js';
 import type { PiInstance, PiTheme } from '../types.js';
 import type { PlanCoordination, PlanStep, ReviewState } from './active-plan.js';
-import { makeRenderer, truncateToWidth } from './render-helpers.js';
+import { makeComponentRenderer } from './render-helpers.js';
 import { renderFrame } from '../tui/components.js';
 
 export const COMPACTION_CHECKPOINT_TYPE = 'octocode-compaction-checkpoint';
@@ -221,24 +222,20 @@ function detailsOf(message: unknown): Record<string, unknown> {
  */
 export function registerOctocodeMessageRenderers(pi: PiInstance): void {
   pi.registerMessageRenderer?.(COMPACTION_CHECKPOINT_TYPE, (message, options, theme) =>
-    makeRenderer((width) =>
-      buildCompactionCard(
+    makeComponentRenderer((_props, { width: width }) => buildCompactionCard(
         detailsOf(message) as unknown as CompactionCheckpointDetails,
         options?.expanded === true,
         theme,
         width,
-      ),
-    ),
+      ), undefined),
   );
   pi.registerMessageRenderer?.(AWARENESS_HANDOFF_TYPE, (message, options, theme) =>
-    makeRenderer((width) =>
-      buildHandoffCard(
+    makeComponentRenderer((_props, { width: width }) => buildHandoffCard(
         detailsOf(message) as unknown as AwarenessHandoffDetails,
         options?.expanded === true,
         theme,
         width,
-      ),
-    ),
+      ), undefined),
   );
 }
 

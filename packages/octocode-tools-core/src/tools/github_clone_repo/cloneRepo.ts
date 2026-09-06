@@ -1,45 +1,39 @@
 import { existsSync, mkdirSync, renameSync, rmSync } from 'fs';
-import { join } from 'path';
-import { createHash } from 'crypto';
-import { getOctocodeDir } from '../../shared/index.js';
+import { basename, dirname, join } from 'path';
+import { getOctocodeDir } from '../../shared/paths.js';
 import { resolveDefaultBranch } from '../../github/client.js';
+import { getServerConfig } from '../../serverConfig.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import {
-  spawnWithTimeout,
-  TOOLING_ALLOWED_ENV_VARS,
-} from '../../utils/exec/spawn.js';
 import type { WithOptionalMeta } from '../../types/execution.js';
 import type { CloneRepoQueryLocalSchema } from './scheme.js';
 import type { z } from 'zod';
 import type { CloneRepoResult } from './types.js';
+import { getCloneDir, getCloneLockDir } from './cachePaths.js';
 import {
-  getCloneDir,
+  assertGitAvailable,
+  executeCommitClone,
+  executeFullClone,
+  executeSparseClone,
+  readHeadCommit,
+} from './gitCheckout.js';
+import {
   isCacheHit,
   writeCacheMeta,
   createCacheMeta,
   ensureCloneParentDir,
   removeCloneDir,
   evictExpiredClones,
+} from './cache.js';
+import {
   writeCloneLockMeta,
   tryRecoverStaleCloneLock,
-} from './cache.js';
-
-const CLONE_TIMEOUT_MS = 2 * 60 * 1000;
-
-const SPARSE_CHECKOUT_TIMEOUT_MS = 30 * 1000;
+} from './cacheArtifacts.js';
 
 const CLONE_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 
 const CLONE_LOCK_POLL_MS = 100;
 
-const CLONE_LOCKS_DIR = 'clone-locks';
-
 const CLONE_TEMP_DIR = 'clone-tmp';
-
-const GIT_ALLOWED_ENV_VARS = [
-  ...TOOLING_ALLOWED_ENV_VARS,
-  'GIT_TERMINAL_PROMPT',
-] as const;
 
 export async function cloneRepo(
   query: WithOptionalMeta<z.infer<typeof CloneRepoQueryLocalSchema>>,
@@ -49,14 +43,25 @@ export async function cloneRepo(
   const owner = query.owner!;
   const repo = query.repo!;
   const { sparsePath, forceRefresh } = query;
+  const url = repoUrl(owner, repo);
 
   await assertGitAvailable();
 
   const branch =
     query.branch ?? (await resolveDefaultBranch(owner, repo, authInfo));
+  const pinnedCommit = /^[a-f0-9]{40}$/i.test(branch)
+    ? branch.toLowerCase()
+    : undefined;
 
   const octocodeDir = getOctocodeDir();
-  const cloneDir = getCloneDir(octocodeDir, owner, repo, branch, sparsePath);
+  const cloneDir = getCloneDir(
+    octocodeDir,
+    owner,
+    repo,
+    branch,
+    sparsePath,
+    url
+  );
 
   return withCloneLock(octocodeDir, cloneDir, async () => {
     const cacheResult = isCacheHit(cloneDir);
@@ -65,14 +70,24 @@ export async function cloneRepo(
       cacheResult.hit &&
       cacheResult.meta.source === 'clone'
     ) {
-      return {
-        localPath: cloneDir,
-        cached: true,
-        owner,
-        repo,
-        branch,
-        ...(sparsePath ? { sparsePath } : {}),
-      };
+      let commitSha: string | undefined;
+      try {
+        commitSha = await readHeadCommit(cloneDir);
+      } catch {
+        /* An invalid checkout is rebuilt under the same cache lock. */
+      }
+      if (commitSha && (!pinnedCommit || commitSha === pinnedCommit)) {
+        return {
+          localPath: cloneDir,
+          cached: true,
+          commitSha,
+          verified: false,
+          owner,
+          repo,
+          branch,
+          ...(sparsePath ? { sparsePath } : {}),
+        };
+      }
     }
 
     evictExpiredClones(octocodeDir);
@@ -83,32 +98,59 @@ export async function cloneRepo(
     removeCloneDir(tempDir);
 
     try {
-      if (sparsePath) {
+      if (pinnedCommit) {
+        await executeCommitClone(
+          pinnedCommit,
+          tempDir,
+          sparsePath,
+          url,
+          resolvedToken
+        );
+      } else if (sparsePath) {
         await executeSparseClone(
           owner,
           repo,
           branch,
           tempDir,
           sparsePath,
+          url,
           resolvedToken
         );
-        if (!existsSync(join(tempDir, sparsePath))) {
-          throw new Error(
-            `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
-              'Verify the path with ghSearch operation:"tree", then retry with the correct sparsePath (or omit it for a full clone).'
-          );
-        }
       } else {
-        await executeFullClone(owner, repo, branch, tempDir, resolvedToken);
+        await executeFullClone(
+          owner,
+          repo,
+          branch,
+          tempDir,
+          url,
+          resolvedToken
+        );
+      }
+
+      if (sparsePath && !existsSync(join(tempDir, sparsePath))) {
+        throw new Error(
+          `sparsePath "${sparsePath}" does not exist in ${owner}/${repo}@${branch} — nothing was checked out for it. ` +
+            'Verify the path with ghSearch operation:"tree", then retry with the correct sparsePath (or omit it for a full clone).'
+        );
+      }
+
+      const commitSha = await readHeadCommit(tempDir);
+      if (pinnedCommit && commitSha !== pinnedCommit) {
+        throw new Error(
+          `Checkout HEAD ${commitSha} does not match requested commit ${branch}.`
+        );
       }
 
       const newMeta = createCacheMeta(owner, repo, branch, 'clone', sparsePath);
+      newMeta.commitSha = commitSha;
       writeCacheMeta(tempDir, newMeta);
       promoteCloneDir(tempDir, cloneDir);
 
       return {
         localPath: cloneDir,
         cached: false,
+        commitSha,
+        verified: true,
         owner,
         repo,
         branch,
@@ -127,8 +169,8 @@ async function withCloneLock<T>(
   run: () => Promise<T>
 ): Promise<T> {
   ensureCloneParentDir(cloneDir);
-  const lockDir = cloneLockDir(octocodeDir, cloneDir);
-  mkdirSync(join(octocodeDir, 'tmp', CLONE_LOCKS_DIR), {
+  const lockDir = getCloneLockDir(octocodeDir, cloneDir);
+  mkdirSync(dirname(lockDir), {
     recursive: true,
     mode: 0o700,
   });
@@ -157,168 +199,78 @@ async function withCloneLock<T>(
   }
 }
 
-function cacheKey(cloneDir: string): string {
-  return createHash('sha256').update(cloneDir).digest('hex').slice(0, 16);
-}
-
-function cloneLockDir(octocodeDir: string, cloneDir: string): string {
-  return join(octocodeDir, 'tmp', CLONE_LOCKS_DIR, cacheKey(cloneDir));
-}
-
 function temporaryCloneDir(octocodeDir: string, cloneDir: string): string {
   const suffix = `${process.pid}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2)}`;
   const tmpBase = join(octocodeDir, 'tmp', CLONE_TEMP_DIR);
   mkdirSync(tmpBase, { recursive: true, mode: 0o700 });
-  return join(tmpBase, `${cacheKey(cloneDir)}-${suffix}`);
+  return join(
+    tmpBase,
+    `${basename(getCloneLockDir(octocodeDir, cloneDir))}-${suffix}`
+  );
 }
 
 function promoteCloneDir(tempDir: string, cloneDir: string): void {
-  removeCloneDir(cloneDir);
   ensureCloneParentDir(cloneDir);
-  renameSync(tempDir, cloneDir);
+  const previousDir = `${tempDir}.previous`;
+  const hadPrevious = existsSync(cloneDir);
+  if (hadPrevious) renameSync(cloneDir, previousDir);
+  try {
+    renameSync(tempDir, cloneDir);
+  } catch (error) {
+    if (hadPrevious) {
+      try {
+        renameSync(previousDir, cloneDir);
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          `Clone publication failed; the previous checkout is preserved at ${previousDir}.`
+        );
+      }
+    }
+    throw error;
+  }
+  if (hadPrevious) removeCloneDir(previousDir);
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function executeFullClone(
-  owner: string,
-  repo: string,
-  branch: string,
-  targetDir: string,
-  token?: string
-): Promise<void> {
-  const args = buildAuthArgs(token);
-  args.push(
-    'clone',
-    '--depth',
-    '1',
-    '--single-branch',
-    '--branch',
-    branch,
-    '--',
-    repoUrl(owner, repo),
-    targetDir
-  );
-  await runGit(args, CLONE_TIMEOUT_MS, `full clone of ${owner}/${repo}`, token);
-}
-
-async function executeSparseClone(
-  owner: string,
-  repo: string,
-  branch: string,
-  targetDir: string,
-  sparsePath: string,
-  token?: string
-): Promise<void> {
-  const cloneArgs = buildAuthArgs(token);
-  cloneArgs.push(
-    'clone',
-    '--filter',
-    'blob:none',
-    '--sparse',
-    '--depth',
-    '1',
-    '--single-branch',
-    '--branch',
-    branch,
-    '--',
-    repoUrl(owner, repo),
-    targetDir
-  );
-  await runGit(
-    cloneArgs,
-    CLONE_TIMEOUT_MS,
-    `sparse clone of ${owner}/${repo}`,
-    token
-  );
-
-  const sparseArgs: string[] = [
-    '-C',
-    targetDir,
-    'sparse-checkout',
-    'set',
-    '--skip-checks',
-    '--',
-    sparsePath,
-  ];
-  await runGit(
-    sparseArgs,
-    SPARSE_CHECKOUT_TIMEOUT_MS,
-    `sparse-checkout set ${sparsePath}`,
-    undefined
-  );
-}
-
 function repoUrl(owner: string, repo: string): string {
-  return `https://github.com/${owner}/${repo}.git`;
+  const configured = getServerConfig().githubApiUrl || 'https://api.github.com';
+  let endpoint: URL;
+  try {
+    endpoint = new URL(configured);
+  } catch {
+    throw unsupportedEndpoint();
+  }
+  if (
+    endpoint.protocol !== 'https:' ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw unsupportedEndpoint();
+  }
+  const path = endpoint.pathname.replace(/\/$/, '');
+  if (endpoint.origin === 'https://api.github.com' && !path) {
+    return `https://github.com/${owner}/${repo}.git`;
+  }
+  if (!path.endsWith('/api/v3')) throw unsupportedEndpoint();
+  return `${endpoint.origin}${path.slice(0, -'/api/v3'.length)}/${owner}/${repo}.git`;
 }
 
-function buildAuthArgs(token?: string): string[] {
-  if (!token) return [];
-  return ['-c', `http.extraHeader=Authorization: Bearer ${token}`];
+function unsupportedEndpoint(): Error {
+  return new Error(
+    'ghCloneRepo requires an HTTPS GitHub API endpoint: https://api.github.com or a GitHub Enterprise endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.'
+  );
 }
 
 function pickToken(authInfo?: AuthInfo, token?: string): string | undefined {
   if (authInfo?.token && typeof authInfo.token === 'string')
     return authInfo.token;
   return token;
-}
-
-async function assertGitAvailable(): Promise<void> {
-  try {
-    const result = await spawnWithTimeout('git', ['--version'], {
-      timeout: 5_000,
-      maxOutputSize: 1024,
-      allowEnvVars: GIT_ALLOWED_ENV_VARS,
-      env: { GIT_TERMINAL_PROMPT: '0' },
-    });
-    if (!result.success) {
-      throw new Error('git --version returned non-zero');
-    }
-  } catch {
-    throw new Error(
-      'git is not installed or not on PATH. ' +
-        'The ghCloneRepo tool requires git to be available.'
-    );
-  }
-}
-
-function scrubToken(text: string, token?: string): string {
-  let scrubbed = text;
-  if (token) {
-    scrubbed = scrubbed.replaceAll(token, '[REDACTED]');
-  }
-  scrubbed = scrubbed.replace(
-    /Authorization:\s*Bearer\s+\S+/gi,
-    'Authorization: Bearer [REDACTED]'
-  );
-  scrubbed = scrubbed.replace(
-    /Authorization:\s*token\s+\S+/gi,
-    'Authorization: token [REDACTED]'
-  );
-  return scrubbed;
-}
-
-async function runGit(
-  args: string[],
-  timeout: number,
-  label: string,
-  token?: string
-): Promise<void> {
-  const result = await spawnWithTimeout('git', args, {
-    timeout,
-    maxOutputSize: 5 * 1024 * 1024,
-    allowEnvVars: GIT_ALLOWED_ENV_VARS,
-    env: { GIT_TERMINAL_PROMPT: '0' },
-  });
-
-  if (!result.success) {
-    const stderr = scrubToken(result.stderr?.trim() || '', token);
-    const suffix = stderr ? `: ${stderr}` : '';
-    throw new Error(`git ${label} failed${suffix}`);
-  }
 }

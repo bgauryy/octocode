@@ -20,6 +20,7 @@ import {
   type AgentProfile,
 } from '../src/tools/unified-agent-tool.js';
 import type { QueryRecord } from '../src/tools/query-envelope.js';
+import * as planReadModel from '../src/tools/plan-read-model.js';
 import {
   adoptPlanModePolicy,
   clearPlanModePoliciesForTests,
@@ -94,47 +95,33 @@ vi.mock('../src/tools/agent-tools.js', async (importOriginal) => {
     (id: string) => (id === MOCK_RECORD.id ? MOCK_TRANSCRIPT : undefined),
   );
   const refreshAgentLedgerUi = vi.fn();
-  const registerAgentTools = vi.fn((...args: unknown[]) => {
-    const [pi, , names, registerFn] = args as [
-      unknown,
-      unknown,
-      Set<string>,
-      (host: unknown, registered: Set<string>, definition: ToolDefinition) => void,
-    ];
-    registerFn(pi, names, {
-      name: 'AgentMessage',
-      label: 'AgentMessage runtime',
-      description: 'Captured test lifecycle runtime.',
-      parameters: { type: 'object', properties: {} },
-      async execute(_id, params) {
-        const action = String(params['action'] ?? 'status');
-        const agentId = String(params['agentId'] ?? '');
-        if (action === 'list') {
-          refreshAgentLedgerUi();
-          return { content: [{ type: 'text', text: 'mock-agent-001 · idle' }] };
-        }
-        if (agentId !== MOCK_RECORD.id) {
-          throw new Error(`No agent found with id: ${agentId}.`);
-        }
-        if (action === 'status') return { content: [{ type: 'text', text: MOCK_TRANSCRIPT }] };
-        if (action === 'wait') return { content: [{ type: 'text', text: `[WAIT snapshot · agentId:${agentId}]\n${MOCK_TRANSCRIPT}` }] };
-        if (action === 'send' || action === 'followUp') {
-          steerWorkerById(agentId, String(params['message'] ?? ''));
-          return { content: [{ type: 'text', text: `[MESSAGE] delivery:${action} → ${agentId}: ${String(params['message'] ?? '')}` }] };
-        }
-        if (action === 'steer') {
-          steerWorkerById(agentId, String(params['message'] ?? ''));
-          return { content: [{ type: 'text', text: `[STEER] → ${agentId}` }] };
-        }
-        if (action === 'abort') return { content: [{ type: 'text', text: `[ABORT] ${agentId}` }] };
-        if (action === 'kill') {
-          if (!killWorkerById(agentId)) throw new Error(`No agent found with id: ${agentId}.`);
-          refreshAgentLedgerUi();
-          return { content: [{ type: 'text', text: `[KILL] ${agentId}` }] };
-        }
-        throw new Error(`unsupported test action: ${action}`);
-      },
-    } as ToolDefinition);
+  const executeAgentLifecycle = vi.fn(async (params: Record<string, unknown>) => {
+    const action = String(params['type'] ?? '');
+    const agentId = String(params['agentId'] ?? '');
+    if (action === 'inspect' && !agentId) {
+      refreshAgentLedgerUi();
+      return { content: [{ type: 'text', text: 'mock-agent-001 · idle' }] };
+    }
+    if (agentId !== MOCK_RECORD.id) {
+      throw new Error(`No agent found with id: ${agentId}.`);
+    }
+    if (action === 'inspect') return { content: [{ type: 'text', text: MOCK_TRANSCRIPT }] };
+    if (action === 'wait') return { content: [{ type: 'text', text: `[WAIT snapshot · agentId:${agentId}]\n${MOCK_TRANSCRIPT}` }] };
+    if (action === 'message') {
+      steerWorkerById(agentId, String(params['message'] ?? ''));
+      return { content: [{ type: 'text', text: `[MESSAGE] delivery:${params['delivery'] ?? 'send'} → ${agentId}: ${String(params['message'] ?? '')}` }] };
+    }
+    if (action === 'steer') {
+      steerWorkerById(agentId, String(params['message'] ?? ''));
+      return { content: [{ type: 'text', text: `[STEER] → ${agentId}` }] };
+    }
+    if (action === 'abort') return { content: [{ type: 'text', text: `[ABORT] ${agentId}` }] };
+    if (action === 'kill') {
+      if (!killWorkerById(agentId)) throw new Error(`No agent found with id: ${agentId}.`);
+      refreshAgentLedgerUi();
+      return { content: [{ type: 'text', text: `[KILL] ${agentId}` }] };
+    }
+    throw new Error(`unsupported test action: ${action}`);
   });
   return {
     ...original,
@@ -147,7 +134,7 @@ vi.mock('../src/tools/agent-tools.js', async (importOriginal) => {
     formatAgentLedger: vi.fn(() => 'Octocode agents: 1 total · 1 idle'),
     formatAgentLedgerDetails: vi.fn(() => 'mock-agent-001 · idle'),
     refreshAgentLedgerUi,
-    registerAgentTools,
+    executeAgentLifecycle,
   };
 });
 
@@ -167,7 +154,6 @@ vi.mock('../src/tools/browser-agent-tool.js', async (importOriginal) => {
       tools: ['chromeDebug'],
       task: params.task,
     })),
-    registerBrowserAgentTool: vi.fn(),
   };
 });
 
@@ -423,6 +409,100 @@ describe('preflight', () => {
   });
 });
 
+describe('plan worker assignment', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  function assignmentModel() {
+    return planReadModel.buildPlanReadModel({
+      steps: [
+        { id: 'research', text: 'Research', status: 'todo', awarenessTaskId: 'shared-research' },
+        { id: 'implement', text: 'Implement API', status: 'todo', awarenessTaskId: 'shared-implement', dependsOnStepIds: ['research'], paths: ['src/api.ts'], acceptance: 'API contract passes', checkCommand: 'yarn test api' },
+      ],
+      review: { phase: 'executing', branchSnapshotId: 'branch', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
+      coordination: { mode: 'required', sourcePlanKey: 'plan-assignment', coordinationWorkspace: '/repo' },
+      sharedTaskStatuses: { 'shared-research': 'DONE', 'shared-implement': 'IN_PROGRESS' },
+    });
+  }
+
+  it('carries the canonical task contract using effective shared status', async () => {
+    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(assignmentModel());
+    const agentTools = await import('../src/tools/agent-tools.js');
+    const tools = await loadSut();
+    await run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build this', planStep: 'implement' }), planContext('assignment'));
+    const params = vi.mocked(agentTools.spawnRpcAgent).mock.calls[0]![0];
+    expect(params.task).toContain('plan-assignment');
+    expect(params.task).toContain('implement');
+    expect(params.task).toContain('src/api.ts');
+    expect(params.task).toContain('API contract passes');
+    expect(params.task).toContain('yarn test api');
+  });
+
+  it.each(['missing', 'todo', 'dependency', 'review', 'interaction'])(
+    'rejects %s plan assignments before preparation or spawning', async (invalid) => {
+      const model = assignmentModel();
+      if (invalid === 'todo') model.tasks[1]!.status = 'todo';
+      if (invalid === 'dependency') model.tasks[0]!.status = 'doing';
+      if (invalid === 'review') model.phase = 'in_review';
+      if (invalid === 'interaction') model.pendingInteractionIds = ['pending'];
+      vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(model);
+      const agentTools = await import('../src/tools/agent-tools.js');
+      const tools = await loadSut();
+      await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build', planStep: invalid === 'missing' ? 'absent' : 'implement' }))).rejects.toThrow(/plan|depend|interaction/i);
+      expect(agentTools.prepareSpawnAgentParams).not.toHaveBeenCalled();
+      expect(agentTools.spawnRpcAgent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('revalidates plan identity after asynchronous spawn preparation', async () => {
+    const current = assignmentModel();
+    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockImplementation(() => current);
+    const agentTools = await import('../src/tools/agent-tools.js');
+    vi.mocked(agentTools.prepareSpawnAgentParams).mockImplementationOnce(async (params) => {
+      current.planId = 'replacement-plan';
+      return params;
+    });
+    const tools = await loadSut();
+    await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build', planStep: 'implement' }))).rejects.toThrow(/plan.*chang/i);
+    expect(agentTools.spawnRpcAgent).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'status', 'dependency'])('revalidates %s after asynchronous preparation', async (change) => {
+    const current = assignmentModel();
+    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockImplementation(() => current);
+    const agentTools = await import('../src/tools/agent-tools.js');
+    const owner = vi.spyOn(agentTools, 'findLivePlanWorker').mockReturnValue(undefined);
+    vi.mocked(agentTools.prepareSpawnAgentParams).mockImplementationOnce(async (params) => {
+      if (change === 'owner') owner.mockReturnValue('existing-worker');
+      if (change === 'status') current.tasks[1]!.status = 'done';
+      if (change === 'dependency') current.tasks[0]!.status = 'doing';
+      return params;
+    });
+    const tools = await loadSut();
+    await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build', planStep: 'implement' }))).rejects.toThrow(/plan|depend/i);
+    expect(agentTools.spawnRpcAgent).not.toHaveBeenCalled();
+  });
+
+  it('leaves standalone spawning independent of plan state', async () => {
+    const read = vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockImplementation(() => { throw new Error('should not read plan'); });
+    const tools = await loadSut();
+    await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Independent research' }))).resolves.toBeDefined();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('does not create a process after cancellation during preparation', async () => {
+    const controller = new AbortController();
+    const agentTools = await import('../src/tools/agent-tools.js');
+    vi.mocked(agentTools.prepareSpawnAgentParams).mockImplementationOnce(async (params) => {
+      controller.abort();
+      return params;
+    });
+    const tools = await loadSut();
+    await expect(tools.get('agent')!.execute('cancel-spawn', batch({ type: 'spawn', task: 'Build' }), controller.signal)).rejects.toThrow(/abort/i);
+    expect(agentTools.spawnRpcAgent).not.toHaveBeenCalled();
+  });
+});
+
 describe('plan Start enforcement', () => {
   let agentTools: typeof import('../src/tools/agent-tools.js');
   let tools: Map<string, ToolDefinition>;
@@ -608,7 +688,7 @@ describe('lifecycle dispatch', () => {
     ).rejects.toThrow(/requires (a )?non-empty message/i);
   });
 
-  it('abort with known agentId confirms existence', async () => {
+  it('abort dispatches to the canonical lifecycle executor', async () => {
     const { text } = await run(
       tools.get('agent')!,
       batch({ type: 'abort', agentId: MOCK_RECORD.id }),

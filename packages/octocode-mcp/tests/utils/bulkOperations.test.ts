@@ -5,11 +5,11 @@ const sessionMocks = vi.hoisted(() => ({
 }));
 
 vi.mock(
-  '../../../octocode-tools-core/src/shared/index.js',
+  '../../../octocode-tools-core/src/shared/session/index.js',
   async importOriginal => {
     const actual =
       await importOriginal<
-        typeof import('../../../octocode-tools-core/src/shared/index.js')
+        typeof import('../../../octocode-tools-core/src/shared/session/index.js')
       >();
     return {
       ...actual,
@@ -18,11 +18,11 @@ vi.mock(
   }
 );
 
-import { incrementToolCharSavings } from '../../../octocode-tools-core/src/shared/index.js';
-import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk.js';
+import { incrementToolCharSavings } from '../../../octocode-tools-core/src/shared/session/index.js';
+import { executeBulkOperation } from '../../../octocode-tools-core/src/utils/response/bulk/response.js';
 import { attachRawResponseChars } from '../../../octocode-tools-core/src/utils/response/charSavings.js';
 import type { QueryStatus } from '../../../octocode-tools-core/src/types/toolResults.js';
-import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/names.js';
 import { getTextContent } from './testHelpers.js';
 
 beforeAll(async () => {});
@@ -1739,51 +1739,51 @@ describe('OCTOCODE_BULK_QUERY_TIMEOUT_MS', () => {
     delete process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS;
     vi.resetModules();
     const { executeBulkOperation: freshBulk } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/response.js');
     expect(freshBulk).toBeDefined();
   });
 
   it('should parse custom timeout from env var', async () => {
     process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS = '120000';
     vi.resetModules();
-    const mod =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
-    expect(mod.executeBulkOperation).toBeDefined();
+    const { executeBulkOperation } =
+      await import('../../../octocode-tools-core/src/utils/response/bulk/response.js');
+    expect(executeBulkOperation).toBeDefined();
   });
 
   it('should fall back to 60000ms for invalid env var', async () => {
     process.env.OCTOCODE_BULK_QUERY_TIMEOUT_MS = 'not-a-number';
     vi.resetModules();
-    const mod =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
-    expect(mod.executeBulkOperation).toBeDefined();
+    const { executeBulkOperation } =
+      await import('../../../octocode-tools-core/src/utils/response/bulk/response.js');
+    expect(executeBulkOperation).toBeDefined();
   });
 });
 
 describe('computeQueryTimeout (concurrency-aware)', () => {
   it('should be exported for testing', async () => {
     const { computeQueryTimeout } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/queries.js');
     expect(typeof computeQueryTimeout).toBe('function');
   });
 
   it('should return full budget for single query', async () => {
     const { computeQueryTimeout } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/queries.js');
     const result = computeQueryTimeout(1, 3);
     expect(result).toBeGreaterThanOrEqual(60000);
   });
 
   it('should give full budget when concurrency >= queryCount (parallel)', async () => {
     const { computeQueryTimeout } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/queries.js');
     const result = computeQueryTimeout(2, 3);
     expect(result).toBeGreaterThanOrEqual(60000);
   });
 
   it('should divide budget by batches when concurrency < queryCount', async () => {
     const { computeQueryTimeout } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/queries.js');
     const result = computeQueryTimeout(5, 3);
     expect(result).toBeLessThanOrEqual(30000);
     expect(result).toBeGreaterThanOrEqual(5000);
@@ -1791,14 +1791,14 @@ describe('computeQueryTimeout (concurrency-aware)', () => {
 
   it('should respect minQueryTimeoutMs when higher than computed', async () => {
     const { computeQueryTimeout } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/queries.js');
     const result = computeQueryTimeout(5, 3, 45000);
     expect(result).toBe(45000);
   });
 
   it('should NOT lower timeout when minQueryTimeoutMs is below computed', async () => {
     const { computeQueryTimeout } =
-      await import('../../../octocode-tools-core/src/utils/response/bulk.js');
+      await import('../../../octocode-tools-core/src/utils/response/bulk/queries.js');
     const result = computeQueryTimeout(2, 3, 30000);
     expect(result).toBeGreaterThanOrEqual(60000);
   });

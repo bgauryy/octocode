@@ -1,6 +1,6 @@
 import { ToolError } from './ToolError.js';
 import { LOCAL_TOOL_ERROR_CODES } from './localToolErrors.js';
-import { redactPath } from './pathUtils.js';
+import { redactPath } from '@octocodeai/octocode-engine/pathUtils';
 
 export const ToolErrors = {
   pathValidationFailed: (

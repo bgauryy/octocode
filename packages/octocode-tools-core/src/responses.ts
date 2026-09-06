@@ -1,7 +1,8 @@
 import { CallToolResult } from '@modelcontextprotocol/server';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { getConfigSync } from '@octocodeai/config';
-import { contextUtils, type JsonInput } from './utils/contextUtils.js';
+import { contextUtils } from './utils/contextUtils.js';
+import type { JsonInput } from '@octocodeai/octocode-engine';
 import type { BulkToolResponse } from './types/bulk.js';
 import type { StructuredToolResponse } from './types/toolResults.js';
 
@@ -227,6 +228,20 @@ export function cleanJsonObject(
     let hasValidProperties = false;
 
     for (const [key, value] of Object.entries(obj)) {
+      // Executable queries are inputs: {}, [] and null can select behavior.
+      // Preserve their shape; response-channel sanitization still scans strings.
+      if (
+        key === 'query' &&
+        typeof (obj as Record<string, unknown>).tool === 'string' &&
+        value !== null &&
+        typeof value === 'object' &&
+        !Array.isArray(value)
+      ) {
+        cleaned[key] = value;
+        hasValidProperties = true;
+        continue;
+      }
+
       if (
         key === 'results' &&
         depth === 0 &&

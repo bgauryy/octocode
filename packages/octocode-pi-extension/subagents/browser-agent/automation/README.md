@@ -1,4 +1,4 @@
-# Browser Agent — Automation
+# Browser agent automation
 
 Anti-detection scripts and human-like input helpers for the browser-agent subagent.
 
@@ -6,36 +6,35 @@ Anti-detection scripts and human-like input helpers for the browser-agent subage
 
 | File | Purpose |
 |---|---|
-| `stealth-inject.mjs` | 17 JS evasions via `Page.addScriptToEvaluateOnNewDocument` |
+| `stealth-inject.mjs` | 17 JavaScript evasions through `Page.addScriptToEvaluateOnNewDocument` |
 | `human-input.mjs` | Human-like mouse (Bezier curves), keyboard, scroll via CDP Input |
 | `detection-check.mjs` | Self-test: score all bot-detection signals in the current page |
 
 ---
 
-## Stealth Injection
+## Stealth injection
 
 ### What it patches (17 evasions)
 
-| # | Signal | What we do |
+| # | Signal | Behavior |
 |---|---|---|
 | 1 | `navigator.webdriver` | Delete property → `undefined` |
 | 2 | `window.chrome` | Add runtime, csi, loadTimes |
-| 3 | `chrome.app` | Add realistic app object with InstallState/RunningState |
-| 4 | `navigator.plugins` | Spoof 3 real plugins (PDF, NaCl) |
-| 5 | `navigator.mimeTypes` | Match the spoofed plugins |
-| 6 | `navigator.languages` | Set `['en-US', 'en']` |
-| 7 | `navigator.vendor` | Set `'Google Inc.'` |
-| 8 | `navigator.hardwareConcurrency` | Set 4 (if < 4) |
-| 9 | `Permissions.query` | Fix notifications → `'default'` not `'denied'` |
-| 10 | `Notification.permission` | Set `'default'` if currently `'denied'` |
-| 11 | `console.debug` | Ensure distinct from `console.log` |
-| 12 | User-Agent | Strip `HeadlessChrome` (for old headless mode) |
-| 13 | WebGL vendor/renderer | Report Intel GPU instead of SwiftShader |
-| 14 | Canvas fingerprint | Add imperceptible 1-bit noise to `toDataURL` |
-| 15 | iframe `contentWindow` | Patch `navigator.webdriver` inside iframes too |
-| 16 | `screen` dimensions | Report 1920×1080 instead of 0×0 |
-| 17 | `outerWidth/outerHeight` | Ensure outer >= inner (real browser behaviour) |
-| 18 | `media.canPlayType` | Return `'probably'`/`'maybe'` for H.264/AAC codecs |
+| 3 | `navigator.plugins` and `navigator.mimeTypes` | Add three browser plugins and their matching MIME types |
+| 4 | `navigator.languages` | Set `['en-US', 'en']` |
+| 5 | `Permissions.query` | Report the notification permission state |
+| 6 | `Notification.permission` | Set `'default'` when the value is `'denied'` |
+| 7 | `console.debug` | Keep it distinct from `console.log` |
+| 8 | User agent | Remove `HeadlessChrome` in the old headless mode |
+| 9 | WebGL vendor and renderer | Report an Intel GPU instead of SwiftShader |
+| 10 | Canvas fingerprint | Add one-bit noise to `toDataURL` |
+| 11 | iframe `contentWindow` | Patch `navigator.webdriver` inside iframes |
+| 12 | `screen` dimensions | Report 1920×1080 instead of 0×0 |
+| 13 | `outerWidth` and `outerHeight` | Ensure outer dimensions are at least the inner dimensions |
+| 14 | `navigator.vendor` | Set `'Google Inc.'` |
+| 15 | `navigator.hardwareConcurrency` | Set 4 when the value is lower |
+| 16 | `chrome.app` | Add an app object with `InstallState` and `RunningState` |
+| 17 | `media.canPlayType` | Return `'probably'` or `'maybe'` for H.264/AAC codecs |
 
 ### How to use with chromeDebug
 
@@ -43,7 +42,7 @@ Anti-detection scripts and human-like input helpers for the browser-agent subage
 ```
 chromeDebug scheme:"inject"
   url:"https://example.com"
-  scriptSource:"<paste STEALTH_SCRIPT from stealth-inject.mjs>"
+  scriptSource:"STEALTH_SCRIPT_SOURCE"
   port:9222
 ```
 
@@ -51,7 +50,7 @@ chromeDebug scheme:"inject"
 ```
 chromeDebug scheme:"raw"
   method:"Page.addScriptToEvaluateOnNewDocument"
-  params:{"source": "<STEALTH_SCRIPT>"}
+  params:{"source": "STEALTH_SCRIPT_SOURCE"}
   port:9222
 ```
 
@@ -59,13 +58,14 @@ Then navigate normally — the script runs before any page JS on every navigatio
 
 ### Critical: `--enable-automation` flag
 
-Our `launchChrome` does NOT add `--enable-automation`. This is intentional — it's the primary signal that sets `navigator.webdriver = true`. Never add it.
+`launchChrome` does not add `--enable-automation`. That flag is the primary
+signal that sets `navigator.webdriver = true`. Never add it.
 
 Also avoid `--enable-unsafe-swiftshader` which reveals software WebGL rendering.
 
 ---
 
-## Human-like Input
+## Human-like input
 
 ### Mouse movement
 

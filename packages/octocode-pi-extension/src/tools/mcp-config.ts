@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
 import { ensurePrivateDirectory, hardenPrivateFile, getMcpEnablement, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/mcp-state';
 import type { PiContext } from '../types.js';
-import { getOctocodeHome } from '../env.js';
-import { extensionCacheRoot, extensionHome } from '../extension-paths.js';
+import { getOctocodeHome } from '@octocodeai/config';
+import { extensionWorkspaceRoot, extensionCacheRoot, extensionHome } from '../extension-paths.js';
 import { discoverMcpSystem } from './mcp-discovery.js';
-import { workspaceAgentRoot } from './session-artifacts.js';
+
 import { openOctocodeDb } from './storage-policy.js';
 
 export interface McpServerConfig {
@@ -180,7 +180,7 @@ export function buildServerHeaders(config: McpServerConfig): Record<string, stri
 }
 
 export function projectMcpPath(cwd: string, octocodeHome = getOctocodeHome()): string {
-  return path.join(workspaceAgentRoot(cwd, octocodeHome), 'mcp', 'servers.json');
+  return path.join(extensionWorkspaceRoot(cwd, octocodeHome), 'mcp', 'servers.json');
 }
 
 export function globalMcpPath(_homeDir = os.homedir(), octocodeHome = getOctocodeHome()): string {

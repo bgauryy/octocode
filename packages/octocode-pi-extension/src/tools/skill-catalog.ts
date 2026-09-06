@@ -101,7 +101,7 @@ export function renderAvailableSkillsAddendum(skills: SkillCatalogEntry[] | unde
 
   return [
     '<available_skills>',
-    'Skills available by name this turn. Names/descriptions are enough to decide whether a skill matches; do not preload every skill body. Use this catalog with the <skills> policy: when the user names a skill or the task context matches a description, load the minimal matching skill BEFORE acting via skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}) — it returns the full SKILL.md plus the skill directory and files. skill({queries:[{reasoning:"refresh skill catalog", type:"load", action:"list"}]}) refreshes the catalog with usage. Do not load skills as ceremony.',
+    'Skills available by name this turn. Names/descriptions are enough to decide whether a skill matches; do not preload every skill body. Use this catalog with the <skills> policy: when the user names a skill or the task context matches a description, load the minimal matching skill BEFORE acting via skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}) — it returns bounded instructions, the skill directory, and files. Follow executable next calls when partial before acting. skill({queries:[{reasoning:"refresh skill catalog", type:"load", action:"list"}]}) refreshes the catalog with usage. Do not load skills as ceremony.',
     ...lines,
     '</available_skills>',
   ].join('\n');

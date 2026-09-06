@@ -10,11 +10,11 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import {
-  mapPullRequestProviderResultData,
-  mapRepoSearchProviderRepositories,
-} from '../../src/tools/providerMappers.js';
-import type { PullRequestSearchResult } from '../../src/providers/types.js';
+import { mapPullRequestProviderResultData } from '../../src/tools/providerMappers/pullRequests.js';
+import { mapRepoSearchProviderRepositories } from '../../src/tools/providerMappers/repoSearch.js';
+import type {
+  PullRequestSearchResult,
+} from '../../src/providers/providerResults.js';
 
 // ---------------------------------------------------------------------------
 // Bug #2 — capFileChanges dead-code removal

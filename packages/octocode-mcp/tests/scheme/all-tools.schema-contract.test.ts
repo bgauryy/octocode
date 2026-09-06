@@ -7,7 +7,7 @@ import {
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../../../octocode-tools-core/src/tools/toolNames.js';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 const SHARED_FIELDS = ['goal', 'reasoning'] as const;
 const REMOVED_FIELDS = ['id', 'mainResearchGoal', 'researchGoal'] as const;
 

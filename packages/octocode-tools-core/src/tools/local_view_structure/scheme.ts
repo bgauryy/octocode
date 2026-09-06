@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ViewStructureQuerySchema as CoreViewStructureQuerySchema } from '../../toolContract/schemas.js';
+import { ViewStructureQuerySchema as CoreViewStructureQuerySchema } from '../../toolContract/input/resources/tools/localTreeOperation.js';
 import {
   LOCAL_MAX_DEPTH,
   LOCAL_MAX_FILES_PER_PAGE,

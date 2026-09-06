@@ -22,14 +22,4 @@ describe('executable tool contract ownership', () => {
       .map(path => path.slice(packageRoot.length + 1));
     expect(offenders).toEqual([]);
   });
-
-  it('keeps the compatibility schema barrel locally implemented', () => {
-    const source = readFileSync(
-      resolve(import.meta.dirname, '../../src/toolContract/schemas.ts'),
-      'utf8'
-    );
-    expect(source).not.toContain(
-      "export * from '@octocodeai/octocode-core/schemas'"
-    );
-  });
 });

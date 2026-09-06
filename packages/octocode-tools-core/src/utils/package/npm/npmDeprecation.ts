@@ -1,24 +1,15 @@
 import { executeNpmCommand } from '../../exec/npm.js';
-import { generateCacheKey, withDataCache } from '../../http/cache.js';
-import { isCircuitOpen } from '../../http/circuitBreaker.js';
+import { generateCacheKey } from '../../http/cache/key.js';
+import { withDataCache } from '../../http/cache/dataCache.js';
 import type {
   DeprecationInfo,
   NpmSearchAPIResult,
   NpmSearchError,
 } from '../types.js';
 import { NpmDeprecationOutputSchema } from '../schemas.js';
-import { DEFAULT_NPM_REGISTRY } from './npmRegistry.js';
-import {
-  enrichPackageDetails,
-  fetchNpmPackageByView,
-  fetchPackageDetailsFromCdn,
-  isNetworkFetchError,
-} from './npmDetailsFetchers.js';
-import {
-  enrichTopSearchResult,
-  searchNpmPackageViaSearch,
-  searchNpmPackageViaWebSearch,
-} from './npmSearchStrategies.js';
+import { resolveNpmRegistryContext } from './npmRegistry.js';
+import { fetchNpmPackage } from './npmDetailsFetchers.js';
+import { searchNpmPackageViaRegistrySearch } from './npmSearchStrategies.js';
 
 export function isExactPackageName(query: string): boolean {
   if (query.startsWith('@') && query.includes('/')) {
@@ -30,21 +21,22 @@ export function isExactPackageName(query: string): boolean {
   return /^[a-z0-9][a-z0-9._-]*$/i.test(query);
 }
 
-export function _packageNameToSearchKeywords(packageName: string): string {
-  return packageName
-    .replace(/^@/, '')
-    .replace(/[/_-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 export async function searchNpmPackage(
   packageName: string,
   limit: number,
   fetchMetadata: boolean,
-  from: number = 0
+  from: number = 0,
+  mode: 'exact' | 'keywords' = 'exact',
+  registryOverride?: string
 ): Promise<NpmSearchAPIResult | NpmSearchError> {
+  const context = await resolveNpmRegistryContext(
+    mode === 'exact' ? packageName : undefined,
+    registryOverride
+  );
   const cacheKey = generateCacheKey('npm-search', {
+    registry: context.registry,
+    identity: context.cacheIdentity,
+    mode,
     name: packageName,
     limit,
     metadata: fetchMetadata,
@@ -54,92 +46,21 @@ export async function searchNpmPackage(
   return withDataCache(
     cacheKey,
     async () => {
-      const registryCircuitOpen = isCircuitOpen(DEFAULT_NPM_REGISTRY);
-
-      if (registryCircuitOpen) {
-        if (from === 0 && limit === 1 && isExactPackageName(packageName)) {
-          const cdnResult = await fetchPackageDetailsFromCdn(
-            packageName,
-            fetchMetadata
-          );
-          if (cdnResult.pkg) {
-            const enriched = await enrichPackageDetails(
+      // Keep the selector and provider stable across every continuation. A
+      // keyword that happens to be a valid package name is still discovery.
+      const result =
+        mode === 'exact'
+          ? await fetchNpmPackage(packageName, fetchMetadata, context)
+          : await searchNpmPackageViaRegistrySearch(
               packageName,
-              cdnResult.pkg,
-              cdnResult.rawResponseChars
+              limit,
+              fetchMetadata,
+              from,
+              context
             );
-            return {
-              packages: enriched.pkg ? [enriched.pkg] : [],
-              totalFound: enriched.pkg ? 1 : 0,
-              rawResponseChars: enriched.rawResponseChars,
-            };
-          }
-        }
-
-        const webResult = await searchNpmPackageViaWebSearch(
-          packageName,
-          limit
-        );
-        if (!('error' in webResult) && webResult.packages.length > 0) {
-          return webResult;
-        }
-        return {
-          error:
-            'npm registry circuit open and web search returned no results.',
-          hints: [
-            'Use ghSearch operation:"repositories" to find the source repository.',
-          ],
-        } as NpmSearchError;
-      }
-
-      if (from === 0 && isExactPackageName(packageName)) {
-        const exactResult = await fetchNpmPackageByView(
-          packageName,
-          fetchMetadata,
-          limit === 1
-        );
-        if ('error' in exactResult) {
-          if (!isNetworkFetchError(exactResult.error)) return exactResult;
-          /* c8 ignore next */
-        } else if (exactResult.packages.length > 0 || limit === 1) {
-          return exactResult;
-        }
-      }
-      const searchResult = await searchNpmPackageViaSearch(
-        packageName,
-        limit,
-        fetchMetadata,
-        from
-      );
-      if (!('error' in searchResult) && searchResult.packages.length > 0) {
-        return enrichTopSearchResult(searchResult);
-      }
-      const keywords = _packageNameToSearchKeywords(packageName);
-      if (keywords !== packageName) {
-        const kwResult = await searchNpmPackageViaSearch(
-          keywords,
-          limit,
-          fetchMetadata,
-          from
-        );
-        if (!('error' in kwResult) && kwResult.packages.length > 0) {
-          return enrichTopSearchResult(kwResult);
-        }
-      }
-      const webResult = await searchNpmPackageViaWebSearch(packageName, limit);
-      if (!('error' in webResult) && webResult.packages.length > 0) {
-        return webResult;
-      }
-      if ('error' in searchResult) {
-        return {
-          ...searchResult,
-          hints: [
-            'npm registry and web search (npms.io) are both unreachable.',
-            'Use ghSearch operation:"repositories" with the package name or domain terms.',
-          ],
-        };
-      }
-      return searchResult;
+      return 'error' in result
+        ? result
+        : { ...result, registry: context.registry };
     },
     {
       shouldCache: result => {
@@ -167,7 +88,7 @@ export async function checkNpmDeprecation(
 
     const output = result.stdout.trim();
 
-    if (!output || output === 'undefined' || output === '') {
+    if (!output || output === 'undefined') {
       return { deprecated: false };
     }
 

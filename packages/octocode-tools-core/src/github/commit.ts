@@ -1,6 +1,6 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
 
-import { getOctokit } from './client.js';
+import { COMMIT_FILE_LIMIT, fetchCommitDetail } from './commitDetail.js';
 import { handleGitHubAPIError } from './errors.js';
 import type { GitHubAPIResponse, HistoryCommitFile } from './githubAPI.js';
 import { shapeCommitDirFiles } from './history/commitFiles.js';
@@ -19,6 +19,10 @@ export interface ExactCommitResult {
   additions?: number;
   deletions?: number;
   changedFiles: number;
+  isPartial?: boolean;
+  terminalLimit?: boolean;
+  partialReasons?: string[];
+  providerLimit?: { reason: string; maxFiles: number };
   files?: HistoryCommitFile[];
   filesPagination?: {
     currentPage: number;
@@ -39,6 +43,7 @@ export async function fetchCommit(
     includeDiff?: boolean;
     path?: string;
     filePage?: number;
+    fileBatch?: number;
     itemsPerPage?: number;
     charOffset?: number;
     charLength?: number;
@@ -46,12 +51,15 @@ export async function fetchCommit(
   authInfo?: AuthInfo
 ): Promise<GitHubAPIResponse<ExactCommitResult>> {
   try {
-    const octokit = await getOctokit(authInfo);
-    const response = await octokit.rest.repos.getCommit({
-      owner: params.owner,
-      repo: params.repo,
-      ref: params.ref,
-    });
+    const response = await fetchCommitDetail(
+      {
+        owner: params.owner,
+        repo: params.repo,
+        ref: params.ref,
+        fileBatch: params.fileBatch,
+      },
+      authInfo
+    );
     const commit = response.data;
     const allFiles = commit.files ?? [];
     const path = params.path;
@@ -100,24 +108,63 @@ export async function fetchCommit(
         ? {}
         : { deletions: commit.stats.deletions }),
       changedFiles: scopedFiles.length,
+      changedFilesCountScope: 'providerBatch' as const,
+      ...(response.collectionState.hasMore
+        ? { isPartial: true, partialReasons: ['providerBatch'] }
+        : {}),
+      ...(response.terminalLimit
+        ? {
+            isPartial: true,
+            terminalLimit: true,
+            partialReasons: ['providerFileLimit'],
+            providerLimit: {
+              reason: 'providerFileLimit',
+              maxFiles: COMMIT_FILE_LIMIT,
+            },
+          }
+        : {}),
     };
 
     if (!params.includeDiff) {
-      return { data: base, status: 200 };
+      return {
+        data: {
+          ...base,
+          ...(response.collectionState.hasMore
+            ? {
+                filesPagination: {
+                  currentPage: 1,
+                  totalPages: 1,
+                  itemsPerPage: 100,
+                  totalFiles: scopedFiles.length,
+                  hasMore: true,
+                  nextFilePage: 1,
+                },
+              }
+            : {}),
+        },
+        status: 200,
+      };
     }
 
-    return {
-      data: {
-        ...base,
-        ...shapeCommitDirFiles(scopedFiles, {
-          filePage: params.filePage,
-          itemsPerPage: params.itemsPerPage,
-          charOffset: params.charOffset,
-          charLength: params.charLength,
-        }),
-      },
-      status: 200,
+    const shaped = shapeCommitDirFiles(scopedFiles, {
+      filePage: params.filePage,
+      itemsPerPage: params.itemsPerPage,
+      charOffset: params.charOffset,
+      charLength: params.charLength ?? 12_000,
+    });
+    const filesPagination = {
+      ...shaped.filesPagination,
+      countScope: 'providerBatch' as const,
+      fileBatch: response.collectionState.page,
+      ...(!shaped.filesPagination.hasMore && response.collectionState.hasMore
+        ? {
+            hasMore: true,
+            nextFilePage: 1,
+            nextFileBatch: response.collectionState.page + 1,
+          }
+        : {}),
     };
+    return { data: { ...base, ...shaped, filesPagination }, status: 200 };
   } catch (error) {
     return handleGitHubAPIError(error);
   }

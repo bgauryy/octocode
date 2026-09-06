@@ -76,10 +76,13 @@ test('memory renders suggest/review payloads and runner failures consistently', 
   const reviewed = await tool.execute('m5', envelope({ action: 'review' }), undefined, undefined, ctx);
   assert.match((reviewed.content[0] as { text: string }).text, /missing-source/);
 
-  setMemoryActionRunnerForTests(() => { throw new Error('database unavailable'); });
+  setMemoryActionRunnerForTests(() => {
+    throw new Error('Persistent storage is disabled (storage.mode=memory); Awareness state is unavailable');
+  });
   const failed = await tool.execute('m6', envelope({ action: 'recall', query: 'x' }), undefined, undefined, ctx);
   assert.equal(failed.isError, true);
-  assert.match((failed.content[0] as { text: string }).text, /database unavailable/);
+  assert.match((failed.content[0] as { text: string }).text, /persistent storage is disabled/i);
+  assert.match((failed.content[0] as { text: string }).text, /storage\.mode=memory/i);
 });
 
 test('memory validates single calls before execution and renders semantic UI states', async () => {

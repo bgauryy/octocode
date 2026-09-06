@@ -245,6 +245,7 @@ function runWorkspaceScript(workspaces, scriptName) {
 
 function runVerify(workspaces) {
   checkRequiredScripts(workspaces);
+  runCommand('node', ['scripts/dedupe-deps.mjs']);
   runCommand('node', ['scripts/docs-verify.mjs']);
 
   const packagesInVerifyOrder = VERIFY_ORDER

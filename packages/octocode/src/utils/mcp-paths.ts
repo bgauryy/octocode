@@ -20,13 +20,6 @@ function getAppSupportDir(): string {
 
 function getVSCodeGlobalStoragePath(): string {
   const appSupport = getAppSupportDir();
-  if (isWindows) {
-    return path.join(appSupport, 'Code', 'User', 'globalStorage');
-  }
-  if (isMac) {
-    return path.join(appSupport, 'Code', 'User', 'globalStorage');
-  }
-
   return path.join(appSupport, 'Code', 'User', 'globalStorage');
 }
 

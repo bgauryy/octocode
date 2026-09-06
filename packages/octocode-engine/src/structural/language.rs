@@ -6,28 +6,21 @@ use crate::signatures::languages::LanguageEntry;
 
 /// The stand-in identifier char(s) substituted for a `$`-sigil metavar so the
 /// tree-sitter parser accepts the pattern as syntactically valid source.
-/// `bare_word` differs from `primary` only for PHP/Bash — see its doc comment
-/// — and is otherwise identical, so passing one `Expando` around instead of
-/// two loose `char`s is a real invariant (they're always sourced together),
-/// not just fewer function parameters.
+/// PHP function names need a different stand-in from PHP variables.
 #[derive(Clone, Copy)]
 pub(super) struct Expando {
     /// Used everywhere a metavar is NOT at a bare-word position (see
     /// `is_bare_word_position`) — the common case.
     primary: char,
-    /// Stand-in for a metavar landing at a *bare-word* position — a function
-    /// name in PHP/Bash, where `$` (their `primary`, chosen so `$ARG`-shaped
-    /// variable/argument patterns stay valid PHP/Bash syntax) is never
-    /// legal: PHP/Bash function names are plain identifiers, never
-    /// `$`-prefixed. Equal to `primary` for every other language (no
-    /// behavioral difference).
+    /// Stand-in after PHP's `function` keyword, where `$` is not legal.
+    /// Equal to `primary` for every other language.
     bare_word: char,
 }
 
 impl Expando {
     fn for_ext(ext: &str) -> Self {
         let primary = primary_expando_for_ext(ext);
-        let bare_word = if primary == '$' { '_' } else { primary };
+        let bare_word = if ext == "php" { '_' } else { primary };
         Self { primary, bare_word }
     }
 
@@ -38,10 +31,8 @@ impl Expando {
     }
 }
 
-/// A tree-sitter language wrapper. A single wrapper covers every grammar; the
-/// only per-language knob is `expando`, the stand-in identifier char(s) used
-/// while parsing a pattern in languages where `$` is not a valid identifier
-/// character (Rust/Go/Python/C/...).
+/// Shared tree-sitter wrapper with grammar-specific identifier substitutions
+/// and parsing contexts for patterns that are not complete source documents.
 #[derive(Clone)]
 pub(super) struct AgLanguage {
     ts: TSLanguage,
@@ -62,6 +53,10 @@ pub(super) struct AgLanguage {
     /// `method_declaration`. Wrapping in a throwaway class gives the parser
     /// real member context. `true` for `.cs` only.
     class_wrap: bool,
+    /// Optional terminator context for fragments whose grammar otherwise treats
+    /// a bare call/declaration as an error or a selector. The compiler accepts
+    /// the contextual parse only when it produces this exact node kind.
+    terminated_fragment_kind: Option<&'static str>,
 }
 
 impl AgLanguage {
@@ -71,6 +66,11 @@ impl AgLanguage {
             expando: Expando::for_ext(ext),
             php_wrap: ext == "php",
             class_wrap: ext == "cs",
+            terminated_fragment_kind: match ext {
+                "java" => Some("method_invocation"),
+                "css" | "scss" => Some("declaration"),
+                _ => None,
+            },
         }
     }
 
@@ -82,9 +82,19 @@ impl AgLanguage {
         self.expando
     }
 
+    pub(super) fn terminated_fragment_kind(&self) -> Option<&'static str> {
+        self.terminated_fragment_kind
+    }
+
     pub(super) fn preprocess_pattern<'query>(&self, query: &'query str) -> Cow<'query, str> {
         let substituted = pre_process_pattern(self.expando, query);
-        if self.php_wrap {
+        if self.php_wrap
+            && !substituted
+                .trim_start()
+                .get(..5)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("<?php"))
+            && !substituted.trim_start().starts_with("<?=")
+        {
             Cow::Owned(format!("<?php {substituted}"))
         } else if self.class_wrap {
             Cow::Owned(format!("class __OctoWrap {{ {substituted} }}"))
@@ -95,46 +105,32 @@ impl AgLanguage {
 }
 
 /// The primary stand-in identifier char for `$` metavariables, per language.
-/// Languages where `$` is a legal identifier char (JS/TS/Java/Bash/PHP) keep
+/// Languages where `$` is a legal identifier char (JS/TS/Java/PHP) keep
 /// `$`; the rest get a char the grammar accepts.
 fn primary_expando_for_ext(ext: &str) -> char {
     match ext {
         // PHP variables require the `$` sigil (e.g. `$var`), so `$` is a valid
         // identifier character in tree-sitter-php. Patterns like `foo($ARG)` must
         // stay as-is for the PHP parser to accept them as a call with a variable arg.
-        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" | "sh" | "bash"
-        | "zsh" | "php" => '$',
+        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" | "php" => '$',
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => '\u{10000}',
         "html" | "htm" => 'z',
-        "css" | "scss" | "less" => '_',
-        // Erlang variables must start with an ASCII uppercase letter or `_`;
-        // Elixir identifiers are ASCII-only (a leading non-ASCII byte breaks
-        // its tokenizer); Zig identifiers are likewise ASCII-only. The
-        // default µ (below) satisfies none of these, so every pattern
-        // containing a metavar failed to parse/tokenize for all three — `_`
-        // is valid in all of them and, being non-alphabetic, is unambiguous
-        // with `is_capture_name`'s uppercase-only rest-of-name check.
-        "erl" | "hrl" | "ex" | "exs" | "zig" => '_',
-        "scala" | "sc" | "sbt" => '\u{00b5}',
+        "css" | "scss" => '_',
+        // Zig requires an ASCII placeholder; `_` is unambiguous
+        // with the uppercase-only capture-name syntax.
+        "zig" => '_',
+        // This SQL grammar rejects the default non-ASCII placeholder.
+        "sql" => '_',
         _ => '\u{00b5}',
     }
 }
 
-/// A metavar sits at a *bare-word* position when the text immediately before
-/// it (ignoring whitespace) is empty (the metavar opens the pattern — Bash's
-/// `$NAME() { ... }` function-definition shorthand) or the keyword
-/// `function` (PHP's `function $NAME(...)`, Bash's alternate `function
-/// $NAME { ... }` form). Only matters for languages whose `expando.primary`
-/// is `$` (see `Expando::for_ext`); checked unconditionally for every
-/// language for simplicity, since it's a no-op everywhere else.
+/// PHP's `function $NAME(...)` pattern needs a plain function-name identifier.
 fn is_bare_word_position(preceding: &[char]) -> bool {
     let trimmed_len = preceding
         .iter()
         .rposition(|c| !c.is_whitespace())
         .map_or(0, |i| i + 1);
-    if trimmed_len == 0 {
-        return true;
-    }
     const KEYWORD: &str = "function";
     if trimmed_len < KEYWORD.len() {
         return false;
@@ -163,7 +159,7 @@ fn sigil_for(ret: &[char], dollar_count: usize, expando: Expando) -> char {
     if dollar_count == 0 {
         return '$';
     }
-    if is_bare_word_position(ret) {
+    if expando.bare_word != expando.primary && is_bare_word_position(ret) {
         expando.bare_word
     } else {
         expando.primary

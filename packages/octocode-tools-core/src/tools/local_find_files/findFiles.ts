@@ -4,17 +4,15 @@ import {
 } from '../../utils/file/toolHelpers.js';
 import { formatFileSize } from '../../utils/file/size.js';
 import type { z } from 'zod';
-import type { FindFilesQuerySchema } from '../../toolContract/schemas.js';
+import type { FindFilesQuerySchema } from '../../toolContract/input/resources/tools/localFilesOperation.js';
 import type { LocalFindFilesEntry } from '@octocodeai/octocode-core/types';
 import type { LocalFindFilesToolResult } from '@octocodeai/octocode-core/extra-types';
-import {
-  contextUtils,
-  type FileSystemEntry,
-} from '../../utils/contextUtils.js';
+import { contextUtils } from '../../utils/contextUtils.js';
+import type { FileSystemEntry } from '@octocodeai/octocode-engine';
 
 type UpstreamFindFilesQuery = z.infer<typeof FindFilesQuerySchema>;
 import type { WithOptionalMeta } from '../../types/execution.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
 import {
   LOCAL_DEFAULT_FILES_PER_PAGE,
   LOCAL_MAX_LIMIT,

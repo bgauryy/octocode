@@ -1,10 +1,7 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import {
-  getOctokit,
-  resolveCacheAuthFingerprint,
-  resolveDefaultBranch,
-} from '../client.js';
-import { generateCacheKey, withDataCache } from '../../utils/http/cache.js';
+import { getOctokit, resolveCacheAuthFingerprint } from '../client.js';
+import { generateCacheKey } from '../../utils/http/cache/key.js';
+import { withDataCache } from '../../utils/http/cache/dataCache.js';
 
 const REF_POINTER_TTL_SECONDS = 60;
 
@@ -34,21 +31,10 @@ async function resolveRefUncached(
   ref: string,
   authInfo?: AuthInfo
 ): Promise<MaterializationRef> {
-  try {
-    return {
-      commitSha: await fetchCommitSha(owner, repo, ref, authInfo),
-      resolvedRef: ref,
-    };
-  } catch (error) {
-    const isDefaultGuess = ref === 'main' || ref === 'master';
-    if (!isDefaultGuess) throw error;
-    const defaultBranch = await resolveDefaultBranch(owner, repo, authInfo);
-    if (defaultBranch === ref) throw error;
-    return {
-      commitSha: await fetchCommitSha(owner, repo, defaultBranch, authInfo),
-      resolvedRef: defaultBranch,
-    };
-  }
+  return {
+    commitSha: await fetchCommitSha(owner, repo, ref, authInfo),
+    resolvedRef: ref,
+  };
 }
 
 export async function resolveMaterializationRef(

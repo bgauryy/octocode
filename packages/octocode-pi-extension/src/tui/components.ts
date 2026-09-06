@@ -1,6 +1,6 @@
 /** Pure, React-shaped terminal components shared by footer, widgets, and cards. */
 import type { PiTheme } from '../types.js';
-import { CURSOR_MARKER } from '@earendil-works/pi-tui';
+import { CURSOR_MARKER, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { paint, SEP, type SemanticToken } from './palette.js';
 import { CLI_GLYPH, cliSpinnerFrame } from './cli-design.js';
 import { truncateToWidth, visibleWidth } from './width.js';
@@ -23,6 +23,12 @@ function safeWidth(width: number): number {
 }
 
 function fit(text: string, width: number): string {
+  const markerAt = text.indexOf(CURSOR_MARKER);
+  if (markerAt >= 0) {
+    const before = truncateToWidth(text.slice(0, markerAt), Math.max(0, width));
+    const remaining = Math.max(0, width - visibleWidth(before));
+    return `${before}${CURSOR_MARKER}${fit(text.slice(markerAt + CURSOR_MARKER.length), remaining)}`;
+  }
   const clipped = truncateToWidth(text, Math.max(0, width));
   return `${clipped}${' '.repeat(Math.max(0, width - visibleWidth(clipped)))}`;
 }
@@ -59,7 +65,7 @@ export const renderInlineRows: TuiComponent<InlineRowsProps> = (props, context) 
       row = candidate;
     }
     if (visibleWidth(row) > width) {
-      rows.push(truncateToWidth(row, width));
+      rows.push(...wrapTextWithAnsi(row, width).map((line) => truncateToWidth(line, width)));
       row = '';
     }
   }
@@ -177,29 +183,6 @@ export interface FrameProps {
   titleToken?: SemanticToken;
   footerToken?: SemanticToken;
 }
-
-export interface OpenFrameProps {
-  lines: readonly string[];
-  borderToken?: SemanticToken;
-}
-
-/** Close legacy left-rail frames while callers migrate their body rows to FrameProps. */
-export const closeFrameLines: TuiComponent<OpenFrameProps> = (props, context) => {
-  const width = safeWidth(context.width);
-  if (props.lines.length === 0) return [];
-  if (width === 1) return props.lines.map(() => paint(context.theme, props.borderToken ?? 'dim', '│'));
-  return props.lines.map((line, index) => {
-    const right = index === 0 ? '╮' : index === props.lines.length - 1 ? '╯' : '│';
-    if (line.includes(CURSOR_MARKER)) {
-      const markerAt = line.indexOf(CURSOR_MARKER);
-      const before = truncateToWidth(line.slice(0, markerAt), width - 1);
-      const remaining = Math.max(0, width - 1 - visibleWidth(before));
-      const after = fit(line.slice(markerAt + CURSOR_MARKER.length), remaining);
-      return `${before}${CURSOR_MARKER}${after}${paint(context.theme, props.borderToken ?? 'dim', right)}`;
-    }
-    return `${fit(line, width - 1)}${paint(context.theme, props.borderToken ?? 'dim', right)}`;
-  });
-};
 
 function frameRule(
   left: string,

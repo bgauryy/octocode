@@ -34,7 +34,20 @@ async function loadToolCommandModule(): Promise<{
   showAvailableTools(): Promise<void>;
   showMultipleToolSchemas(toolNames: string[]): Promise<void>;
 }> {
-  return import('./tool-command.js');
+  const [execution, context, help, list] = await Promise.all([
+    import('./tool-command/execute.js'),
+    import('./tool-command/context.js'),
+    import('./tool-command/help.js'),
+    import('./tool-command/list-view.js'),
+  ]);
+  return {
+    executeToolCommand: execution.executeToolCommand,
+    getToolsContextString: context.getToolsContextString,
+    printToolsContext: context.printToolsContext,
+    showToolHelp: help.showToolHelp,
+    showAvailableTools: list.showAvailableTools,
+    showMultipleToolSchemas: help.showMultipleToolSchemas,
+  };
 }
 
 async function loadLightToolHelpModule(): Promise<{

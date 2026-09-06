@@ -1,10 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  clearAllCache,
-  withDataCache,
-  withDataCacheConditional,
-} from '../../../src/utils/http/cache.js';
-import { executeBulkOperation } from '../../../src/utils/response/bulk.js';
+import { clearAllCache } from '../../../src/utils/http/cache/management.js';
+import { withDataCache } from '../../../src/utils/http/cache/dataCache.js';
+import { withDataCacheConditional } from '../../../src/utils/http/cache/conditional.js';
+import { executeBulkOperation } from '../../../src/utils/response/bulk/response.js';
 import { cache } from '../../../src/utils/http/cache/store.js';
 
 type CacheRunner = (

@@ -24,7 +24,6 @@
 
 import type { PiContext } from '../types.js';
 import {
-  APPROVAL_CLASSES,
   PERMISSION_LEVELS,
   type ApprovalClass,
   type PermissionLevel,
@@ -36,10 +35,6 @@ import {
   APPROVAL_TITLE_SHELL_PERSISTENCE,
   APPROVAL_TITLES,
 } from '../tui/content.js';
-
-
-export { APPROVAL_CLASSES, PERMISSION_LEVELS };
-export type { ApprovalClass, PermissionLevel };
 
 /**
  * Classes auto-approved under `relaxed` — routine local-dev actions only.

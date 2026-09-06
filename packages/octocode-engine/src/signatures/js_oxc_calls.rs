@@ -23,10 +23,8 @@ fn collect_statement_calls(stmt: &Statement, li: &LineIndex, calls: &mut Vec<Gra
         }
         Statement::ClassDeclaration(class) => collect_class_calls(class, li, calls),
         Statement::VariableDeclaration(variable) => collect_variable_calls(variable, li, calls),
-        Statement::ExportNamedDeclaration(decl) => {
-            if let Some(inner) = &decl.declaration {
-                collect_declaration_calls(inner, li, calls);
-            }
+        Statement::ExportDeclaration(decl) => {
+            collect_declaration_calls(&decl.declaration, li, calls);
         }
         Statement::ExportDefaultDeclaration(decl) => match &decl.declaration {
             ExportDefaultDeclarationKind::FunctionDeclaration(function) => {
@@ -136,9 +134,7 @@ fn first_pattern_identifier(pattern: &BindingPattern) -> Option<String> {
                     .as_ref()
                     .and_then(|rest| first_pattern_identifier(&rest.argument))
             }),
-        BindingPattern::AssignmentPattern(assignment) => {
-            first_pattern_identifier(&assignment.left)
-        }
+        BindingPattern::AssignmentPattern(assignment) => first_pattern_identifier(&assignment.left),
     }
 }
 
@@ -223,8 +219,12 @@ fn collect_arrow_calls(
     calls: &mut Vec<GraphCall>,
 ) {
     collect_params_calls(owner, &arrow.params, li, calls);
-    for stmt in &arrow.body.statements {
-        collect_owned_statement_calls(owner, stmt, li, calls);
+    if let ArrowFunctionBody::FunctionBody(body) = &arrow.body {
+        for stmt in &body.statements {
+            collect_owned_statement_calls(owner, stmt, li, calls);
+        }
+    } else if let Some(expression) = arrow.body.as_expression() {
+        collect_expression_calls(owner, expression, li, calls);
     }
 }
 

@@ -1,4 +1,4 @@
-# GitHub Actions Workflows
+# GitHub Actions workflows
 
 This directory contains the active GitHub Actions workflows for the Octocode monorepo.
 
@@ -6,16 +6,21 @@ This directory contains the active GitHub Actions workflows for the Octocode mon
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `ci.yml` | Pull requests | Repo health, lint, typecheck, build, test |
+| `ci.yml` | Pull requests and pushes to `main` | Documentation, lint, build-output, typecheck, test, and coverage checks |
+| `engine.yml` | Engine-related pull requests and pushes to `main` | Rust tests, Clippy, native ABI, and Rust↔JavaScript parity checks |
 
 ## CI (`ci.yml`)
 
-The pull request workflow runs two parallel jobs to minimize wall-clock time:
+The main workflow runs one ordered `Lint, Build & Test` job. It installs with
+the immutable lockfile, verifies documentation, runs the CI lint profile,
+builds the native host engine and dependent packages, checks build outputs,
+then runs the CI typecheck and test profiles. It uploads package coverage even
+when a preceding check fails.
 
-1. `checks` — Health, Lint & Typecheck
-   Runs `yarn health:check`, `yarn docs:verify`, `yarn lint`, builds shared types, then `yarn typecheck`.
-2. `build-and-test` — Build & Test
-   Runs `yarn build`, verifies outputs, then `yarn test` and uploads per-package coverage artifacts.
+The engine workflow runs only when engine paths change. It builds the config
+package and native add-on, checks the generated NAPI ABI, runs Clippy with
+warnings denied, executes Cargo tests, and requires the native add-on during
+the engine Vitest suite.
 
 Useful local commands before opening a PR:
 
@@ -28,7 +33,7 @@ yarn build
 yarn test
 ```
 
-If you want the full repo contract in one command, run:
+To run the full repository contract in one command, use:
 
 ```bash
 yarn verify
@@ -37,7 +42,8 @@ yarn verify
 ## Manual Releases
 
 npm publishing, Homebrew tap updates, and standalone binary uploads are manual.
-Use the Release Guide for the current release order and verification checklist.
+Use the [release guide](../../releases/README.md) for the current executable
+release order and verification checklist.
 
 ## Maintenance Notes
 

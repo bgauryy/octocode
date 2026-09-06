@@ -1,7 +1,7 @@
 import { RequestError } from 'octokit';
 import type { GetContentParameters, GitHubAPIResponse } from '../githubAPI.js';
 import type { z } from 'zod';
-import type { FileContentQuerySchema } from '../../toolContract/schemas.js';
+import type { FileContentQuerySchema } from '../../toolContract/input/resources/tools/ghGetFileContent.js';
 
 type FileContentQuery = z.infer<typeof FileContentQuerySchema>;
 import {
@@ -11,7 +11,7 @@ import {
 } from '../client.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
 import { handleGitHubAPIError } from '../errors.js';
-import { TOOL_NAMES } from '../../tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../../tools/toolMetadata/names.js';
 import { FILE_OPERATION_ERRORS } from '../../errors/domainErrors.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
 import { extractEtag } from '../responseHeaders.js';
@@ -38,46 +38,24 @@ export type RawContentFetchResponse = GitHubAPIResponse<RawContentResult> & {
 async function handle404WithBranch(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   error: RequestError,
-  contentParams: GetContentParameters,
   owner: string,
   repo: string,
   filePath: string,
   branch: string,
   authInfo?: AuthInfo
-): Promise<
-  | {
-      result: Awaited<ReturnType<typeof octokit.rest.repos.getContent>>;
-      actualBranch: string;
-    }
-  | GitHubAPIResponse<RawContentResult>
-> {
-  const defaultBranch = await resolveDefaultBranch(owner, repo, authInfo);
-  const isCommonDefaultGuess = branch === 'main' || branch === 'master';
-
-  if (isCommonDefaultGuess && branch !== defaultBranch) {
-    try {
-      const result = await octokit.rest.repos.getContent({
-        ...contentParams,
-        ref: defaultBranch,
-      });
-      return { result, actualBranch: defaultBranch };
-    } catch {
-      throw error;
-    }
-  }
-
+): Promise<GitHubAPIResponse<RawContentResult>> {
+  const defaultBranch = await resolveDefaultBranch(owner, repo, authInfo).catch(
+    () => undefined
+  );
   const apiError = handleGitHubAPIError(error);
-  const suggestion =
-    branch === defaultBranch
-      ? undefined
-      : `Branch '${branch}' not found. Default branch is '${defaultBranch}'. Ask user: Do you want to get the file from '${defaultBranch}' instead?`;
+  const suggestion = `Path '${filePath}' could not be read at ref '${branch}'. Verify the path and ref.${defaultBranch ? ` The default branch is '${defaultBranch}'. Omit branch to read the default branch.` : ''}`;
 
   const pathSuggestions = await findPathSuggestions(
     octokit,
     owner,
     repo,
     filePath,
-    branch || defaultBranch
+    branch
   );
   if (pathSuggestions.length > 0) {
     apiError.hints = [
@@ -118,13 +96,6 @@ async function decodeBase64Content(
   filePath: string
 ): Promise<GitHubAPIResponse<string>> {
   const stripped = base64.replace(/\s/g, '');
-  if (!stripped) {
-    return {
-      error: FILE_OPERATION_ERRORS.FILE_EMPTY.message,
-      type: 'unknown' as const,
-      status: 404,
-    };
-  }
   try {
     const buffer = Buffer.from(stripped, 'base64');
     if (buffer.indexOf(0) !== -1) {
@@ -285,22 +256,15 @@ export async function fetchRawGitHubFileContent(
       }
       if (error instanceof RequestError && error.status === 404) {
         if (branch) {
-          const fallback = await handle404WithBranch(
+          return await handle404WithBranch(
             octokit,
             error,
-            contentParams,
             owner,
             repo,
             filePath,
             branch,
             authInfo
           );
-          if ('result' in fallback) {
-            result = fallback.result;
-            actualBranch = fallback.actualBranch;
-          } else {
-            return fallback;
-          }
         } else {
           return await handle404NoBranch(
             octokit,
@@ -345,6 +309,8 @@ export async function fetchRawGitHubFileContent(
       let decoded: GitHubAPIResponse<string>;
       if (contentStr.length > 0) {
         decoded = await decodeBase64Content(contentStr, filePath);
+      } else if (data.size === 0 && typeof data.content === 'string') {
+        decoded = { data: '', status: 200 };
       } else if (
         fileSize > 0 &&
         'sha' in data &&

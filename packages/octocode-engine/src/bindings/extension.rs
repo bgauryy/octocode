@@ -10,7 +10,7 @@ pub fn get_extension(file_path: String, options: Option<GetExtensionOptions>) ->
         .as_ref()
         .and_then(|o| o.fallback.as_deref())
         .unwrap_or("");
-    crate::file_extension::get_extension_internal(&file_path, lowercase, fallback)
+    crate::text::file_extension::get_extension_internal(&file_path, lowercase, fallback)
 }
 
 #[cfg(test)]

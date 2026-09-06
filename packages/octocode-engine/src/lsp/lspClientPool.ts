@@ -9,11 +9,8 @@ export interface PoolKey {
 
 interface PooledClient {
   stop(): Promise<void>;
-  /** Optional health check: `false` means the backing process/connection has
-   * died and this entry must not be returned from the pool. Absent (older
-   * native binding) is treated as always-alive, the same forward-compatible
-   * default `LSPClient.hasCapability` uses for a missing native method. */
-  isAlive?(): Promise<boolean>;
+  /** Required health check: only confirmed live clients may be reused. */
+  isAlive(): Promise<boolean>;
 }
 
 interface LspClientPoolOptions<T extends PooledClient> {
@@ -39,42 +36,51 @@ export class LspClientPool<T extends PooledClient> {
 
   async acquire(key: PoolKey): Promise<T | null> {
     const k = serializeKey(key);
-
-    const cached = this.entries.get(k);
-    if (cached) {
-      if (await isEntryAlive(cached.client)) {
-        this.resetIdleTimer(k);
-        return cached.client;
-      }
-      // Backing process/connection died mid-session: evict now instead of
-      // leaving every request against it failing until the idle timer
-      // eventually reaps it, then fall through to the factory path below as
-      // if this were a cache miss.
-      clearTimeout(cached.timer);
-      this.entries.delete(k);
-      void safeStop(cached.client);
-    }
-
     const inflight = this.inflight.get(k);
     if (inflight) return inflight;
 
-    const promise = (async () => {
+    // Register before running user code: even a synchronous factory throw must
+    // clean up its own acquisition. Promise identity is the generation token;
+    // clear removes it so neither startup nor health checks can revive clients.
+    const promise = Promise.resolve().then(async () => {
       try {
+        if (this.inflight.get(k) !== promise) return null;
+        const cached = this.entries.get(k);
+        if (cached) {
+          const alive = await isEntryAlive(cached.client);
+          if (this.inflight.get(k) !== promise) return null;
+          // An idle timer can expire while the health check is pending.
+          if (this.entries.get(k) === cached) {
+            if (alive) {
+              this.resetIdleTimer(k);
+              return cached.client;
+            }
+            clearTimeout(cached.timer);
+            this.entries.delete(k);
+            void safeStop(cached.client);
+          }
+        }
+
         const client = await this.options.factory(key);
         if (!client) return null;
+        if (this.inflight.get(k) !== promise) {
+          await safeStop(client);
+          return null;
+        }
         const timer = this.startIdleTimer(k);
         this.entries.set(k, { client, timer, key });
         return client;
       } finally {
-        this.inflight.delete(k);
+        if (this.inflight.get(k) === promise) this.inflight.delete(k);
       }
-    })();
+    });
     this.inflight.set(k, promise);
     return promise;
   }
 
   async clear(key: PoolKey): Promise<void> {
     const k = serializeKey(key);
+    this.inflight.delete(k);
     const entry = this.entries.get(k);
     if (!entry) return;
     clearTimeout(entry.timer);
@@ -83,6 +89,7 @@ export class LspClientPool<T extends PooledClient> {
   }
 
   async clearAll(): Promise<void> {
+    this.inflight.clear();
     const all = [...this.entries.values()];
     for (const entry of all) clearTimeout(entry.timer);
     this.entries.clear();
@@ -112,14 +119,14 @@ export class LspClientPool<T extends PooledClient> {
   private startIdleTimer(k: string): ReturnType<typeof setTimeout> {
     const timer = setTimeout(() => {
       const entry = this.entries.get(k);
-      if (!entry) return;
+      if (!entry || entry.timer !== timer) return;
       this.entries.delete(k);
       void safeStop(entry.client);
     }, this.options.idleTimeoutMs);
     // This package is Node-only (napi-rs). The timer is always a NodeJS.Timeout
     // with an unref() method; calling it keeps the idle timer from preventing
     // a clean process exit when no real work is in flight.
-    (timer as NodeJS.Timeout).unref?.();
+    timer.unref();
     return timer;
   }
 }
@@ -128,20 +135,16 @@ export function serializeKey(key: PoolKey): string {
   // Canonicalize the root: `/pkg` and `/pkg/` (or an unresolved relative path)
   // must map to the SAME pooled client, or equivalent roots silently spawn
   // parallel language servers with split index state.
-  const root = resolve(key.workspaceRoot).replace(/(?<=.)[\/\\]+$/, '');
+  const root = resolve(key.workspaceRoot).replace(/(?<=.)[/\\]+$/, '');
   return `${key.serverId ?? key.languageId}\u0000${root}`;
 }
 
 async function isEntryAlive(client: PooledClient): Promise<boolean> {
-  if (!client.isAlive) return true;
   try {
     return await client.isAlive();
   } catch {
-    // A failing health check must not itself evict a possibly-fine client —
-    // an eviction's cost (kill + respawn + reinitialize a whole language
-    // server) is real, while a missed crash just falls back to the
-    // pre-existing idle-timer eviction. Fail open.
-    return true;
+    // A failed check cannot establish that the connection is usable.
+    return false;
   }
 }
 

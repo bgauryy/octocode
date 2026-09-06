@@ -1,5 +1,6 @@
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
-import { MAX_PAGE_NUMBER } from '../../../config.js';
+import { MAX_MATCH_CONTENT_LENGTH, MAX_PAGE_NUMBER } from '../../../config.js';
+import { RESOURCE_LIMITS } from '../../../utils/core/constants.js';
 
 import type { RipgrepQuery } from '../scheme.js';
 import type { LocalSearchEngine } from './buildResult.js';
@@ -93,11 +94,29 @@ export function buildSearchNextMap(
     matchPage: number;
     matchesPerPage: number;
     hasFileWithMoreMatches: boolean;
+    scanCapReached?: boolean;
   }
 ): SearchNextMap {
   const firstFile = (files as FlowFile[]).find(file => file.path);
   const firstMatch = firstFile?.matches?.find(match => match.line);
   const next: SearchNextMap = {};
+
+  const currentMaxFiles = query.maxFiles ?? RESOURCE_LIMITS.MAX_FILES_DEFAULT;
+  if (options.scanCapReached && currentMaxFiles < MAX_MATCH_CONTENT_LENGTH) {
+    next.expandScan = {
+      tool: 'local.text',
+      query: withoutUndefined({
+        ...query,
+        maxFiles: Math.min(
+          MAX_MATCH_CONTENT_LENGTH,
+          Math.max(currentMaxFiles + 1, currentMaxFiles * 2)
+        ),
+        page: 1,
+      }),
+      why: 'Re-run with a larger file-scan bound because this search is partial.',
+      confidence: 'exact',
+    };
+  }
 
   if (
     searchEngine === 'structural' &&
@@ -262,7 +281,17 @@ function firstBareIdentifierMetavar(
   metavarRanges: Record<string, Array<{ line: number }>> | undefined
 ): InferredLspSymbol | undefined {
   if (!metavars) return undefined;
-  for (const [key, values] of Object.entries(metavars)) {
+  // Native capture maps have no stable iteration order. An explicit NAME/name
+  // capture is the strongest available intent; other keys use code-unit order.
+  // Captures carry no syntax role, so this remains a low-confidence suggestion.
+  const keys = Object.keys(metavars).sort((left, right) => {
+    const namePriority =
+      Number(right.toLowerCase() === 'name') -
+      Number(left.toLowerCase() === 'name');
+    return namePriority || (left < right ? -1 : left > right ? 1 : 0);
+  });
+  for (const key of keys) {
+    const values = metavars[key] ?? [];
     for (const [index, value] of values.entries()) {
       const symbol = bareIdentifier(value);
       // metavarRanges is parallel to metavars (same keys, same order) — the

@@ -110,17 +110,3 @@ export function countRows(json: unknown): number {
   }
   return 0;
 }
-
-// Pi names the generic external-host contract “unified plan”; the package owns
-// every state transition and verification invariant.
-export {
-  completeExternalPlanTask as completeUnifiedPlanTask,
-  finalizeExternalPlan as finalizeUnifiedPlan,
-  projectExternalPlan as projectUnifiedPlan,
-  type ExternalPlanCompletionResult as UnifiedPlanCompletionResult,
-  type ExternalPlanProjectionInput as UnifiedPlanProjectionInput,
-  type ExternalPlanProjectionResult as UnifiedPlanProjectionResult,
-  type ExternalPlanProjectionStep as UnifiedPlanProjectionStep,
-  type ExternalPlanScope as UnifiedPlanScope,
-  type ObservedCheckReceipt,
-} from '@octocodeai/octocode-awareness';

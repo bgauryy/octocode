@@ -20,7 +20,7 @@ pub use types::{
 
 use crate::signatures::languages;
 use language::AgLanguage;
-use octo::compile_matcher;
+use octo::{compile_matcher, ExecutionError};
 use query::{invalid_query_explanation, StructuralQuery};
 use types::{structural_query_fingerprint, STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION};
 
@@ -53,17 +53,23 @@ pub fn search(
 ) -> Result<Vec<StructuralMatch>, String> {
     if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
         return Err(format!(
-            "structural search content exceeds {MAX_STRUCTURAL_CONTENT_BYTES} byte limit"
+            "[structural.content.tooLarge] structural search content exceeds {MAX_STRUCTURAL_CONTENT_BYTES} byte limit"
         ));
     }
-    let query = StructuralQuery::new(pattern, rule)?;
-    let entry = languages::find_entry(ext)
-        .ok_or_else(|| format!("structural search does not support .{ext} files"))?;
+    let query = StructuralQuery::new(pattern, rule)
+        .map_err(|message| format!("[structural.query.invalid] {message}"))?;
+    let entry = languages::find_entry(ext).ok_or_else(|| {
+        format!("[structural.language.unsupported] structural search does not support .{ext} files")
+    })?;
     let lang = AgLanguage::new(ext, entry);
     let run = compile_matcher(&lang, query)?;
     // The non-detailed API returns bare StructuralMatch; node_kind is only
     // surfaced by the detailed shape.
-    Ok(run(content).into_iter().map(|m| m.matched).collect())
+    Ok(run(content)
+        .map_err(|err| err.to_string())?
+        .into_iter()
+        .map(|m| m.matched)
+        .collect())
 }
 
 pub fn search_detailed(
@@ -151,6 +157,18 @@ pub fn search_detailed(
     let run = match compile_matcher(&lang, query) {
         Ok(run) => run,
         Err(message) => {
+            if let Some(error) = ExecutionError::from_compile_message(&message) {
+                return StructuralSearchDetailedResult {
+                    path: file_path.to_owned(),
+                    analyzer: STRUCTURAL_ANALYZER.to_owned(),
+                    analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
+                    status: "truncated".to_owned(),
+                    language_id: entry.language_id.map(str::to_owned),
+                    query: query_explanation,
+                    matches: Vec::new(),
+                    diagnostics: vec![error.diagnostic(file_path)],
+                };
+            }
             let diagnostic = StructuralDiagnostic::new(
                 "structural.query.compileFailed",
                 "error",
@@ -174,17 +192,26 @@ pub fn search_detailed(
         }
     };
 
-    let matches = run(content)
-        .into_iter()
-        .map(|m| {
-            StructuralDetailedMatch::from_match(
-                file_path,
-                &query_fingerprint,
-                m.matched,
-                m.node_kind,
-            )
-        })
-        .collect();
+    let matches = match run(content) {
+        Ok(matches) => matches,
+        Err(error) => {
+            return StructuralSearchDetailedResult {
+                path: file_path.to_owned(),
+                analyzer: STRUCTURAL_ANALYZER.to_owned(),
+                analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
+                status: "truncated".to_owned(),
+                language_id: entry.language_id.map(str::to_owned),
+                query: query_explanation,
+                matches: Vec::new(),
+                diagnostics: vec![error.diagnostic(file_path)],
+            }
+        }
+    }
+    .into_iter()
+    .map(|m| {
+        StructuralDetailedMatch::from_match(file_path, &query_fingerprint, m.matched, m.node_kind)
+    })
+    .collect();
 
     StructuralSearchDetailedResult {
         path: file_path.to_owned(),

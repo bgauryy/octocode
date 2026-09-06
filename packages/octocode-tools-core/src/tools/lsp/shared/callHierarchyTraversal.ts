@@ -16,6 +16,7 @@ export type TraversalResult<T> = {
   requestCount: number;
   cycleCount: number;
   failedRequestCount: number;
+  excludedCallCount?: number;
 };
 
 export type TraversalBudget = {
@@ -246,7 +247,8 @@ export async function gatherOutgoingCallsRecursive(
   remainingDepth: number,
   visited: Set<string>,
   contextLines: number,
-  budget: MutableTraversalBudget = createMutableBudget(undefined)
+  budget: MutableTraversalBudget = createMutableBudget(undefined),
+  excludeCall?: (call: OutgoingCall) => boolean
 ): Promise<TraversalResult<OutgoingCall>> {
   if (remainingDepth <= 0 || !client) {
     return { calls: [], ...EMPTY_TRAVERSAL_RESULT };
@@ -264,7 +266,13 @@ export async function gatherOutgoingCallsRecursive(
   }
 
   try {
-    const directCalls = await client.getOutgoingCalls(item);
+    const providerCalls = await client.getOutgoingCalls(item);
+    // Excluded targets must not create a traversal frontier or consume requests
+    // below it: completeness describes the calls that this operation exposes.
+    const directCalls = excludeCall
+      ? providerCalls.filter(call => !excludeCall(call))
+      : providerCalls;
+    const excludedCallCount = providerCalls.length - directCalls.length;
     const enhancedCalls =
       contextLines > 0
         ? await enhanceOutgoingCalls(directCalls, contextLines)
@@ -277,6 +285,7 @@ export async function gatherOutgoingCallsRecursive(
           truncatedByDepth: enhancedCalls.length > 0,
           cycleCount: 0,
           failedRequestCount: 0,
+          ...(excludedCallCount > 0 && { excludedCallCount }),
         },
         budget
       );
@@ -308,12 +317,19 @@ export async function gatherOutgoingCallsRecursive(
           remainingDepth - 1,
           visited,
           contextLines,
-          budget
+          budget,
+          excludeCall
         )
       );
       if (budget.truncatedByBudget) break;
     }
 
+    const totalExcludedCallCount =
+      excludedCallCount +
+      nestedResults.reduce(
+        (sum, result) => sum + (result.excludedCallCount ?? 0),
+        0
+      );
     return withBudget(
       {
         calls: [...enhancedCalls, ...nestedResults.flatMap(r => r.calls)],
@@ -323,6 +339,9 @@ export async function gatherOutgoingCallsRecursive(
           (sum, r) => sum + r.failedRequestCount,
           0
         ),
+        ...(totalExcludedCallCount > 0 && {
+          excludedCallCount: totalExcludedCallCount,
+        }),
       },
       budget
     );

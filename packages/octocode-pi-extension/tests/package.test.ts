@@ -7,41 +7,15 @@ import { execFileSync } from 'node:child_process';
 import { beforeAll, test, vi } from 'vitest';
 import { Type } from 'typebox';
 import type { PiContext, PiInstance } from '../src/types.js';
-import {
-  MANAGED_BLOCK_END,
-  MANAGED_BLOCK_START,
-  SYSTEM_PROMPT_MARKER,
-  DISABLED_BUILTIN_TOOL_NAMES,
-  OCTOCODE_SUPPORT_TOOL_NAMES,
-  disableBuiltinTools,
-  formatStatus,
-  formatPromptBudget,
-  applyOctocodeUi,
-  formatOctocodeDashboard,
-  getThinkingStatus,
-  getAssetPaths,
-  getInternalErrorLogPath,
-  getAwarenessCLIPath,
-  buildAwarenessCommand,
-  getAppendSystemTarget,
-  getInstallSource,
-  listBundledSkills,
-  listExtensionHarness,
-  mergeManagedAppendSystem,
-  parseSetupScope,
-  readTextIfExists,
-  splitArgs,
-  truncateUserVisibleToolOutput,
-  cleanupSpawnedAgentsForShutdown,
-  evaluateSpawnPolicy,
-  formatAgentLedgerDetails,
-  listWorkerLedgerEntries,
-  runHookMiddleware,
-  setAgentProcessFactoryForTests,
-  normalizeWorkerOutput,
-  evaluateWorkerRecoveryRisk,
-  getPiRegistryRegistrationReceipts,
-} from '../src/index.js';
+import { disableBuiltinTools, formatStatus, formatPromptBudget, formatOctocodeDashboard, getInternalErrorLogPath, listExtensionHarness } from '../src/index.js';
+import { MANAGED_BLOCK_END, MANAGED_BLOCK_START, SYSTEM_PROMPT_MARKER, DISABLED_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
+import { applyOctocodeUi, getThinkingStatus } from '../src/extension-ui.js';
+import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCommand, getInstallSource, listBundledSkills, readTextIfExists } from '../src/assets.js';
+import { getAppendSystemTarget, parseSetupScope, splitArgs, truncateUserVisibleToolOutput } from '../src/utils.js';
+import { mergeManagedAppendSystem } from '../src/prompt.js';
+import { cleanupSpawnedAgentsForShutdown, evaluateSpawnPolicy, formatAgentLedgerDetails, listWorkerLedgerEntries, setAgentProcessFactoryForTests, normalizeWorkerOutput, evaluateWorkerRecoveryRisk } from '../src/tools/agent-tools.js';
+import { runHookMiddleware } from '../src/hook-composer.js';
+import { getPiRegistryRegistrationReceipts } from '../src/adapters/pi-registry-adapters.js';
 import { runAwarenessInProcess } from '../src/assets.js';
 import { applyCustomEditsToContent } from '../src/tools/edit-tool.js';
 import { recordFileReadState, clearReadStatesForTests } from '../src/tools/file-state.js';
@@ -52,11 +26,6 @@ import { setPlanDirectoryServerForTests } from '../src/tools/plan-tool.js';
 import { setPlanOpenerForTests } from '../src/tools/plan-html.js';
 import { buildFooterSegments, getFooterDensity, setFooterDensity } from '../src/ui-extras.js';
 import { PI_CONFIG_DIR } from '../src/constants.js';
-import { registerAgentTools } from '../src/tools/agent-tools.js';
-import { registerSpawnSubagentTool } from '../src/tools/spawn-subagent-tool.js';
-import { registerBrowserAgentTool } from '../src/tools/browser-agent-tool.js';
-import { registerEditTool } from '../src/tools/edit-tool.js';
-import { registerWriteTool } from '../src/tools/write-tool.js';
 import { DIRECT_TOOL_DESCRIPTIONS, getDirectToolContractStats, registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { runtimeStoreFor, setManagedActivity, setManagedStatus } from '../src/tools/runtime-renderer.js';
 import { warmMcpCatalog } from '../src/tools/mcp-tool.js';
@@ -309,25 +278,6 @@ async function captureExtensions(): Promise<CaptureResult> {
   ).default;
   await extension(pi);
 
-  // Preserve deep runtime parity tests for consolidated agent capabilities while
-  // keeping retired names absent from the real public map. `has`/iteration still
-  // report only public tools; `get` resolves internal definitions for focused runtime tests below.
-  const internalTools = new Map<string, ToolDef>();
-  const captureInternal = (_pi: unknown, names: Set<string>, def: ToolDef) => {
-    names.add(def.name);
-    internalTools.set(def.name, def);
-  };
-  const internalNames = new Set<string>();
-  registerAgentTools(pi as never, Type, internalNames, captureInternal as never);
-  registerSpawnSubagentTool(pi as never, Type, internalNames, captureInternal as never, () => {});
-  registerBrowserAgentTool(pi as never, Type, internalNames, captureInternal as never, () => {});
-  registerEditTool(pi as never, Type, internalNames, captureInternal as never);
-  registerWriteTool(pi as never, Type, internalNames, captureInternal as never);
-  const publicGet = tools.get.bind(tools);
-  Object.defineProperty(tools, 'get', {
-    value: (name: string) => publicGet(name) ?? internalTools.get(name),
-  });
-
   return {
     tools,
     commands,
@@ -550,15 +500,15 @@ test('build copies bundled Octocode skills without secret env files', () => {
   };
   assert.ok(packageJson.files?.includes('dist/**'), 'npm files ships dist (which carries dist/skills)');
   assert.equal(packageJson.files?.includes('skills/**'), false, 'no root skills/** shipped');
-  assert.deepEqual(
-    packageJson.exports?.['./shell'],
-    {
-      types: './dist/shell/index.d.ts',
-      import: './dist/shell/index.js',
-      default: './dist/shell/index.js',
-    },
-    'package exports the Octocode shell subpath for CLI rollout'
-  );
+  const assertExportExists = (target: unknown): void => {
+    if (typeof target === 'string') {
+      assert.ok(fs.existsSync(path.join(packageRoot, target)), `Export target missing: ${target}`);
+    } else if (target && typeof target === 'object') {
+      for (const value of Object.values(target)) assertExportExists(value);
+    }
+  };
+  assertExportExists(packageJson.exports);
+  assert.ok(packageJson.files?.includes('HARNESS.md'), 'npm package includes the guide linked by README');
   assert.equal(packageJson.pi?.skills, undefined, 'pi.skills removed — resources_discover is the single source');
 
   assert.equal(
@@ -878,7 +828,7 @@ test('plan state is branch-correct: mutations append session entries; session_st
             type: 'custom',
             customType: 'octocode-plan',
             data: {
-              version: 3,
+              version: 4, cleared: false,
               branchSnapshotId: 'forked-snapshot',
               generation: 1,
               capturedAt: '2026-01-01T00:00:00.000Z',
@@ -913,7 +863,7 @@ test('plan state is branch-correct: mutations append session entries; session_st
           type: 'custom',
           customType: 'octocode-plan',
           data: {
-            version: 3,
+            version: 4, cleared: false,
             branchSnapshotId: 'accepted-entry',
             generation: 3,
             capturedAt: '2026-01-01T00:00:00.000Z',
@@ -935,7 +885,7 @@ test('plan state is branch-correct: mutations append session entries; session_st
           type: 'custom',
           customType: 'octocode-plan',
           data: {
-            version: 3,
+            version: 4, cleared: false,
             branchSnapshotId: 'executing-entry',
             generation: 4,
             capturedAt: '2026-01-01T00:01:00.000Z',
@@ -1264,7 +1214,7 @@ test('public direct palette is exactly 17 queries-only tools with bounded per-qu
   }
 
   for (const retired of [
-    'browserAgent', 'spawnSubagent', 'spawnAgent', 'AgentMessage',
+    'browserAgent', 'agentSpecialist', 'agent spawn', 'agent lifecycle',
     'callSkill', 'work', 'manage_context',
     'awarenessStatus', 'awarenessPlan', 'claim', 'task', 'handoff', 'verify', 'awarenessAgents',
     'readImage', 'createMedia', 'edit', 'write',
@@ -1433,14 +1383,14 @@ test('the removed unified-flow flag cannot restore retired tools', async () => {
   }
 });
 
-test('retains the internal edit engine contract used by file', async () => {
+test('file exposes one edit schema and rendering contract', async () => {
   const { tools } = await captureExtensions();
-  const editTool = tools.get('edit')!;
-  assert.equal(editTool.label, 'edit (Octocode)');
-  assert.match(editTool.description!, /exact current-file text replacement.*stale-read checks/i);
+  const editTool = tools.get('file')!;
+  assert.equal(editTool.label, 'file (Octocode)');
+  assert.match(editTool.description!, /stale\/lost-update checks and diffs/i);
   assert.ok(
     editTool.promptGuidelines!.some(line =>
-      line.includes('replaces Pi built-in edit')
+      line.includes('targeted replacements')
     )
   );
   const params = editTool.parameters as {
@@ -1453,10 +1403,7 @@ test('retains the internal edit engine contract used by file', async () => {
     editProperties['replaceAll'],
     'custom edit supports replaceAll'
   );
-  assert.ok(
-    editProperties['reasoning'],
-    'custom edit supports per-edit reasoning metadata'
-  );
+  assert.equal(editProperties['reasoning'], undefined, 'reasoning belongs to the mutation query');
   assert.ok(
     editProperties['matchMode'],
     'custom edit supports match modes'
@@ -1467,17 +1414,17 @@ test('retains the internal edit engine contract used by file', async () => {
   );
   assert.ok(editTool.renderCall, 'custom edit provides a renderer');
   assert.ok(editTool.renderResult, 'custom edit provides a result renderer');
-  const callLine = editTool.renderCall!({ queries: [{ reasoning: 'edit test file', path: 'a.ts', edits: [{ oldText: 'a', newText: 'b', reasoning: 'test' }] }] })
+  const callLine = editTool.renderCall!({ queries: [{ type: 'edit', reasoning: 'edit test file', path: 'a.ts', edits: [{ oldText: 'a', newText: 'b', reasoning: 'test' }] }] })
     .render(120)
     .join('\n');
-  assert.match(callLine, /edit \(Octocode\)/);
+  assert.match(callLine, /file \(Octocode\)/);
 });
 
-test('retains the internal write engine path guard used by file', async () => {
+test('file write preserves atomic creation and path guards', async () => {
   const { tools, activeTools } = await captureExtensions();
-  const writeTool = tools.get('write')!;
-  assert.equal(writeTool.label, 'write (Octocode)');
-  assert.match(writeTool.description!, /Octocode custom write/i);
+  const writeTool = tools.get('file')!;
+  assert.equal(writeTool.label, 'file (Octocode)');
+  assert.match(writeTool.description!, /write is atomic/i);
   assert.equal(activeTools.includes('write'), false, 'native write stays disabled');
   assert.equal(tools.has('file'), true, 'file replaces native edit/write');
   assert.equal(activeTools.includes('read'), false);
@@ -1487,7 +1434,7 @@ test('retains the internal write engine path guard used by file', async () => {
   try {
     const target = path.join(tmp, 'nested', 'hello.txt');
     const result = await invokeExecute(writeTool, {
-      queries: [{
+      queries: [{ type: 'write',
         path: target,
         content: 'hello from octocode write\n',
         reasoning: 'verify custom write override creates files inside the allowed root',
@@ -1499,7 +1446,7 @@ test('retains the internal write engine path guard used by file', async () => {
     // Outside allowed roots must fail (/usr is not cwd/home/tmp).
     const outside = `/usr/octocode-pi-write-should-block-${process.pid}.txt`;
     await assert.rejects(
-      () => invokeExecute(writeTool, { queries: [{ path: outside, content: 'x', reasoning: 'verify path guard rejects unsafe write target' }] }, { cwd: tmp }),
+      () => invokeExecute(writeTool, { queries: [{ type: 'write',  path: outside, content: 'x', reasoning: 'verify path guard rejects unsafe write target' }] }, { cwd: tmp }),
       /write blocked|outside the allowed roots/,
     );
   } finally {
@@ -1509,40 +1456,40 @@ test('retains the internal write engine path guard used by file', async () => {
 
 test('write rejects file_path instead of path', async () => {
   const { tools } = await captureExtensions();
-  const writeTool = tools.get('write')!;
+  const writeTool = tools.get('file')!;
   await assert.rejects(
     () => invokeExecute(writeTool, {
-      queries: [{ file_path: 'a.ts', content: 'x', reasoning: 'verify path is required' }],
+      queries: [{ type: 'write',  file_path: 'a.ts', content: 'x', reasoning: 'verify path is required' }],
     }),
-    /path must be a non-empty string/,
+    /write requires a non-empty path/,
   );
 });
 
 test('write records read-state so a follow-up edit is not stale', async () => {
   const { tools } = await captureExtensions();
-  const writeTool = tools.get('write')!;
-  const editTool = tools.get('edit')!;
+  const writeTool = tools.get('file')!;
+  const editTool = tools.get('file')!;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-write-edit-'));
   try {
     const target = path.join(tmp, 'seed.ts');
     await invokeExecute(
       writeTool,
-      { queries: [{ path: target, content: 'const x = 1;\n', reasoning: 'seed file before verifying edit stale-read state' }] },
+      { queries: [{ type: 'write',  path: target, content: 'const x = 1;\n', reasoning: 'seed file before verifying edit stale-read state' }] },
       { cwd: tmp },
     );
     const edited = await invokeExecute(
       editTool,
-      {
+      { queries: [{ type: 'edit', reasoning: 'bump after write',
         path: target,
         requireRecentRead: true,
         edits: [
           {
             oldText: 'const x = 1;',
             newText: 'const x = 2;',
-            reasoning: 'bump after write',
+
           },
         ],
-      },
+      }] },
       { cwd: tmp },
     );
     assert.match((edited.content[0] as { text: string }).text!, /Successfully replaced/);
@@ -1622,27 +1569,24 @@ test('custom edit requires reasoning and shows it in output', async () => {
   const target = path.join(tmp, 'reasoning.txt');
   fs.writeFileSync(target, 'left\nright\n', 'utf8');
   try {
-    const editTool = tools.get('edit')!;
+    const editTool = tools.get('file')!;
     // Missing reasoning must be rejected.
     await assert.rejects(
       () =>
-        invokeExecute(editTool, {
-          path: target,
-          edits: [{ oldText: 'left', newText: 'LEFT' }],
-        }),
-      /reasoning is required/
+        editTool.execute('missing-reasoning', { queries: [{ type: 'edit', path: target, edits: [{ oldText: 'left', newText: 'LEFT' }] }] }, undefined, undefined, { cwd: tmp }),
+      /requires non-empty reasoning/
     );
 
-    const withReasoning = await invokeExecute(editTool, {
+    const withReasoning = await invokeExecute(editTool, { queries: [{ type: 'edit', reasoning: 'uppercase the remaining direction',
       path: target,
       edits: [
         {
           oldText: 'right',
           newText: 'RIGHT',
-          reasoning: 'uppercase the remaining direction',
+
         },
       ],
-    });
+    }] });
     assert.match(
       (withReasoning.content[0] as { text: string }).text,
       /Reasoning:\n- uppercase the remaining direction/
@@ -1660,7 +1604,7 @@ test('custom edit requires reasoning and shows it in output', async () => {
     const rendered = editTool.renderResult!(withReasoning, { expanded: false, isPartial: false })
       .render(240)
       .join('\n');
-    assert.match(rendered, /edit \(Octocode\)/);
+    assert.match(rendered, /file \(Octocode\)/);
     assert.match(rendered, /Reasoning: uppercase the remaining direction/);
     assert.doesNotMatch(rendered, /Reasoning: .*reasoning\.txt edits\[0\]:/);
     // 'left' was not changed (the rejected call did not write); only 'right' was replaced.
@@ -1680,12 +1624,12 @@ test('custom edit returns diff and patch details', async () => {
   const target = path.join(tmp, 'diff.txt');
   fs.writeFileSync(target, 'one\ntwo\n', 'utf8');
   try {
-    const result = await invokeExecute(tools.get('edit')!, {
+    const result = await invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'change to uppercase',
       path: target,
       edits: [
-        { oldText: 'two', newText: 'TWO', reasoning: 'change to uppercase' },
+        { oldText: 'two', newText: 'TWO' },
       ],
-    });
+    }] });
     const details = result.details as {
       diff: string;
       patch: string;
@@ -1712,7 +1656,7 @@ test('custom edit returns diff and patch details', async () => {
       bold: (text: string) => `<b>${text}</b>`,
       fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
     };
-    const collapsedLines = tools.get('edit')!.renderResult!(
+    const collapsedLines = tools.get('file')!.renderResult!(
       result,
       { expanded: false },
       theme
@@ -1726,7 +1670,7 @@ test('custom edit returns diff and patch details', async () => {
       'collapsed edit response shows added diff line'
     );
 
-    const themedLines = tools.get('edit')!.renderResult!(
+    const themedLines = tools.get('file')!.renderResult!(
       result,
       { expanded: true },
       theme
@@ -1742,7 +1686,7 @@ test('custom edit returns diff and patch details', async () => {
   }
 });
 
-test('custom edit renderResult lists per-edit reasoning, red/green diff, line range, and file', async () => {
+test('file edit renderResult shows query reasoning, per-edit diff, line range, and file', async () => {
   const { tools } = await captureExtensions();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-peredit-'));
   const target = path.join(tmp, 'checkout.ts');
@@ -1753,22 +1697,22 @@ test('custom edit renderResult lists per-edit reasoning, red/green diff, line ra
     'utf8'
   );
   try {
-    const result = await invokeExecute(tools.get('edit')!, {
+    const result = await invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'rename to v2 handler and rename total to sumTotal for clarity',
       path: target,
       edits: [
         {
           oldText: 'submitOrder(payload)',
           newText: 'submitOrderV2(payload)',
-          reasoning: 'rename to v2 handler',
+
         },
         {
           oldText: 'const y = total(x);',
           newText: 'const y = sumTotal(x);',
-          reasoning: 'rename total to sumTotal for clarity',
+
         },
       ],
-    });
-    const themedLines = tools.get('edit')!.renderResult!(
+    }] });
+    const themedLines = tools.get('file')!.renderResult!(
       result,
       { expanded: true },
       {
@@ -1976,16 +1920,16 @@ test('BREAK: BOM + CRLF file round-trips through an edit preserving BOM and CRLF
   fs.writeFileSync(target, `${bom}line one\r\nline two\r\n`, 'utf8');
   try {
     await recordFileReadState(target);
-    const result = await invokeExecute(tools.get('edit')!, {
+    const result = await invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'uppercase line 2',
       path: target,
       edits: [
         {
           oldText: 'line two',
           newText: 'LINE TWO',
-          reasoning: 'uppercase line 2',
+
         },
       ],
-    });
+    }] });
     const written = fs.readFileSync(target, 'utf8');
     assert.ok(written.startsWith('\uFEFF'), 'BOM preserved');
     assert.ok(written.includes('\r\n'), 'CRLF preserved');
@@ -2068,16 +2012,16 @@ test('BREAK: multi-file edit is all-or-nothing when one query requires read stat
   try {
     await assert.rejects(
       () =>
-        invokeExecute(tools.get('edit')!, {
+        invokeExecute(tools.get('file')!, {
           queries: [
-            {
+            { type: 'edit', reasoning: 'x',
               path: a,
               requireRecentRead: true,
-              edits: [{ oldText: 'A', newText: 'AA', reasoning: 'x' }],
+              edits: [{ oldText: 'A', newText: 'AA' }],
             },
-            {
+            { type: 'edit', reasoning: 'x',
               path: b,
-              edits: [{ oldText: 'B', newText: 'BB', reasoning: 'x' }],
+              edits: [{ oldText: 'B', newText: 'BB' }],
             },
           ],
         }),
@@ -2097,10 +2041,10 @@ test('BREAK: nonexistent path rejects with a clear error and writes nothing', as
   const missing = path.join(tmp, 'does-not-exist.txt');
   try {
     await assert.rejects(() =>
-      invokeExecute(tools.get('edit')!, {
+      invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'x',
         path: missing,
-        edits: [{ oldText: 'x', newText: 'y', reasoning: 'x' }],
-      })
+        edits: [{ oldText: 'x', newText: 'y' }],
+      }] })
     );
     assert.equal(
       fs.existsSync(missing),
@@ -2124,20 +2068,15 @@ test('BREAK: an already-aborted signal rejects before any file read', async () =
       // invokeExecute hardcodes signal=undefined, so call execute() directly to pass the AbortSignal.
       () =>
         tools
-          .get('edit')!
+          .get('file')!
           .execute(
             'call-id',
-            {
-              path: target,
-              edits: [
-                { oldText: 'original', newText: 'CHANGED', reasoning: 'x' },
-              ],
-            },
+            { queries: [{ type: 'edit', reasoning: 'verify abort prevents file access', path: target, edits: [{ oldText: 'original', newText: 'CHANGED' }] }] },
             ctrl.signal,
             undefined,
             { cwd: process.cwd() }
           ),
-      /Operation aborted/
+      /query batch aborted/
     );
     assert.equal(
       fs.readFileSync(target, 'utf8'),
@@ -2293,18 +2232,18 @@ test('custom edit supports all-or-nothing multi-file queries', async () => {
   try {
     await assert.rejects(
       () =>
-        invokeExecute(tools.get('edit')!, {
+        invokeExecute(tools.get('file')!, {
           queries: [
-            {
+            { type: 'edit', reasoning: 'test',
               path: first,
               edits: [
-                { oldText: 'alpha', newText: 'ALPHA', reasoning: 'test' },
+                { oldText: 'alpha', newText: 'ALPHA' },
               ],
             },
-            {
+            { type: 'edit', reasoning: 'test',
               path: second,
               edits: [
-                { oldText: 'missing', newText: 'MISSING', reasoning: 'test' },
+                { oldText: 'missing', newText: 'MISSING' },
               ],
             },
           ],
@@ -2314,15 +2253,15 @@ test('custom edit supports all-or-nothing multi-file queries', async () => {
     assert.equal(fs.readFileSync(first, 'utf8'), 'alpha\n');
     assert.equal(fs.readFileSync(second, 'utf8'), 'beta\n');
 
-    const result = await invokeExecute(tools.get('edit')!, {
+    const result = await invokeExecute(tools.get('file')!, {
       queries: [
-        {
+        { type: 'edit', reasoning: 'test',
           path: first,
-          edits: [{ oldText: 'alpha', newText: 'ALPHA', reasoning: 'test' }],
+          edits: [{ oldText: 'alpha', newText: 'ALPHA' }],
         },
-        {
+        { type: 'edit', reasoning: 'test',
           path: second,
-          edits: [{ oldText: 'beta', newText: 'BETA', reasoning: 'test' }],
+          edits: [{ oldText: 'beta', newText: 'BETA' }],
         },
       ],
     });
@@ -2346,10 +2285,10 @@ test('custom edit rejects stale files when read state was recorded', async () =>
     // Content-anchored (exact oldText) edits are self-verifying: the stale
     // recorded hash downgrades to an advisory and the edit applies against the
     // CURRENT bytes.
-    const ok = await invokeExecute(tools.get('edit')!, {
+    const ok = await invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'test',
       path: target,
-      edits: [{ oldText: 'changed elsewhere', newText: 'ours', reasoning: 'test' }],
-    });
+      edits: [{ oldText: 'changed elsewhere', newText: 'ours' }],
+    }] });
     assert.match((ok.content[0] as { text: string }).text, /Read state: stale/);
     assert.equal(fs.readFileSync(target, 'utf8'), 'ours\n');
     // Position-anchored (lineRange) edits still hard-fail on a stale read —
@@ -2358,10 +2297,10 @@ test('custom edit rejects stale files when read state was recorded', async () =>
     fs.writeFileSync(target, 'shifted\nlines\n', 'utf8');
     await assert.rejects(
       () =>
-        invokeExecute(tools.get('edit')!, {
+        invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'test',
           path: target,
-          edits: [{ matchMode: 'lineRange', startLine: 1, endLine: 1, newText: 'x', reasoning: 'test' }],
-        }),
+          edits: [{ matchMode: 'lineRange', startLine: 1, endLine: 1, newText: 'x' }],
+        }] }),
       /File changed since last recorded read/
     );
   } finally {
@@ -2382,13 +2321,13 @@ test('custom edit requireRecentRead rejects an edit with no prior read state', a
     // No recordFileReadState call: missing read state.
     await assert.rejects(
       () =>
-        invokeExecute(tools.get('edit')!, {
+        invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'test',
           path: target,
           edits: [
-            { oldText: 'original', newText: 'CHANGED', reasoning: 'test' },
+            { oldText: 'original', newText: 'CHANGED' },
           ],
           requireRecentRead: true,
-        }),
+        }] }),
       /No prior localGetFileContent read state recorded for this file/
     );
     // The rejected edit must NOT have written the file.
@@ -2409,17 +2348,17 @@ test('custom edit stale check is content-hash authoritative, not mtime', async (
     await recordFileReadState(target);
     // Re-write IDENTICAL content — mtime advances, content hash identical.
     fs.writeFileSync(target, 'same\n', 'utf8');
-    const result = await invokeExecute(tools.get('edit')!, {
+    const result = await invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'content-hash must win over mtime',
       path: target,
       edits: [
         {
           oldText: 'same',
           newText: 'SAME',
-          reasoning: 'content-hash must win over mtime',
+
         },
       ],
       requireRecentRead: true,
-    });
+    }] });
     assert.match((result.content[0] as { text: string }).text, /Read state: fresh/);
     assert.equal(fs.readFileSync(target, 'utf8'), 'SAME\n');
   } finally {
@@ -2466,10 +2405,10 @@ test('custom edit generates a valid unified-diff hunk header', async () => {
   const target = path.join(tmp, 'patch.txt');
   fs.writeFileSync(target, 'a\nb\nc\n', 'utf8');
   try {
-    const result = await invokeExecute(tools.get('edit')!, {
+    const result = await invokeExecute(tools.get('file')!, { queries: [{ type: 'edit', reasoning: 'change line 2',
       path: target,
-      edits: [{ oldText: 'b', newText: 'B', reasoning: 'change line 2' }],
-    });
+      edits: [{ oldText: 'b', newText: 'B' }],
+    }] });
     const details = result.details as { patch: string };
     // A valid unified-diff hunk header is @@ -<start>,<count> +<start>,<count> @@ (or @@ ... @@).
     assert.match(details.patch, /@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/);
@@ -2538,7 +2477,7 @@ test('mcp initialization reads canonical project config before the agent calls t
       },
     }));
 
-    const trustedCtx = { cwd: tmp, isProjectTrusted: async () => true, ui: { setStatus: () => undefined } };
+    const trustedCtx = { cwd: tmp, isProjectTrusted: () => true, ui: { setStatus: () => undefined } };
     const invokeMcp = (params: Record<string, unknown>, context: Record<string, unknown> = trustedCtx) =>
       invokeExecute(mcpTool, { queries: [{ reasoning: 'Exercise the MCP gateway contract.', ...params }] }, context);
     const config = await invokeMcp({ action: 'config' });
@@ -2624,7 +2563,7 @@ test('mcp initialization reads canonical project config before the agent calls t
     const stopped = await invokeMcp({ action: 'stop', server: 'fake' });
     assert.match((stopped.content[0] as { text: string }).text, /fake: stopped/);
 
-    const untrusted = await invokeMcp({ action: 'config' }, { cwd: tmp, isProjectTrusted: async () => false });
+    const untrusted = await invokeMcp({ action: 'config' }, { cwd: tmp, isProjectTrusted: () => false });
     assert.match((untrusted.content[0] as { text: string }).text, /skipped because the project is not trusted/);
   } finally {
     try { await invokeExecute(mcpTool, { queries: [{ reasoning: 'Stop fixture.', action: 'stop' }] }, { cwd: tmp }); } catch {}
@@ -2632,31 +2571,27 @@ test('mcp initialization reads canonical project config before the agent calls t
   }
 });
 
-test('browserAgent can build a typed browser subagent config without launching Chrome', async () => {
-  const { tools } = await captureExtensions();
-  const browserTool = tools.get('browserAgent')!;
-  assert.ok(browserTool, 'browserAgent registered');
-
-  const result = await invokeExecute(browserTool, {
-    task: 'audit security cookies and auth storage',
-    url: 'https://example.com/account',
-    port: 19333,
-    runNow: false,
+test('agent browser profile spawns with routed context without launching Chrome', async () => {
+  const spawned: Array<{ args: string[]; proc: MockAgentProcess }> = [];
+  setAgentProcessFactoryForTests((_command, args) => {
+    const proc = createMockAgentProcess();
+    spawned.push({ args, proc });
+    return proc;
   });
-
-  const text = (result.content[0] as { text: string }).text;
-  assert.match(text, /schemes run: \(none\)/);
-  assert.match(text, /cdp domains: Network, Runtime, DOM, DOMDebugger/);
-  assert.match(text, /tools: chromeDebug/);
-  assert.match(text, /Your ONLY browser tool is `chromeDebug`/);
-  assert.match(text, /=== SYSTEM PROMPT \(pass to spawnAgent\) ===/);
-  assert.match(text, /## Target URL\nhttps:\/\/example\.com\/account/);
-
-  const collapsed = browserTool.renderResult!(result, {
-    expanded: false,
-  }).render(120)[0]!;
-  assert.match(collapsed, /browserAgent/);
-  assert.match(collapsed, /schemes run/);
+  try {
+    const { tools } = await captureExtensions();
+    const browserTool = tools.get('agent')!;
+    const result = await invokeExecute(browserTool, { queries: [{ reasoning: 'Audit browser security.', type: 'spawn', profile: 'browser', task: 'audit security cookies and auth storage', url: 'https://example.com/account', port: 19333, runNow: false }] });
+    assert.equal(spawned.length, 1);
+    const prompt = promptFileContent(spawned[0]!.args);
+    assert.match(prompt, /Network, Runtime, DOM, DOMDebugger/);
+    assert.match(prompt, /Your ONLY browser tool is `chromeDebug`/);
+    assert.match(prompt, /https:\/\/example\.com\/account/);
+    assert.equal(argValues(spawned[0]!.args, '--tools')[0], 'chromeDebug');
+    assert.match(browserTool.renderResult!(result, { expanded: false }).render(120)[0]!, /agent.*SPAWNED/);
+  } finally {
+    setAgentProcessFactoryForTests(null);
+  }
 });
 
 test('applies Octocode Pi UI status and hidden thinking label', () => {
@@ -3070,7 +3005,7 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
     cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-extension-wiring-')),
     hasUI: true,
     model: { id: 'gpt-test', reasoning: true },
-    isProjectTrusted: async () => false,
+    isProjectTrusted: () => false,
     reload: async () => {
       reloads += 1;
     },
@@ -3633,7 +3568,7 @@ test('research tools are NOT registered as native Pi tools — served via MCPToo
   assert.equal(tools.has('MCPTool'), true, 'MCPTool is the research gateway');
 });
 
-// ─── spawnAgent / AgentMessage: real parallel process orchestration ─────────
+// ─── agent spawn / agent lifecycle: real parallel process orchestration ─────────
 
 interface MockAgentProcess {
   stdinWrites: string[];
@@ -3816,7 +3751,7 @@ test('runHookMiddleware blocks tool_call when middleware throws', async () => {
   });
 });
 
-test('AgentMessage status surfaces recovery-risk warnings for looping workers', async () => {
+test('agent lifecycle status surfaces recovery-risk warnings for looping workers', async () => {
   const spawned: Array<{ proc: MockAgentProcess }> = [];
   setAgentProcessFactoryForTests(() => {
     const proc = createMockAgentProcess();
@@ -3825,10 +3760,10 @@ test('AgentMessage status surfaces recovery-risk warnings for looping workers', 
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
-    const result = await invokeExecute(spawnTool, { task: 'repair parser', name: 'repair-loop' });
-    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
+    const result = await invokeExecute(spawnTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'repair parser', name: 'repair-loop' }] });
+    const agentId = (result.details as { agentId: string }).agentId;
 
     spawned[0]!.proc.emitStdout({
       type: 'message_end',
@@ -3841,11 +3776,11 @@ test('AgentMessage status surfaces recovery-risk warnings for looping workers', 
       },
     });
 
-    const list = await invokeExecute(messageTool, { action: 'list' });
+    const list = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect' }] });
     const listText = (list.content[0] as { text: string }).text;
     assert.doesNotMatch(listText, /⚠ recovery/, 'recovery badge is removed from the ledger UI');
 
-    const status = await invokeExecute(messageTool, { action: 'status', agentId });
+    const status = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId }] });
     const text = (status.content[0] as { text: string }).text;
     const summary = (status.details as { agent: { recoveryRisk?: { warnings: string[] } } }).agent;
     assert.match(text, /recovery-risk:/);
@@ -3856,7 +3791,7 @@ test('AgentMessage status surfaces recovery-risk warnings for looping workers', 
   }
 });
 
-test('AgentMessage followUp shows queued (not running) until the worker starts the turn', async () => {
+test('agent lifecycle followUp shows queued (not running) until the worker starts the turn', async () => {
   const spawned: Array<{ proc: MockAgentProcess }> = [];
   setAgentProcessFactoryForTests(() => {
     const proc = createMockAgentProcess();
@@ -3865,17 +3800,17 @@ test('AgentMessage followUp shows queued (not running) until the worker starts t
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
-    const result = await invokeExecute(spawnTool, { task: 'analyze', name: 'queue-worker' });
-    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
+    const result = await invokeExecute(spawnTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'analyze', name: 'queue-worker' }] });
+    const agentId = (result.details as { agentId: string }).agentId;
 
     // Worker finishes its initial turn → idle.
     spawned[0]!.proc.emitStdout({ type: 'agent_end', messages: [] });
 
     // Queue a follow-up: the record must read as queued, not running, and expose pendingMessages.
-    await invokeExecute(messageTool, { action: 'followUp', agentId, message: 'next task' });
-    const queued = await invokeExecute(messageTool, { action: 'status', agentId });
+    await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message', delivery: 'followUp', agentId, message: 'next task' }] });
+    const queued = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId }] });
     const queuedSummary = (queued.details as { agent: { status: string; pendingMessages?: number } }).agent;
     assert.equal(queuedSummary.pendingMessages, 1);
     assert.equal(queuedSummary.status, 'idle', 'raw status stays idle — not faked to running');
@@ -3883,7 +3818,7 @@ test('AgentMessage followUp shows queued (not running) until the worker starts t
 
     // The worker actually begins the queued turn → running, pending cleared.
     spawned[0]!.proc.emitStdout({ type: 'agent_start' });
-    const running = await invokeExecute(messageTool, { action: 'status', agentId });
+    const running = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId }] });
     const runningSummary = (running.details as { agent: { status: string; pendingMessages?: number } }).agent;
     assert.equal(runningSummary.status, 'running');
     assert.equal(runningSummary.pendingMessages, 0);
@@ -3893,7 +3828,7 @@ test('AgentMessage followUp shows queued (not running) until the worker starts t
   }
 });
 
-test('AgentMessage wait keeps blocking while a queued turn has not started', async () => {
+test('agent lifecycle wait keeps blocking while a queued turn has not started', async () => {
   const spawned: Array<{ proc: MockAgentProcess }> = [];
   setAgentProcessFactoryForTests(() => {
     const proc = createMockAgentProcess();
@@ -3902,17 +3837,17 @@ test('AgentMessage wait keeps blocking while a queued turn has not started', asy
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
-    const result = await invokeExecute(spawnTool, { task: 'analyze', name: 'wait-worker' });
-    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
+    const result = await invokeExecute(spawnTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'analyze', name: 'wait-worker' }] });
+    const agentId = (result.details as { agentId: string }).agentId;
 
     spawned[0]!.proc.emitStdout({ type: 'agent_end', messages: [] });
-    await invokeExecute(messageTool, { action: 'followUp', agentId, message: 'more' });
+    await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message', delivery: 'followUp', agentId, message: 'more' }] });
 
     // wait must not resolve at the interim idle: a queued turn is still owed.
     let resolved = false;
-    const waitPromise = invokeExecute(messageTool, { action: 'wait', agentId, timeoutMs: 1000 })
+    const waitPromise = invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'wait', agentId, timeoutMs: 1000 }] })
       .then((r) => { resolved = true; return r; });
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(resolved, false, 'wait resolved before the queued turn started');
@@ -3990,7 +3925,7 @@ test('Awareness pre-edit gate blocks lock conflicts', async () => {
   }
 });
 
-test('AgentMessage routes steer/follow_up RPCs and does not fake running on idle steer', async () => {
+test('agent lifecycle routes steer/follow_up RPCs and does not fake running on idle steer', async () => {
   const spawned: Array<{ proc: MockAgentProcess }> = [];
   setAgentProcessFactoryForTests(() => {
     const proc = createMockAgentProcess();
@@ -3999,10 +3934,10 @@ test('AgentMessage routes steer/follow_up RPCs and does not fake running on idle
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
-    const result = await invokeExecute(spawnTool, { task: 'route rpcs', name: 'router' });
-    const agentId = (result.details as { agent: { agentId: string } }).agent.agentId;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
+    const result = await invokeExecute(spawnTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'route rpcs', name: 'router' }] });
+    const agentId = (result.details as { agentId: string }).agentId;
 
     // Drive to idle so there is no in-flight turn to redirect.
     spawned[0]!.proc.emitStdout({ type: 'agent_end', messages: [] });
@@ -4010,7 +3945,7 @@ test('AgentMessage routes steer/follow_up RPCs and does not fake running on idle
     // steer on an idle worker: no in-flight turn to redirect, so the message is
     // routed as follow_up (a bare steer RPC would be dropped by Pi) and status
     // must NOT flip to running.
-    const idleSteer = await invokeExecute(messageTool, { action: 'steer', agentId, message: 'redirect' });
+    const idleSteer = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'steer', agentId, message: 'redirect' }] });
     const steerWrite = JSON.parse(spawned[0]!.proc.stdinWrites.at(-1)!);
     assert.equal(steerWrite.type, 'follow_up');
     assert.equal(steerWrite.message, 'redirect');
@@ -4022,7 +3957,7 @@ test('AgentMessage routes steer/follow_up RPCs and does not fake running on idle
 
     // followUp queues a not-yet-started turn → raw status stays idle (display 'queued'),
     // pendingMessages tracks it, RPC type follow_up.
-    const fu = await invokeExecute(messageTool, { action: 'followUp', agentId, message: 'next' });
+    const fu = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message', delivery: 'followUp', agentId, message: 'next' }] });
     const fuWrite = JSON.parse(spawned[0]!.proc.stdinWrites.at(-1)!);
     assert.equal(fuWrite.type, 'follow_up');
     assert.equal((fu.details as { agent: { status: string } }).agent.status, 'idle');
@@ -4032,7 +3967,7 @@ test('AgentMessage routes steer/follow_up RPCs and does not fake running on idle
     spawned[0]!.proc.emitStdout({ type: 'agent_start' });
 
     // steer while running → status running, RPC type steer.
-    const runSteer = await invokeExecute(messageTool, { action: 'steer', agentId, message: 'again' });
+    const runSteer = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'steer', agentId, message: 'again' }] });
     const runSteerWrite = JSON.parse(spawned[0]!.proc.stdinWrites.at(-1)!);
     assert.equal(runSteerWrite.type, 'steer');
     assert.equal((runSteer.details as { agent: { status: string } }).agent.status, 'running');
@@ -4046,7 +3981,7 @@ test('evaluateSpawnPolicy warns about packet gaps, provider guidance, fan-out, a
   const result = evaluateSpawnPolicy({
     task: 'Goal: check docs\nScope: docs only',
     model: 'claude-haiku-4-5-20251001',
-    tools: ['web', 'spawnAgent'],
+    tools: ['web', 'agent'],
   }, 3);
 
   assert.equal(result.allowed, true);
@@ -4123,7 +4058,7 @@ test('evaluateSpawnPolicy packet check requires structural labels, not incidenta
   );
 });
 
-test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/send', async () => {
+test('agent spawn starts a lean RPC Pi process and agent lifecycle can list/status/send', async () => {
   const spawned: Array<{
     command: string;
     args: string[];
@@ -4137,11 +4072,11 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
   });
   try {
     const { tools, commands } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
     const agentsCommand = commands.get('octocode-agents')!;
-    assert.ok(spawnTool, 'spawnAgent registered');
-    assert.ok(messageTool, 'AgentMessage registered');
+    assert.ok(spawnTool, 'agent spawn registered');
+    assert.ok(messageTool, 'agent lifecycle registered');
     assert.ok(agentsCommand, 'octocode-agents command registered');
     assert.match(agentsCommand.description, /inspect <id>/);
     const inspectCompletion = agentsCommand.getArgumentCompletions?.('i')?.find(item => item.value === 'inspect ');
@@ -4154,52 +4089,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
       agentsCommand.getArgumentCompletions?.('h')?.some(item => item.value === 'help'),
       'octocode-agents completions include help'
     );
-    assert.match(
-      spawnTool.promptGuidelines?.join('\n') ?? '',
-      /delegation materially helps/
-    );
-    assert.match(
-      spawnTool.promptGuidelines?.join('\n') ?? '',
-      /current Pi process/
-    );
-    assert.match(
-      spawnTool.promptGuidelines?.join('\n') ?? '',
-      /Before spawning, map dependencies and current Awareness ownership/
-    );
-    assert.match(
-      spawnTool.promptGuidelines?.join('\n') ?? '',
-      /delegate only one independent, bounded subtask per worker/
-    );
-    assert.match(
-      spawnTool.promptGuidelines?.join('\n') ?? '',
-      /visible in \/octocode-agents plus the custom footer ledger/
-    );
-    assert.match(
-      spawnTool.promptGuidelines?.join('\n') ?? '',
-      /pi -ne --list-models/
-    );
-    // Detailed model-routing (incl. "hardcoded config paths") now lives once in the
-    // always-on <agents> section (prompt-contract model-routing test); the guideline points there.
-    assert.match(
-      String(
-        (
-          spawnTool.parameters.properties as Record<
-            string,
-            { description?: string }
-          >
-        ).model?.description ?? ''
-      ),
-      /pi -ne --list-models/
-    );
-    assert.match(
-      messageTool.promptGuidelines?.join('\n') ?? '',
-      /synthesize findings instead of dumping raw worker JSON/
-    );
-    assert.match(messageTool.promptGuidelines?.join('\n') ?? '', /in-memory/);
-    assert.match(
-      messageTool.promptGuidelines?.join('\n') ?? '',
-      /check \/octocode-agents or the custom footer ledger/
-    );
+    const itemSchema = (spawnTool.parameters as { properties: { queries: { items: { properties: Record<string, { description: string; enum?: string[] }> } } } }).properties.queries.items.properties;
+    assert.match(itemSchema.model!.description, /pi -ne --list-models/);
+    assert.match(itemSchema.planStep!.description, /Stable task ID/);
     assert.equal(
       tools.has('handoff_context'),
       false,
@@ -4208,22 +4100,19 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
 
     const result = await invokeExecute(
       spawnTool,
-      {
-        task: 'check the docs',
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'check the docs',
         context: 'Relevant file: docs/a.md',
         name: 'docs-scout',
         model: 'sonnet:high',
         provider: 'guy-provider-anthropic',
         thinking: 'medium',
-        tools: ['localSearch', 'web', 'read', 'grep'],
-      },
+        tools: ['localSearch', 'web', 'read', 'grep'], }] },
       { cwd: '/repo' }
     );
     const collapsedSpawn = spawnTool.renderResult!(result, {
       expanded: false,
     }).render(120)[0]!;
-    assert.match(collapsedSpawn, /spawnAgent · docs-scout · spawned/);
-    assert.match(collapsedSpawn, /use AgentMessage wait\/status/);
+    assert.match(collapsedSpawn, /agent.*SPAWNED.*profile:custom/);
     assert.doesNotMatch(collapsedSpawn, /expand for output/);
     assert.doesNotMatch(collapsedSpawn, /running/);
 
@@ -4235,7 +4124,7 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.equal(
       spawned[0]!.args.includes('--skill'),
       false,
-      'clean spawnAgent has no skills unless provided'
+      'clean agent spawn has no skills unless provided'
     );
     assert.ok(spawned[0]!.args.includes('--provider'));
     assert.ok(spawned[0]!.args.includes('guy-provider-anthropic'));
@@ -4244,19 +4133,18 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     assert.ok(spawned[0]!.args.includes('--thinking'));
     assert.ok(spawned[0]!.args.includes('medium'));
     assert.ok(spawned[0]!.args.includes('--exclude-tools'));
-    assert.ok(spawned[0]!.args.includes('spawnAgent,AgentMessage,spawnSubagent'));
+    assert.ok(spawned[0]!.args.includes('agent'));
     assert.ok(spawned[0]!.args.includes('--tools'));
     assert.ok(spawned[0]!.args.includes('localSearch,web,read,grep'));
     assert.equal(spawned[0]!.options.cwd, '/repo');
     assert.match(
       spawned[0]!.proc.stdinWrites[0]!,
-      /Context for this delegated agent/
+      /## Context/
     );
     assert.match(spawned[0]!.proc.stdinWrites[0]!, /check the docs/);
 
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
-    const list = await invokeExecute(messageTool, { action: 'list' });
+    const agentId = (result.details as { agentId: string }).agentId;
+    const list = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect' }] });
     // list content shows shortId (first 8 chars) for readability; full agentId is in details
     assert.match((list.content[0] as { text: string }).text, new RegExp(agentId.slice(0, 8)));
     spawned[0]!.proc.emitStdout({
@@ -4273,11 +4161,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     const waitStatuses: Array<[string, string | undefined]> = [];
     const waitResult = await invokeExecute(
       messageTool,
-      {
-        action: 'wait',
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'wait',
         agentId,
-        timeoutMs: 1000,
-      },
+        timeoutMs: 1000, }] },
       {
         hasUI: true,
         ui: {
@@ -4337,8 +4223,8 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
     });
     await agentsCommand.handler('help', agentCommandCtx());
     assert.match(notifications.at(-1)?.message ?? '', /inspect <id-or-prefix>/);
-    assert.match(notifications.at(-1)?.message ?? '', /spawnSubagent\(\{agent:"researcher"\|"planner"\|"architect"/);
-    assert.match(notifications.at(-1)?.message ?? '', /AgentMessage\(\{action:"wait"\|"status"\|"send"\|"kill"/);
+    assert.match(notifications.at(-1)?.message ?? '', /agent\(\{queries:/);
+    assert.match(notifications.at(-1)?.message ?? '', /type:"inspect"\|"wait"/);
     assert.match(notifications.at(-1)?.message ?? '', /unified footer/);
     assert.match(notifications.at(-1)?.message ?? '', /ids can be full ids or short prefixes/);
 
@@ -4356,11 +4242,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
 
     await agentsCommand.handler('prune', agentCommandCtx());
     assert.match(notifications.at(-1)?.message ?? '', /Pruned 0 Octocode agent/);
-    await invokeExecute(messageTool, {
-      action: 'send',
+    await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message',
       agentId,
-      message: 'also inspect tests',
-    });
+      message: 'also inspect tests', }] });
     const idleSend = JSON.parse(spawned[0]!.proc.stdinWrites.at(-1)!);
     assert.equal(idleSend.type, 'prompt');
     assert.equal(idleSend.message, 'also inspect tests');
@@ -4370,11 +4254,9 @@ test('spawnAgent starts a lean RPC Pi process and AgentMessage can list/status/s
       'idle send must not force followUp'
     );
 
-    await invokeExecute(messageTool, {
-      action: 'send',
+    await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message',
       agentId,
-      message: 'queue after current turn',
-    });
+      message: 'queue after current turn', }] });
     const runningSend = JSON.parse(spawned[0]!.proc.stdinWrites.at(-1)!);
     assert.equal(
       runningSend.streamingBehavior,
@@ -4395,8 +4277,8 @@ test('agent ledger splits ambient counts from bounded worker detail', async () =
   });
   try {
     const { tools, handlers } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
     const statusCalls: Array<[string, string | undefined]> = [];
     const widgetCalls: Array<{ key: string; value: unknown; opts?: { placement?: string } }> = [];
     const footerCalls: unknown[] = [];
@@ -4419,11 +4301,10 @@ test('agent ledger splits ambient counts from bounded worker detail', async () =
 
     const result = await invokeExecute(
       spawnTool,
-      { task: 'review docs', name: 'ui-worker' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'review docs', name: 'ui-worker' }] },
       ctx
     );
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const agentId = (result.details as { agentId: string }).agentId;
     const footerText = () => {
       const factory = footerCalls.at(-1);
       assert.equal(typeof factory, 'function', 'branded footer factory refreshed');
@@ -4463,7 +4344,7 @@ test('agent ledger splits ambient counts from bounded worker detail', async () =
 
     await invokeExecute(
       messageTool,
-      { action: 'send', agentId, message: 'answer: proceed' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message', agentId, message: 'answer: proceed' }] },
       ctx
     );
     // Before the worker starts the turn, the footer shows truthful queue state
@@ -4502,36 +4383,13 @@ test('agent ledger splits ambient counts from bounded worker detail', async () =
       'completed records remain footer-owned without a duplicate panel'
     );
 
-    const stateSummary = messageTool.renderResult!(
-      {
-        content: [{ type: 'text', text: 'Spawned agents (6):' }],
-        details: {
-          agents: [
-            { name: 'starting', agentId: 'a', status: 'starting' },
-            { name: 'running', agentId: 'b', status: 'running' },
-            { name: 'idle', agentId: 'c', status: 'idle' },
-            { name: 'exited', agentId: 'd', status: 'exited' },
-            { name: 'failed', agentId: 'e', status: 'failed' },
-            { name: 'killed', agentId: 'f', status: 'killed' },
-          ],
-        },
-      },
-      { expanded: false },
-      { fg: (_color: string, text: string) => text, bold: (text: string) => text }
-    ).render(240)[0]!;
-    assert.match(stateSummary, /1 starting/);
-    assert.match(stateSummary, /1 running/);
-    assert.match(stateSummary, /1 idle/);
-    assert.match(stateSummary, /1 done/);
-    assert.match(stateSummary, /1 failed/);
-    assert.match(stateSummary, /1 killed/);
   } finally {
     cleanupSpawnedAgentsForShutdown();
     setAgentProcessFactoryForTests(null);
   }
 });
 
-test('spawnAgent gives each worker a distinct Awareness identity', async () => {
+test('agent spawn gives each worker a distinct Awareness identity', async () => {
   const spawned: Array<{
     options: { env?: NodeJS.ProcessEnv };
     proc: MockAgentProcess;
@@ -4544,10 +4402,10 @@ test('spawnAgent gives each worker a distinct Awareness identity', async () => {
   try {
     await withAgentId('parent-agent', async () => {
       const { tools } = await captureExtensions();
-      const spawnTool = tools.get('spawnAgent')!;
+      const spawnTool = tools.get('agent')!;
 
-      await invokeExecute(spawnTool, { task: 'first bounded task' });
-      await invokeExecute(spawnTool, { task: 'second bounded task' });
+      await invokeExecute(spawnTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'first bounded task' }] });
+      await invokeExecute(spawnTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'second bounded task' }] });
 
       const workerIds = spawned.map(
         item => item.options.env?.['OCTOCODE_AGENT_ID']
@@ -4572,7 +4430,7 @@ test('spawnAgent gives each worker a distinct Awareness identity', async () => {
   }
 });
 
-test('spawnAgent covers octocode resource options, prompt file cleanup, list renderers, and dead-worker messaging', async () => {
+test('agent spawn covers octocode resource options, prompt file cleanup, list renderers, and dead-worker messaging', async () => {
   const spawned: Array<{
     command: string;
     args: string[];
@@ -4586,8 +4444,8 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
     const theme = {
       bold: (text: string) => `<b>${text}</b>`,
       fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -4595,18 +4453,16 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
 
     const result = await invokeExecute(
       spawnTool,
-      {
-        prompt: 'run with every option',
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'run with every option',
         name: 'strange worker name!*',
         provider: 'openai',
         model: 'gpt-test',
         thinking: 'low',
-        tools: ['spawnAgent', 'AgentMessage', 'web'],
+        tools: ['agent', 'web'],
         systemPrompt: 'extra worker rules',
         resourceMode: 'octocode',
         noSession: false,
-        skills: ['/repo/.agents/skills/octocode-research'],
-      },
+ }] },
       { cwd: '/repo' }
     );
 
@@ -4621,8 +4477,7 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
     assert.ok(args.includes('gpt-test'));
     assert.ok(args.includes('--thinking'));
     assert.ok(args.includes('low'));
-    assert.ok(args.includes('--skill'));
-    assert.ok(args.includes('/repo/.agents/skills/octocode-research'));
+    assert.equal(args.includes('--skill'), false, 'custom profile does not load specialist skills');
     assert.ok(args.includes('--tools'));
     assert.ok(
       args.includes('web'),
@@ -4642,59 +4497,13 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
     );
     assert.match(path.basename(promptPath), /^strange_worker_name/);
 
-    const spawnExpanded = spawnTool.renderResult!(
-      result,
-      { expanded: true },
-      theme
-    ).render(160);
-    assert.ok(
-      spawnExpanded.some(line =>
-        line.includes('<toolTitle>spawnAgent</toolTitle>')
-      )
-    );
-
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
-    const list = await invokeExecute(messageTool, { action: 'list' });
-    assert.match(
-      messageTool.renderCall!({ action: 'list' }, theme).render(120)[0]!,
-      /<accent>list<\/accent>.*all/
-    );
-    assert.match(
-      messageTool.renderCall!(
-        { action: 'steer', agentId, message: 'x'.repeat(80) },
-        theme
-      ).render(120)[0]!,
-      /strange worker name/
-    );
-    assert.match(
-      messageTool.renderResult!(list, { expanded: false }, theme).render(
-        120
-      )[0]!,
-      /1 total · 1 running/
-    );
-    assert.ok(
-      messageTool.renderResult!(list, { expanded: true }, theme).render(160)
-        .length > 1
-    );
-    assert.equal(
-      messageTool.renderResult!(list, { isPartial: true }, theme).render(
-        120
-      )[0],
-      '<accent>⧗ Agent working…</accent>'
-    );
-
-    const noOutputStatus = await invokeExecute(messageTool, {
-      action: 'status',
-      agentId,
-    });
-    const noOutputCollapsed = messageTool.renderResult!(
-      noOutputStatus,
-      { expanded: false },
-      theme
-    ).render(240)[0]!;
-    assert.match(noOutputCollapsed, /no output yet/);
-    assert.doesNotMatch(noOutputCollapsed, /expand for output/);
+    assert.match(spawnTool.renderResult!(result, { expanded: true }, theme).render(160)[0]!, /agent.*SPAWNED/);
+    const agentId = (result.details as { agentId: string }).agentId;
+    const list = await invokeExecute(messageTool, { queries: [{ reasoning: 'Inspect workers.', type: 'inspect' }] });
+    assert.match((list.content[0] as { text: string }).text, /strange worker name/);
+    assert.match(messageTool.renderCall!({ queries: [{ type: 'inspect' }] }, theme).render(120)[0]!, /agent\(inspect\)/);
+    const noOutputStatus = await invokeExecute(messageTool, { queries: [{ reasoning: 'Inspect output.', type: 'inspect', agentId }] });
+    assert.equal((noOutputStatus.details as { agent: { output?: string } }).agent.output ?? '', '');
 
     spawned[0]!.proc.emitStdout({
       type: 'message_end',
@@ -4703,17 +4512,9 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
         content: [{ type: 'text', text: 'worker says hello\nsecond line' }],
       },
     });
-    const outputStatus = await invokeExecute(messageTool, {
-      action: 'status',
-      agentId,
-    });
-    const outputCollapsed = messageTool.renderResult!(
-      outputStatus,
-      { expanded: false },
-      theme
-    ).render(240)[0]!;
-    assert.match(outputCollapsed, /worker says hello/);
-    assert.doesNotMatch(outputCollapsed, /expand for output/);
+    const outputStatus = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect',
+      agentId, }] });
+    assert.match((outputStatus.content[0] as { text: string }).text, /worker says hello/);
 
     spawned[0]!.proc.close(0);
     assert.equal(
@@ -4723,11 +4524,9 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
     );
     await assert.rejects(
       () =>
-        invokeExecute(messageTool, {
-          action: 'followUp',
+        invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message', delivery: 'followUp',
           agentId,
-          message: 'too late',
-        }),
+          message: 'too late', }] }),
       /cannot reach agent/
     );
 
@@ -4740,13 +4539,13 @@ test('spawnAgent covers octocode resource options, prompt file cleanup, list ren
       { expanded: true },
       theme
     ).render(120);
-    assert.match(failedRendered[0]!, /failed-one/);
+    assert.match(failedRendered[0]!, /agent.*bad/);
   } finally {
     setAgentProcessFactoryForTests(null);
   }
 });
 
-test('spawnSubagent starts researcher, planner, and architect with all Octocode skills', async () => {
+test('agentSpecialist starts researcher, planner, and architect with all Octocode skills', async () => {
   const spawned: Array<{
     args: string[];
     options: { cwd?: string };
@@ -4759,53 +4558,18 @@ test('spawnSubagent starts researcher, planner, and architect with all Octocode 
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnSubagent = tools.get('spawnSubagent')!;
-    const schema = spawnSubagent.parameters as {
-      properties?: { agent?: { enum?: string[] } };
-    };
-    assert.deepEqual(schema.properties?.agent?.enum, [
-      'researcher',
-      'planner',
-      'architect',
-    ]);
-    assert.match(
-      spawnSubagent.promptGuidelines!.join('\n'),
-      /pi -ne --list-models/
-    );
-    // Detailed model-routing (incl. "hardcoded config paths") is deduped into the canonical <agents> section.
-    assert.match(
-      spawnSubagent.promptGuidelines!.join('\n'),
-      /Before spawning, break the request into explicit subtasks/
-    );
-    assert.match(
-      spawnSubagent.promptGuidelines!.join('\n'),
-      /delegate only one independent, bounded subtask per typed specialist/
-    );
-    assert.match(
-      spawnSubagent.promptGuidelines!.join('\n'),
-      /check the unified footer or \/octocode-agents/
-    );
-    assert.match(
-      String(
-        (
-          spawnSubagent.parameters.properties as Record<
-            string,
-            { description?: string }
-          >
-        ).model?.description ?? ''
-      ),
-      /pi -ne --list-models/
-    );
+    const agentSpecialist = tools.get('agent')!;
+    const itemSchema = (agentSpecialist.parameters as { properties: { queries: { items: { properties: Record<string, { description: string; enum?: string[] }> } } } }).properties.queries.items.properties;
+    assert.deepEqual(itemSchema.profile!.enum, ['researcher', 'planner', 'architect', 'browser', 'custom']);
+    assert.match(itemSchema.model!.description, /pi -ne --list-models/);
 
     for (const agent of ['researcher', 'planner', 'architect']) {
       const result = await invokeExecute(
-        spawnSubagent,
-        {
-          agent,
+        agentSpecialist,
+        { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', profile: agent,
           task: `phase one for ${agent}`,
           ...(agent === 'planner' ? { model: 'sonnet:high' } : {}),
-          cwd: '/repo',
-        },
+          cwd: '/repo', }] },
         { cwd: '/fallback' }
       );
       assert.match(
@@ -4885,28 +4649,27 @@ test('spawnSubagent starts researcher, planner, and architect with all Octocode 
   }
 });
 
-test('spawnSubagent surfaces packet policy warnings immediately, not just on a later AgentMessage(wait)', async () => {
+test('agentSpecialist surfaces packet policy warnings immediately, not just on a later agent lifecycle(wait)', async () => {
   setAgentProcessFactoryForTests((_command, _args, _options) => createMockAgentProcess());
   try {
     const { tools } = await captureExtensions();
-    const spawnSubagent = tools.get('spawnSubagent')!;
+    const agentSpecialist = tools.get('agent')!;
 
     const bare = await invokeExecute(
-      spawnSubagent,
-      { agent: 'researcher', task: 'look into the stale-read check', cwd: '/repo' },
+      agentSpecialist,
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', profile: 'researcher', task: 'look into the stale-read check', cwd: '/repo' }] },
       { cwd: '/fallback' },
     );
     assert.match(
       (bare.content[0] as { text: string }).text,
       /\[POLICY\]/,
-      'an under-specified packet must surface a [POLICY] warning in the immediate spawn response, not only on a later AgentMessage(wait)',
+      'an under-specified packet must surface a [POLICY] warning in the immediate spawn response, not only on a later agent lifecycle(wait)',
     );
     assert.match((bare.content[0] as { text: string }).text, /missing recommended section/i);
 
     const structured = await invokeExecute(
-      spawnSubagent,
-      {
-        agent: 'researcher',
+      agentSpecialist,
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', profile: 'researcher',
         task: [
           'Goal: explain the stale-read check',
           'Context: packages/octocode-pi-extension/src/tools/file-state.ts',
@@ -4915,8 +4678,7 @@ test('spawnSubagent surfaces packet policy warnings immediately, not just on a l
           'Acceptance: cites file:line',
           'Return: [FINDING]/[EVIDENCE] prefixes',
         ].join('\n'),
-        cwd: '/repo',
-      },
+        cwd: '/repo', }] },
       { cwd: '/fallback' },
     );
     assert.doesNotMatch(
@@ -4929,7 +4691,7 @@ test('spawnSubagent surfaces packet policy warnings immediately, not just on a l
   }
 });
 
-test('spawnSubagent covers context injection, unknown agent, and render fallback', async () => {
+test('agentSpecialist covers context injection, unknown agent, and render fallback', async () => {
   const spawned: Array<{ args: string[]; proc: MockAgentProcess }> = [];
   setAgentProcessFactoryForTests((_command, args, _options) => {
     const proc = createMockAgentProcess();
@@ -4938,15 +4700,13 @@ test('spawnSubagent covers context injection, unknown agent, and render fallback
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnSubagent = tools.get('spawnSubagent')!;
+    const agentSpecialist = tools.get('agent')!;
 
     const result = await invokeExecute(
-      spawnSubagent,
-      {
-        agent: 'researcher',
+      agentSpecialist,
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', profile: 'researcher',
         task: 'inspect current findings',
-        context: 'Prior finding: auth cookie missing Secure',
-      },
+        context: 'Prior finding: auth cookie missing Secure', }] },
       { cwd: '/repo' }
     );
     const initialPrompt = JSON.parse(spawned[0]!.proc.stdinWrites[0]!) as {
@@ -4955,20 +4715,17 @@ test('spawnSubagent covers context injection, unknown agent, and render fallback
     assert.match(initialPrompt.message, /## Context\nPrior finding/);
     assert.match(
       (result.content[0] as { text: string }).text,
-      /\[SPAWNED\] .*Researcher · agentId:/
+      /\[SPAWNED\] name: Researcher/
     );
 
     await assert.rejects(
       () =>
-        invokeExecute(spawnSubagent, { agent: 'missing-agent', task: 'nope' }),
-      /Unknown subagent/
+        invokeExecute(agentSpecialist, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', profile: 'missing-agent', task: 'nope' }] }),
+      /profile must be one of/
     );
     assert.match(
-      spawnSubagent.renderCall!({
-        agent: 'missing-agent',
-        task: 'x'.repeat(80),
-      }).render(120)[0]!,
-      /spawnSubagent\(missing-agent\).*…/
+      agentSpecialist.renderCall!({ queries: [{ type: 'spawn', profile: 'missing-agent', task: 'x'.repeat(80) }] }).render(120)[0]!,
+      /agent\(spawn profile:missing-agent\)/
     );
   } finally {
     setAgentProcessFactoryForTests(null);
@@ -5027,7 +4784,7 @@ test('no agent-spawning facade registers recursively inside spawned workers', as
   }
 });
 
-test('AgentMessage wait collects worker output and kill terminates stale workers', async () => {
+test('agent lifecycle wait collects worker output and kill terminates stale workers', async () => {
   const spawned: MockAgentProcess[] = [];
   setAgentProcessFactoryForTests((_command, _args, _options) => {
     const proc = createMockAgentProcess();
@@ -5036,25 +4793,22 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const first = await invokeExecute(
       spawnTool,
-      { task: 'produce output', resourceMode: 'default' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'produce output', resourceMode: 'default' }] },
       { cwd: '/repo' }
     );
-    const firstId = (first.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const firstId = (first.details as { agentId: string }).agentId;
     spawned[0]!.emitStdout({
       type: 'tool_call',
       toolCallId: 'tool-1',
       toolName: 'localSearch',
     });
-    const runningStatus = await invokeExecute(messageTool, {
-      action: 'status',
-      agentId: firstId,
-    });
+    const runningStatus = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect',
+      agentId: firstId, }] });
     assert.match(
       (runningStatus.content[0] as { text: string }).text,
       /tools: localSearch:running/
@@ -5078,11 +4832,9 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
       },
     });
     spawned[0]!.emitStdout({ type: 'agent_end', messages: [] });
-    const waited = await invokeExecute(messageTool, {
-      action: 'wait',
+    const waited = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'wait',
       agentId: firstId,
-      timeoutMs: 1000,
-    });
+      timeoutMs: 1000, }] });
     assert.equal(
       (waited.details as { agent: { status: string } }).agent.status,
       'idle'
@@ -5092,20 +4844,17 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
     assert.match((waited.content[0] as { text: string }).text, /tools: localSearch:done/);
     assert.match((waited.content[0] as { text: string }).text, /worker result/);
     assert.ok(spawned[0]!.stdinWrites[0]!.includes('produce output'));
-    assert.equal(spawned[0]!.stdinWrites[0]!.includes('spawnAgent'), false);
+    assert.equal(spawned[0]!.stdinWrites[0]!.includes('agent spawn'), false);
 
     const second = await invokeExecute(
       spawnTool,
-      { task: 'hang around' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'hang around' }] },
       { cwd: '/repo' }
     );
-    const secondId = (second.details as { agent: { agentId: string } }).agent
-      .agentId;
-    const killed = await invokeExecute(messageTool, {
-      action: 'kill',
+    const secondId = (second.details as { agentId: string }).agentId;
+    const killed = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'kill',
       agentId: secondId,
-      remove: true,
-    });
+      remove: true, }] });
     assert.match((killed.content[0] as { text: string }).text, /killed/);
     assert.equal(spawned[1]!.killed, true);
   } finally {
@@ -5113,7 +4862,7 @@ test('AgentMessage wait collects worker output and kill terminates stale workers
   }
 });
 
-test('AgentMessage full:true returns the complete tool-call/ledger/evidence history instead of the truncated preview', async () => {
+test('agent lifecycle full:true returns the complete tool-call/ledger/evidence history instead of the truncated preview', async () => {
   const spawned: MockAgentProcess[] = [];
   setAgentProcessFactoryForTests((_command, _args, _options) => {
     const proc = createMockAgentProcess();
@@ -5122,18 +4871,16 @@ test('AgentMessage full:true returns the complete tool-call/ledger/evidence hist
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const spawnResult = await invokeExecute(
       spawnTool,
-      {
-        task: 'Goal: run many searches\nContext: none\nScope: read-only\nOwnership: manager-as-tool\nAcceptance: complete list\nReturn: list',
-        resourceMode: 'default',
-      },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'Goal: run many searches\nContext: none\nScope: read-only\nOwnership: manager-as-tool\nAcceptance: complete list\nReturn: list',
+        resourceMode: 'default', }] },
       { cwd: '/repo' },
     );
-    const agentId = (spawnResult.details as { agent: { agentId: string } }).agent.agentId;
+    const agentId = (spawnResult.details as { agentId: string }).agentId;
 
     // 12 tool calls — past both the text preview cap (3) and the details cap (10).
     for (let i = 1; i <= 12; i++) {
@@ -5156,7 +4903,7 @@ test('AgentMessage full:true returns the complete tool-call/ledger/evidence hist
     // always echoed at the bottom of the result regardless of capping — so the
     // capping assertions below target the harness-generated summary lines
     // ("tools:"/"evidence:") specifically, not text presence anywhere in the blob.
-    const preview = await invokeExecute(messageTool, { action: 'status', agentId });
+    const preview = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId }] });
     const previewText = (preview.content[0] as { text: string }).text;
     const previewLines = previewText.split('\n');
     assert.equal((previewLines.find((l) => l.startsWith('tools:')) ?? '').match(/search\d{1,2}:done/g)?.length, 3, 'default preview "tools:" summary shows only the last 3 tool calls');
@@ -5164,7 +4911,7 @@ test('AgentMessage full:true returns the complete tool-call/ledger/evidence hist
     const previewDetails = (preview.details as { agent: { toolCalls: unknown[] } }).agent;
     assert.equal(previewDetails.toolCalls.length, 10, 'default details cap tool calls at the last 10');
 
-    const full = await invokeExecute(messageTool, { action: 'status', agentId, full: true });
+    const full = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId, full: true }] });
     const fullText = (full.content[0] as { text: string }).text;
     const fullLines = fullText.split('\n');
     assert.equal((fullLines.find((l) => l.startsWith('tools:')) ?? '').match(/search\d{1,2}:done/g)?.length, 12, 'full:true "tools:" summary returns every retained tool call');
@@ -5176,7 +4923,7 @@ test('AgentMessage full:true returns the complete tool-call/ledger/evidence hist
   }
 });
 
-test('AgentMessage kill escalates to SIGKILL when a worker does not exit after SIGTERM', async () => {
+test('agent lifecycle kill escalates to SIGKILL when a worker does not exit after SIGTERM', async () => {
   vi.useFakeTimers();
   const spawned: MockAgentProcess[] = [];
   setAgentProcessFactoryForTests((_command, _args, _options) => {
@@ -5186,18 +4933,17 @@ test('AgentMessage kill escalates to SIGKILL when a worker does not exit after S
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const result = await invokeExecute(
       spawnTool,
-      { task: 'ignore sigterm', name: 'stubborn-worker' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'ignore sigterm', name: 'stubborn-worker' }] },
       { cwd: '/repo' }
     );
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const agentId = (result.details as { agentId: string }).agentId;
 
-    await invokeExecute(messageTool, { action: 'kill', agentId });
+    await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'kill', agentId }] });
     assert.deepEqual(spawned[0]!.killSignals, ['SIGTERM']);
 
     await vi.advanceTimersByTimeAsync(5000);
@@ -5209,7 +4955,7 @@ test('AgentMessage kill escalates to SIGKILL when a worker does not exit after S
   }
 });
 
-test('AgentMessage abort sends Pi RPC abort command without killing the process', async () => {
+test('agent lifecycle abort sends Pi RPC abort command without killing the process', async () => {
   const spawned: MockAgentProcess[] = [];
   setAgentProcessFactoryForTests((_command, _args, _options) => {
     const proc = createMockAgentProcess();
@@ -5218,31 +4964,26 @@ test('AgentMessage abort sends Pi RPC abort command without killing the process'
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     // Schema should include 'abort' in the action enum
-    const actionSchema = (
-      messageTool.parameters as { properties: { action: { enum?: string[] } } }
-    ).properties?.action;
+    const actionSchema = (messageTool.parameters as { properties: { queries: { items: { properties: { type: { enum?: string[] } } } } } }).properties.queries.items.properties.type;
     assert.ok(
       Array.isArray(actionSchema?.enum) && actionSchema.enum.includes('abort'),
-      'abort must be in AgentMessage action schema'
+      'abort must be in agent lifecycle action schema'
     );
 
     const result = await invokeExecute(
       spawnTool,
-      { task: 'analyze something', name: 'target' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'analyze something', name: 'target' }] },
       { cwd: '/repo' }
     );
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const agentId = (result.details as { agentId: string }).agentId;
 
     // Send abort — process must NOT be killed
-    const aborted = await invokeExecute(messageTool, {
-      action: 'abort',
-      agentId,
-    });
+    const aborted = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'abort',
+      agentId, }] });
     assert.match((aborted.content[0] as { text: string }).text, /aborted/i);
     assert.equal(
       spawned[0]!.killed,
@@ -5261,7 +5002,7 @@ test('AgentMessage abort sends Pi RPC abort command without killing the process'
     // Aborting an already-exited agent is a no-op (no extra RPC sent)
     spawned[0]!.close(0);
     const writesBefore = spawned[0]!.stdinWrites.length;
-    await invokeExecute(messageTool, { action: 'abort', agentId });
+    await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'abort', agentId }] });
     assert.equal(
       spawned[0]!.stdinWrites.length,
       writesBefore,
@@ -5281,32 +5022,31 @@ test('evictStaleAgents removes oldest terminal agents when registry reaches MAX_
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     // Fill the historical registry without exceeding the four active-worker ceiling.
     const ids: string[] = [];
     for (let i = 0; i < 50; i++) {
       const r = await invokeExecute(
         spawnTool,
-        { task: `task ${i}`, name: `agent-${i}` },
+        { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: `task ${i}`, name: `agent-${i}` }] },
         { cwd: '/repo' }
       );
-      ids.push((r.details as { agent: { agentId: string } }).agent.agentId);
+      ids.push((r.details as { agentId: string }).agentId);
       spawned[i]!.close(0);
     }
 
     // Spawn one more — should evict the oldest terminal agent (agent-0)
     const overflow = await invokeExecute(
       spawnTool,
-      { task: 'overflow', name: 'overflow-agent' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'overflow', name: 'overflow-agent' }] },
       { cwd: '/repo' }
     );
-    const overflowId = (overflow.details as { agent: { agentId: string } })
-      .agent.agentId;
+    const overflowId = (overflow.details as { agentId: string }).agentId;
 
     // List should not include the evicted agent
-    const list = await invokeExecute(messageTool, { action: 'list' });
+    const list = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect' }] });
     // overflow-agent must appear in list
     assert.match((list.content[0] as { text: string }).text, /overflow-agent/);
     // Total agent count in the registry must be ≤ MAX_AGENT_RECORDS (50)
@@ -5317,7 +5057,7 @@ test('evictStaleAgents removes oldest terminal agents when registry reaches MAX_
     );
     // ids[0] (oldest terminal) must be gone
     await assert.rejects(
-      () => invokeExecute(messageTool, { action: 'status', agentId: ids[0] }),
+      () => invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId: ids[0] }] }),
       /No agent found/,
       'Oldest evicted agent must not be in the registry'
     );
@@ -5336,24 +5076,21 @@ test('waitForAgent silence gap returns a live snapshot (no rigid timeout error) 
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const result = await invokeExecute(
       spawnTool,
-      { task: 'run forever', name: 'my-named-agent' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'run forever', name: 'my-named-agent' }] },
     );
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const agentId = (result.details as { agentId: string }).agentId;
 
     // A tiny silence budget: the worker never streamed anything, so the watchdog
     // trips almost immediately. It must NOT reject — it probes liveness (the mock
     // answers get_state) and returns a truthful "still working" snapshot instead.
-    const waited = await invokeExecute(messageTool, {
-      action: 'wait',
+    const waited = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'wait',
       agentId,
-      timeoutMs: 1,
-    });
+      timeoutMs: 1, }] });
     const text = (waited.content[0] as { text: string }).text;
     // The still-working header must name the agent, never leak the internal UUID.
     assert.match(text, /still working/i, `Expected an alive snapshot, got: ${text}`);
@@ -5378,15 +5115,15 @@ test('getAgent throws actionable error for missing or unknown agentId', async ()
   );
   try {
     const { tools } = await captureExtensions();
-    const messageTool = tools.get('AgentMessage')!;
+    const messageTool = tools.get('agent')!;
 
-    // Missing agentId → clear message directing to action:"list"
+    // Lifecycle operations requiring a target reject a missing agentId.
     await assert.rejects(
-      () => invokeExecute(messageTool, { action: 'status' }),
+      () => invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'wait' }] }),
       (err: Error) => {
         assert.ok(
-          err.message.includes('action:"list"'),
-          `Must mention action:"list", got: ${err.message}`
+          err.message.includes('wait requires agentId'),
+          `Must identify the missing wait target, got: ${err.message}`
         );
         return true;
       }
@@ -5395,18 +5132,16 @@ test('getAgent throws actionable error for missing or unknown agentId', async ()
     // Unknown agentId → mentions how many active agents exist
     await assert.rejects(
       () =>
-        invokeExecute(messageTool, {
-          action: 'status',
-          agentId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        }),
+        invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect',
+          agentId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', }] }),
       (err: Error) => {
         assert.ok(
           err.message.includes('No agent found'),
           `Must say "No agent found", got: ${err.message}`
         );
         assert.ok(
-          err.message.includes('action:"list"'),
-          `Must mention action:"list", got: ${err.message}`
+          err.message.includes('type:"inspect"'),
+          `Must mention type:"inspect", got: ${err.message}`
         );
         return true;
       }
@@ -5416,7 +5151,7 @@ test('getAgent throws actionable error for missing or unknown agentId', async ()
   }
 });
 
-test('AgentMessage wait with remove:true cleans up agent from registry after completion', async () => {
+test('agent lifecycle wait with remove:true cleans up agent from registry after completion', async () => {
   const spawned: MockAgentProcess[] = [];
   setAgentProcessFactoryForTests((_command, _args, _options) => {
     const proc = createMockAgentProcess();
@@ -5425,16 +5160,15 @@ test('AgentMessage wait with remove:true cleans up agent from registry after com
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const result = await invokeExecute(
       spawnTool,
-      { task: 'do work', name: 'temp-worker' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'do work', name: 'temp-worker' }] },
       { cwd: '/repo' }
     );
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const agentId = (result.details as { agentId: string }).agentId;
 
     // Complete the agent
     spawned[0]!.emitStdout({
@@ -5444,17 +5178,15 @@ test('AgentMessage wait with remove:true cleans up agent from registry after com
     spawned[0]!.emitStdout({ type: 'agent_end', messages: [] });
 
     // Wait with remove:true
-    const waited = await invokeExecute(messageTool, {
-      action: 'wait',
+    const waited = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'wait',
       agentId,
       timeoutMs: 1000,
-      remove: true,
-    });
+      remove: true, }] });
     assert.match((waited.content[0] as { text: string }).text, /completed/i);
 
     // Agent must be gone from registry
     await assert.rejects(
-      () => invokeExecute(messageTool, { action: 'status', agentId }),
+      () => invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect', agentId }] }),
       /No agent found/,
       'Agent must be removed from registry after wait+remove'
     );
@@ -5472,16 +5204,15 @@ test('RPC response with success:false surfaces error in agent result', async () 
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const result = await invokeExecute(
       spawnTool,
-      { task: 'do something', name: 'rpc-test' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'do something', name: 'rpc-test' }] },
       { cwd: '/repo' }
     );
-    const agentId = (result.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const agentId = (result.details as { agentId: string }).agentId;
 
     // Simulate Pi sending a failed RPC response (e.g. prompt rejected while streaming)
     spawned[0]!.emitStdout({
@@ -5492,10 +5223,8 @@ test('RPC response with success:false surfaces error in agent result', async () 
     });
 
     // Status must surface the RPC error
-    const status = await invokeExecute(messageTool, {
-      action: 'status',
-      agentId,
-    });
+    const status = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect',
+      agentId, }] });
     assert.match(
       (status.content[0] as { text: string }).text,
       /already streaming|streamingBehavior|RPC command failed/,
@@ -5508,26 +5237,15 @@ test('RPC response with success:false surfaces error in agent result', async () 
   }
 });
 
-test('AgentMessage action schema includes all documented actions', async () => {
+test('agent lifecycle action schema includes all documented actions', async () => {
   const { tools } = await captureExtensions();
-  const messageTool = tools.get('AgentMessage')!;
-  const actionSchema = (
-    messageTool.parameters as { properties: { action: { enum?: string[] } } }
-  ).properties?.action;
-  const expectedActions = [
-    'list',
-    'status',
-    'send',
-    'steer',
-    'followUp',
-    'wait',
-    'kill',
-    'abort',
-  ];
+  const messageTool = tools.get('agent')!;
+  const actionSchema = (messageTool.parameters as { properties: { queries: { items: { properties: { type: { enum?: string[] } } } } } }).properties.queries.items.properties.type;
+  const expectedActions = ['spawn', 'inspect', 'wait', 'message', 'steer', 'abort', 'kill'];
   for (const action of expectedActions) {
     assert.ok(
       actionSchema?.enum?.includes(action),
-      `AgentMessage action schema must include "${action}"`
+      `agent lifecycle action schema must include "${action}"`
     );
   }
 });
@@ -5541,25 +5259,23 @@ test('cleanupSpawnedAgentsForShutdown kills only non-terminal spawned workers', 
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const finished = await invokeExecute(
       spawnTool,
-      { task: 'finish', name: 'finished-worker' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'finish', name: 'finished-worker' }] },
       { cwd: '/repo' }
     );
-    const finishedId = (finished.details as { agent: { agentId: string } })
-      .agent.agentId;
+    const finishedId = (finished.details as { agentId: string }).agentId;
     spawned[0]!.close(0);
 
     const running = await invokeExecute(
       spawnTool,
-      { task: 'keep running', name: 'running-worker' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'keep running', name: 'running-worker' }] },
       { cwd: '/repo' }
     );
-    const runningId = (running.details as { agent: { agentId: string } }).agent
-      .agentId;
+    const runningId = (running.details as { agentId: string }).agentId;
 
     assert.equal(cleanupSpawnedAgentsForShutdown(), 1);
     assert.equal(
@@ -5573,22 +5289,18 @@ test('cleanupSpawnedAgentsForShutdown kills only non-terminal spawned workers', 
       'running worker must be killed during shutdown cleanup'
     );
 
-    const finishedStatus = await invokeExecute(messageTool, {
-      action: 'status',
-      agentId: finishedId,
-    });
+    const finishedStatus = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect',
+      agentId: finishedId, }] });
     assert.match((finishedStatus.content[0] as { text: string }).text, /status: exited/);
-    const runningStatus = await invokeExecute(messageTool, {
-      action: 'status',
-      agentId: runningId,
-    });
+    const runningStatus = await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'inspect',
+      agentId: runningId, }] });
     assert.match((runningStatus.content[0] as { text: string }).text, /status: killed/);
   } finally {
     setAgentProcessFactoryForTests(null);
   }
 });
 
-test('AgentMessage send with broken stdin (EPIPE) sets isError:true on result', async () => {
+test('agent lifecycle send with broken stdin (EPIPE) sets isError:true on result', async () => {
   // When sendRpc throws (e.g. EPIPE because the process already exited but
   // exitCode/signalCode haven't been reaped yet), record.error is set while
   // status stays 'running'. renderSingleAgentResult must flag isError:true so
@@ -5610,20 +5322,20 @@ test('AgentMessage send with broken stdin (EPIPE) sets isError:true on result', 
   });
   try {
     const { tools } = await captureExtensions();
-    const spawnTool = tools.get('spawnAgent')!;
-    const messageTool = tools.get('AgentMessage')!;
+    const spawnTool = tools.get('agent')!;
+    const messageTool = tools.get('agent')!;
 
     const spawnResult = await invokeExecute(
       spawnTool,
-      { task: 'epipe target', name: 'epipe-target' },
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'spawn', task: 'epipe target', name: 'epipe-target' }] },
       { cwd: '/repo' }
     );
-    const agentId = (spawnResult.details as { agent: { agentId: string } }).agent.agentId;
+    const agentId = (spawnResult.details as { agentId: string }).agentId;
 
     // Second write (callCount = 2) triggers the EPIPE throw.
     const sendResult = await invokeExecute(
       messageTool,
-      { action: 'send', agentId, message: 'hello' }
+      { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message', agentId, message: 'hello' }] }
     );
 
     assert.equal(
@@ -5860,7 +5572,7 @@ test(
         setWorkingIndicator: () => undefined,
         notify: () => undefined,
       },
-      isProjectTrusted: async () => false,
+      isProjectTrusted: () => false,
     } as unknown as PiContext;
 
     // Start the session so a real SessionRuntime + renderer binding exist.

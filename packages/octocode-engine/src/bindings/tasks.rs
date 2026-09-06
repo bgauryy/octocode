@@ -1,4 +1,4 @@
-use crate::ripgrep_search;
+use crate::search::ripgrep_search;
 use crate::types::{
     FileSystemQueryOptions, FileSystemQueryResult, GraphFactsScanOptions, GraphFactsScanResult,
     MinifyResult, RipgrepParseResult, RipgrepSearchOptions,
@@ -15,7 +15,7 @@ impl Task for MinifyContentTask {
     type JsValue = MinifyResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(crate::minifier::minify_content_result_inner(
+        Ok(crate::minify::minifier::minify_content_result_inner(
             &self.content,
             &self.file_path,
         ))
@@ -45,7 +45,7 @@ impl Task for FileSystemQueryTask {
                 "filesystem query options already consumed",
             )
         })?;
-        crate::fs_query::query_file_system_inner(options)
+        crate::search::fs_query::query_file_system_inner(options)
             .map_err(|message| Error::new(Status::InvalidArg, message))
     }
 
@@ -109,7 +109,7 @@ impl Task for StructuralSearchTask {
     type JsValue = Vec<crate::structural::StructuralMatch>;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let ext = crate::file_extension::get_extension_internal(&self.file_path, true, "txt");
+        let ext = crate::text::file_extension::get_extension_internal(&self.file_path, true, "txt");
         // Same panic guard as the (formerly) sync binding: an unwind across the
         // napi FFI boundary would abort the Node process.
         std::panic::catch_unwind(|| {

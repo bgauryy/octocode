@@ -1,21 +1,20 @@
 import {
-  acquirePooledClient,
+  acquirePooledClientDetailed,
   isLanguageServerAvailable,
 } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import type { LSPRange } from '@octocodeai/octocode-engine/lsp/types';
 import { markdownHeadingOutlineToDocumentSymbols } from '../../../../utils/markdownOutline.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../toolNames.js';
 import {
-  LSP_GET_SEMANTICS_TOOL_NAME,
   type LspGetSemanticsQuery,
   type LspSemanticEnvelope,
-  type SemanticEmptyCategory,
 } from '../../shared/semanticTypes.js';
 import { resolveFileAnchor } from '../../shared/resolveSymbolAnchor.js';
 import {
   DEFAULT_SYMBOLS_PER_PAGE,
   paginateItems,
-} from '../semanticEnvelopes.js';
+} from '../semanticEnvelopes/envelopeHelpers.js';
 import { symbolKindName } from '../semanticPresentation.js';
 import {
   graphFactsDocumentSymbols,
@@ -44,18 +43,6 @@ export async function getDocumentSymbols(
   const anchor = await resolveFileAnchor(query, LSP_GET_SEMANTICS_TOOL_NAME);
   if (anchor.ok === false) return anchor.error;
 
-  const workspaceRoot =
-    query.workspaceRoot ??
-    (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
-  const serverAvailable = await isLanguageServerAvailable(
-    anchor.value.absolutePath,
-    workspaceRoot
-  );
-  const client = serverAvailable
-    ? await acquirePooledClient(workspaceRoot, anchor.value.absolutePath)
-    : null;
-  const lspProvides = Boolean(client?.hasCapability('documentSymbolProvider'));
-
   // Source priority:
   //   1. Native OXC (JS/TS only) — always fast, no server round-trip.
   //      Preferred even when a server is available; avoids indexing-wait on
@@ -82,13 +69,6 @@ export async function getDocumentSymbols(
   } else if (graphFactsFallback?.length) {
     symbols = graphFactsFallback;
     source = 'native-graph-facts';
-  } else if (lspProvides && client) {
-    const raw = await client.documentSymbols(
-      anchor.value.absolutePath,
-      anchor.value.content
-    );
-    symbols = Array.isArray(raw) ? raw : [];
-    source = 'lsp';
   } else {
     const markdown = markdownHeadingOutlineToDocumentSymbols(
       anchor.value.content,
@@ -100,35 +80,62 @@ export async function getDocumentSymbols(
     }
   }
 
-  const complete = source !== undefined;
-  // No outline AND no server → throw (the agent should use text search). The
-  // native (JS/TS) + markdown paths already ran above, so this only fires for
-  // an unsupported language with no server.
-  if (!complete && !serverAvailable) {
-    throwLspUnavailable(anchor.value.uri, 'documentSymbols');
+  // Syntax outlines do not depend on server installation or startup. Only
+  // acquire a server after those sources decline the document, and preserve
+  // startup failures instead of misreporting them as missing capabilities.
+  if (!source) {
+    const workspaceRoot =
+      query.workspaceRoot ??
+      (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
+    if (
+      !(await isLanguageServerAvailable(
+        anchor.value.absolutePath,
+        workspaceRoot
+      ))
+    ) {
+      throwLspUnavailable(anchor.value.uri, 'documentSymbols');
+    }
+    const result = await acquirePooledClientDetailed(
+      workspaceRoot,
+      anchor.value.absolutePath
+    );
+    if (result.ok === false)
+      throwLspUnavailable(anchor.value.uri, 'documentSymbols', result);
+    if (!result.client.hasCapability('documentSymbolProvider')) {
+      return {
+        type: 'documentSymbols',
+        uri: anchor.value.uri,
+        lsp: { serverAvailable: true, provider: 'documentSymbolProvider' },
+        payload: {
+          kind: 'empty',
+          category: 'unsupportedOperation',
+          reason: 'documentSymbolProvider unsupported',
+        },
+      };
+    }
+    const raw = await result.client.documentSymbols(
+      anchor.value.absolutePath,
+      anchor.value.content
+    );
+    symbols = Array.isArray(raw) ? raw : [];
+    source = 'lsp';
   }
   const compactSymbols = flattenDocumentSymbols(symbols);
   const topLevelSymbols = countTopLevelDocumentSymbols(symbols);
   const { pageItems, pagination } = paginateItems(
     compactSymbols,
     query.page ?? 1,
-    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE
+    query.pageSize ?? DEFAULT_SYMBOLS_PER_PAGE,
+    query
   );
   const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
-  // Server is present (checked above) but lacks documentSymbolProvider.
-  const empty = complete
-    ? undefined
-    : {
-        category: 'unsupportedOperation' as SemanticEmptyCategory,
-        reason: 'documentSymbolProvider unsupported',
-      };
-
   return {
     type: 'documentSymbols',
     uri: anchor.value.uri,
     lsp: {
-      serverAvailable,
-      ...(source === 'lsp' ? { provider: 'documentSymbolProvider' } : {}),
+      ...(source === 'lsp'
+        ? { serverAvailable: true, provider: 'documentSymbolProvider' }
+        : {}),
       ...(source ? { source } : {}),
     },
     summary: {
@@ -140,7 +147,6 @@ export async function getDocumentSymbols(
     payload: {
       kind: 'documentSymbols',
       symbols: pageItems,
-      ...(empty ? { empty } : {}),
     },
     pagination,
   };

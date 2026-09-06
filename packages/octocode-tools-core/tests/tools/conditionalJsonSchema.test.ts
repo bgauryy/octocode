@@ -102,14 +102,15 @@ describe('generated conditional input schemas', () => {
     expectAccepted(
       SearchCommitsBulkLocalSchema,
       { ...base, branch: 'main', since: '30d' },
-      { ...base, base: 'main', head: 'feature', path: 'src/' }
+      { ...base, base: 'main', head: 'feature', path: 'src/' },
+      { ...base, base: 'main', head: 'feature', page: 2 }
     );
     expectRejected(
       SearchCommitsBulkLocalSchema,
       { ...base, base: 'main' },
       { ...base, head: 'feature' },
       { ...base, base: 'main', head: 'feature', branch: 'main' },
-      { ...base, base: 'main', head: 'feature', page: 2 }
+      { ...base, base: 'main', head: 'feature', commentPage: 2 }
     );
   });
 

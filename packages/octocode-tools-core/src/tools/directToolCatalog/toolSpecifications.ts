@@ -4,7 +4,7 @@
  */
 import type { z } from 'zod';
 import { PUBLIC_TOOL_DESCRIPTIONS } from '../../toolContract/descriptions.js';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import {
   GITHUB_SEARCH_TOOL_NAME,
   GITHUB_SEARCH_HISTORY_TOOL_NAME,
@@ -15,26 +15,42 @@ import {
 } from '../toolNames.js';
 import {
   BulkCloneRepoLocalSchema,
-  BulkLspGetSemanticsQuerySchema,
   CloneRepoQueryLocalSchema,
+} from '../github_clone_repo/scheme.js';
+import {
+  BulkLspGetSemanticsQuerySchema,
+  LspGetSemanticsQuerySchema,
+} from '../lsp/semantic_content/scheme.js';
+import {
   FileContentBulkQueryLocalSchema,
   FileContentQueryLocalSchema,
+} from '../github_fetch_content/scheme.js';
+import {
   GitHubSearchBulkQuerySchema,
   GitHubSearchQuerySchema,
+} from '../github_search/scheme.js';
+import {
   LocalAnalyzeGraphBulkQuerySchema,
   LocalAnalyzeGraphQuerySchema,
+} from '../local_analyze_graph/scheme.js';
+import {
   LocalFetchContentBulkQuerySchema,
   LocalFetchContentQuerySchema,
+} from '../local_fetch_content/scheme.js';
+import {
   LocalSearchBulkQuerySchema,
   LocalSearchQuerySchema,
-  LspGetSemanticsQuerySchema,
+} from '../local_search/scheme.js';
+import {
   NpmSearchBulkQueryLocalSchema,
   NpmSearchQueryLocalSchema,
+} from '../package_search/scheme.js';
+import {
   GitHubGetHistoryItemBulkQueryLocalSchema,
   GitHubGetHistoryItemQueryLocalSchema,
   GitHubSearchHistoryBulkQueryLocalSchema,
   GitHubSearchHistoryQueryLocalSchema,
-} from '../toolSchemaImports.js';
+} from '../github_search_pull_requests/historySchemes.js';
 
 export interface DirectToolSpecification {
   name: string;

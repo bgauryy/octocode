@@ -5,7 +5,7 @@ import {
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '../../../octocode-tools-core/src/tools/toolNames.js';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 import {
   DIRECT_TOOL_CATEGORIES,
   DIRECT_TOOL_DEFINITIONS,
@@ -407,9 +407,15 @@ describe('directToolCatalog', () => {
   });
 
   it('rejects unknown and invalid direct execution requests before tool logic', async () => {
-    // Unknown tool still throws (no catalog entry to build a structured result from).
-    await expect(executeDirectTool('missingTool', {})).rejects.toThrow(
-      'Unknown tool: missingTool'
+    const unknownResult = await executeDirectTool('missingTool', {});
+    expect(unknownResult.isError).toBe(true);
+    expect(unknownResult.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('Unknown tool: missingTool'),
+        }),
+      ])
     );
     // Invalid INPUT for a known tool now returns a structured error result
     // (not a throw) so every consumer — CLI and MCP — gets a uniform

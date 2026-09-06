@@ -2,6 +2,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GitHubDirectoryFileEntry } from '@octocodeai/octocode-core/extra-types';
 import type { DirectoryFetchResult } from '../../tools/github_fetch_content/types.js';
+import { DIRECTORY_META_FILE } from './cacheMetadata.js';
 
 export const MAX_DIRECTORY_FILES = 50;
 
@@ -11,8 +12,6 @@ export const MAX_FILE_SIZE = 300 * 1024;
 
 export const CONCURRENCY = 5;
 
-export const FETCH_TIMEOUT_MS = 10_000;
-
 export const BINARY_EXTENSIONS = new Set([
   '.png',
   '.jpg',
@@ -20,7 +19,6 @@ export const BINARY_EXTENSIONS = new Set([
   '.gif',
   '.bmp',
   '.ico',
-  '.svg',
   '.webp',
   '.mp3',
   '.mp4',
@@ -57,9 +55,6 @@ export const BINARY_EXTENSIONS = new Set([
   '.class',
   '.o',
   '.obj',
-  '.lock',
-  '.min.js',
-  '.min.css',
 ]);
 
 export interface DirectoryEntry {
@@ -81,7 +76,6 @@ export const DIRECTORY_FETCH_LIMITS = {
 export function emptyDirectorySkipCounts(): DirectorySkipCounts {
   return {
     nonFile: 0,
-    missingDownloadUrl: 0,
     oversized: 0,
     binary: 0,
     fileLimit: 0,
@@ -115,7 +109,7 @@ export function directoryFetchWarnings(
 export async function fetchFilesInBatches(
   entries: DirectoryEntry[],
   concurrency: number,
-  token?: string
+  fetchContent: (entry: DirectoryEntry) => Promise<string>
 ): Promise<Array<{ entry: DirectoryEntry; content: string }>> {
   const results: Array<{ entry: DirectoryEntry; content: string }> = [];
 
@@ -123,7 +117,7 @@ export async function fetchFilesInBatches(
     const batch = entries.slice(i, i + concurrency);
     const batchResults = await Promise.allSettled(
       batch.map(async entry => {
-        const content = await fetchDownloadUrl(entry.download_url!, token);
+        const content = await fetchContent(entry);
         return { entry, content };
       })
     );
@@ -136,55 +130,6 @@ export async function fetchFilesInBatches(
   }
 
   return results;
-}
-
-const ALLOWED_DOWNLOAD_HOSTS = new Set([
-  'raw.githubusercontent.com',
-  'objects.githubusercontent.com',
-  'github.com',
-]);
-
-export async function fetchDownloadUrl(
-  url: string,
-  token?: string
-): Promise<string> {
-  try {
-    const parsed = new URL(url);
-    if (!ALLOWED_DOWNLOAD_HOSTS.has(parsed.hostname)) {
-      throw new Error(
-        `Blocked fetch to unexpected host: ${parsed.hostname}. Only GitHub download URLs are allowed.`
-      );
-    }
-  } catch (error: unknown) {
-    if (error instanceof TypeError) {
-      throw new Error(`Invalid download URL: ${url}`);
-    }
-    throw error;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  try {
-    const headers: Record<string, string> = {
-      'User-Agent': 'octocode-mcp',
-    };
-    if (token) {
-      headers['Authorization'] = `token ${token}`;
-    }
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} fetching ${url}`);
-    }
-
-    return await response.text();
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 export function scanDirectoryStats(
@@ -202,7 +147,8 @@ export function scanDirectoryStats(
       return;
     }
     for (const name of entries) {
-      if (name.startsWith('.')) continue;
+      if (name === DIRECTORY_META_FILE || name === '.octocode-clone-meta.json')
+        continue;
       const full = join(current, name);
       try {
         const st = statSync(full);

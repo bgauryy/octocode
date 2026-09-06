@@ -26,11 +26,6 @@ export default defineConfig({
       exclude: [
         'src/ambient.d.ts',
         'src/types.ts',
-        // Pure re-export shims — coverage is attributed to the upstream packages
-      // they forward (@octocodeai/config and @octocodeai/octocode-awareness).
-        // Including them produces misleading 0% rows with no signal.
-        'src/env.ts',
-        'src/awareness.ts',
       ],
       thresholds: {
         // Package exception to the repo-wide 90% branch target: CDP and bash

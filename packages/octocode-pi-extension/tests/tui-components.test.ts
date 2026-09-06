@@ -1,8 +1,9 @@
+import { visibleWidth } from '../src/tui/width.js';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { CURSOR_MARKER } from '@earendil-works/pi-tui';
-import { closeFrameLines, renderFrame, renderInlineRows, renderStack, renderToolView } from '../src/tui/components.js';
-import { visibleWidth } from '../src/tools/render-helpers.js';
+import { renderFrame, renderInlineRows, renderStack, renderToolView } from '../src/tui/components.js';
+
 
 test('renderFrame closes and aligns every border at narrow and wide widths', () => {
   for (const width of [2, 3, 18, 32, 64, 100]) {
@@ -25,7 +26,7 @@ test('renderFrame closes and aligns every border at narrow and wide widths', () 
 
 test('all frame edge permutations remain closed, including the one-cell fallback', () => {
   assert.deepEqual(renderFrame({ title: 'x', body: ['y'], footer: 'z' }, { width: 1 }), ['╭']);
-  const closed = closeFrameLines({ lines: ['╭─ title ', '│ body', '╰─ footer '] }, { width: 24 });
+  const closed = renderFrame({ title: 'title', body: ['body'], footer: 'footer' }, { width: 24 });
   assert.equal(closed.length, 3);
   assert.ok(closed[0]!.endsWith('╮'));
   assert.ok(closed[1]!.endsWith('│'));
@@ -33,13 +34,14 @@ test('all frame edge permutations remain closed, including the one-cell fallback
   for (const line of closed) assert.equal(visibleWidth(line), 24);
 });
 
-test('legacy interactive frames preserve the cursor marker and close the right rail', () => {
-  const lines = closeFrameLines({
-    lines: [`│ answer ${CURSOR_MARKER}draft`, '╰─ enter confirm '],
+test('interactive component frames preserve the cursor marker and close the right rail', () => {
+  const lines = renderFrame({
+    title: 'Input needed', body: [`answer ${CURSOR_MARKER}draft`], footer: 'enter confirm',
   }, { width: 28 });
-  assert.ok(lines[0]!.includes(CURSOR_MARKER));
+  assert.ok(lines[1]!.includes(CURSOR_MARKER));
   assert.ok(lines[0]!.endsWith('╮'));
-  assert.ok(lines[1]!.endsWith('╯'));
+  assert.ok(lines[1]!.endsWith('│'));
+  assert.ok(lines[2]!.endsWith('╯'));
   for (const line of lines) assert.equal(visibleWidth(line.replace(CURSOR_MARKER, '')), 28);
 });
 

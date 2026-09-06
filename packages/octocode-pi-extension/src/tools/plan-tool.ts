@@ -9,29 +9,31 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { ToolDefinition, ToolCallResult, PiContext, PiTheme, NotifyFn, RenderResultOptions } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
-import { CLI_STATUS_TEXT, paint } from '../tui/cli-design.js';
+import { CLI_STATUS_TEXT } from '../tui/cli-design.js';
 import { buildPlanPrompt } from '../prompts/plan-prompt.js';
 import { adoptPlanModePolicy, enterPlanMode, exitPlanMode, isPlanMode } from './plan-mode.js';
 import { runAskPrompt, type AskOutcome } from './ask-user-tool.js';
-import { consumeHumanAuthorizationReceipt, createHumanAuthorizationReceipt } from './interaction-broker.js';
+import { consumeHumanAuthorizationReceipt, createHumanAuthorizationReceipt, createHumanAuthorizationReceiptFromInteraction } from './interaction-broker.js';
 import { getCurrentPlanReadModel, renderPlanContext, type PlanReadModelV1 } from './plan-read-model.js';
 import { enablePlanHtmlSync, resetPlanHtmlSync, openPlanHtml, syncCurrentPlanHtmlIfEnabled, writeCurrentPlanArtifacts as writeCanonicalPlanArtifacts, writePlanReadModelArtifacts, planArtifactsDir, readRfcDoc } from './plan-html.js';
 import { serveDirectory, unmount } from './local-server.js';
 import { PLAN_APPROVE_DESC, PLAN_APPROVE_LABEL, PLAN_APPROVAL_HEADER, PLAN_PROPOSE_HINT, PLAN_REJECT_DESC, PLAN_REJECT_LABEL, PLAN_RFC_REVIEW_HEADER } from '../tui/content.js';
 import { buildQueryCallBlocks, buildToolView } from './render-helpers.js';
-import { wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { setManagedActivity } from './runtime-renderer.js';
-import { activePlanScope, setPlan, setPlanLifecycle, finishPlanVerification, activatePlan, proposePlanReview, acceptPlanReview, requestPlanChanges, startAcceptedPlan, rollbackAcceptedPlanStart, addStep, startStep, restorePlanSteps, completeStep, removeStep, clearPlan, getPlan, getPlanReviewState, getPlanCoordination, updatePlanCoordination, setPlanAwarenessMappings, MARK, stepLabel, displayStatus, depsMet, dependencyIndexes, resolveRfcPath, setPlanRfc, getPlanRfc, addPlanDecision, getPlanDecisions, planPhaseIndex, PLAN_PHASES, type PlanStep, type DisplayStatus, type StepInput } from './active-plan.js';
-import { completeUnifiedPlanTask, finalizeUnifiedPlan, getAwarenessAgentId, projectUnifiedPlan, type ObservedCheckReceipt, type UnifiedPlanScope } from './awareness-shared.js';
+import { activePlanScope, setPlan, setPlanLifecycle, finishPlanVerification, activatePlan, proposePlanReview, acceptPlanReview, requestPlanChanges, startAcceptedPlan, rollbackAcceptedPlanStart, addStep, startStep, restorePlanSteps, completeStep, removeStep, clearPlan, getPlan, getPlanReviewState, getPlanCoordination, updatePlanCoordination, setPlanAwarenessMappings, MARK, stepLabel, displayStatus, depsMet, dependencyIndexes, resolveRfcPath, setPlanRfc, getPlanRfc, addPlanDecision, getPlanDecisions, type PlanStep, type DisplayStatus, type StepInput } from './active-plan.js';
+import { completeExternalPlanTask, finalizeExternalPlan, projectExternalPlan, type ObservedCheckReceipt, type ExternalPlanScope } from '@octocodeai/octocode-awareness';
+import { getAwarenessAgentId } from './awareness-shared.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch, type QueryRecord } from './query-envelope.js';
 import { appendSessionAuditForContext } from './session-audit.js';
+import { createSessionArtifactContext } from './session-artifacts.js';
+import { projectSessionPlan } from './session-index.js';
 
 let planBrowserMessageSender: ((message: string) => void | Promise<void>) | undefined;
 let planDirectoryServer: typeof serveDirectory = serveDirectory;
-let unifiedPlanProjector: typeof projectUnifiedPlan = projectUnifiedPlan;
+let unifiedPlanProjector: typeof projectExternalPlan = projectExternalPlan;
 
-export function setUnifiedPlanProjectorForTests(next?: typeof projectUnifiedPlan): void {
-  unifiedPlanProjector = next ?? projectUnifiedPlan;
+export function setUnifiedPlanProjectorForTests(next?: typeof projectExternalPlan): void {
+  unifiedPlanProjector = next ?? projectExternalPlan;
 }
 
 /** Test seam for browser-first review without binding the process-wide localhost server. */
@@ -77,7 +79,7 @@ export function inferConsequential(steps: StepInput[]): { consequential: boolean
 
 interface PlanParams extends QueryRecord {
   action: PlanAction;
-  scope?: UnifiedPlanScope;
+  scope?: ExternalPlanScope;
   receipt?: ObservedCheckReceipt;
   steps?: StepInput[];
   text?: string;
@@ -88,7 +90,11 @@ interface PlanParams extends QueryRecord {
   acceptance?: string;
   checkCommand?: string;
   index?: number;
-  /** For set/propose: mark the work consequential so the RFC review gate applies. */
+  /** For reviewed action:start — the exact displayed RFC revision. */
+  revision?: string;
+  /** For noninteractive reviewed action:start — the answered authorization interaction. */
+  authorizationInteractionId?: string;
+  /** For propose: require RFC review when true; false plus reason may justify overriding heuristic inference. */
   consequential?: boolean;
   /** For set/propose: path to the reviewable RFC (a `.octocode/rfc/<name>/` dir or its RFC.md). Renders on the plan page. */
   rfcPath?: string;
@@ -103,7 +109,7 @@ const PLAN_ACTION_FIELDS: Readonly<Record<PlanAction, readonly string[]>> = Obje
   propose: ['scope', 'steps', 'consequential', 'reason', 'rfcPath'],
   clarify: ['questions'],
   add: ['scope', 'text', 'activeForm', 'dependsOn', 'paths', 'taskReasoning', 'acceptance', 'checkCommand'],
-  start: ['scope', 'index'],
+  start: ['scope', 'index', 'revision', 'authorizationInteractionId'],
   complete: ['scope', 'index', 'receipt'],
   remove: ['index'],
   clear: [],
@@ -134,42 +140,6 @@ function planPresentation(ctx: PiContext | undefined, scope: string) {
 }
 
 /**
- * Compact plan-detail projection for explicit inspection and legacy consumers.
- * The footer owns persistent progress/current work; canonical browser/Markdown
- * views retain the complete checklist.
- */
-/** Pure terminal projection of the canonical model. */
-export function planPanelModelLines(readModel: PlanReadModelV1, theme?: PiTheme, width?: number): string[] {
-  if (readModel.tasks.length === 0) return [];
-  const done = readModel.summary.done;
-  const phase = PLAN_PHASES[planPhaseIndex(readModel.phase)] ?? readModel.phase;
-  const unresolved = readModel.tasks.filter((task) => task.status !== 'done');
-  const running = unresolved.filter((task) => task.status === 'doing');
-  const next = unresolved
-    .filter((task) => task.status !== 'doing')
-    .slice(0, Math.max(0, 3 - running.length));
-  const visibleIds = new Set([...running, ...next].map((task) => task.id));
-  const visible = unresolved.filter((task) => visibleIds.has(task.id));
-  const later = unresolved.length - visible.length;
-  const suffix = later > 0 ? ` · ${later} later` : '';
-  const header = paint(theme, 'brand', `Plan · ${phase} · ${done}/${readModel.summary.total}${suffix}`);
-  const rows = visible.map((task) => {
-    const status = task.status;
-    const mark = status === 'doing' ? '▶' : status === 'blocked' ? '!' : '○';
-    const token = status === 'doing' ? 'brand' : status === 'blocked' ? 'warning' : 'muted';
-    const label = status === 'doing' ? (task.activeText ?? task.text) : task.text;
-    const text = `${mark} ${task.index}. ${label}`;
-    return status === 'doing' && typeof theme?.bold === 'function'
-      ? paint(theme, token, theme.bold(text))
-      : paint(theme, token, text);
-  });
-  const lines = [header, ...rows];
-  return width
-    ? lines.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
-    : lines;
-}
-
-/**
  * Write the plan doc, start a localhost server hosting it, arm live sync, and
  * open the served URL in a browser (interactive TUI only). Returns the served
  * URL, or undefined if the doc write or the server failed. Consequential
@@ -189,13 +159,13 @@ function planWorkspace(scope: string): string {
   return scope.split('\0')[0] || scope;
 }
 
-function requestedPlanScope(scope: string, explicit?: UnifiedPlanScope): UnifiedPlanScope {
+function requestedPlanScope(scope: string, explicit?: ExternalPlanScope): ExternalPlanScope {
   if (explicit) return explicit;
   const mode = getPlanCoordination(scope).mode;
   return mode === 'required' ? 'shared' : mode === 'local' ? 'session' : 'auto';
 }
 
-function configurePlanScope(scope: string, requested?: UnifiedPlanScope): void {
+function configurePlanScope(scope: string, requested?: ExternalPlanScope): void {
   if (!requested) return;
   const current = getPlanCoordination(scope);
   if (requested === 'session' && current.awarenessPlanId) {
@@ -206,7 +176,7 @@ function configurePlanScope(scope: string, requested?: UnifiedPlanScope): void {
   else updatePlanCoordination(scope, { mode: 'auto', localReason: null });
 }
 
-function ensureUnifiedProjection(scope: string, explicit: UnifiedPlanScope | undefined, ctx?: PiContext): 'session' | 'shared' {
+function ensureUnifiedProjection(scope: string, explicit: ExternalPlanScope | undefined, ctx?: PiContext): 'session' | 'shared' {
   configurePlanScope(scope, explicit);
   const steps = getPlan(scope);
   const coordination = getPlanCoordination(scope);
@@ -247,8 +217,22 @@ function sharedStartContractError(steps: PlanStep[]): string | undefined {
   return undefined;
 }
 
+function projectPlanIndexes(ctx: PiContext | undefined, model: PlanReadModelV1 | undefined): void {
+  if (!ctx) return;
+  try {
+    projectSessionPlan(createSessionArtifactContext(ctx), model);
+  } catch (error) {
+    appendSessionAuditForContext(ctx, {
+      event: 'session.projection.failed',
+      detail: { message: error instanceof Error ? error.message : String(error) },
+    });
+  }
+}
+
 function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: string, status: 'draft' | 'approved' | 'active' = 'active') {
-  return writeCanonicalPlanArtifacts(ctx, scope, { status, workspace: planWorkspace(scope) });
+  const artifacts = writeCanonicalPlanArtifacts(ctx, scope, { status, workspace: planWorkspace(scope) });
+  projectPlanIndexes(ctx, getCurrentPlanReadModel(ctx, scope));
+  return artifacts;
 }
 
 /** Compact, review-safe handoff for local-file, chat, and headless surfaces. */
@@ -292,8 +276,22 @@ interface ReviewedPlanStartResult {
   revision?: string;
 }
 
+interface ReviewedPlanAuthorization {
+  interactionId: string;
+  expectedOptionId: string;
+}
+
+function planStartAuthorizationOptionId(planId: string, revision: string): string {
+  return `plan-start:${planId}:${revision}`;
+}
+
 /** Bind one explicit Start decision to the current RFC bytes and begin execution. */
-function startReviewedPlan(scope: string, displayedRevision: string, ctx?: PiContext): ReviewedPlanStartResult {
+function startReviewedPlan(
+  scope: string,
+  displayedRevision: string,
+  ctx?: PiContext,
+  authorization?: ReviewedPlanAuthorization,
+): ReviewedPlanStartResult {
   const steps = getPlan(scope);
   const contractError = getPlanCoordination(scope).mode === 'required'
     ? sharedStartContractError(steps)
@@ -306,16 +304,36 @@ function startReviewedPlan(scope: string, displayedRevision: string, ctx?: PiCon
     return { ok: false, message: `displayed revision is stale (expected ${expectedRevision?.slice(0, 8) ?? 'none'})`, steps };
   }
   const planId = getPlanCoordination(scope).sourcePlanKey;
-  if (state.phase === 'in_review') {
-    const acceptReceipt = createHumanAuthorizationReceipt(ctx, {
+  const receiptWorkspace = ctx?.cwd ?? scope;
+  const createReceipt = (revision: string, receiptScope: 'plan.accept' | 'plan.start') => {
+    if (!authorization) {
+      return createHumanAuthorizationReceipt(ctx, {
+        planId,
+        revision,
+        scope: receiptScope,
+        question: `Start implementation of RFC revision ${revision}?`,
+      });
+    }
+    if (!ctx) throw new Error('authorization interaction requires a host context');
+    return createHumanAuthorizationReceiptFromInteraction(ctx, {
+      interactionId: authorization.interactionId,
       planId,
-      revision: displayedRevision,
-      scope: 'plan.accept',
-      question: `Start implementation of RFC revision ${displayedRevision}?`,
+      revision,
+      scope: receiptScope,
+      expectedOptionId: authorization.expectedOptionId,
+      consumeInteraction: receiptScope === 'plan.start',
     });
+  };
+  if (state.phase === 'in_review') {
+    let acceptReceipt;
+    try {
+      acceptReceipt = createReceipt(displayedRevision, 'plan.accept');
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error), steps };
+    }
     const accepted = acceptPlanReview(scope, displayedRevision, acceptReceipt.receiptId);
     if (!accepted.ok) return { ok: false, message: accepted.message, steps: accepted.steps };
-    consumeHumanAuthorizationReceipt(scope, {
+    consumeHumanAuthorizationReceipt(receiptWorkspace, {
       receiptId: acceptReceipt.receiptId,
       planId,
       revision: displayedRevision,
@@ -327,13 +345,13 @@ function startReviewedPlan(scope: string, displayedRevision: string, ctx?: PiCon
     return { ok: false, message: `Start is not valid from ${state.phase}`, steps: getPlan(scope) };
   }
 
-  const startReceipt = createHumanAuthorizationReceipt(ctx, {
-    planId,
-    revision: state.acceptedRevision,
-    scope: 'plan.start',
-    question: `Start implementation of RFC revision ${state.acceptedRevision}?`,
-  });
-  consumeHumanAuthorizationReceipt(scope, {
+  let startReceipt;
+  try {
+    startReceipt = createReceipt(state.acceptedRevision, 'plan.start');
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error), steps: getPlan(scope) };
+  }
+  consumeHumanAuthorizationReceipt(receiptWorkspace, {
     receiptId: startReceipt.receiptId,
     planId,
     revision: state.acceptedRevision,
@@ -497,7 +515,16 @@ export async function handleOctocodePlanCommand(args: string, ctx: PiContext | u
     setPlanLifecycle(scope, 'researching');
     setManagedActivity(ctx, { kind: 'researching', planScope: scope, detail: goal || undefined });
     notify(ctx, 'Creating plan…', 'info');
-    await sendPrompt(buildPlanPrompt(goal));
+    try {
+      await sendPrompt(buildPlanPrompt(goal));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      setPlanLifecycle(scope, 'failed', `Could not start plan mode: ${reason}`);
+      setManagedActivity(ctx, { kind: 'failed', label: `Could not start plan mode: ${reason}` });
+      exitPlanMode(ctx);
+      notify(ctx, `Could not start plan mode: ${reason}`, 'warning');
+      return;
+    }
     notify(ctx, goal ? `Plan mode on: planning “${goal.slice(0, 80)}”.` : 'Plan mode on: the agent will ask for the goal.', 'info');
     return;
   }
@@ -705,7 +732,11 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         halted = `Interaction pending (correlation=${pendingInteraction?.correlationId ?? 'unavailable'}). Wait for the durable host continuation; do not infer an answer.`;
         break;
       }
-      if (outcome.status === 'cancelled') { halted = 'Interview cancelled — proceed only with what is already decided.'; break; }
+      if (outcome.status === 'cancelled') {
+        setPlanLifecycle(scope, 'draft');
+        halted = 'Interview cancelled — proceed only with what is already decided.';
+        break;
+      }
       // Back navigation: remove the previously recorded answer and revisit.
       if (outcome.status === 'selected' && outcome.value === '__back__') {
         const prevPrompt = String(questions[qi - 1]!.prompt).trim();
@@ -744,10 +775,10 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
 
   // ── RFC gate (set/propose only) ──────────────────────────────────────────
   const resolveGate = (): { rfc?: string; hasNewRfc: boolean; error?: ToolCallResult } => {
-    const gateError = (text: string): ToolCallResult => ({
+    const gateError = (text: string, error = 'rfc-gate'): ToolCallResult => ({
       content: [{ type: 'text' as const, text }],
       isError: true,
-      details: { action: p.action, error: 'rfc-gate' },
+      details: { action: p.action, error },
     }) as unknown as ToolCallResult;
     const supplied = typeof p.rfcPath === 'string' ? p.rfcPath.trim() : '';
     if (supplied) {
@@ -757,7 +788,23 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       }
       return { rfc: res.path, hasNewRfc: true };
     }
-    return { rfc: getPlanRfc(scope), hasNewRfc: false };
+    const existingRfc = getPlanRfc(scope);
+    const inference = inferConsequential(Array.isArray(p.steps) ? p.steps : []);
+    const requiresRfc = p.action === 'propose' && (p.consequential === true || inference.consequential);
+    const justifiedOverride = p.consequential === false && Boolean(p.reason?.trim());
+    if (requiresRfc && !existingRfc && !justifiedOverride) {
+      const signals = p.consequential === true
+        ? 'consequential:true'
+        : inference.signals.join('; ');
+      return {
+        hasNewRfc: false,
+        error: gateError(
+          `[PLAN] consequential proposal requires a reviewable RFC (${signals}). Create or update .octocode/rfc/<name>/RFC.md and pass rfcPath, or set consequential:false with a non-empty reason that justifies the override.`,
+          'rfc-required',
+        ),
+      };
+    }
+    return { rfc: existingRfc, hasNewRfc: false };
   };
 
   switch (p.action) {
@@ -776,7 +823,10 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       ctx?.ui?.notify?.('Creating plan…', 'info');
       setManagedActivity(ctx, { kind: 'planning', planScope: scope, detail: 'Creating plan…' });
       const gate = resolveGate();
-      if (gate.error) return gate.error;
+      if (gate.error) {
+        refreshPlanUi(ctx);
+        return gate.error;
+      }
       steps = setPlan(scope, Array.isArray(p.steps) ? p.steps : [], 'draft');
       configurePlanScope(scope, p.scope);
       if (gate.hasNewRfc) setPlanRfc(scope, gate.rfc);
@@ -796,16 +846,19 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         refreshPlanUi(ctx);
         setManagedActivity(ctx, { kind: 'reviewing', planScope: scope, revision });
         const summary = buildRfcReviewTldr(scope, steps, revision, artifacts);
+        const planId = getPlanCoordination(scope).sourcePlanKey;
+        const startOptionId = planStartAuthorizationOptionId(planId, revision);
         auditPlanEvent(ctx, scope, 'propose', { revision });
         const outcome = ctx
           ? await runAskPrompt(ctx, {
               question: `Plan overview ready · rev ${revision.slice(0, 8)} · ${steps.length} step${steps.length === 1 ? '' : 's'} — start implementation?`,
               headerLabel: PLAN_RFC_REVIEW_HEADER,
-              durable: false,
+              kind: 'authorization',
               freeTextLabel: 'Request changes',
               options: [
                 {
                   value: 'start',
+                  brokerId: startOptionId,
                   label: PLAN_APPROVE_LABEL,
                   description: 'approve this exact RFC revision and begin the first runnable step',
                   recommended: true,
@@ -856,13 +909,29 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         }
 
         const verdict = outcome?.status === 'pending'
-          ? `[PLAN] Start decision pending (correlation=${outcome.interaction?.correlationId ?? 'unavailable'}).`
+          ? `[PLAN] Start decision pending (correlation=${outcome.interaction?.correlationId ?? 'unavailable'}). After the host delivers the human answer, resume with plan action:\"start\", revision:\"${revision}\", authorizationInteractionId:\"${outcome.interaction?.interactionId ?? 'unavailable'}\".`
           : outcome?.status === 'cancelled'
             ? '[PLAN] review cancelled — the RFC remains ready when the user returns.'
-            : '[PLAN] plan ready — show this overview inline and ask the user to Start implementation or request changes.';
+            : '[PLAN] plan ready — show this overview inline and ask the user to use the exact Start implementation or Request changes command shown below; never infer approval from prose.';
         return {
           content: [{ type: 'text', text: `${verdict}\n\n${summary}` }],
-          details: { action: p.action, ...planPresentation(ctx, scope), verdict, revision, decision: outcome?.status ?? 'unavailable', ...(artifacts ? { artifacts } : {}) },
+          details: {
+            action: p.action,
+            ...planPresentation(ctx, scope),
+            verdict,
+            revision,
+            decision: outcome?.status ?? 'unavailable',
+            ...(outcome?.status === 'pending' && outcome.interaction ? {
+              pendingInteraction: {
+                version: outcome.interaction.version,
+                interactionId: outcome.interaction.interactionId,
+                correlationId: outcome.interaction.correlationId,
+                sessionId: outcome.interaction.sessionId,
+              },
+              continuation: { version: 1, adapter: 'interaction-broker', resumeOn: ['answer', 'session_start'] },
+            } : {}),
+            ...(artifacts ? { artifacts } : {}),
+          },
         } as unknown as ToolCallResult;
       }
 
@@ -967,8 +1036,36 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       if (current.length === 0) {
         return planError(`[PLAN] no active plan — nothing to ${p.action}. Use plan set first.`, 'invalid-index');
       }
-      if (p.action === 'start' && p.index === undefined && getPlanReviewState(scope).phase === 'accepted') {
-        return planError('[PLAN] implementation start requires the operator command /octocode-plan start; a model tool call cannot mint human authorization.', 'authorization-required');
+      const reviewPhase = getPlanReviewState(scope).phase;
+      if (p.action === 'start' && (reviewPhase === 'in_review' || reviewPhase === 'accepted')) {
+        const revision = p.revision?.trim();
+        const interactionId = p.authorizationInteractionId?.trim();
+        if (!revision || !interactionId || p.index !== undefined) {
+          return planError('[PLAN] reviewed implementation Start requires revision and authorizationInteractionId from the answered human authorization interaction; index is not valid for this transition.', 'authorization-required');
+        }
+        const planId = getPlanCoordination(scope).sourcePlanKey;
+        const started = startReviewedPlan(scope, revision, ctx, {
+          interactionId,
+          expectedOptionId: planStartAuthorizationOptionId(planId, revision),
+        });
+        if (!started.ok) {
+          refreshPlanUi(ctx);
+          return planError(`[PLAN] implementation did not start: ${started.message}`, 'authorization-required');
+        }
+        steps = started.steps;
+        writeCurrentPlanArtifacts(ctx, scope, 'active');
+        refreshPlanUi(ctx);
+        auditPlanEvent(ctx, scope, 'start', { revision, source: 'interaction' });
+        return {
+          content: [{ type: 'text' as const, text: `[PLAN] approved and started · rev ${revision.slice(0, 8)}\n${renderList(steps)}` }],
+          details: { action: p.action, ...planPresentation(ctx, scope), revision, decision: 'start' },
+        } as unknown as ToolCallResult;
+      }
+      if (p.action === 'start' && reviewPhase !== 'executing' && reviewPhase !== 'verifying') {
+        return planError(`[PLAN] implementation cannot start from ${reviewPhase}; propose the plan for review and obtain an explicit human Start decision first.`, 'authorization-required');
+      }
+      if (p.action === 'complete' && reviewPhase !== 'executing' && reviewPhase !== 'verifying' && reviewPhase !== 'complete') {
+        return planError(`[PLAN] a step cannot complete while the plan is ${reviewPhase}; Start implementation first.`, 'phase-not-executing');
       }
       let idx: number;
       if (p.index === undefined || p.index === null) {
@@ -1003,7 +1100,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       if (p.action === 'complete' && target.awarenessTaskId) {
         const coordination = getPlanCoordination(scope);
         try {
-          const shared = completeUnifiedPlanTask({
+          const shared = completeExternalPlanTask({
             workspace: coordination.coordinationWorkspace || planWorkspace(scope),
             taskId: target.awarenessTaskId,
             agentId: getAwarenessAgentId(ctx),
@@ -1033,7 +1130,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
         const coordination = getPlanCoordination(scope);
         let verified = true;
         if (coordination.awarenessPlanId) {
-          verified = finalizeUnifiedPlan({
+          verified = finalizeExternalPlan({
             workspace: coordination.coordinationWorkspace || planWorkspace(scope),
             planId: coordination.awarenessPlanId,
           });
@@ -1056,6 +1153,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       }
       clearPlan(scope);
       tearDownPlanHtml(scope);
+      projectPlanIndexes(ctx, undefined);
       steps = [];
       break;
     }
@@ -1076,8 +1174,11 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
   // Presentation is not a decision gate. Keep set/complete non-blocking and let
   // the explicit /octocode-plan html command open the full review surface.
   const baseNote = artifactHint;
+  const taskIds = steps.length > 0
+    ? `\nTask IDs for agent.planStep: ${steps.map((step, index) => `${index + 1}=${step.id}`).join(', ')}`
+    : '';
   return {
-    content: [{ type: 'text', text: `${header}\n${renderList(steps)}${baseNote}` }],
+    content: [{ type: 'text', text: `${header}\n${renderList(steps)}${taskIds}${baseNote}` }],
     details: { action: p.action, ...planPresentation(ctx, scope) },
   } as unknown as ToolCallResult;
 }
@@ -1106,7 +1207,7 @@ export function registerPlanTool(
       'Use clarify only for unresolved decision-changing blockers; set for already-authorized work; propose with an RFC for review; add/start/complete/remove to keep execution truthful; clear when done or abandoned.',
       'RFC review uses one user decision: Start approves the exact displayed bytes and begins implementation; Request changes returns the plan to draft.',
     'Multiple independent steps may be doing in parallel. Use scope:"shared" for persistent multi-agent execution; it automatically projects stable steps, dependencies, ownership, and verification receipts into Awareness from one internal plan model.',
-      'index is optional for start/complete/remove: complete/remove default to the single current doing step; when multiple steps are doing, pass index. start defaults to the next runnable todo. Completing a mapped shared step requires receipt {command,status,message} from the declared check that actually ran.',
+      'index is optional for ordinary executing-plan start/complete/remove: complete/remove default to the single current doing step; when multiple steps are doing, pass index. start defaults to the next runnable todo. Reviewed Start instead requires the displayed revision and answered authorizationInteractionId. Completing a mapped shared step requires receipt {command,status,message} from the declared check that actually ran.',
     ].join('\n'),
     promptSnippet: 'Track a durable task checklist. Every call uses queries:[{reasoning, action, ...}]; actions are clarify/set/propose/add/start/complete/remove/show/clear.',
     promptGuidelines: [
@@ -1150,9 +1251,11 @@ export function registerPlanTool(
       taskReasoning: Type.Optional(Type.String({ description: 'For action:add — why the task exists or may omit paths.' })),
       acceptance: Type.Optional(Type.String({ description: 'For action:add — observable done state.' })),
       checkCommand: Type.Optional(Type.String({ description: 'For action:add — command that verifies the task.' })),
-      index: Type.Optional(Type.Integer({ minimum: 1, description: '1-based step number for start/complete/remove. Omit to target the current doing step (complete/remove) or the next runnable todo (start).' })),
-      consequential: Type.Optional(Type.Boolean({ description: 'Optional compatibility metadata for set/propose; it does not add a tool restriction. Use rfcPath when a reviewable RFC exists.' })),
-      reason: Type.Optional(Type.String({ description: 'Optional planning rationale recorded by callers; it is never required to bypass a heuristic gate.' })),
+      index: Type.Optional(Type.Integer({ minimum: 1, description: '1-based step number for ordinary executing-plan start/complete/remove. Reviewed Start uses revision + authorizationInteractionId instead.' })),
+      revision: Type.Optional(Type.String({ description: 'For reviewed action:start — the exact RFC revision shown to the user.' })),
+      authorizationInteractionId: Type.Optional(Type.String({ description: 'For noninteractive reviewed action:start — the answered authorization interaction delivered by the host continuation.' })),
+      consequential: Type.Optional(Type.Boolean({ description: 'For propose: true requires RFC review; false plus a non-empty reason explicitly overrides a consequential heuristic when RFC review is not warranted. Set treats this as metadata because execution is already authorized.' })),
+      reason: Type.Optional(Type.String({ description: 'Planning rationale. Required with consequential:false when overriding a consequential proposal heuristic.' })),
       rfcPath: Type.Optional(Type.String({ description: 'For set/propose: a reviewable `.octocode/rfc/<name>/` folder or RFC.md. Propose hashes its exact bytes and enters review; the path must stay under the workspace RFC tree.' })),
       questions: Type.Optional(Type.Array(
         Type.Object({
@@ -1218,6 +1321,16 @@ export function registerPlanTool(
             if (record['status'] !== 'SUCCESS' && record['status'] !== 'FAILED') throw new Error('receipt.status must be SUCCESS or FAILED.');
             if (typeof record['message'] !== 'string' || !record['message'].trim()) throw new Error('receipt.message is required.');
           }
+          if (action === 'start') {
+            const hasRevision = typeof query['revision'] === 'string' && query['revision'].trim().length > 0;
+            const hasInteraction = typeof query['authorizationInteractionId'] === 'string' && query['authorizationInteractionId'].trim().length > 0;
+            if (hasRevision !== hasInteraction) {
+              throw new Error('reviewed action:start requires revision and authorizationInteractionId together.');
+            }
+            if (hasRevision && query['index'] !== undefined) {
+              throw new Error('reviewed action:start cannot include index.');
+            }
+          }
           if ((action === 'start' || action === 'complete' || action === 'remove') && query['index'] != null) {
             const idx = Number(query['index']);
             if (!Number.isInteger(idx) || idx < 1) {
@@ -1263,6 +1376,14 @@ export function registerPlanTool(
         return buildToolView(() => ({ name: 'plan', state: 'running', status: CLI_STATUS_TEXT.running }), theme);
       }
       const r = result as ToolCallResult & { details?: { steps?: PlanStep[]; action?: string; results?: unknown[] } };
+      const resultText = r.content?.find((part) => part.type === 'text')?.text ?? '';
+      if (r.isError) {
+        return buildToolView({
+          name: 'plan',
+          state: 'error',
+          segments: [{ text: resultText || 'plan operation failed', token: 'error' }],
+        }, theme);
+      }
       // Multi-query batch result: details.results is an array
       if (Array.isArray(r?.details?.results)) {
         const count = r.details!.results!.length;
@@ -1270,8 +1391,11 @@ export function registerPlanTool(
       }
       // Single-query passthrough: original shape
       const steps = r?.details?.steps ?? [];
-      if (r?.details?.action === 'clear' || steps.length === 0) {
+      if (r?.details?.action === 'clear') {
         return buildToolView({ name: 'plan', state: 'success', segments: [{ text: 'cleared', token: 'dim' }] }, theme);
+      }
+      if (steps.length === 0) {
+        return buildToolView({ name: 'plan', state: 'neutral', segments: [{ text: resultText || 'no active plan', token: 'dim' }] }, theme);
       }
       const done = steps.filter((s) => s.status === 'done').length;
       const current = steps.find((s) => s.status === 'doing') ?? steps.find((s) => s.status === 'todo');

@@ -130,8 +130,26 @@ export function createContentSelectorQuerySchema(
   base: AnyZodObject,
   options: { githubDirectoryMode?: boolean } = {}
 ): z.ZodTypeAny {
+  const validateSymbols = (
+    query: Record<string, unknown>,
+    ctx: z.RefinementCtx
+  ) => {
+    if (
+      query.minify === 'symbols' &&
+      (query.matchString !== undefined ||
+        query.startLine !== undefined ||
+        query.endLine !== undefined)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['minify'],
+        message:
+          'minify:"symbols" cannot be combined with matchString or startLine/endLine. Read the outline, then request a source slice.',
+      });
+    }
+  };
   if (!options.githubDirectoryMode) {
-    return z.union(contentFileVariants(base));
+    return z.union(contentFileVariants(base)).superRefine(validateSymbols);
   }
 
   const fileType = copyDescription(
@@ -150,5 +168,7 @@ export function createContentSelectorQuerySchema(
     .object({ ...directoryShape, type: directoryType })
     .strict();
 
-  return z.union([...contentFileVariants(base, fileType), directoryMode]);
+  return z
+    .union([...contentFileVariants(base, fileType), directoryMode])
+    .superRefine(validateSymbols);
 }

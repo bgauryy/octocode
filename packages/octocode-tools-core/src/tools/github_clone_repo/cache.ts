@@ -6,25 +6,18 @@ import {
   rmSync,
   readdirSync,
   statSync,
+  rmdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import type { CloneCacheMeta, CacheSource } from './types.js';
-import { getDirectorySizeBytes } from '../../shared/index.js';
-import { getCloneBaseDir, getTreeBaseDir } from './cachePaths.js';
-
-export {
-  cleanupStaleCloneArtifacts,
-  tryRecoverStaleCloneLock,
-  writeCloneLockMeta,
-} from './cacheArtifacts.js';
-
-export {
-  getReposBaseDir,
+import { getDirectorySizeBytes } from '../../shared/fs-utils.js';
+import {
   getCloneBaseDir,
   getTreeBaseDir,
-  getCloneDir,
-  getTreeDir,
+  getTreeLockDir,
+  getCloneLockDir,
 } from './cachePaths.js';
+import { tryAcquireMaterializationLock } from './cacheArtifacts.js';
 
 const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -45,11 +38,7 @@ function parseCacheMeta(raw: unknown): CloneCacheMeta | null {
   if (typeof raw.owner !== 'string') return null;
   if (typeof raw.repo !== 'string') return null;
   if (typeof raw.branch !== 'string') return null;
-  if (
-    raw.source !== 'clone' &&
-    raw.source !== 'directoryFetch' &&
-    raw.source !== 'treeFetch'
-  ) {
+  if (raw.source !== 'clone' && raw.source !== 'treeFetch') {
     return null;
   }
   const meta: CloneCacheMeta = {
@@ -62,6 +51,11 @@ function parseCacheMeta(raw: unknown): CloneCacheMeta | null {
   };
   if (typeof raw.sparsePath === 'string') meta.sparsePath = raw.sparsePath;
   if (typeof raw.sizeBytes === 'number') meta.sizeBytes = raw.sizeBytes;
+  if (
+    typeof raw.snapshotId === 'string' &&
+    /^[0-9a-f-]{36}$/.test(raw.snapshotId)
+  )
+    meta.snapshotId = raw.snapshotId;
   if (typeof raw.commitSha === 'string' && raw.commitSha.length === 40)
     meta.commitSha = raw.commitSha;
   return meta;
@@ -217,7 +211,7 @@ function cleanupEmptyDirectories(reposBase: string): void {
       if (!isDir(repoDir)) continue;
       if (listDir(repoDir).length === 0) {
         try {
-          rmSync(repoDir, { recursive: true, force: true });
+          rmdirSync(repoDir);
         } catch {
           /* best-effort */
         }
@@ -226,7 +220,7 @@ function cleanupEmptyDirectories(reposBase: string): void {
 
     if (listDir(ownerDir).length === 0) {
       try {
-        rmSync(ownerDir, { recursive: true, force: true });
+        rmdirSync(ownerDir);
       } catch {
         /* best-effort */
       }
@@ -234,9 +228,16 @@ function cleanupEmptyDirectories(reposBase: string): void {
   }
 }
 
-function evictExpiredEntries(reposBase: string): number {
+type AcquireEntryLock = (path: string) => (() => void) | undefined;
+
+function evictExpiredEntries(
+  reposBase: string,
+  acquireEntry: AcquireEntryLock
+): number {
   let evicted = 0;
   for (const branchDir of walkCloneDirs(reposBase)) {
+    const release = acquireEntry(branchDir);
+    if (!release) continue;
     try {
       const meta = readCacheMeta(branchDir);
       if (!meta || !isCacheValid(meta)) {
@@ -245,6 +246,8 @@ function evictExpiredEntries(reposBase: string): number {
       }
     } catch {
       /* skip single entry */
+    } finally {
+      release();
     }
   }
   return evicted;
@@ -256,19 +259,28 @@ interface LiveCacheEntry {
   sizeBytes: number;
 }
 
-function collectLiveEntries(reposBase: string): LiveCacheEntry[] {
+function collectLiveEntries(
+  reposBase: string,
+  acquireEntry: AcquireEntryLock
+): LiveCacheEntry[] {
   const entries: LiveCacheEntry[] = [];
   for (const branchDir of walkCloneDirs(reposBase)) {
-    const meta = readCacheMeta(branchDir);
-    if (!meta) continue;
-    const clonedAtMs = Number.isNaN(Date.parse(meta.clonedAt))
-      ? 0
-      : Date.parse(meta.clonedAt);
-    entries.push({
-      branchDir,
-      clonedAtMs,
-      sizeBytes: meta.sizeBytes ?? getDirectorySizeBytes(branchDir),
-    });
+    const release = acquireEntry(branchDir);
+    if (!release) continue;
+    try {
+      const meta = readCacheMeta(branchDir);
+      if (!meta) continue;
+      const clonedAtMs = Number.isNaN(Date.parse(meta.clonedAt))
+        ? 0
+        : Date.parse(meta.clonedAt);
+      entries.push({
+        branchDir,
+        clonedAtMs,
+        sizeBytes: meta.sizeBytes ?? getDirectorySizeBytes(branchDir),
+      });
+    } finally {
+      release();
+    }
   }
   return entries;
 }
@@ -276,7 +288,8 @@ function collectLiveEntries(reposBase: string): LiveCacheEntry[] {
 function evictByCapacity(
   entries: LiveCacheEntry[],
   maxSizeBytes: number,
-  maxCloneCount: number
+  maxCloneCount: number,
+  acquireEntry: AcquireEntryLock
 ): number {
   let totalSize = entries.reduce((sum, e) => sum + e.sizeBytes, 0);
   let totalCount = entries.length;
@@ -286,6 +299,8 @@ function evictByCapacity(
   let evicted = 0;
   for (const entry of entries) {
     if (totalSize <= maxSizeBytes && totalCount <= maxCloneCount) break;
+    const release = acquireEntry(entry.branchDir);
+    if (!release) continue;
     try {
       rmSync(entry.branchDir, { recursive: true, force: true });
       evicted++;
@@ -293,17 +308,22 @@ function evictByCapacity(
       totalCount -= 1;
     } catch {
       /* best-effort */
+    } finally {
+      release();
     }
   }
   return evicted;
 }
 
-function evictExpiredCacheBase(cacheBase: string): number {
+function evictExpiredCacheBase(
+  cacheBase: string,
+  acquireEntry: AcquireEntryLock
+): number {
   if (!existsSync(cacheBase)) return 0;
 
   let evicted = 0;
   try {
-    evicted += evictExpiredEntries(cacheBase);
+    evicted += evictExpiredEntries(cacheBase, acquireEntry);
   } catch {
     return evicted;
   }
@@ -311,9 +331,10 @@ function evictExpiredCacheBase(cacheBase: string): number {
   cleanupEmptyDirectories(cacheBase);
 
   const lruEvicted = evictByCapacity(
-    collectLiveEntries(cacheBase),
+    collectLiveEntries(cacheBase, acquireEntry),
     getMaxCacheSizeBytes(),
-    getMaxCloneCount()
+    getMaxCloneCount(),
+    acquireEntry
   );
   evicted += lruEvicted;
 
@@ -323,9 +344,13 @@ function evictExpiredCacheBase(cacheBase: string): number {
 }
 
 export function evictExpiredClones(octocodeDir: string): number {
-  return evictExpiredCacheBase(getCloneBaseDir(octocodeDir));
+  return evictExpiredCacheBase(getCloneBaseDir(octocodeDir), path =>
+    tryAcquireMaterializationLock(getCloneLockDir(octocodeDir, path))
+  );
 }
 
 export function evictExpiredTrees(octocodeDir: string): number {
-  return evictExpiredCacheBase(getTreeBaseDir(octocodeDir));
+  return evictExpiredCacheBase(getTreeBaseDir(octocodeDir), path =>
+    tryAcquireMaterializationLock(getTreeLockDir(octocodeDir, path))
+  );
 }

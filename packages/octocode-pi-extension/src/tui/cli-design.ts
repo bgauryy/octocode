@@ -7,7 +7,7 @@
  */
 
 import { truncateToWidth } from '@earendil-works/pi-tui';
-import { TOKEN, colorEnabled, paint, sanitizeLine, type PaintTheme, type SemanticToken } from './palette.js';
+import { ANSI_RESET, TOKEN, colorEnabled, sanitizeLine, type PaintTheme, type SemanticToken } from './palette.js';
 
 export const CLI_GLYPH = {
   brand: '◆',
@@ -33,7 +33,6 @@ export const CLI_STATUS_TEXT = {
   unavailable: 'no interactive UI',
 } as const;
 
-const ANSI_RESET = '\u001b[0m';
 const ANSI_BY_TOKEN: Partial<Record<SemanticToken, string>> = {
   brand: '\u001b[36m',
   path: '\u001b[36m',
@@ -57,7 +56,6 @@ const ANSI_BY_TOKEN: Partial<Record<SemanticToken, string>> = {
 export function ansiForToken(token: SemanticToken): string | undefined {
   return ANSI_BY_TOKEN[token];
 }
-export const ANSI_RESET_SEQ = ANSI_RESET;
 
 /** Theme paint with a raw ANSI fallback for shell transcript rows. */
 export function cliPaint(
@@ -151,6 +149,3 @@ export function formatThinkingRow(boundary: 'start' | 'end', theme?: PaintTheme)
   }
   return cliPaint(theme, 'link', '╰─ thinking ready');
 }
-
-/** Use the existing semantic theme painter for non-raw TUI component renderers. */
-export { paint };

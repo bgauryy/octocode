@@ -7,7 +7,7 @@ use ignore::WalkBuilder;
 use rayon::prelude::*;
 
 use super::language::AgLanguage;
-use super::octo::compile_matcher;
+use super::octo::{compile_matcher, ExecutionError};
 use super::query::{invalid_query_explanation, Prefilter, StructuralQuery};
 use super::types::{
     structural_query_fingerprint, StructuralDetailedMatch, StructuralDiagnostic,
@@ -28,7 +28,8 @@ pub fn search_files(
     // relative path) returned Ok(0 matches) — a silent zero — while the
     // no-anchor walker branch errored. One loud contract for all branches.
     check_root_exists(&root)?;
-    let query = StructuralQuery::new(options.pattern.as_deref(), options.rule.as_deref())?;
+    let query = StructuralQuery::new(options.pattern.as_deref(), options.rule.as_deref())
+        .map_err(|message| format!("[structural.query.invalid] {message}"))?;
 
     let include = options.include.unwrap_or_default();
     let exclude = options.exclude.unwrap_or_default();
@@ -42,15 +43,17 @@ pub fn search_files(
         .map(|n| n as u64)
         .unwrap_or(1_000_000);
     let prefilter = query.prefilter();
+    let query_explanation = query.explanation();
 
     let overrides = build_overrides(&root, &include, &exclude)?;
-    let (candidate_files, skipped_by_pre_filter, skipped_unsupported) = match &prefilter {
+    let (mut candidate_files, skipped_by_pre_filter, skipped_unsupported) = match &prefilter {
         Prefilter::None => (
-            collect_candidate_files(
+            collect_files(
                 &root,
                 overrides,
                 &exclude_dir,
-                max_files,
+                max_files.saturating_add(1),
+                false,
                 hidden,
                 no_ignore,
                 max_depth,
@@ -72,7 +75,7 @@ pub fn search_files(
                 max_depth,
                 overrides,
                 anchor,
-                max_files,
+                max_files.saturating_add(1),
                 false,
             )?
         }
@@ -89,19 +92,21 @@ pub fn search_files(
                 max_depth,
                 overrides,
                 anchors,
-                max_files,
+                max_files.saturating_add(1),
             )?
         }
     };
+
+    let scan_truncated = candidate_files.len() > max_files;
+    candidate_files.truncate(max_files);
 
     let mut by_ext: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     let mut skipped_unsupported_ext = skipped_unsupported;
     for path in candidate_files {
         let ext = extension_for_path(&path).unwrap_or_default();
         if languages::find_entry(&ext).is_none() {
-            // Defense-in-depth: `matching_anchor_candidate_files` already
-            // partitioned unsupported files out, but `collect_candidate_files`
-            // (no-anchor path) returns supported-only, so this is a no-op there.
+            // Both anchored and unanchored scans retain unsupported candidates
+            // until they can be counted as incomplete coverage.
             skipped_unsupported_ext = skipped_unsupported_ext.saturating_add(1);
             continue;
         }
@@ -126,9 +131,11 @@ pub fn search_files(
         Unreadable,
         Large,
         ParsedNoMatch,
+        Incomplete(StructuralDiagnostic),
         Matched(StructuralSearchFileResult),
     }
 
+    let mut execution_diagnostics = Vec::new();
     for (ext, paths) in by_ext {
         let Some(entry) = languages::find_entry(&ext) else {
             // Unreachable (unsupported exts were partitioned above) but kept as
@@ -143,9 +150,20 @@ pub fn search_files(
                 run
             }
             Err(err) => {
-                compile_skipped.push((ext.clone(), paths.len() as u32));
-                if first_compile_error.is_none() {
+                if let Some(error) = ExecutionError::from_compile_message(&err) {
+                    execution_diagnostics.extend(
+                        paths
+                            .iter()
+                            .map(|path| error.diagnostic(&path.to_string_lossy())),
+                    );
+                    // Preserve an execution limit even if another language had
+                    // previously rejected the pattern as invalid syntax.
                     first_compile_error = Some(err);
+                } else {
+                    compile_skipped.push((ext.clone(), paths.len() as u32));
+                    if first_compile_error.is_none() {
+                        first_compile_error = Some(err);
+                    }
                 }
                 continue;
             }
@@ -165,7 +183,14 @@ pub fn search_files(
                     Ok(c) => c,
                     Err(_) => return SearchOutcome::Unreadable,
                 };
-                let matches = run(&content);
+                let matches = match run(&content) {
+                    Ok(matches) => matches,
+                    Err(error) => {
+                        return SearchOutcome::Incomplete(
+                            error.diagnostic(&file_path.to_string_lossy()),
+                        )
+                    }
+                };
                 if matches.is_empty() {
                     SearchOutcome::ParsedNoMatch
                 } else {
@@ -180,6 +205,7 @@ pub fn search_files(
 
         for outcome in outcomes {
             match outcome {
+                SearchOutcome::Incomplete(diagnostic) => execution_diagnostics.push(diagnostic),
                 SearchOutcome::Unreadable => skipped_unreadable += 1,
                 SearchOutcome::Large => skipped_large += 1,
                 SearchOutcome::ParsedNoMatch => parsed_files += 1,
@@ -230,10 +256,21 @@ pub fn search_files(
         }
         _ => {}
     }
+    let execution_incomplete = !execution_diagnostics.is_empty();
     if skipped_unsupported_ext > 0 {
         warnings.push(format!(
             "Skipped {skipped_unsupported_ext} candidate file(s) with unsupported extensions."
         ));
+        execution_diagnostics.push(
+            StructuralDiagnostic::new(
+                "structural.language.unsupported",
+                "warning",
+                "parse",
+                format!("Skipped {skipped_unsupported_ext} candidate file(s) with unsupported extensions; structural results do not cover those files."),
+            )
+            .with_path(root.to_string_lossy())
+            .with_recovery("Use text search for unsupported files, or restrict include globs to supported languages."),
+        );
     }
     if skipped_unreadable > 0 {
         warnings.push(format!(
@@ -247,6 +284,21 @@ pub fn search_files(
     }
 
     Ok(StructuralSearchFilesResult {
+        scan_truncated,
+        status: if execution_incomplete {
+            "truncated"
+        } else if skipped_unreadable > 0
+            || skipped_large > 0
+            || skipped_unsupported_ext > 0
+            || !compile_skipped.is_empty()
+        {
+            "partial"
+        } else {
+            "ok"
+        }
+        .to_owned(),
+        query: Some(query_explanation),
+        diagnostics: execution_diagnostics,
         files,
         total_matches,
         parsed_files,
@@ -289,6 +341,7 @@ pub fn search_files_detailed(
             .with_path(path.clone())
             .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.");
             return Ok(StructuralSearchFilesDetailedResult {
+                scan_truncated: false,
                 files: Vec::new(),
                 total_matches: 0,
                 parsed_files: 0,
@@ -317,16 +370,18 @@ pub fn search_files_detailed(
     let query_explanation = query.explanation();
 
     let overrides = build_overrides(&root, &include, &exclude)?;
-    let candidate_files = collect_files(
+    let mut candidate_files = collect_files(
         &root,
         overrides,
         &exclude_dir,
-        max_files,
+        max_files.saturating_add(1),
         false,
         hidden,
         no_ignore,
         max_depth,
     )?;
+    let scan_truncated = candidate_files.len() > max_files;
+    candidate_files.truncate(max_files);
     let matching_paths: Option<HashSet<String>> = match &prefilter {
         Prefilter::None => None,
         Prefilter::Single(anchor) => Some(matching_anchor_paths(
@@ -493,6 +548,15 @@ pub fn search_files_detailed(
         let run = match compiled {
             Ok(run) => run,
             Err(message) => {
+                if let Some(error) = ExecutionError::from_compile_message(message) {
+                    files.push(skipped_file(
+                        path_string.clone(),
+                        "truncated",
+                        "queryCompile",
+                        error.diagnostic(&path_string),
+                    ));
+                    continue;
+                }
                 compile_failures += 1;
                 files.push(skipped_file(
                     path_string.clone(),
@@ -511,17 +575,28 @@ pub fn search_files_detailed(
             }
         };
 
-        let matches: Vec<StructuralDetailedMatch> = run(&content)
-            .into_iter()
-            .map(|m| {
-                StructuralDetailedMatch::from_match(
-                    &path_string,
-                    &query_fingerprint,
-                    m.matched,
-                    m.node_kind,
-                )
-            })
-            .collect();
+        let matches: Vec<StructuralDetailedMatch> = match run(&content) {
+            Ok(matches) => matches,
+            Err(error) => {
+                files.push(skipped_file(
+                    path_string.clone(),
+                    "truncated",
+                    "executionLimit",
+                    error.diagnostic(&path_string),
+                ));
+                continue;
+            }
+        }
+        .into_iter()
+        .map(|m| {
+            StructuralDetailedMatch::from_match(
+                &path_string,
+                &query_fingerprint,
+                m.matched,
+                m.node_kind,
+            )
+        })
+        .collect();
         parsed_files += 1;
         total_matches = total_matches.saturating_add(matches.len() as u32);
         files.push(StructuralSearchDetailedFileResult {
@@ -572,7 +647,9 @@ pub fn search_files_detailed(
         ));
     }
 
-    let status = if compile_failures > 0 {
+    let status = if files.iter().any(|file| file.status == "truncated") {
+        "truncated"
+    } else if compile_failures > 0 {
         "parserFailed"
     } else if parsed_files == 0
         && skipped_unsupported > 0
@@ -587,7 +664,13 @@ pub fn search_files_detailed(
         "ok"
     };
 
+    let diagnostics = files
+        .iter()
+        .filter(|file| file.status == "truncated")
+        .flat_map(|file| file.diagnostics.iter().cloned())
+        .collect();
     Ok(StructuralSearchFilesDetailedResult {
+        scan_truncated,
         files,
         total_matches,
         parsed_files,
@@ -599,7 +682,7 @@ pub fn search_files_detailed(
         analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
         status: status.to_owned(),
         query: query_explanation,
-        diagnostics: Vec::new(),
+        diagnostics,
         warnings,
     })
 }
@@ -615,7 +698,7 @@ fn matching_anchor_paths(
     _max_depth: Option<u32>,
     anchor: &str,
 ) -> Result<HashSet<String>, String> {
-    let result = crate::ripgrep_search::search(RipgrepSearchOptions {
+    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
         pattern: anchor.to_owned(),
         fixed_string: Some(true),
@@ -646,16 +729,14 @@ fn matching_anchor_candidate_files(
     exclude_dir: &[String],
     hidden: Option<bool>,
     no_ignore: Option<bool>,
-    // Accepted for API uniformity; ripgrep-native has no max_depth, so the
-    // anchor-prefilter path can't enforce it. The no-anchor walker path does.
-    _max_depth: Option<u32>,
+    max_depth: Option<u32>,
     overrides: Override,
     anchor: &str,
     max_files: usize,
     supported_only: bool,
 ) -> Result<(Vec<PathBuf>, u32, u32), String> {
     let search_include = anchor_search_include_globs(include, supported_only);
-    let result = crate::ripgrep_search::search(RipgrepSearchOptions {
+    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
         pattern: anchor.to_owned(),
         fixed_string: Some(true),
@@ -666,8 +747,6 @@ fn matching_anchor_candidate_files(
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
         hidden,
         no_ignore,
-        // max_depth is not a RipgrepSearchOptions field — enforced by the
-        // `collect_files` walker instead (this prefilter path holes it).
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
@@ -679,7 +758,7 @@ fn matching_anchor_candidate_files(
     let mut out = Vec::new();
     for file in result.files {
         let path = PathBuf::from(file.path);
-        if overrides.matched(&path, false).is_ignore() {
+        if !within_depth(root, &path, max_depth) || overrides.matched(&path, false).is_ignore() {
             continue;
         }
         let is_supported =
@@ -713,10 +792,10 @@ fn matching_anchor_union_paths(
     hidden: Option<bool>,
     no_ignore: Option<bool>,
     _max_depth: Option<u32>,
-    anchors: &[&str],
+    anchors: &[String],
 ) -> Result<HashSet<String>, String> {
     let pattern = anchors_to_regex(anchors);
-    let result = crate::ripgrep_search::search(RipgrepSearchOptions {
+    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
         pattern,
         fixed_string: None, // regex alternation — not fixed-string
@@ -742,14 +821,14 @@ fn matching_anchor_union_candidate_files(
     exclude_dir: &[String],
     hidden: Option<bool>,
     no_ignore: Option<bool>,
-    _max_depth: Option<u32>,
+    max_depth: Option<u32>,
     overrides: Override,
-    anchors: &[&str],
+    anchors: &[String],
     max_files: usize,
 ) -> Result<(Vec<PathBuf>, u32, u32), String> {
     let search_include = anchor_search_include_globs(include, false);
     let pattern = anchors_to_regex(anchors);
-    let result = crate::ripgrep_search::search(RipgrepSearchOptions {
+    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
         pattern,
         fixed_string: None, // regex alternation
@@ -771,7 +850,7 @@ fn matching_anchor_union_candidate_files(
     let mut out = Vec::new();
     for file in result.files {
         let path = PathBuf::from(file.path);
-        if overrides.matched(&path, false).is_ignore() {
+        if !within_depth(root, &path, max_depth) || overrides.matched(&path, false).is_ignore() {
             continue;
         }
         let is_supported =
@@ -794,7 +873,7 @@ fn matching_anchor_union_candidate_files(
 /// Build a ripgrep regex alternation from anchor literals.
 /// Each anchor is escaped so operator characters (`&&`, `||`, etc.) are treated
 /// as literals, not regex metacharacters.
-fn anchors_to_regex(anchors: &[&str]) -> String {
+fn anchors_to_regex(anchors: &[String]) -> String {
     anchors
         .iter()
         .map(|a| regex_escape_anchor(a))
@@ -886,29 +965,6 @@ fn build_overrides(
     builder
         .build()
         .map_err(|err| format!("failed to compile include/exclude globs: {err}"))
-}
-
-/// Walk `root` with ripgrep's own `ignore` engine and yields deterministic
-/// candidate paths whose extension a grammar can parse.
-fn collect_candidate_files(
-    root: &Path,
-    overrides: Override,
-    exclude_dir: &[String],
-    max_files: usize,
-    hidden: Option<bool>,
-    no_ignore: Option<bool>,
-    max_depth: Option<u32>,
-) -> Result<Vec<PathBuf>, String> {
-    collect_files(
-        root,
-        overrides,
-        exclude_dir,
-        max_files,
-        true,
-        hidden,
-        no_ignore,
-        max_depth,
-    )
 }
 
 // Walker threads the eight local-search scope/output fields; a
@@ -1020,4 +1076,13 @@ fn skipped_file(
         matches: Vec::new(),
         diagnostics: vec![diagnostic],
     }
+}
+
+fn within_depth(root: &Path, file: &Path, max_depth: Option<u32>) -> bool {
+    max_depth.is_none_or(|depth| {
+        root == file
+            || file
+                .strip_prefix(root)
+                .is_ok_and(|relative| relative.components().count() <= depth as usize)
+    })
 }

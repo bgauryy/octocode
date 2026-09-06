@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Type } from 'typebox';
 import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 import { registerBashTool } from '../src/tools/bash-tool.js';
-import { registerWriteTool } from '../src/tools/write-tool.js';
+import { registerFileTool } from '../src/tools/file-tool.js';
 import type { ToolCallResult, ToolDefinition } from '../src/types.js';
 
 const typeBuilder = Type as unknown as (typeof import('typebox'))['Type'];
@@ -72,7 +72,7 @@ describe('built-in override query envelopes', () => {
   });
 
   it('write exposes only queries, preflights, and writes multiple files in order', async () => {
-    const tool = register(registerWriteTool);
+    const tool = register(registerFileTool);
     expectEnvelope(tool);
     const cwd = mkdtempSync(join(tmpdir(), 'query-write-'));
     dirs.push(cwd);
@@ -81,8 +81,8 @@ describe('built-in override query envelopes', () => {
       'write-batch',
       {
         queries: [
-          { reasoning: 'create first fixture', path: 'a.txt', content: 'a' },
-          { reasoning: 'create second fixture', path: 'b.txt', content: 'b' },
+          { type: 'write', reasoning: 'create first fixture', path: 'a.txt', content: 'a' },
+          { type: 'write', reasoning: 'create second fixture', path: 'b.txt', content: 'b' },
         ],
       },
       undefined,
@@ -96,7 +96,7 @@ describe('built-in override query envelopes', () => {
   });
 
   it('write preflight prevents earlier writes when a later path is invalid', async () => {
-    const tool = register(registerWriteTool);
+    const tool = register(registerFileTool);
     const cwd = mkdtempSync(join(tmpdir(), 'query-write-preflight-'));
     dirs.push(cwd);
 
@@ -104,8 +104,8 @@ describe('built-in override query envelopes', () => {
       'write-invalid',
       {
         queries: [
-          { reasoning: 'would create fixture', path: 'safe.txt', content: 'safe' },
-          { reasoning: 'invalid outside write', path: '/private/forbidden.txt', content: 'bad' },
+          { type: 'write', reasoning: 'would create fixture', path: 'safe.txt', content: 'safe' },
+          { type: 'write', reasoning: 'invalid outside write', path: '/private/forbidden.txt', content: 'bad' },
         ],
       },
       undefined,
@@ -117,12 +117,12 @@ describe('built-in override query envelopes', () => {
   });
 
   it('write preserves the original detail shape for one query', async () => {
-    const tool = register(registerWriteTool);
+    const tool = register(registerFileTool);
     const cwd = mkdtempSync(join(tmpdir(), 'query-write-one-'));
     dirs.push(cwd);
     const result: ToolCallResult = await tool.execute(
       'write-one',
-      { queries: [{ reasoning: 'create one fixture', path: 'one.txt', content: 'one' }] },
+      { queries: [{ type: 'write', reasoning: 'create one fixture', path: 'one.txt', content: 'one' }] },
       undefined,
       undefined,
       { cwd },

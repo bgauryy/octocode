@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateCommitKeywordScope } from '../../toolContract/input/resources/tools/historyCommitInput.js';
 
 import { createRelaxedBulkQuerySchema } from '../../scheme/fields.js';
 import { getRequiredSchemaField } from '../../scheme/conditionalSchemas.js';
@@ -41,7 +42,8 @@ const commitsSearchSchema = commitsSearchShape
     owner: requiredOwner(commitsSearchShape.shape),
     repo: requiredRepo(commitsSearchShape.shape),
   })
-  .strict();
+  .strict()
+  .superRefine(validateCommitKeywordScope);
 
 export const GitHubSearchHistoryQueryLocalSchema = z
   .discriminatedUnion('operation', [
@@ -68,7 +70,12 @@ const pullRequestItemSchema = pullRequestItemShape
   })
   .strict();
 
-const issueItemShape = IssueDetailQueryShape.omit({ issueNumber: true });
+const issueItemShape = IssueDetailQueryShape.omit({
+  issueNumber: true,
+  matchString: true,
+  commentBodyOffset: true,
+  minify: true,
+});
 const issueItemSchema = issueItemShape
   .extend({
     operation: operation('issue'),
@@ -81,6 +88,7 @@ const issueItemSchema = issueItemShape
 const commitItemShape = CommitCompareQueryShape.omit({
   base: true,
   head: true,
+  page: true,
 });
 const commitItemSchema = commitItemShape
   .extend({
@@ -88,6 +96,13 @@ const commitItemSchema = commitItemShape
     owner: requiredOwner(commitItemShape.shape),
     repo: requiredRepo(commitItemShape.shape),
     ref: z.string().min(1).describe('Commit SHA or ref to retrieve exactly.'),
+    fileBatch: z
+      .number()
+      .int()
+      .min(1)
+      .max(30)
+      .optional()
+      .describe('Provider file batch from next.nextFilePage; copy unchanged.'),
   })
   .strict();
 

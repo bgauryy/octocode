@@ -4,14 +4,6 @@ import type {
   InstallMethod,
   MCPClient,
 } from '../types/index.js';
-import { isWindows } from './platform.js';
-
-export {
-  getMCPConfigPath,
-  clientConfigExists,
-  MCP_CLIENTS,
-} from './mcp-paths.js';
-export { readMCPConfig, writeMCPConfig } from './mcp-io.js';
 
 export interface MCPRegistryEntry {
   id: string;
@@ -82,21 +74,12 @@ export function getOctocodeServerConfig(
   return config;
 }
 
-export function getOctocodeServerConfigWindows(
-  method: InstallMethod,
-  envOptions?: OctocodeEnvOptions
-): MCPServer {
-  return getOctocodeServerConfig(method, envOptions);
-}
-
 export function mergeOctocodeConfig(
   config: MCPConfig,
   method: InstallMethod,
   envOptions?: OctocodeEnvOptions
 ): MCPConfig {
-  const serverConfig = isWindows
-    ? getOctocodeServerConfigWindows(method, envOptions)
-    : getOctocodeServerConfig(method, envOptions);
+  const serverConfig = getOctocodeServerConfig(method, envOptions);
 
   return {
     ...config,
@@ -119,7 +102,11 @@ export function getConfiguredMethod(config: MCPConfig): InstallMethod | null {
   return null;
 }
 
-import { getMCPConfigPath, configFileExists } from './mcp-paths.js';
+import {
+  getMCPConfigPath,
+  configFileExists,
+  DETECTABLE_MCP_CLIENTS,
+} from './mcp-paths.js';
 import { readMCPConfig } from './mcp-io.js';
 
 export interface ClientInstallStatus {
@@ -158,21 +145,7 @@ export function getClientInstallStatus(
 }
 
 export function getAllClientInstallStatus(): ClientInstallStatus[] {
-  const clients: MCPClient[] = [
-    'cursor',
-    'claude-desktop',
-    'claude-code',
-    'opencode',
-    'vscode-cline',
-    'vscode-roo',
-    'vscode-continue',
-    'windsurf',
-    'trae',
-    'antigravity',
-    'zed',
-  ];
-
-  return clients.map(client => getClientInstallStatus(client));
+  return DETECTABLE_MCP_CLIENTS.map(client => getClientInstallStatus(client));
 }
 
 export function findInstalledClients(): ClientInstallStatus[] {

@@ -2,7 +2,7 @@ import {
   incrementGitHubCacheRateLimits,
   incrementRateLimits,
   updateSessionStats,
-} from './shared/index.js';
+} from './shared/session/index.js';
 import type { RateLimitData } from './types/session.js';
 
 export function recordRateLimit(data: RateLimitData): void {

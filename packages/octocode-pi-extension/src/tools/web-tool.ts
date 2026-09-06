@@ -5,7 +5,7 @@
  * Migrated to universal queries[] envelope with per-query reasoning.
  */
 import { runWebTool, renderWebResult } from '../web.js';
-import { propagateOctocodeEnv, getOctocodeHome } from '../env.js';
+import { propagateOctocodeEnv, getOctocodeHome } from '@octocodeai/config';
 import { CLI_STATUS_TEXT } from '../tui/cli-design.js';
 import type { TSchema, ToolDefinition, PiTheme, ToolCallResult } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';

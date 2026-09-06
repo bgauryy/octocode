@@ -14,8 +14,8 @@ import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveSessionIdentity, workspaceAgentRoot } from './tools/session-artifacts.js';
-import { extensionHome } from './extension-paths.js';
+import { resolveSessionIdentity } from './tools/session-artifacts.js';
+import { extensionWorkspaceRoot, extensionHome } from './extension-paths.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -498,11 +498,11 @@ export async function launchChrome(opts: {
 // ─── Session metadata ─────────────────────────────────────────────────────────
 
 export function getSessionDir(workspaceCwd: string, port: number, sessionKey: string): string {
-  return path.join(workspaceAgentRoot(workspaceCwd), 'sessions', sessionKey, 'browser', `port-${port}`);
+  return path.join(extensionWorkspaceRoot(workspaceCwd), 'sessions', sessionKey, 'browser', `port-${port}`);
 }
 
 export function getScreenshotDir(workspaceCwd: string, sessionKey: string): string {
-  return path.join(workspaceAgentRoot(workspaceCwd), 'sessions', sessionKey, 'browser', 'screenshots');
+  return path.join(extensionWorkspaceRoot(workspaceCwd), 'sessions', sessionKey, 'browser', 'screenshots');
 }
 
 export function readSessionMeta(sessionFile: string): SessionMetadata | null {

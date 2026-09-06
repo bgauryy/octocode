@@ -1,14 +1,18 @@
+vi.mock('../../src/utils/mcp-io.js', () => ({
+  readMCPConfig: vi.fn(),
+  writeMCPConfig: vi.fn(),
+}));
+vi.mock('../../src/utils/mcp-paths.js', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../src/utils/mcp-paths.js')>()),
+  getMCPConfigPath: vi.fn(),
+  clientConfigExists: vi.fn(),
+}));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../src/utils/mcp-config.js', () => ({
-  getMCPConfigPath: vi.fn(),
-  readMCPConfig: vi.fn(),
-  writeMCPConfig: vi.fn(),
   mergeOctocodeConfig: vi.fn(),
   isOctocodeConfigured: vi.fn(),
-  clientConfigExists: vi.fn(),
   getOctocodeServerConfig: vi.fn(),
-  getOctocodeServerConfigWindows: vi.fn(),
   getConfiguredMethod: vi.fn(),
 }));
 
@@ -29,7 +33,7 @@ describe('Install Feature', () => {
   describe('detectAvailableIDEs', () => {
     it('should return empty array when no IDEs are available', async () => {
       const { clientConfigExists } =
-        await import('../../src/utils/mcp-config.js');
+        await import('../../src/utils/mcp-paths.js');
       vi.mocked(clientConfigExists).mockReturnValue(false);
 
       const { detectAvailableIDEs } =
@@ -41,7 +45,7 @@ describe('Install Feature', () => {
 
     it('should return cursor when cursor is available', async () => {
       const { clientConfigExists } =
-        await import('../../src/utils/mcp-config.js');
+        await import('../../src/utils/mcp-paths.js');
       vi.mocked(clientConfigExists).mockImplementation(
         client => client === 'cursor'
       );
@@ -56,7 +60,7 @@ describe('Install Feature', () => {
 
     it('should return both when both are available', async () => {
       const { clientConfigExists } =
-        await import('../../src/utils/mcp-config.js');
+        await import('../../src/utils/mcp-paths.js');
       vi.mocked(clientConfigExists).mockReturnValue(true);
 
       const { detectAvailableIDEs } =
@@ -70,8 +74,7 @@ describe('Install Feature', () => {
 
   describe('checkExistingInstallation', () => {
     it('should return not installed when config does not exist', async () => {
-      const { getMCPConfigPath } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -87,8 +90,8 @@ describe('Install Feature', () => {
     });
 
     it('should return not installed when config exists but is invalid', async () => {
-      const { getMCPConfigPath, readMCPConfig } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -104,7 +107,9 @@ describe('Install Feature', () => {
     });
 
     it('should return installed when octocode is configured', async () => {
-      const { getMCPConfigPath, readMCPConfig, isOctocodeConfigured } =
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured } =
         await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
@@ -126,7 +131,9 @@ describe('Install Feature', () => {
 
   describe('installOctocode', () => {
     it('should fail if already installed without force', async () => {
-      const { getMCPConfigPath, readMCPConfig, isOctocodeConfigured } =
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured } =
         await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -148,13 +155,11 @@ describe('Install Feature', () => {
     });
 
     it('should succeed when not already installed', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
@@ -175,13 +180,11 @@ describe('Install Feature', () => {
     });
 
     it('should succeed with force even when already installed', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue({
@@ -208,13 +211,11 @@ describe('Install Feature', () => {
     });
 
     it('should return error when write fails', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
@@ -238,13 +239,11 @@ describe('Install Feature', () => {
     });
 
     it('should create new config when none exists', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue(null);
@@ -270,13 +269,11 @@ describe('Install Feature', () => {
 
   describe('installOctocodeMultiple', () => {
     it('should install for multiple IDEs', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
@@ -299,13 +296,11 @@ describe('Install Feature', () => {
     });
 
     it('should handle mixed success/failure', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       let callCount = 0;
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -335,12 +330,10 @@ describe('Install Feature', () => {
 
   describe('getInstallPreview', () => {
     it('should return create action for new config', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        getOctocodeServerConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, getOctocodeServerConfig } =
+        await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -362,12 +355,10 @@ describe('Install Feature', () => {
     });
 
     it('should return add action when config exists but no octocode', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        getOctocodeServerConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, getOctocodeServerConfig } =
+        await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -389,9 +380,9 @@ describe('Install Feature', () => {
     });
 
     it('should return override action when octocode is already installed', async () => {
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
       const {
-        getMCPConfigPath,
-        readMCPConfig,
         isOctocodeConfigured,
         getOctocodeServerConfig,
         getConfiguredMethod,
@@ -419,39 +410,10 @@ describe('Install Feature', () => {
     });
   });
 
-  describe('detectAvailableClients', () => {
-    it('should return available clients', async () => {
-      const { clientConfigExists } =
-        await import('../../src/utils/mcp-config.js');
-      vi.mocked(clientConfigExists).mockImplementation(
-        client => client === 'cursor' || client === 'claude-code'
-      );
-
-      const { detectAvailableClients } =
-        await import('../../src/features/install.js');
-      const result = detectAvailableClients();
-
-      expect(result).toContain('cursor');
-      expect(result).toContain('claude-code');
-      expect(result).not.toContain('claude-desktop');
-    });
-
-    it('should return empty array when no clients are available', async () => {
-      const { clientConfigExists } =
-        await import('../../src/utils/mcp-config.js');
-      vi.mocked(clientConfigExists).mockReturnValue(false);
-
-      const { detectAvailableClients } =
-        await import('../../src/features/install.js');
-      const result = detectAvailableClients();
-
-      expect(result).toEqual([]);
-    });
-  });
-
   describe('checkExistingClientInstallation', () => {
     it('should handle custom path for custom client', async () => {
-      const { readMCPConfig, isOctocodeConfigured } =
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured } =
         await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
@@ -473,7 +435,9 @@ describe('Install Feature', () => {
     });
 
     it('should use getMCPConfigPath for non-custom clients', async () => {
-      const { getMCPConfigPath, readMCPConfig, isOctocodeConfigured } =
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured } =
         await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
@@ -493,8 +457,8 @@ describe('Install Feature', () => {
     });
 
     it('should report configExists when file exists but readMCPConfig returns null', async () => {
-      const { getMCPConfigPath, readMCPConfig } =
-        await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/corrupt.json');
@@ -513,13 +477,11 @@ describe('Install Feature', () => {
 
   describe('installOctocodeForClient', () => {
     it('should install for a specific client', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
@@ -540,12 +502,10 @@ describe('Install Feature', () => {
     });
 
     it('should use custom path for custom client', async () => {
-      const {
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
       vi.mocked(isOctocodeConfigured).mockReturnValue(false);
@@ -567,7 +527,9 @@ describe('Install Feature', () => {
     });
 
     it('should fail when already installed without force', async () => {
-      const { getMCPConfigPath, readMCPConfig, isOctocodeConfigured } =
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured } =
         await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -590,13 +552,11 @@ describe('Install Feature', () => {
     });
 
     it('should return writeMCPConfig error when write fails', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        mergeOctocodeConfig,
-        writeMCPConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig, writeMCPConfig } =
+        await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, mergeOctocodeConfig } =
+        await import('../../src/utils/mcp-config.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
       vi.mocked(readMCPConfig).mockReturnValue({ mcpServers: {} });
@@ -623,12 +583,10 @@ describe('Install Feature', () => {
 
   describe('getInstallPreviewForClient', () => {
     it('should return preview for client installation', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        getOctocodeServerConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, getOctocodeServerConfig } =
+        await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');
@@ -650,9 +608,9 @@ describe('Install Feature', () => {
     });
 
     it('should return override action when octocode is already installed', async () => {
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
       const {
-        getMCPConfigPath,
-        readMCPConfig,
         isOctocodeConfigured,
         getOctocodeServerConfig,
         getConfiguredMethod,
@@ -680,12 +638,10 @@ describe('Install Feature', () => {
     });
 
     it('should return add action when config exists but octocode is not installed', async () => {
-      const {
-        getMCPConfigPath,
-        readMCPConfig,
-        isOctocodeConfigured,
-        getOctocodeServerConfig,
-      } = await import('../../src/utils/mcp-config.js');
+      const { getMCPConfigPath } = await import('../../src/utils/mcp-paths.js');
+      const { readMCPConfig } = await import('../../src/utils/mcp-io.js');
+      const { isOctocodeConfigured, getOctocodeServerConfig } =
+        await import('../../src/utils/mcp-config.js');
       const { fileExists } = await import('../../src/utils/fs.js');
 
       vi.mocked(getMCPConfigPath).mockReturnValue('/path/to/config.json');

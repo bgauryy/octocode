@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { type AuthorizationReceiptV1, type InteractionAnswerV1, type InteractionRequestV1, type OutboxEventV1, type StoredInteractionV1 } from '@octocodeai/octocode-awareness';
 import type { PiContext } from '../types.js';
-import { isPersistentStorageEnabled } from '../env.js';
+import { isPersistentStorageEnabled } from '@octocodeai/config';
 import { openPersistentAwareness } from './storage-policy.js';
 
 interface InteractionStore {
   createInteraction(request: InteractionRequestV1): unknown;
   answerInteraction(answer: InteractionAnswerV1): unknown;
+  deleteInteraction?(interactionId: string): unknown;
   getInteraction?(interactionId: string): StoredInteractionV1;
   createAuthorizationReceipt?(receipt: AuthorizationReceiptV1): unknown;
   consumeAuthorizationReceipt?(params: { receiptId: string; planId: string; revision: string; scope: string }): unknown;
@@ -37,6 +38,56 @@ interface EphemeralWorkspaceState {
 
 const ephemeralWorkspaces = new Map<string, EphemeralWorkspaceState>();
 
+export interface InMemoryInteractionCleanupResult {
+  workspaces: number;
+  interactions: number;
+  receipts: number;
+}
+
+function isExpired(expiresAt: string | undefined, now: number): boolean {
+  return expiresAt !== undefined && Date.parse(expiresAt) <= now;
+}
+
+function pruneExpiredEntries(state: EphemeralWorkspaceState, now = Date.now()): void {
+  for (const [interactionId, stored] of state.interactions) {
+    if (isExpired(stored.request.expiresAt, now)) state.interactions.delete(interactionId);
+  }
+  for (const [receiptId, receipt] of state.receipts) {
+    if (isExpired(receipt.expiresAt, now)) state.receipts.delete(receiptId);
+  }
+}
+
+function releaseEmptyWorkspace(workspace: string, state: EphemeralWorkspaceState): boolean {
+  if (state.interactions.size > 0 || state.receipts.size > 0) return false;
+  return ephemeralWorkspaces.get(workspace) === state && ephemeralWorkspaces.delete(workspace);
+}
+
+/** Release memory-mode state globally, per workspace, or for one session. */
+export function clearInMemoryInteractionState(
+  options: { workspace?: string; sessionId?: string } = {},
+): InMemoryInteractionCleanupResult {
+  const result: InMemoryInteractionCleanupResult = { workspaces: 0, interactions: 0, receipts: 0 };
+  const workspaces = options.workspace
+    ? [[options.workspace, ephemeralWorkspaces.get(options.workspace)] as const]
+    : [...ephemeralWorkspaces.entries()].map(([workspace, state]) => [workspace, state] as const);
+
+  for (const [workspace, state] of workspaces) {
+    if (!state) continue;
+    for (const [interactionId, stored] of state.interactions) {
+      if (options.sessionId && stored.request.sessionId !== options.sessionId) continue;
+      state.interactions.delete(interactionId);
+      result.interactions += 1;
+    }
+    for (const [receiptId, receipt] of state.receipts) {
+      if (options.sessionId && receipt.sessionId !== options.sessionId) continue;
+      state.receipts.delete(receiptId);
+      result.receipts += 1;
+    }
+    if (releaseEmptyWorkspace(workspace, state)) result.workspaces += 1;
+  }
+  return result;
+}
+
 function createInMemoryInteractionStore(workspace: string): InteractionStore {
   let state = ephemeralWorkspaces.get(workspace);
   if (!state) {
@@ -59,6 +110,10 @@ function createInMemoryInteractionStore(workspace: string): InteractionStore {
         { ...current, answer } as StoredInteractionV1,
       );
     },
+    deleteInteraction: (interactionId) => {
+      workspaceState.interactions.delete(interactionId);
+      releaseEmptyWorkspace(workspace, workspaceState);
+    },
     getInteraction: (interactionId) => {
       const current = workspaceState.interactions.get(interactionId);
       if (!current) throw new Error('interaction request was not found');
@@ -80,14 +135,19 @@ function createInMemoryInteractionStore(workspace: string): InteractionStore {
       }
       workspaceState.receipts.delete(receiptId);
     },
-    listPendingInteractions: ({ sessionId, limit = 500 } = {}) =>
-      [...workspaceState.interactions.values()]
+    listPendingInteractions: ({ sessionId, limit = 500 } = {}) => {
+      pruneExpiredEntries(workspaceState);
+      return [...workspaceState.interactions.values()]
         .filter((item) => !item.answer && (!sessionId || item.request.sessionId === sessionId))
         .slice(0, limit)
-        .map((item) => ({ request: item.request })),
+        .map((item) => ({ request: item.request }));
+    },
     listEvents: () => [],
     acknowledgeEvent: () => undefined,
-    close: () => undefined,
+    close: () => {
+      pruneExpiredEntries(workspaceState);
+      releaseEmptyWorkspace(workspace, workspaceState);
+    },
   };
 }
 
@@ -152,8 +212,66 @@ export function createHumanAuthorizationReceipt(
     expiresAt: request.expiresAt,
   };
   const store = storeFactory(request.workspace);
-  try { store.createAuthorizationReceipt?.(receipt); } finally { store.close(); }
+  try {
+    store.createAuthorizationReceipt?.(receipt);
+    store.deleteInteraction?.(request.interactionId);
+  } finally {
+    store.close();
+  }
   return receipt;
+}
+
+export function createHumanAuthorizationReceiptFromInteraction(
+  ctx: PiContext,
+  params: {
+    interactionId: string;
+    planId: string;
+    revision: string;
+    scope: string;
+    expectedOptionId: string;
+    /** Keep the answered interaction for a second tightly-bound receipt scope. */
+    consumeInteraction?: boolean;
+  },
+): AuthorizationReceiptV1 {
+  const workspace = ctx.cwd ?? process.cwd();
+  const sessionId = brokerSessionId(ctx);
+  const store = storeFactory(workspace);
+  try {
+    if (!store.getInteraction) throw new Error('interaction store cannot load authorization requests');
+    if (!store.createAuthorizationReceipt) throw new Error('interaction store cannot create authorization receipts');
+    const stored = store.getInteraction(params.interactionId);
+    const request = stored.request;
+    const answer = stored.answer;
+    if (request.workspace !== workspace || request.sessionId !== sessionId) {
+      throw new Error('authorization interaction does not belong to this workspace and session');
+    }
+    if (request.kind !== 'authorization') throw new Error('interaction is not an authorization request');
+    if (request.expiresAt !== undefined && Date.parse(request.expiresAt) <= Date.now()) {
+      throw new Error('authorization interaction is expired');
+    }
+    if (!answer || answer.cancelled || !answer.optionIds?.includes(params.expectedOptionId)) {
+      throw new Error('authorization interaction does not contain the required human Start decision');
+    }
+    const receipt: AuthorizationReceiptV1 = {
+      version: 1,
+      receiptId: `authorization_${randomUUID()}`,
+      interactionId: request.interactionId,
+      workspace,
+      sessionId,
+      planId: params.planId,
+      revision: params.revision,
+      scope: [params.scope],
+      actor: answer.actor,
+      provenance: answer.provenance,
+      createdAt: answer.createdAt,
+      expiresAt: request.expiresAt,
+    };
+    store.createAuthorizationReceipt(receipt);
+    if (params.consumeInteraction !== false) store.deleteInteraction?.(request.interactionId);
+    return receipt;
+  } finally {
+    store.close();
+  }
 }
 
 export function consumeHumanAuthorizationReceipt(
@@ -231,7 +349,14 @@ export function answerPendingInteraction(
     createdAt: new Date().toISOString(),
   };
   const store = storeFactory(request.workspace);
-  try { store.answerInteraction(answer); } finally { store.close(); }
+  try {
+    store.answerInteraction(answer);
+    if (request.kind !== 'authorization' || answer.cancelled) {
+      store.deleteInteraction?.(request.interactionId);
+    }
+  } finally {
+    store.close();
+  }
   return answer;
 }
 

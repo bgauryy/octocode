@@ -97,7 +97,7 @@ test('settings action schema and SQLite handler support workspace/global skill e
   roots.push(root);
   process.env['OCTOCODE_HOME'] = path.join(root, 'home');
   const cwd = path.join(root, 'workspace');
-  const ctx = { cwd, isProjectTrusted: async () => true } as unknown as PiContext;
+  const ctx = { cwd, isProjectTrusted: () => true } as unknown as PiContext;
   const disable = parseMcpManagerAction({ action: 'disable-skill', skill: 'demo-flow', scope: 'project' });
   assert.deepEqual(disable, { action: 'disable-skill', skill: 'demo-flow', scope: 'project' });
   await applyMcpManagerAction(disable, ctx);
@@ -137,7 +137,7 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
     { name: 'release', description: 'Run the release workflow.', source: 'skill', sourceInfo: { path: '/skills/release/SKILL.md', source: 'release', scope: 'project', origin: 'top-level' } },
     { name: 'review<script>', description: 'Review & summarize safely.', source: 'prompt', sourceInfo: { path: '/prompts/review.md', source: 'review', scope: 'user', origin: 'top-level' } },
   ];
-  const html = await renderMcpManagerPage({ cwd, isProjectTrusted: async () => true } as unknown as PiContext, 'test-action-token', undefined, commands);
+  const html = await renderMcpManagerPage({ cwd, isProjectTrusted: () => true } as unknown as PiContext, 'test-action-token', undefined, commands);
   assert.equal(SETTINGS_HTML_FILE, 'settings.html');
   assert.match(html, /Octocode · extension control center/);
   assert.match(html, /One extension control center/);

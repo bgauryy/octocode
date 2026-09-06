@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { shouldEnrichPullRequestFromSearch } from '../../src/github/prContentFetcher.js';
+import { shouldEnrichPullRequestFromSearch } from '../../src/github/prContentFetcher/flags.js';
 import type { GitHubPullRequestsSearchParams } from '../../src/github/githubAPI.js';
+
+vi.mock('../../src/github/prContentFetcher/commits.js', () => ({
+  fetchPRFileChangesAPI: vi.fn(async () => ({ total_count: 0, files: [] })),
+  fetchPRCommitsWithFiles: vi.fn(),
+}));
 
 describe('shouldEnrichPullRequestFromSearch (Phase D lean)', () => {
   const base: GitHubPullRequestsSearchParams = {
@@ -64,7 +69,7 @@ describe('transformPullRequestItemFromSearch lean path', () => {
     };
 
     const { transformPullRequestItemFromSearch } =
-      await import('../../src/github/prContentFetcher.js');
+      await import('../../src/github/prContentFetcher/transform.js');
 
     await transformPullRequestItemFromSearch(
       {
@@ -107,7 +112,7 @@ describe('transformPullRequestItemFromSearch lean path', () => {
     };
 
     const { transformPullRequestItemFromSearch } =
-      await import('../../src/github/prContentFetcher.js');
+      await import('../../src/github/prContentFetcher/transform.js');
 
     await transformPullRequestItemFromSearch(
       {

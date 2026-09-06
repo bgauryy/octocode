@@ -4,7 +4,7 @@ import {
   type CodeSearchGroupedMatch,
   type CodeSearchGroupedResult,
   type CodeSearchPagination,
-} from '../../providerMappers.js';
+} from '../../providerMappers/codeSearch.js';
 export type PerQueryGroups = {
   index: number;
   groups: CodeSearchGroupedResult[];

@@ -1,6 +1,6 @@
 import type { z } from 'zod';
 
-import { RipgrepQuerySchema } from './schemas.js';
+import { RipgrepQuerySchema } from './input/resources/tools/localTextOperation.js';
 
 type RuntimeRipgrepQuery = z.infer<typeof RipgrepQuerySchema>;
 

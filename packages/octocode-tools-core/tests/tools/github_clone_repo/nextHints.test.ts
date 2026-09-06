@@ -21,17 +21,24 @@ const mocks = vi.hoisted(() => ({
   spawnWithTimeout: vi.fn<SpawnMock>(),
 }));
 
-vi.mock('../../../src/shared/index.js', async importOriginal => {
+vi.mock('../../../src/shared/paths.js', async importOriginal => {
   const actual =
-    await importOriginal<typeof import('../../../src/shared/index.js')>();
-  return {
-    ...actual,
-    getOctocodeDir: () => mocks.octocodeDir,
-  };
+    await importOriginal<typeof import('../../../src/shared/paths.js')>();
+  return { ...actual, getOctocodeDir: () => mocks.octocodeDir };
 });
 
-vi.mock('../../../src/utils/exec/spawn.js', () => ({
+vi.mock('../../../src/utils/exec/spawn/env.js', () => ({
   TOOLING_ALLOWED_ENV_VARS: [],
+}));
+vi.mock('../../../src/serverConfig.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../src/serverConfig.js')>();
+  return {
+    ...actual,
+    getServerConfig: () => ({ githubApiUrl: 'https://api.github.com' }),
+  };
+});
+vi.mock('../../../src/utils/exec/spawn/wrappers.js', () => ({
   spawnWithTimeout: (...args: Parameters<SpawnMock>) =>
     mocks.spawnWithTimeout(...args),
 }));
@@ -52,7 +59,7 @@ describe('ghCloneRepo next-hints', () => {
         if (targetDir) mkdirSync(targetDir, { recursive: true });
       }
       if (args.includes('sparse-checkout')) {
-        const targetDir = args[1];
+        const targetDir = args[args.indexOf('-C') + 1];
         const sparsePath = args.at(-1);
         if (targetDir && sparsePath) {
           const checkoutPath = join(targetDir, sparsePath);
@@ -60,7 +67,12 @@ describe('ghCloneRepo next-hints', () => {
           writeFileSync(checkoutPath, '', 'utf8');
         }
       }
-      return { stdout: '', stderr: '', exitCode: 0, success: true };
+      return {
+        stdout: args.includes('rev-parse') ? 'a'.repeat(40) : '',
+        stderr: '',
+        exitCode: 0,
+        success: true,
+      };
     });
   });
 
@@ -119,6 +131,8 @@ describe('ghCloneRepo next-hints', () => {
       source: 'clone',
       complete: true,
       resolvedBranch: 'main',
+      commitSha: 'a'.repeat(40),
+      verified: true,
     });
     expect(row?.data.localPath).toBeUndefined();
     expect(row?.data.resolvedBranch).toBeUndefined();
@@ -142,7 +156,9 @@ describe('ghCloneRepo next-hints', () => {
     };
     expect(cachedData.results[0]).toMatchObject({
       cache: 1,
-      data: { location: { cached: true } },
+      data: {
+        location: { cached: true, verified: false, commitSha: 'a'.repeat(40) },
+      },
     });
   });
 

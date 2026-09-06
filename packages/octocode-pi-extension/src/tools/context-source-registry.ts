@@ -84,11 +84,16 @@ export function registerCurrentContextSource(
   const owners = ownersBySession.get(key) ?? new Map<string, RegisteredOwner>();
   ownersBySession.set(key, owners);
   const prior = owners.get(owner.id);
-  if (!prior && owners.size >= MAX_REGISTERED_CONTEXT_SOURCES) {
-    const oldest = [...owners.entries()].sort(([, a], [, b]) => a.sequence - b.sequence)[0];
+  owners.set(owner.id, { owner, sequence: prior?.sequence ?? sequence++ });
+  if (owners.size > MAX_REGISTERED_CONTEXT_SOURCES) {
+    // Restore-only transcript readers can be rebuilt from durable entries. Keep
+    // capture owners (especially session memory) through long tool histories.
+    // Include the new owner so it cannot displace capture state at a full cap.
+    const oldest = [...owners.entries()].sort(([, a], [, b]) =>
+      Number(a.owner.capture !== false) - Number(b.owner.capture !== false)
+      || a.sequence - b.sequence)[0];
     if (oldest) owners.delete(oldest[0]);
   }
-  owners.set(owner.id, { owner, sequence: prior?.sequence ?? sequence++ });
   return () => {
     const current = ownersBySession.get(key);
     if (current?.get(owner.id)?.owner === owner) current.delete(owner.id);
@@ -207,7 +212,9 @@ function textContent(content: unknown): string | undefined {
 }
 
 function sessionEntries(ctx: PiContext): unknown[] {
-  return ctx.sessionManager?.getEntries?.() ?? ctx.sessionManager?.getBranch?.() ?? [];
+  // getEntries includes sibling branches. Only the active root-to-leaf branch
+  // can supply current user, tool, and peer context after tree navigation.
+  return ctx.sessionManager?.getBranch?.() ?? ctx.sessionManager?.getEntries?.() ?? [];
 }
 
 export function readLatestSessionUserRequest(ctx: PiContext): string | undefined {

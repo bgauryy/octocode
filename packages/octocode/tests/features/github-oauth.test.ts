@@ -61,7 +61,7 @@ vi.mock('open', () => ({
 
 const ENV_TOKEN_VARS = ['OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN'];
 
-vi.mock('../../src/utils/token-storage.js', () => ({
+vi.mock('@octocodeai/octocode-tools-core/credentials', () => ({
   storeCredentials: vi.fn().mockResolvedValue({ success: true }),
   getCredentials: vi.fn().mockResolvedValue(null),
   getCredentialsSync: vi.fn().mockReturnValue(null),
@@ -123,7 +123,8 @@ describe('GitHub OAuth', () => {
     vi.resetModules();
     vi.clearAllMocks();
 
-    const tokenStorage = await import('../../src/utils/token-storage.js');
+    const tokenStorage =
+      await import('@octocodeai/octocode-tools-core/credentials');
     vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue(null);
     vi.mocked(tokenStorage.resolveTokenFull).mockImplementation(
       async (options?: { hostname?: string; clientId?: string }) => {
@@ -281,7 +282,7 @@ describe('GitHub OAuth', () => {
   describe('getAuthStatus', () => {
     it('should return not authenticated when no credentials exist', async () => {
       const { getCredentialsSync } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentialsSync).mockReturnValue(null);
 
       const { getAuthStatus } =
@@ -294,7 +295,7 @@ describe('GitHub OAuth', () => {
 
     it('should return authenticated when valid credentials exist', async () => {
       const { getCredentialsSync, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentialsSync).mockReturnValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -319,7 +320,7 @@ describe('GitHub OAuth', () => {
 
     it('should indicate token expired when token is expired', async () => {
       const { getCredentialsSync, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentialsSync).mockReturnValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -364,7 +365,7 @@ describe('GitHub OAuth', () => {
       const { hasEnvToken, getEnvTokenSource } =
         await import('@octocodeai/config');
       const { getCredentialsSync } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
 
       vi.mocked(hasEnvToken).mockReturnValue(true);
@@ -394,7 +395,7 @@ describe('GitHub OAuth', () => {
     it('should fall back to gh CLI when no env token', async () => {
       const { hasEnvToken } = await import('@octocodeai/config');
       const { getCredentialsSync } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
 
       vi.mocked(hasEnvToken).mockReturnValue(false);
@@ -418,7 +419,7 @@ describe('GitHub OAuth', () => {
   describe('logout', () => {
     it('should return error when not logged in', async () => {
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue(null);
 
       const { logout } = await import('../../src/features/github-oauth.js');
@@ -430,7 +431,7 @@ describe('GitHub OAuth', () => {
 
     it('should delete credentials on logout', async () => {
       const { getCredentials, deleteCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -454,7 +455,7 @@ describe('GitHub OAuth', () => {
   describe('refreshAuthToken', () => {
     it('should return error when not logged in', async () => {
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue(null);
 
       const { refreshAuthToken } =
@@ -467,7 +468,7 @@ describe('GitHub OAuth', () => {
 
     it('should return error when token does not support refresh', async () => {
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -490,7 +491,7 @@ describe('GitHub OAuth', () => {
 
     it('should return error when refresh token is expired', async () => {
       const { getCredentials, isRefreshTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -516,7 +517,7 @@ describe('GitHub OAuth', () => {
 
     it('should delegate to shared refreshAuthToken and return success', async () => {
       const { getCredentials, isRefreshTokenExpired, refreshAuthToken } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
@@ -555,7 +556,7 @@ describe('GitHub OAuth', () => {
   describe('getValidToken', () => {
     it('should return null when not logged in', async () => {
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue(null);
 
       const { getValidToken } =
@@ -567,7 +568,7 @@ describe('GitHub OAuth', () => {
 
     it('should return token when not expired', async () => {
       const { getCredentials, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -590,7 +591,7 @@ describe('GitHub OAuth', () => {
 
     it('should return null when token is expired and no refresh token', async () => {
       const { getCredentials, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'testuser',
@@ -640,7 +641,7 @@ describe('GitHub OAuth', () => {
 
       const { login } = await import('../../src/features/github-oauth.js');
       const { storeCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(storeCredentials).mockResolvedValue({
         success: true,
@@ -700,7 +701,7 @@ describe('GitHub OAuth', () => {
       const { createOAuthDeviceAuth } =
         await import('@octokit/auth-oauth-device');
       const { storeCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
 
       vi.mocked(storeCredentials).mockResolvedValue({
         success: true,
@@ -777,7 +778,8 @@ describe('GitHub OAuth', () => {
     });
 
     it('should return gh CLI token when no env vars are set (auto mode)', async () => {
-      const tokenStorage = await import('../../src/utils/token-storage.js');
+      const tokenStorage =
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue(
         'gh-cli-token-456'
       );
@@ -791,7 +793,7 @@ describe('GitHub OAuth', () => {
 
     it('should return octocode token as final fallback (auto mode)', async () => {
       const { getCredentials, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'octocode-user',
@@ -814,7 +816,7 @@ describe('GitHub OAuth', () => {
 
     it('should return none when no token sources available (auto mode)', async () => {
       const { getCredentials } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue(null);
 
       const { getToken } = await import('../../src/features/github-oauth.js');
@@ -828,7 +830,7 @@ describe('GitHub OAuth', () => {
       process.env.GITHUB_TOKEN = 'env-token-ignored';
 
       const { getCredentials, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'octocode-user',
@@ -852,7 +854,8 @@ describe('GitHub OAuth', () => {
     it('should only check gh CLI when source is gh', async () => {
       process.env.GITHUB_TOKEN = 'env-token-ignored';
 
-      const tokenStorage = await import('../../src/utils/token-storage.js');
+      const tokenStorage =
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('gh-only-token');
 
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
@@ -872,7 +875,8 @@ describe('GitHub OAuth', () => {
     it('should prioritize GITHUB_TOKEN over gh CLI in auto mode', async () => {
       process.env.GITHUB_TOKEN = 'env-wins';
 
-      const tokenStorage = await import('../../src/utils/token-storage.js');
+      const tokenStorage =
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('gh-loses');
 
       const { getToken } = await import('../../src/features/github-oauth.js');
@@ -883,7 +887,8 @@ describe('GitHub OAuth', () => {
     });
 
     it('should prioritize octocode over gh CLI in auto mode', async () => {
-      const tokenStorage = await import('../../src/utils/token-storage.js');
+      const tokenStorage =
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(tokenStorage.getGhCliToken).mockResolvedValue('gh-loses');
 
       const { checkGitHubAuth } = await import('../../src/features/gh-auth.js');
@@ -894,7 +899,7 @@ describe('GitHub OAuth', () => {
       });
 
       const { getCredentials, isTokenExpired } =
-        await import('../../src/utils/token-storage.js');
+        await import('@octocodeai/octocode-tools-core/credentials');
       vi.mocked(getCredentials).mockResolvedValue({
         hostname: 'github.com',
         username: 'octocode-user',

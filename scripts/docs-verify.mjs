@@ -3,18 +3,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '@octocodeai/octocode-tools-core/schema';
+import { DIRECT_TOOL_DISCOVERY_DEFINITIONS, getToolAvailability, prepareDirectToolInput } from '@octocodeai/octocode-tools-core/schema';
+import { DEFAULT_CONFIG } from '@octocodeai/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
-const REPO_BLOB_PREFIX = 'https://github.com/bgauryy/octocode-mcp/blob/main/';
+const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://github.com/bgauryy/${repo}/blob/main/`);
 const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
   definition => definition.name
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 const DEFAULT_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(
-  definition => !definition.disabled
+  definition => getToolAvailability(definition.name, DEFAULT_CONFIG).enabled
 ).map(definition => definition.name);
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
 const DOC_ROOTS = [
@@ -64,29 +65,34 @@ function readMarkdownLinks(content) {
 function validateDocsLinks() {
   const failures = [];
 
-  for (const rootDir of DOC_ROOTS) {
-    for (const filePath of collectMarkdownFiles(rootDir)) {
+  const packageRoots = fs.readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => path.join(ROOT, 'packages', entry.name));
+  const entryDocs = [ROOT, ...packageRoots].flatMap(dir => fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile() && entry.name.endsWith('.md')).map(entry => path.join(dir, entry.name)));
+  const docFiles = [...new Set([...DOC_ROOTS.flatMap(collectMarkdownFiles), ...entryDocs])];
+  for (const filePath of docFiles) {
+    {
       const content = fs.readFileSync(filePath, 'utf8');
       for (const linkTarget of readMarkdownLinks(content)) {
         if (
           linkTarget.startsWith('#') ||
           linkTarget.startsWith('mailto:') ||
           linkTarget.startsWith('tel:') ||
-          linkTarget.startsWith('http://')
+          ( /^[a-z][a-z0-9+.-]*:/i.test(linkTarget) && !linkTarget.startsWith('https://') )
         ) {
           continue;
         }
 
         if (!linkTarget.startsWith('https://')) {
-          failures.push(
-            `${path.relative(ROOT, filePath)} uses non-absolute link target "${linkTarget}"`
-          );
+          const relativeTarget = decodeURIComponent(linkTarget.split('#')[0]);
+          if (!fs.existsSync(path.resolve(path.dirname(filePath), relativeTarget))) {
+            failures.push(`${path.relative(ROOT, filePath)} points to missing relative file "${linkTarget}"`);
+          }
           continue;
         }
 
-        if (linkTarget.startsWith(REPO_BLOB_PREFIX)) {
+        const repoPrefix = REPO_BLOB_PREFIXES.find(prefix => linkTarget.startsWith(prefix));
+        if (repoPrefix) {
           const relativeTarget = linkTarget
-            .slice(REPO_BLOB_PREFIX.length)
+            .slice(repoPrefix.length)
             .split('#')[0]
             .replace(/\/$/, '');
           const absoluteTarget = path.join(ROOT, relativeTarget);
@@ -241,9 +247,8 @@ function validatePrimaryToolGuidance() {
       required: [
         `${DISCOVERABLE_TOOL_COUNT} tools`,
         `${DEFAULT_TOOL_COUNT} enabled by default`,
-        'ghSearch(operation:"repositories")',
-        'ghSearch(operation:"tree")',
-        'ghSearch(operation:"code")',
+        '`ghSearch`',
+        'code, repository, and tree variants',
       ],
       forbidden: [
         'all 15 tools',
@@ -257,7 +262,7 @@ function validatePrimaryToolGuidance() {
       required: [
         'ghSearch',
         'ghSearch(operation:"repositories"',
-        'ghSearch operation:"tree"',
+        'ghSearch(operation:"tree")',
       ],
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
@@ -287,20 +292,20 @@ function validatePrimaryToolGuidance() {
     {
       file: 'skills/octocode-research/references/octocode.md',
       required: [
-        `${DISCOVERABLE_TOOL_COUNT} input contracts`,
-        `${DEFAULT_TOOL_COUNT} tools are enabled by default`,
+        `## ${DISCOVERABLE_TOOL_COUNT} public tools`,
+        `The default catalog contains ${DEFAULT_TOOL_COUNT} tools`,
         '| GitHub code / tree / repositories | `ghSearch`',
       ],
       forbidden: [],
     },
     {
       file: 'skills/octocode-research/references/workflow-external.md',
-      required: ['ghSearch(operation:"repositories")'],
+      required: ['ghSearch operation:"repositories"'],
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {
       file: 'skills/octocode-research/references/workflow-combination.md',
-      required: ['ghSearch(operation:"repositories")'],
+      required: ['ghSearch operation:"repositories"'],
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {
@@ -350,6 +355,7 @@ function main() {
     ...validateWorkflowReadme(),
     ...validateDocumentationContracts(),
     ...validatePrimaryToolGuidance(),
+    ...validateToolExamples(),
   ];
 
   if (failures.length > 0) {
@@ -361,6 +367,31 @@ function main() {
   }
 
   console.log('Documentation verification passed.');
+}
+
+function validateToolExamples() {
+  const failures = [];
+  const content = fs.readFileSync(path.join(ROOT, 'docs/OCTOCODE_TOOLS.md'), 'utf8');
+  const sections = content.split(/^### /m);
+  for (const section of sections) {
+    const name = section.match(/^`(\w+)`/)?.[1];
+    if (!PUBLIC_TOOL_NAMES.includes(name)) continue;
+    for (const [, json] of section.matchAll(/```json\s*\n([\s\S]*?)```/g)) {
+      let examples;
+      try {
+        try { examples = [JSON.parse(json)]; }
+        catch { examples = json.trim().split('\n').filter(line => line.trim()).map(line => JSON.parse(line)); }
+        for (const example of examples) prepareDirectToolInput(name, example);
+      } catch (error) {
+        failures.push(`docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}; ${(error.details ?? []).join('; ')}`);
+      }
+    }
+  }
+  const cloneRow = content.split('\n').find(line => line.startsWith('| `ENABLE_CLONE` |'));
+  if (!cloneRow?.includes(`Defaults to \`${DEFAULT_CONFIG.local.enableClone}\``)) {
+    failures.push('docs/OCTOCODE_TOOLS.md clone default disagrees with configuration.');
+  }
+  return failures;
 }
 
 main();

@@ -113,9 +113,15 @@ non-mergeable state when concurrent mutation would be unsafe.
 
 - `lock acquire|wait|release`: only for state that cannot be merged safely. Mutation
   checks already enforce peer-held locks; ordinary source edits do not need one.
-- `message`: only when a peer needs a blocker, question, decision, or overlap notice.
+- `message`: only when a peer needs a blocker, question, decision, evidence, handoff,
+  or overlap notice that changes the recipient's next action.
 - `memory`: recall only when prior learning can change the approach; store only
   verified reusable outcomes that source and docs do not already own.
+
+With `storage.mode=memory`, these durable Awareness operations return explicit errors;
+the extension does not pretend a lock, message, or memory write succeeded. Session-local
+`session.json`, `plan/index.json`, `tasks/index.json`, and `backlog/index.json` remain
+available as inspectable projections, never as replacements for the Awareness ledger.
 
 ## Diagnostics and recovery
 

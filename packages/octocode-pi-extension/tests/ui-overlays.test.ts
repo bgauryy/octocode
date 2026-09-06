@@ -1,8 +1,9 @@
+import { visibleWidth } from '../src/tui/width.js';
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { PiTheme } from '../src/types.js';
 import { OCTOCODE_OVERLAY_OPTIONS, octocodeSelectListTheme, applyFilterKey, selectItemMatchesFilter } from '../src/tools/ui-overlays.js';
-import { visibleWidth } from '../src/tools/render-helpers.js';
+
 
 const theme = {
   fg: (color: string, t: string) => `<${color}>${t}</${color}>`,

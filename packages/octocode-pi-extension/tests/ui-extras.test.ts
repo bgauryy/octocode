@@ -496,12 +496,11 @@ test('buildFooterSegments appends the changed-file delta to a dirty branch', () 
 
 test('buildAgentFooterRows: one row per subagent, live first, state colour + elapsed + activity', () => {
   const t0 = Date.parse('2026-08-22T10:00:00Z');
-  const { rows, overflow } = buildAgentFooterRows([
+  const { rows } = buildAgentFooterRows([
     { agentId: 'abcdef123', name: 'researcher', status: 'done', startedAt: new Date(t0).toISOString(), updatedAt: new Date(t0 + 5000).toISOString() },
       { agentId: '123456789', name: 'builder', status: 'running', model: 'gpt-5.6', task: 'Build footer components', planStep: 'Render agent rows', startedAt: new Date(t0).toISOString(), updatedAt: new Date(t0 + 1000).toISOString(), deltaSummary: 'editing src/index.ts' },
     { agentId: 'fffff0000', name: 'tester', status: 'blocked', startedAt: new Date(t0).toISOString(), updatedAt: new Date(t0 + 2000).toISOString() },
   ], t0 + 14_000);
-  assert.equal(overflow, 0);
   assert.deepEqual(rows.map((r) => r.label), ['agent tester (fffff0)', 'agent builder (123456)', 'agent researcher (abcdef)']);
   assert.deepEqual(rows.map((r) => r.state), ['blocked', 'running', 'done']);
   assert.deepEqual(rows.map((r) => r.token), ['warning', 'brand', 'success']);
@@ -579,5 +578,4 @@ test('buildAgentFooterRows: one row per subagent, live first, state colour + ela
     agentId: `id${i}`, name: `w${i}`, status: 'running', startedAt: new Date(t0).toISOString(), updatedAt: new Date(t0 + i).toISOString(),
   })), t0);
             assert.equal(many.rows.length, 6);
-            assert.equal(many.overflow, 0);
           });

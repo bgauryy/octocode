@@ -7,7 +7,7 @@ persisted enablement overrides in one loopback-only page.
 
 This document describes the implemented behavior in
 `src/tools/mcp-html.ts`. MCP protocol behavior remains owned by
-[`docs/MCP.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP.md), and session initialization is
+[`docs/MCP.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md), and session initialization is
 owned by [`RUNTIME_STATE.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/RUNTIME_STATE.md).
 
 ## Entry points

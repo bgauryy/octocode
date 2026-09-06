@@ -7,6 +7,8 @@ type ContentAxis =
   | 'changedFiles'
   | 'comments'
   | 'commentBody'
+  | 'reviews'
+  | 'reviewBody'
   | 'commits'
   | 'patches'
   | 'filePaths';
@@ -16,6 +18,8 @@ const CONTENT_CONTINUATION_NAMES: Record<ContentAxis, string> = {
   changedFiles: 'nextChangedFilesPage',
   comments: 'nextCommentsPage',
   commentBody: 'continueCommentBody',
+  reviews: 'nextReviewsPage',
+  reviewBody: 'continueReviewBody',
   commits: 'nextCommitsPage',
   patches: 'continuePatch',
   filePaths: 'nextFilePathsPage',
@@ -26,6 +30,8 @@ const CONTENT_CONTINUATION_CONTROLS: Record<ContentAxis, string> = {
   changedFiles: 'filePage',
   comments: 'commentPage',
   commentBody: 'commentBodyOffset',
+  reviews: 'reviewPage',
+  reviewBody: 'charOffset',
   commits: 'commitPage',
   patches: 'charOffset',
   filePaths: 'filePage',
@@ -48,6 +54,8 @@ function contentContinuationWhy(axis: ContentAxis): string {
     changedFiles: 'Continue the pull-request changed-file list.',
     comments: 'Continue the discussion comment list.',
     commentBody: 'Continue the current comment body.',
+    reviews: 'Continue the review list.',
+    reviewBody: 'Continue the current review body windows.',
     commits: 'Continue the pull-request commit list.',
     patches: 'Continue the current patch window.',
     filePaths: 'Continue the pull-request file-path list.',
@@ -63,9 +71,15 @@ function preservesPaginationControls(
     'filePage',
     'commentPage',
     'commitPage',
+    'reviewPage',
+    'collectionPages',
     'charOffset',
     'commentBodyOffset',
-  ].every(key => source[key] === undefined || source[key] === parsed[key]);
+  ].every(
+    key =>
+      source[key] === undefined ||
+      JSON.stringify(source[key]) === JSON.stringify(parsed[key])
+  );
 }
 
 /** Promote formatter-private nextQuery values to public executable calls. */
@@ -99,7 +113,10 @@ export function withContentContinuations(
       const parsed = isRecord(nextQuery)
         ? GitHubGetHistoryItemQueryLocalSchema.safeParse(nextQuery)
         : undefined;
-      const control = CONTENT_CONTINUATION_CONTROLS[axis];
+      const control =
+        operation === 'issue' && axis === 'commentBody'
+          ? 'charOffset'
+          : CONTENT_CONTINUATION_CONTROLS[axis];
       const hasCursor =
         isRecord(nextQuery) && typeof nextQuery[control] === 'number';
       if (

@@ -34,13 +34,13 @@ vi.mock('../../src/ui/header.js', () => ({
   printGoodbye: mocks.printGoodbye,
 }));
 
-vi.mock('../../src/ui/install/index.js', () => ({
+vi.mock('../../src/ui/install/environment.js', () => ({
   checkAndPrintEnvironmentWithLoader: mocks.checkAndPrintEnvironmentWithLoader,
   hasEnvironmentIssues: mocks.hasEnvironmentIssues,
   printNodeDoctorHint: mocks.printNodeDoctorHint,
 }));
 
-vi.mock('../../src/ui/menu.js', () => ({
+vi.mock('../../src/ui/menu/main-menu.js', () => ({
   runMenuLoop: mocks.runMenuLoop,
 }));
 

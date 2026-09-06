@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubPullRequestSearchQuerySchema as CoreGitHubPullRequestSearchQuerySchema } from '../../toolContract/schemas.js';
+import { GitHubPullRequestSearchQuerySchema as CoreGitHubPullRequestSearchQuerySchema } from '../../toolContract/input/resources/tools/githubHistorySchema.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,

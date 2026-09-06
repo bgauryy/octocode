@@ -1,10 +1,5 @@
 /**
- * Hand-authored, per-tool example query patterns for `--scheme`/help output.
- * Split out of `directToolCatalog.meta.ts` (still the public barrel) — see
- * that file's header comment for the full P3 rationale. Kept as its own file
- * because the if-chain of literal example payloads is large but simple, and
- * isolating it keeps `toolCommandPatterns.ts` (the logic that consumes it)
- * small and easy to read.
+ * Curated per-tool example queries for --scheme and help output.
  */
 import {
   LSP_GET_SEMANTICS_TOOL_NAME,
@@ -134,7 +129,7 @@ export function buildKnownDirectToolCommandPatternQueries(
       {
         label: 'matched slice',
         query: {
-          path: '/ABS/repo/packages/octocode-tools-core/src/tools/directToolCatalog.meta.ts',
+          path: '/ABS/repo/packages/octocode-tools-core/src/tools/directToolCatalog/toolCommandPatternQueries.ts',
           matchString: 'buildKnownDirectToolCommandPatternQueries',
           contextLines: 8,
           minify: 'standard',

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { workspaceAgentKey } from '@octocodeai/octocode-shared/paths';
-import { getOctocodeHome } from './env.js';
+import { getOctocodeHome } from '@octocodeai/config';
 
 /** Canonical root for every filesystem artifact owned by the Pi extension. */
 export function extensionHome(

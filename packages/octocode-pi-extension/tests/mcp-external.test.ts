@@ -94,7 +94,7 @@ test('real external Node stdio MCP loads and calls through the canonical project
 
       const context = {
         cwd: workspace,
-        isProjectTrusted: async () => true,
+        isProjectTrusted: () => true,
         ui: { setStatus: () => undefined },
       } as unknown as PiContext;
 

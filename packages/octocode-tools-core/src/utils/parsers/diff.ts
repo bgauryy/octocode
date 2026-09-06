@@ -1,4 +1,5 @@
-import { contextUtils, type FilterPatchOptions } from '../contextUtils.js';
+import { contextUtils } from '../contextUtils.js';
+import type { FilterPatchOptions } from '@octocodeai/octocode-engine';
 import { splitLines } from '../core/lines.js';
 
 const DIFF_CONTEXT_LINES = 2;

@@ -7,6 +7,7 @@ import {
 } from '../../shared/semanticTypes.js';
 import type { SymbolAnchor } from '../../shared/resolveSymbolAnchor.js';
 import { MAX_PAGE_NUMBER } from '../../../../config.js';
+import { semanticSnapshotItems } from '../semanticSnapshot.js';
 
 export const DEFAULT_SYMBOLS_PER_PAGE = 40;
 export const DEFAULT_LOCATIONS_PER_PAGE = 40;
@@ -19,6 +20,7 @@ export type PaginationInfo = {
   hasMore: boolean;
   pageSize: number;
   nextPage?: number;
+  snapshot?: string;
 };
 
 export function emptyCategoryForReason(
@@ -77,8 +79,14 @@ export function emptyEnvelope(
 export function paginateItems<T>(
   items: readonly T[],
   requestedPage: number,
-  requestedItemsPerPage: number
+  requestedItemsPerPage: number,
+  query?: LspGetSemanticsQuery,
+  identities?: readonly unknown[]
 ): { pageItems: T[]; pagination: PaginationInfo } {
+  const snapshot = query
+    ? semanticSnapshotItems(items, query, identities)
+    : undefined;
+  items = snapshot?.items ?? items;
   const itemsPerPage = Math.max(1, requestedItemsPerPage);
   const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
   const currentPage = Math.min(Math.max(1, requestedPage), totalPages);
@@ -94,6 +102,7 @@ export function paginateItems<T>(
       totalResults: items.length,
       hasMore,
       pageSize: itemsPerPage,
+      ...(snapshot ? { snapshot: snapshot.snapshot } : {}),
       ...(hasMore && currentPage < MAX_PAGE_NUMBER
         ? { nextPage: currentPage + 1 }
         : {}),

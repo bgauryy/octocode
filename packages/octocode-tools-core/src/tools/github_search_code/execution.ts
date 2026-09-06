@@ -1,11 +1,11 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubCodeSearchQuerySchema } from '../../toolContract/input/resources/tools/githubCodeOperation.js';
 import type { GitHubSearchCodeData } from '@octocodeai/octocode-core/types';
 
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { getOctokit } from '../../github/client.js';
 import type {
   ToolExecutionArgs,
@@ -20,12 +20,12 @@ import {
 import {
   mapCodeSearchProviderResult,
   mapCodeSearchToolQuery,
-} from '../providerMappers.js';
+} from '../providerMappers/codeSearch.js';
 import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
-import { buildGhSearchCodeFinalizer } from './finalizer.js';
+import { buildGhSearchCodeFinalizer } from './finalizer/build.js';
 
 type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
 

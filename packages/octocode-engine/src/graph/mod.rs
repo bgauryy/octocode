@@ -15,7 +15,7 @@ pub(crate) fn scan_graph_facts(
 ) -> Result<GraphFactsScanResult, String> {
     let max_files = options.max_files.unwrap_or(DEFAULT_MAX_FILES);
     let max_file_bytes = options.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES) as i64;
-    let query = crate::fs_query::query_file_system_inner(FileSystemQueryOptions {
+    let query = crate::search::fs_query::query_file_system_inner(FileSystemQueryOptions {
         path: options.path,
         recursive: Some(true),
         show_hidden: Some(false),
@@ -201,6 +201,76 @@ mod tests {
         assert_eq!(over_cap.entries.len(), 2);
         assert!(over_cap.truncated);
 
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn detects_graph_scan_overflow_across_directory_boundaries() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-graph-scan-nested-cap-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        // Each child ends exactly at the initial cap, whichever is visited first.
+        create_supported_files(&root.join("left"), 1);
+        create_supported_files(&root.join("right"), 1);
+
+        let capped = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(1),
+            ..Default::default()
+        })
+        .expect("scan nested graph at cap");
+        assert_eq!(capped.entries.len(), 1);
+        assert!(
+            capped.truncated,
+            "the sibling subtree still has a graph file"
+        );
+
+        let expanded = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(2),
+            ..Default::default()
+        })
+        .expect("expand nested graph scan");
+        assert_eq!(
+            expanded.candidate_paths,
+            ["left/entry-0.ts", "right/entry-0.ts"]
+        );
+        assert!(
+            !expanded.truncated,
+            "an exactly full complete scan has no overflow"
+        );
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn ignored_files_do_not_make_an_exact_graph_cap_partial() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-graph-scan-filtered-cap-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        create_supported_files(&root, 1);
+        fs::write(root.join("ignored.txt"), "not graph input").expect("write ignored file");
+        fs::create_dir_all(root.join("ignored-directory")).expect("create ignored subtree");
+        fs::write(
+            root.join("ignored-directory/ignored.txt"),
+            "not graph input",
+        )
+        .expect("write ignored child");
+
+        let result = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(1),
+            ..Default::default()
+        })
+        .expect("scan exactly one matching graph file");
+        assert_eq!(result.candidate_paths, ["entry-0.ts"]);
+        assert!(
+            !result.truncated,
+            "nonmatching entries are not graph overflow"
+        );
         fs::remove_dir_all(root).expect("cleanup fixture");
     }
 

@@ -74,11 +74,13 @@ describe('structural maxFiles cap honesty (capReached)', () => {
     mocks.readFile.mockResolvedValue('');
   });
 
-  it('sets stats.capReached when the scan consumed exactly maxFiles candidates', async () => {
-    // Engine walked 2 candidates and the caller capped at 2 — the reported
-    // total may understate reality, and with warnings removed from responses
-    // the ONLY honest signal is a typed stats field.
+  it('sets stats.capReached when native collection found a candidate beyond maxFiles', async () => {
+    // The native extra-candidate probe, rather than the returned file count,
+    // establishes whether the scan is incomplete.
     mocks.structuralSearchFiles.mockReturnValue({
+      status: 'ok',
+      diagnostics: [],
+      scanTruncated: true,
       files: [fileResult('/repo/a.ts'), fileResult('/repo/b.ts')],
       totalMatches: 2,
       parsedFiles: 2,
@@ -92,8 +94,11 @@ describe('structural maxFiles cap honesty (capReached)', () => {
     expect(result.stats?.capReached).toBe(true);
   });
 
-  it('counts unreadable/large skips toward the candidate cap', async () => {
+  it('preserves native cap evidence when a scanned candidate was unreadable', async () => {
     mocks.structuralSearchFiles.mockReturnValue({
+      status: 'partial',
+      diagnostics: [],
+      scanTruncated: true,
       files: [fileResult('/repo/a.ts')],
       totalMatches: 1,
       parsedFiles: 1,
@@ -109,6 +114,9 @@ describe('structural maxFiles cap honesty (capReached)', () => {
 
   it('omits capReached when the scan finished under the cap', async () => {
     mocks.structuralSearchFiles.mockReturnValue({
+      status: 'ok',
+      diagnostics: [],
+      scanTruncated: false,
       files: [fileResult('/repo/a.ts')],
       totalMatches: 1,
       parsedFiles: 1,

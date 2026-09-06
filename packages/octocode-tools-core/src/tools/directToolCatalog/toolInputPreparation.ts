@@ -1,9 +1,6 @@
 /**
- * Input preparation/normalization for the engine-free direct-tool catalog:
- * JSON parsing, envelope handling, default-field filling, and unknown-field
- * detection (with did-you-mean suggestions). Split
- * out of `directToolCatalog.meta.ts` (still the public barrel) — see that
- * file's header comment for the full P3 rationale.
+ * Engine-free input preparation: JSON parsing, envelopes, default fields,
+ * and unknown-field validation with spelling suggestions.
  */
 import { z } from 'zod';
 import {

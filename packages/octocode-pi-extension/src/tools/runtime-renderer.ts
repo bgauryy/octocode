@@ -1,4 +1,5 @@
-import type { PiContext, PiFooterData, PiTheme, PiWorkingIndicator } from '../types.js';
+import type { ReadonlyFooterDataProvider, WorkingIndicatorOptions } from '@earendil-works/pi-coding-agent';
+import type { PiContext, PiTheme } from '../types.js';
 import { createRuntimeStore, type ForegroundActivity, type ForegroundActivityInput, type RuntimeMcpState, type RuntimeState, type RuntimeStore } from './runtime-store.js';
 
 interface RuntimeBinding {
@@ -155,7 +156,7 @@ export function setManagedActivity(ctx: PiContext | undefined, activity: Foregro
 
 export function setManagedFooter(
   ctx: PiContext | undefined,
-  factory: ((tui: unknown, theme: PiTheme, footerData?: PiFooterData) => unknown) | undefined,
+  factory: ((tui: unknown, theme: PiTheme, footerData?: ReadonlyFooterDataProvider) => unknown) | undefined,
 ): void {
   if (!ctx || typeof ctx !== 'object') return;
   const binding = ensureRuntimeBinding(ctx);
@@ -164,7 +165,7 @@ export function setManagedFooter(
   binding.footer = factory !== undefined;
 }
 
-export function setManagedWorkingIndicator(ctx: PiContext | undefined, indicator?: PiWorkingIndicator): void {
+export function setManagedWorkingIndicator(ctx: PiContext | undefined, indicator?: WorkingIndicatorOptions): void {
   if (!ctx || typeof ctx !== 'object') return;
   const binding = ensureRuntimeBinding(ctx);
   if (!binding) return;

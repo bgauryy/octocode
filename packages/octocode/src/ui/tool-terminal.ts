@@ -1,6 +1,7 @@
 import { bold, c, dim } from '../utils/colors.js';
 import { input, loadInquirer } from '../utils/prompts.js';
-import { executeToolCommand, showAvailableTools } from '../cli/tool-command.js';
+import { executeToolCommand } from '../cli/tool-command/execute.js';
+import { showAvailableTools } from '../cli/tool-command/list-view.js';
 import type { ParsedArgs } from '../cli/types.js';
 
 type TerminalCommand =

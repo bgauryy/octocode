@@ -1,50 +1,31 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
-import { executeBulkOperation } from '../../utils/response/bulk.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
+import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import { getOctokit } from '../../github/client.js';
 import { resolveCanonicalOwnerRepo } from '../../github/canonicalRepo.js';
 import {
   handleCatchError,
-  handleProviderError,
   createErrorResult,
   createSuccessResult,
 } from '../utils.js';
 import {
   mapRepoSearchProviderRepositories,
   mapRepoSearchToolQuery,
-} from '../providerMappers.js';
+} from '../providerMappers/repoSearch.js';
 import {
   createLazyProviderContext,
-  executeProviderOperations,
+  executeProviderOperation,
 } from '../providerExecution.js';
 import {
-  createSearchVariants,
   hasValidKeywords,
   hasValidRepositorySearchParams,
   type PartialReposSearchQuery,
-  type RepoSearchVariantExecution,
-  type SuccessfulRepoSearchVariant,
 } from './execution/queryVariants.js';
-import {
-  deduplicateRepositories,
-  rankRepositoriesByRelevance,
-} from './execution/ranking.js';
-import {
-  buildMergedPagination,
-  buildPartialFailureWarnings,
-  buildResultPagination,
-  sumVariantRawResponseChars,
-  type EffectivePagination,
-} from './execution/pagination.js';
-
-export {
-  buildMergedPagination,
-  buildPartialFailureWarnings,
-  buildResultPagination,
-} from './execution/pagination.js';
+import { buildResultPagination } from './execution/pagination.js';
+import { countSerializedChars } from '../../utils/response/charSavings.js';
 
 type RepositoryDetail = {
   owner: string;
@@ -161,65 +142,17 @@ export async function searchGitHubRepos(
     }
 
     const currentProviderContext = getProviderContext();
-    const variants = createSearchVariants(query);
-    const { successes, failures } = await executeProviderOperations(
-      variants.map(variant => ({
-        meta: { label: variant.label, query: variant.query },
-        operation: () =>
-          currentProviderContext.provider.searchRepos(
-            mapRepoSearchToolQuery(variant.query)
-          ),
-      }))
+    // Keywords and topics are conjunctive filters. One provider query keeps
+    // GitHub's ranking and cursor intact and avoids dropping merged rows.
+    const operation = await executeProviderOperation(query, () =>
+      currentProviderContext.provider.searchRepos(mapRepoSearchToolQuery(query))
     );
-
-    const successfulVariants: SuccessfulRepoSearchVariant[] = successes.map(
-      success => ({
-        label: success.meta.label,
-        query: success.meta.query,
-        response: success.response,
-      })
+    if (operation.ok === false) return operation.result;
+    const { response } = operation;
+    const repositories = mapRepoSearchProviderRepositories(
+      response.data.repositories
     );
-    const failedVariants: RepoSearchVariantExecution[] = failures.map(
-      failure => ({
-        label: failure.meta.label,
-        query: failure.meta.query,
-        response: failure.response,
-      })
-    );
-
-    if (successfulVariants.length === 0) {
-      const firstFailedVariant = failedVariants[0];
-      if (!firstFailedVariant) {
-        return handleCatchError(
-          new Error('Repository search produced no provider results'),
-          query,
-          undefined,
-          TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-        );
-      }
-      return handleProviderError(firstFailedVariant.response, query);
-    }
-
-    const mergedLimit = (query as { limit?: number }).limit;
-    const rankedRepositories = rankRepositoriesByRelevance(
-      deduplicateRepositories(
-        successfulVariants.flatMap(variant =>
-          mapRepoSearchProviderRepositories(variant.response.data.repositories)
-        )
-      ),
-      query
-    );
-    const repositories =
-      mergedLimit != null
-        ? rankedRepositories.slice(0, mergedLimit)
-        : rankedRepositories;
-
-    const onlySuccessfulVariant =
-      successfulVariants.length === 1 ? successfulVariants[0] : undefined;
-    const isMergedResult = successfulVariants.length > 1;
-    const effectivePagination: EffectivePagination | undefined = isMergedResult
-      ? buildMergedPagination(successfulVariants, rankedRepositories.length)
-      : onlySuccessfulVariant?.response.data.pagination;
+    const effectivePagination = response.data.pagination;
     const resultPagination = effectivePagination
       ? buildResultPagination(effectivePagination)
       : undefined;
@@ -231,11 +164,6 @@ export async function searchGitHubRepos(
       query
     );
 
-    // Some query variants (e.g. the topics or keywords lane of a split
-    // search) failed while others succeeded. Surface it so an empty or
-    // thin result set isn't read as a confident, complete answer.
-    const partialFailureWarnings = buildPartialFailureWarnings(failedVariants);
-
     // An owner-scoped search whose keywords include a candidate repo name
     // with no exact-name hit among the results is ambiguous the same way
     // a scoped code-search miss is: true absence, a near-miss (other repos
@@ -244,16 +172,16 @@ export async function searchGitHubRepos(
     // unlike `repos.get`) — the transferred repo silently vanishes behind
     // whatever else the owner still has matching the same keyword, so
     // this isn't only a zero-result symptom. Best-effort, never blocks or
-    // fails the search over it; bounded to a few keyword candidates.
+    // fails the search over it; only probe valid names on the first page.
     let transferHint:
       { warning: string; next: Record<string, unknown> } | undefined;
-    if (query.owner && hasValidKeywords(query)) {
+    if (query.owner && hasValidKeywords(query) && (query.page ?? 1) === 1) {
       const candidates = (
         Array.isArray(query.keywords) ? query.keywords : [query.keywords]
       )
         .filter(
           (keyword): keyword is string =>
-            typeof keyword === 'string' && keyword.trim().length > 0
+            typeof keyword === 'string' && /^[A-Za-z0-9_.-]+$/.test(keyword)
         )
         .slice(0, 3);
       const hasExactNameMatch = candidates.some(candidate =>
@@ -268,11 +196,12 @@ export async function searchGitHubRepos(
             const resolved = await resolveCanonicalOwnerRepo(
               octokit,
               String(query.owner),
-              candidate
+              candidate,
+              authInfo
             );
             if (resolved.renamed) {
               transferHint = {
-                warning: `No repositories matched under owner "${query.owner}", but "${query.owner}/${candidate}" now resolves to "${resolved.owner}/${resolved.repo}" — the repository may have been transferred. Retry scoped to owner:"${resolved.owner}" (see next.retryUnderCanonicalOwner).`,
+                warning: `Repository "${query.owner}/${candidate}" now resolves to "${resolved.owner}/${resolved.repo}" — the repository may have been transferred. Retry scoped to owner:"${resolved.owner}" (see next.retryUnderCanonicalOwner).`,
                 next: {
                   retryUnderCanonicalOwner: {
                     tool: 'github.repositories',
@@ -299,7 +228,6 @@ export async function searchGitHubRepos(
     // all (unlike local text search's in-band hints) — tell the agent how
     // to widen instead of leaving a bare status:"empty".
     const warnings = [
-      ...(partialFailureWarnings ?? []),
       ...(transferHint ? [transferHint.warning] : []),
       ...(!hasContent && !transferHint
         ? [
@@ -310,6 +238,7 @@ export async function searchGitHubRepos(
 
     const resultData = {
       ...shape.data,
+      ...(response.data.incompleteResults ? { incompleteResults: true } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       ...(transferHint ? { next: transferHint.next } : {}),
     };
@@ -320,10 +249,8 @@ export async function searchGitHubRepos(
       hasContent,
       TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
       {
-        rawResponse: sumVariantRawResponseChars([
-          ...successfulVariants,
-          ...failedVariants,
-        ]),
+        rawResponse:
+          response.rawResponseChars ?? countSerializedChars(response.data),
       }
     );
   } catch (error) {

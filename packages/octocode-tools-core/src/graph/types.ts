@@ -2,12 +2,63 @@
 // declarations/imports/calls come from the native `extractGraphFacts` pass
 // (per-file only — cross-file linking happens here, not in Rust).
 
+export interface ImportResolution {
+  target: string | null;
+  status: 'resolved' | 'external' | 'unresolvedInternal' | 'unsupported';
+  additionalTargets?: string[];
+}
+
 export interface DeclarationFact {
+  /** Source occurrence identity; never a canonical cross-file symbol ID. */
   id: string;
   name: string;
   kind: string;
   line: number;
   exported: boolean;
+}
+
+export interface GraphCoverage {
+  /** Public response pagination; graph construction retains the full diagnostic list. */
+  diagnosticsPagination?: {
+    currentPage: number;
+    totalPages: number;
+    entriesPerPage: number;
+    totalEntries: number;
+    hasMore: boolean;
+    resultId: string;
+    outOfRange?: boolean;
+    terminalLimit?: boolean;
+  };
+  diagnosticCounts?: Record<string, number>;
+  basis: 'syntactic';
+  referenceBasis: 'lexical-occurrence';
+  languages: Array<{
+    language: string;
+    files: number;
+    linking:
+      | 'javascript-relative'
+      | 'rust-modules'
+      | 'python-modules'
+      | 'c-relative-includes'
+      | 'metadata'
+      | 'unsupported';
+  }>;
+  imports: {
+    resolved: number;
+    external: number;
+    unresolvedInternal: number;
+    unsupported: number;
+  };
+  diagnostics: Array<{
+    file: string;
+    line?: number;
+    code:
+      | 'parse-recovery'
+      | 'unsupported-linking'
+      | 'unresolved-internal'
+      | 'syntax-only';
+    message: string;
+  }>;
 }
 
 export interface ImportFact {
@@ -78,4 +129,62 @@ export type FileGraphEdgeKind =
   | 'type-import'
   | 'dynamic-import'
   | 'named-reexport'
-  | 'star-reexport';
+  | 'star-reexport'
+  | 'type-named-reexport'
+  | 'type-star-reexport'
+  | 'commonjs-require'
+  | 'create-require'
+  | 'metadata-import'
+  | 'python-import'
+  | 'c-include';
+
+export interface RawGraphFacts {
+  language?: string;
+  commonJs?: Array<{
+    specifier?: string;
+    line: number;
+    kind: 'commonjs-require';
+    binding: 'unshadowed-global' | 'create-require';
+    reason?: string;
+  }>;
+  diagnostics?: string[];
+  rustRootUnsupported?: boolean;
+  modules?: Array<{
+    name: string;
+    line: number;
+    scope: string[];
+    inline: boolean;
+    path?: string;
+    unsupported?: boolean;
+  }>;
+  declarations?: Array<{
+    id: string;
+    name: string;
+    kind: string;
+    line: number;
+    exported?: boolean;
+  }>;
+  imports?: Array<{
+    specifier: string;
+    localName: string;
+    importedName: string;
+    line: number;
+    importKind?: string;
+    resolutionHint?: string;
+    moduleScope?: string[];
+  }>;
+  calls?: Array<{
+    caller: string;
+    callee: string;
+    kind?: string;
+    line?: number;
+  }>;
+  exports?: Array<{
+    name: string;
+    line: number;
+    localName?: string;
+    exportKind?: string;
+    /** Present only for a re-export (`export ... from '...'`). */
+    source?: string;
+  }>;
+}

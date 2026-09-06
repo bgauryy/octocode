@@ -15,11 +15,6 @@ import {
 
 import { createToolRegistration } from './registerTool.js';
 
-export type {
-  ToolConfig,
-  ToolDirectExecutionConfig,
-  ToolDirectSecurity,
-} from '@octocodeai/octocode-tools-core';
 export interface McpToolConfig extends ToolConfig {
   fn: (server: McpServer, callback?: ToolInvocationCallback) => RegisteredTool;
 }

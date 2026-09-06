@@ -8,7 +8,7 @@ export const AGENT_TOOL_COMMANDS = {
 } as const;
 
 export const CONTINUATION_GUIDANCE =
-  'Follow row data.next only while row data.pagination.hasMore. responsePagination windows content[].text only and remains visible in structuredContent.';
+  'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination windows content[].text only and remains visible in structuredContent.';
 
 export const BATCH_ERROR_GUIDANCE =
   'Input validation rejects the call; runtime row errors stay indexed and isolated.';

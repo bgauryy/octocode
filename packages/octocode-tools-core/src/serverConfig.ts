@@ -1,5 +1,6 @@
 import type { ProviderType } from './providers/types.js';
-import { getOctocodeDir, resolveTokenFull } from './shared/index.js';
+import { getOctocodeDir } from './shared/paths.js';
+import { resolveTokenFull } from './shared/credentials/index.js';
 import { getConfigSync } from '@octocodeai/config';
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types/server.js';
@@ -85,7 +86,7 @@ export async function initialize(): Promise<void> {
     if (resolved.local.enableClone && resolved.storage.mode !== 'persistent') {
       process.stderr.write(
         '[octocode] ENABLE_CLONE is set but OCTOCODE_STORAGE_MODE is "memory" — clone is disabled. ' +
-        'Remove OCTOCODE_STORAGE_MODE=memory or set it to "persistent" to enable ghCloneRepo.\n'
+          'Remove OCTOCODE_STORAGE_MODE=memory or set it to "persistent" to enable ghCloneRepo.\n'
       );
     }
     await runCacheMaintenanceIfDue(getOctocodeDir());

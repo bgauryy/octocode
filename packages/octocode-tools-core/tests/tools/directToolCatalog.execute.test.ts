@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { executeDirectTool } from '../../src/tools/directToolCatalog.js';
+import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
 import {
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
@@ -114,9 +114,18 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     process.env.TOOLS_TO_RUN = 'local.text';
     cleanup();
 
-    await expect(
-      executeDirectTool('local.text', { queries: [{ path: 'src' }] })
-    ).rejects.toThrow('Unknown tool: local.text');
+    const result = await executeDirectTool('local.text', {
+      queries: [{ path: 'src' }],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('Unknown tool: local.text'),
+        }),
+      ])
+    );
   });
 
   it('treats TOOLS_TO_RUN as a strict direct-CLI allowlist', async () => {
@@ -200,10 +209,20 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     expect(structured?.tool).toBe(LOCAL_SEARCH_TOOL_NAME);
   });
 
-  it('still throws for an unknown tool name', async () => {
-    await expect(
-      executeDirectTool('definitely-not-a-real-tool', {})
-    ).rejects.toThrow(/Unknown tool/);
+  it('returns an error envelope for an unknown tool name', async () => {
+    const result = await executeDirectTool('definitely-not-a-real-tool', {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining(
+            'Unknown tool: definitely-not-a-real-tool'
+          ),
+        }),
+      ])
+    );
   });
 
   it('gates ghCloneRepo in tools-core when ENABLE_CLONE is false', async () => {

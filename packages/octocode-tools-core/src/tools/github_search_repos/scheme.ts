@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GitHubReposSearchSingleQuerySchema as CoreGitHubReposSearchSingleQuerySchema } from '../../toolContract/schemas.js';
+import { GitHubReposSearchSingleQuerySchema as CoreGitHubReposSearchSingleQuerySchema } from '../../toolContract/input/resources/tools/githubRepositoriesOperation.js';
 import { GITHUB_SEARCH_MAX_LIMIT } from '../../config.js';
 import {
   clampedInt,

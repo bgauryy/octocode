@@ -1,6 +1,10 @@
+import type { CollectionStates } from '../../github/prContentFetcher/collectionPaging.js';
 import type { PaginationInfo } from '../../types/toolResults.js';
+import type { PRProviderLimit } from '../../github/githubAPI.js';
 
 export interface GitHubPullRequestApiItem {
+  collectionStates?: CollectionStates;
+  providerLimits?: PRProviderLimit[];
   number: number;
   title: string;
   state: 'open' | 'closed';
@@ -78,6 +82,7 @@ export interface GitHubPullRequestApiItem {
     commitId?: string;
   }>;
   commitDetails?: Array<{
+    filesCollectionState?: import('../../github/prContentFetcher/collectionPaging.js').CollectionState;
     sha: string;
     message: string;
     author: string;

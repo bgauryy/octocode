@@ -7,12 +7,19 @@ function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
 }
 
 describe('npmSearch schema', () => {
-  it('defaults page to 1 when omitted', () => {
-    expect(parsedQuery({ packageName: 'lodash' }).page).toBe(1);
+  it('keeps exact package lookup unpaginated', () => {
+    expect(parsedQuery({ packageName: 'lodash' })).toEqual({
+      packageName: 'lodash',
+    });
+    expect(() => parsedQuery({ packageName: 'lodash', page: 2 })).toThrow(
+      /Unrecognized key/
+    );
   });
 
-  it('accepts explicit page=2', () => {
-    expect(parsedQuery({ packageName: 'lodash', page: 2 }).page).toBe(2);
+  it('accepts pagination for keyword discovery', () => {
+    expect(
+      parsedQuery({ keywords: ['schema', 'validation'], page: 2, pageSize: 25 })
+    ).toMatchObject({ page: 2, pageSize: 25 });
   });
 
   it('does not expose itemsPerPage, searchLimit, limit, or verbose', () => {

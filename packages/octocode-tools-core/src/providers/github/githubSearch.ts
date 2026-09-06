@@ -1,22 +1,19 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
+import type { ProviderResponse } from '../types.js';
+import type { CodeSearchQuery, RepoSearchQuery } from '../providerQueries.js';
 import type {
-  ProviderResponse,
-  CodeSearchQuery,
   CodeSearchResult,
   CodeSearchItem,
-  RepoSearchQuery,
   RepoSearchResult,
   UnifiedRepository,
-} from '../types.js';
+} from '../providerResults.js';
 
 import { searchGitHubCodeAPI } from '../../github/codeSearch.js';
 import { searchGitHubReposAPI } from '../../github/repoSearch.js';
 
 import type { z } from 'zod';
-import type {
-  GitHubCodeSearchQuerySchema,
-  GitHubReposSearchSingleQuerySchema,
-} from '../../toolContract/schemas.js';
+import type { GitHubCodeSearchQuerySchema } from '../../toolContract/input/resources/tools/githubCodeOperation.js';
+import type { GitHubReposSearchSingleQuerySchema } from '../../toolContract/input/resources/tools/githubRepositoriesOperation.js';
 import type {
   GitHubRepositoryOutput,
   GitHubSearchRepositoriesData,
@@ -35,7 +32,6 @@ import {
   createGitHubProviderErrorFromResult,
   parseGitHubProjectId,
 } from './utils.js';
-export { parseGitHubProjectId } from './utils.js';
 import { countPaginationMetadata } from './paginationMetadata.js';
 
 export function transformCodeSearchResult(
@@ -78,10 +74,12 @@ export function transformCodeSearchResult(
 }
 
 export function transformRepoSearchResult(
-  data: GitHubSearchRepositoriesData
+  data: GitHubSearchRepositoriesData & { incompleteResults?: boolean }
 ): RepoSearchResult {
   const repositories: UnifiedRepository[] = data.repositories.map(
-    (repo: GitHubRepositoryOutput) => ({
+    (
+      repo: GitHubRepositoryOutput & { license?: string; homepage?: string }
+    ) => ({
       id: `${repo.owner}/${repo.repo}`,
       name: repo.repo,
       fullPath: `${repo.owner}/${repo.repo}`,
@@ -99,6 +97,8 @@ export function transformRepoSearchResult(
       lastActivityAt: repo.pushedAt || repo.updatedAt,
       openIssuesCount: repo.openIssuesCount,
       language: repo.language,
+      license: repo.license,
+      homepage: repo.homepage,
     })
   );
 
@@ -118,6 +118,7 @@ export function transformRepoSearchResult(
       ...countPaginationMetadata(data.pagination),
     },
     nonExistentScope: (data as { nonExistentScope?: boolean }).nonExistentScope,
+    incompleteResults: data.incompleteResults,
   };
 }
 

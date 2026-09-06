@@ -8,7 +8,7 @@
 use serde::Serialize;
 use tree_sitter::{Node, Parser};
 
-use crate::file_extension::get_extension_internal;
+use crate::text::file_extension::get_extension_internal;
 
 use super::languages;
 
@@ -25,6 +25,9 @@ struct GraphFacts {
     calls: Vec<GraphCall>,
     edges: Vec<GraphEdge>,
     diagnostics: Vec<String>,
+    modules: Vec<GraphRustModule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rust_root_unsupported: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +55,22 @@ struct GraphImport {
     local_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imported_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolution_hint: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    module_scope: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphRustModule {
+    name: String,
+    line: u32,
+    scope: Vec<String>,
+    inline: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    unsupported: bool,
 }
 
 #[derive(Serialize)]
@@ -87,6 +106,7 @@ struct GraphEdge {
     relation: &'static str,
     source: &'static str,
     line: u32,
+    resolution: &'static str,
 }
 
 #[derive(Serialize)]
@@ -144,6 +164,7 @@ struct GraphAccumulator {
     calls: Vec<GraphCall>,
     edges: Vec<GraphEdge>,
     diagnostics: Vec<String>,
+    modules: Vec<GraphRustModule>,
 }
 
 impl GraphAccumulator {
@@ -156,6 +177,7 @@ impl GraphAccumulator {
             exports: Vec::new(),
             calls: Vec::new(),
             edges: Vec::new(),
+            modules: Vec::new(),
             diagnostics: vec![
                 "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof".to_owned(),
             ],
@@ -164,7 +186,7 @@ impl GraphAccumulator {
 }
 
 pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::minifier::MAX_SIZE {
+    if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -191,11 +213,16 @@ fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
 
     let line_index = LineIndex::new(content);
     let mut acc = GraphAccumulator::new(file_path, &ext);
+    let rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
+    if rust_root_unsupported == Some(true) {
+        acc.diagnostics
+            .push("unsupported Rust inner conditional or custom crate attributes".to_owned());
+    }
     if root.has_error() {
         acc.diagnostics
             .push("tree-sitter recovered from parse errors; graph facts may be partial".to_owned());
     }
-    visit_node(root, content, &line_index, &mut acc, None);
+    visit_node(root, content, &line_index, &mut acc);
 
     let facts = GraphFacts {
         kind: "graphFacts",
@@ -208,6 +235,8 @@ fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
         calls: acc.calls,
         edges: acc.edges,
         diagnostics: acc.diagnostics,
+        modules: acc.modules,
+        rust_root_unsupported,
     };
     serde_json::to_string(&facts).ok()
 }
@@ -243,17 +272,79 @@ pub fn graph_fact_capabilities_json() -> String {
 }
 
 fn visit_node(
+    root: Node<'_>,
+    content: &str,
+    line_index: &LineIndex<'_>,
+    acc: &mut GraphAccumulator,
+) {
+    enum Frame<'tree> {
+        Enter(Node<'tree>),
+        ExitDeclaration,
+    }
+
+    let mut frames = vec![Frame::Enter(root)];
+    let mut declarations: Vec<(String, String)> = Vec::new();
+    while let Some(frame) = frames.pop() {
+        let node = match frame {
+            Frame::Enter(node) => node,
+            Frame::ExitDeclaration => {
+                declarations.pop();
+                continue;
+            }
+        };
+        let active = declarations.last();
+        if let Some(identity) = collect_node_facts(
+            node,
+            content,
+            line_index,
+            acc,
+            active.map(|(id, _)| id.as_str()),
+            active.map(|(_, name)| name.as_str()),
+        ) {
+            declarations.push(identity);
+            frames.push(Frame::ExitDeclaration);
+        }
+
+        // Preserve preorder and declaration lifetimes without using the call stack.
+        // A cursor enumerates wide sibling lists without repeated child indexing.
+        let children_start = frames.len();
+        let mut cursor = node.walk();
+        frames.extend(node.named_children(&mut cursor).map(Frame::Enter));
+        frames[children_start..].reverse();
+    }
+}
+
+fn collect_node_facts(
     node: Node<'_>,
     content: &str,
     line_index: &LineIndex<'_>,
     acc: &mut GraphAccumulator,
     active_decl: Option<&str>,
-) {
+    active_name: Option<&str>,
+) -> Option<(String, String)> {
+    if acc.ext == "rs" && node.kind() == "macro_invocation" {
+        let message = "unsupported Rust macro expansion: macro-generated imports are not linked";
+        if !acc
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic == message)
+        {
+            acc.diagnostics.push(message.to_owned());
+        }
+    }
     let decl = declaration_kind(node.kind()).and_then(|kind| {
         declaration_name(node, content).map(|name| {
             let range = line_index.range(node);
             let line = range.start.line + 1;
-            let id = format!("symbol:{}#{}", acc.file_path, name);
+            // This identifies a declaration occurrence, not a canonical binding.
+            // Location distinguishes overloads, impl blocks and equal names in scopes.
+            let id = format!(
+                "declaration:{}#{}@{}:{}",
+                acc.file_path,
+                name,
+                node.start_byte(),
+                kind
+            );
             let exported = is_exported_declaration(&acc.ext, node, content, &name, active_decl);
             let parent = active_decl.map(str::to_owned);
             GraphDeclaration {
@@ -271,7 +362,7 @@ fn visit_node(
 
     // Keep the new declaration id alive for the entire child traversal so we
     // can pass it as &str without any per-child heap allocation.
-    let next_decl_id: Option<String> = if let Some(declaration) = decl {
+    let next_decl_identity: Option<(String, String)> = if let Some(declaration) = decl {
         let id = declaration.id.clone();
         let name = declaration.name.clone();
         let line = declaration.line;
@@ -284,6 +375,7 @@ fn visit_node(
                 relation: "contains",
                 source: "ast",
                 line,
+                resolution: "syntactic",
             });
         }
         if exported {
@@ -292,19 +384,98 @@ fn visit_node(
                 name: name.clone(),
                 line,
                 export_kind: "language-public",
-                local_name: Some(name),
+                local_name: Some(name.clone()),
                 source: None,
             });
         }
         acc.declarations.push(declaration);
-        Some(id)
+        Some((id, name))
     } else {
         None
     };
     // Inherit the parent scope when no new declaration was established.
-    let next_decl: Option<&str> = next_decl_id.as_deref().or(active_decl);
+    let next_decl = next_decl_identity
+        .as_ref()
+        .map(|(id, _)| id.as_str())
+        .or(active_decl);
+    let next_name = next_decl_identity
+        .as_ref()
+        .map(|(_, name)| name.as_str())
+        .or(active_name);
 
-    if is_import_node(node.kind()) {
+    if acc.ext == "rs" && node.kind() == "use_declaration" {
+        if let Some(argument) = node.child_by_field_name("argument") {
+            collect_rust_imports(
+                argument,
+                "",
+                content,
+                line_index,
+                acc,
+                rust_unsupported_context(node, content),
+            );
+        }
+    } else if acc.ext == "rs" && node.kind() == "mod_item" {
+        if let Some(name) = declaration_name(node, content) {
+            let line = line_index.range(node).start.line + 1;
+            let (path, mut unsupported) = rust_module_attributes(node, content);
+            unsupported |= rust_block_local(node);
+            unsupported |= node
+                .child_by_field_name("body")
+                .is_some_and(|body| rust_inner_unsupported(body, content));
+            let scope = rust_module_scope(node, content);
+            let inline = node.child_by_field_name("body").is_some();
+            if unsupported {
+                acc.diagnostics.push(format!(
+                    "unsupported Rust conditional or custom module attributes at line {line}"
+                ));
+            }
+            acc.modules.push(GraphRustModule {
+                name: name.clone(),
+                line,
+                scope: scope.clone(),
+                inline,
+                path,
+                unsupported,
+            });
+            if !inline {
+                acc.imports.push(GraphImport {
+                    id: format!("module:{}:{line}", name),
+                    specifier: format!("self::{name}"),
+                    line,
+                    import_kind: "module",
+                    local_name: Some(name.clone()),
+                    imported_name: Some(name),
+                    resolution_hint: unsupported.then_some("unsupported"),
+                    module_scope: Some(scope),
+                });
+            }
+        }
+    } else if matches!(acc.ext.as_str(), "py" | "pyi")
+        && matches!(node.kind(), "import_statement" | "import_from_statement")
+    {
+        collect_python_imports(node, content, line_index, acc);
+    } else if node.kind() == "preproc_include" {
+        let path = node.child_by_field_name("path");
+        let hint = match path.map(|item| item.kind()) {
+            Some("string_literal") => "c-relative",
+            Some("system_lib_string") => "c-system",
+            _ => "unsupported",
+        };
+        if let Some(specifier) = path
+            .and_then(|item| node_text(item, content))
+            .and_then(clean_specifier)
+        {
+            push_language_import(
+                acc,
+                specifier,
+                line_index.range(node).start.line + 1,
+                "include",
+                None,
+                None,
+                hint,
+            );
+        }
+    } else if is_import_node(node.kind()) {
         if let Some(specifier) = import_specifier(node, content) {
             let line = line_index.range(node).start.line + 1;
             acc.imports.push(GraphImport {
@@ -314,6 +485,8 @@ fn visit_node(
                 import_kind: "value",
                 local_name: None,
                 imported_name: None,
+                resolution_hint: None,
+                module_scope: None,
             });
         }
     }
@@ -322,11 +495,7 @@ fn visit_node(
         if let (Some(caller), Some(callee)) = (next_decl, call_callee_name(node, content)) {
             let range = line_index.range(node);
             let line = range.start.line + 1;
-            let caller_name = caller
-                .rsplit('#')
-                .next()
-                .map(str::to_owned)
-                .unwrap_or_else(|| caller.to_owned());
+            let caller_name = next_name.unwrap_or(caller).to_owned();
             let id = format!("call:{}:{}:{}", caller_name, callee, acc.calls.len());
             acc.calls.push(GraphCall {
                 id: id.clone(),
@@ -339,17 +508,208 @@ fn visit_node(
             acc.edges.push(GraphEdge {
                 id: format!("{caller}->{callee}:calls:{line}:{}", acc.edges.len()),
                 from: caller.to_owned(),
-                to: format!("symbol:{}#{}", acc.file_path, callee),
+                to: format!(
+                    "reference:{}@{}:{}",
+                    acc.file_path,
+                    node.start_byte(),
+                    callee
+                ),
                 relation: "calls",
                 source: "ast",
                 line,
+                resolution: "unresolved",
             });
         }
     }
 
+    next_decl_identity
+}
+
+fn rust_module_attributes(node: Node<'_>, content: &str) -> (Option<String>, bool) {
+    let mut previous = node.prev_named_sibling();
+    let mut path = None;
+    let mut unsupported = false;
+    while let Some(attribute) = previous {
+        if matches!(attribute.kind(), "line_comment" | "block_comment") {
+            previous = attribute.prev_named_sibling();
+            continue;
+        }
+        if attribute.kind() != "attribute_item" {
+            break;
+        }
+        let text = node_text(attribute, content).unwrap_or_default();
+        let inner = text
+            .trim()
+            .strip_prefix("#[")
+            .and_then(|text| text.strip_suffix(']'))
+            .unwrap_or_default()
+            .trim();
+        let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
+        match name {
+            "path" => {
+                let literal = inner.split_once('=').map(|(_, value)| value.trim());
+                let value = literal
+                    .and_then(|value| value.strip_prefix('"'))
+                    .and_then(|value| value.strip_suffix('"'));
+                if let Some(value) =
+                    value.filter(|value| !value.contains('\\') && !value.contains('\0'))
+                {
+                    if path.is_some() {
+                        unsupported = true;
+                    }
+                    path = Some(value.to_owned());
+                } else {
+                    unsupported = true;
+                }
+            }
+            "allow"
+            | "warn"
+            | "deny"
+            | "forbid"
+            | "expect"
+            | "doc"
+            | "deprecated"
+            | "no_implicit_prelude" => {}
+            _ => unsupported = true,
+        }
+        previous = attribute.prev_named_sibling();
+    }
+    (path, unsupported)
+}
+
+fn rust_block_local(node: Node<'_>) -> bool {
+    let mut parent = node.parent();
+    while let Some(scope) = parent {
+        if matches!(scope.kind(), "block" | "function_item" | "impl_item") {
+            return true;
+        }
+        parent = scope.parent();
+    }
+    false
+}
+
+fn rust_module_scope(node: Node<'_>, content: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut parent = node.parent();
+    while let Some(scope) = parent {
+        if scope.kind() == "mod_item" {
+            if let Some(name) = declaration_name(scope, content) {
+                names.push(name);
+            }
+        }
+        parent = scope.parent();
+    }
+    names.reverse();
+    names
+}
+
+fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {
     let mut cursor = node.walk();
-    for child in node.named_children(&mut cursor) {
-        visit_node(child, content, line_index, acc, next_decl);
+    let unsupported = node.named_children(&mut cursor).any(|child| {
+        if child.kind() != "inner_attribute_item" {
+            return false;
+        }
+        let text = node_text(child, content).unwrap_or_default();
+        let inner = text
+            .trim()
+            .strip_prefix("#![")
+            .and_then(|text| text.strip_suffix(']'))
+            .unwrap_or_default()
+            .trim();
+        let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
+        !matches!(
+            name,
+            "allow"
+                | "warn"
+                | "deny"
+                | "forbid"
+                | "expect"
+                | "doc"
+                | "deprecated"
+                | "no_implicit_prelude"
+        )
+    });
+    unsupported
+}
+
+fn rust_unsupported_context(node: Node<'_>, content: &str) -> bool {
+    let mut current = Some(node);
+    while let Some(scope) = current {
+        if rust_module_attributes(scope, content).1 || rust_inner_unsupported(scope, content) {
+            return true;
+        }
+        current = scope.parent();
+    }
+    false
+}
+
+/// Expand Rust use trees through grammar nodes, preserving aliases and multiline groups.
+fn collect_rust_imports(
+    node: Node<'_>,
+    prefix: &str,
+    content: &str,
+    index: &LineIndex<'_>,
+    acc: &mut GraphAccumulator,
+    unsupported: bool,
+) {
+    let text = node_text(node, content).unwrap_or_default();
+    match node.kind() {
+        "use_list" => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_rust_imports(child, prefix, content, index, acc, unsupported);
+            }
+        }
+        "scoped_use_list" => {
+            let path = node
+                .child_by_field_name("path")
+                .and_then(|n| node_text(n, content))
+                .unwrap_or_default();
+            let joined = if prefix.is_empty() {
+                path.to_owned()
+            } else {
+                format!("{prefix}::{path}")
+            };
+            if let Some(list) = node.child_by_field_name("list") {
+                collect_rust_imports(list, &joined, content, index, acc, unsupported);
+            }
+        }
+        _ => {
+            let (path, alias) = if node.kind() == "use_as_clause" {
+                (
+                    node.child_by_field_name("path")
+                        .and_then(|n| node_text(n, content))
+                        .unwrap_or(text),
+                    node.child_by_field_name("alias")
+                        .and_then(|n| node_text(n, content)),
+                )
+            } else {
+                (text, None)
+            };
+            let specifier = if path == "self" && !prefix.is_empty() {
+                prefix.to_owned()
+            } else if prefix.is_empty() {
+                path.to_owned()
+            } else {
+                format!("{prefix}::{path}")
+            };
+            let imported = specifier
+                .rsplit("::")
+                .next()
+                .unwrap_or(&specifier)
+                .to_owned();
+            let line = index.range(node).start.line + 1;
+            acc.imports.push(GraphImport {
+                id: format!("import:{specifier}:{line}:{}", acc.imports.len()),
+                specifier,
+                line,
+                import_kind: "value",
+                local_name: Some(alias.unwrap_or(&imported).to_owned()),
+                imported_name: Some(imported),
+                resolution_hint: unsupported.then_some("unsupported"),
+                module_scope: Some(rust_module_scope(node, content)),
+            });
+        }
     }
 }
 
@@ -364,7 +724,7 @@ fn declaration_kind(kind: &str) -> Option<&'static str> {
         | "singleton_method"
         | "function_clause" => Some("function"),
         "constructor_declaration" => Some("constructor"),
-        "class_definition" | "class_declaration" | "class" => Some("class"),
+        "class_definition" | "class_declaration" | "class_specifier" | "class" => Some("class"),
         "struct_item" | "struct_specifier" | "struct_declaration" => Some("struct"),
         "enum_item" | "enum_declaration" | "enum_specifier" => Some("enum"),
         "trait_item" => Some("trait"),
@@ -378,8 +738,6 @@ fn declaration_kind(kind: &str) -> Option<&'static str> {
             Some("type")
         }
         "macro_definition" | "macro_rule" => Some("macro"),
-        "message" => Some("message"),
-        "service" => Some("service"),
         _ => None,
     }
 }
@@ -452,6 +810,91 @@ fn is_import_node(kind: &str) -> bool {
             | "require_command"
             | "source_command"
     )
+}
+
+fn push_language_import(
+    acc: &mut GraphAccumulator,
+    specifier: String,
+    line: u32,
+    import_kind: &'static str,
+    local_name: Option<String>,
+    imported_name: Option<String>,
+    hint: &'static str,
+) {
+    acc.imports.push(GraphImport {
+        id: format!("import:{}:{}", line, acc.imports.len()),
+        specifier,
+        line,
+        import_kind,
+        local_name,
+        imported_name,
+        resolution_hint: Some(hint),
+        module_scope: None,
+    });
+}
+
+fn collect_python_imports(
+    node: Node<'_>,
+    content: &str,
+    li: &LineIndex,
+    acc: &mut GraphAccumulator,
+) {
+    let module = node
+        .child_by_field_name("module_name")
+        .and_then(|module| node_text(module, content));
+    let mut cursor = node.walk();
+    let names: Vec<_> = node.children_by_field_name("name", &mut cursor).collect();
+    let line = li.range(node).start.line + 1;
+    for item in &names {
+        let name_node = item.child_by_field_name("name").unwrap_or(*item);
+        let Some(name) = node_text(name_node, content) else {
+            continue;
+        };
+        let alias = item
+            .child_by_field_name("alias")
+            .and_then(|alias| node_text(alias, content));
+        let specifier = module.unwrap_or(name);
+        push_language_import(
+            acc,
+            specifier.to_owned(),
+            line,
+            "value",
+            Some(
+                alias
+                    .unwrap_or_else(|| {
+                        if module.is_some() {
+                            name
+                        } else {
+                            name.split('.').next().unwrap_or(name)
+                        }
+                    })
+                    .to_owned(),
+            ),
+            Some(if module.is_some() { name } else { "*" }.to_owned()),
+            if specifier.starts_with('.') {
+                "python-relative"
+            } else {
+                "python-absolute"
+            },
+        );
+    }
+    if names.is_empty() {
+        if let Some(module) = module {
+            push_language_import(
+                acc,
+                module.to_owned(),
+                line,
+                "value",
+                Some("*".to_owned()),
+                Some("*".to_owned()),
+                if module.starts_with('.') {
+                    "python-relative"
+                } else {
+                    "python-absolute"
+                },
+            );
+        }
+    }
 }
 
 fn import_specifier(node: Node<'_>, content: &str) -> Option<String> {
@@ -541,7 +984,7 @@ fn is_exported_declaration(
         "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" => {
             parent.is_none() && !text.starts_with("static ")
         }
-        "rb" | "ex" | "exs" | "scala" | "sc" | "sbt" => parent.is_none() && !name.starts_with('_'),
+        "rb" | "scala" | "sc" | "sbt" => parent.is_none() && !name.starts_with('_'),
         _ => parent.is_none() && !name.starts_with('_'),
     }
 }
@@ -603,17 +1046,22 @@ fn clean_specifier(text: &str) -> Option<String> {
 }
 
 fn language_label(ext: &str, language_id: Option<&str>) -> String {
-    language_id.unwrap_or(ext).to_owned()
+    language_id
+        .unwrap_or_else(|| canonical_extension(ext))
+        .to_owned()
+}
+
+fn canonical_extension(ext: &str) -> &str {
+    languages::find_entry(ext).map_or(ext, |entry| entry.extensions[0])
 }
 
 fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
     let mut families = vec!["declarations", "contains", "calls"];
-    match ext {
+    match canonical_extension(ext) {
         // JS/TS (oxc lane) already emit import/export facts — advertise them so
         // `getGraphFactCapabilities` matches what `extractGraphFacts` returns.
-        "ts" | "mts" | "cts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rs" | "py" | "pyi"
-        | "go" | "java" | "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" | "rb"
-        | "php" | "kt" | "kts" | "ex" | "exs" | "swift" | "scala" | "sc" | "sbt" => {
+        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "rb" | "php" | "kt"
+        | "swift" | "scala" => {
             families.push("imports");
             families.push("exports");
         }
@@ -627,9 +1075,220 @@ mod tests {
     use super::*;
     use serde_json::Value;
 
+    #[test]
+    fn rust_cfg_and_path_attributes_survive_comments_and_inner_attributes() {
+        let value = facts(
+            "#[cfg(feature = \"x\")]\n// note\nmod child;\n#[path = \"actual.rs\"]\n/// documented\nmod alias;\nmod gated { #![cfg(feature = \"x\")] use super::Thing; }",
+            "src/lib.rs",
+        );
+        assert!(value["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|module| module["name"] == "child" && module["unsupported"] == true));
+        assert!(value["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|module| module["name"] == "alias" && module["path"] == "actual.rs"));
+        assert!(value["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|module| module["name"] == "gated" && module["unsupported"] == true));
+        let root = facts("#![cfg(feature = \"x\")]\nmod child;", "src/lib.rs");
+        assert_eq!(root["rustRootUnsupported"], true);
+        let local = facts(
+            "fn f() { mod hidden { #[path = \"child.rs\"] mod child; } }",
+            "src/lib.rs",
+        );
+        assert!(local["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|module| module["unsupported"] == true));
+    }
+
+    #[test]
+    fn rust_modules_preserve_literal_paths_inline_scopes_and_unknown_cfg() {
+        let value = facts(
+            "#[path = \"actual.rs\"] mod alias;\nmod inside { use super::Thing; #[path = \"nested.rs\"] mod child; }\n#[cfg(feature = \"x\")] mod conditional;",
+            "src/lib.rs",
+        );
+        let modules = value["modules"].as_array().unwrap();
+        assert!(modules.iter().any(|module| module["name"] == "alias"
+            && module["path"] == "actual.rs"
+            && module["unsupported"] != true));
+        assert!(modules.iter().any(|module| module["name"] == "child"
+            && module["scope"] == serde_json::json!(["inside"])
+            && module["path"] == "nested.rs"));
+        assert!(modules
+            .iter()
+            .any(|module| module["name"] == "conditional" && module["unsupported"] == true));
+        assert!(value["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|import| import["specifier"] == "super::Thing"
+                && import["moduleScope"] == serde_json::json!(["inside"])
+                && import["resolutionHint"].is_null()));
+    }
+
+    #[test]
+    fn declaration_occurrences_do_not_alias_equal_names_or_impl_blocks() {
+        for (source, path) in [
+            (
+                "struct A; impl A { fn run() { work(); } } struct B; impl B { fn run() { work(); } }",
+                "names.rs",
+            ),
+            (
+                "class A:\n def run(self): work()\nclass B:\n def run(self): work()\n",
+                "names.py",
+            ),
+        ] {
+            let value = facts(source, path);
+            let declarations = value["declarations"].as_array().unwrap();
+            let ids: std::collections::HashSet<_> = declarations
+                .iter()
+                .map(|d| d["id"].as_str().unwrap())
+                .collect();
+            assert_eq!(ids.len(), declarations.len());
+            for edge in value["edges"].as_array().unwrap() {
+                if edge["relation"] == "calls" {
+                    assert!(ids.contains(edge["from"].as_str().unwrap()));
+                    assert!(edge["to"].as_str().unwrap().starts_with("reference:"));
+                    assert_eq!(edge["resolution"], "unresolved");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rust_use_trees_expand_multiline_groups_aliases_and_modules() {
+        let value = facts(
+            "mod child;\nuse super::{\n types::{Thing as Alias, Other},\n language::AgLanguage,\n};\n",
+            "src/structural/files.rs",
+        );
+        let imports = value["imports"].as_array().unwrap();
+        for expected in [
+            "self::child",
+            "super::types::Thing",
+            "super::types::Other",
+            "super::language::AgLanguage",
+        ] {
+            assert!(
+                imports.iter().any(|i| i["specifier"] == expected),
+                "missing {expected}: {imports:?}"
+            );
+        }
+        assert!(imports
+            .iter()
+            .any(|i| i["localName"] == "Alias" && i["importedName"] == "Thing"));
+    }
+
+    #[test]
+    fn rust_nonconventional_modules_and_macros_remain_explicitly_unsupported() {
+        let value = facts(
+            "#[cfg(feature = \"x\")] #[path = \"other.rs\"] mod child;\nmod inline { use super::Thing; }\nmake_imports!();",
+            "src/lib.rs",
+        );
+        let imports = value["imports"].as_array().unwrap();
+        assert!(imports
+            .iter()
+            .any(|item| item["specifier"] == "self::child"
+                && item["resolutionHint"] == "unsupported"));
+        assert!(imports
+            .iter()
+            .any(|item| item["specifier"] == "super::Thing"
+                && item["moduleScope"] == serde_json::json!(["inline"])));
+        assert!(value["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item.as_str().unwrap().contains("macro expansion")));
+    }
+
+    #[cfg(feature = "tree-sitter-cpp")]
+    #[test]
+    fn cpp_class_owns_its_method_declarations() {
+        let value = facts(
+            "class Fixture { public: int target(int value) { return value; } };",
+            "fixture.cpp",
+        );
+        let declarations = value["declarations"].as_array().unwrap();
+        let class = declarations
+            .iter()
+            .find(|item| item["name"] == "Fixture")
+            .expect("class declaration");
+        let method = declarations
+            .iter()
+            .find(|item| item["name"] == "target")
+            .expect("method declaration");
+        assert_eq!(class["kind"], "class");
+        assert_eq!(method["parent"], class["id"]);
+        assert!(value["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|edge| edge["relation"] == "contains"
+                && edge["from"] == class["id"]
+                && edge["to"] == method["id"]));
+    }
+
     fn facts(src: &str, path: &str) -> Value {
         let raw = extract_graph_facts(src, path).expect("graph facts expected");
         serde_json::from_str(&raw).expect("valid graph json")
+    }
+
+    #[test]
+    fn deeply_nested_graph_traversal_preserves_calls() {
+        let source = format!(
+            "fn main() {{ let x = {}probe(){}; after(); }}",
+            "[".repeat(10_000),
+            "]".repeat(10_000)
+        );
+        let graph = facts(&source, "deep.rs");
+        assert_eq!(
+            graph["diagnostics"],
+            serde_json::json!([
+                "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof"
+            ])
+        );
+        let calls = graph["calls"].as_array().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["caller"], "main");
+        assert_eq!(calls[0]["callee"], "probe");
+        assert_eq!(calls[1]["caller"], "main");
+        assert_eq!(calls[1]["callee"], "after");
+    }
+
+    #[test]
+    fn graph_traversal_restores_declaration_context_after_nested_scopes() {
+        let graph = facts(
+            "fn outer() { fn inner() { inside(); } after(); } fn sibling() { next(); }",
+            "scopes.rs",
+        );
+        let calls: Vec<_> = graph["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|call| {
+                (
+                    call["caller"].as_str().unwrap(),
+                    call["callee"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            [("inner", "inside"), ("outer", "after"), ("sibling", "next")]
+        );
+        let declarations = graph["declarations"].as_array().unwrap();
+        assert_eq!(declarations[0]["name"], "outer");
+        assert_eq!(declarations[1]["name"], "inner");
+        assert_eq!(declarations[1]["parent"], declarations[0]["id"]);
+        assert_eq!(declarations[2]["name"], "sibling");
+        assert!(declarations[2]["parent"].is_null());
     }
 
     #[test]
@@ -677,6 +1336,40 @@ pub fn distance(point: Point) -> f64 {
             .is_some_and(|calls| calls
                 .iter()
                 .any(|call| call.get("callee").is_some_and(|callee| callee == "helper"))));
+    }
+
+    #[test]
+    fn python_import_facts_preserve_module_paths_and_alias_bindings() {
+        let graph = facts(
+            "import os, pkg.worker as worker\nfrom .target import run as execute\nfrom . import sibling\n",
+            "pkg/service.py",
+        );
+        let imports = graph["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 4);
+        assert_eq!(imports[0]["specifier"], "os");
+        assert_eq!(imports[1]["specifier"], "pkg.worker");
+        assert_eq!(imports[1]["localName"], "worker");
+        assert_eq!(imports[1]["resolutionHint"], "python-absolute");
+        assert_eq!(imports[2]["specifier"], ".target");
+        assert_eq!(imports[2]["importedName"], "run");
+        assert_eq!(imports[2]["localName"], "execute");
+        assert_eq!(imports[2]["resolutionHint"], "python-relative");
+        assert_eq!(imports[3]["specifier"], ".");
+        assert_eq!(imports[3]["importedName"], "sibling");
+    }
+
+    #[test]
+    fn c_import_facts_distinguish_quoted_system_and_computed_headers() {
+        let graph = facts(
+            "#include \"local.h\"\n#include <system.h>\n#include HEADER\n",
+            "entry.c",
+        );
+        let imports = graph["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 3);
+        assert_eq!(imports[0]["specifier"], "local.h");
+        assert_eq!(imports[0]["resolutionHint"], "c-relative");
+        assert_eq!(imports[1]["resolutionHint"], "c-system");
+        assert_eq!(imports[2]["resolutionHint"], "unsupported");
     }
 
     #[test]

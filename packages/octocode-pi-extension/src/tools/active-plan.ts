@@ -22,13 +22,10 @@ import {
   readPlanProjection,
   writePlanBranchSnapshot,
   type PlanBranchSnapshotV1,
-  type PlanProjectionV1,
   type SessionIdentityInput,
 } from './session-artifacts.js';
 
 export type StepStatus = 'todo' | 'doing' | 'done';
-export type { PlanPhase } from './plan-domain.js';
-export type PlanLifecycle = PlanPhase;
 
 export interface ReviewQuestion {
   id: string;
@@ -209,8 +206,10 @@ export interface ActivePlanContext {
   };
 }
 
-interface PlanStoredV3 {
-  version: 3;
+interface PlanStored {
+  version: 4;
+  cleared: boolean;
+  outcomeReason?: string;
   scope: string;
   steps: PlanStep[];
   phase?: PlanPhase;
@@ -230,13 +229,6 @@ interface PlanStoredV3 {
   updatedAt: string;
 }
 
-interface PlanStoredV4 extends Omit<PlanStoredV3, 'version'> {
-  version: 4;
-  cleared: boolean;
-  outcomeReason?: string;
-}
-
-type PlanStored = PlanStoredV3 | PlanStoredV4;
 
 interface PlanSnapshotMeta {
   snapshotId: string;
@@ -299,7 +291,7 @@ function cleanPaths(value: unknown): string[] | undefined {
 function sanitizeStored(raw: unknown): PlanStep[] {
   if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { steps?: unknown }).steps)) return [];
   const record = raw as Record<string, unknown>;
-  if (record.version !== 3 && record.version !== 4) return [];
+  if (record.version !== 4) return [];
   const sourceSteps = record.steps as unknown[];
   const out: PlanStep[] = [];
   const sourceRecords: Record<string, unknown>[] = [];
@@ -472,7 +464,7 @@ function reviewMetadataFromStored(raw: unknown): Omit<ReviewState, 'phase' | 'rf
   };
 }
 
-function buildStoredPlan(cwd: string, steps: PlanStep[]): PlanStoredV4 {
+function buildStoredPlan(cwd: string, steps: PlanStep[]): PlanStored {
   const rfcPath = planRfc.get(cwd);
   const decisions = planDecisions.get(cwd);
   const phase = planLifecycle.get(cwd) ?? 'executing';
@@ -506,7 +498,7 @@ function readStoredFromDisk(cwd: string): PlanStored | undefined {
   try {
     const ctx = artifactContextForScope(cwd);
     const projection = readPlanProjection<PlanStored>(ctx);
-    return projection?.state.version === 3 || projection?.state.version === 4 ? projection.state : undefined;
+    return projection?.state.version === 4 ? projection.state : undefined;
   } catch {
     return undefined;
   }
@@ -525,7 +517,7 @@ function readDecisionsFromDisk(cwd: string): PlanDecision[] | undefined {
   return readDecisionsFromStored(readStoredFromDisk(cwd));
 }
 
-function readLifecycleFromDisk(cwd: string): PlanLifecycle | undefined {
+function readLifecycleFromDisk(cwd: string): PlanPhase | undefined {
   const stored = readStoredFromDisk(cwd);
   return stored ? readLifecycleFromStored(stored) : undefined;
 }
@@ -547,7 +539,7 @@ function projectStoredPlan(cwd: string, stored: PlanStored, meta: PlanSnapshotMe
       && current.capturedAt === snapshot.capturedAt
       && JSON.stringify(current.state) === JSON.stringify(snapshot.state);
     if (alreadyProjected) return;
-    const projection: PlanProjectionV1<PlanStored> = {
+    const projection: PlanBranchSnapshotV1<PlanStored> = {
       ...snapshot,
       generation: (current?.generation ?? 0) + 1,
     };
@@ -564,7 +556,7 @@ function ensureLoaded(cwd: string): void {
   if (plans.has(cwd)) return;
   const stored = readStoredFromDisk(cwd);
   const disk = sanitizeStored(stored);
-  const isCleared = stored?.version === 4 && stored.cleared;
+  const isCleared = stored?.cleared;
   if (stored && !isCleared) {
     plans.set(cwd, disk);
     planLifecycle.set(cwd, stored ? readLifecycleFromStored(stored) : 'executing');
@@ -653,7 +645,7 @@ export function adoptPlanFromBranch(cwd: string, branchEntries: unknown[], optio
     const rec = entry as Record<string, unknown>;
     if (rec.type !== 'custom' || rec.customType !== PLAN_ENTRY_TYPE) continue;
     const data = rec.data && typeof rec.data === 'object' ? rec.data as Record<string, unknown> : {};
-    if (data.version !== 3 && data.version !== 4) continue;
+    if (data.version !== 4) continue;
     const snapshotId = typeof data.branchSnapshotId === 'string' ? data.branchSnapshotId.trim() : '';
     const entryGeneration = Number.isSafeInteger(data.generation) && Number(data.generation) > 0
       ? Number(data.generation)
@@ -667,7 +659,7 @@ export function adoptPlanFromBranch(cwd: string, branchEntries: unknown[], optio
     const rfcPath = readRfcFromStored(data);
     const decisions = readDecisionsFromStored(data);
     const coordination = readCoordinationFromStored(data, cwd);
-    const explicitlyCleared = data.version === 4 && data.cleared === true;
+    const explicitlyCleared = data.cleared === true;
     if (explicitlyCleared) {
       plans.delete(cwd);
       planRfc.delete(cwd);
@@ -766,7 +758,7 @@ export function readPersistedDecisionsForTests(cwd: string): PlanDecision[] | un
 }
 
 /** Test hook: read the persisted lifecycle straight from disk. */
-export function readPersistedLifecycleForTests(cwd: string): PlanLifecycle | undefined {
+export function readPersistedLifecycleForTests(cwd: string): PlanPhase | undefined {
   return readLifecycleFromDisk(cwd);
 }
 
@@ -1305,17 +1297,21 @@ function dependencyIdsFromIndexes(indexes: number[] | undefined, list: Array<{ i
 }
 
 /** Replace the whole plan; pre-Start phases remain entirely todo. */
-export function setPlan(cwd: string, steps: StepInput[], lifecycle: PlanLifecycle = 'executing'): PlanStep[] {
+export function setPlan(cwd: string, steps: StepInput[], lifecycle: PlanPhase = 'executing'): PlanStep[] {
   const cleaned = steps.map(normalizeInput).filter((step) => step.text).slice(0, MAX_STEPS);
-  const next: PlanStep[] = cleaned.map((step, index) => {
+  const next: PlanStep[] = cleaned.map((step) => {
     const { dependsOn, ...stable } = step;
     const dependsOnStepIds = dependencyIdsFromIndexes(dependsOn, cleaned, step.id);
     return {
       ...stable,
-      status: phaseAllowsExecution(lifecycle) && index === 0 ? 'doing' : 'todo',
+      status: 'todo',
       ...(dependsOnStepIds ? { dependsOnStepIds } : {}),
     };
   });
+  if (phaseAllowsExecution(lifecycle)) {
+    const firstRunnable = next.findIndex((step) => depsMet(step, next));
+    if (firstRunnable >= 0) next[firstRunnable] = { ...next[firstRunnable]!, status: 'doing' };
+  }
   plans.set(cwd, next);
   clearedScopes.delete(cwd);
   planCoordination.set(cwd, freshCoordination(cwd));
@@ -1326,11 +1322,9 @@ export function setPlan(cwd: string, steps: StepInput[], lifecycle: PlanLifecycl
   return next;
 }
 
-export function addStep(cwd: string, input: PlanStepInput): PlanStep[];
-export function addStep(cwd: string, text: string, activeForm?: string, dependsOn?: number[]): PlanStep[];
-export function addStep(cwd: string, input: string | PlanStepInput, activeForm?: string, dependsOn?: number[]): PlanStep[] {
+export function addStep(cwd: string, input: PlanStepInput): PlanStep[] {
   const list = getPlan(cwd).slice();
-  const normalized = normalizeInput(typeof input === 'string' ? { text: input, activeForm, dependsOn } : input);
+  const normalized = normalizeInput(input);
   if (normalized.text && list.length < MAX_STEPS) {
     const { dependsOn: inputDependencies, ...stable } = normalized;
     const dependsOnStepIds = dependencyIdsFromIndexes(inputDependencies, list, stable.id);

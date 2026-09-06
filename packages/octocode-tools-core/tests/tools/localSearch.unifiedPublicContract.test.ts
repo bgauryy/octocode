@@ -2,10 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  executeDirectTool,
-  findDirectToolDefinition,
-} from '../../src/tools/directToolCatalog.js';
+import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { findDirectToolDefinition } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
 import { executeFindFiles } from '../../src/tools/local_find_files/execution.js';
 import { executeRipgrepSearch } from '../../src/tools/local_ripgrep/execution.js';
 import { executeViewStructure } from '../../src/tools/local_view_structure/execution.js';

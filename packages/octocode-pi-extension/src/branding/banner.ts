@@ -1,3 +1,4 @@
+import { truncateToWidth, visibleWidth } from '../tui/width.js';
 /**
  * Pure functions for rendering the Octocode banner and tagline.
  *
@@ -6,7 +7,7 @@
  * sees a line whose visible width exceeds the terminal width.
  */
 
-import { truncatePlainToWidth, truncateToWidth, visibleWidth } from '../tools/render-helpers.js';
+import { truncatePlainToWidth } from '../tools/render-helpers.js';
 import { BETA_ISSUES_PREFIX, BETA_ISSUES_URL, BETA_LABEL, TAGLINE } from '../tui/content.js';
 import { paint, SEP, type SemanticToken } from '../tui/palette.js';
 
@@ -182,7 +183,7 @@ export function renderWordmarkLines(theme: BannerTheme, width: number): string[]
  *
  * Returns an array of width-safe strings (ANSI codes included) ready to be
  * passed to a pi TUI renderer. Each string is individually truncated to
- * `width` so callers can append them directly to a `makeRenderer` output.
+ * `width` so callers can append them directly to component output.
  *
  * @param theme  A BannerTheme (fg + bold).
  * @param width  Available terminal width in columns.

@@ -1,10 +1,13 @@
-import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../../config.js';
+import { shapeCommitDirFiles } from '../../../github/history/commitFiles.js';
+import { withDiffContinuations } from '../historyDiffContinuations.js';
+import type { CollectionState } from '../../../github/prContentFetcher/collectionPaging.js';
 import type { NormalizedPrContentRequest } from '../contentRequest.js';
+import { historyBodyView } from './contentView.js';
 import {
   compactBody,
   containsNeedle,
   matchStringNeedle,
-  paginateItems,
+  paginateCollection,
   paginateText,
   type QueryLike,
 } from './pagination.js';
@@ -37,15 +40,20 @@ export function shapeComments(
   const matched = needle
     ? filtered.filter(comment => containsNeedle(comment.body, needle))
     : filtered;
-  const { items, pagination } = paginateItems(
+  const { items, pagination } = paginateCollection(
     matched,
-    query.commentPage ?? query.page ?? 1,
-    query.pageSize ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
+    query,
+    pr,
+    'comments',
+    query.commentPage ?? query.page ?? 1
   );
   return {
     comments: items.map(comment => {
       const body = paginateText(
-        typeof comment.body === 'string' ? comment.body : '',
+        historyBodyView(
+          typeof comment.body === 'string' ? comment.body : '',
+          query
+        ),
         query.commentBodyOffset ?? 0,
         query.charLength ?? 12_000
       );
@@ -86,12 +94,20 @@ export function shapeReviews(
   const reviews = needle
     ? allReviews.filter(review => containsNeedle(review.body, needle))
     : allReviews;
+  const { items, pagination } = paginateCollection(
+    reviews,
+    query,
+    pr,
+    'reviews',
+    query.reviewPage ?? 1
+  );
   return {
-    reviews: reviews.map(review => {
+    contentPagination: { reviews: pagination },
+    reviews: items.map(review => {
       const rawBody = typeof review.body === 'string' ? review.body : '';
       const paginated = paginateText(
-        rawBody || undefined,
-        0,
+        rawBody ? historyBodyView(rawBody, query) : undefined,
+        query.charOffset ?? 0,
         query.charLength ?? 12_000
       );
       return {
@@ -117,10 +133,12 @@ export function shapeCommits(
   const allCommits = Array.isArray(pr.commits)
     ? (pr.commits as Array<Record<string, unknown>>)
     : [];
-  const { items, pagination } = paginateItems(
+  const { items, pagination } = paginateCollection(
     allCommits,
-    query.commitPage ?? query.page ?? 1,
-    query.pageSize ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
+    query,
+    pr,
+    'commits',
+    query.commitPage ?? query.page ?? 1
   );
   return {
     commits: items.map(commit => ({
@@ -131,9 +149,39 @@ export function shapeCommits(
       ...(request.commits &&
       request.commits.includeFiles &&
       Array.isArray(commit.files)
-        ? { files: commit.files }
+        ? shapeNestedFiles(commit, query)
         : {}),
     })),
     contentPagination: { commits: pagination },
   };
+}
+
+function shapeNestedFiles(commit: Record<string, unknown>, query: QueryLike) {
+  const shaped = shapeCommitDirFiles(
+    commit.files as Parameters<typeof shapeCommitDirFiles>[0],
+    {
+      itemsPerPage: query.pageSize,
+      charLength: query.charLength ?? 12_000,
+    }
+  );
+  const state = commit.filesCollectionState as CollectionState | undefined;
+  const filesPagination = {
+    ...shaped.filesPagination,
+    countScope: 'providerBatch',
+    ...(!shaped.filesPagination.hasMore && state?.hasMore
+      ? { hasMore: true, nextFilePage: 1, nextFileBatch: state.page + 1 }
+      : {}),
+  };
+  return withDiffContinuations(
+    { files: shaped.files, filesPagination },
+    {
+      operation: 'commit',
+      owner: query.owner,
+      repo: query.repo,
+      ref: commit.sha,
+      includeDiff: true,
+      pageSize: query.pageSize,
+      charLength: query.charLength,
+    }
+  );
 }

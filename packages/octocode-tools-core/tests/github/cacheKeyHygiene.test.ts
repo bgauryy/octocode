@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildIssueSearchCacheKey,
-  type FetchIssuesParams,
-} from '../../src/github/issues.js';
+import { buildIssueSearchCacheKey } from '../../src/github/issues/helpers.js';
+import { type FetchIssuesParams } from '../../src/github/issues/types.js';
 import { buildPullRequestSearchCacheKey } from '../../src/github/pullRequestSearch.js';
-import { generateCacheKey } from '../../src/utils/http/cache.js';
+import { generateCacheKey } from '../../src/utils/http/cache/key.js';
 import type { GitHubPullRequestsSearchParams } from '../../src/github/githubAPI.js';
 
 describe('GitHub cache key hygiene (Phase A)', () => {

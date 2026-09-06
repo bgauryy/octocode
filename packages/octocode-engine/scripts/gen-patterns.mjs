@@ -218,15 +218,13 @@ lines.push('];', '');
 // ms on every fresh process).
 lines.push(
   '/// Lazily-compiled per-pattern Regex instances (compile on first use per index).',
-  'static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> = LazyLock::new(|| {',
-  `    (0..${finalPatterns.length}).map(|_| OnceLock::new()).collect()`,
-  '});',
+  'static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> =',
+  `    LazyLock::new(|| (0..${finalPatterns.length}).map(|_| OnceLock::new()).collect());`,
   '',
   '/// Get (compiling at most once) the Regex for pattern `idx`.',
   'pub fn pattern_regex(idx: usize) -> &\'static Regex {',
-  '    PATTERN_REGEX_CELLS[idx].get_or_init(|| {',
-  '        Regex::new(PATTERN_STRINGS[idx]).expect(PATTERNS[idx].name)',
-  '    })',
+  '    PATTERN_REGEX_CELLS[idx]',
+  '        .get_or_init(|| Regex::new(PATTERN_STRINGS[idx]).expect(PATTERNS[idx].name))',
   '}',
   '');
 

@@ -1,6 +1,7 @@
 import { MAX_PAGE_NUMBER } from '../../config.js';
 
 type PackagePageQuery = {
+  registry?: string;
   keywords?: string[];
   page?: number;
   pageSize?: number;
@@ -29,16 +30,8 @@ export function buildPackagePagination(
   const currentPage = Math.max(1, query.page ?? 1);
   const perPage = isKeyword ? (query.pageSize ?? 10) : 1;
 
-  // The keyword CLI search path reports `totalFound` as the count returned on
-  // this page, not necessarily the registry grand total. A full page therefore
-  // remains pageable; a partial page is terminal.
-  const pageIsFull = isKeyword && returned >= perPage;
-  const totalPagesFromCount = Math.max(1, Math.ceil(totalFound / perPage));
-  const hasMore = pageIsFull || currentPage < totalPagesFromCount;
-  const totalPages =
-    pageIsFull && currentPage >= totalPagesFromCount
-      ? currentPage + 1
-      : totalPagesFromCount;
+  const totalPages = Math.max(1, Math.ceil(totalFound / perPage));
+  const hasMore = isKeyword && currentPage < totalPages;
 
   return {
     currentPage,
@@ -76,6 +69,7 @@ export function buildPackagePageContinuation(
       tool: 'npmSearch',
       query: {
         keywords: query.keywords,
+        ...(query.registry ? { registry: query.registry } : {}),
         page: pagination.nextPage,
         ...(typeof query.pageSize === 'number'
           ? { pageSize: query.pageSize }

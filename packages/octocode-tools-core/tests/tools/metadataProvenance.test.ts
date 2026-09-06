@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import { localCompleteMetadata } from '../../src/toolContract/metadata.js';
-import * as localSchemas from '../../src/toolContract/schemas.js';
-import { DESCRIPTIONS } from '../../src/tools/toolMetadata/descriptions.js';
+import { RipgrepQuerySchema } from '../../src/toolContract/input/resources/tools/localTextOperation.js';
+import { ViewStructureQuerySchema } from '../../src/toolContract/input/resources/tools/localTreeOperation.js';
+import { FindFilesQuerySchema } from '../../src/toolContract/input/resources/tools/localFilesOperation.js';
+import * as publicSchemas from '../../src/schema.js';
+import { PUBLIC_TOOL_DESCRIPTIONS } from '../../src/toolContract/descriptions.js';
 import { loadToolContent } from '../../src/tools/toolMetadata/state.js';
 import { LocalRipgrepQuerySchema } from '../../src/tools/local_ripgrep/scheme.js';
 import { LocalViewStructureQuerySchema } from '../../src/tools/local_view_structure/scheme.js';
@@ -30,16 +33,19 @@ describe('metadata provenance — tools-core owns executable contracts', () => {
     );
     expect(names).toHaveLength(10);
     expect(new Set(names).size).toBe(10);
-    expect(Object.keys(DESCRIPTIONS)).toEqual(names);
+    expect(Object.keys(PUBLIC_TOOL_DESCRIPTIONS)).toEqual(names);
 
     for (const name of names) {
-      expect(DESCRIPTIONS[name]?.trim().length, name).toBeGreaterThan(20);
+      expect(
+        PUBLIC_TOOL_DESCRIPTIONS[name]?.trim().length,
+        name
+      ).toBeGreaterThan(20);
       expect(
         DIRECT_TOOL_DISCOVERY_DEFINITIONS.find(
           definition => definition.name === name
         )?.description,
         name
-      ).toBe(DESCRIPTIONS[name]);
+      ).toBe(PUBLIC_TOOL_DESCRIPTIONS[name]);
     }
   });
 
@@ -57,20 +63,16 @@ describe('metadata provenance — tools-core owns executable contracts', () => {
   });
 
   const cases: Array<[string, z.ZodTypeAny, z.ZodTypeAny]> = [
-    [
-      'local.text',
-      LocalRipgrepQuerySchema,
-      localSchemas.RipgrepQuerySchema as z.ZodTypeAny,
-    ],
+    ['local.text', LocalRipgrepQuerySchema, RipgrepQuerySchema as z.ZodTypeAny],
     [
       'local.tree',
       LocalViewStructureQuerySchema as z.ZodTypeAny,
-      localSchemas.ViewStructureQuerySchema as z.ZodTypeAny,
+      ViewStructureQuerySchema as z.ZodTypeAny,
     ],
     [
       'local.files',
       LocalFindFilesQuerySchema as z.ZodTypeAny,
-      localSchemas.FindFilesQuerySchema as z.ZodTypeAny,
+      FindFilesQuerySchema as z.ZodTypeAny,
     ],
   ];
 
@@ -120,8 +122,8 @@ describe('metadata provenance — tools-core owns executable contracts', () => {
   }
 
   it('does not expose a second schema registry beside the direct catalog', () => {
-    expect('toolSchemas' in localSchemas).toBe(false);
-    expect('findToolSchema' in localSchemas).toBe(false);
+    expect('toolSchemas' in publicSchemas).toBe(false);
+    expect('findToolSchema' in publicSchemas).toBe(false);
     expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(10);
   });
 });

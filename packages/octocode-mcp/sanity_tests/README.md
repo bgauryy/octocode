@@ -4,10 +4,10 @@ One markdown checklist per MCP tool for **manual runtime verification** —
 pagination, scheme, quality, and token-effectiveness — to run against the live
 tool when changing the response/pagination layer or shipping a release.
 
-Run a tool out-of-band with the metering smoke wrapper:
+Run a built tool directly from the repository root:
 
 ```bash
-node benchmark/github/scripts/call-tool.mjs <toolName> '<queries-json>'
+node packages/octocode/out/octocode.js tools <toolName> --queries '<queries-json>' --compact
 ```
 
 ## Automated coverage (NOT here — lives under `tests/`)
@@ -16,11 +16,12 @@ These run with `npx vitest run` and gate every change:
 
 | Concern | Test |
 |---|---|
-| Per-tool pagination-knob declaration + no silent-loss language | `tests/tools/all-tools.pagination-contract.test.ts` |
-| pagination-cursor uniformity | `tests/tools/all-tools.pagination.test.ts` |
-| Bulk-envelope numeric bounds (`responseChar*`, ≤5 queries) | `tests/scheme/bulk_envelope_bounds.test.ts` |
-| Catalog registration + bulk-schema existence | `tests/tools/directToolCatalog.test.ts` |
-| Pagination engine (within-item slicing, oversized items) | `tests/utils/structuredPagination*.test.ts` |
+| Per-tool pagination declarations and no-silent-loss language | `packages/octocode-mcp/tests/tools/all-tools.pagination-contract.test.ts` |
+| Bulk-envelope numeric bounds (`responseChar*`, ≤5 queries) | `packages/octocode-mcp/tests/scheme/bulk_envelope_bounds.test.ts` |
+| Catalog registration and bulk-schema existence | `packages/octocode-mcp/tests/tools/directToolCatalog.test.ts` |
+| Shared pagination engine and bulk result continuations | `packages/octocode-tools-core/tests/utils/pagination.test.ts`, `bulk.pagination.test.ts` |
+| GitHub file and history pagination axes | `packages/octocode-tools-core/tests/github/fileContentPagination.test.ts`, `historyPaginationAxes.test.ts` |
+| npm and graph executable page unions | `packages/octocode-tools-core/tests/tools/package_search/pagination.test.ts`, `local_analyze_graph/localAnalyzeGraph.pagination.test.ts` |
 
 The markdown here covers what a unit test can't cheaply assert: **live** cursor
 walks to completion, real-result quality spot-checks, and concise-vs-basic token
@@ -35,10 +36,12 @@ comparisons.
 - [ghCloneRepo](./ghCloneRepo.md)
 - [localSearch](./localSearch.md)
 - [localGetFileContent](./localGetFileContent.md)
+- [localAnalyzeGraph](../../../docs/OCTOCODE_TOOLS.md#localanalyzegraph)
 - [lspGetSemantics](./lspGetSemantics.md)
 
-## Open pagination gaps (tracked)
+## Pagination acceptance
 
-- `lspGetSemantics` references mode — over-budget `locations` tail-dropped, not char-paged (issue #1 / task #6).
-- `npmSearch` — no result-count page cursor for `searchLimit>1` (issue #2).
-- `lspGetSemantics` callHierarchy mode — per-node `content` clipped to 500 chars (issue #4).
+Treat a bounded result as complete only when the response is terminal or every
+typed `next.*` continuation has been executed. A numeric page or cursor without
+a runnable tool query is a contract failure. For fixtures with more than one
+page, verify that the union contains every expected item without duplicates.

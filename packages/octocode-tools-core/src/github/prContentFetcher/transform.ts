@@ -33,30 +33,24 @@ import {
   fetchPRInlineComments,
   fetchPRReviews,
 } from './comments.js';
+import type { CollectionArray } from './collectionPaging.js';
 import { fetchPRFileChangesAPI, fetchPRCommitsWithFiles } from './commits.js';
-
-// NOTE: transformPullRequestItemFromSearch and transformPullRequestItemFromREST
-// are ~90% structurally duplicated (near-identical file-changes/comments/
-// reviews/commits attach blocks). They were kept separate rather than merged
-// into a shared `enrichPullRequestContent()` helper because the two differ in
-// subtle ways that make a byte-for-byte-equivalent merge risky without
-// changing behavior: the search variant gates its file-changes fetch inside
-// the same try/catch as the `pulls.get` enrichment call (and derives
-// additions/deletions/head/base/draft/merged_at from that enrichment
-// response), while the REST variant fetches file changes unconditionally in
-// its own try/catch and derives additions/deletions directly from the input
-// item. A future pass could unify these, but it should be done with careful
-// verification (or new tests pinning both code paths) rather than as part of
-// this pure file-split refactor.
 
 export async function transformPullRequestItemFromSearch(
   item: IssueSearchResultItem,
   params: GitHubPullRequestsSearchParams,
-  octokit: InstanceType<typeof OctokitWithThrottling>
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  authInfo?: AuthInfo
 ): Promise<GitHubPullRequestItem> {
-  const rawItem = item as IssueSearchResultItem & { merged_at?: string | null };
+  const rawItem = {
+    ...item,
+    merged_at:
+      item.pull_request?.merged_at ??
+      (item as IssueSearchResultItem & { merged_at?: string | null }).merged_at,
+  };
   const { prData: result, sanitizationWarnings } =
     createBasePRTransformation(rawItem);
+  result.collectionStates = {};
 
   if (sanitizationWarnings.size > 0) {
     result._sanitization_warnings = Array.from(sanitizationWarnings);
@@ -65,62 +59,65 @@ export async function transformPullRequestItemFromSearch(
   let rawResponseChars = 0;
 
   if (item.pull_request && shouldEnrichPullRequestFromSearch(params)) {
-    try {
-      const { owner, repo } = normalizeOwnerRepo(params);
+    const { owner, repo } = normalizeOwnerRepo(params);
 
-      if (owner && repo) {
-        const prDetails = await octokit.rest.pulls.get({
-          owner,
-          repo,
-          pull_number: item.number,
-        });
+    if (owner && repo) {
+      const prDetails = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: item.number,
+      });
 
-        if (prDetails.data) {
-          rawResponseChars += countSerializedChars(prDetails.data);
-          result.head = prDetails.data.head?.ref;
-          result.head_sha = prDetails.data.head?.sha;
-          result.base = prDetails.data.base?.ref;
-          result.base_sha = prDetails.data.base?.sha;
-          result.draft = prDetails.data.draft ?? false;
+      if (prDetails.data) {
+        rawResponseChars += countSerializedChars(prDetails.data);
+        result.head = prDetails.data.head?.ref;
+        result.head_sha = prDetails.data.head?.sha;
+        result.base = prDetails.data.base?.ref;
+        result.base_sha = prDetails.data.base?.sha;
+        result.draft = prDetails.data.draft ?? false;
 
-          if (prDetails.data.merged_at) {
-            result.merged_at = prDetails.data.merged_at;
-          }
+        if (prDetails.data.merged_at) {
+          result.merged_at = prDetails.data.merged_at;
+        }
 
-          result.additions = prDetails.data.additions ?? 0;
-          result.deletions = prDetails.data.deletions ?? 0;
+        result.additions = prDetails.data.additions ?? 0;
+        result.deletions = prDetails.data.deletions ?? 0;
 
-          if (!shouldFetchFileChanges(params)) {
-            result.file_changes = {
-              total_count: prDetails.data.changed_files ?? 0,
-              files: [],
-            };
-          }
+        if (!shouldFetchFileChanges(params)) {
+          result.file_changes = {
+            total_count: prDetails.data.changed_files ?? 0,
+            files: [],
+          };
+        }
 
-          if (shouldFetchFileChanges(params)) {
-            const fileChanges = await fetchPRFileChangesAPI(
-              owner,
-              repo,
-              item.number
-            );
+        if (shouldFetchFileChanges(params)) {
+          const fileChanges = await fetchPRFileChangesAPI(
+            owner,
+            repo,
+            item.number,
+            authInfo,
+            params.collectionPages?.changedFiles ?? 1
+          );
 
-            if (fileChanges) {
-              rawResponseChars += getRawResponseChars(fileChanges) ?? 0;
-              fileChanges.files = applyPartialContentFilter(
-                fileChanges.files,
-                params
-              ) as DiffEntry[];
+          if (fileChanges) {
+            rawResponseChars += getRawResponseChars(fileChanges) ?? 0;
+            fileChanges.files = applyPartialContentFilter(
+              fileChanges.files,
+              params
+            ) as DiffEntry[];
 
-              result.file_changes = fileChanges;
-            }
+            fileChanges.total_count =
+              prDetails.data.changed_files ?? fileChanges.total_count;
+            result.file_changes = fileChanges;
+            result.collectionStates.changedFiles = fileChanges.collectionState;
+            if (fileChanges.providerLimits)
+              result.providerLimits = [
+                ...(result.providerLimits ?? []),
+                ...fileChanges.providerLimits,
+              ];
           }
         }
       }
-    } catch (error: unknown) {
-      result._sanitization_warnings = [
-        ...(result._sanitization_warnings || []),
-        `Partial Data: Failed to fetch details (files): ${error instanceof Error ? error.message : String(error)}`,
-      ];
     }
   }
 
@@ -130,14 +127,24 @@ export async function transformPullRequestItemFromSearch(
     const { owner, repo } = normalizeOwnerRepo(params);
     if (owner && repo) {
       const includeBots = shouldIncludeBotComments(params);
-      const empty = (): Promise<{ comments: PRCommentItem[]; note?: string }> =>
-        Promise.resolve({ comments: attachRawResponseChars([], 0) });
+      const empty = (): Promise<{
+        comments: CollectionArray<PRCommentItem>;
+        note?: string;
+      }> => Promise.resolve({ comments: attachRawResponseChars([], 0) });
       const [
         { comments: discussionComments, note: discussionNote },
         { comments: inlineComments, note: inlineNote },
       ] = await Promise.all([
         wantDiscussion
-          ? fetchPRComments(octokit, owner, repo, item.number, includeBots)
+          ? fetchPRComments(
+              octokit,
+              owner,
+              repo,
+              item.number,
+              includeBots,
+              authInfo,
+              params.collectionPages?.discussion ?? 1
+            )
           : empty(),
         wantInline
           ? fetchPRInlineComments(
@@ -145,12 +152,16 @@ export async function transformPullRequestItemFromSearch(
               owner,
               repo,
               item.number,
-              includeBots
+              includeBots,
+              authInfo,
+              params.collectionPages?.inline ?? 1
             )
           : empty(),
       ]);
 
       result.comments = [...discussionComments, ...inlineComments];
+      result.collectionStates.discussion = discussionComments.collectionState;
+      result.collectionStates.inline = inlineComments.collectionState;
       rawResponseChars +=
         (getRawResponseChars(discussionComments) ?? 0) +
         (getRawResponseChars(inlineComments) ?? 0);
@@ -168,41 +179,42 @@ export async function transformPullRequestItemFromSearch(
   }
 
   if (shouldFetchReviews(params)) {
-    try {
-      const { owner, repo } = normalizeOwnerRepo(params);
-      if (owner && repo) {
-        const reviews = await fetchPRReviews(octokit, owner, repo, item.number);
-        rawResponseChars += getRawResponseChars(reviews) ?? 0;
-        result.reviews = reviews;
-      }
-    } catch (error: unknown) {
-      result._sanitization_warnings = [
-        ...(result._sanitization_warnings || []),
-        `Partial Data: Failed to fetch reviews: ${error instanceof Error ? error.message : String(error)}`,
-      ];
+    const { owner, repo } = normalizeOwnerRepo(params);
+    if (owner && repo) {
+      const reviews = await fetchPRReviews(
+        octokit,
+        owner,
+        repo,
+        item.number,
+        authInfo,
+        params.collectionPages?.reviews ?? 1
+      );
+      rawResponseChars += getRawResponseChars(reviews) ?? 0;
+      result.reviews = reviews;
+      result.collectionStates.reviews = reviews.collectionState;
     }
   }
 
   if (shouldFetchCommits(params)) {
-    try {
-      const { owner, repo } = normalizeOwnerRepo(params);
-      if (owner && repo) {
-        const commits = await fetchPRCommitsWithFiles(
-          owner,
-          repo,
-          item.number,
-          params
-        );
-        if (commits) {
-          rawResponseChars += getRawResponseChars(commits) ?? 0;
-          result.commits = commits;
-        }
+    const { owner, repo } = normalizeOwnerRepo(params);
+    if (owner && repo) {
+      const commits = await fetchPRCommitsWithFiles(
+        owner,
+        repo,
+        item.number,
+        params,
+        authInfo
+      );
+      if (commits) {
+        rawResponseChars += getRawResponseChars(commits) ?? 0;
+        result.commits = commits;
+        result.collectionStates.commits = commits.collectionState;
+        if (commits.providerLimits)
+          result.providerLimits = [
+            ...(result.providerLimits ?? []),
+            ...commits.providerLimits,
+          ];
       }
-    } catch (error: unknown) {
-      result._sanitization_warnings = [
-        ...(result._sanitization_warnings || []),
-        `Partial Data: Failed to fetch details (commits): ${error instanceof Error ? error.message : String(error)}`,
-      ];
     }
   }
 
@@ -217,6 +229,7 @@ export async function transformPullRequestItemFromREST(
 ): Promise<GitHubPullRequestItem> {
   const { prData: result, sanitizationWarnings } =
     createBasePRTransformation(item);
+  result.collectionStates = {};
 
   if (sanitizationWarnings.size > 0) {
     result._sanitization_warnings = Array.from(sanitizationWarnings);
@@ -236,26 +249,30 @@ export async function transformPullRequestItemFromREST(
   }
 
   if (shouldFetchFileChanges(params)) {
-    try {
-      const fileChanges = await fetchPRFileChangesAPI(
-        owner,
-        repo,
-        item.number,
-        authInfo
-      );
-      if (fileChanges) {
-        rawResponseChars += getRawResponseChars(fileChanges) ?? 0;
-        fileChanges.files = applyPartialContentFilter(
-          fileChanges.files,
-          params
-        ) as DiffEntry[];
-        result.file_changes = fileChanges;
-      }
-    } catch (error: unknown) {
-      result._sanitization_warnings = [
-        ...(result._sanitization_warnings || []),
-        `Partial Data: Failed to fetch details (files): ${error instanceof Error ? error.message : String(error)}`,
-      ];
+    const fileChanges = await fetchPRFileChangesAPI(
+      owner,
+      repo,
+      item.number,
+      authInfo,
+      params.collectionPages?.changedFiles ?? 1
+    );
+    if (fileChanges) {
+      rawResponseChars += getRawResponseChars(fileChanges) ?? 0;
+      fileChanges.files = applyPartialContentFilter(
+        fileChanges.files,
+        params
+      ) as DiffEntry[];
+      fileChanges.total_count =
+        'changed_files' in item
+          ? (item.changed_files ?? fileChanges.total_count)
+          : fileChanges.total_count;
+      result.file_changes = fileChanges;
+      result.collectionStates.changedFiles = fileChanges.collectionState;
+      if (fileChanges.providerLimits)
+        result.providerLimits = [
+          ...(result.providerLimits ?? []),
+          ...fileChanges.providerLimits,
+        ];
     }
   }
 
@@ -264,7 +281,7 @@ export async function transformPullRequestItemFromREST(
   if (wantDiscussionRest || wantInlineRest) {
     const includeBots = shouldIncludeBotComments(params);
     const emptyRest = (): Promise<{
-      comments: PRCommentItem[];
+      comments: CollectionArray<PRCommentItem>;
       note?: string;
     }> => Promise.resolve({ comments: attachRawResponseChars([], 0) });
     const [
@@ -272,14 +289,32 @@ export async function transformPullRequestItemFromREST(
       { comments: inlineComments, note: inlineNote },
     ] = await Promise.all([
       wantDiscussionRest
-        ? fetchPRComments(octokit, owner, repo, item.number, includeBots)
+        ? fetchPRComments(
+            octokit,
+            owner,
+            repo,
+            item.number,
+            includeBots,
+            authInfo,
+            params.collectionPages?.discussion ?? 1
+          )
         : emptyRest(),
       wantInlineRest
-        ? fetchPRInlineComments(octokit, owner, repo, item.number, includeBots)
+        ? fetchPRInlineComments(
+            octokit,
+            owner,
+            repo,
+            item.number,
+            includeBots,
+            authInfo,
+            params.collectionPages?.inline ?? 1
+          )
         : emptyRest(),
     ]);
 
     result.comments = [...discussionComments, ...inlineComments];
+    result.collectionStates.discussion = discussionComments.collectionState;
+    result.collectionStates.inline = inlineComments.collectionState;
     rawResponseChars +=
       (getRawResponseChars(discussionComments) ?? 0) +
       (getRawResponseChars(inlineComments) ?? 0);
@@ -296,36 +331,36 @@ export async function transformPullRequestItemFromREST(
   }
 
   if (shouldFetchReviews(params)) {
-    try {
-      const reviews = await fetchPRReviews(octokit, owner, repo, item.number);
-      rawResponseChars += getRawResponseChars(reviews) ?? 0;
-      result.reviews = reviews;
-    } catch (error: unknown) {
-      result._sanitization_warnings = [
-        ...(result._sanitization_warnings || []),
-        `Partial Data: Failed to fetch reviews: ${error instanceof Error ? error.message : String(error)}`,
-      ];
-    }
+    const reviews = await fetchPRReviews(
+      octokit,
+      owner,
+      repo,
+      item.number,
+      authInfo,
+      params.collectionPages?.reviews ?? 1
+    );
+    rawResponseChars += getRawResponseChars(reviews) ?? 0;
+    result.reviews = reviews;
+    result.collectionStates.reviews = reviews.collectionState;
   }
 
   if (shouldFetchCommits(params)) {
-    try {
-      const commits = await fetchPRCommitsWithFiles(
-        owner,
-        repo,
-        item.number,
-        params,
-        authInfo
-      );
-      if (commits) {
-        rawResponseChars += getRawResponseChars(commits) ?? 0;
-        result.commits = commits;
-      }
-    } catch (error: unknown) {
-      result._sanitization_warnings = [
-        ...(result._sanitization_warnings || []),
-        `Partial Data: Failed to fetch details (commits): ${error instanceof Error ? error.message : String(error)}`,
-      ];
+    const commits = await fetchPRCommitsWithFiles(
+      owner,
+      repo,
+      item.number,
+      params,
+      authInfo
+    );
+    if (commits) {
+      rawResponseChars += getRawResponseChars(commits) ?? 0;
+      result.commits = commits;
+      result.collectionStates.commits = commits.collectionState;
+      if (commits.providerLimits)
+        result.providerLimits = [
+          ...(result.providerLimits ?? []),
+          ...commits.providerLimits,
+        ];
     }
   }
 

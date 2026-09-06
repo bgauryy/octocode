@@ -6,6 +6,7 @@ import {
 } from './contentResponse/commentsShaping.js';
 import { shapeFileSurfaces } from './contentResponse/fileSurfaces.js';
 import { nextCalls } from './contentResponse/nextCalls.js';
+import { historyBodyView } from './contentResponse/contentView.js';
 import {
   compactBody,
   continuationQuery,
@@ -19,10 +20,6 @@ import {
   type QueryLike,
   type TextPagination,
 } from './contentResponse/pagination.js';
-
-function normalizeMarkdownBody(body: string): string {
-  return body.replace(/\n{3,}/g, '\n\n');
-}
 
 function buildFileContentRequest(
   request: NormalizedPrContentRequest
@@ -47,9 +44,10 @@ function firstPatchPagination(
 }
 
 function firstCommentBodyPagination(
-  shaped: Record<string, unknown>
+  shaped: Record<string, unknown>,
+  surface: 'comments' | 'reviews' = 'comments'
 ): TextPagination | undefined {
-  const comments = shaped.comments;
+  const comments = shaped[surface];
   if (!Array.isArray(comments)) return undefined;
   for (const comment of comments) {
     if (!isRecord(comment)) continue;
@@ -70,10 +68,36 @@ function buildContentPagination(
   const bodyPagination = readTextPagination(rawPagination.body);
   const filePagination = readPagination(rawPagination.changedFiles);
   const commentPagination = readPagination(rawPagination.comments);
+  const reviewPagination = readPagination(rawPagination.reviews);
   const commitPagination = readPagination(rawPagination.commits);
   const patchPagination = firstPatchPagination(shaped);
   const commentBodyPagination = firstCommentBodyPagination(shaped);
+  const reviewBodyPagination = firstCommentBodyPagination(shaped, 'reviews');
   const fileContent = buildFileContentRequest(request);
+  if (reviewBodyPagination && request.reviews) {
+    contentPagination.reviewBody = {
+      ...reviewBodyPagination,
+      nextQuery: textContinuationQuery(
+        query,
+        prNumber,
+        { reviews: true },
+        reviewBodyPagination
+      ),
+    };
+  }
+
+  if (reviewPagination && request.reviews) {
+    contentPagination.reviews = {
+      ...reviewPagination,
+      nextQuery: pageContinuationQuery(
+        query,
+        prNumber,
+        { reviews: true },
+        'reviewPage',
+        reviewPagination
+      ),
+    };
+  }
 
   if (bodyPagination) {
     contentPagination.body = {
@@ -190,7 +214,7 @@ export function shapePullRequestForContent(
   const prNumber = Number(pr.number);
   const rawBody = typeof pr.body === 'string' ? pr.body : undefined;
   const processedBody =
-    rawBody && shouldMinify ? normalizeMarkdownBody(rawBody) : rawBody;
+    rawBody && shouldMinify ? historyBodyView(rawBody, query) : rawBody;
   const body = request.body
     ? paginateText(
         processedBody,
@@ -218,11 +242,11 @@ export function shapePullRequestForContent(
     contentPagination: commentContentPagination = {},
     ...commentSurfaces
   } = shapeComments(pr, query, request);
+  const { contentPagination: reviewContentPagination = {}, ...reviewSurfaces } =
+    shapeReviews(pr, query, request);
   const { contentPagination: commitContentPagination = {}, ...commitSurfaces } =
     shapeCommits(pr, query, request);
-  // If this response already fetched the changed-file list, hand nextCalls
-  // a real path instead of the literal "path/from/changedFiles" placeholder
-  // that previously always required a prior round-trip to resolve.
+  // Offer a selected-patch follow-up only when this response knows a path.
   const firstChangedFilePath = Array.isArray(fileSurfaces.changedFiles)
     ? (fileSurfaces.changedFiles as Array<{ path?: string }>).find(f => f.path)
         ?.path
@@ -240,10 +264,10 @@ export function shapePullRequestForContent(
     ...(Array.isArray(pr.labels) && (pr.labels as unknown[]).length
       ? { labels: pr.labels }
       : {}),
-    targetBranch: pr.targetBranch,
+    ...(pr.targetBranch ? { targetBranch: pr.targetBranch } : {}),
     ...(fullShape
       ? {
-          sourceBranch: pr.sourceBranch,
+          ...(pr.sourceBranch ? { sourceBranch: pr.sourceBranch } : {}),
           ...(pr.sourceSha ? { sourceSha: pr.sourceSha } : {}),
         }
       : {}),
@@ -273,6 +297,9 @@ export function shapePullRequestForContent(
 
   const shaped: Record<string, unknown> = {
     ...metadata,
+    ...(Array.isArray(pr.providerLimits) && pr.providerLimits.length
+      ? { providerLimits: pr.providerLimits }
+      : {}),
     ...(request.body
       ? body
         ? { body: body.content }
@@ -280,7 +307,7 @@ export function shapePullRequestForContent(
       : {}),
     ...fileSurfaces,
     ...commentSurfaces,
-    ...shapeReviews(pr, query, request),
+    ...reviewSurfaces,
     ...commitSurfaces,
     ...(pr.reviewSummary ? { reviewSummary: pr.reviewSummary } : {}),
     ...(Array.isArray(pr.sanitizationWarnings) &&
@@ -295,6 +322,7 @@ export function shapePullRequestForContent(
       ...fileContentPagination,
       ...commentContentPagination,
       ...commitContentPagination,
+      ...reviewContentPagination,
     },
     query,
     request,

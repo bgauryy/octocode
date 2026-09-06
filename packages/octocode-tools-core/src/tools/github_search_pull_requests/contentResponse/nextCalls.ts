@@ -1,15 +1,15 @@
 import type { NormalizedPrContentRequest } from '../contentRequest.js';
 import { baseQuery, type QueryLike } from './pagination.js';
 
-// Every fragment merges the public exact-item identity into its own query so
-// each one is copy-paste ready on its own — the fragment used to be a
-// content-only delta an agent had to manually merge with a separate `target`
-// object before the call would actually run.
 function withTargetContent(
   target: Record<string, unknown>,
   content: Record<string, unknown>
 ): Record<string, unknown> {
-  return { ...target, content };
+  return {
+    tool: 'ghGetHistoryItem',
+    query: { ...target, content },
+    confidence: 'exact',
+  };
 }
 
 export function nextCalls(
@@ -20,7 +20,6 @@ export function nextCalls(
 ) {
   const target = baseQuery(query, prNumber);
   return {
-    target,
     ...(request.body
       ? {}
       : { getBody: withTargetContent(target, { body: true }) }),
@@ -32,15 +31,13 @@ export function nextCalls(
     ...(request.patches.mode !== 'none'
       ? {}
       : {
-          // A real path is only known once changedFiles has actually been
-          // fetched in this same response; otherwise fall back to a labeled
-          // placeholder that still names what to substitute.
-          getSelectedPatches: withTargetContent(target, {
-            patches: {
-              mode: 'selected',
-              files: [firstChangedFilePath ?? 'path/from/changedFiles'],
-            },
-          }),
+          ...(firstChangedFilePath
+            ? {
+                getSelectedPatches: withTargetContent(target, {
+                  patches: { mode: 'selected', files: [firstChangedFilePath] },
+                }),
+              }
+            : {}),
           getAllPatches: withTargetContent(target, {
             patches: { mode: 'all' },
           }),

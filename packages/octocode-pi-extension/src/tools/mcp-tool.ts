@@ -1,3 +1,4 @@
+import { truncateToWidth } from '../tui/width.js';
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,13 +51,7 @@ import {
   type McpScope,
   type McpServerConfig,
 } from "./mcp-config.js";
-export {
-  OCTOCODE_MCP_ENV_DEFAULTS,
-  configSignature,
-  patchGlobalMcpOctocodeEnv,
-  removeServerFromFile,
-  upsertServerInFile,
-} from "./mcp-config.js";
+
 import { assertPathAllowed } from "./path-guard.js";
 import {
   buildQueryEnvelopeSchema,
@@ -71,16 +66,7 @@ import {
   setManagedStatus,
 } from "./runtime-renderer.js";
 import { recordFileReadState } from "./file-state.js";
-import {
-  buildOctocodeSingleRenderCall,
-  buildOctocodeRenderCall,
-  buildOctocodeRenderResult,
-  buildToolView,
-  extractQueryResultRows,
-  makeCachedRenderer,
-  makeRenderer,
-  truncateToWidth,
-} from "./render-helpers.js";
+import { buildOctocodeSingleRenderCall, buildOctocodeRenderCall, buildOctocodeRenderResult, buildToolView, extractQueryResultRows, makeCachedRenderer, makeComponentRenderer } from './render-helpers.js';
 import {
   buildMcpCatalogSnapshot,
   buildMcpGuideGenerationPrompt,
@@ -2437,19 +2423,31 @@ export async function handleMcpAction(
       { name: tool, arguments: argumentsPayload },
       requestOptions(config, signal),
     );
-    // Stale-check: when the agent reads files through the octocode MCP server,
-    // record the same read-state that the native localGetFileContent tool would.
-    // This keeps the edit tool's stale-guard working when research routes through MCPTool.
+    // Only content delivered by a successful query establishes read state.
+    // A mixed batch can succeed overall while individual reads fail or are absent.
     if (
       serverName === DEFAULT_OCTOCODE_MCP_SERVER_NAME &&
-      tool === "localGetFileContent"
+      tool === "localGetFileContent" &&
+      payload?.isError !== true
     ) {
       const cwd = ctx?.cwd ?? process.cwd();
       const queries = Array.isArray(argumentsPayload["queries"])
         ? argumentsPayload["queries"]
         : [];
+      const structured = payload?.structuredContent;
+      const readResults = isPlainRecord(structured) && Array.isArray(structured["results"])
+        ? structured["results"]
+        : [];
       await Promise.all(
-        queries.map(async (q: unknown) => {
+        readResults.map(async (entry: unknown) => {
+          if (!isPlainRecord(entry) || entry["status"] !== undefined) return;
+          const index = entry["index"];
+          const data = entry["data"];
+          if (
+            typeof index !== "number" || !Number.isInteger(index) || index < 0 ||
+            !isPlainRecord(data) || typeof data["content"] !== "string"
+          ) return;
+          const q: unknown = queries[index];
           const p = isPlainRecord(q) ? q["path"] : undefined;
           if (typeof p === "string" && p.trim().length > 0) {
             await recordFileReadState(p, cwd).catch(() => undefined);
@@ -2523,10 +2521,10 @@ function renderCall(args: unknown, theme?: PiTheme): RenderCallReturn {
   }
 
   const { action, target } = formatMcpTarget(p);
-  return makeRenderer((width) => {
+  return makeComponentRenderer((_props, { width: width }) => {
     const line = `mcp ${action} · ${target}`;
     return [theme?.fg ? theme.fg("dim", clip(line, width)) : clip(line, width)];
-  });
+  }, undefined);
 }
 
 function renderResult(
@@ -2611,14 +2609,14 @@ function renderResult(
   // In-flight (streaming, or the stdio server still spawning): show a running
   // row instead of fabricating a completed "MCP result" line.
   if (opts.isPartial) {
-    return makeRenderer((width) => {
+    return makeComponentRenderer((_props, { width: width }) => {
       const line = `mcp ${action} · ${target} · running…`;
       // In-flight is not an alert: gold (warning) is reserved for act-on-me. Use
       // the identity/in-flight brand color like other running rows.
       return [
         theme?.fg ? theme.fg("accent", clip(line, width)) : clip(line, width),
       ];
-    });
+    }, undefined);
   }
   const lines = (resultValue.content[0] as { text?: string } | undefined)?.text
     ?.split("\n")
@@ -2628,14 +2626,14 @@ function renderResult(
   // Pi ignores the returned isError; context.isError is the reliable flag.
   const isError = Boolean(resultValue.isError) || Boolean(context?.isError);
   const prefix = isError ? "mcp error" : `mcp ${action}`;
-  return makeRenderer((width) => {
+  return makeComponentRenderer((_props, { width: width }) => {
     const color = isError ? "error" : "dim";
     const rendered = [`${prefix} · ${target} · ${head}`];
     if (second && second !== head) rendered.push(`  ${second}`);
     return rendered.map((line) =>
       theme?.fg ? theme.fg(color, clip(line, width)) : clip(line, width),
     );
-  });
+  }, undefined);
 }
 // Opt out of the branded multi-query override: this renderResult handles multi-query
 // rows itself (with per-row actual tool names), so the branded wrapper must not

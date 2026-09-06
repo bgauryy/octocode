@@ -2,7 +2,8 @@ import type { AuthInfo } from '@modelcontextprotocol/server';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { resolveDateWindow } from './dateWindow.js';
 import { handleGitHubAPIError } from './errors.js';
-import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import { generateCacheKey } from '../utils/http/cache/key.js';
+import { withDataCache } from '../utils/http/cache/dataCache.js';
 import type {
   GitHubAPIResponse,
   HistoryCommit,

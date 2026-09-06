@@ -1,3 +1,4 @@
+import type { PlanPhase } from './plan-domain.js';
 /**
  * plan-html — the plan's local HTML/Markdown surface.
  *
@@ -17,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { extensionTmpRoot } from '../extension-paths.js';
-import { getPlanRfc, planPhaseIndex, artifactContextForScope, type DisplayStatus, type PlanDecision, type PlanPhase } from './active-plan.js';
+import { getPlanRfc, planPhaseIndex, artifactContextForScope, type DisplayStatus, type PlanDecision } from './active-plan.js';
 import { getCurrentPlanReadModel, type PlanReadModelV1 } from './plan-read-model.js';
 import type { PiContext } from '../types.js';
 import { escapeHtml, renderOctocodePage } from '../tui/html-page.js';
@@ -230,11 +231,11 @@ function planStatsSectionHtml(model: PlanReadModelV1): string {
   .plan-stats .progress-bar { height:8px; background:var(--line); border-radius:999px; overflow:hidden; margin:0 0 .9rem; }
   .plan-stats .progress-fill { height:100%; background:linear-gradient(90deg,var(--cyan),var(--violet)); border-radius:999px; transition:width .4s ease; }
   .stats-grid { display:flex; flex-wrap:wrap; gap:.55rem; align-items:flex-start; }
-  .stat { display:flex; flex-direction:column; align-items:center; padding:.45rem .8rem; border:1px solid var(--line); border-radius:10px; background:var(--bg); min-width:3.8rem; }
+  .stat { display:flex; flex-direction:column; align-items:flex-start; padding:.45rem 1.2rem .45rem 0; min-width:3.8rem; }
   .stat-val { font-size:1.45rem; font-weight:850; line-height:1; letter-spacing:-.04em; color:var(--ink); }
   .stat-label { font-size:.68rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; margin-top:.18rem; font-weight:650; white-space:nowrap; }
   .stat-done .stat-val { color:var(--cyan); }
-  .stat-all-done { border-color:var(--cyan); box-shadow:0 0 0 2px color-mix(in srgb,var(--cyan) 18%,transparent); }
+  .stat-all-done { color:var(--cyan); }
   .stat-blocked { border-color:rgba(249,115,22,.45); }
   .stat-blocked .stat-val { color:#EA580C; }
   .stat-running .stat-val { color:var(--gold); }
@@ -358,10 +359,7 @@ function browserReplySectionHtml(model: PlanReadModelV1): string {
 /** CSS for the richer step rendering. Scoped to the steps list. */
 const STEP_DETAIL_CSS = `
 <style>
-  ul.steps li { display:grid; grid-template-columns:1.6rem 1fr; gap:0 .5rem; padding:.52rem .6rem; border-radius:8px; margin-bottom:.28rem; border:1px solid var(--line); background:var(--bg); transition:border-color .15s; }
-  ul.steps li.done { border-color:color-mix(in srgb,var(--cyan) 28%,transparent); }
-  ul.steps li.doing { border-color:color-mix(in srgb,var(--gold) 35%,transparent); background:color-mix(in srgb,var(--gold) 4%,var(--bg)); }
-  ul.steps li.blocked { border-color:color-mix(in srgb,#EA580C 28%,transparent); }
+  ul.steps > li { display:grid; grid-template-columns:1.6rem 1fr; gap:0 .5rem; padding:.65rem 0; margin-bottom:.28rem; border-bottom:1px solid var(--line); }
   ul.steps li .glyph { grid-column:1; grid-row:1; font-size:.9rem; line-height:1.55; }
   ul.steps li.done .glyph { color:var(--cyan); }
   ul.steps li.doing .glyph { color:var(--gold); }
@@ -374,11 +372,16 @@ const STEP_DETAIL_CSS = `
   ul.steps li .step-detail .step-paths { list-style:none; margin:.2rem 0 0; padding:0; }
   ul.steps li .step-detail .step-paths li { font-family:monospace; font-size:.75rem; color:var(--muted); padding:.1rem 0; }
   ul.steps li .deps { font-size:.78rem; color:#EA580C; margin-left:.4rem; }
-  .plan-meta { display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; padding:.6rem .8rem; background:var(--surface); border:1px solid var(--line); border-radius:10px; margin-bottom:1.2rem; }
+  .plan-meta { display:flex; flex-wrap:wrap; gap:1.5rem; align-items:center; margin-bottom:1.2rem; }
   .plan-meta-item { display:flex; flex-direction:column; }
   .plan-meta-label { font-size:.65rem; color:var(--muted); text-transform:uppercase; letter-spacing:.09em; font-weight:700; }
   .plan-meta-val { font-family:monospace; font-size:.8rem; color:var(--ink); }
-  .plan-meta-val.plan-id-pill { background:color-mix(in srgb,var(--violet) 12%,transparent); color:var(--violet); border:1px solid color-mix(in srgb,var(--violet) 30%,transparent); border-radius:6px; padding:.15rem .45rem; font-size:.78rem; font-weight:700; }
+  .plan-meta-val.plan-id-pill { color:var(--violet); font-size:.78rem; font-weight:700; }
+  [data-plan-read-model] .steps.gates > li { display:block; }
+  [data-plan-read-model] ol.phase-timeline .ph { border:0; border-radius:0; background:none; padding:.25rem .65rem .25rem 0; }
+  [data-plan-read-model] ol.phase-timeline .ph.now { box-shadow:none; text-decoration:underline; text-underline-offset:.4rem; }
+  [data-plan-read-model] ol.phase-timeline .ph.done { text-decoration:none; }
+  [data-plan-read-model] ul.decisions li { border:0; background:none; padding:.4rem 0; }
 </style>`;
 
 /** Build the plan identity header: plan ID badge + workspace + session context. */
@@ -426,6 +429,7 @@ function stepItemHtml(task: { id: string; index: number; text: string; activeTex
 export function buildPlanPageHtmlFromModel(model: PlanReadModelV1, rfc?: RfcDoc): string {
   const items = model.tasks.map((task) => stepItemHtml(task));
   const gates = FLOW_GATES.map((gate, i) => `<li>${i + 1}. ${escapeHtml(gate)}</li>`);
+  const reviewing = ['researching', 'needs_answers', 'draft', 'in_review', 'accepted'].includes(model.phase);
   return [
     // Root section: carries plan-id + revision so the auto-refresh and live-sync
     // can detect stale renders without a full DOM diff.
@@ -439,20 +443,21 @@ export function buildPlanPageHtmlFromModel(model: PlanReadModelV1, rfc?: RfcDoc)
     rfcSectionHtml(rfc),
     decisionsSectionHtml(model.review.decisions),
     planStatsSectionHtml(model),
-    browserReplySectionHtml(model),
+    reviewing ? browserReplySectionHtml(model) : '',
     // ul.steps (not ol): the stylesheet only resets list-style on ul.steps, so an
     // ol here would stack a browser decimal marker on top of the manual "1." prefix.
-    '<section><h2>Flow gates</h2><ul class="steps gates">',
-    ...gates,
-    '</ul></section>',
     `<section><h2>Steps \u00b7 ${model.summary.done}/${model.summary.total} done</h2><ul class="steps">`,
     ...items,
     '</ul></section>',
-    '<section><h2>Dependency flow</h2>',
+    reviewing ? '' : browserReplySectionHtml(model),
+    '<details><summary>Planning workflow</summary><ul class="steps gates">',
+    ...gates,
+    '</ul></details>',
+    '<details><summary>Dependency flow</summary>',
     `<pre class="mermaid">${escapeHtml(buildPlanMermaidFromModel(model))}</pre>`,
     '<div class="sub">Diagram needs network once (mermaid CDN); the checklist above always renders.</div>',
-    '</section>',
-    `<details><summary>Raw markdown (.octocode/plan.md)</summary><pre>${escapeHtml(buildPlanMarkdownFromModel(model, { ...(rfc ? { rfc } : {}) }))}</pre></details>`,
+    '</details>',
+    `<details><summary>Plan markdown</summary><pre>${escapeHtml(buildPlanMarkdownFromModel(model, { ...(rfc ? { rfc } : {}) }))}</pre></details>`,
     '</section>',
   ].filter(Boolean).join('\n');
 }
@@ -467,7 +472,7 @@ export interface PlanArtifacts {
 /**
  * Directory for a plan scope's HTML/MD.
  *
- * Primary: `$OCTOCODE_HOME/extension/workspaces/<workspace>/sessions/<session-key>/plan/` — scoped to the
+ * Primary: `$OCTOCODE_HOME/extension/sessions/<session-key>/plan/` — scoped to the
  * session artifact tree so all tool outputs land under one session root.
  * Fallback: `$OCTOCODE_HOME/extension/tmp/plan/<scope-hash>/` — used when the workspace is
  * not yet initialised or the session artifact dir cannot be created.
@@ -520,6 +525,8 @@ function writeProjectedPlanArtifacts(scope: string, model: PlanReadModelV1, opts
       refreshSeconds: REFRESH_SECONDS,
       refreshToken: `${model.review.branchSnapshotId}:${model.review.generation}:${model.revision ?? ''}:${model.planId}`,
       mermaid: true,
+      layout: 'document',
+      footerHtml: 'The plan follows this session. Review the proposal, choose Start once, then track work and verification here.',
     });
     const markdown = buildPlanMarkdownFromModel(model, { ...opts, ...(rfc ? { rfc } : {}) });
     if (artifactCtx) {

@@ -6,7 +6,7 @@
  * order they are computed. Do not reorder the calls inside
  * `scoreFileWithRarity` or `bestLineScore`.
  *
- * See the module doc in `../rankingProfile.ts` for the full contract.
+ * Weight policy and profile selection live in rankingProfiles.ts.
  */
 import type {
   LocalSearchCodeFile,
@@ -389,12 +389,4 @@ export function scoreFileWithRarity(
     pathRole: role,
     reasons,
   };
-}
-
-/** Score one file. Pure and deterministic. */
-export function scoreFile(
-  file: LocalSearchCodeFile,
-  ctx: RankContext
-): FileScore {
-  return scoreFileWithRarity(file, ctx);
 }

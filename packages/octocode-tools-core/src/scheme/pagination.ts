@@ -58,6 +58,7 @@ export const CharPaginationSchema = z.object({
   currentPage: z.number().optional(),
   totalPages: z.number().optional(),
   chunkMode: z.enum(['semantic', 'char-limit']).optional(),
+  pageCountsKind: z.literal('estimated').optional(),
 });
 
 export type CharPagination = z.infer<typeof CharPaginationSchema>;
@@ -162,7 +163,7 @@ export function buildContinueCharsContinuation<TTool extends string>(
         ...query,
         charOffset: pagination.nextCharOffset,
         ...(includeCharLength && pagination.charLength !== undefined
-          ? { charLength: pagination.charLength }
+          ? { charLength: query.charLength ?? pagination.charLength }
           : {}),
       },
     },

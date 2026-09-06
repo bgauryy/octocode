@@ -1,17 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { ALL_TOOLS } from '../../src/tools/toolConfig.js';
-import {
-  TOOL_NAMES,
-  DESCRIPTIONS,
-} from '../../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../../../octocode-tools-core/src/tools/toolMetadata/names.js';
+import { PUBLIC_TOOL_DESCRIPTIONS } from '../../../octocode-tools-core/src/toolContract/descriptions.js';
 import {
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   GITHUB_SEARCH_TOOL_NAME,
   LOCAL_ANALYZE_GRAPH_TOOL_NAME,
   LOCAL_SEARCH_TOOL_NAME,
 } from '@octocodeai/octocode-tools-core';
-import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/lsp/shared/semanticTypes.js';
+import { LSP_GET_SEMANTICS_TOOL_NAME } from '../../../octocode-tools-core/src/tools/toolNames.js';
 
 const removedLspToolNames = [
   `lsp${'Goto'}Definition`,
@@ -108,7 +106,7 @@ describe('Tool Configuration', () => {
       const GITHUB_FETCH_CONTENT = tool(TOOL_NAMES.GITHUB_FETCH_CONTENT);
       expect(GITHUB_FETCH_CONTENT.name).toBe(TOOL_NAMES.GITHUB_FETCH_CONTENT);
       expect(GITHUB_FETCH_CONTENT.description).toBe(
-        DESCRIPTIONS[TOOL_NAMES.GITHUB_FETCH_CONTENT]
+        PUBLIC_TOOL_DESCRIPTIONS[TOOL_NAMES.GITHUB_FETCH_CONTENT]
       );
       expect(GITHUB_FETCH_CONTENT.type).toBe('content');
       expect(GITHUB_FETCH_CONTENT.isLocal).toBe(false);
@@ -132,7 +130,7 @@ describe('Tool Configuration', () => {
       const PACKAGE_SEARCH = tool(TOOL_NAMES.PACKAGE_SEARCH);
       expect(PACKAGE_SEARCH.name).toBe(TOOL_NAMES.PACKAGE_SEARCH);
       expect(PACKAGE_SEARCH.description).toBe(
-        DESCRIPTIONS[TOOL_NAMES.PACKAGE_SEARCH]
+        PUBLIC_TOOL_DESCRIPTIONS[TOOL_NAMES.PACKAGE_SEARCH]
       );
       expect(PACKAGE_SEARCH.type).toBe('search');
       expect(PACKAGE_SEARCH.isLocal).toBe(false);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { mapRepoStructureProviderResult } from '../../src/tools/providerMappers.js';
+import { mapRepoStructureProviderResult } from '../../src/tools/providerMappers/repoStructure.js';
 import type { RepoStructureResult } from '../../src/providers/providerResults.js';
 
 type Structure = RepoStructureResult['structure'];

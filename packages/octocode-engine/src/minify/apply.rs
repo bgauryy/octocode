@@ -1,10 +1,10 @@
-use crate::comment_remover::remove_comments;
-use crate::file_extension::get_extension_internal;
-use crate::minifier::{get_file_config, minify_content_sync_inner, MAX_SIZE};
-use crate::strategies::{
+use crate::minify::comment_remover::remove_comments;
+use crate::minify::minifier::{get_file_config, minify_content_sync_inner, MAX_SIZE};
+use crate::minify::strategies::{
     minify_code_core, minify_css_quality, minify_embedded_web, minify_general_core, minify_js_oxc,
     minify_json_readable_inner, minify_markdown_core,
 };
+use crate::text::file_extension::get_extension_internal;
 
 /// Full minification — return minified if shorter, else original.
 pub fn apply_minification_inner(content: &str, file_path: &str) -> String {
@@ -57,8 +57,9 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
             return minify_embedded_web(content, file_path);
         }
 
-        // JS/TS: use OXC without mangling — preserves names for agent readability
-        if crate::file_extension::is_js_ts_extension(&ext) {
+        // JS/TS: compact code generation preserves declarations and identifier
+        // uses; optimizing minification is reserved for the full-minify API.
+        if crate::text::file_extension::is_js_ts_extension(&ext) {
             if let Some(oxc_out) = minify_js_oxc(content, file_path, false) {
                 return oxc_out;
             }
@@ -111,13 +112,63 @@ mod tests {
     }
 
     #[test]
-    fn content_view_strips_ts_type_only_imports() {
+    fn content_view_preserves_ts_type_only_imports() {
         let src = "import type { Foo } from './foo';\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n";
         let out = apply_content_view_minification_inner(src, "math.ts");
         assert!(
-            !out.contains("import type"),
-            "content-view must strip 'import type': {out}"
+            out.contains("import type"),
+            "research content-view must retain type imports: {out}"
         );
+    }
+
+    #[test]
+    fn content_view_preserves_declarations_and_identifier_uses() {
+        let source = "import type { Remote } from './remote';\ninterface PrivateShape { name: string; }\ntype LocalId = string;\nexport function target(value: PrivateShape): string {\n  // removable comment\n  const localName: LocalId = value.name;\n  return localName;\n}\n";
+        for extension in ["ts", "tsx", "mts", "cts"] {
+            let output =
+                apply_content_view_minification_inner(source, &format!("fixture.{extension}"));
+            for declaration in [
+                "import type",
+                "interface PrivateShape",
+                "type LocalId",
+                "localName",
+            ] {
+                assert!(
+                    output.contains(declaration),
+                    "{extension}: missing {declaration}: {output}"
+                );
+            }
+            assert_eq!(
+                output.matches("localName").count(),
+                2,
+                "binding and reference must both survive: {output}"
+            );
+            assert!(!output.contains("removable comment"));
+            assert!(output.len() < source.len());
+        }
+        for extension in ["js", "jsx", "mjs", "cjs"] {
+            let source = "export function target(uniqueArgumentName) {\n  const anotherUniqueName = uniqueArgumentName + 1;\n  return anotherUniqueName;\n}\n";
+            let output =
+                apply_content_view_minification_inner(source, &format!("fixture.{extension}"));
+            assert_eq!(
+                output.matches("anotherUniqueName").count(),
+                2,
+                "{extension}: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn content_view_scala_extensions_share_comment_and_literal_behavior() {
+        let source = "// removable comment\nobject Example {\n  val endpoint = \"https://example.com/path\"\n}\n";
+        let expected = apply_content_view_minification_inner(source, "fixture.scala");
+        for extension in ["scala", "sc", "sbt"] {
+            let output =
+                apply_content_view_minification_inner(source, &format!("fixture.{extension}"));
+            assert_eq!(output, expected, "{extension} must use Scala minification");
+            assert!(!output.contains("removable comment"));
+            assert!(output.contains("https://example.com/path"));
+        }
     }
 
     #[test]
@@ -167,6 +218,7 @@ mod tests {
         assert!(out.len() <= src.len());
     }
 
+    #[cfg(feature = "css-quality")]
     #[test]
     fn css_content_view_strips_redundant_zero_px() {
         let src = "div { margin: 0px; padding: 0px 0px; border-width: 0px; }";

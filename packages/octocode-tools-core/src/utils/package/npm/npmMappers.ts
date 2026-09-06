@@ -1,4 +1,3 @@
-import { fetchWithRetries } from '../../http/fetch.js';
 import { countSerializedChars } from '../../response/charSavings.js';
 import type { NpmPackageResult } from '../types.js';
 import type { NpmCliSearchItem, NpmViewResult } from './npmRegistry.js';
@@ -7,32 +6,8 @@ export function cleanRepoUrl(url: string): string {
   return url.replace(/^git\+/, '').replace(/\.git$/, '');
 }
 
-const NPM_DOWNLOADS_API = 'https://api.npmjs.org/downloads/point/last-week';
-
 export function countRawPayloadChars(raw: unknown): number {
   return raw === undefined ? 0 : countSerializedChars(raw);
-}
-
-export async function fetchWeeklyDownloads(
-  packageName: string
-): Promise<{ downloads?: number; rawResponseChars: number }> {
-  try {
-    const url = `${NPM_DOWNLOADS_API}/${encodeURIComponent(packageName)}`;
-    const data = (await fetchWithRetries(url, {
-      maxRetries: 0,
-      initialDelayMs: 300,
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(8000),
-      packageRegistry: 'npm',
-    })) as { downloads?: number } | null;
-    return {
-      downloads:
-        typeof data?.downloads === 'number' ? data.downloads : undefined,
-      rawResponseChars: countRawPayloadChars(data),
-    };
-  } catch {
-    return { rawResponseChars: 0 };
-  }
 }
 
 interface BoundedMetadataList {
@@ -240,8 +215,8 @@ export function parseRegistrySearchTotal(
   fallback: number
 ): number {
   if (typeof total === 'number' && Number.isFinite(total)) return total;
-  if (typeof total === 'string') {
-    const parsed = Number.parseInt(total, 10);
+  if (typeof total === 'string' && /^\d+$/.test(total)) {
+    const parsed = Number(total);
     if (Number.isFinite(parsed)) return parsed;
   }
   return fallback;

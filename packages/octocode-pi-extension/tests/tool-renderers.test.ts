@@ -7,13 +7,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
 import { withOctocodeRender } from '../src/branding/renderers.js';
-import {
-  buildOctocodeRenderCall,
-  buildToolCallSummary,
-} from '../src/tools/render-helpers.js';
+import { buildOctocodeRenderCall, buildToolCallSummary } from '../src/tools/render-helpers.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
-import { registerEditTool } from '../src/tools/edit-tool.js';
-import { registerWriteTool } from '../src/tools/write-tool.js';
 import { registerBashTool } from '../src/tools/bash-tool.js';
 import { registerFileTool } from '../src/tools/file-tool.js';
 import { registerAskUserTool } from '../src/tools/ask-user-tool.js';
@@ -61,21 +56,20 @@ function makeResult(overrides: Partial<ToolCallResult> = {}): ToolCallResult {
 // ─── Shared registration helper ───────────────────────────────────────────────
 
 describe('registerUniqueTool with builtin overrides', () => {
-  it('wraps edit/write/bash renderers and rejects duplicate names through the shared helper', () => {
+  it('wraps file/bash renderers and rejects duplicate names through the shared helper', () => {
     const tools = new Map<string, ToolDefinition>();
     const pi = { registerTool: (def: ToolDefinition) => tools.set(def.name, def) };
     const names = new Set<string>();
 
-    registerEditTool(pi, Type, names, registerUniqueTool);
-    registerWriteTool(pi, Type, names, registerUniqueTool);
+    registerFileTool(pi, Type, names, registerUniqueTool);
     registerBashTool(pi, Type, names, registerUniqueTool);
 
-    expect([...tools.keys()]).toEqual(['edit', 'write', 'bash']);
-    for (const name of ['edit', 'write', 'bash']) {
+    expect([...tools.keys()]).toEqual(['file', 'bash']);
+    for (const name of ['file', 'bash']) {
       expect(tools.get(name)?.renderCall).toBeTypeOf('function');
       expect(tools.get(name)?.renderResult).toBeTypeOf('function');
     }
-    expect(() => registerWriteTool(pi, Type, names, registerUniqueTool)).toThrow(/tool name collision: write/);
+    expect(() => registerFileTool(pi, Type, names, registerUniqueTool)).toThrow(/tool name collision: file/);
   });
 
   it('renders Bash, file, plan, web, media, and agent queries as operation/reason pairs', () => {

@@ -10,7 +10,11 @@ import { name as pkgName } from '../package.json';
 
 vi.mock('@modelcontextprotocol/server');
 vi.mock('@modelcontextprotocol/server/stdio');
-vi.mock('../../octocode-tools-core/src/utils/http/cache.js');
+vi.mock('../../octocode-tools-core/src/utils/http/cache/key.js');
+vi.mock('../../octocode-tools-core/src/utils/http/cache/dataCache.js');
+vi.mock('../../octocode-tools-core/src/utils/http/cache/conditional.js');
+vi.mock('../../octocode-tools-core/src/utils/http/cache/management.js');
+vi.mock('../../octocode-tools-core/src/utils/http/cache/diskStore.js');
 vi.mock('../../octocode-tools-core/src/utils/exec/npm.js');
 vi.mock('../../octocode-tools-core/src/serverConfig.js');
 vi.mock('../src/tools/toolsManager.js');
@@ -21,15 +25,6 @@ vi.mock('../../octocode-tools-core/src/providers/factory.js', () => ({
 vi.mock('../../octocode-tools-core/src/github/client.js', () => ({
   clearOctokitInstances: vi.fn(),
 }));
-vi.mock(
-  '../../octocode-tools-core/src/tools/toolMetadata/proxies.js',
-  async importOriginal => ({
-    ...(await importOriginal<object>()),
-    loadToolContent: vi
-      .fn()
-      .mockResolvedValue({ systemPrompt: 'Test instructions' }),
-  })
-);
 vi.mock('../../octocode-tools-core/src/cacheMaintenance.js', () => ({
   startCacheGC: vi.fn(),
   stopCacheGC: vi.fn(),
@@ -43,7 +38,7 @@ import {
 } from '../../octocode-tools-core/src/serverConfig.js';
 import { startCacheGC } from '../../octocode-tools-core/src/cacheMaintenance.js';
 import { registerTools } from '../src/tools/toolsManager.js';
-import { TOOL_NAMES } from '../../octocode-tools-core/src/tools/toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../../octocode-tools-core/src/tools/toolMetadata/names.js';
 
 const mockMcpServer = {
   connect: vi.fn(function () {}),

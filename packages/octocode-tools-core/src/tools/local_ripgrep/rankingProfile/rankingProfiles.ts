@@ -1,8 +1,7 @@
 /**
  * Ranking profile data/config — language profile tables, path-role
  * classification, and the tunable weight policy. See
- * `.octocode/RANKING-ARCHITECTURE.md` and the module doc in
- * `../rankingProfile.ts` (the public barrel) for the full contract.
+ * `.octocode/RANKING-ARCHITECTURE.md` for the ranking contract.
  *
  * This module owns *what* a profile is and *where* a path lives (its role);
  * `rankingScoring.ts` owns *how much* each signal is worth in a score.

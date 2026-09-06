@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveCanonicalOwnerRepo } from '../../src/github/canonicalRepo.js';
+import { clearAllCache } from '../../src/utils/http/cache/management.js';
+
+vi.mock('../../src/github/client.js', () => ({
+  resolveCacheAuthFingerprint: async (auth?: { token?: string }) =>
+    auth?.token ?? 'canonical-test',
+}));
 
 function makeOctokit(fullName?: string, shouldThrow = false) {
   return {
@@ -18,6 +24,35 @@ function makeOctokit(fullName?: string, shouldThrow = false) {
 }
 
 describe('resolveCanonicalOwnerRepo', () => {
+  beforeEach(() => clearAllCache());
+
+  it('reuses successful lookups and isolates authentication identities', async () => {
+    const get = vi.fn().mockResolvedValue({ data: { full_name: 'new/repo' } });
+    const octokit = { rest: { repos: { get } } } as never;
+    for (const token of ['a', 'a', 'b']) {
+      expect(
+        await resolveCanonicalOwnerRepo(octokit, 'old', 'repo', {
+          token,
+        } as never)
+      ).toMatchObject({ owner: 'new', renamed: true });
+    }
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries failed lookups instead of caching the fallback identity', async () => {
+    const get = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ data: { full_name: 'new/repo' } });
+    const octokit = { rest: { repos: { get } } } as never;
+    expect(
+      await resolveCanonicalOwnerRepo(octokit, 'old', 'repo')
+    ).toMatchObject({ owner: 'old', renamed: false });
+    expect(
+      await resolveCanonicalOwnerRepo(octokit, 'old', 'repo')
+    ).toMatchObject({ owner: 'new', renamed: true });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
   it('returns canonical owner/repo from full_name', async () => {
     const octokit = makeOctokit('facebook/react');
     const result = await resolveCanonicalOwnerRepo(

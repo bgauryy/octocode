@@ -1,4 +1,4 @@
-import type { FileContentResult as ProviderFileContentResult } from '../../providers/types.js';
+import type { FileContentResult as ProviderFileContentResult } from '../../providers/providerResults.js';
 import type { z } from 'zod';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
@@ -58,6 +58,9 @@ export function mapFileContentProviderResult(
     ...(data.isPartial && {
       isPartial: data.isPartial,
     }),
+    ...(data.errorCode && { errorCode: data.errorCode }),
+    ...(data.terminalLimit && { terminalLimit: data.terminalLimit }),
+    ...(data.partialReasons?.length && { partialReasons: data.partialReasons }),
     ...(data.startLine && {
       startLine: data.startLine,
     }),

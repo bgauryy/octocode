@@ -1,8 +1,7 @@
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 import { contextUtils } from '../../utils/contextUtils.js';
 import { countLines } from '../../utils/core/lines.js';
 import { getOutputCharLimit } from '../../utils/pagination/charLimit.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
 import {
   validateToolPath,
   createErrorResult,
@@ -27,6 +26,8 @@ import {
   buildSuccessResult,
   buildSymbolsSkeletonResult,
   withContentView,
+  sanitizeReturnedText,
+  buildSecurityLimitResult,
   type ContentView,
 } from './fetchContent/pagination.js';
 
@@ -34,23 +35,6 @@ import {
 // `fetchContent.js` (e.g. `./fetchContent/validation.js`'s FileStats,
 // `./fetchContent/pagination.js`'s ContentView) keep resolving unchanged.
 export type { ContentView };
-
-/** Redacts secrets from a piece of text that's about to be returned to the
- * caller. Deliberately called on the small, already-extracted/minified
- * output — never on the whole raw file — so its cost scales with what's
- * shipped, not with file size. */
-function sanitizeReturnedText(
-  text: string,
-  queryPath: string
-): { text: string; warning?: string } {
-  const sanitized = ContentSanitizer.sanitizeContent(text, queryPath);
-  return {
-    text: sanitized.content,
-    warning: sanitized.hasSecrets
-      ? `Secrets detected and redacted: ${sanitized.secretsDetected.join(', ')}`
-      : undefined,
-  };
-}
 
 export async function fetchContent(
   query: FetchContentQuery
@@ -106,9 +90,8 @@ export async function fetchContent(
       return readError as LocalGetFileContentToolResult;
     }
 
-    // sourceChars/sourceBytes always describe the real file, independent of
-    // secret redaction — see withSanitizedContent below for why redaction
-    // itself is deferred to the content that's actually returned.
+    // Source sizes describe the real file. Redaction runs after extraction
+    // and before character pagination, whose offsets describe the safe view.
     const sourceChars = rawContent.length;
     const sourceBytes = Buffer.byteLength(rawContent, 'utf-8');
     const content = rawContent;
@@ -148,6 +131,13 @@ export async function fetchContent(
         );
         if (markdownOutline !== null) {
           const sanitized = sanitizeReturnedText(markdownOutline, queryPath);
+          if (sanitized.limited) {
+            return withSourceSize(
+              buildSecurityLimitResult(query, countLines(content)),
+              sourceChars,
+              sourceBytes
+            );
+          }
           return attachRawResponseChars(
             await buildSymbolsSkeletonResult(
               query,
@@ -161,7 +151,7 @@ export async function fetchContent(
             sourceChars
           );
         }
-        signaturesSkippedWarning = `minify:"symbols" is not supported for this file type (${queryPath.split('.').pop() ?? 'unknown'}) — falling back to standard content view.`;
+        signaturesSkippedWarning = `No smaller outline is available for ${queryPath}; using the standard content view. The outline may be unsupported, oversized, or unavailable for this source.`;
       }
       if (sigs !== null) {
         const totalLinesOrig = countLines(content);
@@ -170,6 +160,13 @@ export async function fetchContent(
           queryPath
         );
         const sanitized = sanitizeReturnedText(sigsProcessed, queryPath);
+        if (sanitized.limited) {
+          return withSourceSize(
+            buildSecurityLimitResult(query, totalLinesOrig),
+            sourceChars,
+            sourceBytes
+          );
+        }
 
         return attachRawResponseChars(
           await buildSymbolsSkeletonResult(
@@ -193,16 +190,9 @@ export async function fetchContent(
       defaultOutputCharLength
     );
 
-    // Secrets are redacted from whatever content is actually about to be
-    // returned (a bounded slice, a signature skeleton, ...) — never from the
-    // whole raw file up front. Scanning the whole file regardless of how
-    // small the requested window is would be wasteful, and for a file past
-    // the scanner's own size cap it used to substitute a single wholesale
-    // placeholder for the entire file *before* line-extraction ran, so a
-    // bounded startLine/endLine/matchString/charOffset read of a large file
-    // silently returned that placeholder instead of the real requested slice
-    // (with bogus totalLines/sourceChars to match) — exactly the escape hatch
-    // the "file too large" error above tells the caller to use.
+    // Empty/early extraction results have no pagination. The normal and
+    // outline builders sanitize complete views before creating character
+    // windows, so a token cannot escape detection by spanning two pages.
     const withSanitizedContent = (
       r: LocalGetFileContentToolResult
     ): LocalGetFileContentToolResult => {
@@ -218,6 +208,7 @@ export async function fetchContent(
       return {
         ...r,
         content: sanitized.text,
+        returnedChars: sanitized.text.length,
         ...(appended.length > 0 && { warnings: [...existing, ...appended] }),
       };
     };
@@ -258,7 +249,16 @@ export async function fetchContent(
     );
     return attachRawResponseChars(
       withSourceSize(
-        withSanitizedContent(fullResult),
+        {
+          ...fullResult,
+          ...((signaturesSkippedWarning || matchStringMinifyWarning) && {
+            warnings: [
+              ...((fullResult as { warnings?: string[] }).warnings ?? []),
+              ...(signaturesSkippedWarning ? [signaturesSkippedWarning] : []),
+              ...(matchStringMinifyWarning ? [matchStringMinifyWarning] : []),
+            ],
+          }),
+        },
         sourceChars,
         sourceBytes
       ),

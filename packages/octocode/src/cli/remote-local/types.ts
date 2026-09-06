@@ -9,9 +9,12 @@ export type DirectToolResult = {
 
 export type CloneResultData = {
   readonly location?: {
+    readonly commitSha?: string;
     readonly localPath?: string;
     readonly resolvedBranch?: string;
     readonly cached?: boolean;
+    readonly complete?: boolean;
+    readonly verified?: boolean;
   };
 };
 
@@ -24,6 +27,7 @@ export type FetchFileData = {
   readonly repoRoot?: string;
   readonly resolvedBranch?: string;
   readonly cached?: boolean;
+  readonly commitSha?: string;
 };
 
 export type FetchDirectoryData = {
@@ -36,6 +40,10 @@ export type FetchDirectoryData = {
   readonly commitSha?: string;
   readonly hasSubdirectories?: boolean;
   readonly skippedSummary?: Record<string, number>;
+  readonly isPartial?: boolean;
+  readonly partialReasons?: readonly string[];
+  readonly terminalLimit?: boolean;
+  readonly next?: Readonly<Record<string, unknown>>;
 };
 
 export type FetchStructuredContent = {
@@ -44,8 +52,6 @@ export type FetchStructuredContent = {
       readonly files?: readonly FetchFileData[];
       readonly directories?: readonly FetchDirectoryData[];
     };
-    readonly files?: readonly FetchFileData[];
-    readonly directories?: readonly FetchDirectoryData[];
   }[];
 };
 
@@ -76,27 +82,11 @@ export type RemoteLocation = {
 export type RemoteMaterialization = {
   readonly owner: string;
   readonly repo: string;
-  readonly branch?: string;
-  readonly requestedPath: string;
-  readonly localPath: string;
-  readonly repoRoot: string;
-  readonly source: 'clone' | 'tree';
-  readonly complete: boolean;
-  readonly verified: boolean;
-  readonly commitSha?: string;
-  readonly hasSubdirectories?: boolean;
-  readonly skippedSummary?: Record<string, number>;
-  readonly cached: boolean;
   readonly location: RemoteLocation;
-};
-
-export type HintableToolResult = {
-  readonly isError?: boolean;
-  readonly structuredContent?: unknown;
-  readonly content?: readonly {
-    readonly type?: string;
-    readonly text?: string;
-  }[];
+  readonly isPartial?: boolean;
+  readonly partialReasons?: readonly string[];
+  readonly terminalLimit?: boolean;
+  readonly next?: Readonly<Record<string, unknown>>;
 };
 
 export type RemoteMaterializationRequest = {

@@ -3,7 +3,7 @@ import type { RipgrepQuery as LocalRipgrepQuery } from './scheme.js';
 type RipgrepQuery = LocalRipgrepQuery;
 import { createErrorResult } from '../../utils/file/toolHelpers.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
-import { TOOL_NAMES } from '../toolMetadata/proxies.js';
+import { TOOL_NAMES } from '../toolMetadata/names.js';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 import { searchContentStructural } from './structuralSearch.js';

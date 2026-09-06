@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  DirectToolInputError,
-  prepareDirectToolInput,
-} from '../../src/tools/directToolCatalog.meta.js';
+import { DirectToolInputError } from '../../src/tools/directToolCatalog/toolCatalogDefinitions.js';
+import { prepareDirectToolInput } from '../../src/tools/directToolCatalog/toolInputPreparation.js';
 
 const removedAliases: ReadonlyArray<
   readonly [tool: string, canonical: string, query: Record<string, unknown>]

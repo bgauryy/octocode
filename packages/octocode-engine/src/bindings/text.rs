@@ -9,20 +9,24 @@ use napi_derive::napi;
 /// UTF-16 code unit in `content`. Zero-allocation — no `Buffer.from()` needed.
 #[napi(js_name = "charToByteOffset")]
 pub fn char_to_byte_offset(content: String, char_index: u32) -> u32 {
-    crate::utf8_offsets::char_to_byte_offset_inner(&content, char_index as usize) as u32
+    crate::text::utf8_offsets::char_to_byte_offset_inner(&content, char_index as usize) as u32
 }
 
 /// JavaScript UTF-16 code-unit offset for `byte_offset` bytes into `content`.
 /// Zero-allocation — no `Buffer.from()` needed.
 #[napi(js_name = "byteToCharOffset")]
 pub fn byte_to_char_offset(content: String, byte_offset: u32) -> u32 {
-    crate::utf8_offsets::byte_to_char_offset_inner(&content, byte_offset as usize) as u32
+    crate::text::utf8_offsets::byte_to_char_offset_inner(&content, byte_offset as usize) as u32
 }
 
 /// Extract a byte-range substring from `content`.
 #[napi(js_name = "byteSliceContent")]
 pub fn byte_slice_content(content: String, byte_start: u32, byte_end: u32) -> String {
-    crate::utf8_offsets::byte_slice_content_inner(&content, byte_start as usize, byte_end as usize)
+    crate::text::utf8_offsets::byte_slice_content_inner(
+        &content,
+        byte_start as usize,
+        byte_end as usize,
+    )
 }
 
 /// Paginate `content` by char offset + length, with optional line-boundary
@@ -35,7 +39,7 @@ pub fn slice_content(
     char_length: u32,
     options: Option<SliceContentOptions>,
 ) -> SliceContentResult {
-    crate::utf8_offsets::slice_content_inner(
+    crate::text::utf8_offsets::slice_content_inner(
         &content,
         char_offset as usize,
         char_length as usize,
@@ -69,7 +73,7 @@ pub fn extract_matching_lines(
                 Error::new(Status::InvalidArg, format!("invalid regex pattern: {err}"))
             })?;
     }
-    Ok(crate::line_extractor::extract_matching_lines_inner(
+    Ok(crate::search::line_extractor::extract_matching_lines_inner(
         &content, &pattern, options,
     ))
 }
@@ -81,7 +85,7 @@ pub fn extract_matching_lines(
 /// both operations in a single pass.
 #[napi(js_name = "filterPatch")]
 pub fn filter_patch(patch: String, options: Option<FilterPatchOptions>) -> String {
-    crate::diff_parser::filter_patch_inner(&patch, options)
+    crate::text::diff_parser::filter_patch_inner(&patch, options)
 }
 
 /// Myers line diff (`old_text` → `new_text`). Returns a full edit script of
@@ -89,7 +93,7 @@ pub fn filter_patch(patch: String, options: Option<FilterPatchOptions>) -> Strin
 /// O(N·M) LCS for agent edit previews on mid/large files.
 #[napi(js_name = "computeLineDiff")]
 pub fn compute_line_diff(old_text: String, new_text: String) -> Vec<LineDiffOp> {
-    crate::line_diff::compute_line_diff_inner(&old_text, &new_text)
+    crate::text::line_diff::compute_line_diff_inner(&old_text, &new_text)
         .into_iter()
         .map(|op| LineDiffOp {
             op_type: op.op_type,

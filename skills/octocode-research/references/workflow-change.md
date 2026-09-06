@@ -1,28 +1,23 @@
-# Workflow: change mode
+# Change workflow
 
-Use when you ask to implement, migrate, or patch **behavior** after `references/problem-framing.md` defines the task class and success criteria.
-For structure/name/module/layout reshapes that preserve behavior, use `references/workflow-refactor.md` instead.
-Read `references/algorithm.md` first for the router and evidence grades; use `references/code-research.md` for the proof ladder before editing.
+Load when implementing or changing behavior after the question, authority, and success criterion are clear. This reference owns TDD and implementation validation; use `references/workflow-refactor.md` for behavior-preserving reshapes.
 
-```text
-problem contract + task class + acceptance/regression criteria
--> current contract + invariants
--> blast radius: graph dependents/path + LSP callers/references + tests/configs
--> existing local pattern to copy
--> patch boundary: smallest files/symbols that solve the claim
--> verify: targeted test/build/typecheck/lint/smoke or exact read when no runtime check exists
--> if failed: read the failing path, update the ledger, patch only the cause, or report blocked
-```
+## RED → GREEN → REFACTOR
+1. Name the contract, trigger, affected consumers, and smallest behavior boundary.
+2. Write or identify a meaningful regression/acceptance check. Observe its expected failure before the implementation patch; distinguish the intended failure from broken setup.
+3. Implement the smallest coherent change, then run the same check to green.
+4. Refactor duplication or rigid flow inside that scope while the regression stays green. Recheck public inputs, outputs, pagination, and errors where they changed.
+5. Run the applicable package tests, typecheck, lint, and build. After a tool/package change, rebuild and exercise its real CLI/MCP path. Report commands and exit status.
 
-Change rules:
-- Bug fix: preserve supported contracts and add a regression check for the reproduced trigger.
-- Feature: implement explicit acceptance criteria; name compatibility and rollout decisions.
-- Enhancement: record baseline and target; verify the target plus existing regression guards.
-- Ask before public contracts, cross-package edits, deletes/renames, or many consumers.
-- Use graph reachability/cycles when an entrypoint, package boundary, or import rewire can change repository topology; inspect exact edges before patching.
-- Do not mix opportunistic cleanup with the requested patch.
-- Final answer states task class, criterion met, patch scope, verification that ran, remaining gaps, and confidence.
+For an enhancement, freeze a baseline and target before editing. Measure request counts, completeness, latency, or another task-relevant outcome; passing tests alone does not prove optimization. For prose/contracts, use failing contract checks plus actual schema/example validation. A trivial reversible edit needs an appropriate direct check rather than a test that merely mirrors its text.
 
-If one pass does not converge — verification keeps failing or evidence keeps shifting — escalate to `references/loop-mode.md` instead of guessing further.
+## Scope and design
+- Use exact reads and relevant local patterns before patching. Add graph/LSP impact checks when imports or symbols cross boundaries.
+- No compatibility shims, legacy aliases, or duplicate paths unless the user explicitly requires compatibility. Remove obsolete owned paths and update consumers; preserve unrelated workspace edits.
+- Keep one owner for each public contract. Interfaces consume canonical tool schemas/descriptions rather than copying them.
+- Test reachable-result unions and executable continuations when changing pagination or limits. Never lower coverage floors or change the grader to hide a failure.
+- Carry authorization from `SKILL.md`; seek clarification only when a missing decision changes the authorized outcome.
 
-Next: validate the landed diff with `references/workflow-pr-review.md`; when the cause is still unproven fall back to `references/workflow-debug.md`; when the work turns out to be structure-only hand back to `references/workflow-refactor.md`.
+On failure, inspect the failing boundary and fix the cause. When evidence changes the task class, return to `references/problem-framing.md`. Report a remaining blocker honestly if a required external condition prevents validation.
+
+Next: use `references/workflow-pr-review.md` for a final diff review; for recurring uncertainty use `references/loop-mode.md`; for skill changes use `references/improve-loop.md`.

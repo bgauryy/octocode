@@ -4,10 +4,10 @@ import {
   getServerConfig,
   isLocalEnabled,
   isCloneEnabled,
+  type ToolInvocationCallback,
 } from '@octocodeai/octocode-tools-core';
-import type { ToolInvocationCallback } from '@octocodeai/octocode-tools-core';
 import {
-  getToolFilterConfigSafe,
+  getToolFilterConfig,
   isToolEnabled,
   validateToolFilterConfig,
 } from './toolFilters.js';
@@ -30,7 +30,7 @@ export async function registerTools(
 }> {
   const localEnabled = isLocalEnabled();
   const cloneEnabled = isCloneEnabled();
-  const rawFilterConfig = getToolFilterConfigSafe(getServerConfig);
+  const rawFilterConfig = getToolFilterConfig(getServerConfig);
   const secureServer = withOutputSanitization(server);
   const allTools = await loadTools(options.toolLoader);
   const { config: filterConfig, warnings } = validateToolFilterConfig(

@@ -12,15 +12,15 @@ import { bindingKey, computeLiveExportedNames } from './retention.js';
 import type {
   DeadClusterOutput,
   DeadExportOutput,
-  FindDeadCodeQuery as StrictFindDeadCodeQuery,
+  AnalyzeGraphQuery,
 } from './scheme.js';
-import type { WithOptionalMeta } from '../../types/execution.js';
 
-// `path` is passed separately as `rootAbsolutePath`; this module never reads
-// `query.path`, so it accepts the same loosely-typed query every other local
-// tool threads through its call chain instead of re-deriving the strict,
-// path-required Zod-inferred shape.
-type FindDeadCodeQuery = WithOptionalMeta<StrictFindDeadCodeQuery>;
+type DeadCodeScanOptions = Partial<
+  Pick<
+    Extract<AnalyzeGraphQuery, { operation: 'deadCode' }>,
+    'excludeDir' | 'maxFiles' | 'rustWorkspace' | 'entrypoints' | 'includeTests'
+  >
+>;
 
 export interface DeadCodeScanResult {
   filesScanned: number;
@@ -31,7 +31,7 @@ export interface DeadCodeScanResult {
   warnings: string[];
   /**
    * Present (and always `"low"`) when the scan's reachability base is shaky, so
-   * the raw candidate count should not be trusted as-is. Two triggers, each
+   * the raw candidate count should not be trusted as-is. Triggers, each
    * with its own explanatory `warnings` entry:
    *  - `entrypointsResolved` came entirely from the test-file heuristic (no
    *    package.json main/exports/bin matched and no explicit `entrypoints`),
@@ -40,13 +40,16 @@ export interface DeadCodeScanResult {
    *  - one or more resolved entrypoints parsed to zero edges (a native
    *    extractor parse failure on that file), so reachability can't leave them
    *    and files they should reach show as false "unreachable-file".
+   *  - The scan was capped, files were skipped, or coverage diagnostics report
+   *    parse recovery or unsupported/unresolved import linking. Missing edges
+   *    can hide live paths even when entrypoints contain valid declarations.
    */
   confidence?: 'low';
 }
 
 export async function scanForDeadCode(
   rootAbsolutePath: string,
-  query: FindDeadCodeQuery,
+  query: DeadCodeScanOptions,
   builtGraph?: WalkResult
 ): Promise<DeadCodeScanResult> {
   const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
@@ -58,11 +61,17 @@ export async function scanForDeadCode(
     filesScanned,
     filesSkipped,
     truncated,
-    dynamicImportTargets,
+    coverage,
+    namespaceImportTargets,
     starReexporters,
   } =
     builtGraph ??
-    (await buildFileGraph(rootAbsolutePath, excludeDir, maxFiles));
+    (await buildFileGraph(
+      rootAbsolutePath,
+      excludeDir,
+      maxFiles,
+      query.rustWorkspace
+    ));
 
   const knownFiles = new Set(facts.keys());
   const {
@@ -84,6 +93,13 @@ export async function scanForDeadCode(
   if (filesSkipped > 0) {
     warnings.push(
       `${filesSkipped} file(s) could not be read or parsed within the native graph bounds — results are partial, not a full-repo verdict`
+    );
+  }
+  const incompleteCoverage =
+    coverage?.diagnostics.some(item => item.code !== 'syntax-only') ?? false;
+  if (incompleteCoverage) {
+    warnings.push(
+      'Incomplete import linking or parse recovery can hide live paths. Dead-code results are low-confidence candidates and require semantic reference verification.'
     );
   }
 
@@ -112,7 +128,10 @@ export async function scanForDeadCode(
 
   const reachableFiles = computeReachableFiles(fileGraph, entrypoints);
   const entrypointSet = new Set(entrypoints);
-  const publicSurfaceSet = new Set([...entrypointSet, ...dynamicImportTargets]);
+  const publicSurfaceSet = new Set([
+    ...entrypointSet,
+    ...namespaceImportTargets,
+  ]);
   const shouldReportFile = (file: string): boolean =>
     query.includeTests !== false || !isTestFilePath(file);
 
@@ -251,7 +270,7 @@ export async function scanForDeadCode(
       if (
         isEntrypoint ||
         liveStarReexportTargets.has(file) ||
-        dynamicImportTargets.has(file)
+        namespaceImportTargets.has(file)
       )
         continue;
 
@@ -292,7 +311,11 @@ export async function scanForDeadCode(
     deadExports,
     deadClusters,
     warnings,
-    ...(lowConfidenceEntrypoints || extractorFailedEntrypoints
+    ...(lowConfidenceEntrypoints ||
+    extractorFailedEntrypoints ||
+    incompleteCoverage ||
+    truncated ||
+    filesSkipped > 0
       ? { confidence: 'low' as const }
       : {}),
   };

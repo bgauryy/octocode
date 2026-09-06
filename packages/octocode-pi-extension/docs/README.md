@@ -50,10 +50,10 @@ use `node $OCTOCODE_CLI tools <name> --scheme`.
 
 ---
 
-Harness-wide capability discovery (MCP catalog, `skill` tool, `.octocode/discovery.json`,
-context composition) is documented at repo root:
-[`docs/DISCOVERY.md`](https://github.com/bgauryy/octocode/blob/main/docs/DISCOVERY.md).
+The repository root documentation covers harness-wide capability discovery
+(MCP catalog, `skill` tool, `.octocode/discovery.json`, and context composition):
+[`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
 
 Do not add package command catalogs here. Package scripts are manifest-owned;
 user-facing launcher commands belong in
-`packages/octocode-agent/docs/PI_INTEGRATION.md` or launcher help.
+[the CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) or launcher help.

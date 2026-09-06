@@ -1,3 +1,4 @@
+import type { ExternalAwarenessStatus } from '@octocodeai/octocode-awareness';
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'vitest';
 import {
@@ -10,11 +11,10 @@ import {
   resetAwarenessStatusStateForTests,
   setAwarenessMetricsRefreshForUi,
   setAwarenessStatusRunnerForTests,
-  type AwarenessStatus,
 } from '../src/tools/awareness-status.js';
 import type { PiContext } from '../src/types.js';
 
-const ZERO: AwarenessStatus = {
+const ZERO: ExternalAwarenessStatus = {
   activePlans: 0,
   readyTasks: 0,
   inProgressTasks: 0,
@@ -26,7 +26,7 @@ const ZERO: AwarenessStatus = {
   taskActivities: [],
 };
 
-const FULL: AwarenessStatus = {
+const FULL: ExternalAwarenessStatus = {
   activePlans: 1,
   readyTasks: 2,
   inProgressTasks: 1,

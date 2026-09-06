@@ -6,11 +6,12 @@
 // github_search_pull_requests/scheme.ts. One source of truth; no duplicated prose.
 import { z } from 'zod';
 
+import { SearchPullRequestsQuerySchema as CoreSearchPullRequestsQuerySchema } from '../../toolContract/input/resources/tools/historyPullRequestInput.js';
+import { SearchIssuesQuerySchema as CoreSearchIssuesQuerySchema } from '../../toolContract/input/resources/tools/historyIssueInput.js';
 import {
-  SearchPullRequestsQuerySchema as CoreSearchPullRequestsQuerySchema,
-  SearchIssuesQuerySchema as CoreSearchIssuesQuerySchema,
   SearchCommitsQuerySchema as CoreSearchCommitsQuerySchema,
-} from '../../toolContract/schemas.js';
+  validateCommitKeywordScope,
+} from '../../toolContract/input/resources/tools/historyCommitInput.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
@@ -160,10 +161,13 @@ const prContentWithPatchModes = prContentObject.extend({
   ),
 });
 export const PullRequestListQueryShape = SearchPullRequestsQueryShape.omit({
+  minify: true,
   prNumber: true,
   filePage: true,
   commentPage: true,
   commitPage: true,
+  reviewPage: true,
+  collectionPages: true,
   content: true,
   matchString: true,
   commentBodyOffset: true,
@@ -236,6 +240,7 @@ const SearchIssuesQueryShape = createQueryShapeSchema(
   issuesReadOverrides
 );
 export const IssueListQueryShape = SearchIssuesQueryShape.omit({
+  minify: true,
   issueNumber: true,
   commentPage: true,
   content: true,
@@ -308,7 +313,9 @@ function requireCommitComparePair(
 export const SearchCommitsLocalSchema = describeQuerySchema(
   CoreSearchCommitsQuerySchema,
   commitsOverrides
-).superRefine(requireCommitComparePair);
+)
+  .superRefine(requireCommitComparePair)
+  .superRefine(validateCommitKeywordScope);
 const SearchCommitsQueryShape = createQueryShapeSchema(
   CoreSearchCommitsQuerySchema,
   commitsOverrides
@@ -317,14 +324,16 @@ export const CommitHistoryQueryShape = SearchCommitsQueryShape.omit({
   base: true,
   head: true,
 });
-const commitHistorySchema = CommitHistoryQueryShape;
+const commitHistorySchema = CommitHistoryQueryShape.superRefine(
+  validateCommitKeywordScope
+);
 export const CommitCompareQueryShape = SearchCommitsQueryShape.omit({
+  keywords: true,
   branch: true,
   since: true,
   until: true,
   author: true,
   committer: true,
-  page: true,
 }).extend({
   base: getRequiredSchemaField(SearchCommitsQueryShape.shape, 'base'),
   head: getRequiredSchemaField(SearchCommitsQueryShape.shape, 'head'),

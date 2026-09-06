@@ -1,4 +1,5 @@
 import type { WalkResult } from '../../graph/buildFileGraph.js';
+import type { GraphCoverage } from '../../graph/types.js';
 
 export type GraphOperation =
   | 'deadCode'
@@ -22,6 +23,10 @@ export interface AnalyzeGraphQuery {
   limit?: number;
   page?: number;
   pageSize?: number;
+  diagnosticPage?: number;
+  diagnosticPageSize?: number;
+  diagnosticSnapshot?: string;
+  rustWorkspace?: 'syntax' | 'cargo';
 }
 
 export interface AnalyzeGraphOutput {
@@ -34,7 +39,16 @@ export interface AnalyzeGraphOutput {
   filesSkipped?: number;
   truncated?: boolean;
   terminalLimit?: boolean;
-  partialReasons?: Array<'maxFiles' | 'limit' | 'filesSkipped'>;
+  partialReasons?: Array<
+    | 'maxFiles'
+    | 'limit'
+    | 'filesSkipped'
+    | 'parseRecovery'
+    | 'unresolvedImports'
+    | 'unsupportedLinking'
+    | 'diagnosticPage'
+  >;
+  coverage?: GraphCoverage;
   totalAvailable?: number;
   results: Array<Record<string, unknown>>;
   summary?: Record<string, unknown>;
@@ -56,6 +70,7 @@ export interface AnalyzeGraphContext {
   getGraph?: (
     path: string,
     excludeDir: string[],
-    maxFiles: number
+    maxFiles: number,
+    rustWorkspace?: 'syntax' | 'cargo'
   ) => WalkResult | Promise<WalkResult>;
 }

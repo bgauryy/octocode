@@ -99,6 +99,17 @@ function localPathFromUri(uri: string): string {
     : uri;
 }
 
+function looksLikeImportBinding(content: string, symbolName: string): boolean {
+  if (/^\s*import(?:\s|\{|\*)/.test(content)) return true;
+  const escapedName = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // A server may return only the identifier line from a multiline import.
+  // This recognizes a verification candidate; it never resolves or rewrites
+  // the provider's target, and requires no guessed module path.
+  return new RegExp(
+    `^(?:type\\s+)?(?:${escapedName}|[$\\w]+\\s+as\\s+${escapedName})\\s*,?$`
+  ).test(content.trim());
+}
+
 function paginationContinuation(
   query: LspGetSemanticsQuery,
   result: LspSemanticEnvelope
@@ -113,7 +124,13 @@ function paginationContinuation(
     return undefined;
   return buildNextPageContinuation(
     'lspGetSemantics',
-    { ...query, page: nextPage },
+    {
+      ...query,
+      page: nextPage,
+      ...(typeof result.pagination.snapshot === 'string'
+        ? { snapshot: result.pagination.snapshot }
+        : {}),
+    },
     `Continue semantic ${query.type} results on page ${nextPage}.`
   );
 }
@@ -140,9 +157,10 @@ export function withSemanticNext(
   const payload = semanticResult.payload as {
     locations?: Array<{
       uri?: string;
+      content?: string;
       displayRange?: { startLine?: number; endLine?: number };
     }>;
-    warmup?: { possiblyTruncated?: boolean };
+    warmup?: { possiblyTruncated?: boolean; incompleteReasons?: string[] };
     completeness?: {
       truncatedByDepth?: boolean;
       truncatedByBudget?: boolean;
@@ -159,7 +177,14 @@ export function withSemanticNext(
     query.workspaceRoot ??
     (semanticResult.uri ? localPathFromUri(semanticResult.uri) : undefined);
   const partialReasons = [
-    ...(warmupTruncated ? (['warmupCap'] as const) : []),
+    ...(warmupTruncated
+      ? ([
+          payload.warmup?.incompleteReasons &&
+          !payload.warmup.incompleteReasons.includes('fileCap')
+            ? 'warmupIncomplete'
+            : 'warmupCap',
+        ] as const)
+      : []),
     ...(depthTruncated ? (['depth'] as const) : []),
     ...(budgetTruncated ? (['budget'] as const) : []),
   ];
@@ -174,22 +199,66 @@ export function withSemanticNext(
     };
   }
   const continuePage = paginationContinuation(query, semanticResult);
+  const verificationRoot = semanticResult.workspaceRoot ?? query.workspaceRoot;
+  const loc = payload.locations?.[0];
+  const localBindingDefinition =
+    query.type === 'definition' &&
+    symbolName &&
+    loc?.uri &&
+    typeof loc.content === 'string' &&
+    localPathFromUri(loc.uri) === localPathFromUri(semanticResult.uri) &&
+    looksLikeImportBinding(loc.content, symbolName);
   const baseNext: NonNullable<LspSemanticEnvelope['next']> = {
     ...(semanticResult.next ?? {}),
     ...(continuePage ? { nextPage: continuePage } : {}),
+    ...(localBindingDefinition
+      ? {
+          verifyDefinition: {
+            tool: 'lspGetSemantics',
+            query: {
+              type: 'workspaceSymbol',
+              uri: semanticResult.uri,
+              symbolName,
+              ...(verificationRoot && { workspaceRoot: verificationRoot }),
+              ...(query.format && { format: query.format }),
+            },
+            why: 'Search workspace symbol candidates to verify this binding; a cold server may return the same import binding.',
+            confidence: 'medium' as const,
+          },
+          ...(verificationRoot && {
+            searchDefinitionCandidates: {
+              tool: 'localSearch',
+              query: {
+                operation: 'text',
+                path: verificationRoot,
+                searchText: symbolName,
+                regex: 'fixed',
+                wholeWord: true,
+                resultView: 'content',
+                maxFiles: 100,
+                pageSize: 20,
+                maxMatchesPerFile: 20,
+              },
+              why: 'Find lexical declaration candidates when the language server only resolves the import binding.',
+              confidence: 'low' as const,
+            },
+          }),
+        }
+      : {}),
     ...(depthExpandable
       ? {
           expandDepth: buildNextPageContinuation(
             'lspGetSemantics',
             {
               ...query,
+              snapshot: undefined,
               depth: Math.min(
                 20,
                 Math.max(requestedDepth + 1, requestedDepth * 2)
               ),
               page: 1,
             },
-            'Re-run with a larger call-hierarchy depth because deeper calls remain.'
+            'Re-run with a larger call-hierarchy depth to inspect possible calls beyond the current depth.'
           ),
         }
       : {}),
@@ -204,12 +273,11 @@ export function withSemanticNext(
               wholeWord: true,
               resultView: 'files',
             },
-            'The LSP consumer warmup hit its file cap; search the complete workspace lexically for additional consumer files.'
+            'The LSP consumer warmup was incomplete; search the complete workspace lexically for additional consumer files.'
           ),
         }
       : {}),
   };
-  const loc = payload.locations?.[0];
   const start = loc?.displayRange?.startLine;
   if (loc?.uri && typeof start === 'number') {
     const path = localPathFromUri(loc.uri);

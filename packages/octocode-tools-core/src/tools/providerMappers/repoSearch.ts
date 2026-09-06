@@ -1,6 +1,6 @@
-import type { RepoSearchResult as ProviderRepoSearchResult } from '../../providers/types.js';
+import type { RepoSearchResult as ProviderRepoSearchResult } from '../../providers/providerResults.js';
 import type { z } from 'zod';
-import type { GitHubReposSearchSingleQuerySchema } from '../../toolContract/schemas.js';
+import type { GitHubReposSearchSingleQuerySchema } from '../../toolContract/input/resources/tools/githubRepositoriesOperation.js';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
@@ -57,6 +57,8 @@ export function mapRepoSearchProviderRepositories(
       forksCount: repo.forks,
       openIssuesCount: repo.openIssuesCount,
       ...(repo.language && { language: repo.language }),
+      ...(repo.license && { license: repo.license }),
+      ...(repo.homepage && { homepage: repo.homepage }),
     };
   });
 }

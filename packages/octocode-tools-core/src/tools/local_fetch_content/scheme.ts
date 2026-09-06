@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FetchContentQuerySchema as CoreFetchContentQuerySchema } from '../../toolContract/schemas.js';
+import { FetchContentQuerySchema as CoreFetchContentQuerySchema } from '../../toolContract/input/resources/tools/localGetFileContent.js';
 import { MAX_CHAR_LENGTH } from '../../config.js';
 import {
   clampedInt,

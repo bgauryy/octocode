@@ -1,6 +1,6 @@
 import { quoteSearchKeyword } from '../searchKeyword.js';
 import type { GitHubAPIError } from '../githubAPI.js';
-import { generateCacheKey } from '../../utils/http/cache.js';
+import { generateCacheKey } from '../../utils/http/cache/key.js';
 import type { FetchIssuesParams, IssueRow } from './types.js';
 
 export function firstString(
@@ -28,10 +28,12 @@ export function windowText(
   text: string;
   pagination?: NonNullable<IssueRow['contentPagination']>['body'];
 } {
-  if (!charLength && !charOffset) return { text };
+  const windowLength = charLength ?? 12_000;
+  if (charLength === undefined && !charOffset && text.length <= windowLength)
+    return { text };
   const totalChars = text.length;
   const start = Math.min(Math.max(0, charOffset ?? 0), totalChars);
-  const length = Math.max(1, charLength ?? totalChars);
+  const length = Math.max(1, windowLength);
   const end = Math.min(start + length, totalChars);
   const hasMore = end < totalChars;
   return {

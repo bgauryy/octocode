@@ -8,7 +8,7 @@ import {
 import { loadInquirer, select } from '../../../utils/prompts.js';
 import { printAuthStatus } from '../shared.js';
 import { checkGitHubAuth } from '../../../features/gh-auth.js';
-import { getCredentials } from '../../../utils/token-storage.js';
+import { getCredentials } from '@octocodeai/octocode-tools-core/credentials';
 import { hasEnvToken } from '@octocodeai/config';
 import {
   type AuthMenuAction,

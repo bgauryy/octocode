@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSearchResult,
   type LocalSearchEngine,
-} from '../../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
+} from '../../../src/tools/local_ripgrep/ripgrepResultBuilder/buildResult.js';
 import type { RipgrepQuery } from '../../../src/tools/local_ripgrep/scheme.js';
+import { inferLspSymbolName } from '../../../src/tools/local_ripgrep/ripgrepResultBuilder/searchNext.js';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 
 const SYMBOL = 'getUser';
@@ -31,6 +32,48 @@ const query = {
   searchText: SYMBOL,
   sort: 'relevance',
 } as unknown as RipgrepQuery;
+
+describe('structural LSP capture selection', () => {
+  it.each(['NAME', 'name'])(
+    'prefers %s regardless of native map insertion order',
+    key => {
+      const entries: Array<[string, string[]]> = [
+        ['RET', ['int']],
+        [key, ['main']],
+        ['ARGS', ['input']],
+      ];
+      for (const order of [entries, [...entries].reverse()]) {
+        expect(
+          inferLspSymbolName(
+            {
+              metavars: Object.fromEntries(order),
+              metavarRanges: { RET: [{ line: 11 }], [key]: [{ line: 10 }] },
+            },
+            query,
+            'structural'
+          )
+        ).toEqual({ symbol: 'main', line: 10 });
+      }
+    }
+  );
+
+  it('uses stable capture-key order when no explicit name is available', () => {
+    const entries: Array<[string, string[]]> = [
+      ['Z', ['second']],
+      ['A', ['first']],
+      ['NAME', ['not a bare identifier']],
+    ];
+    for (const order of [entries, [...entries].reverse()]) {
+      expect(
+        inferLspSymbolName(
+          { metavars: Object.fromEntries(order) },
+          query,
+          'structural'
+        )
+      ).toEqual({ symbol: 'first', line: undefined });
+    }
+  });
+});
 
 type ResultShape = {
   files: Array<{ path: string }>;

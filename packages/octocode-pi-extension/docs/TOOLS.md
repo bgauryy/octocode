@@ -299,9 +299,10 @@ A model-runtime `maximum output token limit` stop is different from context pres
 ## Session artifact routing
 
 Every durable tool output that lands on disk is routed into the **session artifact tree** under
-`$OCTOCODE_HOME/extension/workspaces/<workspace-key>/sessions/<session-key>/` and registered in a session manifest
+`$OCTOCODE_HOME/extension/sessions/<session-key>/` and registered in a session manifest
 (`manifest.json`). The `session-key` is derived from `sessionManager.getSessionId()` (falls
-back to the session-file basename, then `process-<pid>`).
+back to a normalized session-file identity, then `process-<pid>`). Fallback document IDs are
+opaque hashes, so private file paths are not copied into the manifest or indexes.
 
 | Producer slot    | Path inside session tree                                                    | Notes                                                                        |
 | ---------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -324,7 +325,7 @@ Large generic tool results and bash logs are intentionally not durable session a
 ## Internal error log
 
 The extension appends extension-visible errors to `logs/error.txt` inside the session
-artifact tree (`$OCTOCODE_HOME/extension/workspaces/<workspace-key>/sessions/<session-key>/logs/error.txt`). When session
+artifact tree (`$OCTOCODE_HOME/extension/sessions/<session-key>/logs/error.txt`). When session
 context is not available, the fallback remains under the same extension-owned workspace root.
 
 - user-visible extension `error` notifications;
@@ -397,7 +398,7 @@ HTTP URL with `action:"add"` or a canonical `servers.json`. Changes hot-refresh 
 Once initialization discovery finishes, `.octocode/discovery.json` records discovered
 skills, active MCP server and tool metadata, and MCP config files found in common host
 locations. Claude, Cursor, Codex, and `.agents` configs are inventory only and never
-auto-spawn. See [Discovery](https://github.com/bgauryy/octocode/blob/main/docs/DISCOVERY.md#mcp-config-discoverability-mcpdiscoveredconfigs)
+auto-spawn. See [Discovery](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#mcp-config-discoverability-mcpdiscoveredconfigs)
 for the complete cross-host location matrix.
 
 Startup reads a versioned private snapshot from

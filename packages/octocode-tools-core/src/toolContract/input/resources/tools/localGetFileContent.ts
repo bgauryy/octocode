@@ -26,8 +26,10 @@ Choose fullContent, matchString, or startLine+endLine. Partial content cannot pr
     matchStringCaseSensitive: 'Case-sensitive matchString.',
     startLine: 'Requires endLine; exclusive with fullContent/matchString.',
     endLine: 'Requires startLine; must be >= startLine.',
-    charOffset: 'Copy pagination.nextCharOffset.',
-    minify: '"symbols" outline, "standard" compact, "none" exact.',
+    charOffset:
+      'Copy the complete returned next query; semantic windows may expand beyond charLength.',
+    minify:
+      '"symbols" paginated outline (no range/match selectors), "standard" compact source, "none" unminified. Security redaction applies. Default none for fullContent/ranges, standard otherwise; matches force none.',
   },
 });
 

@@ -1,6 +1,6 @@
 import type { FileGraphEdgeKind, FileNode } from './types.js';
 
-/** Remove edges that exist only for erased type imports. */
+/** Remove edges that exist only for erased type imports or reexports. */
 export function withoutTypeOnlyEdges(
   graph: ReadonlyMap<string, FileNode>
 ): Map<string, FileNode> {
@@ -8,7 +8,16 @@ export function withoutTypeOnlyEdges(
     [...graph].map(([file, node]) => {
       const retained = [...node.importsFiles].filter(target => {
         const kinds = node.edgeKinds.get(target);
-        return !kinds || kinds.size > 1 || !kinds.has('type-import');
+        return (
+          !kinds ||
+          kinds.size === 0 ||
+          [...kinds].some(
+            kind =>
+              kind !== 'type-import' &&
+              kind !== 'type-named-reexport' &&
+              kind !== 'type-star-reexport'
+          )
+        );
       });
       return [
         file,

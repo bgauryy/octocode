@@ -1,3 +1,5 @@
+import { truncateToWidth, visibleWidth } from '../tui/width.js';
+import { paint } from '../tui/palette.js';
 /**
  * askUser — interactive elicitation tool.
  *
@@ -25,13 +27,13 @@
  * surfaces, and it never blocks or fakes an answer.
  */
 
-import { CLI_GLYPH, CLI_STATUS_TEXT, cliSpinnerFrame, cliToolTitle, paint } from '../tui/cli-design.js';
+import { CLI_GLYPH, CLI_STATUS_TEXT, cliSpinnerFrame, cliToolTitle } from '../tui/cli-design.js';
 import type { ToolDefinition, ToolCallResult, PiTheme, PiContext, RenderResultOptions } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
-import { makeRenderer, truncateToWidth, visibleWidth } from './render-helpers.js';
+import { makeComponentRenderer } from './render-helpers.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
 import { ASK_HEADER_LABEL } from '../tui/content.js';
-import { closeFrameLines } from '../tui/components.js';
+import { renderFrame } from '../tui/components.js';
 import { CURSOR_MARKER, Input, Key, matchesKey, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { answerPendingInteraction, createPendingInteraction, shouldBrokerInteraction } from './interaction-broker.js';
 
@@ -50,6 +52,8 @@ export interface AskOption {
   recommended?: boolean;
   /** Optional multi-line preview shown under the option while it is focused (multi-select overlay). */
   preview?: string;
+  /** Internal durable-interaction ID; the interactive selection still returns value. */
+  brokerId?: string;
   /** Disabled choices are visible but cannot be selected; a string is shown as the reason. */
   disabled?: boolean | string;
   /** Optional group heading for clustering related choices in the list. */
@@ -198,25 +202,14 @@ function isPrintableInput(data: string): boolean {
 /** Keep decision cards readable without floating them in an arbitrary center column. */
 const ASK_FRAME_MAX_WIDTH = 80;
 
-interface AskFrameLayout {
-  width: number;
-  leftPadding: number;
-}
-
-function askFrameLayout(width: number): AskFrameLayout {
-  const available = Math.max(1, Math.floor(width || 80));
-  return { width: Math.min(available, ASK_FRAME_MAX_WIDTH), leftPadding: 0 };
-}
-
 function askFrameWidth(width: number): number {
-  return askFrameLayout(width).width;
+  const available = Math.max(1, Math.floor(width || 80));
+  return Math.min(available, ASK_FRAME_MAX_WIDTH);
 }
 
 /**
- * Wrap one semantic row inside the open decision-card rails. The final right
- * rail consumes one cell, so callers must budget prefixes before wrapping the
- * payload. Keeping this in one place prevents the later frame-closing safety
- * net from silently clipping labels, descriptions, warnings, or summaries.
+ * Wrap a semantic row inside the frame body, budgeting both rails and its
+ * leading space before any option indentation.
  */
 function wrapAskPayload(
   text: string,
@@ -226,56 +219,25 @@ function wrapAskPayload(
 ): string[] {
   const payloadWidth = Math.max(
     1,
-    askFrameWidth(width) - 1 - Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix)),
+    askFrameWidth(width) - 3 - Math.max(visibleWidth(firstPrefix), visibleWidth(continuationPrefix)),
   );
   const wrapped = text.split('\n').flatMap((line) => wrapTextWithAnsi(line || ' ', payloadWidth));
   return wrapped.map((line, index) => `${index === 0 ? firstPrefix : continuationPrefix}${line}`);
 }
 
-function positionAskLines(lines: string[], terminalWidth: number, theme?: PiTheme): string[] {
-  const layout = askFrameLayout(terminalWidth);
-  const padding = ' '.repeat(layout.leftPadding);
-  return closeFrameLines({ lines }, { width: layout.width, theme }).map((line) => {
-    const bounded = line.includes(CURSOR_MARKER) ? line : truncateToWidth(line, layout.width);
-    return `${padding}${bounded}`;
-  });
+/** The question wraps in full before the option or text-entry body. */
+function askHeaderLines(question: string, width: number): string[] {
+  return [...wrapTextWithAnsi(question, Math.max(1, askFrameWidth(width) - 3)), ''];
 }
 
-/**
- * A width-aware “smart separator”: paint `prefixPlain` then fill the rest of the
- * row with the box rule char up to the CARD width (see ASK_FRAME_MAX_WIDTH).
- */
-function ruleLine(theme: PiTheme | undefined, prefixPlain: string, width: number, token: 'brand' | 'dim' | 'warning'): string {
-  const fill = Math.max(0, askFrameWidth(width) - visibleWidth(prefixPlain));
-  return paint(theme, token, prefixPlain + '─'.repeat(fill));
-}
-
-function askHeaderLines(theme: PiTheme | undefined, question: string, width: number, pagination?: { current: number; total: number }, headerLabel?: string): string[] {
-  const bar = paint(theme, 'dim', '│');
-  // Wrap rather than truncate: the question is the one string the user must
-  // read in full. wrapTextWithAnsi keeps any styling intact across lines.
-  const wrapped = wrapTextWithAnsi(question, Math.max(1, askFrameWidth(width) - 3));
-  // Pagination badge: · 2 of 3 · shown in muted color between the header mark and the fill.
-  const pageBadge = pagination
-    ? paint(theme, 'muted', ` · ${pagination.current} of ${pagination.total} ·`)
-    : '';
-  const pageBadgePlain = pagination ? ` · ${pagination.current} of ${pagination.total} ·` : '';
-  // The host already supplies application identity; decisions only need a clear label.
-  const label = headerLabel ?? ASK_HEADER_LABEL;
-  const prefix = `╭─ ${label}${pageBadgePlain} `;
-  const fill = Math.max(0, askFrameWidth(width) - visibleWidth(prefix));
-  const header = `${paint(theme, 'dim', '╭─ ')}${paint(theme, 'brand', label)}${pageBadge}${paint(theme, 'dim', ` ${'─'.repeat(fill)}`)}`;
-  return [header, ...wrapped.map((line) => `${bar} ${line}`), bar];
+function renderAskFrame(body: string[], width: number, theme?: PiTheme, pagination?: { current: number; total: number }, headerLabel = ASK_HEADER_LABEL): string[] {
+  const title = pagination ? `${headerLabel} · ${pagination.current} of ${pagination.total} ·` : headerLabel;
+  return renderFrame({ title, body }, { width: askFrameWidth(width), theme });
 }
 
 function askFooterLines(theme: PiTheme | undefined, help: string, width: number, warning?: string): string[] {
-  const bar = paint(theme, 'dim', '│');
   const footerText = warning ? `⚠ ${warning}` : help;
-  const token = warning ? 'warning' : 'muted';
-  return [
-    ...wrapAskPayload(paint(theme, token, footerText), `${bar} `, `${bar} `, width),
-    ruleLine(theme, '╰─ ', width, 'dim'),
-  ];
+  return wrapAskPayload(paint(theme, warning ? 'warning' : 'muted', footerText), '', '', width);
 }
 
 /** Max option rows painted at once; longer lists scroll in a window around the cursor. */
@@ -294,7 +256,6 @@ function renderAskChoiceLines(
   pagination?: { current: number; total: number },
   headerLabel?: string,
 ): string[] {
-  const bar = paint(theme, 'dim', '│');
   // Scroll window: long lists would overflow the terminal height (pi clips the
   // component), so paint at most ASK_LIST_MAX_VISIBLE rows centered on the
   // cursor with dim "N more" markers for the hidden remainder. Hidden options
@@ -321,14 +282,11 @@ function renderAskChoiceLines(
     const index = start + offset;
     const active = index === cursor;
     const marker = active ? paint(theme, 'brand', '›') : ' ';
-    // The focused option's rows carry a brand-colored left rail so the whole
-    // block (label + its pros/cons/preview) reads as one "you are here" unit.
-    const rowBar = active ? paint(theme, 'brand', '│') : bar;
     if (item.groupHeader) {
       return wrapAskPayload(
         paint(theme, 'dim', `┌ ${item.label}`),
-        `${bar} `,
-        `${bar}   `,
+        ``,
+        `  `,
         width,
       );
     }
@@ -353,11 +311,11 @@ function renderAskChoiceLines(
       ? ` ${paint(theme, 'dim', '[')}${paint(theme, 'brand', 'recommended')}${paint(theme, 'dim', ']')}`
       : '';
     const disabledBadge = disabled ? ` ${paint(theme, 'muted', `(${disabled})`)}` : '';
-    const labelPrefix = `${rowBar} ${marker} ${checked ? `${checked} ` : ''}${ordinal}`;
+    const labelPrefix = `${marker} ${checked ? `${checked} ` : ''}${ordinal}`;
     const labelLines = wrapAskPayload(
       `${rawLabel}${badge}${disabledBadge}`,
       labelPrefix,
-      `${rowBar}     `,
+      `    `,
       width,
     );
     // Expand the FOCUSED row with its trade-offs (pros ✓ / cons ✗) and any
@@ -367,8 +325,8 @@ function renderAskChoiceLines(
       if (item.description) {
         detail.push(...wrapAskPayload(
           paint(theme, 'dim', item.description),
-          `${rowBar}     `,
-          `${rowBar}     `,
+          `    `,
+          `    `,
           width,
         ));
       }
@@ -378,16 +336,16 @@ function renderAskChoiceLines(
       for (const pro of item.pros ?? []) {
         detail.push(...wrapAskPayload(
           paint(theme, 'bright', `✓ ${pro}`),
-          `${rowBar}     `,
-          `${rowBar}       `,
+          `    `,
+          `      `,
           width,
         ));
       }
       for (const con of item.cons ?? []) {
         detail.push(...wrapAskPayload(
           paint(theme, 'muted', `✗ ${con}`),
-          `${rowBar}     `,
-          `${rowBar}       `,
+          `    `,
+          `      `,
           width,
         ));
       }
@@ -395,8 +353,8 @@ function renderAskChoiceLines(
         for (const previewLine of item.preview.split('\n')) {
           detail.push(...wrapAskPayload(
             paint(theme, 'dim', previewLine || ' '),
-            `${rowBar}     `,
-            `${rowBar}     `,
+            `    `,
+            `    `,
             width,
           ));
         }
@@ -404,23 +362,23 @@ function renderAskChoiceLines(
     }
     return [...labelLines, ...detail];
   });
-  if (start > 0) rows.unshift(`${bar} ${paint(theme, 'dim', `↑ ${start} more`)}`);
-  if (end < items.length) rows.push(`${bar} ${paint(theme, 'dim', `↓ ${items.length - end} more`)}`);
-  return [
-    ...askHeaderLines(theme, question, width, pagination, headerLabel),
+  if (start > 0) rows.unshift(`${paint(theme, 'dim', `↑ ${start} more`)}`);
+  if (end < items.length) rows.push(`${paint(theme, 'dim', `↓ ${items.length - end} more`)}`);
+  return renderAskFrame([
+    ...askHeaderLines(question, width),
     ...rows,
     // Breathing room between the last row and the footer rule.
-    paint(theme, 'dim', '│'),
+    '',
     ...(searchQuery !== undefined
       ? wrapAskPayload(
         paint(theme, searchQuery ? 'brand' : 'dim', `/ ${searchQuery || 'type to filter…'}`),
-        `${bar} `,
-        `${bar}   `,
+        ``,
+        `  `,
         width,
       )
       : []),
     ...askFooterLines(theme, help, width, warning),
-  ].filter((line): line is string => typeof line === 'string');
+  ], width, theme, pagination, headerLabel);
 }
 
 function renderAskTextLines(
@@ -434,21 +392,20 @@ function renderAskTextLines(
   warning?: string,
   headerLabel?: string,
 ): string[] {
-  const bar = paint(theme, 'dim', '│');
   const inputBody = inputLine.startsWith('> ') ? inputLine.slice(2) : inputLine;
   const label = placeholder ? `Answer · ${placeholder}` : 'Answer';
-  return [
-    ...askHeaderLines(theme, question, width, undefined, headerLabel),
+  return renderAskFrame([
+    ...askHeaderLines(question, width),
     ...wrapAskPayload(
       `${paint(theme, 'brand', label)}${isEmpty ? paint(theme, 'dim', ' · paste or type') : ''}`,
-      `${bar} `,
-      `${bar} `,
+      ``,
+      ``,
       width,
     ),
-    `${bar} ${paint(theme, 'brand', '›')} ${inputBody}`,
-    bar,
+    `${paint(theme, 'brand', '›')} ${inputBody}`,
+    '',
     ...askFooterLines(theme, help, width, warning),
-  ];
+  ], width, theme, undefined, headerLabel);
 }
 
 function renderAskFinalLines(
@@ -458,7 +415,6 @@ function renderAskFinalLines(
   width: number,
   headerLabel?: string,
 ): string[] {
-  const bar = paint(theme, 'dim', '│');
   const summary = (() => {
     if (outcome.status === 'selected') return `${CLI_GLYPH.success} ${outcome.label ?? outcome.value ?? 'selected'}`;
     if (outcome.status === 'text') return `${CLI_GLYPH.success} ${outcome.value ?? 'answered'}`;
@@ -474,11 +430,11 @@ function renderAskFinalLines(
   })();
   // success (green) is an OUTCOME color; cancelled/unavailable are neutral, not wins.
   const token = outcome.status === 'back' || outcome.status === 'cancelled' || outcome.status === 'timed_out' || outcome.status === 'unavailable' ? 'muted' : 'success';
-  return [
-    ...askHeaderLines(theme, question, width, undefined, headerLabel),
-    ...wrapAskPayload(paint(theme, token, summary), `${bar} `, `${bar} `, width),
+  return renderAskFrame([
+    ...askHeaderLines(question, width),
+    ...wrapAskPayload(paint(theme, token, summary), ``, ``, width),
     ...askFooterLines(theme, 'submitted', width),
-  ];
+  ], width, theme, undefined, headerLabel);
 }
 
 /**
@@ -500,13 +456,16 @@ export async function runAskPrompt(
     pagination?: { current: number; total: number };
     /** Disable durable brokering for presentation-only choices that can safely fall back. */
     durable?: boolean;
+    /** Mark a durable choice as authorization so consumers can validate its provenance. */
+    kind?: 'question' | 'authorization';
   },
 ): Promise<AskOutcome | undefined> {
   const request = params.durable !== false && shouldBrokerInteraction(ctx)
     ? createPendingInteraction(ctx, {
         question: params.question,
+        kind: params.kind,
         options: params.options.map((option) => ({
-          id: option.value,
+          id: option.brokerId ?? option.value,
           label: option.label ?? option.value,
           ...(option.description ? { description: option.description } : {}),
           ...(option.recommended ? { recommended: true } : {}),
@@ -692,12 +651,12 @@ async function runAskOverlay(
 
       const render = (width: number): string[] => {
         const w = width > 0 ? width : 80;
-        if (finalOutcome) return positionAskLines(renderAskFinalLines(theme, params.question, finalOutcome, w, params.headerLabel), w, theme);
+        if (finalOutcome) return renderAskFinalLines(theme, params.question, finalOutcome, w, params.headerLabel);
         if (mode === 'text') {
           const help = askFrameWidth(w) < 56
             ? 'enter submit • esc cancel'
             : 'enter submit • esc cancel • paste supported';
-          return positionAskLines(renderTextPrompt(params.question, params.placeholder, help, w), w, theme);
+          return renderTextPrompt(params.question, params.placeholder, help, w);
         }
         if (mode === 'form') {
           const field = fields[fieldIndex]!;
@@ -706,7 +665,7 @@ async function runAskOverlay(
           const help = askFrameWidth(w) < 56
             ? 'enter next • esc cancel'
             : 'enter next • esc cancel • paste supported';
-          return positionAskLines(renderTextPrompt(`${params.question} — ${label} (${step})`, field.placeholder, help, w), w, theme);
+          return renderTextPrompt(`${params.question} — ${label} (${step})`, field.placeholder, help, w);
         }
         const rows = choiceRows();
         clampCursor();
@@ -724,7 +683,7 @@ async function runAskOverlay(
           : narrow
             ? '← back • ↑↓ • enter • esc'
             : '← back • ↑↓ navigate • / filter • 1-9 select • enter select • esc cancel';
-        return positionAskLines(renderAskChoiceLines(
+        return renderAskChoiceLines(
           theme,
           params.question,
           rows,
@@ -736,7 +695,7 @@ async function runAskOverlay(
           searchMode ? searchQuery : undefined,
           params.pagination,
           params.headerLabel,
-        ), w, theme);
+        );
       };
 
       const move = (delta: number): void => {
@@ -1139,19 +1098,19 @@ export function registerAskUserTool(
           : ' (free text)';
       const title = cliToolTitle(theme, 'askUser');
       const body = paint(theme, 'dim', q + suffix);
-      return makeRenderer((w) => wrapTextWithAnsi(`${title} ${body}`, Math.max(1, w)));
+      return makeComponentRenderer((_props, { width: w }) => wrapTextWithAnsi(`${title} ${body}`, Math.max(1, w)), undefined);
     },
 
     renderResult(result: ToolCallResult, opts: RenderResultOptions, theme?: PiTheme) {
       // Partial: spinner while the interactive overlay is open.
       if (opts.isPartial) {
         const title = cliToolTitle(theme, 'askUser');
-        return makeRenderer((w) => [
+        return makeComponentRenderer((_props, { width: w }) => [
           truncateToWidth(
             `${paint(theme, 'brand', cliSpinnerFrame())} ${title} ${paint(theme, 'dim', CLI_STATUS_TEXT.running)}`,
             w,
           ),
-        ]);
+        ], undefined);
       }
       const d = (result.details ?? {}) as AskOutcome;
       let line: string;
@@ -1172,7 +1131,7 @@ export function registerAskUserTool(
       } else {
         line = paint(theme, 'dim', CLI_STATUS_TEXT.unavailable);
       }
-      return makeRenderer((w) => wrapTextWithAnsi(line, Math.max(1, w)));
+      return makeComponentRenderer((_props, { width: w }) => wrapTextWithAnsi(line, Math.max(1, w)), undefined);
     },
   });
 }

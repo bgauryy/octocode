@@ -14,7 +14,7 @@ import {
 } from '@octocodeai/octocode-awareness/mcp-state';
 import { openOctocodeDb } from './storage-policy.js';
 import type { PiCommand, PiContext, SkillInfo } from '../types.js';
-import { getOctocodeHome } from '../env.js';
+import { getOctocodeHome } from '@octocodeai/config';
 import { extensionTmpRoot } from '../extension-paths.js';
 import { escapeHtml, renderOctocodePage } from '../tui/html-page.js';
 import { loadMcpConfig, type McpServerConfig } from './mcp-config.js';
@@ -25,7 +25,8 @@ import { discoverSkillStates } from './skill-tool.js';
 import { serveDirectory } from './local-server.js';
 import { openLocalUrl } from './local-url-opener.js';
 import { getFooterDensity, setFooterDensity, type FooterDensity } from '../ui-extras.js';
-import { getPermissionLevel, setPermissionLevel, type PermissionLevel } from './approval.js';
+import { getPermissionLevel, setPermissionLevel } from './approval.js';
+import { type PermissionLevel } from '@octocodeai/octocode-shared/protocols';
 import {
   ContributionRegistry,
   SettingsRegistry,

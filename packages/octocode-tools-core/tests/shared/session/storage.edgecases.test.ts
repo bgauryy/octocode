@@ -3,6 +3,8 @@ import * as fs from 'node:fs';
 import {
   SESSION_FILE,
   STATS_FILE,
+} from '../../../src/shared/session/sessionDiskIO.js';
+import {
   readSession,
   writeSession,
   getOrCreateSession,

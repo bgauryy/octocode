@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NpmPackageQuerySchema } from '../../toolContract/schemas.js';
+import { NpmPackageQuerySchema } from '../../toolContract/input/resources/tools/npmSearch.js';
 import {
   clampedInt,
   createRelaxedBulkQuerySchema,
@@ -20,7 +20,7 @@ import type {
 import type { BulkToolOutput } from '../../types/toolOutput.js';
 
 const queryOverrides = {
-  page: relaxedPageNumberField,
+  page: relaxedPageNumberField.removeDefault(),
   pageSize: clampedInt(1, 100)
     .optional()
     .describe('Packages returned per keyword-discovery page.'),
@@ -75,6 +75,7 @@ const npmCommonShape = NpmSearchQueryShape.omit({
   packageName: true,
   keywords: true,
   pageSize: true,
+  page: true,
 }).shape;
 const packageNameMode = z
   .object({
@@ -105,6 +106,7 @@ const keywordMode = z
         getSchemaField(NpmSearchQueryShape.shape, 'keywords').description ?? ''
       ),
     pageSize: getSchemaField(NpmSearchQueryShape.shape, 'pageSize'),
+    page: getSchemaField(NpmSearchQueryShape.shape, 'page'),
   })
   .strict()
   .superRefine((query, ctx) =>

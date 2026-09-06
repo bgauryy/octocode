@@ -21,7 +21,7 @@ import {
   refreshAuthToken as sharedRefreshAuthToken,
   getTokenWithRefresh,
   getGhCliToken as sharedGetGhCliToken,
-} from '../utils/token-storage.js';
+} from '@octocodeai/octocode-tools-core/credentials';
 import { hasEnvToken, getEnvTokenSource } from '@octocodeai/config';
 
 const DEFAULT_CLIENT_ID = '178c6fc778ccc68e1d6a';

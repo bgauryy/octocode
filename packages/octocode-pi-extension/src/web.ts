@@ -1,5 +1,5 @@
 // Single "web" tool: lets the agent search the web and fetch/read pages like an agent.
-// No API key, no npm deps (Node >=20 global fetch + node:dns + node:net).
+// No API key (Node fetch + node:dns + node:net + an owned undici dispatcher).
 //
 // Security: web_fetch is an SSRF magnet. The guard (assertPublicUrl + per-hop
 // re-validation in safeFetch) resolves every hostname and rejects any resolved IP in a
@@ -9,7 +9,8 @@
 // the pinned undici dispatcher (connect-time lookup pins the validated IP).
 
 import dns from 'node:dns/promises';
-import net from 'node:net';
+import net, { type LookupFunction } from 'node:net';
+import { Agent, type Dispatcher } from 'undici';
 
 // A realistic mainstream-browser User-Agent so the agent reads pages like a browser.
 // Override with OCTOCODE_WEB_USER_AGENT. API providers (Tavily/Serper) use their own
@@ -194,49 +195,53 @@ export interface SafeFetchResult {
  * validation now runs at connect time on the exact IP the socket uses — so a host
  * that answers public-on-check / private-on-connect is rejected during connect.
  *
- * undici ships inside Node but is imported dynamically (no hard dependency): if it
- * is unavailable, we return null and fall back to per-hop re-validation only.
+ * The package owns undici explicitly. Dispatcher initialization failures surface
+ * to the caller so DNS pinning cannot silently disappear.
  */
-let pinnedDispatcherPromise: Promise<unknown | null> | undefined;
-function getPinnedDispatcher(): Promise<unknown | null> {
-  if (!pinnedDispatcherPromise) {
-    pinnedDispatcherPromise = (async () => {
-      try {
-        const undici = (await import('undici')) as {
-          Agent: new (opts: unknown) => unknown;
-        };
-        return new undici.Agent({
-          connect: {
-            // undici v8 lookup: callback receives (err, [{address,family}]) array
-            // (undici v7 and earlier used the net-style (err, address, family) form).
-            lookup: (
-              hostname: string,
-              _options: unknown,
-              cb: (err: Error | null, addresses: Array<{ address: string; family: number }>) => void,
-            ): void => {
-              // Resolve, validate every IP against the SSRF block-list, pass the
-              // full valid list so undici can do its own happy-eyeballs selection.
-              dns.lookup(hostname, { all: true })
-                .then((addresses) => {
-                  const list = Array.isArray(addresses) ? addresses : [addresses];
-                  if (list.length === 0)
-                    return cb(new Error(`Could not resolve host: ${hostname}`), []);
-                  for (const rec of list) {
-                    if (isBlockedIp(rec.address))
-                      return cb(new Error(`Blocked private/loopback address: ${rec.address}`), []);
-                  }
-                  cb(null, list);
-                })
-                .catch((err: Error) => cb(err, []));
-            },
-          },
-        });
-      } catch {
-        return null;
-      }
-    })();
-  }
-  return pinnedDispatcherPromise;
+type ResolvedAddress = { address: string; family: number };
+type PinnedLookupCallback = (
+  error: Error | null,
+  address: string | ResolvedAddress[],
+  family?: number
+) => void;
+
+export function createPinnedLookup(
+  resolve: LookupFn = dns.lookup as unknown as LookupFn
+): LookupFunction {
+  return ((hostname: string, options: { all?: boolean }, callback: PinnedLookupCallback): void => {
+    resolve(hostname, { all: true })
+      .then((addresses) => {
+        const list = Array.isArray(addresses) ? addresses : [addresses];
+        if (list.length === 0) {
+          callback(new Error(`Could not resolve host: ${hostname}`), []);
+          return;
+        }
+        for (const record of list) {
+          if (isBlockedIp(record.address)) {
+            callback(
+              new Error(`Blocked private/loopback address: ${record.address}`),
+              []
+            );
+            return;
+          }
+        }
+        if (options.all) {
+          callback(null, list);
+          return;
+        }
+        const first = list[0]!;
+        callback(null, first.address, first.family);
+      })
+      .catch((error: Error) => callback(error, []));
+  }) as LookupFunction;
+}
+
+let pinnedDispatcher: Dispatcher | undefined;
+function getPinnedDispatcher(): Dispatcher {
+  pinnedDispatcher ??= new Agent({
+    connect: { lookup: createPinnedLookup() },
+  });
+  return pinnedDispatcher;
 }
 
 /** Fetch with manual redirect following, re-validating every hop against the SSRF guard. */
@@ -256,7 +261,7 @@ export async function safeFetch(
   // Pin connections to validated IPs to close the DNS-rebinding TOCTOU — only on
   // the default global-fetch path (a custom fetchImpl, e.g. in tests, is untouched).
   const usingGlobalFetch = fetchImpl === (globalThis.fetch as FetchImpl);
-  const dispatcher = usingGlobalFetch ? await getPinnedDispatcher() : null;
+  const dispatcher = usingGlobalFetch ? getPinnedDispatcher() : null;
 
   let current = startUrl;
   for (let hop = 0; hop <= maxRedirects; hop++) {

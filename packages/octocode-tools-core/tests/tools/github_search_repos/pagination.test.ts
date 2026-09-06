@@ -1,28 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildResultPagination,
-  buildMergedPagination,
-  buildPartialFailureWarnings,
-} from '../../../src/tools/github_search_repos/execution.js';
+import { buildResultPagination } from '../../../src/tools/github_search_repos/execution/pagination.js';
 import { countPaginationMetadata } from '../../../src/providers/github/paginationMetadata.js';
-
-type MergeVariant = Parameters<typeof buildMergedPagination>[0][number];
-
-function variantWithPagination(pagination: {
-  currentPage: number;
-  totalPages: number;
-  hasMore: boolean;
-  entriesPerPage?: number;
-  totalMatches?: number;
-  reachableTotalMatches?: number;
-  totalMatchesKind?: 'exact' | 'reported' | 'lowerBound';
-  totalMatchesCapped?: boolean;
-}): MergeVariant {
-  return {
-    response: { data: { pagination } },
-  } as unknown as MergeVariant;
-}
 
 describe('github.repositories pagination output', () => {
   it('preserves lower-bound certainty without claiming an exact totalPages', () => {
@@ -128,70 +107,5 @@ describe('github.repositories pagination output', () => {
       perPage: 10,
       hasMore: false,
     });
-  });
-});
-
-describe('github.repositories merged pagination', () => {
-  it('reports the deduped count as a lower bound instead of summing overlapping variant totals', () => {
-    // Two variants each report 40 matches, but after dedup only 55 distinct
-    // repositories survive. Summing (80) would overcount the overlap.
-    const merged = buildMergedPagination(
-      [
-        variantWithPagination({
-          currentPage: 1,
-          totalPages: 4,
-          hasMore: true,
-          entriesPerPage: 10,
-          totalMatches: 40,
-          reachableTotalMatches: 40,
-          totalMatchesKind: 'reported',
-        }),
-        variantWithPagination({
-          currentPage: 1,
-          totalPages: 3,
-          hasMore: false,
-          entriesPerPage: 10,
-          totalMatches: 40,
-          reachableTotalMatches: 40,
-          totalMatchesKind: 'reported',
-        }),
-      ],
-      55
-    );
-
-    expect(merged).toBeDefined();
-    expect(merged!.totalMatches).toBe(55);
-    expect(merged!.reachableTotalMatches).toBe(55);
-    expect(merged!.totalMatchesKind).toBe('lowerBound');
-    // A merged count is only a lower bound, so totalPages must not be exposed
-    // as though its cardinality were exact.
-    expect(merged!.totalPages).toBeUndefined();
-    expect(merged!.hasMore).toBe(true);
-  });
-
-  it('returns undefined when no variant carried pagination', () => {
-    expect(
-      buildMergedPagination(
-        [{ response: { data: {} } } as unknown as MergeVariant],
-        0
-      )
-    ).toBeUndefined();
-  });
-});
-
-describe('github.repositories partial-failure warnings', () => {
-  it('names the failed variant(s) when some variants error', () => {
-    const warnings = buildPartialFailureWarnings([
-      { label: 'topics' },
-      { label: 'keywords' },
-    ]);
-    expect(warnings).toHaveLength(1);
-    expect(warnings![0]).toContain("'topics'");
-    expect(warnings![0]).toContain("'keywords'");
-    expect(warnings![0]).toMatch(/incomplete/i);
-  });
-
-  it('emits nothing when all variants succeeded', () => {
-    expect(buildPartialFailureWarnings([])).toBeUndefined();
   });
 });

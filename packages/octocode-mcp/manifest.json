@@ -27,49 +27,51 @@
         "${__dirname}/dist/index.js"
       ],
       "env": {
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "GITHUB_TOKEN": "${user_config.github_token}",
+        "NPM_CONFIG_REGISTRY": "${user_config.npm_registry}"
       }
     }
   },
   "tools": [
     {
-      "name": "mcp_octocode_ghSearch",
+      "name": "ghSearch",
       "description": "Search GitHub code or repositories, or browse a repository tree"
     },
     {
-      "name": "mcp_octocode_ghGetFileContent",
+      "name": "ghGetFileContent",
       "description": "Fetch file content from GitHub repositories"
     },
     {
-      "name": "mcp_octocode_ghSearchHistory",
+      "name": "ghSearchHistory",
       "description": "Search GitHub pull requests, issues, or commits"
     },
     {
-      "name": "mcp_octocode_ghGetHistoryItem",
+      "name": "ghGetHistoryItem",
       "description": "Read one GitHub pull request, issue, commit, or ref comparison"
     },
     {
-      "name": "mcp_octocode_npmSearch",
+      "name": "npmSearch",
       "description": "Search npm packages and source repositories"
     },
     {
-      "name": "mcp_octocode_ghCloneRepo",
+      "name": "ghCloneRepo",
       "description": "Clone a GitHub repository or subtree for local analysis"
     },
     {
-      "name": "mcp_octocode_localSearch",
+      "name": "localSearch",
       "description": "Search local text or syntax, discover files, or browse directory trees"
     },
     {
-      "name": "mcp_octocode_localAnalyzeGraph",
+      "name": "localAnalyzeGraph",
       "description": "Analyze bounded local file dependency graphs"
     },
     {
-      "name": "mcp_octocode_localGetFileContent",
+      "name": "localGetFileContent",
       "description": "Read local file content with minification and exact slices"
     },
     {
-      "name": "mcp_octocode_lspGetSemantics",
+      "name": "lspGetSemantics",
       "description": "Run LSP semantic navigation over local files"
     }
   ],

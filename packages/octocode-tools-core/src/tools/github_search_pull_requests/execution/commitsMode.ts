@@ -2,7 +2,9 @@ import type { AuthInfo } from '@modelcontextprotocol/server';
 import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '../../toolNames.js';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
 import { fetchHistory } from '../../../github/history.js';
+import { searchCommits } from '../../../github/commitSearch.js';
 import { compareRefs } from '../../../github/compare.js';
+import { withDiffContinuations } from '../historyDiffContinuations.js';
 import { isGitHubAPIError } from '../../../github/githubAPI.js';
 import type { ProcessedBulkResult } from '../../../types/toolResults.js';
 import type {
@@ -21,6 +23,7 @@ export async function handleCommitsMode(
     type?: string;
     owner?: string;
     repo?: string;
+    keywords?: string[];
     path?: string;
     branch?: string;
     author?: string;
@@ -44,6 +47,44 @@ export async function handleCommitsMode(
     );
   }
 
+  if (q.keywords?.length) {
+    if (
+      q.path !== undefined ||
+      q.branch !== undefined ||
+      q.base ||
+      q.head ||
+      q.includeDiff
+    ) {
+      return createErrorResult(
+        'Commit-message keywords cannot be combined with path, branch, compare, or diffs; search covers the default branch.',
+        query
+      );
+    }
+    const result = await searchCommits(
+      {
+        owner: q.owner,
+        repo: q.repo,
+        keywords: q.keywords,
+        author: q.author,
+        committer: q.committer,
+        since: q.since,
+        until: q.until,
+        page: q.page ?? 1,
+        perPage: q.pageSize ?? 30,
+      },
+      authInfo
+    );
+    if (isGitHubAPIError(result))
+      return createErrorResult(result, query, { toolName });
+    return createSuccessResult(
+      query,
+      result.data,
+      result.data.commits.length > 0,
+      toolName,
+      { rawResponse: result.rawResponseChars }
+    );
+  }
+
   // Compare mode: base+head diffs two refs instead of walking history.
   if (q.base && q.head) {
     const compare = await compareRefs(
@@ -52,6 +93,7 @@ export async function handleCommitsMode(
         repo: q.repo,
         base: q.base,
         head: q.head,
+        page: q.page,
         includeDiff: Boolean(q.includeDiff),
         // Scope + paginate the diff exactly like the history-walk path so a
         // large commit is searchable-by-path and windowed, not one big dump.
@@ -69,17 +111,13 @@ export async function handleCommitsMode(
       });
     }
     const compareData = compare.data as unknown as Record<string, unknown>;
-    const filesPagination = compare.data.filesPagination;
-    const firstPatch = compare.data.files?.find(
-      file => typeof file.patchPagination?.nextCharOffset === 'number'
-    );
-    const next: Record<string, unknown> = {};
     const publicQuery = {
       operation: 'compare',
       owner: q.owner,
       repo: q.repo,
       base: q.base,
       head: q.head,
+      ...(q.page === undefined ? {} : { page: q.page }),
       ...(q.includeDiff ? { includeDiff: true } : {}),
       ...(q.path ? { path: q.path } : {}),
       ...(q.filePage === undefined ? {} : { filePage: q.filePage }),
@@ -87,28 +125,9 @@ export async function handleCommitsMode(
       ...(q.charOffset === undefined ? {} : { charOffset: q.charOffset }),
       ...(q.charLength === undefined ? {} : { charLength: q.charLength }),
     };
-    if (typeof filesPagination?.nextFilePage === 'number') {
-      next.nextFilePage = {
-        tool: 'ghGetHistoryItem',
-        query: { ...publicQuery, filePage: filesPagination.nextFilePage },
-        why: 'Continue the changed-file list.',
-        confidence: 'exact',
-      };
-    }
-    if (typeof firstPatch?.patchPagination?.nextCharOffset === 'number') {
-      next.continuePatch = {
-        tool: 'ghGetHistoryItem',
-        query: {
-          ...publicQuery,
-          charOffset: firstPatch.patchPagination.nextCharOffset,
-        },
-        why: 'Continue the current patch window.',
-        confidence: 'exact',
-      };
-    }
     return createSuccessResult(
       query,
-      Object.keys(next).length > 0 ? { ...compareData, next } : compareData,
+      withDiffContinuations(compareData, publicQuery),
       compare.data.totalCommits > 0 || compare.data.status !== 'identical',
       toolName
     );

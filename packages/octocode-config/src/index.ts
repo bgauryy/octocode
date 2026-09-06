@@ -9,14 +9,96 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseBooleanEnv } from './config/resolverSections.js';
 
 // ─── Re-export getOctocodeHome (defined in home.ts to break circular deps) ───
 export { getOctocodeHome } from './home.js';
 import { getOctocodeHome } from './home.js';
 
 // ─── Re-exports from config/ and tokens/ ─────────────────────────────────────
-export * from './config/index.js';
-export * from './tokens/index.js';
+export type {
+  OctocodeConfig,
+  ResolvedConfig,
+  ValidationResult,
+  LoadConfigResult,
+  GitHubConfigOptions,
+  LocalConfigOptions,
+  ToolsConfigOptions,
+  NetworkConfigOptions,
+  LspConfigOptions,
+  OutputConfigOptions,
+  OutputPaginationConfigOptions,
+  StorageConfigOptions,
+  StorageMode,
+  RequiredGitHubConfig,
+  RequiredLocalConfig,
+  RequiredToolsConfig,
+  RequiredNetworkConfig,
+  RequiredLspConfig,
+  RequiredOutputConfig,
+  RequiredOutputPaginationConfig,
+  RequiredSessionConfig,
+  RequiredStorageConfig,
+  MinifyMode,
+} from './config/types.js';
+export { CONFIG_SCHEMA_VERSION, CONFIG_FILE_NAME } from './config/types.js';
+export {
+  DEFAULT_CONFIG,
+  DEFAULT_GITHUB_CONFIG,
+  DEFAULT_LOCAL_CONFIG,
+  DEFAULT_TOOLS_CONFIG,
+  DEFAULT_NETWORK_CONFIG,
+  DEFAULT_LSP_CONFIG,
+  DEFAULT_OUTPUT_CONFIG,
+  MIN_TIMEOUT,
+  MAX_TIMEOUT,
+  MIN_RETRIES,
+  MAX_RETRIES,
+  MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
+  MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
+  DEFAULT_SESSION_CONFIG,
+  DEFAULT_STORAGE_CONFIG,
+} from './config/defaults.js';
+export {
+  type RuntimeSurface,
+  setRuntimeSurface,
+  getRuntimeSurface,
+  _resetRuntimeSurface,
+} from './config/runtimeSurface.js';
+export { validateConfig } from './config/validator.js';
+export {
+  getConfigFilePath,
+  configExists,
+  loadConfigSync,
+  loadConfig,
+} from './config/loader.js';
+export {
+  parseBooleanEnv,
+  parseIntEnv,
+  parseStringArrayEnv,
+  resolveGitHub,
+  resolveLocal,
+  resolveTools,
+  resolveNetwork,
+  resolveLsp,
+  resolveOutput,
+  resolveSession,
+  resolveStorage,
+} from './config/resolverSections.js';
+export {
+  resolveConfigSync,
+  getConfigSync,
+  getConfigValue,
+} from './config/resolver.js';
+export type { TokenSource } from './tokens/types.js';
+export {
+  ENV_TOKEN_VARS,
+  type EnvTokenVar,
+  getTokenFromEnv,
+  getEnvTokenSource,
+  hasEnvToken,
+  resolveEnvToken,
+} from './tokens/envTokens.js';
 
 // ─── Env loading (uses loadConfigSync from config/loader.ts below) ────────────
 
@@ -25,15 +107,28 @@ import { getConfigSync } from './config/resolver.js';
 
 /** Keys a project/global .env must never override — infrastructure + all auth tokens. */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
-  'PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'PWD', 'TMPDIR', 'NODE_OPTIONS',
-  'OCTOCODE_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'PYTHON',
+  'PATH',
+  'HOME',
+  'SHELL',
+  'USER',
+  'LOGNAME',
+  'PWD',
+  'TMPDIR',
+  'NODE_OPTIONS',
+  'OCTOCODE_TOKEN',
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GITHUB_PERSONAL_ACCESS_TOKEN',
+  'PYTHON',
 ]);
 
 /**
  * Parse dotenv text into a { KEY: VALUE } map. Strict KEY=VALUE, `#` comments,
  * optional `export ` prefix, surrounding quotes stripped. No shell expansion.
  */
-export function parseEnv(text: string | null | undefined): Record<string, string> {
+export function parseEnv(
+  text: string | null | undefined
+): Record<string, string> {
   const out: Record<string, string> = {};
   if (!text) return out;
   for (const rawLine of text.split('\n')) {
@@ -46,13 +141,20 @@ export function parseEnv(text: string | null | undefined): Record<string, string
     if (eq === -1) continue;
     const key = normalized.slice(0, eq).trim();
     if (!key) continue;
-    out[key] = normalized.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+    out[key] = normalized
+      .slice(eq + 1)
+      .trim()
+      .replace(/^["']|["']$/g, '');
   }
   return out;
 }
 
 function readTextIfExists(filePath: string): string {
-  try { return fs.readFileSync(filePath, 'utf8'); } catch { return ''; }
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
 }
 
 export interface LoadOctocodeEnvOptions {
@@ -80,14 +182,16 @@ export function loadOctocodeEnv({
   const sources: Record<string, 'global' | 'project'> = {};
 
   if (home) {
-    for (const [k, v] of Object.entries(parseEnv(readTextIfExists(path.join(home, '.env'))))) {
+    for (const [k, v] of Object.entries(
+      parseEnv(readTextIfExists(path.join(home, '.env')))
+    )) {
       map[k] = v;
       sources[k] = 'global';
     }
   }
   if (cwd && trusted) {
     for (const [k, v] of Object.entries(
-      parseEnv(readTextIfExists(path.join(cwd, '.octocode', '.env'))),
+      parseEnv(readTextIfExists(path.join(cwd, '.octocode', '.env')))
     )) {
       map[k] = v;
       sources[k] = 'project';
@@ -112,16 +216,22 @@ export interface ApplyOctocodeEnvResult {
  */
 export function applyOctocodeEnv(
   map: Record<string, string> | null | undefined,
-  { env = process.env }: ApplyOctocodeEnvOptions = {},
+  { env = process.env }: ApplyOctocodeEnvOptions = {}
 ): ApplyOctocodeEnvResult {
   const applied: string[] = [];
   const skippedProtected: string[] = [];
   const skippedExisting: string[] = [];
 
   for (const [key, value] of Object.entries(map ?? {})) {
-    if (PROTECTED_KEYS.has(key)) { skippedProtected.push(key); continue; }
+    if (PROTECTED_KEYS.has(key)) {
+      skippedProtected.push(key);
+      continue;
+    }
     const existing = env[key];
-    if (existing !== undefined && existing !== '') { skippedExisting.push(key); continue; }
+    if (existing !== undefined && existing !== '') {
+      skippedExisting.push(key);
+      continue;
+    }
     env[key] = value;
     applied.push(key);
   }
@@ -159,12 +269,11 @@ export function propagateOctocodeEnv({
  */
 export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   if (
-    env['OCTOCODE_STORAGE_MODE'] === 'memory' ||
+    env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase() === 'memory' ||
     (env === process.env && !isPersistentStorageEnabled())
   )
     return false;
-  const v = env['OCTOCODE_ENABLE_STATS'];
-  return v === '1' || v === 'true';
+  return parseBooleanEnv(env['OCTOCODE_ENABLE_STATS']) ?? false;
 }
 
 /** True when Octocode may persist caches and runtime state on this machine. */
@@ -177,12 +286,17 @@ export function isPersistentStorageEnabled(): boolean {
  * Delegates to the robust JSON5 loader (state-machine based, handles // inside strings).
  * Returns {} when absent or invalid. No secrets belong here.
  */
-export function loadOctocoderc(home: string = getOctocodeHome()): Record<string, unknown> {
+export function loadOctocoderc(
+  home: string = getOctocodeHome()
+): Record<string, unknown> {
   const result = loadConfigSync(home);
-  if (result.success) return result.config ? (result.config as Record<string, unknown>) : {};
+  if (result.success)
+    return result.config ? (result.config as Record<string, unknown>) : {};
   // File absent is silent; any other failure (parse error etc.) is reported.
   if (result.error && result.error !== 'Config file does not exist') {
-    process.stderr.write(`[octocode-config] Failed to parse .octocoderc: ${result.error}\n`);
+    process.stderr.write(
+      `[octocode-config] Failed to parse .octocoderc: ${result.error}\n`
+    );
   }
   return {};
 }

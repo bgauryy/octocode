@@ -4,18 +4,18 @@ import type {
   AutocompleteItem,
   CommandDefinition,
   PiCommandContext,
-  PiImageContent,
+  ImageContentPart,
   PiInstance,
   PiMessageContent,
   PiSendUserMessageOptions,
   PiSessionManager,
-  PiTextContent,
+  TextContentPart,
   PiUi,
 } from '../src/types.js';
 
 test('Pi message content accepts text and base64 image parts', () => {
-  const text: PiTextContent = { type: 'text', text: 'hello' };
-  const image: PiImageContent = { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' };
+  const text: TextContentPart = { type: 'text', text: 'hello' };
+  const image: ImageContentPart = { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' };
   const content: PiMessageContent = [text, image];
 
   assert.deepEqual(content, [text, image]);

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  getToolFilterConfigSafe,
+  getToolFilterConfig,
   isToolEnabled,
   validateToolFilterConfig,
   type ToolFilterConfig,
 } from '../../src/tools/toolFilters.js';
-import type { ToolConfig } from '../../src/tools/toolConfig.js';
+import type { ToolConfig } from '@octocodeai/octocode-tools-core';
 import { z } from 'zod';
 
 function makeTool(
@@ -29,18 +29,16 @@ function makeTool(
 }
 
 describe('toolFilters', () => {
-  it('returns safe defaults when config provider throws', () => {
-    const cfg = getToolFilterConfigSafe(() => {
-      throw new Error('not initialized');
-    });
-    expect(cfg).toEqual({
-      toolsToRun: [],
-      disableTools: [],
-    });
+  it('surfaces config provider failures', () => {
+    expect(() =>
+      getToolFilterConfig(() => {
+        throw new Error('not initialized');
+      })
+    ).toThrow('not initialized');
   });
 
   it('normalizes omitted filter lists from a valid config provider', () => {
-    expect(getToolFilterConfigSafe(() => ({}))).toEqual({
+    expect(getToolFilterConfig(() => ({}))).toEqual({
       toolsToRun: [],
       disableTools: [],
     });

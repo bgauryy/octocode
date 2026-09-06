@@ -1,5 +1,5 @@
 import { SYSTEM_PROMPT_MARKER, MANAGED_BLOCK_START, MANAGED_BLOCK_END } from './constants.js';
-import type { PromptMode } from './types.js';
+import type { PromptMode } from '@octocodeai/octocode-shared/protocols';
 
 export function renderSystemPromptAddendum(octocodePrompt: string): string {
   return `${SYSTEM_PROMPT_MARKER}\n${octocodePrompt.trim()}\n${SYSTEM_PROMPT_MARKER}`;

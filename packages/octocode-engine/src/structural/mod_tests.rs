@@ -2,6 +2,137 @@ use super::*;
 use std::fs;
 use std::path::PathBuf;
 
+#[test]
+fn public_structural_errors_retain_native_codes() {
+    for (pattern, rule, expected) in [
+        (Some("fn ???"), None, "structural.query.compileFailed"),
+        (
+            None,
+            Some("kind: not_a_real_kind"),
+            "structural.query.compileFailed",
+        ),
+        (None, Some("kind: ["), "structural.query.compileFailed"),
+        (None, None, "structural.query.invalid"),
+    ] {
+        let error = search("fn main() {}", "rs", pattern, rule)
+            .err()
+            .expect("invalid query");
+        assert!(error.starts_with(&format!("[{expected}] ")), "{error}");
+    }
+    let unsupported = search("echo hi", "sh", Some("$$$"), None)
+        .err()
+        .expect("unsupported language");
+    assert!(unsupported.starts_with("[structural.language.unsupported] "));
+
+    let root = temp_root("typed_compile_error");
+    fs::write(root.join("fixture.rs"), "fn main() {}").unwrap();
+    let error = search_files(review_file_options(&root, "kind: not_a_real_kind", 10))
+        .err()
+        .expect("invalid rule");
+    assert!(
+        error.starts_with("[structural.query.compileFailed] "),
+        "{error}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn directory_patterns_and_composed_rules_share_fragment_context() {
+    let root = temp_root("shared_fragment_context");
+    for (ext, source, pattern) in [
+        (
+            "java",
+            "class Demo { void run() { target(value); } }",
+            "target($X)",
+        ),
+        ("css", ".demo { color: value; }", "color: $VALUE"),
+        ("scss", ".demo { color: value; }", "color: $VALUE"),
+    ] {
+        if languages::find_entry(ext).is_none() {
+            continue;
+        }
+        fs::write(root.join(format!("fixture.{ext}")), source).unwrap();
+        let rule = format!("all:\n  - pattern: '{pattern}'\n  - regex: '.'");
+        for use_rule in [true, false] {
+            let mut options = review_file_options(&root, &rule, 10);
+            options.include = Some(vec![format!("*.{ext}")]);
+            if !use_rule {
+                options.rule = None;
+                options.pattern = Some(pattern.to_owned());
+            }
+            let result = search_files(options).expect("fragment directory search");
+            assert_eq!(result.status, "ok");
+            assert_eq!(result.total_matches, 1, "{ext}: rule={use_rule}");
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn ast_audit_unanchored_directory_reports_unsupported_files() {
+    let root = temp_root("audit_unsupported_unanchored");
+    fs::write(root.join("unsupported.sh"), "echo hello\n").expect("shell fixture");
+    let mut options = review_file_options(&root, "kind: call_expression", 10);
+    options.pattern = Some("$$$".to_owned());
+    options.rule = None;
+    options.include = Some(vec!["*.sh".to_owned()]);
+    let result = search_files(options).expect("directory search");
+    assert_eq!(result.status, "partial");
+    assert_eq!(result.skipped_unsupported, 1);
+    assert_eq!(result.total_matches, 0);
+    let query = result
+        .query
+        .as_ref()
+        .expect("async directory result includes its query plan");
+    assert_eq!(query.kind, "pattern");
+    assert_eq!(query.pre_filter, "disabled");
+    assert!(result
+        .diagnostics
+        .iter()
+        .any(|diagnostic| { diagnostic.code == "structural.language.unsupported" }));
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn structural_review_deep_document_keeps_recall() {
+    let source = format!("const x = {}probe(){};", "[".repeat(600), "]".repeat(600));
+    let result = search_detailed(&source, "deep.ts", "ts", Some("probe()"), None);
+    assert_eq!(result.status, "ok");
+    assert_eq!(result.matches.len(), 1);
+}
+
+#[test]
+fn structural_review_rule_prefilter_preserves_directory_recall() {
+    let root = temp_root("review_prefilter");
+    let source = "function present() { return 1; }";
+    fs::write(root.join("fixture.ts"), source).expect("fixture");
+    for rule in [
+        "kind: function_declaration\nnot:\n  pattern: absent_probe($X)",
+        "any:\n  - kind: function_declaration\n  - pattern: absent_probe($X)",
+        "any: [{pattern: $X}, {pattern: absent_probe($X)}]",
+        "all:\n  - kind: function_declaration\n  - not: {pattern: absent_probe($X)}",
+    ] {
+        let direct = search(source, "ts", None, Some(rule)).expect("direct search");
+        let directory = search_files(StructuralSearchFilesOptions {
+            path: root.to_string_lossy().into_owned(),
+            pattern: None,
+            rule: Some(rule.to_owned()),
+            include: None,
+            exclude: None,
+            exclude_dir: None,
+            hidden: None,
+            no_ignore: None,
+            max_depth: None,
+            max_files: None,
+            max_file_bytes: None,
+        })
+        .expect("directory search");
+        assert!(!direct.is_empty(), "fixture must match {rule}");
+        assert_eq!(directory.total_matches as usize, direct.len(), "{rule}");
+    }
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
 fn temp_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "octocode_structural_{}_{}",
@@ -56,7 +187,7 @@ fn captures_multi_metavar_as_list() {
 
 #[test]
 fn document_probe_matches_root_without_ellipsis_panic() {
-    for ext in ["ts", "py", "sh", "html", "json", "toml"] {
+    for ext in ["ts", "py", "html", "json", "toml"] {
         let matches = run_pattern("foo(a)\nbar(b)\n", ext, "$$$");
         assert_eq!(matches.len(), 1, "{ext} should return the document root");
         assert_eq!(matches[0].start_line, 1);
@@ -124,6 +255,15 @@ fn unsupported_extension_errors() {
 }
 
 #[test]
+fn php_pattern_can_start_with_a_variable_capture() {
+    let source = "<?php\n$first = 5;\n$second = 6;\n";
+    let matches = run_pattern(source, "php", "$NAME = $VALUE;");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].metavars["NAME"], vec!["$first"]);
+    assert_eq!(matches[1].metavars["NAME"], vec!["$second"]);
+}
+
+#[test]
 fn supported_extensions_are_rust_owned() {
     let exts = supported_extensions();
     assert!(exts.iter().any(|ext| ext == "ts"));
@@ -173,10 +313,7 @@ fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
     for (pattern, rule) in [
         (Some("target($X)".to_owned()), None),
         (Some("$FN($$$ARGS)".to_owned()), None),
-        (
-            None,
-            Some("rule:\n  pattern: target($X)".to_owned()),
-        ),
+        (None, Some("rule:\n  pattern: target($X)".to_owned())),
     ] {
         let result = search_files(StructuralSearchFilesOptions {
             path: missing.to_string_lossy().to_string(),
@@ -289,6 +426,22 @@ fn detailed_search_reports_invalid_query_with_recovery() {
     assert_eq!(result.status, "parserFailed");
     assert_eq!(result.query.kind, "invalid");
     assert_eq!(result.diagnostics[0].code, "structural.query.invalid");
+    assert!(result.diagnostics[0].recovery.is_some());
+}
+
+#[test]
+fn ast_audit_detailed_search_reports_unknown_node_kind() {
+    let result = search_detailed(
+        "const x = 1;",
+        "a.ts",
+        "ts",
+        None,
+        Some("kind: not_a_real_node_kind_astro_999"),
+    );
+    assert_eq!(result.status, "parserFailed");
+    assert!(result.matches.is_empty());
+    assert_eq!(result.diagnostics[0].code, "structural.query.compileFailed");
+    assert!(result.diagnostics[0].message.contains("unknown node kind"));
     assert!(result.diagnostics[0].recovery.is_some());
 }
 
@@ -491,13 +644,6 @@ fn scss_pattern_matches_and_keeps_literal_lowercase_var() {
 }
 
 #[test]
-fn less_pattern_matches_rule() {
-    let src = ".box {\n  width: 10px;\n}\n";
-    let matches = run_pattern(src, "less", ".box { width: $W; }");
-    assert_eq!(matches.len(), 1);
-}
-
-#[test]
 fn html_tag_name_metavar_resolves_with_z_expando() {
     // The reason HTML's expando is `z`, not `µ`: tree-sitter-html's tagName
     // scanner rejects non-ASCII, so a tag-name metavar only works with `z`.
@@ -521,7 +667,7 @@ fn html_element_pattern_matches_nested_tag() {
 #[test]
 fn markup_and_style_extensions_are_supported() {
     let exts = supported_extensions();
-    for ext in ["html", "htm", "css", "scss", "less"] {
+    for ext in ["html", "htm", "css", "scss"] {
         assert!(
             exts.iter().any(|e| e == ext),
             "structural search must support .{ext}"
@@ -531,6 +677,7 @@ fn markup_and_style_extensions_are_supported() {
 
 // ── Scala ─────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "tree-sitter-extended")]
 #[test]
 fn scala_pattern_captures_call_argument() {
     // Expando is µ, so `$X` → `µX`, a valid Scala identifier.
@@ -543,6 +690,7 @@ fn scala_pattern_captures_call_argument() {
     );
 }
 
+#[cfg(feature = "tree-sitter-extended")]
 #[test]
 fn scala_comment_and_string_immunity() {
     // KPI #1: a `println(evil)` in a comment and in a string must NOT match.
@@ -555,6 +703,7 @@ fn scala_comment_and_string_immunity() {
     );
 }
 
+#[cfg(feature = "tree-sitter-extended")]
 #[test]
 fn scala_extensions_are_supported() {
     let exts = supported_extensions();
@@ -932,5 +1081,165 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         "unsupported files need their own warning line, not lumped into prefilter: {:?}",
         result.warnings
     );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn structural_review_pattern_depth_is_explicitly_incomplete() {
+    let source = format!("const x = {}probe(){};", "[".repeat(600), "]".repeat(600));
+    let pattern = format!("{}probe(){}", "[".repeat(600), "]".repeat(600));
+    let result = search_detailed(&source, "deep.ts", "ts", Some(&pattern), None);
+    assert_eq!(result.status, "truncated");
+    assert!(result.matches.is_empty());
+    assert_eq!(result.diagnostics[0].code, "structural.match.depthLimit");
+}
+
+#[test]
+fn structural_review_backtracking_exhaustion_cannot_satisfy_negation() {
+    let source = format!("probe({});", vec!["1"; 150].join(","));
+    let rule = "kind: call_expression\nnot:\n  pattern: probe($$$A, $$$B, absent)";
+    let result = search_detailed(&source, "wide.ts", "ts", None, Some(rule));
+    assert_eq!(result.status, "truncated");
+    assert!(result.matches.is_empty());
+    assert_eq!(
+        result.diagnostics[0].code,
+        "structural.match.backtrackingLimit"
+    );
+    let error = search(&source, "ts", None, Some(rule))
+        .err()
+        .expect("legacy must fail explicitly");
+    assert!(error.starts_with("[structural.match.backtrackingLimit]"));
+}
+
+fn review_file_options(
+    root: &std::path::Path,
+    rule: &str,
+    limit: u32,
+) -> StructuralSearchFilesOptions {
+    StructuralSearchFilesOptions {
+        path: root.to_string_lossy().into_owned(),
+        pattern: None,
+        rule: Some(rule.to_owned()),
+        include: None,
+        exclude: None,
+        exclude_dir: None,
+        hidden: None,
+        no_ignore: None,
+        max_depth: Some(1),
+        max_files: Some(limit),
+        max_file_bytes: None,
+    }
+}
+
+#[test]
+fn structural_review_scan_cap_and_depth_have_explicit_completion() {
+    let root = temp_root("review_cap_depth");
+    fs::create_dir_all(root.join("aaa_nested")).expect("nested");
+    fs::write(root.join("aaa_nested/hidden.ts"), "probe();").expect("deep");
+    fs::write(root.join("one.ts"), "probe();").expect("first");
+    for rule in [
+        "kind: call_expression",
+        "pattern: probe()",
+        "any: [{pattern: probe()}, {pattern: other()}]",
+    ] {
+        let exact = search_files(review_file_options(&root, rule, 1)).expect("exact cap");
+        assert_eq!(
+            exact.total_matches, 1,
+            "native depth1 includes only direct files: {rule}"
+        );
+        assert!(!exact.scan_truncated, "exact cap is complete: {rule}");
+        fs::write(root.join("two.ts"), "probe();").expect("second");
+        let limited = search_files(review_file_options(&root, rule, 1)).expect("overflow cap");
+        assert!(limited.scan_truncated, "overflow is explicit: {rule}");
+        assert_eq!(limited.total_matches, 1);
+        let detailed =
+            search_files_detailed(review_file_options(&root, rule, 1)).expect("detailed overflow");
+        assert!(detailed.scan_truncated);
+        fs::remove_file(root.join("two.ts")).expect("reset fixture");
+    }
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn structural_review_file_limits_retain_completed_files() {
+    let root = temp_root("review_file_limits");
+    fs::write(root.join("ok.ts"), "probe(1);").expect("complete file");
+    fs::write(
+        root.join("wide.ts"),
+        format!("probe({});", vec!["1"; 150].join(",")),
+    )
+    .expect("limited file");
+    let rule = "kind: call_expression\nnot:\n  pattern: probe($$$A, $$$B, absent)";
+    let result = search_files(review_file_options(&root, rule, 10)).expect("partial file search");
+    assert_eq!(result.status, "truncated");
+    assert_eq!(result.total_matches, 1);
+    assert!(result.files[0].path.ends_with("ok.ts"));
+    assert_eq!(result.diagnostics.len(), 1);
+    assert_eq!(
+        result.diagnostics[0].code,
+        "structural.match.backtrackingLimit"
+    );
+    assert!(result.diagnostics[0]
+        .path
+        .as_deref()
+        .expect("path")
+        .ends_with("wide.ts"));
+    let detailed =
+        search_files_detailed(review_file_options(&root, rule, 10)).expect("detailed file search");
+    assert_eq!(detailed.status, "truncated");
+    assert_eq!(detailed.total_matches, 1);
+    assert!(detailed.files.iter().any(|file| file.status == "truncated"));
+    assert_eq!(detailed.diagnostics.len(), 1);
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
+fn structural_review_deep_relational_traversal_keeps_recall() {
+    let source = format!("const x = {}probe(){};", "[".repeat(600), "]".repeat(600));
+    let has = "kind: lexical_declaration\nhas:\n  pattern: probe()\n  stopBy: end";
+    assert_eq!(
+        search(&source, "ts", None, Some(has))
+            .expect("deep has")
+            .len(),
+        1
+    );
+    let inside = "pattern: probe()\ninside:\n  kind: lexical_declaration\n  stopBy: end";
+    assert_eq!(
+        search(&source, "ts", None, Some(inside))
+            .expect("deep inside")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn structural_review_compile_interruption_stays_typed_in_detailed_search() {
+    octo::INTERRUPT_NEXT_COMPILE_PARSE.with(|interrupt| interrupt.set(true));
+    let result = search_detailed("probe();", "fixture.ts", "ts", Some("probe()"), None);
+    assert_eq!(result.status, "truncated");
+    assert_eq!(result.diagnostics[0].code, "structural.parse.interrupted");
+    assert_eq!(result.diagnostics[0].stage, "parse");
+}
+
+#[test]
+fn structural_review_compile_interruption_keeps_mixed_language_evidence() {
+    let root = temp_root("review_compile_interruption");
+    fs::write(root.join("one.js"), "probe();").expect("js fixture");
+    fs::write(root.join("two.ts"), "probe();").expect("ts fixture");
+    let options = || review_file_options(&root, "pattern: probe()", 10);
+    octo::INTERRUPT_NEXT_COMPILE_PARSE.with(|interrupt| interrupt.set(true));
+    let result = search_files(options()).expect("partial mixed-language search");
+    assert_eq!(result.status, "truncated");
+    assert_eq!(result.total_matches, 1);
+    assert_eq!(result.diagnostics[0].code, "structural.parse.interrupted");
+    assert!(!result
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("not valid syntax")));
+    octo::INTERRUPT_NEXT_COMPILE_PARSE.with(|interrupt| interrupt.set(true));
+    let detailed = search_files_detailed(options()).expect("detailed mixed-language search");
+    assert_eq!(detailed.status, "truncated");
+    assert_eq!(detailed.total_matches, 1);
+    assert_eq!(detailed.diagnostics[0].code, "structural.parse.interrupted");
     fs::remove_dir_all(root).expect("cleanup");
 }

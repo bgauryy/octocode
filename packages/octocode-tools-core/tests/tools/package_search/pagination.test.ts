@@ -1,25 +1,21 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildPackagePagination,
-  compactPackageRepositories,
-} from '../../../src/tools/package_search/execution.js';
+import { compactPackageRepositories } from '../../../src/tools/package_search/execution.js';
+import { buildPackagePagination } from '../../../src/tools/package_search/pagination.js';
 import type { z } from 'zod';
-import type { NpmPackageQuerySchema } from '../../../src/toolContract/schemas.js';
+import type { NpmPackageQuerySchema } from '../../../src/toolContract/input/resources/tools/npmSearch.js';
 
 type NpmSearchQuery = z.input<typeof NpmPackageQuerySchema>;
 
 const query = (page?: number): NpmSearchQuery =>
   ({ packageName: 'react', ...(page ? { page } : {}) }) as NpmSearchQuery;
 
-describe('npmSearch keyword pagination (full-page heuristic)', () => {
-  it('a FULL keyword page reports hasMore:true + nextPage even when totalFound understates the grand total', () => {
-    // CLI keyword search returns totalFound == this-page count (10), but a full
-    // page means more results exist. Must NOT report hasMore:false.
+describe('npmSearch keyword pagination (registry totals)', () => {
+  it('a full final keyword page stops at the registry total', () => {
     const pg = buildPackagePagination(query(1), 10, 10, true);
     expect(pg.returned).toBe(10);
-    expect(pg.hasMore).toBe(true);
-    expect(pg.nextPage).toBe(2);
+    expect(pg.hasMore).toBe(false);
+    expect(pg.nextPage).toBeUndefined();
   });
 
   it('a PARTIAL last keyword page reports hasMore:false (no false continuation)', () => {
@@ -47,7 +43,7 @@ describe('npmSearch keyword pagination (full-page heuristic)', () => {
   it('marks the schema page ceiling explicitly instead of emitting a looping continuation', () => {
     const pg = buildPackagePagination(
       { keywords: ['schema'], page: 1000, pageSize: 10 },
-      10,
+      10001,
       10,
       true
     );
@@ -109,11 +105,8 @@ describe('npmSearch package repository compaction', () => {
             repo: 'octocode-mcp',
           },
         },
-        cloneRepo: {
-          tool: 'ghCloneRepo',
-          query: { owner: 'bgauryy', repo: 'octocode-mcp' },
-        },
       },
     });
+    expect(compacted.repositories?.r1?.next.cloneRepo).toBeUndefined();
   });
 });

@@ -1,3 +1,7 @@
+import type {
+  CollectionPages,
+  CollectionStates,
+} from '../../../github/prContentFetcher/collectionPaging.js';
 import {
   MAX_PAGE_NUMBER,
   PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,
@@ -12,11 +16,14 @@ export type QueryLike = {
   filePage?: number;
   commentPage?: number;
   commitPage?: number;
+  reviewPage?: number;
+  collectionPages?: CollectionPages;
   pageSize?: number;
   charOffset?: number;
   commentBodyOffset?: number;
   charLength?: number;
   matchString?: string;
+  minify?: 'none' | 'standard';
   content?: Record<string, unknown>;
   type?: string;
 };
@@ -33,6 +40,9 @@ export function containsNeedle(value: unknown, needle: string): boolean {
 }
 
 export type Pagination = {
+  collectionPages?: CollectionPages;
+  nextCollectionPages?: CollectionPages;
+  countScope?: 'providerBatch';
   currentPage: number;
   totalPages: number;
   itemsPerPage: number;
@@ -65,6 +75,8 @@ export type ContentPagination = Partial<
     | 'changedFiles'
     | 'comments'
     | 'commentBody'
+    | 'reviews'
+    | 'reviewBody'
     | 'commits'
     | 'patches'
     | 'filePaths',
@@ -108,6 +120,40 @@ export function paginateItems<T>(
         : {}),
     },
   };
+}
+
+/** Paginate a bounded provider batch, including an executable advance for empty filtered batches. */
+export function paginateCollection<T>(
+  items: T[],
+  query: QueryLike,
+  pr: Record<string, unknown>,
+  axis: 'changedFiles' | 'comments' | 'reviews' | 'commits',
+  page = 1
+) {
+  const result = paginateItems(items, page, query.pageSize);
+  const states = pr.collectionStates as CollectionStates | undefined;
+  if (!states) return result;
+  const surfaces =
+    axis === 'comments'
+      ? (['discussion', 'inline'] as const)
+      : ([axis] as const);
+  result.pagination.countScope = 'providerBatch';
+  result.pagination.collectionPages = query.collectionPages;
+  if (
+    !result.pagination.hasMore &&
+    surfaces.some(surface => states[surface]?.hasMore)
+  ) {
+    result.pagination.hasMore = true;
+    result.pagination.nextPage = 1;
+    result.pagination.nextCollectionPages = { ...query.collectionPages };
+    for (const surface of surfaces) {
+      const state = states[surface];
+      result.pagination.nextCollectionPages[surface] = state?.hasMore
+        ? state.page + 1
+        : 0;
+    }
+  }
+  return result;
 }
 
 export function paginateText(
@@ -182,7 +228,7 @@ export function pageContinuationQuery(
   query: QueryLike,
   prNumber: number,
   content: Record<string, unknown>,
-  pageKey: 'filePage' | 'commentPage' | 'commitPage',
+  pageKey: 'filePage' | 'commentPage' | 'commitPage' | 'reviewPage',
   pagination: Pagination
 ): Record<string, unknown> | undefined {
   if (!pagination.hasMore || pagination.nextPage === undefined) {
@@ -192,6 +238,13 @@ export function pageContinuationQuery(
   return continuationQuery(query, prNumber, {
     content,
     [pageKey]: pagination.nextPage,
+    ...(pagination.nextCollectionPages
+      ? { collectionPages: pagination.nextCollectionPages }
+      : {}),
+    ...(pageKey === 'commentPage' ? { commentBodyOffset: undefined } : {}),
+    ...(pageKey === 'filePage' || pageKey === 'reviewPage'
+      ? { charOffset: undefined }
+      : {}),
     pageSize: query.pageSize,
   });
 }

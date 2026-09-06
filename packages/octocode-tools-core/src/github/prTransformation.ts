@@ -5,8 +5,7 @@ import {
   CommitFileInfo,
 } from './githubAPI.js';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
-import { filterPatch, trimDiffContext } from '../utils/parsers/diff.js';
-import { contextUtils } from '../utils/contextUtils.js';
+import { filterPatch } from '../utils/parsers/diff.js';
 
 interface RawPRData {
   number: number;
@@ -135,12 +134,8 @@ export function formatPRForResponse(
   const bodyCharLength = options.charLength ?? SEARCH_RESULT_BODY_CHAR_LENGTH;
   const commentCharLength =
     options.charLength ?? SEARCH_RESULT_COMMENT_BODY_CHAR_LENGTH;
-  const rawBody =
-    typeof pr.body === 'string'
-      ? contextUtils.minifyMarkdownCore(pr.body)
-      : pr.body;
   const body = paginateText(
-    rawBody,
+    pr.body,
     charOffset,
     bodyCharLength,
     !options.includeFullBody
@@ -194,6 +189,8 @@ export function formatPRForResponse(
 
   return {
     number: pr.number,
+    ...(pr.collectionStates ? { collectionStates: pr.collectionStates } : {}),
+    ...(pr.providerLimits?.length ? { providerLimits: pr.providerLimits } : {}),
     title: pr.title,
     state: pr.state as 'open' | 'closed',
     draft: pr.draft ?? false,
@@ -221,12 +218,12 @@ export function formatPRForResponse(
     }),
     commits: pr.commits?.length || 0,
     additions:
-      pr.file_changes?.files.reduce((sum, file) => sum + file.additions, 0) ||
-      pr.additions ||
+      pr.additions ??
+      pr.file_changes?.files.reduce((sum, file) => sum + file.additions, 0) ??
       0,
     deletions:
-      pr.file_changes?.files.reduce((sum, file) => sum + file.deletions, 0) ||
-      pr.deletions ||
+      pr.deletions ??
+      pr.file_changes?.files.reduce((sum, file) => sum + file.deletions, 0) ??
       0,
     changedFiles: pr.file_changes?.total_count || 0,
     ...(pr.file_changes && {
@@ -317,8 +314,5 @@ export function applyPartialContentFilter(
       });
   }
 
-  return files.map(file => ({
-    ...file,
-    patch: file.patch ? trimDiffContext(file.patch) : file.patch,
-  }));
+  return files.map(file => ({ ...file }));
 }

@@ -53,11 +53,7 @@ export {
   type LspStatusInput,
   type LspStatusResult,
 } from './manager.js';
-export {
-  resolveImportAliasDefinitions,
-  SymbolResolver,
-  type ImportAliasDefinitionInput,
-} from './resolver.js';
+export { SymbolResolver } from './resolver.js';
 export {
   safeReadFile,
   safeReadLineWindow,

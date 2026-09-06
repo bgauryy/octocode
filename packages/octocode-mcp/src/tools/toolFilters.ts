@@ -1,4 +1,4 @@
-import type { ToolConfig } from './toolConfig.js';
+import type { ToolConfig } from '@octocodeai/octocode-tools-core';
 
 export interface ToolFilterConfig {
   toolsToRun: string[];
@@ -15,18 +15,14 @@ export interface ValidatedToolFilterConfig {
   warnings: string[];
 }
 
-export function getToolFilterConfigSafe(
+export function getToolFilterConfig(
   configProvider: () => ServerFilterConfigLike
 ): ToolFilterConfig {
-  try {
-    const config = configProvider();
-    return {
-      toolsToRun: config.toolsToRun ?? [],
-      disableTools: config.disableTools ?? [],
-    };
-  } catch {
-    return { toolsToRun: [], disableTools: [] };
-  }
+  const config = configProvider();
+  return {
+    toolsToRun: config.toolsToRun ?? [],
+    disableTools: config.disableTools ?? [],
+  };
 }
 
 function editDistance(left: string, right: string): number {

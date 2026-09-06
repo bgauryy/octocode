@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSearchResult,
   type LocalSearchEngine,
-} from '../../../src/tools/local_ripgrep/ripgrepResultBuilder.js';
+} from '../../../src/tools/local_ripgrep/ripgrepResultBuilder/buildResult.js';
 import type { RipgrepQuery } from '../../../src/tools/local_ripgrep/scheme.js';
 import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 

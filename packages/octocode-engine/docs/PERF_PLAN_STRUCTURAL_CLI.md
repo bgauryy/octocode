@@ -2,6 +2,13 @@
 
 Research date: 2026-08-02. Measured on the local build (branch `update-tools`), Apple Silicon, release engine. Method: stage-isolated timing via direct napi calls + `--cpu-prof` on the CLI query path. Raw numbers below are reproducible with the commands in §5.
 
+Status update (2026-09-05): the headline comparison below is historical. A
+five-run median on the rebuilt `updates` working tree found 8,469 identical
+matches for every implementation: ast-grep CLI 33.90 ms, Octocode native 61.95
+ms, and Octocode CLI 282.48 ms. The native matcher did not retain the reported
+2x lead on this fixture. Re-run the sensor in section 5 before using this plan
+to accept a performance change.
+
 ## 1. What the research found (kills the old theory)
 
 The prior attribution — "remaining 3–19× vs ast-grep comes from no-prefilter full parse + `$$$` backtracking allocations" — is **wrong** post-de-ranking:
@@ -15,7 +22,7 @@ The prior attribution — "remaining 3–19× vs ast-grep comes from no-prefilte
 | CLI end-to-end, content mode | 2,250 ms |
 | CLI on a **1-file directory** (floor) | **368 ms** |
 
-The engine is already **2× faster than ast-grep** on this tree. The `$$$` backtracking (`CaptureEnv` clones) costs ~32 ms absolute (52−20). The user-visible gap is entirely outside the matcher:
+On the 2026-08-02 fixture, the engine measured **2× faster than ast-grep**. The `$$$` backtracking (`CaptureEnv` clones) cost about 32 ms (52−20). The CLI gap in that run came from work outside the matcher:
 
 1. **~236 ms/invocation: `sanitizeContent` first-call regex compile.** CPU profile: `nativeSanitizeContent` = 235.6 ms of a 359 ms query run. Root cause: `security/patterns.rs:1260` `REGEX_SET: LazyLock<RegexSet>` + `patterns.rs:1579` `PATTERN_REGEXES: LazyLock<Vec<Regex>>` — 309 secret patterns compiled lazily on first sanitize. Isolated: first call **800 ms** cold in a bare Node process, then 0.004 ms/call; a 300 KB clean scan is 0.6 ms. The MCP server pays this once per session — the CLI pays it **every invocation** (agents make 20–45 calls per task → 5–15 s of pure compile tax per task).
 2. **~85 ms: CLI boot to dispatch** (module execution; V8 compile cache measured ≈ no help).
@@ -63,7 +70,7 @@ time node packages/octocode/out/octocode.js tools localSearch --queries \
   '{"operation":"structural","path":"/tmp/tinydir","pattern":"$FN($$$ARGS)"}' --compact >/dev/null
 # count + content on the Rust tree (parity: expect ast-grep-identical totals)
 time node packages/octocode/out/octocode.js tools localSearch --queries \
-  '{"operation":"structural","path":"<ROOT>/packages/octocode-engine/src","pattern":"$FN($$$ARGS)","include":["**/*.rs"],"maxFiles":5000,"pageSize":1000}' --compact >/dev/null
+  '{"operation":"structural","path":"/ABS/REPO/packages/octocode-engine/src","pattern":"$FN($$$ARGS)","include":["**/*.rs"],"maxFiles":5000,"pageSize":1000}' --compact >/dev/null
 ast-grep run -p '$FN($$$ARGS)' --lang rust packages/octocode-engine/src --json=compact | jq length
 # sanitizer tax isolated
 node -e 'const {sanitizeContent}=require("./packages/octocode-engine/index.js");const t=performance.now();sanitizeContent("clean","/t.txt");console.log((performance.now()-t).toFixed(1),"ms first-call")'

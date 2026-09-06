@@ -59,10 +59,8 @@ def main() -> int:
             is_headroom = "raw_chars" in record
 
             # Directional totals: ALL chars through the model = in + out.
-            # model_in defaults to the legacy output-in field when absent.
-            default_in = int(record.get("out_chars", record.get("chars", 0)))
-            model_in += int(record.get("model_in_chars", default_in))
-            model_out += int(record.get("model_out_chars", 0))
+            model_in += int(record["model_in_chars"])
+            model_out += int(record["model_out_chars"])
 
             if is_answer:
                 answers += 1
@@ -74,15 +72,15 @@ def main() -> int:
                 if int(record.get("source_exit_code", -1)) != 0:
                     failed_calls += 1
             else:
-                raw += int(record.get("chars", 0))
-                out += int(record.get("chars", 0))
+                raw += int(record["model_in_chars"])
+                out += int(record["model_in_chars"])
                 if int(record.get("exit_code", -1)) != 0:
                     failed_calls += 1
             calls += 1
             fairness.extend(
                 fairness_notices(
                     str(record.get("cmd", "")),
-                    int(record.get("model_in_chars", record.get("chars", 0))),
+                    int(record["model_in_chars"]),
                 )
             )
             for transform in record.get("transforms", []):
@@ -105,7 +103,7 @@ def main() -> int:
                     ("out_artifact", "out_chars", "out_sha256"),
                 )
             else:
-                artifact_fields = (("artifact", "chars", "sha256"),)
+                artifact_fields = (("artifact", "model_in_chars", "sha256"),)
             for field, chars_field, hash_field in artifact_fields:
                 artifact_value = record.get(field)
                 if not artifact_value or not Path(str(artifact_value)).is_file():

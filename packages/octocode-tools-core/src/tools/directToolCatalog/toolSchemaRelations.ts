@@ -1,7 +1,5 @@
-import {
-  getToolSchemaRelations,
-  getToolSchemaVariants,
-} from '../../toolContract/schemas.js';
+import { getToolSchemaRelations } from '../../toolContract/input/resources/toolRelations.js';
+import { getToolSchemaVariants } from '../../toolContract/input/resources/toolVariants.js';
 import { z } from 'zod';
 import { findDirectToolDefinition } from './toolCatalogDefinitions.js';
 

@@ -1,9 +1,10 @@
-import { PR_CONTENT_DEFAULT_ITEMS_PER_PAGE } from '../../../config.js';
+import { patchAvailability } from '../../../github/history/commitFiles.js';
 import type { NormalizedPrContentRequest } from '../contentRequest.js';
+import { historyPatchView } from './contentView.js';
 import {
   containsNeedle,
   matchStringNeedle,
-  paginateItems,
+  paginateCollection,
   paginateText,
   type QueryLike,
 } from './pagination.js';
@@ -21,6 +22,7 @@ export function shapeFileChange(
     status: String(change.status ?? ''),
     additions: Number(change.additions ?? 0),
     deletions: Number(change.deletions ?? 0),
+    ...(includePatch ? patchAvailability(change.patch) : {}),
     ...(includePatch && typeof change.patch === 'string'
       ? { patch: change.patch }
       : {}),
@@ -48,18 +50,20 @@ export function shapeFileSurfaces(
           containsNeedle(change.patch, needle)
       )
     : selected;
-  const { items, pagination } = paginateItems(
+  const { items, pagination } = paginateCollection(
     matched,
-    query.filePage ?? query.page ?? 1,
-    query.pageSize ?? PR_CONTENT_DEFAULT_ITEMS_PER_PAGE
+    query,
+    pr,
+    'changedFiles',
+    query.filePage ?? query.page ?? 1
   );
 
   const includePatch = request.patches.mode !== 'none';
   const shaped = items.map(change => {
-    const base = shapeFileChange(change, false);
+    const base = shapeFileChange(change, includePatch);
     if (!includePatch || typeof change.patch !== 'string') return base;
     const patch = paginateText(
-      change.patch,
+      historyPatchView(change.patch, query),
       query.charOffset ?? 0,
       query.charLength ?? 12_000
     );

@@ -2,11 +2,9 @@ import { c, bold, dim } from '../../utils/colors.js';
 import { loadInquirer, select } from '../../utils/prompts.js';
 import { separatorChoice } from '../../utils/prompt-separator.js';
 import { Spinner } from '../../utils/spinner.js';
-import {
-  selectMCPClient,
-  promptLocalTools,
-  promptGitHubAuth,
-} from './prompts.js';
+import { selectMCPClient } from './prompts/client-select.js';
+import { promptLocalTools } from './prompts/local-tools.js';
+import { promptGitHubAuth } from './prompts/github-auth.js';
 import {
   printConfigPreview,
   printInstallError,
@@ -16,11 +14,8 @@ import {
   installOctocodeForClient,
   getInstallPreviewForClient,
 } from '../../features/install.js';
-import {
-  readMCPConfig,
-  getMCPConfigPath,
-  MCP_CLIENTS,
-} from '../../utils/mcp-config.js';
+import { readMCPConfig } from '../../utils/mcp-io.js';
+import { getMCPConfigPath, MCP_CLIENTS } from '../../utils/mcp-paths.js';
 import type { OctocodeEnvOptions } from '../../utils/mcp-config.js';
 import type { MCPClient } from '../../types/index.js';
 

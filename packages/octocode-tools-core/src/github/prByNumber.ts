@@ -7,10 +7,11 @@ import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pu
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
-import { generateCacheKey, withDataCache } from '../utils/http/cache.js';
+import { generateCacheKey } from '../utils/http/cache/key.js';
+import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
 import { formatPRForResponse } from './prTransformation.js';
-import { transformPullRequestItemFromREST } from './prContentFetcher.js';
+import { transformPullRequestItemFromREST } from './prContentFetcher/transform.js';
 import {
   countSerializedChars,
   getRawResponseChars,

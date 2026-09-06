@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  applyContentPagination,
-  processFileContentAPI,
-} from '../../src/github/fileContentProcess.js';
+import { applyContentPagination } from '../../src/github/fileContentPagination.js';
+import { processFileContentAPI } from '../../src/github/fileContentProcess.js';
 import { buildGithubFetchContentFinalizer } from '../../src/tools/github_fetch_content/finalizer.js';
 import type { GitHubFileContentApiResult } from '../../src/tools/github_fetch_content/types.js';
 import type { FlatQueryResult } from '../../src/types/toolResults.js';

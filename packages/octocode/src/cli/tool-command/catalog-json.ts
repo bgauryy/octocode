@@ -10,12 +10,12 @@ import {
   getDirectToolVariantDisplayFields,
   getDirectToolSchemaRelations,
   getDirectToolSchemaVariants,
+  getToolAvailability,
 } from '@octocodeai/octocode-tools-core/schema';
 import {
   TOOL_DEFINITIONS,
   findToolDefinition,
   getOptionalToolMetadata,
-  getToolAvailability,
 } from './registry.js';
 import {
   extractShortDescription,

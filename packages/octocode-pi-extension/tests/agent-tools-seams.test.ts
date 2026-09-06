@@ -14,7 +14,7 @@ import {
   steerWorkerById,
   killWorkerById,
   getWorkerTranscript,
-  agentPanelLines,
+  formatAgentLedgerDetails,
   pruneDroppableAgentsForSession,
   listWorkerLedgerEntries,
 } from '../src/tools/agent-tools.js';
@@ -141,16 +141,16 @@ test('a throwing ledger listener never breaks pushLedgerEvent or other listeners
   }
 });
 
-// ─── agentPanelLines ──────────────────────────────────────────────────────────
+// ─── Worker ledger ──────────────────────────────────────────────────────────
 
-test('agentPanelLines shows a branded running row while a worker is active', () => {
+test('formatAgentLedgerDetails shows a branded running row while a worker is active', () => {
   if (isSubagentProcess()) return;
 
   const mock = makeMockAgentProcess();
   setAgentProcessFactoryForTests(() => mock as never);
   spawnRpcAgent({ task: 'animate me', name: 'spark', resourceMode: 'lean' });
 
-  const joined = agentPanelLines({ fg: (_c: string, t: string) => t } as never).join('\n');
+  const joined = formatAgentLedgerDetails();
   assert.match(joined, /^[✦✧✶✺✹✷]/m, 'running workers use the branded sparkle spinner');
   assert.match(joined, /spark/);
   assert.match(joined, /· running/);

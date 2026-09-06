@@ -1,25 +1,25 @@
 # @octocodeai/pi-extension — Architecture
 
-This document is the authoritative design reference for the Octocode Pi Extension (`packages/octocode-pi-extension`). It covers system prompt assembly, tool registration, skill discovery, session data layout, plan lifecycle, and the HTML/Markdown plan surface. Updated 2026-09-03.
+This document describes the Octocode Pi Extension (`packages/octocode-pi-extension`): system prompt assembly, tool registration, skill discovery, session data layout, plan lifecycle, and the HTML/Markdown plan surface. Source contracts remain authoritative. Prompt and discovery sections checked 2026-09-05.
 
 ---
 
-## 1. Ratings (as of 2026-09-03)
+## 1. Ownership
 
-| Area | Grade | Notes |
-|---|---|---|
-| System prompts | **B+** | Well-structured; 6 segments injected; engineering kernel always present. Gap: `buildOctocodeSystemPrompt` lives in `octocode-shared` — prompt changes require releasing an external package. |
-| Direct Pi tools (17) | **A−** | Clean registration, descriptions, render hooks. Gap: `DISABLED_BUILTIN_TOOL_NAMES` list is hard-coded; a Pi host rename fails at contract-test time, not compile time. |
-| MCP research tools (10) | **B+** | Intentional token-cost trade-off. Gap: agent must know the `MCPTool` schema before calling (`searchText` vs `query`; `type` vs `operation`) — `describe`-first is required but not enforced. |
-| Skill tool | **A** | `type:load / type:call` unified facade, piConcrete guard, multi-source discovery, proper precedence. |
-| Discovery phase | **B** | Config loads cleanly; MCP warms at `session_start`; skills discovered at `before_agent_start`. Gap: bundled skills silently skipped on dev builds (try/catch). MCP binary fallback uses `latest` not pinned. |
-| Session data paths | **C** | Files land under `workspaces/{key}/sessions/{sessionKey}/` — nested and hard to navigate by session ID. Desired: `sessions/{sessionId}/` flat structure. |
-| Plan ID | **A** (fixed 2026-09-03) | `planId` now in `PlanReadModelV1` (from `coordination.sourcePlanKey`). Previously absent. |
-| Plan HTML UX | **B** (improved 2026-09-03) | Progress bar, phase timeline, decision section, Mermaid dep graph. Added: plan ID pill header, step grid layout, expandable step details (checkCommand/acceptance/paths), `data-plan-id` on root section, title includes short ID. Gap: no real-time SSE push — still meta-refresh every 3s. |
+| Area | Source contract |
+|---|---|
+| Main-agent policy | [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts): shared policy and Awareness prompt plus the Pi engineering delta |
+| Context assembly and lifecycle | [`src/index.ts`](src/index.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) |
+| Direct tool names | [`src/constants.ts`](src/constants.ts); registration in `registerSupportToolPhase` |
+| MCP discovery and execution | [`src/tools/mcp-tool.ts`](src/tools/mcp-tool.ts) and [`src/tools/mcp-config.ts`](src/tools/mcp-config.ts) |
+| Skills | [`src/tools/skill-tool.ts`](src/tools/skill-tool.ts); bundled inventory in [README.md](README.md#bundled-skills-12) |
+| Plan projection | [`src/tools/plan-read-model.ts`](src/tools/plan-read-model.ts) |
+
+This reference does not assign quality grades or claim token savings without a measured baseline.
 
 ---
 
-## 2. System Prompt Assembly
+## 2. System prompt assembly
 
 ### 2.1 Composition
 
@@ -33,11 +33,14 @@ buildOctocodeSystemPrompt(EXTERNAL_AGENT_AWARENESS_PROMPT)
 ```
 
 Source: `src/prompts/system-prompt.ts` → `SYSTEM_PROMPT`.
-Bundled: `dist/system/SYSTEM_PROMPT.md` (16.9 KB, rebuilt by `scripts/build.mjs`).
+Bundled artifact: `dist/system/SYSTEM_PROMPT.md`.
 
-### 2.2 Per-turn context segments
+### 2.2 Frozen policy and live turn context
 
-Six segments are injected/refreshed on every turn by `assembleContextSegments` (called from `before_agent_start`):
+On the first main-agent turn, `before_agent_start` assembles six stable segments
+and freezes the composed system prompt for the session. Later turns reuse those
+exact bytes; they do not rediscover the skill catalog or rebuild the system prompt.
+Session initialization resets the frozen prompt.
 
 | Segment key | Content | Budget |
 |---|---|---|
@@ -46,19 +49,30 @@ Six segments are injected/refreshed on every turn by `assembleContextSegments` (
 | `runtime-tool-contracts` | `<runtime_capabilities>` — inline image flags | 10k tokens |
 | `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 20k tokens |
 | `available-skills` | `<available_skills>` — discovered skill list | 20k tokens |
-| `active-plan` | Live plan state (never frozen across compactions) | 15k tokens |
+| `session-artifact-contract` | Session memory and audit paths | 1k tokens |
+
+The active plan is a separate attributed turn-context segment, budgeted at 15k
+tokens. The hook recomputes it every turn and delivers it when first available,
+changed, or cleared. Session memory is delivered initially and registered as a
+current recovery source. Compaction recovery validates current sources; it does
+not copy the frozen policy segments into the recovery ledger.
+
+MCP execution can refresh independently of the frozen routing prompt. When its
+catalog changes, the runtime marks context stale and announces that `/new`
+exposes the updated catalog. The `skill` tool rediscovers enabled skills on each
+load or list call; the initial prompt inventory stays frozen.
 
 ### 2.3 Sub-prompts
 
 | File | Content |
 |---|---|
 | `src/prompts/system-prompt.ts` | `SYSTEM_PROMPT` constant (base + engineering) |
-| `src/prompts/plan-prompt.ts` | Re-exports `buildPlanPrompt`, `PLAN_PROMPT_MAX_GOAL` from `octocode-shared` |
-| `src/prompts/subagent-shared.ts` | Re-exports `expandSubagentPrompt`, `SUBAGENT_FRAGMENTS` from `octocode-shared` |
+| `src/prompts/plan-prompt.ts` | Builds the Pi review-and-Start workflow, using shared goal length and truncation constants |
+| `@octocodeai/octocode-shared/prompts` | Defines shared worker prompt fragments and expansion; build and tests import the owner directly |
 
 ---
 
-## 3. Tool Registration
+## 3. Tool registration
 
 ### 3.1 Pi builtin disposition
 
@@ -73,7 +87,7 @@ OVERRIDDEN_BUILTIN_TOOL_NAMES = ['bash']
 
 ### 3.2 Direct Pi tools (17)
 
-Registered in `registerSupportToolPhase` (`src/index.ts:956`):
+Registered in `registerSupportToolPhase` in [`src/index.ts`](src/index.ts):
 
 | Tool | Source file | Purpose |
 |---|---|---|
@@ -83,21 +97,23 @@ Registered in `registerSupportToolPhase` (`src/index.ts:956`):
 | `media` | `create-media-tool.ts` | Create/transform media |
 | `runFfmpeg` | `run-ffmpeg-tool.ts` | Raw ffmpeg argv |
 | `web` | `web-tool.ts` | Web search and fetch |
-| `chromeDebug` | `chrome-debug.ts` | CDP browser automation |
-| `agent` | `agent-tools.ts` | Spawn/manage subagents |
+| `chromeDebug` | `chrome-debug-tool.ts` | CDP browser automation |
+| `agent` | `unified-agent-tool.ts` | Spawn/manage subagents |
 | `callTool` | `call-tool.ts` | Dynamic reusable tool registry |
 | `skill` | `skill-tool.ts` | Load installed skills + manage dynamic skills |
 | `plan` | `plan-tool.ts` | Compaction-safe task checklist |
 | `localServer` | `local-server-tool.ts` | Local static server |
 | `askUser` | `ask-user-tool.ts` | Interactive user input |
 | `memory` | `memory-tool.ts` | Durable Awareness learning |
-| `lock` | `lock-tool.ts` | Exclusive file locks |
-| `message` | `message-tool.ts` | Cross-agent messages |
+| `lock` | `awareness-coordination-tools.ts` | Exclusive file locks |
+| `message` | `awareness-coordination-tools.ts` | Cross-agent messages |
 | `MCPTool` | `mcp-tool.ts` | MCP 2026-07-28 client → all research tools |
 
 ### 3.3 MCP research tools (10 via MCPTool → octocode-mcp server)
 
-These are NOT direct Pi tools. They are served through `MCPTool(server:"octocode", ...)`. Removing 13 tool definitions from the Pi palette saves ~30k tokens per turn.
+These are served through `MCPTool` with `server:"octocode"`. Their schemas are
+discovered through the gateway instead of registered individually in Pi's direct
+tool palette. Measure the live contracts before estimating context savings.
 
 | Tool | Field gotcha |
 |---|---|
@@ -120,12 +136,15 @@ These are NOT direct Pi tools. They are served through `MCPTool(server:"octocode
 resolveLocalOctocodeMcpBin():
   1. import.meta.resolve('octocode-mcp')  → fileURLToPath → local binary
      (requires ESM context; package.json: "type":"module" ✓)
-  2. fallback: npx -y octocode-mcp@latest  (slower; uses latest, not pinned)
+  2. fallback: npx -y octocode-mcp@<fallback-version-range>
 
 buildDefaultOctocodeMcpServer():
   { command: process.execPath, args: [localBin] }  ← preferred
-  { command: 'npx', args: ['-y', 'octocode-mcp@latest'] }  ← fallback
+  { command: 'npx', args: ['-y', `octocode-mcp@${OCTOCODE_MCP_FALLBACK_VERSION}`] }
 ```
+
+The fallback range is owned by `OCTOCODE_MCP_FALLBACK_VERSION` in
+[`src/tools/mcp-config.ts`](src/tools/mcp-config.ts); it is not `latest` or an exact version pin.
 
 ### 3.5 Discovery timing
 
@@ -134,48 +153,33 @@ session_start
   └── warmMcpCatalog(ctx, signal)  ← fire-and-forget
   └── initializationTasks.push(mcpCatalogReady(ctx))  ← awaited in Promise.allSettled
 
-before_agent_start
-  └── await mcpCatalogReady(ctx)  ← blocks until MCP ready
+first main-agent before_agent_start
+  └── await mcpCatalogReady(ctx)  ← bounded wait for startup discovery
   └── getCachedMcpCatalogAddendum(ctx)  ← compact or full catalog text
-  └── discoverSkills(cwd, latestPiSkills)  ← all 5 sources
-  └── assembleContextSegments(...)  ← inject 6 segments
+  └── discoverSkills(cwd, latestPiSkills)  ← effective enabled inventory
+  └── assembleContextSegments(...)  ← freeze stable segments; deliver live context separately
 ```
 
 ---
 
 ## 4. Skill System
 
-### 4.1 Bundled skills (14)
+### 4.1 Bundled skills
 
-All live in `dist/skills/` after `yarn build`. Source: `skills/` symlinked to `.agents/skills/`.
+The build places bundled skills in `dist/skills/`. See the
+[README inventory](README.md#bundled-skills-12) for names. The inventory is checked
+by `tests/docs-consistency.test.ts`; `tests/package.test.ts` checks bundled artifacts.
 
-| Skill | Trigger phrase |
-|---|---|
-| `octocode-research` | Check code claims; trace callers; map systems; diagnose failures |
-| `octocode-orchestrator` | Coordinate workstreams, TDD, subagents, evals |
-| `octocode-subagent` | Delegate substantial work; A2A; local Ollama offload |
-| `octocode-architect` | Consequential code planning (ItaiC-style) |
-| `octocode-brainstorming` | Explore ideas before building |
-| `octocode-chrome-devtools` | Live CDP evidence; network/DOM/performance |
-| `octocode-code-graph` | Dep graph; cycle analysis; change-impact |
-| `octocode-documentation` | Missing/stale docs; README; API docs |
-| `octocode-eval-benchmark` | Measure if a change helped; trustworthy evals |
-| `octocode-prompt-optimizer` | Improve prompts, schemas, policies |
-| `octocode-rfc-generator` | Write RFC before consequential changes |
-| `octocode-roast` | Evidence-backed code critique |
-| `octocode-scraping` | Extract/map public web content |
-| `octocode-skills` | Find/rate/create/install skills |
-
-### 4.2 Discovery sources (precedence order)
+### 4.2 Discovery sources
 
 ```
-discoverAllSkills(cwd, piSkills, home)  ← src/tools/skill-tool.ts:47
+discoverAllSkills(cwd, piSkills, home)  ← src/tools/skill-tool.ts
 
 1. piSkills concrete (path provided)    ← never overwritten; piConcrete guard
-2. defaultAgentSkillSources(cwd, home)  ← platform engine roots
-3. ~/.octocode/skills                   ← user scope  (exists: 12 skills ✓)
+2. defaultAgentSkillSources(cwd, home)  ← shared platform roots
+3. ~/.octocode/skills                   ← user scope
 4. <cwd>/.octocode/skills               ← workspace scope
-5. dist/skills (getAssetPaths())        ← bundled, try/catch silences dev builds
+5. dist/skills (getAssetPaths())        ← warns if asset path resolution fails
 6. piSkills SKILL.md runtime paths      ← unique roots not already in sources
 ```
 
@@ -200,62 +204,54 @@ skill({ queries: [{
 
 ---
 
-## 5. Session Data Layout
+## 5. Session data layout
 
 ### 5.1 Current structure
 
 ```
 $OCTOCODE_HOME/extension/
   workspaces/
-    {workspaceKey}/              ← sha256(cwd)-based key
-      discovery.json             ← MCP server discovery state
-      mcp/                       ← MCP config and server state
-      lsp/                       ← LSP pool state
-      sessions/
-        {sessionKey}/            ← {sessionId}-{sha256(sessionId+workspace).slice(0,12)}
-          manifest.json          ← artifact producer registry
-          checkpoint-ref.json    ← compaction checkpoint pointer
-          plan/
-            plan.html            ← live HTML plan page
-            plan.md              ← shareable Markdown
-          compaction/
-            latest.md            ← compaction checkpoint
-          logs/                  ← session logs
-          workers/
-            {agentId}/           ← per-worker artifacts
-  tmp/
-    plan/{scope-hash}/           ← fallback when session not initialized
-    tool-results/                ← heavy tool output artifacts
-```
-
-### 5.2 Desired structure (gap / TODO)
-
-The user-visible path `workspaces/{key}/sessions/{key}/plan/plan.md` is hard to navigate by session ID alone. The desired layout separates workspace-scoped state from session-scoped state:
-
-```
-$OCTOCODE_HOME/extension/
-  workspaces/
-    {workspaceKey}/              ← workspace config stays here
+    {workspaceKey}/              ← workspace-only config/state
       discovery.json
       mcp/
       lsp/
-  sessions/                      ← flat session root (desired)
-    {sessionId}/                 ← raw Pi session ID (no hash suffix)
-      manifest.json
-      checkpoint-ref.json
+  sessions/
+    {sessionKey}/                ← safe slug + workspace-bound hash
+      manifest.json              ← shared version + identity/producer registry
+      session.json               ← sessionId/backlogId + artifact links
+      memory.md                  ← bounded agent-maintained session notes
+      audit.md                   ← system-written lifecycle history
+      checkpoint-ref.json        ← optional compaction checkpoint pointer
       plan/
-        plan.html
-        plan.md
+        index.json               ← current planId + task IDs
+        plan.html                ← live plan page when a plan exists
+        plan.md                  ← shareable plan when a plan exists
+        state.json               ← canonical session plan projection
+        branches/                ← immutable plan branch snapshots
+      tasks/
+        index.json               ← task projections using existing step IDs
+      backlog/
+        index.json               ← session backlogId + unfinished task IDs
       compaction/
       logs/
       workers/
+  tmp/
+    plan/{scope-hash}/           ← fallback when session is not initialized
+    tool-results/                ← ephemeral heavy tool output artifacts
 ```
 
-**Migration path**: Change `sessionArtifactRoot` in `session-artifacts.ts` to use
-`path.join(extensionHome(octocodeHome), 'sessions', identity.sessionId)` where
-`sessionId` is the raw Pi session ID. Keep `workspaceAgentRoot` for workspace-only
-state (discovery, mcp, lsp). Add a one-time migration pass that moves existing
-`workspaces/{key}/sessions/{key}/` directories to the new flat location.
+### 5.2 Identity and authority
+
+`sessionKey` remains the filesystem-safe directory name. A real Pi `sessionId` is stored
+inside `manifest.json` and `session.json`; session-file/process fallbacks use an opaque,
+deterministic `pi-session-*` ID so private paths are never copied. IDs are not path segments.
+`planId` and `taskId` reuse the active plan's stable IDs. `backlogId` is deterministic for
+the session and identifies the local backlog projection; it is not a new Awareness table.
+
+The manifest and four JSON index files share `SESSION_ARTIFACT_VERSION = 2`; earlier
+versions fail fast and are never upgraded or mixed. These files are inspectable snapshots.
+Active plan state and Awareness SQLite remain authoritative for plan/task coordination,
+locks, messages, and durable memory.
 
 ### 5.3 Path builder API
 
@@ -263,13 +259,14 @@ state (discovery, mcp, lsp). Add a one-time migration pass that moves existing
 |---|---|---|
 | `extensionHome(octocodeHome?)` | `extension-paths.ts` | `$OCTOCODE_HOME/extension` |
 | `extensionWorkspaceRoot(cwd, home?)` | `extension-paths.ts` | `...extension/workspaces/{workspaceKey}` |
-| `sessionArtifactRoot(input)` | `session-artifacts.ts` | `...workspaces/{key}/sessions/{sessionKey}` |
+| `sessionArtifactRoot(input)` | `session-artifacts.ts` | `...extension/sessions/{sessionKey}` |
+| `initializeSessionIndexes(ctx)` | `session-index.ts` | Required session/plan/task/backlog index projections |
+| `projectSessionPlan(ctx, model)` | `session-index.ts` | Coherent plan/task/backlog ID snapshots |
 | `planArtifactsDir(scope)` | `plan-html.ts` | `...sessions/{sessionKey}/plan/` |
-| `artifactContextForScope(scope)` | `session-artifacts.ts` | Full artifact context (resolve, writeText, registerProducer) |
-
+| `createSessionArtifactContext(input)` | `session-artifacts.ts` | Contained artifact context with atomic writes and producer registration |
 ---
 
-## 6. Plan Lifecycle
+## 6. Plan lifecycle
 
 ### 6.1 Plan identity
 
@@ -292,12 +289,12 @@ researching → needs_answers → draft → in_review ── Start ─→ execut
 Plan steps are held in memory (an in-process Map keyed by scope), snapshotted as branch-aware Pi CustomEntries, and projected to `plan/state.json` in the session artifact tree. The manifest records that projection; it is not the plan-state authority.
 The scope key = `{cwd}\0id:{sessionId}` when a session ID is available.
 
-### 6.4 Stored versions
+### 6.4 Stored version
 
-| Version | Changes |
-|---|---|
-| v3 | Base: steps, review state, coordination, RFC path |
-| v4 | + `cleared: boolean`, `outcomeReason` |
+Active plan snapshots use version 4, including stable step IDs, review state,
+coordination, RFC path, `cleared`, and `outcomeReason`. Both branch CustomEntries
+and session plan projections reject other versions; version 3 is not restored or
+migrated. See [`active-plan.ts`](src/tools/active-plan.ts).
 
 ### 6.5 HTML page data flow
 
@@ -322,99 +319,51 @@ The scope key = `{cwd}\0id:{sessionId}` when a session ID is available.
  meta-refresh (every 3s)                     ← browser picks up changes
 ```
 
-### 6.6 HTML page structure (post 2026-09-03)
+### 6.6 HTML page structure
 
-```html
-<section data-plan-read-model="1" data-plan-id="{planId}" data-revision="{revision}">
+[`src/tools/plan-html.ts`](src/tools/plan-html.ts) renders the canonical read
+model as a flat, left-aligned document. During review, the decision controls
+precede the task list. During execution, tasks precede feedback. Planning
+workflow, dependency diagram, and raw Markdown remain collapsible so the next
+action stays visible. Each task retains its ID and expandable verification,
+acceptance, and path details.
 
-  <!-- 1. Plan identity header: plan ID pill, workspace, revision, steps count -->
-  <div class="plan-meta">
-    <div class="plan-meta-item"><span class="plan-meta-label">Plan ID</span>
-      <span class="plan-meta-val plan-id-pill">{shortId}…</span></div>
-    <div class="plan-meta-item"><span class="plan-meta-label">Workspace</span>…</div>
-    <div class="plan-meta-item"><span class="plan-meta-label">Steps</span>done/total</div>
-  </div>
+### 6.7 Presentation ownership
 
-  <!-- 2. Phase timeline: Research → Clarify → Draft → Review → Execute → Verify → Complete -->
-  <section class="timeline">…</section>
-
-  <!-- 3. RFC (when a reviewable RFC exists) -->
-  <section class="rfc">…</section>
-
-  <!-- 4. Decisions (clarify phase answers) -->
-  <section>…</section>
-
-  <!-- 5. Progress: bar + stats grid (done/total/in-progress/blocked/decisions) -->
-  <section class="plan-stats">…</section>
-
-  <!-- 6. Browser reply: feedback textarea + one Start or Request changes decision -->
-  <section data-browser-reply>…</section>
-
-  <!-- 7. Flow gates (5 standard research/RFC/discuss/derive/verify gates) -->
-  <section>…</section>
-
-  <!-- 8. Steps list (rich per-step rendering) -->
-  <section>
-    <ul class="steps">
-      <li class="done|doing|todo|blocked" data-task-id="{id}">
-        <span class="glyph">✓|▸|○|⊘</span>
-        <span class="step-main">{index}. {label}</span>
-        <!-- expandable detail when checkCommand/acceptance/paths are set -->
-        <details class="step-detail">
-          <code class="check-cmd">$ {checkCommand}</code>
-          <p class="acceptance">{acceptance}</p>
-          <ul class="step-paths"><li>{path}</li>…</ul>
-        </details>
-      </li>
-    </ul>
-  </section>
-
-  <!-- 9. Dependency flow (Mermaid flowchart TD) -->
-  <section>…</section>
-
-  <!-- 10. Raw markdown collapsible -->
-  <details>…</details>
-</section>
-```
-
-### 6.7 Step CSS classes
-
-| Status | Border | Glyph color | Background tint |
-|---|---|---|---|
-| `done` | cyan 28% | `--cyan` | none |
-| `doing` | gold 35% | `--gold` | gold 4% |
-| `todo` | `--line` | `--muted` | none |
-| `blocked` | orange 28% | `#EA580C` | none |
+The plan renderer and [`src/tui/html-page.ts`](src/tui/html-page.ts) own
+markup and styling. Keep presentation changes there instead of copying HTML or
+color values into this reference. See [docs/UI.md](docs/UI.md) for the interaction
+flow and `tests/plan-html.test.ts` for rendering checks.
 
 ---
 
-## 7. Discovery Phase Detail
+## 7. Discovery phase detail
 
 ### 7.1 Session initialization sequence
 
 ```
 pi: extension loaded
   ↓
-before_session_start
-  → loadOctocoderc() + propagateOctocodeEnv()  (env/config)
-  → validate Pi version compatibility
-  → register support tools phase (17 direct tools)
-  → disableBuiltinTools(pi)  (removes read/edit/write/grep/find/ls)
+  → register support tools and lifecycle hooks
 
 session_start
-  → initializeOctocodeSession(pi, ctx, event)
-  → warmMcpCatalog(ctx, signal)              (fire-and-forget)
-  → initializationTasks = [mcpCatalogReady] (awaited)
-  → openPersistentAwareness(ctx)
-  → loadActiveSession(ctx, event)
-  → restoreActivePlanIfNeeded(ctx)
+  → initializeOctocodeSession(ctx, reason)
+  → reset prompt, skill inventory, and plan-delivery state
+  → dispose the previous runtime
+  → await environment propagation before starting config/process consumers
+  → initialize session artifacts and recovery sources
+  → warmMcpCatalog(ctx, runtime.signal)
   → Promise.allSettled(initializationTasks)
 
-before_agent_start
-  → await mcpCatalogReady(ctx)               (blocks here until MCP ready)
+first main-agent before_agent_start
+  → await mcpCatalogReady(ctx)               (bounded wait)
   → discoverSkills(cwd, piSkills)
-  → assembleContextSegments(ctx, scope)      (6 segments)
-  → frozenSystemPrompt = pi.setSystemPrompt(...)
+  → assembleContextSegments(...)            (stable system segments and live turn context)
+  → cache composed systemPrompt and return it from the hook
+
+later main-agent before_agent_start
+  → recompute live plan; validate pending recovery
+  → return frozen systemPrompt plus changed turn context
 ```
 
 ### 7.2 Config loading
@@ -432,14 +381,12 @@ Never reimplement — import from `@octocodeai/config`.
 
 ---
 
-## 8. Known Gaps
+## 8. Known gaps
 
 | Gap | Severity | Workaround / Fix |
 |---|---|---|
-| Session paths too nested (`workspaces/{key}/sessions/{key}/`) | Medium | See §5.2 for desired flat structure and migration path |
-| Skills silently skipped on dev builds (try/catch in `getAssetPaths()`) | Low | Run `yarn build:skills` to populate `dist/skills/`; add a logged warning |
-| MCP binary fallback uses `latest` not pinned version | Low | Local binary resolves correctly in production; fallback only in restricted envs |
+| Frozen routing catalogs can differ from live execution discovery | Operational constraint | Use `skill` list for enabled skill changes; start `/new` for an updated MCP routing prompt |
+| Skill loading returns a bounded first page and supporting-file preview | Recovery contract | `src/tools/skill-tool.ts` reports typed partial reasons and executable `MCPTool` continuations. Follow content pages before acting; merge file discovery results with the preview and follow their continuations. |
 | Schema field name surprises (`searchText`, `type` for lsp) | Medium | Always call `MCPTool action:"describe"` first; add a schema cheat-sheet to SYSTEM_PROMPT |
-| Plan HTML uses meta-refresh (3s) not SSE push | Low | Fine for current usage; SSE would eliminate perceived lag |
+| Plan HTML uses meta-refresh (3s) | Transport constraint | Refresh behavior is separate from the plan state and review transaction |
 | `buildOctocodeSystemPrompt` lives in external `octocode-shared` | Low | Prompt changes need an `octocode-shared` release; mitigated by the engineering block inlined here |
-| `graph_facts.rs` export detection broken for Go/Java/PHP/Kotlin | High | See `.octocode/graph-facts-audit.md`; affects `localAnalyzeGraph` dead-code results |

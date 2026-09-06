@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { withSemanticNext } from '../../../src/tools/lsp/semantic_content/semanticNext.js';
-import { failedAnchorEnvelope } from '../../../src/tools/lsp/semantic_content/semanticEnvelopes.js';
+import { failedAnchorEnvelope } from '../../../src/tools/lsp/semantic_content/semanticEnvelopes/envelopeHelpers.js';
 import type {
   LspGetSemanticsQuery,
   LspSemanticEnvelope,
 } from '../../../src/tools/lsp/shared/semanticTypes.js';
-import { prepareDirectToolInput } from '../../../src/tools/directToolCatalog.meta.js';
+import { prepareDirectToolInput } from '../../../src/tools/directToolCatalog/toolInputPreparation.js';
 
 /**
  * The tool description promises: "Empty/incomplete: re-anchor or fall back to

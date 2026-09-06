@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  mapFileContentToolQuery,
-  mapPullRequestToolQuery,
-} from '../../src/tools/providerMappers.js';
-import { buildPullRequestSearchQuery } from '../../src/github/queryBuilders.js';
+import { mapFileContentToolQuery } from '../../src/tools/providerMappers/fileContent.js';
+import { mapPullRequestToolQuery } from '../../src/tools/providerMappers/pullRequests.js';
+import { buildPullRequestSearchQuery } from '../../src/github/queryBuilders/pullRequests.js';
 
 type PRArg = Parameters<typeof mapPullRequestToolQuery>[0];
 type FileArg = Parameters<typeof mapFileContentToolQuery>[0];

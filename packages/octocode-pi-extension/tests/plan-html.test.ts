@@ -91,7 +91,7 @@ test('buildPlanPageHtmlFromModel escapes dynamic checklist text and embeds the d
   assert.doesNotMatch(html, /<module>/);
   assert.match(html, /needs 4/, 'known stable dependency IDs resolve to current display indices');
   assert.doesNotMatch(html, /<script>/, 'unknown dependency IDs are never rendered');
-  assert.match(html, /<section><h2>Flow gates<\/h2>/);
+  assert.match(html, /<details><summary>Planning workflow<\/summary>/);
   assert.match(html, /Show the plan overview and ask once: Start implementation or Request changes/);
   assert.match(html, /<pre class="mermaid">/);
   assert.match(html, /1\/4 done/);
@@ -116,8 +116,8 @@ const RFC_MD = [
 test('buildPlanPageHtmlFromModel renders a linked RFC as the lead section, sanitized, with a status badge', () => {
   const rfc: RfcDoc = { path: '/ws/.octocode/rfc/unify/RFC.md', markdown: RFC_MD, status: 'Accepted' };
   const html = renderPage(STEPS, rfc);
-  // RFC section leads the page (before Flow gates).
-  assert.ok(html.indexOf('section class="rfc"') < html.indexOf('<h2>Flow gates</h2>'), 'RFC section comes first');
+  // The decision document leads the optional workflow explanation.
+  assert.ok(html.indexOf('section class="rfc"') < html.indexOf('<summary>Planning workflow</summary>'), 'RFC section comes first');
   assert.match(html, /rfc-status">Accepted</, 'status badge shown');
   assert.match(html, /<h2>Summary<\/h2>/, 'RFC markdown headings are rendered');
   assert.match(html, /<table>/, 'RFC tables render');
