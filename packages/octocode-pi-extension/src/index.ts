@@ -1,15 +1,28 @@
 import type {PromptMode} from '@octocodeai/agent-contracts/protocols';
 import fs from 'node:fs';
 import path from 'node:path';
-import {propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabled} from '@octocodeai/config';
-import {extensionWorkspaceRoot} from './extension-paths.js';
-import {connectDb, defaultDbPath, insertEditLog} from '@octocodeai/octocode-awareness';
-import {ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE} from '@octocodeai/agent-contracts/permissions';
-import {openPersistentAwareness} from './tools/storage-policy.js';
-import {DISABLED_BUILTIN_TOOL_NAMES, OVERRIDDEN_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES} from './constants.js';
-import {checkForCoreUpdate, readOwnVersion} from './core-update-check.js';
-import {ensureAdaptiveThinkingCompatibility} from './model-compat.js';
-import {getAssetPaths, readTextIfExists, listBundledSkills, getInstallSource, getAwarenessCLIPath, resolveAwarenessCliPath, runAwarenessPreEdit, resolveAwarenessCoordinationScope} from './assets.js';
+import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabled } from '@octocodeai/config';
+import { extensionWorkspaceRoot } from './extension-paths.js';
+import { connectDb, defaultDbPath, insertEditLog } from '@octocodeai/octocode-awareness';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
+import { openPersistentAwareness } from './tools/storage-policy.js';
+import {
+  DISABLED_BUILTIN_TOOL_NAMES,
+  OVERRIDDEN_BUILTIN_TOOL_NAMES,
+  OCTOCODE_SUPPORT_TOOL_NAMES,
+} from './constants.js';
+import { checkForCoreUpdate, readOwnVersion } from './core-update-check.js';
+import { ensureAdaptiveThinkingCompatibility } from './model-compat.js';
+import {
+  getAssetPaths,
+  readTextIfExists,
+  listBundledSkills,
+  getInstallSource,
+  getAwarenessCLIPath,
+  resolveAwarenessCliPath,
+  runAwarenessPreEdit,
+  resolveAwarenessCoordinationScope,
+} from './assets.js';
 
 // Expose the Awareness CLI for agents. The env var holds the SCRIPT PATH
 // ONLY so the documented `node "$OCTOCODE_AWARENESS_CLI" <command>` invocation
@@ -27,79 +40,172 @@ try {
 // the session was launched from a Claude Code / Cursor terminal whose host
 // env vars are inherited. Respect an explicit override.
 process.env.OCTOCODE_AGENT_HOST ||= 'octo';
-import {resolvePromptMode, composeSystemPrompt, stripProjectContext, stripPiSkillsSection} from './prompt.js';
-import {registerSkillTool, discoverSkills, discoverSkillStates, type DiscoveredSkill} from './tools/skill-tool.js';
-import {writeDiscoveryFile} from './tools/discovery-file.js';
-import {estimateTokens, getAppendSystemTarget} from './utils.js';
-import {getDirectToolContractStats, registerUniqueTool} from './tools/octocode-tools.js';
-import {registerCompactionHooks, resetCompactionCheckpointDedupe, setCompactionRehydrationSegmentsProvider} from './tools/compaction-hooks.js';
-import {registerCompactionPolicyGuidance} from './tools/compaction-policy-guidance.js';
-import {budgetToolResult} from './tools/tool-result-budget.js';
-import {cleanupSpawnedAgentsForShutdown, formatAgentLedger, listWorkerLedgerEntries, refreshAgentLedgerUi, setAgentLedgerMetricsRefreshForUi, isSubagentProcess, pruneDroppableAgentsForSession} from './tools/agent-tools.js';
-import {registerWebTool} from './tools/web-tool.js';
-import {registerChromeDebugTool} from './tools/chrome-debug-tool.js';
-import {registerUnifiedAgentTool} from './tools/unified-agent-tool.js';
-import {registerCallTool} from './tools/call-tool.js';
-import {registerFileTool} from './tools/file-tool.js';
-import {registerReadMediaTool} from './tools/read-media-tool.js';
-import {registerRunFfmpegTool} from './tools/run-ffmpeg-tool.js';
-import {registerMediaTool} from './tools/create-media-tool.js';
-import {renderRuntimeCapabilitiesAddendum} from './tools/image-render.js';
-import {setPeerWipBaseline, setPeerWipStatusPainter} from './tools/peer-wip.js';
-import {registerBashTool} from './tools/bash-tool.js';
-import {createAwarenessMutationGate} from './tools/awareness-mutation-gate.js';
-import {INITIAL_CONTEXT_TOKEN_BUDGET, PROVIDER_CONTEXT_TOKEN_BUDGET, assembleContextSegments, assertContextTokenBudget} from './tools/context-segments.js';
-import {clearCurrentContextSources, mergeCurrentContextSources, readLatestSessionUserRequest, readSessionPeerEvent, readSessionToolResult, registerCurrentContextSource, sessionPeerEventOrigin, sessionToolResultOrigin, sessionUserRequestOrigin} from './tools/context-source-registry.js';
-import {applyStartupPermissionLevel, resetApprovalStore} from './tools/approval.js';
-import {getCachedMcpCatalogAddendum, getCachedMcpCounts, isCompactMcpEnabled, mcpCatalogReady, registerMcpTool, startMcpConfigWatcher, stopAllMcpServers, stopMcpConfigWatchers, warmMcpCatalog} from './tools/mcp-tool.js';
-import {openMcpManager, closeConfiguration} from './tools/mcp-html.js';
-import {getDynamicCapabilitiesAddendum} from './tools/dynamic-catalog.js';
-import {renderAvailableSkillsAddendum} from './tools/skill-catalog.js';
-import {registerPlanTool} from './tools/plan-tool.js';
-import {registerLocalServerTool} from './tools/local-server-tool.js';
-import {registerAskUserTool} from './tools/ask-user-tool.js';
-import {registerInteractionBrokerAdapter, type InteractionBrokerAdapterRegistry, type RegisteredInteractionBrokerAdapter} from './tools/interaction-broker-adapter.js';
-import {brokerSessionId, clearInMemoryInteractionState, configureInteractionBrokerRoute} from './tools/interaction-broker.js';
-import {registerMemoryTool} from './tools/memory-tool.js';
-import {registerAwarenessCoordinationTools} from './tools/awareness-coordination-tools.js';
-import {awarenessEventStatusText, registerAwarenessEventConsumer} from './tools/awareness-event-consumer.js';
-import {getAwarenessAgentId} from './tools/awareness-shared.js';
-import {activePlanScope, adoptPlanFromBranch, getPlan, getPlanReviewState, bumpPlanTurn, setPlanEntryAppender, PLAN_ENTRY_TYPE} from './tools/active-plan.js';
-import {getCurrentPlanReadModel, renderPlanContext} from './tools/plan-read-model.js';
-import {getCachedAwarenessStatus, refreshAwarenessPanel, suppressAwarenessPanel, resumeAwarenessPanel, clearAwarenessCacheEntry, setAwarenessMetricsRefreshForUi} from './tools/awareness-status.js';
-import {deriveSessionName} from './ui-extras.js';
-import {paintUi} from './tui/palette.js';
-import {setUiTickSubscriber} from './tui/ui-ticker.js';
-import {closeAllChromeConnections} from './chrome-connection-cache.js';
-import {setPlanMetricsRefreshForUi} from './tools/plan-tool.js';
-import {adoptPlanModePolicy, evaluateToolCapability, exitPlanMode, getPlanModePolicy} from './tools/plan-mode.js';
-import {clearAllReadStates} from './tools/file-state.js';
-import {registerAgentInbox, type AgentInboxRegistration} from './tools/agent-inbox.js';
-import {collectPublicCommands} from './tools/commands-command.js';
-import {runCleanupOnInit} from './tools/cleanup-command.js';
-import {probeGitHubAuth} from './tools/github-auth-status.js';
-import {registerOctocodeAutocomplete} from './tools/autocomplete-providers.js';
-import {registerOctocodeMessageRenderers} from './tools/custom-messages.js';
-import {initCheckpointStore, type CheckpointEngine} from './tools/checkpoints.js';
-import {createSessionArtifactContext, type SessionArtifactContext} from './tools/session-artifacts.js';
-import {initializeSessionMemory, projectSessionMemoryUpdate, readSessionMemory, renderSessionArtifactPaths, SESSION_MEMORY_MAX_BYTES} from './tools/session-memory.js';
-import {initializeSessionIndexes} from './tools/session-index.js';
-import {appendSessionAuditEntry, appendSessionAuditForContext, initializeSessionAudit} from './tools/session-audit.js';
-import {cleanupEphemeralToolOutputs} from './tools/ephemeral-tool-output.js';
-import {consumeValidatedRehydration, runAndRecordRehydration, REHYDRATION_RECEIPT_ENTRY_TYPE, type CurrentRehydrationSource} from './tools/rehydration-orchestrator.js';
-import {createCheckpointInputHook} from './tools/rewind-command.js';
-import {restoreDialOnStartup} from './tools/effort-dial.js';
-import {runtimeStoreFor, setManagedActivity, setManagedStatus} from './tools/runtime-renderer.js';
-import {SessionRuntime} from './session-runtime.js';
-import {applyOctocodeUi, execGitSummary, formatContextUsage, getThinkingStatus, OCTOCODE_BANNER_ENTRY_TYPE, refreshFooterDirtyState, resetOctocodeFooterRegistration, updateOctocodeMetricsUi} from './extension-ui.js';
-import {APPROVED_PI_HOST_VERSION, assertSupportedPiHostVersion, resolvePiHostVersion} from './adapters/pi-host-compatibility.js';
-import {capturePiSdkLifecycle, createPiSdkScenarioSuite, type ProductionPiLifecycleCapture, type ProductionPiScenarioSuite} from './adapters/pi-production-probe.js';
-import {createPiCanonicalRegistryComposition} from './adapters/pi-registry-adapters.js';
-import {makeComponentRenderer} from './tools/render-helpers.js';
-import {renderBannerWithTagline, type BannerSessionInfo, type BannerTheme} from './branding/banner.js';
-import {pickProvider} from './web.js';
-import {createHookComposer} from './hook-composer.js';
-import {createOctocodeCronScheduler} from './scheduler.js';
+import { resolvePromptMode, composeSystemPrompt, stripProjectContext, stripPiSkillsSection } from './prompt.js';
+import { registerSkillTool, discoverSkills, discoverSkillStates, type DiscoveredSkill } from './tools/skill-tool.js';
+import { writeDiscoveryFile } from './tools/discovery-file.js';
+import { estimateTokens, getAppendSystemTarget } from './utils.js';
+import { getDirectToolContractStats, registerUniqueTool } from './tools/octocode-tools.js';
+import {
+  registerCompactionHooks,
+  resetCompactionCheckpointDedupe,
+  setCompactionRehydrationSegmentsProvider,
+} from './tools/compaction-hooks.js';
+import { registerCompactionPolicyGuidance } from './tools/compaction-policy-guidance.js';
+import { budgetToolResult } from './tools/tool-result-budget.js';
+import {
+  cleanupSpawnedAgentsForShutdown,
+  formatAgentLedger,
+  listWorkerLedgerEntries,
+  refreshAgentLedgerUi,
+  setAgentLedgerMetricsRefreshForUi,
+  isSubagentProcess,
+  pruneDroppableAgentsForSession,
+} from './tools/agent-tools.js';
+import { registerWebTool } from './tools/web-tool.js';
+import { registerChromeDebugTool } from './tools/chrome-debug-tool.js';
+import { registerUnifiedAgentTool } from './tools/unified-agent-tool.js';
+import { registerCallTool } from './tools/call-tool.js';
+import { registerFileTool } from './tools/file-tool.js';
+import { registerReadMediaTool } from './tools/read-media-tool.js';
+import { registerRunFfmpegTool } from './tools/run-ffmpeg-tool.js';
+import { registerMediaTool } from './tools/create-media-tool.js';
+import { renderRuntimeCapabilitiesAddendum } from './tools/image-render.js';
+import { setPeerWipBaseline, setPeerWipStatusPainter } from './tools/peer-wip.js';
+import { registerBashTool } from './tools/bash-tool.js';
+import { createAwarenessMutationGate } from './tools/awareness-mutation-gate.js';
+import {
+  INITIAL_CONTEXT_TOKEN_BUDGET,
+  PROVIDER_CONTEXT_TOKEN_BUDGET,
+  assembleContextSegments,
+  assertContextTokenBudget,
+} from './tools/context-segments.js';
+import {
+  clearCurrentContextSources,
+  mergeCurrentContextSources,
+  readLatestSessionUserRequest,
+  readSessionPeerEvent,
+  readSessionToolResult,
+  registerCurrentContextSource,
+  sessionPeerEventOrigin,
+  sessionToolResultOrigin,
+  sessionUserRequestOrigin,
+} from './tools/context-source-registry.js';
+import { applyStartupPermissionLevel, resetApprovalStore } from './tools/approval.js';
+import {
+  getCachedMcpCatalogAddendum,
+  getCachedMcpCounts,
+  isCompactMcpEnabled,
+  mcpCatalogReady,
+  registerMcpTool,
+  startMcpConfigWatcher,
+  stopAllMcpServers,
+  stopMcpConfigWatchers,
+  warmMcpCatalog,
+} from './tools/mcp-tool.js';
+import { openMcpManager, closeConfiguration } from './tools/mcp-html.js';
+import { getDynamicCapabilitiesAddendum } from './tools/dynamic-catalog.js';
+import { renderAvailableSkillsAddendum } from './tools/skill-catalog.js';
+import { registerPlanTool } from './tools/plan-tool.js';
+import { registerLocalServerTool } from './tools/local-server-tool.js';
+import { registerAskUserTool } from './tools/ask-user-tool.js';
+import {
+  registerInteractionBrokerAdapter,
+  type InteractionBrokerAdapterRegistry,
+  type RegisteredInteractionBrokerAdapter,
+} from './tools/interaction-broker-adapter.js';
+import {
+  brokerSessionId,
+  clearInMemoryInteractionState,
+  configureInteractionBrokerRoute,
+} from './tools/interaction-broker.js';
+import { registerMemoryTool } from './tools/memory-tool.js';
+import { registerAwarenessCoordinationTools } from './tools/awareness-coordination-tools.js';
+import { awarenessEventStatusText, registerAwarenessEventConsumer } from './tools/awareness-event-consumer.js';
+import { getAwarenessAgentId } from './tools/awareness-shared.js';
+import {
+  activePlanScope,
+  adoptPlanFromBranch,
+  getPlan,
+  getPlanReviewState,
+  bumpPlanTurn,
+  setPlanEntryAppender,
+  PLAN_ENTRY_TYPE,
+} from './tools/active-plan.js';
+import { getCurrentPlanReadModel, renderPlanContext } from './tools/plan-read-model.js';
+import {
+  getCachedAwarenessStatus,
+  refreshAwarenessPanel,
+  suppressAwarenessPanel,
+  resumeAwarenessPanel,
+  clearAwarenessCacheEntry,
+  setAwarenessMetricsRefreshForUi,
+} from './tools/awareness-status.js';
+import { deriveSessionName } from './ui-extras.js';
+import { paintUi } from './tui/palette.js';
+import { setUiTickSubscriber } from './tui/ui-ticker.js';
+import { closeAllChromeConnections } from './chrome-connection-cache.js';
+import { setPlanMetricsRefreshForUi } from './tools/plan-tool.js';
+import { adoptPlanModePolicy, evaluateToolCapability, exitPlanMode, getPlanModePolicy } from './tools/plan-mode.js';
+import { clearAllReadStates } from './tools/file-state.js';
+import { registerAgentInbox, type AgentInboxRegistration } from './tools/agent-inbox.js';
+import { collectPublicCommands } from './tools/commands-command.js';
+import { runCleanupOnInit } from './tools/cleanup-command.js';
+import { probeGitHubAuth } from './tools/github-auth-status.js';
+import { registerOctocodeAutocomplete } from './tools/autocomplete-providers.js';
+import { registerOctocodeMessageRenderers } from './tools/custom-messages.js';
+import { initCheckpointStore, type CheckpointEngine } from './tools/checkpoints.js';
+import { createSessionArtifactContext, type SessionArtifactContext } from './tools/session-artifacts.js';
+import {
+  initializeSessionMemory,
+  projectSessionMemoryUpdate,
+  readSessionMemory,
+  renderSessionArtifactPaths,
+  SESSION_MEMORY_MAX_BYTES,
+} from './tools/session-memory.js';
+import { initializeSessionIndexes } from './tools/session-index.js';
+import {
+  appendSessionAuditEntry,
+  appendSessionAuditForContext,
+  initializeSessionAudit,
+} from './tools/session-audit.js';
+import { cleanupEphemeralToolOutputs } from './tools/ephemeral-tool-output.js';
+import {
+  consumeValidatedRehydration,
+  runAndRecordRehydration,
+  REHYDRATION_RECEIPT_ENTRY_TYPE,
+  type CurrentRehydrationSource,
+} from './tools/rehydration-orchestrator.js';
+import { createCheckpointInputHook } from './tools/rewind-command.js';
+import { restoreDialOnStartup } from './tools/effort-dial.js';
+import { runtimeStoreFor, setManagedActivity, setManagedStatus } from './tools/runtime-renderer.js';
+import { SessionRuntime } from './session-runtime.js';
+import {
+  applyOctocodeUi,
+  execGitSummary,
+  formatContextUsage,
+  getThinkingStatus,
+  OCTOCODE_BANNER_ENTRY_TYPE,
+  refreshFooterDirtyState,
+  resetOctocodeFooterRegistration,
+  updateOctocodeMetricsUi,
+} from './extension-ui.js';
+import {
+  APPROVED_PI_HOST_VERSION,
+  assertSupportedPiHostVersion,
+  resolvePiHostVersion,
+} from './adapters/pi-host-compatibility.js';
+import {
+  capturePiSdkLifecycle,
+  createPiSdkScenarioSuite,
+  type ProductionPiLifecycleCapture,
+  type ProductionPiScenarioSuite,
+} from './adapters/pi-production-probe.js';
+import { createPiCanonicalRegistryComposition } from './adapters/pi-registry-adapters.js';
+import { makeComponentRenderer } from './tools/render-helpers.js';
+import { renderBannerWithTagline, type BannerSessionInfo, type BannerTheme } from './branding/banner.js';
+import { pickProvider } from './web.js';
+import { createHookComposer } from './hook-composer.js';
+import { createOctocodeCronScheduler } from './scheduler.js';
 import type {BeforeAgentStartEvent, PiInstance, PiContext, OctocodePiExtensionOptions, SessionShutdownEvent, ThinkingLevelEvent, SkillInfo, NotifyFn} from './types.js';
 
 // getAwarenessAgentId is single-sourced in tools/awareness-shared.ts (shared

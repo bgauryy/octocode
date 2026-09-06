@@ -8,7 +8,7 @@
  *
  * The low-level `node:sqlite` runtime (warning-filtered `DatabaseSync`, BUSY
  * retry, WAL checkpoint) lives in sqlite.ts; version-gated journal selection in
- * sqlite-version.ts. Requires Node >=22.13.0.
+ * sqlite-version.ts. Requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`.
  */
 import { resolve } from 'node:path';
 import { agentDbPath } from './paths.js';

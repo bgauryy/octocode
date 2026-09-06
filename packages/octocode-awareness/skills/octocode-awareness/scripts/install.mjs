@@ -91,7 +91,7 @@ function ensureRuntime() {
     "await import('node:sqlite');",
   ].join("\n");
   if (!ok(nodeBin, ["--input-type=module", "-e", sqliteProbe])) {
-    fail("Node >=22.13.0 with unflagged node:sqlite is required.");
+    fail("Node ^22.22.2 || ^24.15.0 || >=26.0.0 with unflagged node:sqlite is required.");
   }
 }
 

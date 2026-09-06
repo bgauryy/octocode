@@ -7,10 +7,11 @@ import { sessionCapture, waitForLock } from '../src/maintenance-session.js';
 import { digest } from '../src/maintenance-digest.js';
 import { exportMemoryDoc } from '../src/maintenance-workspace.js';
 import { runHooksInstall } from '../src/hooks-install-command.js';
+import { runSkillInstall } from '../src/skill-install-command.js';
 import { runHookCommand } from './hook-runner.js';
 import { commandFromHelpArgv, helpFor } from './cli-help.js';
 import { EmitOptions, KNOWN_FLAGS, UNKNOWN_COMMAND, die, emit, extractGlobalDb, flagBool, packageSkillScriptPath, parseBoundedSeconds, resolveAgentId, selectCommand, setActiveCommand, validateFlagValues, validateFlags } from './cli-routing.js';
-import { MAX_CLI_RETRY_INTERVAL_SECONDS, MAX_CLI_WAIT_SECONDS, parseArgs } from './cli-model.js';
+import { BUNDLED_SKILLS_DIR, MAX_CLI_RETRY_INTERVAL_SECONDS, MAX_CLI_WAIT_SECONDS, parseArgs } from './cli-model.js';
 import { COMMAND_DISPLAY, COMMAND_EXAMPLE, COMMAND_TO_SCHEMA, HELP, HELP_COMPACT } from './cli-help-data.js';
 import { cmdAgentRegistry, cmdAgentSignal, cmdInit, cmdNotifyPrune, cmdSelfTest, cmdStatus } from './cli-admin.js';
 import { cmdGetMemory, cmdRefineGet, cmdRefineSet, cmdReflect, cmdTellMemory } from './cli-memory.js';
@@ -160,6 +161,11 @@ if (command === UNKNOWN_COMMAND) {
   };
   process.stdout.write(JSON.stringify(payload, null, compact ? 0 : 2) + '\n');
   process.exit(1);
+}
+
+if (command === 'skill-install') {
+  const result = runSkillInstall(rest, { skillsDir: BUNDLED_SKILLS_DIR });
+  process.exit(emit(result.payload, result.exitCode, opts));
 }
 
 if (command === 'self-test') {

@@ -88,6 +88,7 @@
   },
   "displayName": "Octocode MCP",
   "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0",
     "vscode": "^1.107.0"
   },
   "files": [

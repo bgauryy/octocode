@@ -99,6 +99,12 @@ examples:
   npx @octocodeai/octocode-awareness docs show agent-cheatsheet
   npx @octocodeai/octocode-awareness docs show agent-cheatsheet --compact  # JSON only
 schema: npx @octocodeai/octocode-awareness schema json-schema docs_catalog --compact`,
+  'skill-install': `usage: npx @octocodeai/octocode-awareness skill install --platform <shared|codex|codex-native|claude|claude-desktop|cursor|opencode|pi|copilot|gemini> (--global | --project-dir <path>) [--dry-run] [--force]
+examples:
+  npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
+  npx @octocodeai/octocode-awareness skill install --platform pi --global --dry-run
+note: preview first; run again without --dry-run only after approval. Existing identical installs are unchanged; differing destinations require --force.
+schema: none`, 
   'plan-command': `usage: npx @octocodeai/octocode-awareness plan create|list|show|join|doc|status [options]
 create: --name <text> --objective <text> --lead-agent-id <id> --workspace <repo> [--artifact <name>]
 list: [--workspace <repo>] [--status <status>] [--limit <1-200>] [--full]

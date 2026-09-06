@@ -9,7 +9,7 @@
  * a one-tick warning filter, so importing it is a side effect — keep it out of
  * pure/leaf modules (see sqlite-version.ts / schema.ts, which stay pure).
  *
- * Requires Node >=22.13.0 for the unflagged `node:sqlite` built-in.
+ * Requires Node `^22.22.2 || ^24.15.0 || >=26.0.0` for the unflagged `node:sqlite` built-in.
  */
 import type { DatabaseSync as NodeDatabaseSync } from 'node:sqlite';
 

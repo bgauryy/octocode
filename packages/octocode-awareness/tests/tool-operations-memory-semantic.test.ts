@@ -59,7 +59,7 @@ const embedding = text.includes('alpha') ? [1, 0, 0] : text.includes('beta') ? [
 process.stdout.write(JSON.stringify({ embedding, model: 'test-embed' }));
 `, 'utf8');
     const previousEmbedCmd = process.env['OCTOCODE_EMBED_CMD'];
-    process.env['OCTOCODE_EMBED_CMD'] = `node ${embedScript}`;
+    process.env['OCTOCODE_EMBED_CMD'] = `${process.execPath} ${embedScript}`;
     try {
       const db = freshDb();
       const alpha = run(db, 'record', {

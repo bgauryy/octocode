@@ -36,7 +36,7 @@ Catalogued tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileConten
 
 ### Support Tools — 16
 
-Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `file`, `web`, `chromeDebug`, `agent`, `callTool`, `skill`, `plan`, `localServer`, `MCPTool`, `askUser`, `memory`, `lock`, `message`, `readMedia`, `media`, and `runFfmpeg`. Together with the guarded `bash` override, these form the 17-tool direct palette. Every direct tool exposes only a top-level `queries[]` array; each query requires concise `reasoning`. `/mcp` is the local management page, not a model-callable support-tool alias.
+Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `file`, `web`, `chromeDebug`, `agent`, `callTool`, `skill`, `plan`, `localServer`, `MCPTool`, `askUser`, `memory`, `lock`, `message`, `readMedia`, `media`, and `runFfmpeg`. Together with the guarded `bash` override, these form the 17-tool direct palette. Every direct tool exposes only a top-level `queries[]` array; each query requires concise `reasoning`. `/configuration` is the local management page, not a model-callable support-tool alias.
 
 | Tool | Label | Description |
 |---|---|---|
@@ -113,7 +113,7 @@ Format: `{ "mcpServers": { "<name>": { "command": "...", "args": [], "env": {}, 
 
 ### Settings and MCP slash commands
 
-`/configuration` rebuilds local `settings.html` from Pi's live public command registry and opens `#skills` by default. The same page contains every command, discovered skill, MCP connection/tool, redacted configuration, enablement override, and prompt-state artifact; section completions jump directly to any panel. `/mcp` opens the focused connections panel. See [docs/SETTINGS.md](docs/SETTINGS.md) for the complete feature, persistence, security, and refresh contract.
+`/configuration` rebuilds local `settings.html` from Pi's live public command registry and opens the overview. The page contains skills, MCP connections/tools, enablement overrides, display controls, and prompt-state information. Section links navigate within the page. See [docs/SETTINGS.md](docs/SETTINGS.md) for persistence, security, and refresh behavior.
 
 ---
 
@@ -220,7 +220,7 @@ Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
 | `chrome-debug` | Active CDP action label during `chromeDebug` calls |
 | `octocode-mcp` | MCP connection status label |
 
-Metrics (turns · durations · exact current/max context), plan/task progress, Awareness attention, and a bounded live-agent list live only on the consolidated footer (`setFooter`), never in a duplicate status line or below-editor widget. The identity row contains `/configuration` (opens the settings HTML page in the browser); keyboard hints are intentionally omitted. A once-per-session, non-blocking `npx octocode auth status --json` probe adds `github ✓` in green when authenticated, `github ✗ login required` in red when credentials are missing, or `github check failed` in red on probe errors. `/commands` shows `npx octocode auth login` and `gh auth login` guidance without retaining or displaying token values. Full worker details remain available through `/octocode-agents list`.
+Metrics (turns · durations · exact current/max context), plan/task progress, Awareness attention, and a bounded live-agent list live only on the consolidated footer (`setFooter`), never in a duplicate status line or below-editor widget. The identity row contains `/configuration` (opens the settings HTML page in the browser); keyboard hints are intentionally omitted. A once-per-session, non-blocking `npx octocode auth status --json` probe adds `github ✓` in green when authenticated, `github ✗ login required` in red when credentials are missing, or `github check failed` in red on probe errors. Log in with `npx octocode auth login`. Full worker details remain available through the `agent` tool.
 
 ---
 

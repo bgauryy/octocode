@@ -50,6 +50,8 @@ describe('skill routing boundaries', () => {
     expect(text).toContain('npx @octocodeai/octocode-awareness');
     expect(text).toMatch(/public runner[^.]*npx @octocodeai\/octocode-awareness/i);
     expect(text).toContain('npx @octocodeai/octocode-awareness docs list --compact');
+    expect(text).toContain('npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run');
+    expect(text).toContain('skill install --help');
     expect(text).not.toContain('npx -p @octocodeai/octocode-awareness octocode-awareness');
     expect(text).not.toContain('node packages/octocode-awareness/out/octocode-awareness.js');
     expect(text).toMatch(/default durable Awareness state is[\s\S]*\$OCTOCODE_HOME\/awareness\/awareness\.sqlite3/i);

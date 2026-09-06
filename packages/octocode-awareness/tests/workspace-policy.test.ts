@@ -69,6 +69,9 @@ describe('unified CLI facade', () => {
       expect(selectCommand(argv)).toEqual({ command: UNKNOWN_COMMAND, rest: argv });
     }
     expect(selectCommand(['verify', 'audit'])).toEqual({ command: 'audit-unverified', rest: [] });
+    expect(selectCommand(['skill', 'install', '--platform', 'shared', '--global'])).toEqual({
+      command: 'skill-install', rest: ['--platform', 'shared', '--global'],
+    });
     expect(selectCommand(['work', 'end', '--run-id', 'run-1'])).toEqual({
       command: 'work-command', rest: ['--action', 'end', '--run-id', 'run-1'],
     });

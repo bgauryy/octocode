@@ -33,10 +33,11 @@ export const HELP = `  🐙 Octocode Awareness
   FLAGS   --compact lean JSON · --db-scope repo|global explicit one-call override · --db explicit path
   EXIT    0 ok · 1 input/verification debt · 2 conflict/wait/strict hook health
   SKILL   octocode-awareness bundled at ${BUNDLED_SKILLS_DIR}
+  SKILL INSTALL  npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
   SKILL DOCS  npx @octocodeai/octocode-awareness docs list --compact`;
 
 export const HELP_COMPACT = `octocode-awareness canonical noun/verb CLI: attend -> work start -> work end -> verify mark -> verify audit; use --compact for JSON.
-bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS.map(({ name }) => name).join(',')} @ ${BUNDLED_SKILLS_DIR}; docs: npx @octocodeai/octocode-awareness docs list --compact
+bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS.map(({ name }) => name).join(',')} @ ${BUNDLED_SKILLS_DIR}; install: skill install --platform shared --project-dir "$PWD" --dry-run; docs: docs list --compact
 policy: $OCTOCODE_HOME/awareness/awareness.sqlite3, workspace-scoped rows, hooks=coordination
 expert: attend|plan|task|work|verify|signal|memory|refinement|query|reflect; schema commands --compact for the full map
 overrides: --db-scope repo|global changes one call; --db selects an explicit path
@@ -104,6 +105,7 @@ export const COMMAND_DISPLAY: Record<string, string> = {
   'mine-weakness': 'reflect mine-weakness',
   'doc-staleness': 'docs staleness',
   'docs-catalog': 'docs list|show',
+  'skill-install': 'skill install',
   'digest': 'maintenance digest',
   'init': 'maintenance init',
   'self-test': 'maintenance self-test',
@@ -144,6 +146,7 @@ export const COMMAND_EXAMPLE: Record<string, string> = {
   'mine-weakness': 'npx @octocodeai/octocode-awareness reflect mine-weakness --workspace "$PWD" --compact',
   'doc-staleness': 'npx @octocodeai/octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact',
   'docs-catalog': 'npx @octocodeai/octocode-awareness docs list --compact',
+  'skill-install': 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run',
   'digest': 'npx @octocodeai/octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact',
   'init': 'npx @octocodeai/octocode-awareness maintenance init --compact',
   'self-test': 'npx @octocodeai/octocode-awareness maintenance self-test --compact',
@@ -172,6 +175,7 @@ export const ROUTE_EXAMPLE: Record<string, string> = {
   'reflect developer-review': 'npx @octocodeai/octocode-awareness reflect developer-review --workspace "$PWD" --format markdown --compact',
   'docs list': 'npx @octocodeai/octocode-awareness docs list --compact',
   'docs show': 'npx @octocodeai/octocode-awareness docs show agent-cheatsheet',
+  'skill install': 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run',
   'hooks install': 'npx @octocodeai/octocode-awareness hooks install --host codex --dry-run',
   'hooks check': 'npx @octocodeai/octocode-awareness hooks check --host codex --strict',
   'hooks remove': 'npx @octocodeai/octocode-awareness hooks remove --host codex --dry-run',

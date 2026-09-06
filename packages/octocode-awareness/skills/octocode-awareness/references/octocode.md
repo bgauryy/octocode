@@ -26,4 +26,4 @@ Treat hits as leads. Cite paths/lines/IDs in locks, signals, memories, and refin
 
 ## Skill Management
 
-The host or package manager owns skill installation. Do not reconstruct local package paths in an agent prompt. Use `references/agent-cheatsheet.md` for Awareness initialization and live command discovery. Return research evidence to Awareness only when it informs a claim, decision, memory, signal, refinement, or verified reflection.
+Install the bundled Awareness skill with `npx @octocodeai/octocode-awareness skill install --platform <host> (--global | --project-dir <path>)`. Preview with `--dry-run`, show the resolved destination, and ask immediately before the real write; differing destinations require explicit `--force`. Do not reconstruct local package paths in an agent prompt. Use `references/agent-cheatsheet.md` for Awareness initialization and live command discovery. Return research evidence to Awareness only when it informs a claim, decision, memory, signal, refinement, or verified reflection.

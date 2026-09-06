@@ -1,6 +1,6 @@
 /**
  * db.ts — SQLite connection, schema init, and utility helpers.
- * Requires Node >=22.13.0 (unflagged node:sqlite built-in).
+ * Requires Node `^22.22.2 || ^24.15.0 || >=26.0.0` (unflagged node:sqlite built-in).
  *
  * Clean schema scope:
  *   workspace_path is the primary isolation key.

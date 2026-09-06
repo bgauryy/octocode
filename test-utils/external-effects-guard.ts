@@ -72,6 +72,13 @@ vi.mock('node:child_process', async (importOriginal) => {
 
   function isSafe(cmd: string): boolean {
     if (cmd === process.execPath) return true;
+    // Allow shell-style commands whose first token is the Node.js executable
+    // (possibly double-quoted for paths with spaces), e.g. `${process.execPath} script.mjs`
+    // or `"${process.execPath}" "script.mjs"`.
+    const firstToken = cmd.startsWith('"')
+      ? cmd.slice(1, cmd.indexOf('"', 1))
+      : (cmd.split(/\s/)[0] ?? '');
+    if (firstToken === process.execPath) return true;
     if (process.env[LOCAL_PROCESS_OPT_IN] !== '1') return false;
     return /(?:^|\/)(?:git|bash|zsh|sh)$/.test(cmd);
   }

@@ -46,7 +46,7 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "@octocodeai/agent-contracts": "0.1.0",
     "@octocodeai/agent-core": "0.1.0",
-    "@octocodeai/octocode-awareness": "^1.5.0",
+    "@octocodeai/octocode-awareness": "2.0.0",
     "@octocodeai/octocode-engine": "19.1.0",
     "@resvg/resvg-js": "^2.6.2",
     "chrome-launcher": "^1.2.1",

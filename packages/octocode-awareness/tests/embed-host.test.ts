@@ -9,7 +9,7 @@ function withEmbedScript(source: string, fn: (command: string) => void): void {
   const script = join(dir, 'embed.mjs');
   writeFileSync(script, source, 'utf8');
   try {
-    fn(`node ${script}`);
+    fn(`${process.execPath} ${script}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

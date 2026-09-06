@@ -75,7 +75,7 @@ it('package metadata exposes the scoped public npx binary', () => {
     // name to string form on install; both forms name the binary octocode-awareness.
     const bin = typeof pkg.bin === 'string' ? { 'octocode-awareness': pkg.bin } : (pkg.bin ?? {});
     expect(bin['octocode-awareness']).toBe('./out/octocode-awareness.js');
-    expect(pkg.engines?.['node']).toBe('>=22.13.0');
+    expect(pkg.engines?.['node']).toBe('^22.22.2 || ^24.15.0 || >=26.0.0');
     expect(bin).not.toHaveProperty('awareness');
   });
 it('--help exits 0', () => {
@@ -124,6 +124,7 @@ it('--help --compact returns a short agent guide', () => {
     expect(r.stdout).toContain('octocode-awareness');
     expect(r.stdout).toContain('out/skills');
     expect(r.stdout).toContain('docs list --compact');
+    expect(r.stdout).toContain('skill install --platform');
     expect(r.stdout).toContain('schema commands --compact');
     expect(r.stdout).toContain('attend -> work start -> work end -> verify mark -> verify audit');
     expect(r.stdout).toContain('policy: $OCTOCODE_HOME/awareness/awareness.sqlite3, workspace-scoped rows, hooks=coordination');

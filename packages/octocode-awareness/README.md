@@ -4,11 +4,13 @@
   <img src="assets/logo.png" alt="Octocode Awareness" width="300" />
 </p>
 
-Local coordination for coding agents: shared work, messages, verification, and reusable learning. SQLite stores coordination state; repository files and observed checks establish truth. No server or daemon. Requires Node 22.13+.
+Local coordination for coding agents: shared work, messages, verification, and reusable learning. SQLite stores coordination state; repository files and observed checks establish truth. No server or daemon. Requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`.
 
 ## Start
 
 ```bash
+npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
+# After reviewing the destination, rerun without --dry-run to install.
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-my-agent}"
 npx @octocodeai/octocode-awareness attend --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
 npx @octocodeai/octocode-awareness schema commands --compact

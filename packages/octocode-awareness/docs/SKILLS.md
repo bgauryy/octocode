@@ -8,7 +8,7 @@ separate from Agent runtime and control databases.
 
 ## Install
 
-Requires Node.js 22.13.0+ (`node:sqlite` without an experimental flag).
+Requires Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` (`node:sqlite` without an experimental flag).
 
 ```bash
 npx @octocodeai/octocode-awareness maintenance init --compact

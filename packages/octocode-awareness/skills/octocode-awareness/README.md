@@ -59,9 +59,16 @@ For the optional advanced workflow store:
 npx @octocodeai/octocode-awareness maintenance init --compact
 ```
 
-The host or package manager owns skill installation. Do not reconstruct destination
-paths or copy the bundled skill from an agent prompt. `maintenance init` is safe
-to repeat.
+Install this bundled skill through the public CLI. Choose an explicit platform and
+scope, preview the destination, then rerun without `--dry-run` only after approval:
+
+```bash
+npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
+```
+
+Run `npx @octocodeai/octocode-awareness skill install --help` for user-level and
+host-specific destinations. The CLI copies its packaged skill directly; do not
+reconstruct package paths in an agent prompt. `maintenance init` is safe to repeat.
 
 Awareness is the package's only bundled skill. The separately owned
 `octocode-orchestrator` skill remains in the sibling

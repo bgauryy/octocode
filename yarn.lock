@@ -2328,7 +2328,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-awareness@npm:^1.5.0, @octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
+"@octocodeai/octocode-awareness@npm:^1.5.0":
+  version: 1.5.0
+  resolution: "@octocodeai/octocode-awareness@npm:1.5.0"
+  bin:
+    octocode-awareness: out/octocode-awareness.js
+  checksum: 10c0/6c57585436b9774cd8256e5276b1e022fa6c2829c73df782c3ffc7bb6dbf13c1f95bf145a44f532493aaddf9e4c95325b612f525f099f0bbd7b24e1b8541bc0d
+  languageName: node
+  linkType: hard
+
+"@octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-awareness@workspace:packages/octocode-awareness"
   dependencies:
@@ -2442,6 +2451,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/server": "npm:^2.0.0"
     "@npmcli/config": "npm:^11.0.1"
+    "@octocodeai/agent-contracts": "npm:0.1.0"
     "@octocodeai/config": "npm:19.1.0"
     "@octocodeai/octocode-core": "npm:18.3.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
@@ -7414,6 +7424,7 @@ __metadata:
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.7.1"
+    "@octocodeai/agent-contracts": "npm:0.1.0"
     "@octocodeai/config": "npm:19.1.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
     "@octocodeai/octocode-tools-core": "npm:19.1.0"

@@ -57,6 +57,7 @@ export const commandIndex = [
   { command: "docs list", schema: "docs_catalog", use: "List skill reference docs (references/*.md).", example: "npx @octocodeai/octocode-awareness docs list --compact" },
   { command: "docs show", schema: "docs_catalog", use: "Show one skill reference by name.", example: "npx @octocodeai/octocode-awareness docs show architecture" },
   { command: "docs staleness", schema: "doc_staleness", use: "Find docs likely stale from edit activity.", example: 'npx @octocodeai/octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact' },
+  { command: "skill install", schema: null, use: "Preview or copy the bundled octocode-awareness skill into an explicit agent platform and scope.", example: 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run' },
   { command: "maintenance digest", schema: "digest", use: "Preview or run memory, expired-lock, terminal-refinement, and terminal-run cleanup; signal/reference pressure is report-only.", example: 'npx @octocodeai/octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
   { command: "maintenance init", schema: null, use: "Initialize the Awareness workflow store deterministically; safe to repeat.", example: "npx @octocodeai/octocode-awareness maintenance init --compact" },
   { command: "maintenance self-test", schema: null, use: "Run in-memory DB smoke checks.", example: "npx @octocodeai/octocode-awareness maintenance self-test --compact" },

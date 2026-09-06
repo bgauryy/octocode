@@ -196,9 +196,9 @@ test('buildPlanPageHtmlFromModel uses the persisted review phase and revision fo
   };
   const html = renderPage(STEPS, undefined, [], review);
   assert.match(html, /class="ph now"><span class="ph-g">▸<\/span>Review/);
-  assert.match(html, /data-reply-command="\/octocode-plan start abcdef1234567890"/);
+  assert.match(html, /data-plan-action="start" data-revision="abcdef1234567890"/);
   assert.match(html, /Start implementation/);
-  assert.match(html, /data-reply-command="\/octocode-plan changes"/);
+  assert.match(html, /data-plan-action="changes"/);
   assert.doesNotMatch(html, /Approve revision/);
 });
 
@@ -216,7 +216,7 @@ test('accepted recovery state still offers Start without a second approval actio
   };
   const html = renderPage(STEPS, undefined, [], review);
   assert.match(html, /class="ph now"><span class="ph-g">▸<\/span>Accepted/);
-  assert.match(html, /data-reply-command="\/octocode-plan start abcdef1234567890"/);
+  assert.match(html, /data-plan-action="start" data-revision="abcdef1234567890"/);
   assert.match(html, /Start implementation/);
   assert.doesNotMatch(html, /Approve revision/);
 });
@@ -268,13 +268,13 @@ test('plan HTML includes a direct, acceptance-aware browser reply widget', () =>
   assert.match(html, /role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(html, /Connecting to the running agent/);
   assert.match(html, /messageBridge/);
-  assert.match(html, /run \/octocode-plan html to reopen the live page/);
+  assert.match(html, /run \/configuration and choose Review plan to reopen the live page/);
   assert.match(html, /Your feedback remains saved/);
-  assert.match(html, /const consumesNotes = !command \|\| command === '\/octocode-plan changes'/,
+  assert.match(html, /const consumesNotes = !action \|\| action === 'changes'/,
     'Start/Accept never clear feedback text they did not send');
   assert.match(html, /white-space:normal; overflow:visible/,
     'handler errors wrap in full instead of being visually truncated');
-  assert.doesNotMatch(html, /data-reply-command=/, 'no state-changing action is shown without persisted review state');
+  assert.doesNotMatch(html, /data-plan-action=/, 'no state-changing action is shown without persisted review state');
 });
 
 test('plan HTML preserves long widget content without clipping or source truncation', () => {

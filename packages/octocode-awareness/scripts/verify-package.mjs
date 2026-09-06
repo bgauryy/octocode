@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -174,7 +174,18 @@ try {
   const help = run(process.execPath, [cli, '--help'], installedOptions);
   assert(help.includes(join(installed, 'out/skills')), 'published CLI must discover its bundled skill tree');
   assert(help.includes('octocode-awareness'), 'published CLI must name its bundled skill');
+  assert(help.includes('skill install --platform'), 'published CLI must explain how to install its bundled skill');
   assert(help.includes('docs list --compact'), 'published CLI must advertise the command backed by bundled skill docs');
+  const skillProject = join(isolated, 'skill-project');
+  mkdirSync(skillProject, { recursive: true });
+  const skillDestination = join(skillProject, '.agents/skills/octocode-awareness');
+  const preview = JSON.parse(run(process.execPath, [cli, 'skill', 'install', '--platform', 'shared', '--project-dir', skillProject, '--dry-run', '--compact'], installedOptions));
+  assert(preview.ok === true && preview.action === 'dry-run', 'published CLI skill install preview failed');
+  assert(preview.destination === skillDestination, 'published CLI skill install preview resolved the wrong destination');
+  assert(!existsSync(skillDestination), 'published CLI skill install preview wrote files');
+  const skillInstall = JSON.parse(run(process.execPath, [cli, 'skill', 'install', '--platform', 'shared', '--project-dir', skillProject, '--compact'], installedOptions));
+  assert(skillInstall.ok === true && skillInstall.changed === true, 'published CLI did not install its bundled skill');
+  assert(readFileSync(join(skillDestination, 'SKILL.md')).equals(readFileSync(join(installed, 'out/skills/octocode-awareness/SKILL.md'))), 'installed skill differs from the CLI bundle');
   // Schemas are served dynamically by the CLI — no static out/schemas files.
   const names = JSON.parse(run(process.execPath, [cli, 'schema', 'list', '--compact'], installedOptions));
   assert(Array.isArray(names) && names.length > 0, 'schema list must return a non-empty schema name array');

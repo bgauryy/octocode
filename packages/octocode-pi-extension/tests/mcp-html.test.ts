@@ -33,6 +33,26 @@ test('settings actions apply typed session runtime controls', async () => {
   assert.throws(() => parseMcpManagerAction({ action: 'set-permission-level', level: 'unsafe' }), /Invalid permission level/);
 });
 
+test('configuration explains unavailable persistence and disables only database-backed controls', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-memory-settings-'));
+  roots.push(root);
+  const previousMode = process.env['OCTOCODE_STORAGE_MODE'];
+  process.env['OCTOCODE_HOME'] = path.join(root, 'home');
+  process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
+  try {
+    const html = await renderMcpManagerPage({ cwd: root, isProjectTrusted: () => true } as PiContext);
+    assert.match(html, /Saved enablement is unavailable/);
+    assert.match(html, /storage.mode=memory/);
+    assert.match(html, /data-action="disable"[^>]*disabled/);
+    assert.match(html, /data-action="disable-skill"[^>]*disabled/);
+    assert.doesNotMatch(html, /data-action="set-footer-density"[^>]*disabled/);
+    assert.equal(fs.existsSync(path.join(root, 'home', 'extension', 'state', 'extension.sqlite3')), false);
+  } finally {
+    if (previousMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
+    else process.env['OCTOCODE_STORAGE_MODE'] = previousMode;
+  }
+});
+
 test('settings actions use canonical optimistic revisions and redacted provenance', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-canonical-settings-'));
   roots.push(root);
@@ -146,9 +166,9 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
     assert.match(html, new RegExp(`href="#${section}"`));
   }
   assert.match(html, /Terminal theme/);
-  assert.match(html, /canonical agent-core settings service/);
+  assert.match(html, /This page cannot edit them/);
   assert.match(html, /exact-definition trust/);
-  assert.match(html, /transactional contribution registry/);
+  assert.match(html, /Registered extensions/);
   assert.match(html, /Runtime controls/);
   assert.match(html, /data-action="set-footer-density"/);
   assert.match(html, /data-action="set-permission-level"/);
@@ -183,7 +203,7 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
   assert.doesNotMatch(html, /FOREIGN SECRET/);
   assert.doesNotMatch(html, /ARG SECRET|QUERY_SECRET|user:pass|fragment/);
   assert.match(html, /Everything lives here/);
-  assert.match(html, /run <code>\/settings<\/code>/i);
+  assert.match(html, /run <code>\/configuration<\/code>/i);
   assert.match(html, new RegExp(configPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(html, /x-octocode-action-token/);
   assert.match(html, /test-action-token/);
