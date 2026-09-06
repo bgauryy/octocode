@@ -70,14 +70,14 @@ test('setPlan marks the first step doing, rest todo', () => {
   assert.deepEqual(steps.map((s) => s.status), ['doing', 'todo', 'todo']);
 });
 
-test('draft plans persist without active work and inject an explicit approval gate', () => {
+test('draft plans persist without active work and project draft state without workflow instructions', () => {
   const steps = setPlan(CWD, ['Review this', 'Then build'], 'draft');
   assert.deepEqual(steps.map((s) => s.status), ['todo', 'todo']);
   assert.equal(getPlanLifecycle(CWD), 'draft');
   assert.equal(readPersistedLifecycleForTests(CWD), 'draft');
   const addendum = renderActivePlanAddendum(CWD);
-  assert.match(addendum, /awaiting Start or requested changes/i);
-  assert.match(addendum, /wait for the Start decision/i);
+  assert.match(addendum, /phase=draft|phase=in_review/i);
+  assert.doesNotMatch(addendum, /wait for the Start decision/i);
   assert.doesNotMatch(addendum, /Execute active steps|mark the next runnable step/i);
 });
 
@@ -139,7 +139,7 @@ test('activatePlan enters executing and starts exactly one runnable step', () =>
   assert.equal(getPlanLifecycle(CWD), 'executing');
   assert.equal(readPersistedLifecycleForTests(CWD), 'executing');
   assert.deepEqual(active.map((s) => s.status), ['doing', 'todo']);
-  assert.match(renderActivePlanAddendum(CWD), /Execute active steps/);
+  assert.match(renderActivePlanAddendum(CWD), /phase=executing/);
 });
 
 test('Accept binds the exact displayed RFC bytes without starting work, then Start begins exactly one step', () => {
@@ -256,7 +256,7 @@ test('setPlan accepts {text, activeForm} objects and bare strings interchangeabl
   assert.equal(steps[0]!.activeForm, 'Editing file');
   assert.equal(steps[1]!.activeForm, undefined);
   // The current-step hint prefers the activeForm label.
-  assert.match(renderActivePlanAddendum(CWD), /next: Editing file/);
+  assert.match(renderActivePlanAddendum(CWD), /Current: Editing file/);
 });
 
 test('active-plan prompt metadata cannot terminate or forge the addendum', () => {
@@ -326,12 +326,12 @@ test('plan persists to disk (survives restart) and clear removes it', () => {
 });
 
 
-test('stale-plan nudge fires after N idle turns and clears on mutation', () => {
+test('idle turns do not inject workflow nudges', () => {
   const cwd = '/tmp/plan-stale-ws';
   setPlan(cwd, ['a', 'b']);
-  assert.doesNotMatch(renderActivePlanAddendum(cwd), /not been updated/);
+  const before = renderActivePlanAddendum(cwd);
   for (let i = 0; i < STALE_PLAN_TURNS; i++) bumpPlanTurn(cwd);
-  assert.match(renderActivePlanAddendum(cwd), /not been updated in 10\+ turns/);
+  assert.equal(renderActivePlanAddendum(cwd), before);
   // Any mutation resets the staleness counter.
   completeStep(cwd, 1);
   assert.doesNotMatch(renderActivePlanAddendum(cwd), /not been updated/);
@@ -388,7 +388,7 @@ test('complete advances the next todo to doing and counts done', () => {
   const s = getPlan(CWD);
   assert.equal(s[0]!.status, 'done');
   assert.equal(s[1]!.status, 'doing'); // auto-advanced
-  assert.match(renderActivePlanAddendum(CWD), /1\/3 done/);
+  assert.match(renderActivePlanAddendum(CWD), /1\/3 completed/);
 });
 
 test('addStep appends a todo; start can open a parallel active lane', () => {
@@ -403,12 +403,12 @@ test('addendum shows runnable parallel lanes and all active work', () => {
   const cwd = '/tmp/plan-parallel-addendum-ws';
   setPlan(cwd, [{ text: 'Edit', activeForm: 'Editing' }, { text: 'Review', activeForm: 'Reviewing' }, { text: 'Verify', dependsOn: [1, 2] }]);
   let out = renderActivePlanAddendum(cwd);
-  assert.match(out, /parallel-ready: 2\. Review/);
-  assert.match(out, /queries.*reasoning.*action/is);
+  assert.match(out, /\[ \] 2\. Review/);
+  assert.doesNotMatch(out, /queries.*reasoning.*action/is);
   assert.doesNotMatch(out, /plan\((?:set|propose|clarify|add|start|complete|remove|clear|show)/i);
   startStep(cwd, 2);
   out = renderActivePlanAddendum(cwd);
-  assert.match(out, /now: Editing \| Reviewing/);
+  assert.match(out, /Current: Editing \| Reviewing/);
   assert.doesNotMatch(out, /parallel-ready: 3\. Verify/, 'blocked dependent work is not advertised as parallel-ready');
   clearPlan(cwd);
 });
@@ -419,7 +419,7 @@ test('addendum shows markers and a next-step line', () => {
   assert.match(out, /^<active_plan>/);
   assert.match(out, /\[~\] 1\. first/);
   assert.match(out, /\[ \] 2\. second/);
-  assert.match(out, /next: first/);
+  assert.match(out, /Current: first/);
   assert.match(out, /<\/active_plan>$/);
 });
 

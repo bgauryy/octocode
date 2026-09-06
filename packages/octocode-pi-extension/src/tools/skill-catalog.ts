@@ -87,7 +87,7 @@ export function renderSkillsDashboard(skills: SkillCatalogEntry[] | undefined, e
     ...(usageLines.length > 0 ? usageLines : ['(none yet — the agent loads them via the skill tool when a task matches)']),
     '',
     'How to use',
-    'The agent loads enabled skills with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}). Manage enablement in /mcp.',
+    'The agent loads enabled skills with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}). Manage enablement in /configuration.',
     'Invoke a specific enabled skill with /skill:<name>.',
     'Install bundled skills with: npx octocode skill install <skill> --platform pi',
     'Refresh discovery with /reload after installs/removals.',

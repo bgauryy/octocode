@@ -20,11 +20,10 @@ import { getPiRegistryRegistrationReceipts } from '../src/adapters/pi-registry-a
 import { applyCustomEditsToContent } from '../src/tools/edit-tool.js';
 import { recordFileReadState, clearReadStatesForTests } from '../src/tools/file-state.js';
 import { assertPathAllowed } from '../src/tools/path-guard.js';
-import { getPermissionLevel, setPermissionLevel } from '../src/tools/approval.js';
 import { activePlanScope, clearPlan, getPlan, getPlanReviewState, setPlan } from '../src/tools/active-plan.js';
 import { setPlanDirectoryServerForTests } from '../src/tools/plan-tool.js';
 import { setPlanOpenerForTests } from '../src/tools/plan-html.js';
-import { buildFooterSegments, getFooterDensity, setFooterDensity } from '../src/ui-extras.js';
+import { buildFooterSegments, setFooterDensity } from '../src/ui-extras.js';
 import { PI_CONFIG_DIR } from '../src/constants.js';
 import { DIRECT_TOOL_DESCRIPTIONS, getDirectToolContractStats, registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { runtimeStoreFor, setManagedActivity, setManagedStatus } from '../src/tools/runtime-renderer.js';
@@ -2455,8 +2454,8 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.match(cachedPrompt, /effective_inline_images: false/);
     assert.match(cachedPrompt, /<available_skills>/);
     assert.doesNotMatch(cachedPrompt, /octocode-awareness:/);
-    assert.match(cachedPrompt, /octocode-roast: Use when a blunt evidence-backed code roast is wanted:.*\[user\/global\]/);
-    assert.match(cachedPrompt, /load the minimal matching skill BEFORE acting via skill\(\{queries:/);
+    assert.match(cachedPrompt, /octocode-roast: Critical review and adversarial critique\. \[user\/global\]/);
+    assert.doesNotMatch(cachedPrompt, /BEFORE acting/);
 
     const called = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'ok' } });
     assert.match((called.content[0] as { text: string }).text, /echo:ok/);
@@ -2590,6 +2589,7 @@ test('re-exports the extracted Octocode UI implementation from the package entry
 });
 
 test('Octocode metrics footer updates on session and turn lifecycle (single surface, no status dup)', async () => {
+  setFooterDensity('default');
   const { handlers, pi } = await captureExtensions();
   pi.execResults.set('octocode auth status --json', {
     stdout: JSON.stringify({ authenticated: true, tokenSource: 'octocode', tokenExpired: false }),
@@ -2649,7 +2649,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   assert.doesNotMatch(initial, /last —/);
   assert.match(initial, /update-awareness/);
   assert.doesNotMatch(initial, /keys .*shift\+tab|ctrl\+shift\+a.*perm|esc.*stop/);
-  assert.match(initial, /\/settings/);
+  assert.match(initial, /\/configuration/);
   assert.doesNotMatch(initial, /\/commands guide/);
   assert.doesNotMatch(initial, /\/harness inspect|\/now snapshot|\/status dash/);
   assert.match(initial, /github ✓/);
@@ -2702,7 +2702,7 @@ test('formatOctocodeDashboard is scan-friendly and includes health warnings', ()
   assert.match(dashboard, /Management: npx octocode/);
   assert.match(dashboard, /Awareness: .*octocode-awareness.*octocode-awareness\.js/);
   assert.match(dashboard, /user CLI: npx -p @octocodeai\/octocode-awareness octocode-awareness/);
-  assert.match(dashboard, /\/commands/);
+  assert.match(dashboard, /\/configuration/);
   assert.doesNotMatch(dashboard, /\/octocode-status/);
 
   const belowBoundary = formatOctocodeDashboard({
@@ -2929,8 +2929,11 @@ test('extension lifecycle notifications fall back to console outside UI contexts
     infos.push(String(message));
   };
   try {
-    await commands.get('octocode')!.handler('', undefined);
-    assert.ok(infos.some((message) => /\[octocode:info\].*Octocode dashboard/.test(message)));
+    const opener = vi.spyOn(await import('../src/tools/mcp-html.js'), 'openMcpManager').mockResolvedValue({ ok: true, url: 'http://127.0.0.1:1234/configuration/settings.html' });
+    try {
+      await commands.get('configuration')!.handler('', undefined);
+      assert.ok(infos.some((message) => /\[octocode:info\].*Configuration opened/.test(message)));
+    } finally { opener.mockRestore(); }
   } finally {
     console.info = originalInfo;
   }
@@ -3211,7 +3214,7 @@ test('lists every extension harness surface', () => {
   assert.deepEqual(harness.overriddenBuiltins, ['bash']);
   assert.deepEqual(harness.disabledBuiltins, ['read', 'edit', 'write', 'grep', 'find', 'ls']);
   assert.deepEqual(harness.passthroughBuiltins, []);
-  assert.ok(harness.extensionCommands.includes('/octocode-harness'));
+  assert.ok(harness.extensionCommands.includes('/configuration'));
   assert.match(
     harness.cliNote,
     /npx octocode/,
@@ -3762,24 +3765,11 @@ test('agent spawn starts a lean RPC Pi process and agent lifecycle can list/stat
     return proc;
   });
   try {
-    const { tools, commands } = await captureExtensions();
+    const { tools } = await captureExtensions();
     const spawnTool = tools.get('agent')!;
     const messageTool = tools.get('agent')!;
-    const agentsCommand = commands.get('octocode-agents')!;
     assert.ok(spawnTool, 'agent spawn registered');
     assert.ok(messageTool, 'agent lifecycle registered');
-    assert.ok(agentsCommand, 'octocode-agents command registered');
-    assert.match(agentsCommand.description, /inspect <id>/);
-    const inspectCompletion = agentsCommand.getArgumentCompletions?.('i')?.find(item => item.value === 'inspect ');
-    assert.ok(
-      inspectCompletion,
-      'octocode-agents completions include inspect from the centralized command contract'
-    );
-    assert.match(inspectCompletion.description ?? '', /full state/);
-    assert.ok(
-      agentsCommand.getArgumentCompletions?.('h')?.some(item => item.value === 'help'),
-      'octocode-agents completions include help'
-    );
     const itemSchema = (spawnTool.parameters as { properties: { queries: { items: { properties: Record<string, { description: string; enum?: string[] }> } } } }).properties.queries.items.properties;
     assert.match(itemSchema.model!.description, /pi -ne --list-models/);
     assert.match(itemSchema.planStep!.description, /Stable task ID/);
@@ -3895,44 +3885,6 @@ test('agent spawn starts a lean RPC Pi process and agent lifecycle can list/stat
       && entry.verification === 'inspected docs/a.md'
     ));
 
-    type TestTheme = { fg(color: string, text: string): string; bold(text: string): string };
-    type TestWidgetContent = string[] | ((tui: unknown, theme: TestTheme) => { render(width: number): string[] });
-    const widgetCalls: Array<{
-      name: string;
-      content: TestWidgetContent | undefined;
-      opts?: { placement?: 'aboveEditor' | 'belowEditor' };
-    }> = [];
-    const notifications: Array<{ message: string; level?: string }> = [];
-    const agentCommandCtx = () => ({
-      hasUI: true,
-      ui: {
-        notify: (message: string, level?: string) => notifications.push({ message, level }),
-        setStatus: () => undefined,
-        setWidget: (name: string, content: TestWidgetContent | undefined, opts?: { placement?: 'aboveEditor' | 'belowEditor' }) =>
-          widgetCalls.push({ name, content, opts }),
-      },
-    });
-    await agentsCommand.handler('help', agentCommandCtx());
-    assert.match(notifications.at(-1)?.message ?? '', /inspect <id-or-prefix>/);
-    assert.match(notifications.at(-1)?.message ?? '', /agent\(\{queries:/);
-    assert.match(notifications.at(-1)?.message ?? '', /type:"inspect"\|"wait"/);
-    assert.match(notifications.at(-1)?.message ?? '', /unified footer/);
-    assert.match(notifications.at(-1)?.message ?? '', /ids can be full ids or short prefixes/);
-
-    await agentsCommand.handler('', agentCommandCtx());
-    assert.match(notifications.at(-1)?.message ?? '', /docs-scout/);
-    assert.match(notifications.at(-1)?.message ?? '', /done/);
-    assert.match(notifications.at(-1)?.message ?? '', /guy-provider-anthropic\/sonnet:high/);
-    assert.match(notifications.at(-1)?.message ?? '', /think:medium/);
-    assert.match(notifications.at(-1)?.message ?? '', /tools:4/);
-    assert.equal(widgetCalls.length, 0, 'agent inspection does not create persistent duplicate state');
-
-    await agentsCommand.handler(`inspect ${agentId.slice(0, 8)}`, agentCommandCtx());
-    assert.match(notifications.at(-1)?.message ?? '', /Agent status \[docs-scout\]/);
-    assert.match(notifications.at(-1)?.message ?? '', /evidence: docs\/a\.md:1/);
-
-    await agentsCommand.handler('prune', agentCommandCtx());
-    assert.match(notifications.at(-1)?.message ?? '', /Pruned 0 Octocode agent/);
     await invokeExecute(messageTool, { queries: [{ reasoning: 'Exercise worker lifecycle.', type: 'message',
       agentId,
       message: 'also inspect tests', }] });

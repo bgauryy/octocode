@@ -3,14 +3,15 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, test } from 'vitest';
+import { afterEach, beforeEach, test } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { createIsolatedAwarenessStore, createPiFlowHarness } from '@octocodeai/agent-testing';
 import { openAwarenessStore } from '@octocodeai/octocode-awareness';
 import {
   clearPlan,
 } from '../src/tools/active-plan.js';
-import { buildPlanPageHtmlFromModel } from '../src/tools/plan-html.js';
+import { openPlanReview } from '../src/tools/plan-tool.js';
+import { buildPlanPageHtmlFromModel, setPlanOpenerForTests } from '../src/tools/plan-html.js';
 import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
 import { buildPlanFooterSegments } from '../src/extension-ui.js';
 import { renderFooterView } from '../src/tui/footer-view.js';
@@ -22,7 +23,11 @@ import extension from '../src/index.js';
 import type { PiContext, PiInstance } from '../src/types.js';
 
 const roots: string[] = [];
+beforeEach(() => setPlanOpenerForTests(async () => ({ ok: true })));
+
 afterEach(() => {
+  setPlanOpenerForTests(undefined);
+  stopLocalServer();
   for (const root of roots.splice(0)) {
     clearPlan(root);
     fs.rmSync(root, { recursive: true, force: true });
@@ -101,19 +106,19 @@ test('drives AskUser, explicit browser Start, shared work, verification, and eve
     }) as { details: { revision: string } };
     assert.equal(proposed.details.revision, revision);
     assert.equal(listLocalServerMounts().length, 0, 'proposing never opens a browser automatically');
-    await flow.expandPrompt('/octocode-plan html');
+    await openPlanReview(ctx);
     const reviewMount = listLocalServerMounts()[0]!;
     const reviewUrl = `${getLocalServerBaseUrl()!}${reviewMount.name}/`;
 
-    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}`, origin: 'https://attacker.invalid' })).status, 403);
-    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}`, contentType: 'text/plain' })).status, 415);
-    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}` })).status, 202);
+    assert.equal((await postPlanAction(reviewUrl, { action: 'start', revision }, 'https://attacker.invalid')).status, 403);
+    assert.equal((await postPlanAction(reviewUrl, { action: 'start', revision }, undefined, 'text/plain')).status, 415);
+    assert.equal((await postPlanAction(reviewUrl, { action: 'start', revision })).status, 200);
     let model = getCurrentPlanReadModel(ctx);
     assert.equal(model.phase, 'executing', JSON.stringify(flow.eventsOf('ui.notification').slice(-5)));
     assert.ok(model.authorization.acceptReceiptId);
     assert.ok(model.authorization.startReceiptId);
     const startReceipt = model.authorization.startReceiptId;
-    assert.equal((await flow.postBrowserMessage({ url: reviewUrl, message: `/octocode-plan start ${revision}` })).status, 202);
+    assert.equal((await postPlanAction(reviewUrl, { action: 'start', revision })).status, 200);
     model = getCurrentPlanReadModel(ctx);
     assert.equal(model.authorization.startReceiptId, startReceipt, 'duplicate browser click cannot mint new authority');
 
@@ -155,8 +160,8 @@ test('drives AskUser, explicit browser Start, shared work, verification, and eve
     assert.match(renderPlanContext(model), /phase=executing/);
     assert.deepEqual((renderPlanReadModel(model, 'rpc') as typeof model).tasks.map((task) => task.id), model.tasks.map((task) => task.id));
     assert.equal(flow.eventsOf('ui.widget').length, 0, 'plan state never creates a duplicate persistent widget');
-    assert.ok(flow.normalizedTranscript().some((event) => event.kind === 'command.expanded'));
-    flow.assertSequence(['ui.dialog', 'command.expanded', 'browser.request', 'command.expanded', 'session.restarted']);
+    assert.equal(flow.eventsOf('command.expanded').length, 0, 'browser actions never inject slash commands');
+    flow.assertSequence(['ui.dialog', 'session.restarted']);
   } finally {
     stopLocalServer();
     await isolated.cleanup();
@@ -253,24 +258,32 @@ test('registered AskUser widget covers recommended, free-text, cancel, and nonin
   }
 });
 
-test('registered command Start requires a displayed revision and stale RFC bytes cannot reuse authority', async () => {
+test('browser Start requires a displayed revision and stale RFC bytes cannot reuse authority', async () => {
   const { workspace, rfcPath, revision } = fixture();
   const flow = createPiFlowHarness({ cwd: workspace, scripted: { customs: [{ status: 'cancelled' }] } });
   await extension(flow.pi as unknown as PiInstance);
   await flow.runTool('plan', {
     queries: [{ reasoning: 'propose exact revision', action: 'propose', consequential: true, rfcPath, steps: ['Implement'] }],
   });
-  await flow.expandPrompt('/octocode-plan start');
+  const url = await openPlanReview(flow.context as unknown as PiContext);
+  assert.ok(url);
+  assert.equal((await postPlanAction(url, { action: 'start' })).status, 400);
   assert.equal(getCurrentPlanReadModel(flow.context as unknown as PiContext).phase, 'in_review');
   fs.appendFileSync(rfcPath, '\nchanged');
-  await flow.expandPrompt(`/octocode-plan start ${revision}`);
+  assert.equal((await postPlanAction(url, { action: 'start', revision })).status, 400);
   const stale = getCurrentPlanReadModel(flow.context as unknown as PiContext);
   assert.equal(stale.phase, 'in_review');
   assert.deepEqual(stale.tasks.map((step) => step.status), ['todo']);
-  assert.ok(flow.eventsOf('command.finished').length >= 2);
+  assert.equal(flow.eventsOf('command.finished').length, 0);
 
   const unavailable = await serveDirectory('unavailable-flow', workspace, { indexFile: 'missing.html' });
   assert.ok(unavailable);
   assert.equal((await flow.postBrowserMessage({ url: unavailable!.url, message: '/octocode-plan show' })).status, 404);
   stopLocalServer();
 });
+
+async function postPlanAction(url: string, action: unknown, origin = new URL(url).origin, contentType = 'application/json'): Promise<Response> {
+  return fetch(new URL('__octocode/action', url), {
+    method: 'POST', headers: { origin, 'content-type': contentType }, body: JSON.stringify(action),
+  });
+}

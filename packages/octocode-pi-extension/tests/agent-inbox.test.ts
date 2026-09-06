@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import { test, beforeEach } from 'vitest';
 import {
   LONG_RUN_NOTIFY_MS,
-  OCTOCODE_INBOX_COMMAND,
   buildInboxActionItems,
   buildInboxItems,
   inboxDisplayState,

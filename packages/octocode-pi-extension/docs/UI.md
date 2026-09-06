@@ -159,42 +159,31 @@ A new or changed widget is not complete until it satisfies these checks:
 - No prompt or automatic browser launch without interactive user choice.
 - Targeted renderer/input tests, typecheck, package build, and a real TTY smoke for changed interaction paths.
 
-## Dashboard
+## Configuration
 
-Run:
+Run `/configuration`, also shown in the footer, to open the local browser controls.
+The extension adds one slash command. Workflow choices remain with the user and
+model; input text and model output do not trigger regex-generated instructions.
+
+The page includes session permissions, footer density, theme, effort, MCP
+connections/tools, skill enablement, and the live command inventory. Review plan
+opens a live page whose Start and Request changes buttons apply typed actions.
+Browser feedback goes to the agent as plain text, without command expansion.
+
+The runtime tool inventory remains:
 
 ```text
-/octocode
-```
-
-The dashboard is scan-first:
-
-```text
-◆ Octocode dashboard
-Status
-✓ system prompt: found
 ✓ tools: 0 native Pi tools + 16 support tools
-✓ metrics: ctx ▓▓▓▓▓░░░░░ 50% (50k/100k)
-Agents
-Octocode agents: none
-Health
-✓ no dashboard warnings
-Next actions
-/commands (all slash commands) · /octocode-palette
 ```
-
-Warnings appear when the context is high, assets are missing, or search falls back to a weaker provider.
 
 ## Command inventory
 
-Run `/commands` for the live registry grouped into Octocode commands, Pi/extension commands, and skills/templates. It reads `pi.getCommands()` at invocation time, hides private names beginning with `_`, and uses each registered description as when-to-use guidance.
+The browser reads `pi.getCommands()` when opened. It hides private names, groups
+entries by source, and supports search. Octocode contributes `/configuration`;
+host commands and user-installed skills or prompts keep their own entries.
 
-Always-on orientation and health commands: `/commands`, `/octocode`, `/octocode-now`, `/octocode-harness`.
-Work-state commands: `/octocode-plan` (`new <goal>` = research → plan `action:"propose"` inside `queries[]` → Start or Request changes; planning keeps research and RFC authoring tools available, while implementation waits for Start; `off` exits plan mode), `/octocode-tasks`, `/octocode-agents`, `/octocode-inbox`, `/octocode-cron`.
-Configuration and integration commands: `/settings` (complete local control center with the live `pi.getCommands()` public registry, skills, MCP servers/tools, prompt state, sources, and overrides; defaults to `#skills` and accepts section completions), `/mcp` (opens MCP connections), `/octocode-setup`, `/octocode-skills`, `/octocode-skills-update`, `/octocode-theme`, `/octocode-chrome`.
-Modern TUI commands: `/octocode-palette`, `/octocode-dial`, `/octocode-footer` (`legend` explains every segment), `/octocode-permissions` (level cycle: `ctrl+shift+a`), `/octocode-profile` (apply `~/.octocode/profiles.json` live), `/octocode-plan html` (live local plan page), `/octocode-rewind`, `/octocode-watch`, `/octocode-export`.
-
-At session start, the footer probes `npx octocode auth status --json` asynchronously. It paints `github ✓` green and paints `github ✗ login required` or `github check failed` red. The probe retains only authenticated/source/expiry status, never token values. When the probe reports a missing login, `/commands` shows `npx octocode auth login` and `gh auth login`.
+At startup the footer checks GitHub login through `npx octocode auth status --json`.
+It retains status only; credentials are never rendered.
 
 Scrollback rule (pi-tui `tui-main-screen.js`): a change to any line **above the visible viewport** — or a width/height change — forces a full redraw that clears the screen *and scrollback*. Octocode therefore renders **nothing above the transcript**: it does not call `setHeader`, and the session name lives only in the terminal title. Every transcript entry, message, and tool row is a pure function of its data. Live operational state stays in the register-once footer; unrelated mode/config chips remain status-owned. Repaints use `tui.requestRender`, and per-frame render closures never do O(session) work. Events and the 1-second tick sample context usage because `pi.getContextUsage()` rebuilds the session branch per call; the banner also memoizes its version read. Diagnose any remaining full redraw with `PI_DEBUG_REDRAW=1` (pi logs each `fullRender:` reason to `pi-debug.log`).
 
@@ -202,15 +191,9 @@ Motion language: the transcript and footer use no animated decoration — pi's w
 
 ## Agent ledger
 
-Run:
-
-```text
-/octocode-agents
-/octocode-agents inspect <id-or-prefix>
-/octocode-agents kill <id-or-prefix>
-/octocode-agents prune
-/octocode-agents hide
-```
+The footer shows current workers. Ask the agent to inspect, message, wait for, or
+stop a worker through its `agent` tool. Notifications remain available without
+an extension slash command.
 
 Ledger badges:
 
@@ -241,7 +224,7 @@ Ledger badges:
 | **Default fg** | `count`, `bright` | Values such as counts and totals, plus pending plan rows — bright against dim labels | — |
 | **Grey ramp** | `muted` → `dim` → theme `faint` | Secondary text → chrome (separators, `│` bars, hints, finished plan rows) → rules | primary content |
 
-The footer speaks in words, not glyphs, across responsive rows: `ctx ▓▓░░ 25% (250k/1M) · plan 3/6 · task 4 validating UI`, followed by identity/settings and one row for each visible worker. When width is limited, each row keeps its highest-priority content and truncates safely; it does not hide footer state behind `+N`. `/octocode-status`, `/octocode-agents`, and `/octocode-harness` retain diagnostic detail.
+The footer speaks in words, not glyphs, across responsive rows: `ctx ▓▓░░ 25% (250k/1M) · plan 3/6 · task 4 validating UI`, followed by identity/configuration and one row for each visible worker. When width is limited, each row keeps its highest-priority content and truncates safely; it does not hide footer state behind `+N`. `/octocode-status`, `/octocode-agents`, and `/octocode-harness` retain diagnostic detail.
 
 Attention states in the footer (`⚠`, `✗`, `✉`, near-full ctx) are additionally **bold** (`FooterSegment.attention`) — the only emphasis in the toolbar, so bold always means "look here". Per-row budget: at most three colours plus the grey ramp.
 

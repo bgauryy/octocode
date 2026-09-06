@@ -173,6 +173,8 @@ try {
   }
   const help = run(process.execPath, [cli, '--help'], installedOptions);
   assert(help.includes(join(installed, 'out/skills')), 'published CLI must discover its bundled skill tree');
+  assert(help.includes('octocode-awareness'), 'published CLI must name its bundled skill');
+  assert(help.includes('docs list --compact'), 'published CLI must advertise the command backed by bundled skill docs');
   // Schemas are served dynamically by the CLI — no static out/schemas files.
   const names = JSON.parse(run(process.execPath, [cli, 'schema', 'list', '--compact'], installedOptions));
   assert(Array.isArray(names) && names.length > 0, 'schema list must return a non-empty schema name array');

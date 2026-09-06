@@ -5,7 +5,7 @@ import { test } from 'vitest';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
 import { PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
 import { SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
-import { expandSubagentPrompt, SUBAGENT_COORDINATION, SUBAGENT_PLACEHOLDERS, SUBAGENT_SURFACE } from '@octocodeai/agent-contracts/prompts';
+import { expandSubagentPrompt, SUBAGENT_COORDINATION, SUBAGENT_PLACEHOLDERS } from '@octocodeai/agent-contracts/prompts';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const roleNames = ['architect', 'browser-agent', 'planner', 'researcher'] as const;

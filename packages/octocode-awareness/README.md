@@ -16,9 +16,15 @@ npx @octocodeai/octocode-awareness maintenance init --compact
 ```
 
 The canonical skill source is
-`packages/octocode-awareness/skills/octocode-awareness` in this repository. The
-published package bundles that Awareness skill only. The separately owned
-`octocode-orchestrator` skill remains in the sibling
+[`skills/octocode-awareness`](skills/octocode-awareness/SKILL.md). The published
+`npx @octocodeai/octocode-awareness` CLI bundles that skill, uses its scripts for
+host hooks, and serves its references through `docs list` / `docs show <name>`:
+
+```bash
+npx @octocodeai/octocode-awareness docs list --compact
+```
+
+The separately owned `octocode-orchestrator` skill remains in the sibling
 [`octocode-agent` repository](https://github.com/bgauryy/octocode-agent/tree/main/skills/octocode-orchestrator).
 Follow structured `attend.next`; discover one route with `schema command <noun> [action]`.
 Results are JSON and `--compact` reduces output. [docs/SKILLS.md](docs/SKILLS.md).

@@ -551,7 +551,7 @@ export async function formatOctocodeNow(ctx: PiContext | undefined, pi: PiInstan
     ...compactRepoStatus(repoStatus),
     '',
     'Next actions',
-    '/octocode-tasks · /octocode-skills · /octocode-agents · /settings · /octocode-cron',
+    '/configuration (local browser controls)',
   ].join('\n');
 }
 

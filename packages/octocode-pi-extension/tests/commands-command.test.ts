@@ -4,7 +4,7 @@ import {
   collectPublicCommands,
   formatCommandsGuide,
 } from '../src/tools/commands-command.js';
-import type { PiCommand, PiCommandContext, PiInstance } from '../src/types.js';
+import type { PiCommand, PiInstance } from '../src/types.js';
 
 function command(
   name: string,

@@ -20,6 +20,8 @@ Flow: **NOTICE → SCOPE/IDENTITY → INSPECT → ACT → OBSERVE → SETTLE/VER
 
 CLI reports operational state and advice from observed records. Hooks guard edits and emit changed pointers; the host owns context, tools, budgets, and workers.
 
+The public runner for every agent-facing command is `npx @octocodeai/octocode-awareness`. The package bundles this skill, and `npx @octocodeai/octocode-awareness docs list --compact` discovers the bundled references (`docs show <name>` reads one). `scripts/awareness.mjs` is the embedded skill/runtime copy, not the normal user entry point.
+
 ## Start small
 
 ```bash

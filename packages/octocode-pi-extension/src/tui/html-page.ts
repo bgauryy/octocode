@@ -186,7 +186,7 @@ ${mermaid}
 <main class="${opts.layout === 'document' ? 'document' : opts.wide ? 'wide' : ''}">
 <header class="brand-head"><div class="brand-mark" aria-hidden="true">O</div><div><p class="eyebrow">${escapeHtml(opts.eyebrow ?? 'Octocode · local control')}</p><h1>${escapeHtml(opts.title)}</h1><div class="sub">private, loopback-only workspace surface${live}</div></div></header>
 ${opts.bodyHtml}
-<footer>${opts.footerHtml ?? 'Configuration lives in <code>/settings</code> — your single place for MCP servers, tool enablement, skills, and prompt visibility.'}</footer>
+<footer>${opts.footerHtml ?? 'Configuration lives in <code>/configuration</code> — your single place for MCP servers, tool enablement, skills, and prompt visibility.'}</footer>
 </main>
 </body>
 </html>

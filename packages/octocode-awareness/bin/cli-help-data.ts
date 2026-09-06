@@ -32,10 +32,11 @@ export const HELP = `  🐙 Octocode Awareness
   AGENT LOOP  attend → work start → work end → verify mark → verify audit
   FLAGS   --compact lean JSON · --db-scope repo|global explicit one-call override · --db explicit path
   EXIT    0 ok · 1 input/verification debt · 2 conflict/wait/strict hook health
-  SKILL   bundled (${BUNDLED_SKILLS.length}) at ${BUNDLED_SKILLS_DIR}`;
+  SKILL   octocode-awareness bundled at ${BUNDLED_SKILLS_DIR}
+  SKILL DOCS  npx @octocodeai/octocode-awareness docs list --compact`;
 
 export const HELP_COMPACT = `octocode-awareness canonical noun/verb CLI: attend -> work start -> work end -> verify mark -> verify audit; use --compact for JSON.
-bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS_DIR}
+bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS.map(({ name }) => name).join(',')} @ ${BUNDLED_SKILLS_DIR}; docs: npx @octocodeai/octocode-awareness docs list --compact
 policy: $OCTOCODE_HOME/awareness/awareness.sqlite3, workspace-scoped rows, hooks=coordination
 expert: attend|plan|task|work|verify|signal|memory|refinement|query|reflect; schema commands --compact for the full map
 overrides: --db-scope repo|global changes one call; --db selects an explicit path

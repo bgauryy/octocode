@@ -45,7 +45,7 @@ test('settings actions use canonical optimistic revisions and redacted provenanc
   const html = await renderMcpManagerPage(ctx);
   assert.match(html, /data-settings-revision="1"/);
   assert.match(html, /Footer density/);
-  assert.match(html, /effective provenance runtime/);
+  assert.match(html, /data-settings-revision="1"/);
 });
 
 test('hook review actions bind settings.html to the canonical exact-hash catalog', async () => {
@@ -133,19 +133,19 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
     remote: { url: 'https://user:pass@mcp.example.test/api?token=QUERY_SECRET#fragment' },
   } }));
   const commands: PiCommand[] = [
-    { name: 'settings', description: 'Open the complete control center.', source: 'extension', sourceInfo: { path: '/extension/index.ts', source: 'octocode', scope: 'temporary', origin: 'package' } },
+    { name: 'configuration', description: 'Open the complete control center.', source: 'extension', sourceInfo: { path: '/extension/index.ts', source: 'octocode', scope: 'temporary', origin: 'package' } },
     { name: 'release', description: 'Run the release workflow.', source: 'skill', sourceInfo: { path: '/skills/release/SKILL.md', source: 'release', scope: 'project', origin: 'top-level' } },
     { name: 'review<script>', description: 'Review & summarize safely.', source: 'prompt', sourceInfo: { path: '/prompts/review.md', source: 'review', scope: 'user', origin: 'top-level' } },
   ];
   const html = await renderMcpManagerPage({ cwd, isProjectTrusted: () => true } as unknown as PiContext, 'test-action-token', undefined, commands);
   assert.equal(SETTINGS_HTML_FILE, 'settings.html');
   assert.match(html, /Octocode · extension control center/);
-  assert.match(html, /One extension control center/);
+  assert.match(html, /Your configuration/);
   for (const section of ['overview', 'appearance', 'models', 'hooks', 'plugins', 'diagnostics']) {
     assert.match(html, new RegExp(`id="${section}"`));
     assert.match(html, new RegExp(`href="#${section}"`));
   }
-  assert.match(html, /Pi host adapter/);
+  assert.match(html, /Terminal theme/);
   assert.match(html, /canonical agent-core settings service/);
   assert.match(html, /exact-definition trust/);
   assert.match(html, /transactional contribution registry/);

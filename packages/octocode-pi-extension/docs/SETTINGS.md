@@ -1,6 +1,6 @@
-# Octocode settings control center
+# Octocode configuration
 
-`/settings` is the browser-based inventory and configuration surface for the
+`/configuration` is the browser-based inventory and configuration surface for the
 running Pi extension. It combines the live slash-command registry, MCP
 connections and tools, MCP discovery, agent prompt artifacts, skills, and
 persisted enablement overrides in one loopback-only page.
@@ -14,19 +14,17 @@ owned by [`RUNTIME_STATE.md`](https://github.com/bgauryy/octocode/blob/main/pack
 
 | Command | Opens |
 |---|---|
-| `/settings` | `settings.html#skills` by default. |
-| `/settings commands` | Live slash-command inventory. |
-| `/settings skills` | Discovered skills and enablement. |
-| `/settings connections` | MCP servers and tools. |
-| `/settings add-server` | Managed MCP server editor. |
-| `/settings sources` | MCP discovery sources and warnings. |
-| `/settings agent-context` | MCP prompt mode and artifact status. |
-| `/settings overrides` | Effective SQLite overrides for the workspace. |
-| `/mcp` | Focused alias for `settings.html#connections`. |
+| `/configuration` | Local browser configuration, starting at the overview. |
 
-The consolidated terminal footer intentionally omits keyboard-help clutter and
-shows `/settings` as a one-tap cue. Running `/settings` regenerates the
-HTML and snapshots the current live command registry before opening it.
+The terminal footer shows `/configuration` as a command cue. Running it regenerates
+the HTML, snapshots the live registry, and opens the local browser. If the system
+browser cannot open, the notification includes the URL for manual opening.
+
+Runtime controls change footer density and permissions immediately. Appearance
+controls change theme and effort (thinking depth and worker concurrency) when the
+host supports them. These settings apply to the current session. Disabled controls
+indicate unavailable host APIs. Review plan opens the current live plan with explicit
+Start and Request changes buttons; those actions never inject commands into a prompt.
 
 ## Page overview
 
@@ -45,7 +43,7 @@ collapse to one or two columns through the shared Octocode HTML theme.
 ## Commands
 
 The Commands section is built from `pi.getCommands()` each time the page opens.
-It is the same normalized registry used by `/commands`.
+The extension contributes only `/configuration`; other entries belong to the host, prompts, or installed skills.
 
 Implemented behavior:
 
@@ -60,7 +58,7 @@ Implemented behavior:
 - filters by All, Extension, Skills, or Prompts.
 
 This is a read-only runtime inventory. The page does not execute commands or
-enable/disable them. Re-run `/settings` after installing or registering a new
+enable/disable them. Re-run `/configuration` after installing or registering a new
 command to rebuild the snapshot.
 
 ## MCP connections and tools
@@ -228,7 +226,7 @@ a second definition store.
 | OAuth access/refresh tokens | OS credential store. |
 | Exact schemas/instructions | Workspace `catalog.json`. |
 | Compact guide | Workspace `mcp.md`. |
-| Generated control-center page | `$OCTOCODE_HOME/tmp/mcp/<workspace-digest>/settings.html`. |
+| Generated control-center page | `$OCTOCODE_HOME/extension/tmp/settings/<workspace-digest>/settings.html`. |
 
 Precedence:
 
@@ -251,7 +249,7 @@ Protections include:
 - same-origin checks on mutation requests;
 - an unguessable 32-byte per-page action token sent in
   `x-octocode-action-token`;
-- POST-only JSON mutation endpoints with a 16 KiB body ceiling;
+- POST-only JSON mutation endpoints with a 32 KiB body ceiling;
 - strict action, scope, server/tool/skill name, configuration-field, environment
   name, and HTTP header-name validation;
 - project-trust enforcement before project definition or skill mutations;
@@ -280,7 +278,9 @@ Skill mutations update SQLite immediately, mark a frozen prompt stale, announce
 the change through the unified runtime store, regenerate the page, and reload.
 
 The shared local server is lazy, reused by other Octocode HTML surfaces,
-`unref`'d so it cannot keep the process alive, and disposed with the session.
+`unref`'d so it cannot keep the process alive. Configuration mounts and cached session
+controls are retired on session shutdown. Reopening rotates the action token, so old
+tabs cannot mutate the new page. Actions are serialized; stale revisions are rejected.
 
 ## Current boundaries
 
@@ -292,6 +292,6 @@ The shared local server is lazy, reused by other Octocode HTML surfaces,
 - Experimental MCP drafts and legacy SSE are outside the supported stable
   surface.
 - A page already open does not poll for newly registered commands. Run
-  `/settings` again for a new live registry snapshot.
+  `/configuration` again for a new live registry snapshot.
 - `/new` is required whenever a frozen system prompt must reflect changed MCP
   routing or skill metadata.

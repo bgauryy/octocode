@@ -24,7 +24,7 @@ The live source inventory is authoritative. Use `/octocode-harness` inside Pi fo
 | Pi support tools | 16 |
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
-| Slash command entries | 24 |
+| Slash command entries | 1 |
 | Bundled main-agent skills | 14 |
 
 ### Support tools
@@ -73,36 +73,16 @@ Set `OCTOCODE_HOME` to change the Octocode home directory. Set `OCTOCODE_STORAGE
 
 See the repository [configuration guide](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for every supported key and [docs/SETTINGS.md](docs/SETTINGS.md) for Pi's control center, persistence, and security behavior.
 
-## Slash command entries (24)
+## Slash command entries (1)
 
 | Command | Purpose |
 |---|---|
-| `/commands` | List the live command inventory. |
-| `/octocode` | Open the Octocode dashboard. |
-| `/octocode-harness` | Show the complete registered surface. |
-| `/octocode-now` | Show current work state. |
-| `/octocode-tasks` | List coordinated tasks. |
-| `/octocode-skills` | Inspect skill readiness. |
-| `/octocode-agents` | Manage worker agents. |
-| `/octocode-cron` | Manage session jobs. |
-| `/settings` | Open the complete settings control center. |
-| `/mcp` | Open MCP connections and tools. |
-| `/octocode-setup` | Install Octocode prompt integration. |
-| `/octocode-skills-update` | Update package skills and reload resources. |
-| `/octocode-plan` | Show or manage the active plan. |
-| `/octocode-theme` | Inspect or change theme behavior. |
-| `/octocode-chrome` | Inspect Chrome integration. |
-| `/octocode-footer` | Configure footer details. |
-| `/octocode-permissions` | Inspect permission state. |
-| `/octocode-profile` | Inspect or choose an agent profile. |
-| `/octocode-inbox` | Open coordination messages. |
-| `/octocode-palette` | Open the Octocode command palette. |
-| `/octocode-rewind` | Rewind supported session state. |
-| `/octocode-dial` | Adjust reasoning effort. |
-| `/octocode-watch` | Manage watch behavior. |
-| `/octocode-export` | Export supported session artifacts. |
+| `/configuration` | Open the local browser configuration page. |
 
-Command arguments and lifecycle details are documented in [HARNESS.md](HARNESS.md).
+The footer shows `/configuration`. The page controls MCP connections and tools,
+skills, permissions, theme, effort, and footer density, and opens the current plan
+for review. Host-provided and user-installed commands remain in the live inventory.
+The extension does not add workflow commands or rewrite input through regex triggers.
 
 ## Bundled skills (14)
 

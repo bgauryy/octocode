@@ -10,7 +10,7 @@ import {
   snapshotLabel,
   type RewindEngine,
 } from '../src/tools/rewind-command.js';
-import type { PiCommandContext, PiContext, PiInstance } from '../src/types.js';
+import type { PiContext } from '../src/types.js';
 
 // ─── Fakes ───────────────────────────────────────────────────────────────────
 
@@ -35,39 +35,6 @@ function fakeEngine(checkpoints: CheckpointInfo[] = []) {
     },
   };
   return { engine, calls };
-}
-
-function fakePi() {
-  const commands = new Map<string, {
-    handler(args: string, ctx: PiCommandContext): Promise<void>;
-    getArgumentCompletions?(prefix: string): Array<{ value: string }> | null;
-  }>();
-  const pi = {
-    registerCommand: (name: string, def: unknown) => commands.set(name, def as never),
-  } as unknown as PiInstance;
-  return { pi, commands };
-}
-
-function notifier() {
-  const msgs: Array<{ msg: string; level?: string }> = [];
-  return {
-    msgs,
-    notify: (_ctx: PiContext | undefined, msg: string, level?: string) => {
-      msgs.push({ msg, level });
-    },
-  };
-}
-
-/** Overlay fake: returns queued answers in order. */
-function overlayQueue(answers: Array<string | null | undefined>) {
-  const seen: string[] = [];
-  return {
-    seen,
-    run: async (_ctx: PiContext | undefined, opts: { title: string }) => {
-      seen.push(opts.title);
-      return answers.shift();
-    },
-  };
 }
 
 const CP1: CheckpointInfo = { id: 'a1b2c3d4e5f60718', label: 'before: fix bug', ts: 1_700_000_000_000, filesChanged: 2, entryId: 'entry-9' };

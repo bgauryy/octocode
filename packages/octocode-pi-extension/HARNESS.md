@@ -6,7 +6,11 @@ Everything the extension registers with Pi on load: tools, system-prompt section
 
 ## System Prompt
 
-Composed in `src/prompts/system-prompt.ts` from the shared Octocode policy, Awareness coordination, and one Pi-specific `<engineering>` delta; built into `dist/system/SYSTEM_PROMPT.md`; and injected through the `before_agent_start` hook. The shared kernel owns cross-task decisions, while the Pi delta owns THINK→PLAN→CODE→REVIEW phase order and Pi recovery. Live tool/MCP/skill catalogs, plan mode, and typed-role prompts own operational detail. The concept-level contract lives in `tests/prompt-contract.test.ts`.
+The lightweight host facts in `src/prompts/system-prompt.ts` describe capabilities,
+untrusted data, permission boundaries, and `/configuration`. They are built into
+`dist/system/SYSTEM_PROMPT.md` and supplied through `before_agent_start`. Workflow,
+planning depth, skill choice, and response style follow the user's request.
+No regex-triggered repo-state, output-recovery, or editor-comment prompts are injected.
 
 On the first main-agent turn, the hook assembles either the eager `<mcp_catalog>` or lazy `<mcp_catalog_index>`, `<dynamic_capabilities>` (dynamic `callTool` and `skill` `type:"call"` registries), the complete available-skills projection, and the initial `<active_plan>`, then freezes those exact system-prompt bytes for the session. Runtime plan/tool results remain in transcript context; compaction adds a bounded `<octocode_compaction_context>` marker with the native summary and active-plan pointer. With `--no-context` set, the hook suppresses project context before freezing the prompt.
 
@@ -109,7 +113,7 @@ Format: `{ "mcpServers": { "<name>": { "command": "...", "args": [], "env": {}, 
 
 ### Settings and MCP slash commands
 
-`/settings` rebuilds local `settings.html` from Pi's live public command registry and opens `#skills` by default. The same page contains every command, discovered skill, MCP connection/tool, redacted configuration, enablement override, and prompt-state artifact; section completions jump directly to any panel. `/mcp` opens the focused connections panel. See [docs/SETTINGS.md](docs/SETTINGS.md) for the complete feature, persistence, security, and refresh contract.
+`/configuration` rebuilds local `settings.html` from Pi's live public command registry and opens `#skills` by default. The same page contains every command, discovered skill, MCP connection/tool, redacted configuration, enablement override, and prompt-state artifact; section completions jump directly to any panel. `/mcp` opens the focused connections panel. See [docs/SETTINGS.md](docs/SETTINGS.md) for the complete feature, persistence, security, and refresh contract.
 
 ---
 
@@ -143,34 +147,16 @@ Spawn workers with an `agent` query whose `type` is `spawn` and whose `profile` 
 
 ## Slash Commands
 
-Registered via `pi.registerCommand`. All commands support tab-completion where noted.
+Registered via `pi.registerCommand`:
 
-| Command | Alias | Description |
-|---|---|---|
-| `/commands` | — | Live, grouped inventory of all public Pi, extension, prompt, and skill commands with when-to-use guidance and GitHub login help |
-| `/octocode` | — | Dashboard: status, agents, setup, skills, health warnings, next actions |
-| `/octocode-harness` | — | Full harness surface listing (native tools, support, overrides, commands, skills) |
-| `/octocode-now` | — | Current working state snapshot |
-| `/octocode-tasks` | — | Awareness task list |
-| `/octocode-skills` | — | Skill catalog and readiness |
-| `/octocode-agents [help\|list\|status\|inspect\|kill\|kill-all\|prune\|hide]` | — | Show, inspect, prune, hide, or kill spawned worker agents |
-| `/octocode-cron [list\|check\|cancel\|help]` | — | List, check, or cancel session jobs |
-| `/settings [commands\|skills\|connections\|add-server\|sources\|agent-context\|overrides]` | — | Rebuild the complete control center from the live command registry; defaults to `settings.html#skills` |
-| `/mcp` | — | Open the focused MCP connections panel |
-| `/octocode-setup [project\|global]` | — | Install the `APPEND_SYSTEM.md` block into `.pi/` or `~/.pi/agent/` |
-| `/octocode-skills-update` | — | Update the Pi package then reload Pi resources (interactive only) |
-| `/octocode-plan` | — | Show/manage the active plan or enter plan mode |
-| `/octocode-theme` | — | Switch/apply the Octocode theme |
-| `/octocode-chrome` | — | Chrome/CDP connection status |
-| `/octocode-footer` | — | Change footer density or show the segment legend |
-| `/octocode-permissions` | — | Inspect/change session approval controls |
-| `/octocode-profile` | — | Apply a named profile to the live session |
-| `/octocode-inbox` | — | Inspect, steer, or kill spawned workers from the inbox |
-| `/octocode-palette` | — | Interactive command/action picker |
-| `/octocode-rewind` | — | Restore automatic pre-prompt checkpoints |
-| `/octocode-dial` | — | Adjust thinking level and worker parallelism together |
-| `/octocode-watch` | — | Turn editor comments ending in `AI!` into prompts |
-| `/octocode-export` | — | Apply Octocode branding to a Pi HTML export |
+| Command | Description |
+|---|---|
+| `/configuration` | Open the local browser configuration page from its overview. |
+
+The footer displays the same entry. Configuration includes MCP, skills, display,
+effort, permission controls, and an explicit Review plan action. Browser plan
+Start and Request changes use typed HTTP actions; feedback remains plain user text.
+Other extension slash commands have been removed.
 
 ---
 
@@ -234,7 +220,7 @@ Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
 | `chrome-debug` | Active CDP action label during `chromeDebug` calls |
 | `octocode-mcp` | MCP connection status label |
 
-Metrics (turns · durations · exact current/max context), plan/task progress, Awareness attention, and a bounded live-agent list live only on the consolidated footer (`setFooter`), never in a duplicate status line or below-editor widget. The identity row contains `/settings` (opens the settings HTML page in the browser); keyboard hints are intentionally omitted. A once-per-session, non-blocking `npx octocode auth status --json` probe adds `github ✓` in green when authenticated, `github ✗ login required` in red when credentials are missing, or `github check failed` in red on probe errors. `/commands` shows `npx octocode auth login` and `gh auth login` guidance without retaining or displaying token values. Full worker details remain available through `/octocode-agents list`.
+Metrics (turns · durations · exact current/max context), plan/task progress, Awareness attention, and a bounded live-agent list live only on the consolidated footer (`setFooter`), never in a duplicate status line or below-editor widget. The identity row contains `/configuration` (opens the settings HTML page in the browser); keyboard hints are intentionally omitted. A once-per-session, non-blocking `npx octocode auth status --json` probe adds `github ✓` in green when authenticated, `github ✗ login required` in red when credentials are missing, or `github check failed` in red on probe errors. `/commands` shows `npx octocode auth login` and `gh auth login` guidance without retaining or displaying token values. Full worker details remain available through `/octocode-agents list`.
 
 ---
 
@@ -280,7 +266,7 @@ Resolved by `getAssetPaths()` in `src/assets.ts`.
 16  support tools            (see Support Tools table)
  1  guarded built-in override (bash)
  6  disabled built-ins       (read, edit, write, grep, find, ls → replaced)
-24  slash commands           (live inventory and guidance via /commands)
+1  slash commands           (live inventory and guidance via /commands)
  1  flag                     (--no-context)
 12  lifecycle hooks          (hookComposer; session_start pre-warms MCP catalog)
     direct pi.on handlers    (metrics, UI, worker inbox, Awareness, and Pi-owned compaction observation)

@@ -154,7 +154,7 @@ test('HARNESS summary counts match stable source contracts', () => {
   assert.match(harnessDoc, new RegExp(`\n${OCTOCODE_SUPPORT_TOOL_NAMES.length}  support tools`));
   assert.match(harnessDoc, /\n 5  worker profiles/);
   assert.match(harnessDoc, /\n 1  composed system prompt/);
-  assert.match(harnessDoc, /shared Octocode policy.*Awareness coordination.*Pi-specific `<engineering>` delta/is);
+  assert.match(harnessDoc, /lightweight host facts/is);
 });
 
 

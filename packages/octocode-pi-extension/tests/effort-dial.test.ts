@@ -17,7 +17,7 @@ import {
   restoreDialOnStartup,
   type EffortLevel,
 } from '../src/tools/effort-dial.js';
-import type { CommandDefinition, PiContext, PiInstance } from '../src/types.js';
+import type { CommandDefinition, PiInstance } from '../src/types.js';
 
 // ─── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -39,23 +39,6 @@ function makeFakePi(): FakePi {
   };
   fake.pi = raw as unknown as PiInstance;
   return fake;
-}
-
-function makeCtx(opts?: {
-  custom?: <T>(...args: unknown[]) => Promise<T | undefined>;
-}): { ctx: PiContext; notifications: Array<{ message: string; level?: string }> } {
-  const notifications: Array<{ message: string; level?: string }> = [];
-  const ctx = {
-    hasUI: opts?.custom !== undefined,
-    // Real TUI contexts always carry mode:'tui'; the overlay helper now requires
-    // it (custom() is TUI-only), so the mock must set it when providing custom.
-    ...(opts?.custom ? { mode: 'tui' as const } : {}),
-    ui: {
-      notify: (message: string, level?: string) => { notifications.push({ message, level }); },
-      ...(opts?.custom ? { custom: opts.custom } : {}),
-    },
-  } as unknown as PiContext;
-  return { ctx, notifications };
 }
 
 function tmpHome(): string {

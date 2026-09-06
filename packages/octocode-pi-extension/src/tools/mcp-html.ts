@@ -21,6 +21,7 @@ import { runtimeStoreFor } from './runtime-renderer.js';
 import { hasStoredMcpOAuthTokens } from './mcp-oauth.js';
 import { discoverSkillStates } from './skill-tool.js';
 import { serveDirectory, unmount } from './local-server.js';
+import { openPlanReview } from './plan-tool.js';
 import { openLocalUrl } from './local-url-opener.js';
 import { getFooterDensity, setFooterDensity, type FooterDensity } from '../ui-extras.js';
 import { getPermissionLevel, setPermissionLevel } from './approval.js';
@@ -46,6 +47,7 @@ function managerDir(cwd: string): string {
 }
 
 export type McpManagerAction =
+  | { action: 'open-plan' }
   | { action: 'enable' | 'disable'; server: string; tool?: string; scope: 'project' | 'global' }
   | { action: 'add'; server: string; scope: 'project' | 'global'; config: Record<string, unknown> }
   | { action: 'remove' | 'restart' | 'connect' | 'retry'; server: string; scope: 'project' | 'global' }
@@ -69,6 +71,7 @@ export function parseMcpManagerAction(raw: unknown): McpManagerAction {
     if (!['action', 'server', 'scope', 'tool', 'config', 'skill', 'density', 'level', 'theme', 'source', 'hash', 'expectedRevision'].includes(key)) throw new Error(`Unsupported settings action field: ${key}`);
   }
   const action = value['action'];
+  if (action === 'open-plan') return { action };
   const expectedRevision = typeof value['expectedRevision'] === 'string' ? value['expectedRevision'] : undefined;
   const server = value['server'];
   if (action === 'set-effort') {
@@ -164,6 +167,11 @@ function hooksFor(ctx?: PiContext): CodexHookDiscoveryResult {
 }
 
 export async function applyMcpManagerAction(action: McpManagerAction, ctx?: PiContext, pi?: PiInstance): Promise<void> {
+  if (action.action === 'open-plan') {
+    const url = await openPlanReview(ctx);
+    if (!url) throw new Error('Could not open the current plan');
+    return;
+  }
   if (action.action === 'set-theme' || action.action === 'set-effort') {
     if (action.expectedRevision && action.expectedRevision !== settingsAdapter(ctx).snapshot().revision) throw new Error('Configuration changed since this page was generated');
     if (action.action === 'set-theme') {
@@ -357,7 +365,7 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
       .command-toolbar{display:grid;grid-template-columns:minmax(0,1fr) repeat(4,auto);gap:.55rem;margin-bottom:.75rem}.command-toolbar button.active{color:white;background:var(--violet);border-color:var(--violet)}.command-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.command-card{background:white;border:1px solid var(--line);border-radius:13px;padding:.85rem 1rem}.command-card-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem}.command-card-head code{font-size:.88rem;color:var(--violet);font-weight:800}.command-card p{color:var(--muted);font-size:.8rem;margin:.55rem 0}.command-card details code{display:block;overflow:hidden;text-overflow:ellipsis;margin:.4rem 0}.command-card details small{color:var(--muted)}
       @media(max-width:1000px){.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:860px){.settings-shell{grid-template-columns:1fr}.settings-nav{position:static;display:flex;overflow-x:auto}.settings-nav a{white-space:nowrap}.settings-nav .nav-tip{display:none}.stats{grid-template-columns:1fr 1fr}}@media(max-width:700px){.skill-grid,.command-grid{grid-template-columns:1fr}.command-toolbar{grid-template-columns:1fr repeat(2,auto)}}@media(max-width:600px){.filterbar,.editor-grid,.skill-toolbar,.command-toolbar{grid-template-columns:1fr}.editor-grid .wide-field{grid-column:auto}.stats{grid-template-columns:1fr 1fr}.server-head{flex-direction:column}.server-badges{justify-content:flex-start}.skill-actions{grid-template-columns:1fr}}
     </style>
-    <section class="control-hero" id="overview"><h2>Your configuration</h2><p>Choose the connections, tools, and skills available to your agent. Display and permission controls apply to this session.</p><div class="stats"><div class="stat"><b>${commands.length}</b><span>live commands</span></div><div class="stat"><b>${loaded.servers.size}</b><span>enabled servers</span></div><div class="stat"><b>${importedCount}</b><span>discovered imports</span></div><div class="stat"><b>${discoveredToolCount}</b><span>known MCP tools</span></div><div class="stat"><b>${enabledSkillCount}/${skills.length}</b><span>enabled skills</span></div></div></section>
+    <section class="control-hero" id="overview"><h2>Your configuration</h2><p>Choose the connections, tools, and skills available to your agent. Display and permission controls apply to this session.</p><p><button data-action="open-plan">Review plan</button></p><div class="stats"><div class="stat"><b>${commands.length}</b><span>live commands</span></div><div class="stat"><b>${loaded.servers.size}</b><span>enabled servers</span></div><div class="stat"><b>${importedCount}</b><span>discovered imports</span></div><div class="stat"><b>${discoveredToolCount}</b><span>known MCP tools</span></div><div class="stat"><b>${enabledSkillCount}/${skills.length}</b><span>enabled skills</span></div></div></section>
     <div class="settings-shell"><nav class="settings-nav" aria-label="Settings sections"><a href="#overview">Overview</a><a href="#runtime">Runtime</a><a href="#appearance">Appearance</a><a href="#models">Models</a><a href="#hooks">Hooks</a><a href="#plugins">Plugins</a><a href="#commands">Commands</a><a href="#connections">Connections</a><a href="#add-server">Add server</a><a href="#sources">Discovery</a><a href="#agent-context">Agent context</a><a href="#skills">Skills</a><a href="#overrides">Overrides</a><a href="#diagnostics">Diagnostics</a><p class="nav-tip">Run <code>/configuration</code> anytime to rebuild this page from the live registry.</p></nav><div>
     <div class="section-heading" id="runtime"><div><h2>Runtime controls</h2><p>Session-scoped display and safety controls. Changes apply immediately.</p></div></div>
     <section data-settings-revision="${settingsRevision}"><div class="row"><span><strong>Footer density</strong><br><small>Choose how much detail appears below the conversation.</small></span><span class="reply-actions">${(['compact', 'default', 'full'] as const).map((density) => `<button data-action="set-footer-density" data-density="${density}"${density === canonicalFooterDensity ? ' class="primary"' : ''}>${density}</button>`).join('')}</span></div><div class="row"><span><strong>Permission level</strong><br><small>Strict asks more often; relaxed permits more actions automatically.</small></span><span class="reply-actions">${(['default', 'relaxed', 'strict'] as const).map((level) => `<button data-action="set-permission-level" data-level="${level}"${level === canonicalPermissionLevel ? ' class="primary"' : ''}>${level}</button>`).join('')}</span></div></section>
@@ -494,19 +502,24 @@ export async function openMcpManager(ctx?: PiContext, piSkills?: SkillInfo[], se
     hardenPrivateFile(settingsFile);
   };
   await write();
+  let actionQueue = Promise.resolve();
   const served = await serveDirectory(configurationMountName(cwd), dir, {
     indexFile: SETTINGS_HTML_FILE,
-    onAction: async (raw) => {
-      const action = parseMcpManagerAction(raw);
-      await applyMcpManagerAction(action, ctx, pi);
-      await write();
-      return { updated: true };
+    onAction: (raw) => {
+      const pending = actionQueue.then(async () => {
+        const action = parseMcpManagerAction(raw);
+        await applyMcpManagerAction(action, ctx, pi);
+        await write();
+        return { updated: true };
+      });
+      actionQueue = pending.then(() => undefined, () => undefined);
+      return pending;
     },
     actionToken,
   });
   if (!served) return { ok: false, message: 'Could not start the local MCP page server.' };
   const settingsUrl = `${served.url}${SETTINGS_HTML_FILE}${section ? `#${section}` : ''}`;
-  const opened = await openLocalUrl(settingsUrl);
+  const opened = await openLocalUrl(settingsUrl, { preference: 'system' });
   return opened.ok ? { ok: true, url: settingsUrl } : { ok: false, url: settingsUrl, message: opened.message };
 }
 

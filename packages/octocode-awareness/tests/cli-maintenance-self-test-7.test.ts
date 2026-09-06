@@ -121,7 +121,9 @@ it('--help --compact returns a short agent guide', () => {
     expect(r.stdout).toContain('$OCTOCODE_HOME/awareness/awareness.sqlite3');
     expect(r.stdout).not.toContain('global agent database');
     expect(r.stdout).toMatch(/bundled-skills\(\d+\):/);
+    expect(r.stdout).toContain('octocode-awareness');
     expect(r.stdout).toContain('out/skills');
+    expect(r.stdout).toContain('docs list --compact');
     expect(r.stdout).toContain('schema commands --compact');
     expect(r.stdout).toContain('attend -> work start -> work end -> verify mark -> verify audit');
     expect(r.stdout).toContain('policy: $OCTOCODE_HOME/awareness/awareness.sqlite3, workspace-scoped rows, hooks=coordination');

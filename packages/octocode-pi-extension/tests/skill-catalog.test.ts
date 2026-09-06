@@ -15,7 +15,7 @@ test('available skills addendum lists loadable skills and filters prompt-owned A
   assert.match(addendum, /Optional skills available by name/);
   assert.doesNotMatch(addendum, /BEFORE acting|must load/);
   assert.doesNotMatch(addendum, /octocode-awareness/);
-  assert.match(addendum, /- octocode-roast: Critical review workflow\.\[user\/global\]/);
+  assert.match(addendum, /- octocode-roast: Critical review workflow\. \[user\/global\]/);
 });
 
 test('available skills addendum is empty when Pi reports no skills', () => {
@@ -128,7 +128,7 @@ test('skills dashboard lists loadable skills, filters Awareness aliases, and sho
   assert.match(dashboard, /^◆ Octocode skills/m);
   assert.match(dashboard, /Available now/);
   assert.doesNotMatch(dashboard, /octocode-awareness/);
-  assert.match(dashboard, /- octocode-roast: Critical review workflow\.\[user\/global\]/);
+  assert.match(dashboard, /- octocode-roast: Critical review workflow\. \[user\/global\]/);
   assert.match(dashboard, /skill\(\{queries:/, 'dashboard teaches the unified skill query envelope');
   assert.match(dashboard, /\/skill:<name>/);
   assert.match(dashboard, /npx octocode skill install <skill> --platform pi/);

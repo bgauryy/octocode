@@ -263,9 +263,9 @@ export function buildRfcReviewTldr(
     artifacts ? `Plan HTML: ${artifacts.htmlPath}` : undefined,
     '',
     'Decision:',
-    `- Start implementation: /octocode-plan start ${revision}`,
-    '- Request changes: /octocode-plan changes <feedback>',
-    '- Optional browser view: /octocode-plan html',
+    '- Review or start implementation: open the plan from /configuration',
+    
+    
   ].filter((line): line is string => typeof line === 'string').join('\n');
 }
 
@@ -380,6 +380,11 @@ function tearDownPlanHtml(scope: string): void {
   unmount(planMountName(scope));
 }
 
+/** Open the current plan from the configuration page's explicit user action. */
+export async function openPlanReview(ctx?: PiContext): Promise<string | undefined> {
+  return servePlanPage(ctx, activePlanScope(ctx));
+}
+
 async function servePlanPage(ctx: PiContext | undefined, scope: string): Promise<string | undefined> {
   // servePlanPage is the sole writer for the browser path (callers must not
   // pre-write) so the doc and the served bytes never diverge.
@@ -396,6 +401,24 @@ async function servePlanPage(ctx: PiContext | undefined, scope: string): Promise
   const served = await planDirectoryServer(planMountName(scope), planArtifactsDir(scope), {
     indexFile: 'plan.html',
     onMessage: planBrowserMessageSender,
+    onAction: async (raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid plan action');
+      const value = raw as Record<string, unknown>;
+      if (value['action'] === 'start' && typeof value['revision'] === 'string') {
+        const state = getPlanReviewState(scope);
+        if (state.acceptedRevision === value['revision'] && getCurrentPlanReadModel(ctx, scope).authorization.startReceiptId && ['executing', 'verifying', 'complete'].includes(state.phase)) return { updated: false };
+        const started = startReviewedPlan(scope, value['revision'], ctx);
+        if (!started.ok) throw new Error(started.message);
+        writeCurrentPlanArtifacts(ctx, scope, 'active');
+      } else if (value['action'] === 'changes') {
+        const changed = requestPlanChanges(scope);
+        if (!changed.ok) throw new Error(changed.message);
+        if (typeof value['notes'] === 'string' && value['notes'].trim()) addPlanDecision(scope, 'Requested plan changes', value['notes']);
+        writeCurrentPlanArtifacts(ctx, scope, 'draft');
+      } else throw new Error('Invalid plan action');
+      refreshPlanUi(ctx);
+      return { updated: true };
+    },
   });
   if (!served) return undefined;
   // Arm live sync so later plan mutations rewrite the files the server reads and
@@ -1196,7 +1219,7 @@ export function registerPlanTool(
   planBrowserMessageSender = pi.sendUserMessage
     ? (message) => pi.sendUserMessage!(message, {
         deliverAs: 'followUp',
-        ...(message.startsWith('/octocode-plan ') ? { expandPromptTemplates: true } : {}),
+        expandPromptTemplates: false,
       })
     : undefined;
   registerFn(pi, registeredToolNames, {

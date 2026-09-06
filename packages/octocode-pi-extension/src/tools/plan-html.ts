@@ -2,7 +2,7 @@ import type { PlanPhase } from './plan-domain.js';
 /**
  * plan-html — the plan's local HTML/Markdown surface.
  *
- * `/octocode-plan html` (and plan action:"propose" inside `queries[]`) writes `plan.html` (branded
+ * `/configuration and choose Review plan` (and plan action:"propose" inside `queries[]`) writes `plan.html` (branded
  * page: status checklist + mermaid dependency diagram + raw markdown) and
  * `plan.md` (shareable) under the global Octocode home
  * (`~/.octocode/tmp/plan/<scope-hash>/`), opens the page, and arms LIVE SYNC:
@@ -252,10 +252,10 @@ function planStatsSectionHtml(model: PlanReadModelV1): string {
 function browserReplySectionHtml(model: PlanReadModelV1): string {
   const revision = model.revision ?? model.acceptedRevision;
   const contextualActions = model.phase === 'in_review' && revision
-    ? `<button type="button" data-reply-command="/octocode-plan start ${escapeHtml(revision)}" class="primary">Start implementation · ${escapeHtml(revision.slice(0, 8))}</button>
-    <button type="button" data-reply-command="/octocode-plan changes">Request changes</button>`
+    ? `<button type="button" data-plan-action="start" data-revision="${escapeHtml(revision)}" class="primary">Start implementation · ${escapeHtml(revision.slice(0, 8))}</button>
+    <button type="button" data-plan-action="changes">Request changes</button>`
     : model.phase === 'accepted' && revision
-      ? `<button type="button" data-reply-command="/octocode-plan start ${escapeHtml(revision)}" class="primary">Start implementation</button>\n    <button type="button" data-reply-command="/octocode-plan changes">Reopen review</button>`
+      ? `<button type="button" data-plan-action="start" data-revision="${escapeHtml(revision)}" class="primary">Start implementation</button>\n    <button type="button" data-plan-action="changes">Reopen review</button>`
       : '';
   const help = model.phase === 'in_review'
     ? 'Start approves the exact displayed revision and begins implementation in one action. You can also request changes or send a note.'
@@ -300,7 +300,7 @@ function browserReplySectionHtml(model: PlanReadModelV1): string {
   input.addEventListener('input', () => { try { sessionStorage.setItem(storageKey, input.value); } catch {} });
   if (!liveLoopback) {
     setButtonsDisabled(true);
-    setStatus('Interactive actions need the live localhost page. Return to the terminal and run /octocode-plan html; your feedback remains saved here.', 'error');
+    setStatus('Interactive actions need the live localhost page. Return to the terminal and run /configuration and choose Review plan; your feedback remains saved here.', 'error');
   } else {
     setButtonsDisabled(true);
     setStatus('Connecting to the running agent…', 'pending');
@@ -312,37 +312,34 @@ function browserReplySectionHtml(model: PlanReadModelV1): string {
       setStatus('Connected to the running agent.', 'success');
     }).catch(() => {
       setButtonsDisabled(true);
-      setStatus('The agent bridge is offline. Return to the terminal and run /octocode-plan html to reopen the live page; your feedback remains saved.', 'error');
+      setStatus('The agent bridge is offline. Return to the terminal and run /configuration and choose Review plan to reopen the live page; your feedback remains saved.', 'error');
     });
   }
   const send = async (button) => {
     const notes = input.value.trim();
-    const command = button.dataset.replyCommand || '';
-    const consumesNotes = !command || command === '/octocode-plan changes';
-    const message = command
-      ? command === '/octocode-plan changes' && notes ? command + ' ' + notes : command
-      : notes;
-    if (!message) { setStatus('Write feedback before sending.', 'error'); input.focus(); return; }
+    const action = button.dataset.planAction;
+    const consumesNotes = !action || action === 'changes';
+    if (!action && !notes) { setStatus('Write feedback before sending.', 'error'); input.focus(); return; }
     setButtonsDisabled(true);
-    setStatus(command ? 'Sending the selected plan action…' : 'Sending feedback…', 'pending');
+    setStatus(action ? 'Sending the selected plan action…' : 'Sending feedback…', 'pending');
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetch(action ? new URL('__octocode/action', location.href) : endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(action ? { action, revision: button.dataset.revision, notes } : { message: notes }),
       });
       if (!response.ok) throw new Error(await response.text());
       if (consumesNotes) {
         input.value = '';
         try { sessionStorage.removeItem(storageKey); } catch {}
       }
-      setStatus(command
+      setStatus(action
         ? 'Plan action sent to the agent. The live page will update when it is applied.' + (!consumesNotes && notes ? ' Your unsent feedback is still in the box.' : '')
         : 'Feedback sent to the agent.', 'success');
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const networkHint = detail === 'Failed to fetch'
-        ? 'The agent bridge went offline. Return to the terminal and run /octocode-plan html to reopen the live page.'
+        ? 'The agent bridge went offline. Return to the terminal and run /configuration and choose Review plan to reopen the live page.'
         : detail;
       setStatus('Could not send: ' + networkHint + ' Your feedback remains saved.', 'error');
     } finally {
