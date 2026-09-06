@@ -16,7 +16,7 @@ On the first main-agent turn, the hook assembles either the eager `<mcp_catalog>
 
 ### Native Research Tools — 0 (removed — MCP-only)
 
-All 13 Octocode research tools (GitHub, local, graph, LSP, npm) are **not registered as native Pi tools**. They are served via the built-in `octocode` MCP server through `MCPTool`, keeping their schemas out of Pi’s direct `tools[]` array.
+All 10 catalogued Octocode research tools (GitHub, local, graph, LSP, npm) are **not registered as native Pi tools**. They are served via the built-in `octocode` MCP server through `MCPTool`, keeping their schemas out of Pi’s direct `tools[]` array.
 
 **Call pattern:**
 ```js
@@ -24,9 +24,9 @@ MCPTool({queries:[{reasoning:"Search remote code.", action:"call", server:"octoc
   arguments:{queries:[{reasoning:"Find candidate files.", operation:"code", keywords:["..."]}]}}]})
 ```
 
-Available tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileContent` · `ghSearchPullRequests` · `ghSearchIssues` · `ghSearchCommits` · `ghListReleases` · `ghSearchDiscussions` · `ghCloneRepo` · `npmSearch` · `localSearch` · `localGetFileContent` · `localAnalyzeGraph` · `lspGetSemantics`
+Catalogued tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `npmSearch` · `localSearch` · `localGetFileContent` · `localAnalyzeGraph` · `lspGetSemantics`. Runtime availability can disable individual tools such as cloning.
 
-`warmMcpCatalog()` runs at `session_start`. The default first-turn prompt consumes the concise deterministic `mcp.md` guide while exact schemas stay private for validation. Set `OCTOCODE_COMPACT_MCP=0` only to inject the exact catalog for debugging; set `OCTOCODE_MCP_AI_GUIDE=1` to opt into model-authored guide generation. Calls always validate against the exact private catalog, so no prepare round trip is required.
+`warmMcpCatalog()` runs at `session_start`. The default first-turn prompt consumes the concise deterministic `mcp.md` guide while exact schemas stay private for validation. Set `OCTOCODE_COMPACT_MCP=0` only to inject the exact catalog for debugging; set `OCTOCODE_MCP_AI_GUIDE=1` to opt into model-authored guide generation. Calls always validate against the exact private catalog; use `MCPTool action:"describe"` before calling an unfamiliar tool or whenever the compact guide leaves an operation ambiguous.
 
 **Edit stale-check**: `MCPTool` intercepts `server:"octocode" tool:"localGetFileContent"` calls and runs `recordFileReadState()` so `file` operations with `type:"edit"` can detect stale targets.
 
@@ -196,7 +196,6 @@ Registered via `createHookComposer(pi, …)` (middleware composer that catches a
 | `model_select` | `octocode-model-select` | Logs model selection; updates UI thinking-level label |
 | `thinking_level_select` | `octocode-thinking-select` | Logs thinking level; refreshes UI label |
 | `input` | `octocode-session-autoname` | Names the session from the first substantive user message |
-| `input` | `octocode-repo-state-hint` | Appends a one-line repo-state hint (branch, dirty files) to any user message matching repo/git keywords |
 | `tool_execution_start` | `octocode-tool-error-timing` | Records tool call start time for latency tracking |
 | `tool_execution_end` | `octocode-tool-error-log` | On tool error, logs structured error with latency; notifies UI |
 | `before_provider_request` | `octocode-provider-error-timing` | Records provider request start time |

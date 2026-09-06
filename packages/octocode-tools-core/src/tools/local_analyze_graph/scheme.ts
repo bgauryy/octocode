@@ -50,6 +50,14 @@ export interface AnalyzeGraphOutput {
   filesSkipped?: number;
   truncated?: boolean;
   terminalLimit?: boolean;
+  completeness?: {
+    results: 'complete' | 'pageable' | 'truncated';
+    graph: 'complete' | 'scan-truncated' | 'coverage-incomplete';
+    diagnostics: 'complete' | 'pageable' | 'truncated';
+    coverageGapReasons?: Array<
+      'parseRecovery' | 'unresolvedImports' | 'unsupportedLinking'
+    >;
+  };
   partialReasons?: Array<
     | 'maxFiles'
     | 'limit'

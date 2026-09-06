@@ -45,7 +45,7 @@ The default policy is warning-first. It warns when a worker packet omits recomme
 
 ## Awareness identity
 
-Workers inherit a child `OCTOCODE_AGENT_ID` shaped as `<parent>:worker:<short-id>`. The mapping is stored only in the in-session ledger. Durable Awareness writes for raw worker output are deferred until privacy/storage review accepts them.
+Workers inherit a child `OCTOCODE_AGENT_ID` shaped as `<parent>:worker:<short-id>`. The mapping is stored only in the in-session ledger. Durable Awareness writes for raw worker output are deferred until privacy/storage review accepts them. After collection, the parent may verify and distill a key session-relevant finding into `memory.md`; raw handbacks and unverified claims remain excluded.
 
 ## Rollback
 

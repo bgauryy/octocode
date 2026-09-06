@@ -8,7 +8,7 @@ import { evictExpiredLocks } from '../src/db-maintenance.js';
 import { countPlans, createPlan, getPlan, listPlans, updatePlanStatus } from '../src/plans.js';
 import { addTaskDependency, countReadyTasks, countTasks, createTask as createTaskBase, listTasks, listReadyTasks } from '../src/tasks-ready.js';
 import { claimTask, releaseTaskClaim, submitTask } from '../src/tasks-claims.js';
-import type { CreateTaskParams } from '@octocodeai/octocode-shared/entities';
+import type { CreateTaskParams } from '@octocodeai/agent-contracts/entities';
 import { auditUnverified } from '../src/verify-audit.js';
 import { markVerified } from '../src/verify-mark.js';
 import { preFlightIntent } from '../src/intents-preflight.js';

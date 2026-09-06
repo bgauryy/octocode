@@ -4,7 +4,7 @@
  * library methods can distinguish omission from explicit null.
  */
 
-import { type AgentStatus } from '@octocodeai/octocode-shared/entities';
+import { type AgentStatus } from '@octocodeai/agent-contracts/entities';
 import type { AwarenessStore } from './coordination-continuity.js';
 import type { MemoryEvaluationCorpusV1,MemoryRecallModeV1 } from '../memory-hardening.js';
 

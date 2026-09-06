@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openAwareness, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness';
 import { awarenessEventStatusText, registerAwarenessEventConsumer, resolvePiEventConsumerId } from '../src/tools/awareness-event-consumer.js';
 import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness';
 import type { PiContext, PiInstance } from '../src/types.js';
@@ -74,6 +74,7 @@ function fakeStore(events: OutboxEventV1[]) {
       return { sequence: cursor, decision, duplicate: false };
     },
     getConsumerCursor: () => cursor,
+    markMessageRead: () => undefined,
     close: vi.fn(),
   };
   return { store, acknowledgements, cursor: () => cursor };
@@ -220,10 +221,10 @@ describe('ordered Awareness event consumer', () => {
     const realWorkspace = path.join(root, 'workspace');
     const dbPath = path.join(root, 'agent.sqlite3');
     fs.mkdirSync(realWorkspace);
-    const seed = openAwareness({ workspace: realWorkspace, dbPath });
+    const seed = openAwarenessStore({ workspace: realWorkspace, dbPath });
     seed.sendMessage({ fromAgentId: 'peer-a', toAgentId: 'pi:session-1', topic: 'EVIDENCE', text: 'durable body' });
     seed.close();
-    const openStore = () => openAwareness({ workspace: realWorkspace, dbPath });
+    const openStore = () => openAwarenessStore({ workspace: realWorkspace, dbPath });
     const firstDelivery = vi.fn();
 
     await createAwarenessEventConsumer({

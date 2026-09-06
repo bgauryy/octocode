@@ -8,7 +8,7 @@ import { createPlan } from '../src/plans.js';
 import { claimTask, releaseTaskClaim, submitTask } from '../src/tasks-claims.js';
 import { createTask as createTaskBase, listReadyTasks, listTasks } from '../src/tasks-ready.js';
 import { getTask } from '../src/tasks-catalog.js';
-import type { CreateTaskParams } from '@octocodeai/octocode-shared/entities';
+import type { CreateTaskParams } from '@octocodeai/agent-contracts/entities';
 function freshDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

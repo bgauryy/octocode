@@ -13,7 +13,7 @@ LiteMessage,
 MemoryItem,
 Plan,
 PlanStatus,
-} from '@octocodeai/octocode-shared/entities';
+} from '@octocodeai/agent-contracts/entities';
 
 export interface AwarenessOptions {
   workspace?: string;

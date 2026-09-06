@@ -14,7 +14,7 @@ import {
   registerSkillTool,
   resetSkillUsageForTests,
 } from '../src/tools/skill-tool.js';
-import { setSkillEnabled } from '@octocodeai/octocode-awareness/mcp-state';
+import { setSkillEnabled } from '@octocodeai/agent-contracts/mcp-state';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { renderAvailableSkillsAddendum } from '../src/tools/skill-catalog.js';

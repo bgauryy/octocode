@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { initDb } from '../src/db-init.js';
 import { insertMemory } from '../src/memory-write.js';
 import { getMemory } from '../src/memory-recall.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -92,6 +93,7 @@ describe('getMemory allWorkspaces (cross-workspace recall)', () => {
     const db = freshDb();
     const repoA = tempGitRepo('oc-allws-a-');
     const repoB = tempGitRepo('oc-allws-b-');
+    const restoreLocalProcesses = allowLocalFixtureProcesses();
     try {
       // Recorded in repoA: fillScope stores workspace_path=repoA root, repo=repoA, ref=repoA branch.
       insertMemory(db, {
@@ -112,6 +114,7 @@ describe('getMemory allWorkspaces (cross-workspace recall)', () => {
       expect(all.count).toBe(1);
       expect(all.all_workspaces).toBe(true);
     } finally {
+      restoreLocalProcesses();
       rmSync(repoA, { recursive: true, force: true });
       rmSync(repoB, { recursive: true, force: true });
     }

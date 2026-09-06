@@ -683,7 +683,7 @@ describe('tool-command coverage', () => {
     expect(allArgs).toContain('"content"');
   });
 
-  it('printToolResult: --json mode prints the full MCP CallToolResult envelope', async () => {
+  it('printToolResult: --json emits direct structured data without duplicating YAML text', async () => {
     mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: { kind: 'results', items: ['a', 'b'] },
@@ -705,15 +705,11 @@ describe('tool-command coverage', () => {
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(raw);
-    expect(parsed.content).toEqual([{ type: 'text', text: 'yaml output' }]);
-    expect(parsed.structuredContent).toEqual({
-      kind: 'results',
-      items: ['a', 'b'],
-    });
-    expect(parsed.isError).toBe(false);
+    expect(parsed).toEqual({ kind: 'results', items: ['a', 'b'] });
+    expect(raw).not.toContain('yaml output');
   });
 
-  it('printToolResult: --json mode preserves structuredContent results', async () => {
+  it('printToolResult: --json preserves row-local structured results', async () => {
     mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'yaml output' }],
       structuredContent: {
@@ -737,36 +733,12 @@ describe('tool-command coverage', () => {
 
     const raw = consoleSpy.mock.calls.flat().join('\n');
     const parsed = JSON.parse(raw);
-    expect(parsed.content).toEqual([{ type: 'text', text: 'yaml output' }]);
-    expect(parsed.structuredContent.base).toBe('/repo/src');
-    expect(parsed.structuredContent.results).toEqual([
+    expect(parsed.base).toBe('/repo/src');
+    expect(parsed.results).toEqual([
       { id: 'q1', status: 'hasResults', data: {} },
     ]);
-  });
-
-  it('printToolResult: --json selects JSON mode for structured output', async () => {
-    mocks.localSearch.mockResolvedValueOnce({
-      content: [{ type: 'text', text: 'out' }],
-      structuredContent: { answer: 42 },
-    });
-
-    const { toolCommand } =
-      await import('../../src/cli/tool-command/command.js');
-
-    await toolCommand.handler!({
-      command: 'tools',
-      args: ['localSearch'],
-      options: {
-        json: true,
-        queries:
-          '{"operation":"text","path":".","searchText":"x","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
-      },
-    });
-
-    const raw = consoleSpy.mock.calls.flat().join('\n');
-    const parsed = JSON.parse(raw);
-    expect(parsed.content).toEqual([{ type: 'text', text: 'out' }]);
-    expect(parsed.structuredContent).toEqual({ answer: 42 });
+    expect(parsed).not.toHaveProperty('content');
+    expect(parsed).not.toHaveProperty('structuredContent');
   });
 
   it('sets exitCode TOOL (5) when tool returns isError: true', async () => {
@@ -1062,7 +1034,7 @@ describe('tool-command coverage', () => {
     expect(parsed.structuredContent).toBeNull();
   });
 
-  it('printToolResult: JSON mode preserves primitive structuredContent in the envelope', async () => {
+  it('printToolResult: JSON mode emits primitive structuredContent directly', async () => {
     mocks.localSearch.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'txt' }],
       structuredContent: 'just a string',
@@ -1082,8 +1054,7 @@ describe('tool-command coverage', () => {
     });
 
     const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n'));
-    expect(parsed.content).toEqual([{ type: 'text', text: 'txt' }]);
-    expect(parsed.structuredContent).toBe('just a string');
+    expect(parsed).toBe('just a string');
   });
 
   it('buildExampleValue: lspGetSemantics example exercises semantic enum branches', async () => {

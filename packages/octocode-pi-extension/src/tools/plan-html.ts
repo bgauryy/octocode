@@ -24,7 +24,7 @@ import type { PiContext } from '../types.js';
 import { escapeHtml, renderOctocodePage } from '../tui/html-page.js';
 import { renderMarkdown } from '../tui/markdown.js';
 import { openLocalUrl } from './local-url-opener.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/mcp-state';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
 
 const REFRESH_SECONDS = 3;
 

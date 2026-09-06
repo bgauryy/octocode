@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { workspaceAgentKey } from '@octocodeai/octocode-shared/paths';
+import { workspaceAgentKey } from '@octocodeai/agent-contracts/paths';
 import { getOctocodeHome } from '@octocodeai/config';
 
 /** Canonical root for every filesystem artifact owned by the Pi extension. */

@@ -17,7 +17,7 @@ import type {
   PlanMemberRecord,
   PlanRecord,
   RegisterPlanDocParams,
-} from '@octocodeai/octocode-shared/entities';
+} from '@octocodeai/agent-contracts/entities';
 
 
 function required(value: string, field: string): string {

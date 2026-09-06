@@ -1,4 +1,4 @@
-import type { PlanTaskRecord, TaskClaimRecord, TaskRunRecord } from '@octocodeai/octocode-shared/entities';
+import type { PlanTaskRecord, TaskClaimRecord, TaskRunRecord } from '@octocodeai/agent-contracts/entities';
 /** Durable plan tasks, dependencies, leases, and execution runs. */
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';

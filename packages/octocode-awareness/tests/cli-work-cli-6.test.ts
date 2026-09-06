@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tsxCli } from './helpers/tsx-cli.js';
-import { allowLocalFixtureProcesses } from '../../test-utils/external-effects-guard.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/awareness.ts');
 const TSX = tsxCli;
 const NODE = process.execPath;

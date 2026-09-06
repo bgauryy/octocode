@@ -1,37 +1,10 @@
-/**
- * effort-dial — Amp-style one-knob effort control (F8).
- *
- * One dial level drives two things at once:
- *   1. Thinking level  — pi.setThinkingLevel (low / medium / high / xhigh).
- *   2. Worker parallelism — sets the exact process.env var agent-tools.ts's
- *      resolveSpawnPolicy reads (OCTOCODE_AGENT_MAX_ACTIVE) to 1 / 2 / 4 / 8.
- *
- * The chosen level persists as { "level": "<level>" } in <octocodeHome>/dial.json
- * (atomicWriteUtf8) and is re-applied quietly at session start.
- *
- * REQUIRED WIRING in src/index.ts (this module never edits index.ts itself):
- *
- *   import { registerDialCommand, restoreDialOnStartup, getDialLevel } from './tools/effort-dial.js';
- *
- *   // inside activation, next to the other register* calls:
- *   registerDialCommand(pi);
- *   pi.on('session_start', async (_event, ctx) => {
- *     await restoreDialOnStartup(pi, ctx);
- *   });
- *
- *   // Footer (ui-extras.ts FooterInput already renders `dial` as '◉ <dial>'):
- *   // in the buildFooterSegments input object add:
- *   //   dial: getDialLevel(),
- *
- *   // and add '/octocode-dial' to listExtensionHarness().extensionCommands.
- */
+/** Session effort settings, shared by configuration and startup restoration. */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { extensionHome } from '../extension-paths.js';
-import type { PiCommandContext, PiContext, PiInstance } from '../types.js';
+import type { PiContext, PiInstance } from '../types.js';
 import { atomicWritePrivateUtf8 } from './file-state.js';
-import { runSelectOverlay } from './ui-overlays.js';
 
 // ─── Levels & presets ─────────────────────────────────────────────────────────
 
@@ -69,11 +42,6 @@ export function parseDialLevel(input: string | undefined | null): EffortLevel | 
   return (EFFORT_LEVELS as readonly string[]).includes(normalized ?? '')
     ? (normalized as EffortLevel)
     : undefined;
-}
-
-function describeLevel(level: EffortLevel): string {
-  const preset = DIAL_PRESETS[level];
-  return `thinking ${preset.thinking} · ≤${preset.maxActiveWorkers} worker${preset.maxActiveWorkers === 1 ? '' : 's'}`;
 }
 
 // ─── In-memory state (footer) ─────────────────────────────────────────────────
@@ -188,63 +156,6 @@ export async function restoreDialOnStartup(
   const level = loadPersistedDialLevel(deps?.home);
   if (level === undefined) return undefined;
   return applyDialLevel(pi, ctx, level, { ...deps, persist: false });
-}
-
-// ─── /octocode-dial command ───────────────────────────────────────────────────
-
-/**
- * Register '/octocode-dial'. With no args opens a select overlay of the four
- * levels (current one marked); with an arg ('/octocode-dial high') applies it
- * directly. Unknown args get a helpful error, never a silent no-op.
- */
-export function registerDialCommand(pi: PiInstance, deps?: ApplyDialDeps): void {
-  pi.registerCommand?.('octocode-dial', {
-    description: 'Effort dial — thinking level + worker parallelism (low | medium | high | ultra)',
-    getArgumentCompletions: (prefix: string) => {
-      const lowered = prefix.trim().toLowerCase();
-      const items = EFFORT_LEVELS
-        .filter((level) => level.startsWith(lowered))
-        .map((level) => ({ value: level, label: level, description: describeLevel(level) }));
-      return items.length > 0 ? items : null;
-    },
-    handler: async (args: string, ctx: PiCommandContext) => {
-      const trimmed = args.trim();
-      let level: EffortLevel | undefined;
-
-      if (trimmed) {
-        level = parseDialLevel(trimmed);
-        if (!level) {
-          ctx.ui?.notify?.(`Unknown effort level '${trimmed}' — use one of: ${EFFORT_LEVELS.join(', ')}.`, 'error');
-          return;
-        }
-      } else {
-        const choice = await runSelectOverlay(ctx, {
-          title: 'Effort dial',
-          items: EFFORT_LEVELS.map((candidate) => ({
-            value: candidate,
-            label: candidate === currentLevel ? `${candidate} ◉ current` : candidate,
-            description: describeLevel(candidate),
-          })),
-          filter: false,
-        });
-        if (choice === undefined) {
-          // Non-interactive host — the arg form still works everywhere.
-          ctx.ui?.notify?.(`No interactive UI — use /octocode-dial <${EFFORT_LEVELS.join('|')}>.`, 'warning');
-          return;
-        }
-        if (choice === null) return; // user cancelled
-        level = parseDialLevel(choice);
-        if (!level) return;
-      }
-
-      const result = await applyDialLevel(pi, ctx, level, deps);
-      ctx.ui?.notify?.(
-        `Effort dial: ${result.level} — thinking ${result.thinking}, ≤${result.maxActiveWorkers} active worker${result.maxActiveWorkers === 1 ? '' : 's'}.`,
-        'info',
-      );
-      for (const warning of result.warnings) ctx.ui?.notify?.(warning, 'warning');
-    },
-  });
 }
 
 /** Test hook: reset in-memory dial state between tests. */

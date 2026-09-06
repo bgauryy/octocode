@@ -85,17 +85,3 @@ export function formatCommandsGuide(
   ];
   return lines.join('\n').trimEnd();
 }
-
-/** Register the live command guide. The registry and auth state are read on invocation. */
-export function registerCommandsCommand(
-  pi: PiInstance,
-  getAuthState: () => CommandGuideAuthState | undefined = () => undefined,
-): void {
-  pi.registerCommand?.('commands', {
-    description: 'List every available slash command with when-to-use guidance.',
-    handler: async (_args, ctx) => {
-      const guide = formatCommandsGuide(collectPublicCommands(pi), getAuthState());
-      ctx.ui?.notify?.(guide, 'info');
-    },
-  });
-}

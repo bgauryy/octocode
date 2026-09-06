@@ -1,4 +1,4 @@
-import { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { describe, expect, it } from 'vitest';
 import { SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import {

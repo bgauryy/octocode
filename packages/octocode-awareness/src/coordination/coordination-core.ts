@@ -1,6 +1,6 @@
 import { normalizeWorkspacePath } from '../git.js';
-import type { AgentRecord,AgentStatus,CheckAudit,CheckStatus,HandoffNote,LiteMessage,Lock,LockWaitResult,MemoryItem,Plan,PlanGraphResult,PlanStatus,PruneResult,SourceStep,Task,TaskStatus,WorkPresence } from '@octocodeai/octocode-shared/entities';
-import type { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import type { AgentRecord,AgentStatus,CheckAudit,CheckStatus,HandoffNote,LiteMessage,Lock,LockWaitResult,MemoryItem,Plan,PlanGraphResult,PlanStatus,PruneResult,SourceStep,Task,TaskStatus,WorkPresence } from '@octocodeai/agent-contracts/entities';
+import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { resolve } from 'node:path';
 import { defaultDbPath,type AwarenessOptions,type AwarenessSchema } from './coordination-shared.js';
 import { type AgentEventEnvelopeV1 } from '../continuity-contracts.js';

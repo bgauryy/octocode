@@ -587,6 +587,16 @@ function firstResultTextLine(result: ToolCallResult): string {
 function actionableResultError(result: ToolCallResult): string {
   const text = (result.content as Array<{ type: string; text: string }> | undefined)
     ?.find?.((part) => part?.type === 'text')?.text ?? '';
+  if (/^Validation failed for tool /m.test(text)) {
+    // Pi puts the useful field diagnostics after its heading and the complete
+    // input after those. Keep diagnostics visible without previewing input data.
+    const diagnostics = text.split(/\n\s*Received arguments:/)[0]!.split('\n')
+      .map((line) => line.trim()).filter((line) => /^-\s+/.test(line));
+    if (diagnostics.some((line) => /^- queries:.*required properties queries\b/.test(line))) {
+      return 'Missing outer queries[]; put each operation inside queries:[{...}].';
+    }
+    if (diagnostics.length > 0) return diagnostics.map((line) => line.replace(/^-\s+/, '')).join('; ');
+  }
   const errorLine = text.split('\n')
     .map((line) => line.trim())
     .find((line) => /^(?:["']?error["']?)\s*:/.test(line));

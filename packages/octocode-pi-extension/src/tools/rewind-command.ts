@@ -25,9 +25,9 @@
  *   provides it and DEGRADES to files-only (with a message) when it does not.
  */
 
-import type { PiCommandContext, PiContext, PiInstance, NotifyFn } from '../types.js';
+import type { PiContext, NotifyFn } from '../types.js';
 import type { CheckpointInfo, DiffStatEntry, SnapshotResult } from './checkpoints.js';
-import { runSelectOverlay, type SelectOverlayItem, type SelectOverlayOptions } from './ui-overlays.js';
+import { type SelectOverlayItem, type SelectOverlayOptions } from './ui-overlays.js';
 
 // ─── Deps ────────────────────────────────────────────────────────────────────
 
@@ -56,12 +56,6 @@ export interface RewindCommandDeps {
   /** Overlay runner (default runSelectOverlay). Injectable for tests. */
   runOverlay?: OverlayRunner;
 }
-
-const defaultNotify: NotifyFn = (ctx, msg, level) => {
-  if (ctx?.hasUI) ctx.ui?.notify?.(msg, level);
-};
-
-// ─── Pure helpers (exported for tests) ───────────────────────────────────────
 
 const LABEL_PREFIX = 'before: ';
 const LABEL_TEXT_CHARS = 40;
@@ -153,136 +147,3 @@ export function createCheckpointInputHook(deps: Pick<RewindCommandDeps, 'getEngi
 
 // ─── /octocode-rewind ────────────────────────────────────────────────────────
 
-const STAGE_RESTORE_FILES = 'restore-files';
-const STAGE_RESTORE_REWIND = 'restore-rewind';
-const STAGE_SHOW_DIFF = 'show-diff';
-const STAGE_CANCEL = 'cancel';
-
-function stageItems(cp: CheckpointInfo | undefined, canNavigate: boolean): SelectOverlayItem[] {
-  const rewindHint = !cp?.entryId
-    ? ' (no conversation entry recorded — files only)'
-    : !canNavigate
-      ? ' (host lacks navigateTree — files only)'
-      : '';
-  return [
-    { value: STAGE_RESTORE_FILES, label: 'restore files', description: 'Overwrite work-tree files from this checkpoint' },
-    { value: STAGE_RESTORE_REWIND, label: 'restore files + rewind conversation', description: `Also move the session back${rewindHint}` },
-    { value: STAGE_SHOW_DIFF, label: 'show diff', description: 'Name-status of checkpoint vs current files' },
-    { value: STAGE_CANCEL, label: 'cancel', description: 'Do nothing' },
-  ];
-}
-
-async function restoreWithOptionalRewind(
-  engine: RewindEngine,
-  ctx: PiCommandContext,
-  cp: CheckpointInfo | undefined,
-  id: string,
-  wantRewind: boolean,
-  notify: NotifyFn,
-): Promise<void> {
-  try {
-    await engine.restoreFiles(id);
-  } catch (error) {
-    notify(ctx, `Restore failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
-    return;
-  }
-  if (!wantRewind) {
-    notify(ctx, `Files restored from checkpoint ${id.slice(0, 8)}.`, 'info');
-    return;
-  }
-  const entryId = cp?.entryId;
-  if (!entryId || typeof ctx.navigateTree !== 'function') {
-    const why = !entryId
-      ? 'no conversation entry was recorded for this checkpoint'
-      : 'this host does not support conversation rewind (navigateTree)';
-    notify(ctx, `Files restored from ${id.slice(0, 8)}; conversation left in place — ${why}.`, 'warning');
-    return;
-  }
-  const res = await ctx.navigateTree?.(entryId, { label: `octocode-rewind: ${cp?.label || id.slice(0, 8)}` });
-  notify(
-    ctx,
-    res?.cancelled
-      ? `Files restored from ${id.slice(0, 8)}; conversation rewind was cancelled.`
-      : `Files restored and conversation rewound to checkpoint ${id.slice(0, 8)}.`,
-    'info',
-  );
-}
-
-/**
- * Register `/octocode-rewind`.
- * - no args → checkpoint picker overlay → restore files | restore + rewind conversation | show diff | cancel
- * - `list` → print checkpoints
- * - `restore <id>` → restore files from that checkpoint
- */
-export function registerRewindCommand(pi: PiInstance, deps: RewindCommandDeps): void {
-  const notify = deps.notify ?? defaultNotify;
-  const overlay = deps.runOverlay ?? runSelectOverlay;
-
-  pi.registerCommand?.('octocode-rewind', {
-    description: 'Rewind files (and optionally the conversation) to an automatic checkpoint',
-    getArgumentCompletions: (prefix: string) => {
-      const items = [
-        { value: 'list', label: 'list', description: 'List checkpoints' },
-        { value: 'restore ', label: 'restore <id>', description: 'Restore files from a checkpoint id' },
-      ];
-      const filtered = items.filter((i) => i.value.startsWith(prefix));
-      return filtered.length > 0 ? filtered : null;
-    },
-    handler: async (args: string, ctx: PiCommandContext) => {
-      const engine = await deps.getEngine(ctx);
-      if (!engine) {
-        notify(ctx, 'Checkpoints unavailable (engine disabled or failed to initialize).', 'warning');
-        return;
-      }
-
-      const trimmed = args.trim();
-      if (trimmed === 'list') {
-        notify(ctx, formatCheckpointList(await engine.listCheckpoints()), 'info');
-        return;
-      }
-      const restoreMatch = /^restore\s+(\S+)$/.exec(trimmed);
-      if (restoreMatch) {
-        await restoreWithOptionalRewind(engine, ctx, undefined, restoreMatch[1]!, false, notify);
-        return;
-      }
-      if (trimmed) {
-        notify(ctx, 'Usage: /octocode-rewind [list | restore <id>]', 'warning');
-        return;
-      }
-
-      const checkpoints = await engine.listCheckpoints();
-      if (checkpoints.length === 0) {
-        notify(ctx, formatCheckpointList(checkpoints), 'info');
-        return;
-      }
-      const picked = await overlay(ctx, {
-        title: 'Rewind to checkpoint',
-        items: buildCheckpointItems(checkpoints),
-      });
-      if (picked === undefined) {
-        // No interactive UI — point at the arg forms instead of dead-ending.
-        notify(ctx, 'No interactive UI. Use /octocode-rewind list and /octocode-rewind restore <id>.', 'info');
-        return;
-      }
-      if (picked === null) return; // cancelled
-
-      const cp = checkpoints.find((c) => c.id === picked);
-      const action = await overlay(ctx, {
-        title: `Checkpoint ${picked.slice(0, 8)}${cp?.label ? ` — ${cp.label}` : ''}`,
-        items: stageItems(cp, typeof ctx.navigateTree === 'function'),
-        filter: false,
-      });
-      if (!action || action === STAGE_CANCEL) return;
-
-      if (action === STAGE_SHOW_DIFF) {
-        try {
-          notify(ctx, formatDiffStat(await engine.diffStat(picked)), 'info');
-        } catch (error) {
-          notify(ctx, `Diff failed: ${error instanceof Error ? error.message : String(error)}`, 'error');
-        }
-        return;
-      }
-      await restoreWithOptionalRewind(engine, ctx, cp, picked, action === STAGE_RESTORE_REWIND, notify);
-    },
-  });
-}

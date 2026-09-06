@@ -12,11 +12,12 @@ import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db-init.js';
 import { connectDb } from '../src/db-runtime.js';
-import { checkpointWal } from '@octocodeai/octocode-shared/sqlite';
-import { journalModeForSqliteVersion } from '@octocodeai/octocode-shared/sqlite-version';
+import { checkpointWal } from '@octocodeai/agent-contracts/sqlite';
+import { journalModeForSqliteVersion } from '@octocodeai/agent-contracts/sqlite-version';
 import { sessionCapture } from '../src/maintenance-session.js';
 import { parseGitStatusShortLines } from '../src/maintenance-git-status.js';
 import { digest } from '../src/maintenance-digest.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function freshDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');
@@ -161,6 +162,7 @@ describe('sessionCapture dirty git paths', () => {
   it('captures dirty git paths without truncating porcelain columns', () => {
     const db = freshDb();
     const dir = mkdtempSync(join(tmpdir(), 'oc-session-dirty-'));
+    const restoreLocalProcesses = allowLocalFixtureProcesses();
     try {
       execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
       execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'ignore' });
@@ -179,6 +181,7 @@ describe('sessionCapture dirty git paths', () => {
       expect(res.dirty_files?.some((f) => f.includes('racked.txt') && !f.startsWith('t'))).toBe(false);
       expect(res.dirty_files).not.toContain('racked.txt');
     } finally {
+      restoreLocalProcesses();
       rmSync(dir, { recursive: true, force: true });
     }
   });

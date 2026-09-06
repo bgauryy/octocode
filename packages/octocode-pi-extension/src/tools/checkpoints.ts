@@ -40,7 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { extensionHome } from '../extension-paths.js';
-import { ensurePrivateDirectory } from '@octocodeai/octocode-awareness/mcp-state';
+import { ensurePrivateDirectory } from '@octocodeai/agent-contracts/permissions';
 
 const execFileAsync = promisify(execFile);
 

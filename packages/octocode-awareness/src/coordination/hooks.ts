@@ -1,7 +1,8 @@
 import { resolve } from 'node:path';
 import { openAwarenessStore } from './open.js';
-import { type Lock } from '@octocodeai/octocode-shared/entities';
+import { type Lock } from '@octocodeai/agent-contracts/entities';
 import type { AwarenessStorageScope } from '../storage-scope.js';
+import { canonicalizePath } from '../git.js';
 
 export type HookHost = 'claude' | 'codex' | 'copilot' | 'cursor' | 'gemini' | 'opencode' | 'pi' | 'generic';
 
@@ -128,7 +129,7 @@ export function checkLockConflicts(params: {
 }): LockConflict[] {
   const aw = openAwarenessStore({ workspace: params.workspace, dbPath: params.dbPath, scope: params.scope });
   try {
-    const targetSet = new Set(params.files.map((file) => resolve(params.workspace, file)));
+    const targetSet = new Set(params.files.map((file) => canonicalizePath(resolve(params.workspace, file))));
     return aw.listLocks()
       .filter((lock) => targetSet.has(lock.filePath) && lock.agentId !== params.agentId)
       .map((lock) => ({ filePath: lock.filePath, lock }));
@@ -148,7 +149,7 @@ export function runPreEditLockGate(options: PreEditHookOptions): PreEditHookResu
     ok: !blocked,
     blocked,
     agentId: options.agentId,
-    files: files.map((file) => resolve(workspace, file)),
+    files: files.map((file) => canonicalizePath(resolve(workspace, file))),
     conflicts,
     message: blocked
       ? `Awareness lock conflict: ${conflicts.map((conflict) => `${conflict.filePath} held by ${conflict.lock.agentId}`).join('; ')}`

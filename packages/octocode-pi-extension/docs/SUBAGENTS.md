@@ -47,6 +47,17 @@ Worker-to-parent results are pull-based: inspect or wait for `[DONE]`, `[BLOCKED
 
 The `wait` operation's `timeoutMs` sets a silence window. An active worker can keep the wait open beyond that window; a quiet worker can return a status snapshot before its turn finishes. Check the returned status before treating the result as complete.
 
+### Handback best practice
+
+After `wait` or `inspect` returns a result, the parent owns this sequence:
+
+1. Verify each load-bearing finding against the cited source, semantic result, or observed check. A worker's confidence marker is not verification.
+2. Distill only key findings that can affect the current session into the `memory.md` path advertised by `<session_artifacts>`, under `## Findings`. Keep each entry within 200 characters and retain at most 10 entries in that section.
+3. Update the user promptly when a finding changes the hypothesis, plan, risk, or next action. Do not interrupt them for routine progress or duplicate the full handback.
+4. Reconcile the finding with the active plan, then kill the worker unless another turn is intentional.
+
+Never copy raw handbacks or unverified claims into session memory. The `memory` tool is separate: use it only for verified reusable learning that should outlive this Pi session; use `memory.md` for bounded session continuity.
+
 Cancelling a `wait` call releases its timers, listeners, and liveness probes. It preserves the worker and other waits, including when the cancelled call requested `remove:true`. Use `type:"abort"` to interrupt the worker's turn or `type:"kill"` to terminate its process. Cancelling spawn preparation prevents subsequent process creation; a worker whose spawn already returned keeps running until explicitly stopped or the session shuts down.
 
 Use `task` for the worker assignment and the `agent` tool for every profile and lifecycle operation. There are no separate spawn or message tool aliases.

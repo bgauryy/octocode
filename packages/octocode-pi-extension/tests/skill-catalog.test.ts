@@ -12,10 +12,10 @@ test('available skills addendum lists loadable skills and filters prompt-owned A
   ]);
 
   assert.match(addendum, /<available_skills>/);
-  assert.match(addendum, /Skills available by name this turn/);
-  assert.match(addendum, /load the minimal matching skill BEFORE acting via skill\(\{queries:/);
+  assert.match(addendum, /Optional skills available by name/);
+  assert.doesNotMatch(addendum, /BEFORE acting|must load/);
   assert.doesNotMatch(addendum, /octocode-awareness/);
-  assert.match(addendum, /- octocode-roast: Use when a blunt evidence-backed code roast is wanted:.*\[user\/global\]/);
+  assert.match(addendum, /- octocode-roast: Critical review workflow\.\[user\/global\]/);
 });
 
 test('available skills addendum is empty when Pi reports no skills', () => {
@@ -103,8 +103,8 @@ test('every Octocode-owned bundled skill keeps its complete trigger description 
   })));
   for (const skill of skills) {
     const line = staleInstalledAddendum.split('\n').find((candidate) => candidate.startsWith(`- ${skill.name}:`));
-    assert.ok(line?.includes(skill.description), `${skill.name} overrides stale installed metadata at the extension boundary`);
-    assert.doesNotMatch(line!, /…/, `${skill.name} override is not truncated`);
+    assert.ok(line?.includes('Stale installed metadata'), `${skill.name} preserves installed metadata`);
+    assert.match(line!, /…/, 'long installed descriptions remain bounded');
   }
 });
 
@@ -114,8 +114,8 @@ test('Awareness-owned orchestrator receives a complete trigger-first extension p
     description: 'Upstream description that is intentionally much longer than the prompt catalog limit. '.repeat(4),
   }]).split('\n').find((candidate) => candidate.startsWith('- octocode-orchestrator:'))!;
 
-  assert.match(line, /Use when substantial work needs one agent to coordinate workstreams, subagents, TDD, evaluation, and handoffs\./);
-  assert.doesNotMatch(line, /…/);
+  assert.match(line, /Upstream description/);
+  assert.match(line, /…/);
 });
 
 test('skills dashboard lists loadable skills, filters Awareness aliases, and shows install guidance', () => {
@@ -128,7 +128,7 @@ test('skills dashboard lists loadable skills, filters Awareness aliases, and sho
   assert.match(dashboard, /^◆ Octocode skills/m);
   assert.match(dashboard, /Available now/);
   assert.doesNotMatch(dashboard, /octocode-awareness/);
-  assert.match(dashboard, /- octocode-roast: Use when a blunt evidence-backed code roast is wanted:.*\[user\/global\]/);
+  assert.match(dashboard, /- octocode-roast: Critical review workflow\.\[user\/global\]/);
   assert.match(dashboard, /skill\(\{queries:/, 'dashboard teaches the unified skill query envelope');
   assert.match(dashboard, /\/skill:<name>/);
   assert.match(dashboard, /npx octocode skill install <skill> --platform pi/);

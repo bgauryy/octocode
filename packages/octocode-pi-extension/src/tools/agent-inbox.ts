@@ -24,16 +24,11 @@
 
 import type { PiContext, PiInstance, WorkerLedgerEntry, WorkerLedgerEventType, NotifyFn } from '../types.js';
 import type { SelectOverlayItem, SelectOverlayOptions } from './ui-overlays.js';
-import { runSelectOverlay } from './ui-overlays.js';
 import { truncatePlainToWidth } from './render-helpers.js';
 import { shortId } from './ids.js';
 import {
   formatElapsed,
-  getWorkerTranscript,
-  killWorkerById,
-  listWorkerLedgerEntries,
   registerWorkerLedgerListener,
-  steerWorkerById,
 } from './agent-tools.js';
 import {
   clearTitleFlashTimer,
@@ -301,11 +296,6 @@ export function registerAgentInbox(
 ): AgentInboxRegistration {
   const notifier: NotifyFn = notify ?? ((ctx, message, level) => { ctx?.ui?.notify?.(message, level); });
   const registerListener = seams.registerListener ?? registerWorkerLedgerListener;
-  const listEntries = seams.listEntries ?? listWorkerLedgerEntries;
-  const runOverlay = seams.runOverlay ?? runSelectOverlay;
-  const steer = seams.steer ?? steerWorkerById;
-  const kill = seams.kill ?? killWorkerById;
-  const transcript = seams.transcript ?? getWorkerTranscript;
   const osc9 = seams.emitOsc9 ?? emitOsc9;
   const flashTitle = seams.flashTitle ?? ((ctx: PiContext | undefined, text: string) => flashTerminalTitle(ctx, text));
   const enabled = seams.notificationsEnabled ?? notificationsEnabled;
@@ -376,26 +366,6 @@ export function registerAgentInbox(
   pi.on('agent_start', async (_event, ctx) => { turnActive = true; lastCtx = ctx ?? lastCtx; });
   pi.on('agent_end', async (_event, ctx) => { turnActive = false; lastCtx = ctx ?? lastCtx; });
   pi.on('session_start', async (_event, ctx) => { lastCtx = ctx ?? lastCtx; });
-  pi.registerCommand?.(OCTOCODE_INBOX_COMMAND, {
-    description: 'Open the Octocode worker inbox (view transcript / steer / kill spawned workers)',
-    handler: async (_args, ctx) => {
-      lastCtx = ctx ?? lastCtx;
-      if (!ctx?.hasUI) {
-        notifier(ctx, 'The Octocode inbox needs an interactive TUI session.', 'warning');
-        return;
-      }
-      await runAgentInboxOverlay({
-        ctx,
-        listEntries,
-        runOverlay,
-        steer,
-        kill,
-        transcript,
-        notify: notifier,
-        now,
-      });
-    },
-  });
 
   return { unsubscribe, shutdown, resume };
 }

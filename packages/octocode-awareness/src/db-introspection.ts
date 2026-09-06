@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { TableInfoRow } from './types/work-maintenance.js';
 import { readSchemaIdentity } from './db-runtime.js';
-import { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import type { SchemaIdentity } from './db-runtime.js';
 import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 

@@ -3,7 +3,6 @@ import { test } from 'vitest';
 import {
   collectPublicCommands,
   formatCommandsGuide,
-  registerCommandsCommand,
 } from '../src/tools/commands-command.js';
 import type { PiCommand, PiCommandContext, PiInstance } from '../src/types.js';
 
@@ -67,26 +66,4 @@ test('formatCommandsGuide groups Octocode, Pi, and skill/template commands with 
   assert.match(guide, /GitHub: login required/);
   assert.match(guide, /npx octocode auth login/);
   assert.match(guide, /gh auth login/);
-});
-
-test('registerCommandsCommand registers /commands and resolves commands at handler time', async () => {
-  const registry = [command('model', 'Select model')];
-  const registered = new Map<string, { description: string; handler(args: string, ctx: PiCommandContext): Promise<void> }>();
-  const pi = {
-    getCommands: () => registry,
-    registerCommand: (name: string, definition: unknown) => registered.set(name, definition as never),
-  } as unknown as PiInstance;
-  registerCommandsCommand(pi, () => ({ status: 'authenticated', source: 'gh-cli' }));
-  registry.push(command('octocode-plan', 'Manage the active plan'));
-
-  const notifications: string[] = [];
-  await registered.get('commands')!.handler('', {
-    hasUI: true,
-    ui: { notify: (message: string) => notifications.push(message) },
-  } as unknown as PiCommandContext);
-
-  assert.match(registered.get('commands')!.description, /every available slash command/i);
-  assert.match(notifications[0]!, /\/model/);
-  assert.match(notifications[0]!, /\/octocode-plan/);
-  assert.match(notifications[0]!, /GitHub: authenticated via gh-cli/);
 });

@@ -285,7 +285,34 @@ export function resetCompactionCheckpointDedupe(): void {
 export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void {
   if (!pi.on) return;
 
+  // Some hosts rebuild their active-tool set while replacing compacted context.
+  // Preserve the user's exact pre-compaction selection (including profile scoping)
+  // rather than blindly enabling every registered extension tool afterward.
+  let activeToolsBeforeCompaction: string[] | undefined;
+  const snapshotActiveTools = (): void => {
+    try {
+      const active = pi.getActiveTools?.();
+      activeToolsBeforeCompaction = Array.isArray(active) ? [...active] : undefined;
+    } catch {
+      activeToolsBeforeCompaction = undefined;
+    }
+  };
+  const restoreActiveTools = (): void => {
+    const active = activeToolsBeforeCompaction;
+    activeToolsBeforeCompaction = undefined;
+    if (!active || !pi.setActiveTools) return;
+    try {
+      const current = pi.getActiveTools?.();
+      if (!Array.isArray(current) || current.join('\0') !== active.join('\0')) {
+        pi.setActiveTools(active);
+      }
+    } catch {
+      // Tool restoration is defensive; compaction continuity must still complete.
+    }
+  };
+
   pi.on('session_shutdown', async () => {
+    activeToolsBeforeCompaction = undefined;
     // Replacement shutdown can deliberately provide a stale context proxy.
     // The extension owns one active session, so cleanup must not dereference it.
     // clearCurrentContextSources() is intentionally ABSENT here: the no-ctx
@@ -296,6 +323,7 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
   });
 
   pi.on('session_before_compact', async (event: SessionBeforeCompactEvent, ctx: PiContext) => {
+    snapshotActiveTools();
     try {
       // `/compact` is an explicit user action. Never second-guess it from brittle
       // assistant-text heuristics; Pi owns cancellation and failure presentation.
@@ -336,6 +364,7 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
   });
 
   pi.on('session_compact', async (event: SessionCompactEvent, ctx: PiContext) => {
+    restoreActiveTools();
     try {
       // Pi emits this event exactly once after it has appended the successful
       // compaction and rebuilt context. `willRetry` means Pi will retry the

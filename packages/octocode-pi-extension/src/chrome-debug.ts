@@ -28,11 +28,6 @@ export interface CdpTargetInfo {
   devtoolsFrontendUrl?: string;
 }
 
-export interface CdpSendOptions {
-  sessionId?: string;
-  timeoutMs?: number;
-}
-
 export interface CdpSession {
   targetInfo: CdpTargetInfo;
   /** Send a CDP method and receive the result. `timeoutMs` overrides the per-call default. */
@@ -106,11 +101,6 @@ export interface ChromeConnection {
   metadata: SessionMetadata;
   screenshotDir: string;
   sessionFile: string;
-}
-
-export interface EvidenceLine {
-  prefix: string;
-  text: string;
 }
 
 // ─── Localhost sandbox ────────────────────────────────────────────────────────

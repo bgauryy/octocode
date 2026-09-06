@@ -4,7 +4,7 @@ import { activeLockRecords } from '../intents-preflight.js';
 import { releaseFileLock } from '../intents-release.js';
 import { startWork, listWork, endWork, getRun, normalizeFiles } from '../work.js';
 import { markVerified } from '../verify-mark.js';
-import type { CheckAudit,CheckStatus,HandoffNote,Lock,LockWaitResult,Task,WorkPresence } from '@octocodeai/octocode-shared/entities';
+import type { CheckAudit,CheckStatus,HandoffNote,Lock,LockWaitResult,Task,WorkPresence } from '@octocodeai/agent-contracts/entities';
 import { CoordinationPlansTasks } from './coordination-plans-tasks.js';
 import { handoffFromRow,type HandoffRow,id,normalizeLeaseSeconds,now,required,sleepMs,splitFiles } from './coordination-shared.js';
 

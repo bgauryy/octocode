@@ -7,7 +7,7 @@ import {
   defaultAgentSkillSources,
   discoverAgentSkillInventory,
   type AgentSkillSourceDescriptor,
-} from '@octocodeai/octocode-shared/agent-skills';
+} from '@octocodeai/agent-contracts/agent-skills';
 import type { ToolDefinition, ToolCallResult, PiTheme, PiContext, SkillInfo, TSchema } from '../types.js';
 import { getAssetPaths } from '../assets.js';
 import type { registerUniqueTool } from './octocode-tools.js';
@@ -17,7 +17,7 @@ import { makeComponentRenderer } from './render-helpers.js';
 import { isPromptOwnedSkill } from './skill-catalog.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
 import { orchestrate } from './call-skill.js';
-import { getSkillEnablement } from '@octocodeai/octocode-awareness/mcp-state';
+import { getSkillEnablement } from '@octocodeai/agent-contracts/mcp-state';
 import { openOctocodeDb } from './storage-policy.js';
 import { MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS } from './tool-result-budget.js';
 

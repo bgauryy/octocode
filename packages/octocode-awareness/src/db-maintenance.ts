@@ -5,7 +5,7 @@
  */
 import { parseJsonList, utcNow } from './helpers.js';
 import type { MemoryRow } from './types/work-maintenance.js';
-import type { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 
 // ─── FTS helpers ──────────────────────────────────────────────────────────────
 

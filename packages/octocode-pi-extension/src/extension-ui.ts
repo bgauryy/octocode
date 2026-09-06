@@ -19,6 +19,7 @@ import {
 } from './tools/runtime-renderer.js';
 import type { RuntimeFooterState } from './tools/runtime-store.js';
 import { renderFooterView } from './tui/footer-view.js';
+import { WORKING_WORD } from './tui/content.js';
 import { contextGauge, paint } from './tui/palette.js';
 import type { PiContext, PiInstance, PiTheme } from './types.js';
 import {
@@ -123,7 +124,7 @@ function buildOctocodeFooterLines(
   const runtimeState = runtimeStoreFor(ctx)?.getState();
   const activity = runtimeState ? activityPresentation(runtimeState.activity) : undefined;
   const cachedAwareness = getCachedAwarenessStatus(ctx.cwd ?? process.cwd());
-  // ── Row 1: Identity (branch · model · github · perm) + /commands ──
+  // ── Row 1: Identity (branch · model · github · perm) + /configuration ──
   // The app already owns the Octocode brand; repeating it in every footer frame
   // wastes width and creates duplicate chrome.
   const branch = footerData?.getGitBranch?.();
@@ -149,7 +150,7 @@ function buildOctocodeFooterLines(
     const grants = approvedClasses().length > 0 ? ` +${approvedClasses().length}` : '';
     identityParts.push({ text: `perm ${permLevel}${grants}`, token: permLevel === 'relaxed' ? 'warning' : 'dim' });
   }
-  identityParts.push({ text: '/settings', token: 'link' });
+  identityParts.unshift({ text: '/configuration', token: 'link' });
 
   // Metrics complement plan/agent rows; they never restate their counts.
   const metricsSegments = buildFooterSegments({
@@ -213,7 +214,7 @@ function buildOctocodeFooterLines(
             attention: runtimeState?.activity.kind === 'failed' || runtimeState?.activity.kind === 'blocked' || runtimeState?.activity.kind === 'awaiting_input',
           }]
         : state.activeTurnStartedAt !== undefined
-          ? [{ text: 'Thinking…', token: 'brand' as const }]
+          ? [{ text: `${WORKING_WORD}…`, token: 'brand' as const }]
           : []),
         context,
       ],
@@ -266,8 +267,6 @@ export function resetOctocodeFooterRegistration(ctx: PiContext | undefined): voi
   if (ctx) footerRegisteredCtxs.delete(ctx);
 }
 
-const REPO_STATE_TRIGGER = /\b(repo|git|status|staged|unstaged|changes?|diff|commit|branch|dirty|modified|working tree|worktree)\b/i;
-
 export async function execGitSummary(pi: PiInstance, args: string[], timeout = 1200): Promise<string> {
   if (!pi.exec) return '';
   try {
@@ -290,33 +289,6 @@ export async function refreshFooterDirtyState(pi: PiInstance, ctx: PiContext | u
     gitDirty: porcelain !== '',
     gitDirtyFiles: porcelain === '' ? 0 : porcelain.split('\n').filter((line) => line.trim()).length,
   });
-}
-
-export async function buildRepoStateHint(
-  pi: PiInstance,
-  event: { text: string; source?: string; streamingBehavior?: string },
-): Promise<string> {
-  if (event.source === 'extension') return '';
-  if (event.streamingBehavior === 'steer') return '';
-  if (!REPO_STATE_TRIGGER.test(event.text)) return '';
-  const status = await execGitSummary(pi, ['status', '--short', '--branch']);
-  if (!status) return '';
-  const [lastCommit, stagedStat, unstagedStat] = await Promise.all([
-    execGitSummary(pi, ['log', '-1', '--oneline', '--decorate'], 800),
-    execGitSummary(pi, ['diff', '--staged', '--stat'], 800),
-    execGitSummary(pi, ['diff', '--stat'], 800),
-  ]);
-  return [
-    '<repo_state>',
-    'Auto-captured lightweight Git state. Treat as a hint; re-run git/status checks before edits or final claims.',
-    '```',
-    status,
-    lastCommit ? `\nlast commit: ${lastCommit}` : '',
-    stagedStat ? `\nstaged diffstat:\n${stagedStat}` : '',
-    unstagedStat ? `\nunstaged diffstat:\n${unstagedStat}` : '',
-    '```',
-    '</repo_state>',
-  ].filter(Boolean).join('\n');
 }
 
 /** CustomEntry type for the fresh-session banner card. */
@@ -349,8 +321,8 @@ export function applyOctocodeUi(ctx: PiContext | undefined, level?: string, cont
   const label = paint(ui.theme, 'brand', '◆ Octocode');
   setManagedStatus(ctx, 'octocode', label);
   // Thinking-level chip: only show the level string (e.g. 'medium') when the model
-  // supports reasoning. Empty → chip is hidden. The chip becomes 'thinking…' while
-  // a turn is active (turn_start hook), and restores here on every level/model change.
+  // supports reasoning. Empty → chip is hidden. The chip is hidden while a turn
+  // is active (turn_start hook), then restores here on every level/model change.
   const thinkingStatus = getThinkingStatus(ctx, level);
   setManagedStatus(ctx, 'octocode-thinking', thinkingStatus ? paint(ui.theme, 'dim', thinkingStatus) : undefined);
   // One-time per context: working indicator frames, branded message, and the hidden

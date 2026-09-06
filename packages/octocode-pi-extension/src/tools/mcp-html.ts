@@ -8,12 +8,10 @@ import {
   listSkillOverrides,
   normalizeSkillKey,
   setSkillEnabled,
-  ensurePrivateDirectory,
-  hardenPrivateFile,
-  PRIVATE_FILE_MODE,
-} from '@octocodeai/octocode-awareness/mcp-state';
+} from '@octocodeai/agent-contracts/mcp-state';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
 import { openOctocodeDb } from './storage-policy.js';
-import type { PiCommand, PiContext, SkillInfo } from '../types.js';
+import type { PiCommand, PiContext, PiInstance, SkillInfo } from '../types.js';
 import { getOctocodeHome } from '@octocodeai/config';
 import { extensionTmpRoot } from '../extension-paths.js';
 import { escapeHtml, renderOctocodePage } from '../tui/html-page.js';
@@ -22,11 +20,11 @@ import { getMcpDiscoverySnapshot, getMcpPromptArtifactStatus, handleMcpAction, i
 import { runtimeStoreFor } from './runtime-renderer.js';
 import { hasStoredMcpOAuthTokens } from './mcp-oauth.js';
 import { discoverSkillStates } from './skill-tool.js';
-import { serveDirectory } from './local-server.js';
+import { serveDirectory, unmount } from './local-server.js';
 import { openLocalUrl } from './local-url-opener.js';
 import { getFooterDensity, setFooterDensity, type FooterDensity } from '../ui-extras.js';
 import { getPermissionLevel, setPermissionLevel } from './approval.js';
-import { type PermissionLevel } from '@octocodeai/octocode-shared/protocols';
+import { type PermissionLevel } from '@octocodeai/agent-contracts/protocols';
 import {
   ContributionRegistry,
   SettingsRegistry,
@@ -35,6 +33,9 @@ import {
   type SettingsSnapshot,
 } from '@octocodeai/agent-core';
 import { PiSettingsAdapter } from '../adapters/pi-settings-adapter.js';
+import { applyDialLevel, EFFORT_LEVELS, getActiveDialLevel, type EffortLevel } from './effort-dial.js';
+import { updateOctocodeMetricsUi } from '../extension-ui.js';
+import { OCTOCODE_THEME_DARK, OCTOCODE_THEME_LIGHT } from '../ui-extras.js';
 import { discoverCodexHookSources, type CodexHookDiscoveryResult } from '../adapters/pi-hook-discovery.js';
 
 export const SETTINGS_HTML_FILE = 'settings.html';
@@ -51,6 +52,8 @@ export type McpManagerAction =
   | { action: 'enable-skill' | 'disable-skill'; skill: string; scope: 'project' | 'global' }
   | { action: 'set-footer-density'; density: FooterDensity; expectedRevision?: string }
   | { action: 'set-permission-level'; level: PermissionLevel; expectedRevision?: string }
+  | { action: 'set-effort'; level: EffortLevel; expectedRevision?: string }
+  | { action: 'set-theme'; theme: 'dark' | 'light'; expectedRevision?: string }
   | { action: 'review-hook'; source: string; hash: string; expectedRevision?: string }
   | { action: 'enable-hook' | 'disable-hook'; source: string; expectedRevision?: string };
 
@@ -63,11 +66,19 @@ export function parseMcpManagerAction(raw: unknown): McpManagerAction {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid MCP action');
   const value = raw as Record<string, unknown>;
   for (const key of Object.keys(value)) {
-    if (!['action', 'server', 'scope', 'tool', 'config', 'skill', 'density', 'level', 'source', 'hash', 'expectedRevision'].includes(key)) throw new Error(`Unsupported settings action field: ${key}`);
+    if (!['action', 'server', 'scope', 'tool', 'config', 'skill', 'density', 'level', 'theme', 'source', 'hash', 'expectedRevision'].includes(key)) throw new Error(`Unsupported settings action field: ${key}`);
   }
   const action = value['action'];
   const expectedRevision = typeof value['expectedRevision'] === 'string' ? value['expectedRevision'] : undefined;
   const server = value['server'];
+  if (action === 'set-effort') {
+    if (!EFFORT_LEVELS.includes(value['level'] as EffortLevel)) throw new Error('Invalid effort level');
+    return { action, level: value['level'] as EffortLevel, ...(expectedRevision ? { expectedRevision } : {}) };
+  }
+  if (action === 'set-theme') {
+    if (value['theme'] !== 'dark' && value['theme'] !== 'light') throw new Error('Invalid theme');
+    return { action, theme: value['theme'], ...(expectedRevision ? { expectedRevision } : {}) };
+  }
   if (action === 'set-footer-density') {
     if (!['compact', 'default', 'full'].includes(String(value['density']))) throw new Error('Invalid footer density');
     return { action, density: value['density'] as FooterDensity, ...(expectedRevision ? { expectedRevision } : {}) };
@@ -132,6 +143,8 @@ function settingsAdapter(ctx?: PiContext): PiSettingsAdapter {
   registry.register({ key: 'runtime.footer-density', schemaVersion: 1, section: 'Appearance', order: 10, kind: { type: 'enum', values: ['compact', 'default', 'full'] }, scopes: ['session'], defaultValue: getFooterDensity(), mutability: 'editable', application: 'immediate', visibility: 'public', owner: 'pi-extension', documentation: 'docs/SETTINGS.md' });
   registry.register({ key: 'runtime.permission-level', schemaVersion: 1, section: 'Runtime', order: 10, kind: { type: 'enum', values: ['default', 'relaxed', 'strict'] }, scopes: ['session'], defaultValue: getPermissionLevel(), mutability: 'editable', application: 'immediate', visibility: 'public', owner: 'pi-extension', documentation: 'docs/SETTINGS.md' });
   registry.register({ key: 'models.active', schemaVersion: 1, section: 'Models', order: 10, kind: { type: 'object' }, scopes: ['imported'], defaultValue: { providerId: ctx?.model?.provider ?? null, modelId: ctx?.model?.id ?? null }, mutability: 'read-only', application: 'next-session', visibility: 'public', owner: 'pi-extension', documentation: 'docs/SETTINGS.md', classificationReason: 'Active Pi model is a compatibility projection; canonical defaults are edited by agent-core.' });
+  registry.register({ key: 'runtime.theme', schemaVersion: 1, section: 'Appearance', order: 20, kind: { type: 'enum', values: ['host', 'dark', 'light'] }, scopes: ['session'], defaultValue: 'host', mutability: 'editable', application: 'immediate', visibility: 'public', owner: 'pi-extension', documentation: 'docs/SETTINGS.md' });
+  registry.register({ key: 'runtime.effort', schemaVersion: 1, section: 'Runtime', order: 20, kind: { type: 'enum', values: ['host', ...EFFORT_LEVELS] }, scopes: ['session'], defaultValue: getActiveDialLevel() ?? 'host', mutability: 'editable', application: 'immediate', visibility: 'public', owner: 'pi-extension', documentation: 'docs/SETTINGS.md' });
   const adapter = new PiSettingsAdapter(new SettingsService(registry));
   adapter.subscribe((result) => {
     if (result.effectiveValue?.key === 'runtime.footer-density') setFooterDensity(result.effectiveValue.value as FooterDensity);
@@ -150,7 +163,23 @@ function hooksFor(ctx?: PiContext): CodexHookDiscoveryResult {
   return discovered;
 }
 
-export async function applyMcpManagerAction(action: McpManagerAction, ctx?: PiContext): Promise<void> {
+export async function applyMcpManagerAction(action: McpManagerAction, ctx?: PiContext, pi?: PiInstance): Promise<void> {
+  if (action.action === 'set-theme' || action.action === 'set-effort') {
+    if (action.expectedRevision && action.expectedRevision !== settingsAdapter(ctx).snapshot().revision) throw new Error('Configuration changed since this page was generated');
+    if (action.action === 'set-theme') {
+      if (!ctx?.ui?.setTheme) throw new Error('Theme changes are unavailable in this host');
+      const result = ctx.ui.setTheme(action.theme === 'dark' ? OCTOCODE_THEME_DARK : OCTOCODE_THEME_LIGHT);
+      if (result && !result.success) throw new Error(result.error ?? 'Could not apply theme');
+    } else {
+      if (!pi?.setThinkingLevel) throw new Error('Effort changes are unavailable in this host');
+      await applyDialLevel(pi, ctx, action.level, { persist: false });
+    }
+    const adapter = settingsAdapter(ctx);
+    const result = await adapter.mutate({ protocolVersion: 1, requestId: randomBytes(12).toString('hex'), action: 'set', scope: 'session', expectedRevision: revision(action.expectedRevision ?? adapter.snapshot().revision), payload: { key: action.action === 'set-theme' ? 'runtime.theme' : 'runtime.effort', value: action.action === 'set-theme' ? action.theme : action.level } });
+    if (!result.ok) throw new Error(result.error.message);
+    updateOctocodeMetricsUi(ctx);
+    return;
+  }
   if (action.action === 'set-footer-density') {
     const adapter = settingsAdapter(ctx);
     const result = await adapter.mutate({ protocolVersion: 1, requestId: randomBytes(12).toString('hex'), action: 'set', scope: 'session', expectedRevision: revision(action.expectedRevision ?? adapter.snapshot().revision), payload: { key: 'runtime.footer-density', value: action.density } });
@@ -227,7 +256,7 @@ function safeConfig(config: McpServerConfig): Record<string, unknown> {
       };
 }
 
-export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', piSkills?: SkillInfo[], commands: readonly PiCommand[] = []): Promise<string> {
+export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', piSkills?: SkillInfo[], commands: readonly PiCommand[] = [], pi?: PiInstance): Promise<string> {
   const cwd = path.resolve(ctx?.cwd ?? process.cwd());
   const skills = discoverSkillStates(cwd, piSkills);
   const loaded = await loadMcpConfig(ctx);
@@ -328,16 +357,18 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
       .command-toolbar{display:grid;grid-template-columns:minmax(0,1fr) repeat(4,auto);gap:.55rem;margin-bottom:.75rem}.command-toolbar button.active{color:white;background:var(--violet);border-color:var(--violet)}.command-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}.command-card{background:white;border:1px solid var(--line);border-radius:13px;padding:.85rem 1rem}.command-card-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem}.command-card-head code{font-size:.88rem;color:var(--violet);font-weight:800}.command-card p{color:var(--muted);font-size:.8rem;margin:.55rem 0}.command-card details code{display:block;overflow:hidden;text-overflow:ellipsis;margin:.4rem 0}.command-card details small{color:var(--muted)}
       @media(max-width:1000px){.stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:860px){.settings-shell{grid-template-columns:1fr}.settings-nav{position:static;display:flex;overflow-x:auto}.settings-nav a{white-space:nowrap}.settings-nav .nav-tip{display:none}.stats{grid-template-columns:1fr 1fr}}@media(max-width:700px){.skill-grid,.command-grid{grid-template-columns:1fr}.command-toolbar{grid-template-columns:1fr repeat(2,auto)}}@media(max-width:600px){.filterbar,.editor-grid,.skill-toolbar,.command-toolbar{grid-template-columns:1fr}.editor-grid .wide-field{grid-column:auto}.stats{grid-template-columns:1fr 1fr}.server-head{flex-direction:column}.server-badges{justify-content:flex-start}.skill-actions{grid-template-columns:1fr}}
     </style>
-    <section class="control-hero" id="overview"><h2>One extension control center</h2><p>See every live command and decide exactly which MCP servers, tools, and skills the agent may use. Definitions stay in their source files; durable enablement lives in one normalized database.</p><div class="stats"><div class="stat"><b>${commands.length}</b><span>live commands</span></div><div class="stat"><b>${loaded.servers.size}</b><span>enabled servers</span></div><div class="stat"><b>${importedCount}</b><span>discovered imports</span></div><div class="stat"><b>${discoveredToolCount}</b><span>known MCP tools</span></div><div class="stat"><b>${enabledSkillCount}/${skills.length}</b><span>enabled skills</span></div></div></section>
-    <div class="settings-shell"><nav class="settings-nav" aria-label="Settings sections"><a href="#overview">Overview</a><a href="#runtime">Runtime</a><a href="#appearance">Appearance</a><a href="#models">Models</a><a href="#hooks">Hooks</a><a href="#plugins">Plugins</a><a href="#commands">Commands</a><a href="#connections">Connections</a><a href="#add-server">Add server</a><a href="#sources">Discovery</a><a href="#agent-context">Agent context</a><a href="#skills">Skills</a><a href="#overrides">Overrides</a><a href="#diagnostics">Diagnostics</a><p class="nav-tip">Run <code>/settings</code> anytime to rebuild this page from the live registry.</p></nav><div>
+    <section class="control-hero" id="overview"><h2>Your configuration</h2><p>Choose the connections, tools, and skills available to your agent. Display and permission controls apply to this session.</p><div class="stats"><div class="stat"><b>${commands.length}</b><span>live commands</span></div><div class="stat"><b>${loaded.servers.size}</b><span>enabled servers</span></div><div class="stat"><b>${importedCount}</b><span>discovered imports</span></div><div class="stat"><b>${discoveredToolCount}</b><span>known MCP tools</span></div><div class="stat"><b>${enabledSkillCount}/${skills.length}</b><span>enabled skills</span></div></div></section>
+    <div class="settings-shell"><nav class="settings-nav" aria-label="Settings sections"><a href="#overview">Overview</a><a href="#runtime">Runtime</a><a href="#appearance">Appearance</a><a href="#models">Models</a><a href="#hooks">Hooks</a><a href="#plugins">Plugins</a><a href="#commands">Commands</a><a href="#connections">Connections</a><a href="#add-server">Add server</a><a href="#sources">Discovery</a><a href="#agent-context">Agent context</a><a href="#skills">Skills</a><a href="#overrides">Overrides</a><a href="#diagnostics">Diagnostics</a><p class="nav-tip">Run <code>/configuration</code> anytime to rebuild this page from the live registry.</p></nav><div>
     <div class="section-heading" id="runtime"><div><h2>Runtime controls</h2><p>Session-scoped display and safety controls. Changes apply immediately.</p></div></div>
-    <section data-settings-revision="${settingsRevision}"><div class="row"><span><strong>Footer density</strong><br><small>Canonical key <code>runtime.footer-density</code> · session · effective provenance ${escapeHtml(canonicalSettings.values.find((value) => value.key === 'runtime.footer-density')?.provenance ?? 'unknown')}</small></span><span class="reply-actions">${(['compact', 'default', 'full'] as const).map((density) => `<button data-action="set-footer-density" data-density="${density}"${density === canonicalFooterDensity ? ' class="primary"' : ''}>${density}</button>`).join('')}</span></div><div class="row"><span><strong>Permission level</strong><br><small>Canonical key <code>runtime.permission-level</code> · session · effective provenance ${escapeHtml(canonicalSettings.values.find((value) => value.key === 'runtime.permission-level')?.provenance ?? 'unknown')}</small></span><span class="reply-actions">${(['default', 'relaxed', 'strict'] as const).map((level) => `<button data-action="set-permission-level" data-level="${level}"${level === canonicalPermissionLevel ? ' class="primary"' : ''}>${level}</button>`).join('')}</span></div></section>
-    <div class="section-heading" id="appearance"><div><h2>Appearance</h2><p>Host presentation controls with explicit provenance.</p></div></div><section><p><span class="badge on">Pi host adapter</span> Footer density is projected above from the supported host. Toolkit-only renderer state remains adapter-local and never enters the agent-core contract.</p></section>
+    <section data-settings-revision="${settingsRevision}"><div class="row"><span><strong>Footer density</strong><br><small>Choose how much detail appears below the conversation.</small></span><span class="reply-actions">${(['compact', 'default', 'full'] as const).map((density) => `<button data-action="set-footer-density" data-density="${density}"${density === canonicalFooterDensity ? ' class="primary"' : ''}>${density}</button>`).join('')}</span></div><div class="row"><span><strong>Permission level</strong><br><small>Strict asks more often; relaxed permits more actions automatically.</small></span><span class="reply-actions">${(['default', 'relaxed', 'strict'] as const).map((level) => `<button data-action="set-permission-level" data-level="${level}"${level === canonicalPermissionLevel ? ' class="primary"' : ''}>${level}</button>`).join('')}</span></div></section>
+    <div class="section-heading" id="appearance"><div><h2>Appearance and effort</h2><p>Changes apply to this session.</p></div></div>
+    <section><div class="row"><span><strong>Terminal theme</strong><br><small>Choose a light or dark terminal appearance.</small></span><span class="reply-actions">${(['dark', 'light'] as const).map((theme) => `<button data-action="set-theme" data-theme="${theme}"${ctx?.ui?.setTheme ? '' : ' disabled'}>${theme}</button>`).join('')}</span></div>
+    <div class="row"><span><strong>Effort</strong><br><small>Thinking depth and concurrent workers. Current: ${escapeHtml(getActiveDialLevel() ?? 'host settings')}. ${pi?.setThinkingLevel ? '' : 'Changing effort is unavailable in this host.'}</small></span><span class="reply-actions">${EFFORT_LEVELS.map((level) => `<button data-action="set-effort" data-level="${level}"${level === getActiveDialLevel() ? ' class="primary"' : ''}${pi?.setThinkingLevel ? '' : ' disabled'}>${level}</button>`).join('')}</span></div></section>
     <div class="section-heading" id="models"><div><h2>Models</h2><p>Effective model identity and compatibility provenance.</p></div></div><section><div class="row"><span><strong>${escapeHtml(ctx?.model?.provider ?? 'unknown provider')} / ${escapeHtml(ctx?.model?.id ?? 'unknown model')}</strong><br><small>Read-only active Pi compatibility projection.</small></span><span class="badge">next session</span></div>${modelSources.map((sourcePath) => `<div class="row"><code>${escapeHtml(sourcePath)}</code><span class="badge ${fs.existsSync(sourcePath) ? 'on' : ''}">${fs.existsSync(sourcePath) ? 'present · import-only' : 'not present'}</span></div>`).join('')}<p class="muted">Pi-owned legacy sources are intentionally import-only because this host has no revision-safe model writer. The canonical agent-core settings service owns provider/model CRUD and validated <code>models.json</code> commits; this page never modifies a legacy source or renders credentials.</p></section>
     <div class="section-heading" id="hooks"><div><h2>Hooks</h2><p>Codex-compatible lifecycle definitions and safe execution health.</p></div><span>revision ${hookSnapshot.revision}</span></div><section>${hookRows || '<p>No Codex hook sources discovered.</p>'}${hooks.errors.map((error) => `<p class="security-note">${escapeHtml(error.path)}: ${escapeHtml(error.message)}</p>`).join('')}<p class="muted">Enablement and exact-definition trust review are distinct. Workspace sources additionally require current workspace trust.</p></section>
     <div class="section-heading" id="plugins"><div><h2>Plugins</h2><p>Versioned, capability-scoped event contributions.</p></div></div><section><div class="row"><span>transactional contribution registry</span><span class="badge">${pluginSnapshot.length} active</span></div><p class="muted">Event hook contributions can unload immediately. Pi host APIs cannot transactionally unregister tools or commands, so those contribution kinds fail closed until a host reload boundary.</p></section>
     <div class="section-heading" id="commands"><div><h2>Commands</h2><p>Every public slash command registered in this running session.</p></div><span>${commands.length} available now</span></div>
-    <section><div class="command-toolbar"><input id="command-filter" type="search" placeholder="Search commands and descriptions…" aria-label="Search commands"><button class="active" data-command-filter="all">All</button><button data-command-filter="extension">Extension</button><button data-command-filter="skill">Skills</button><button data-command-filter="prompt">Prompts</button></div><div id="command-list" class="command-grid">${commandRows || '<p>No live commands were reported by the host. Reopen settings after command registration completes.</p>'}</div><p class="muted">This snapshot is rebuilt from <code>pi.getCommands()</code> every time you run <code>/settings</code>; internal commands beginning with <code>_</code> are excluded.</p></section>
+    <section><div class="command-toolbar"><input id="command-filter" type="search" placeholder="Search commands and descriptions…" aria-label="Search commands"><button class="active" data-command-filter="all">All</button><button data-command-filter="extension">Extension</button><button data-command-filter="skill">Skills</button><button data-command-filter="prompt">Prompts</button></div><div id="command-list" class="command-grid">${commandRows || '<p>No live commands were reported by the host. Reopen settings after command registration completes.</p>'}</div><p class="muted">This snapshot is rebuilt from <code>pi.getCommands()</code> every time you run <code>/configuration</code>; internal commands beginning with <code>_</code> are excluded.</p></section>
     <div class="section-heading" id="connections"><div><h2>MCP connections</h2><p>Managed and system-discovered definitions. Foreign imports are namespaced and disabled by default.</p></div></div>
     <div class="filterbar"><input id="server-filter" type="search" placeholder="Search name, description, or source…" aria-label="Search MCP servers"><button class="active" data-filter="all">All</button><button data-filter="discovered">Discovered</button></div>
     <div id="server-list">${rows || '<section><p>No MCP servers configured or discovered.</p></section>'}</div>
@@ -399,7 +430,7 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
         button.textContent = 'Updating…';
         try {
           const skillScope = button.dataset.skill ? button.closest('.skill-card')?.querySelector('[data-skill-scope]')?.value : undefined;
-          await post({ action:button.dataset.action, server:button.dataset.server, tool:button.dataset.tool || undefined, skill:button.dataset.skill || undefined, density:button.dataset.density || undefined, level:button.dataset.level || undefined, source:button.dataset.source || undefined, hash:button.dataset.hash || undefined, expectedRevision:button.dataset.action?.includes('hook') ? ${JSON.stringify(hookSnapshot.revision)} : ${JSON.stringify(settingsRevision)}, scope:skillScope || button.dataset.scope || 'project' });
+          await post({ action:button.dataset.action, server:button.dataset.server, tool:button.dataset.tool || undefined, skill:button.dataset.skill || undefined, density:button.dataset.density || undefined, level:button.dataset.level || undefined, theme:button.dataset.theme || undefined, source:button.dataset.source || undefined, hash:button.dataset.hash || undefined, expectedRevision:button.dataset.action?.includes('hook') ? ${JSON.stringify(hookSnapshot.revision)} : ${JSON.stringify(settingsRevision)}, scope:skillScope || button.dataset.scope || 'project' });
           location.reload();
         } catch (error) { notice(error.message); button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = originalLabel; }
       });
@@ -442,32 +473,32 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
       });
     </script>`;
   return renderOctocodePage({
-    title: 'Settings',
+    title: 'Configuration',
     eyebrow: 'Octocode · extension control center',
     wide: true,
     bodyHtml,
-    footerHtml: 'Everything lives here: live commands, MCP discovery, connections, per-tool enablement, skills, and prompt mode. Close safely and run <code>/settings</code> whenever you want a fresh snapshot.',
+    footerHtml: 'Everything lives here: live commands, MCP discovery, connections, per-tool enablement, skills, and prompt mode. Close safely and run <code>/configuration</code> whenever you want a fresh snapshot.',
   });
 }
 
 export type SettingsSection = 'overview' | 'runtime' | 'appearance' | 'models' | 'hooks' | 'plugins' | 'commands' | 'skills' | 'connections' | 'add-server' | 'sources' | 'agent-context' | 'overrides' | 'diagnostics';
 
-export async function openMcpManager(ctx?: PiContext, piSkills?: SkillInfo[], section?: SettingsSection, commands: readonly PiCommand[] = []): Promise<{ ok: boolean; url?: string; message?: string }> {
+export async function openMcpManager(ctx?: PiContext, piSkills?: SkillInfo[], section?: SettingsSection, commands: readonly PiCommand[] = [], pi?: PiInstance): Promise<{ ok: boolean; url?: string; message?: string }> {
   const cwd = ctx?.cwd ?? process.cwd();
   const dir = managerDir(cwd);
   ensurePrivateDirectory(dir);
   const actionToken = randomBytes(32).toString('hex');
   const settingsFile = path.join(dir, SETTINGS_HTML_FILE);
   const write = async (): Promise<void> => {
-    fs.writeFileSync(settingsFile, await renderMcpManagerPage(ctx, actionToken, piSkills, commands), { encoding: 'utf8', mode: PRIVATE_FILE_MODE });
+    fs.writeFileSync(settingsFile, await renderMcpManagerPage(ctx, actionToken, piSkills, commands, pi), { encoding: 'utf8', mode: PRIVATE_FILE_MODE });
     hardenPrivateFile(settingsFile);
   };
   await write();
-  const served = await serveDirectory('settings', dir, {
+  const served = await serveDirectory(configurationMountName(cwd), dir, {
     indexFile: SETTINGS_HTML_FILE,
     onAction: async (raw) => {
       const action = parseMcpManagerAction(raw);
-      await applyMcpManagerAction(action, ctx);
+      await applyMcpManagerAction(action, ctx, pi);
       await write();
       return { updated: true };
     },
@@ -477,4 +508,17 @@ export async function openMcpManager(ctx?: PiContext, piSkills?: SkillInfo[], se
   const settingsUrl = `${served.url}${SETTINGS_HTML_FILE}${section ? `#${section}` : ''}`;
   const opened = await openLocalUrl(settingsUrl);
   return opened.ok ? { ok: true, url: settingsUrl } : { ok: false, url: settingsUrl, message: opened.message };
+}
+
+
+function configurationMountName(cwd: string): string {
+  return `configuration-${createHash('sha256').update(path.resolve(cwd)).digest('hex').slice(0, 16)}`;
+}
+
+/** Retire browser actions and cached session controls when their session ends. */
+export function closeConfiguration(ctx?: PiContext): void {
+  const cwd = path.resolve(ctx?.cwd ?? process.cwd());
+  unmount(configurationMountName(cwd));
+  settingsAdapters.delete(cwd);
+  hookDiscovery.delete(cwd);
 }

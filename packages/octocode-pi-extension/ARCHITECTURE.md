@@ -27,7 +27,7 @@ The full system prompt injected by the extension is the concatenation of:
 
 ```
 buildOctocodeSystemPrompt(EXTERNAL_AGENT_AWARENESS_PROMPT)
-  └── @octocodeai/octocode-shared/prompts  (base Octocode policy)
+  └── @octocodeai/agent-contracts/prompts  (base Octocode policy)
   └── EXTERNAL_AGENT_AWARENESS_PROMPT      (Awareness coordination rules)
 + <engineering> block                      (src/prompts/system-prompt.ts — THINK→PLAN→CODE→REVIEW)
 ```
@@ -68,7 +68,7 @@ load or list call; the initial prompt inventory stays frozen.
 |---|---|
 | `src/prompts/system-prompt.ts` | `SYSTEM_PROMPT` constant (base + engineering) |
 | `src/prompts/plan-prompt.ts` | Builds the Pi review-and-Start workflow, using shared goal length and truncation constants |
-| `@octocodeai/octocode-shared/prompts` | Defines shared worker prompt fragments and expansion; build and tests import the owner directly |
+| `@octocodeai/agent-contracts/prompts` | Defines shared worker prompt fragments and expansion; build and tests import the owner directly |
 
 ---
 
@@ -389,4 +389,4 @@ Never reimplement — import from `@octocodeai/config`.
 | Skill loading returns a bounded first page and supporting-file preview | Recovery contract | `src/tools/skill-tool.ts` reports typed partial reasons and executable `MCPTool` continuations. Follow content pages before acting; merge file discovery results with the preview and follow their continuations. |
 | Schema field name surprises (`searchText`, `type` for lsp) | Medium | Always call `MCPTool action:"describe"` first; add a schema cheat-sheet to SYSTEM_PROMPT |
 | Plan HTML uses meta-refresh (3s) | Transport constraint | Refresh behavior is separate from the plan state and review transaction |
-| `buildOctocodeSystemPrompt` lives in external `octocode-shared` | Low | Prompt changes need an `octocode-shared` release; mitigated by the engineering block inlined here |
+| `buildOctocodeSystemPrompt` lives in external `octocode-agent-contracts` | Low | Prompt changes need an `octocode-agent-contracts` release; mitigated by the engineering block inlined here |

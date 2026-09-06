@@ -3,6 +3,7 @@ import { MAX_PAGE_NUMBER } from '../../config.js';
 import { prepareGraphDiagnostics } from '../../graph/diagnosticSnapshot.js';
 import { LSP_GET_SEMANTICS_TOOL_NAME } from '../toolNames.js';
 import type { AnalyzeGraphOutput, AnalyzeGraphQuery } from './analysisTypes.js';
+import { attachGraphCompleteness } from './completeness.js';
 
 const DEFAULT_ITEMS_PER_PAGE = 50;
 const DEFAULT_MAX_FILES = 20_000;
@@ -239,13 +240,15 @@ export function finalizeGraphOutput(
   scanTruncated: boolean,
   why: string
 ): AnalyzeGraphOutput {
-  return paginateGraphDiagnostics(
-    addNextSteps(
-      markTerminalLimit(markScanCompleteness(output, scanTruncated), query),
-      query,
-      why
-    ),
-    query
+  return attachGraphCompleteness(
+    paginateGraphDiagnostics(
+      addNextSteps(
+        markTerminalLimit(markScanCompleteness(output, scanTruncated), query),
+        query,
+        why
+      ),
+      query
+    )
   );
 }
 

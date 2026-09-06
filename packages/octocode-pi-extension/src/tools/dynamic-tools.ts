@@ -27,7 +27,7 @@ import { spawnSync } from 'node:child_process';
 import { getOctocodeHome } from '@octocodeai/config';
 import { extensionHome, extensionTmpRoot } from '../extension-paths.js';
 import { KEYWORD_MATCH_THRESHOLD, tokenize, withRegistryLock, writeJsonAtomic, readJsonSafe } from './registry-store.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/mcp-state';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
 
 /** A capability a dynamic tool may declare. Escalation beyond `[]` needs approval. */
 export type Capability = 'net' | 'fs' | 'exec';

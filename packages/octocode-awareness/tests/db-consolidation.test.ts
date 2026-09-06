@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { consolidateDatabase } from '../src/db-consolidation.js';
 import { ConsolidationContractError } from '../src/db-consolidation-validation.js';

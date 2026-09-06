@@ -6,6 +6,7 @@ import { afterEach, beforeEach, test } from 'vitest';
 import { createSessionArtifactContext } from '../src/tools/session-artifacts.js';
 import {
   initializeSessionMemory,
+  projectSessionMemoryUpdate,
   readSessionMemory,
   renderSessionArtifactPaths,
   SESSION_MEMORY_MAX_BYTES,
@@ -49,6 +50,7 @@ test('session memory initializes once, preserves agent notes, and registers its 
   const memoryPath = initializeSessionMemory(artifact);
   assert.equal(memoryPath, artifact.resolve(SESSION_MEMORY_RELATIVE_PATH));
   assert.equal(fs.readFileSync(memoryPath, 'utf8'), SESSION_MEMORY_TEMPLATE);
+  assert.match(SESSION_MEMORY_TEMPLATE, /^## Findings$/m, 'key research and subagent findings have a dedicated section');
   assert.equal(readSessionMemory(artifact), undefined, 'an untouched template is not projected as memory');
 
   const learned = SESSION_MEMORY_TEMPLATE.replace(
@@ -61,6 +63,18 @@ test('session memory initializes once, preserves agent notes, and registers its 
   assert.equal(fs.readFileSync(memoryPath, 'utf8'), learned, 'session start never overwrites existing memory');
   assert.equal(readSessionMemory(artifact), learned);
   assert.deepEqual(artifact.inspect()?.producers.memory?.paths, [SESSION_MEMORY_RELATIVE_PATH]);
+});
+
+test('session memory delivery emits first, changed, and cleared content exactly once', () => {
+  const first = projectSessionMemoryUpdate('first finding', undefined);
+  assert.deepEqual(first, { content: 'first finding', signature: 'first finding' });
+  assert.deepEqual(projectSessionMemoryUpdate('first finding', first.signature), { content: '', signature: 'first finding' });
+  assert.deepEqual(projectSessionMemoryUpdate('updated finding', first.signature), { content: 'updated finding', signature: 'updated finding' });
+  assert.deepEqual(projectSessionMemoryUpdate('', first.signature), {
+    content: 'Session memory cleared; no session notes remain.',
+    signature: '',
+  });
+  assert.deepEqual(projectSessionMemoryUpdate('', undefined), { content: '', signature: '' });
 });
 
 test('session memory projection is byte-bounded and keeps valid UTF-8', () => {

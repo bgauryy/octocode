@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hooksInstallUsage } from '../src/hooks-install-specs.js';
 import { runHooksInstall } from '../src/hooks-install-command.js';
-import { allowLocalFixtureProcesses } from '../../test-utils/external-effects-guard.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(TEST_DIR, '..');
 const SCRIPT = resolve(PACKAGE_ROOT, 'out/octocode-awareness.js');
@@ -44,7 +44,6 @@ it('serializes concurrent installers and never exposes partial JSON', { timeout:
     try {
       mkdirSync(resolve(projectDir, '.codex'), { recursive: true });
       writeFileSync(settingsPath, JSON.stringify({ unrelated: 'x'.repeat(8 * 1024 * 1024) }));
-
       let parseErrors = 0;
       const poll = setInterval(() => {
         try {
@@ -53,7 +52,6 @@ it('serializes concurrent installers and never exposes partial JSON', { timeout:
           parseErrors += 1;
         }
       }, 1);
-
       const results = await Promise.all(Array.from({ length: 12 }, () =>
         new Promise<{ code: number | null; stderr: string }>((resolveChild) => {
           const child = spawn(NODE, [
@@ -66,7 +64,6 @@ it('serializes concurrent installers and never exposes partial JSON', { timeout:
         }),
       ));
       clearInterval(poll);
-
       expect(
         results.map((result) => result.code),
         results.map((result) => result.stderr).filter(Boolean).join('\n'),
@@ -91,7 +88,6 @@ it('runs the hook installer directly for help, install, strict check, and remove
       expect(help.exitCode).toBe(0);
       expect(help.text).toContain('--host codex');
       expect(help.text).not.toContain('wirePiAwarenessHooks');
-
       const dryRun = runHooksInstall(['--host', 'codex', '--project-dir', projectDir, '--dry-run'], { cwd: projectDir, hookDir });
       expect(dryRun.exitCode).toBe(0);
       expect(dryRun.payload).toMatchObject({ action: 'dry-run', host: 'codex', changed: true });
@@ -207,7 +203,6 @@ it('package CLI and library imports selectively suppress node:sqlite Experimenta
     const cli = spawnSync(NODE, [SCRIPT, '--help'], { encoding: 'utf8', timeout: 5000 });
     expect(cli.status, cli.stderr || cli.stdout).toBe(0);
     expect(cli.stderr).not.toContain('ExperimentalWarning');
-
     const library = spawnSync(NODE, [
       '--input-type=module', '-e',
       `await import(${JSON.stringify(INDEX_SCRIPT)}); process.emitWarning('awareness-warning-probe'); await new Promise((resolve) => setImmediate(resolve))`,

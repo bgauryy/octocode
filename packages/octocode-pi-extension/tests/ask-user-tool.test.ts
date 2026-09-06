@@ -238,6 +238,39 @@ test('askUser emits CURSOR_MARKER at the caret in text mode when focused (IME po
   assert.deepEqual(result.details, { status: 'text', value: 'Gu' });
 });
 
+test('askUser final card labels cancellation without claiming submission', async () => {
+  const tool = loadTool();
+  const harness = overlayCtx();
+  const pending = tool.execute('id', { question: 'Choose?', options: ['safe', 'fast'] }, undefined, undefined, harness.ctx);
+
+  harness.send('\x1b');
+  const finalCard = harness.render(80).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+  const result = await pending;
+
+  assert.match(finalCard, /cancelled/i);
+  assert.doesNotMatch(finalCard, /submitted/i);
+  assert.deepEqual(result.details, { status: 'cancelled' });
+});
+
+test('askUser Escape returns from the custom-answer editor to the option list', async () => {
+  const tool = loadTool();
+  const harness = overlayCtx();
+  const pending = tool.execute('id', { question: 'Choose?', options: ['safe', 'fast'] }, undefined, undefined, harness.ctx);
+
+  harness.send('\x1b[B');
+  harness.send('\x1b[B');
+  harness.send('\r');
+  harness.send('custom draft');
+  harness.send('\x1b');
+
+  const choices = harness.render(80).join('\n').replace(/\x1b\[[0-9;]*m/g, '');
+  assert.match(choices, /1\. safe/);
+  assert.match(choices, /2\. fast/);
+  harness.send('1');
+  const result = await pending;
+  assert.deepEqual(result.details, { status: 'selected', value: 'safe', label: 'safe' });
+});
+
 test('askUser accepts bracketed paste in free-text mode', async () => {
   const tool = loadTool();
   const { ctx, send, render, focus } = overlayCtx();

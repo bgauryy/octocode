@@ -504,6 +504,29 @@ export interface WebFetchResult {
   error?: string;
 }
 
+/** Undici wraps actionable socket/DNS/TLS failures in TypeError("fetch failed"). */
+function networkErrorCodes(error: unknown): string[] {
+  const codes = new Set<string>();
+  const seen = new Set<unknown>();
+  const visit = (value: unknown, depth: number): void => {
+    if (!value || typeof value !== 'object' || seen.has(value) || depth > 4) return;
+    seen.add(value);
+    const record = value as { code?: unknown; cause?: unknown; errors?: unknown[] };
+    if (typeof record.code === 'string' && /^[A-Z][A-Z0-9_]{1,79}$/.test(record.code)) codes.add(record.code);
+    visit(record.cause, depth + 1);
+    if (Array.isArray(record.errors)) for (const child of record.errors.slice(0, 8)) visit(child, depth + 1);
+  };
+  visit(error, 0);
+  return [...codes];
+}
+
+function webErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const codes = networkErrorCodes(error);
+  // Report codes, not nested request/dispatcher objects that can contain keys.
+  return codes.length ? `${message} (${codes.join(', ')})` : message;
+}
+
 /**
  * Fetch one URL and return readable text + title. Never throws — returns { error }
  * on failure. Supports `page` (1-based) for long documents.
@@ -544,8 +567,7 @@ export async function webFetch(
       text: text || (start > 0 ? '(no content at this page offset)' : ''),
     };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { error: `web fetch failed: ${msg}` };
+    return { error: `web fetch failed: ${webErrorMessage(err)}` };
   } finally {
     deadline.cleanup();
   }
@@ -630,10 +652,23 @@ export async function duckDuckGoSearch(
   const endpoint = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const deadline = createDeadline(opts);
   try {
-    const { res } = await safeFetch(endpoint, { ...opts, signal: deadline.signal });
+    const fetchPage = () => safeFetch(endpoint, { ...opts, signal: deadline.signal });
+    const { res } = await fetchPage().catch((error: unknown) => {
+      const transient = new Set(['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET']);
+      const codes = networkErrorCodes(error);
+      if (deadline.signal.aborted || codes.length === 0 || !codes.every((code) => transient.has(code))) throw error;
+      // One retry for an idempotent public GET, sharing the original deadline
+      // and all redirect/DNS guards. Never retry TLS, policy, or abort failures.
+      return fetchPage();
+    });
     if (!res.ok) return { error: `HTTP ${res.status} from search backend` };
     const { text: html } = await readCapped(res, opts.maxBytes, { signal: deadline.signal });
+    if (/id=["']challenge-form["']|duckduckgo\.com\/anomaly\.js/i.test(html)) {
+      return { error: 'DuckDuckGo returned a bot challenge. Retry later, fetch a known documentation URL, or configure a search API provider.' };
+    }
     return { engine: 'duckduckgo', query, results: parseDuckDuckGo(html, maxResults) };
+  } catch (error) {
+    return { error: `web search (duckduckgo) failed: ${webErrorMessage(error)}` };
   } finally {
     deadline.cleanup();
   }
@@ -735,7 +770,7 @@ export async function tavilySearch(
     };
   } catch (err) {
     const e = err as { status?: number; message?: string };
-    return { error: `Tavily API ${e.status ?? 'error'}: ${e.message ?? String(err)}` };
+    return { error: `Tavily API ${e.status ?? 'error'}: ${webErrorMessage(err)}` };
   }
 }
 
@@ -772,7 +807,7 @@ export async function serperSearch(
     })) as typeof raw;
   } catch (err) {
     const e = err as { status?: number; message?: string };
-    return { error: `Serper API ${e.status ?? 'error'}: ${e.message ?? String(err)}` };
+    return { error: `Serper API ${e.status ?? 'error'}: ${webErrorMessage(err)}` };
   }
   let answer = '';
   if (raw.answerBox)
@@ -850,7 +885,7 @@ export async function exaSearch(
     };
   } catch (err) {
     const e = err as { status?: number; message?: string };
-    return { error: `Exa API ${e.status ?? 'error'}: ${e.message ?? String(err)}` };
+    return { error: `Exa API ${e.status ?? 'error'}: ${webErrorMessage(err)}` };
   }
 }
 
@@ -930,19 +965,24 @@ export async function webSearch(
         _timeRangeFallback: true,
       });
     }
-    // Auth-error fallback: when the provider was auto-selected (no explicit engine)
-    // and returns a 401 / unauthorized error, cascade to the next ladder position.
-    // Explicit engine= callers see the error as-is so they know their key is bad.
+    // Preserve auto-selection when cascading, skip unconfigured providers, and
+    // remove the failed key from this request's snapshot (never process.env).
+    // Marking the next engine explicit would stop fallback after just one hop.
     if (!opts.engine && result.error && /\b(401|unauthorized|invalid.*key|key.*invalid)/i.test(result.error)) {
-      const next = nextProvider(provider);
-      if (next) {
-        return webSearch(query, { ...opts, engine: next });
+      if (nextProvider(provider)) {
+        const remainingEnv = { ...env };
+        if (provider === 'tavily') {
+          delete remainingEnv['TAVILY_API_KEY'];
+          delete remainingEnv['TAVILY_API_TOKEN'];
+        } else if (provider === 'serper') delete remainingEnv['SERPER_API_KEY'];
+        else if (provider === 'exa') delete remainingEnv['EXA_API_KEY'];
+        if (opts.signal?.aborted) return result;
+        return webSearch(query, { ...opts, env: remainingEnv });
       }
     }
     return result;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { error: `web search (${provider}) failed: ${msg}` };
+    return { error: `web search (${provider}) failed: ${webErrorMessage(err)}` };
   }
 }
 

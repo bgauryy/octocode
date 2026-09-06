@@ -27,26 +27,12 @@ export function getPiProjectConfigPath(cwd = process.cwd(), ...segments: string[
   return path.join(cwd, PI_CONFIG_DIR, ...segments);
 }
 
-export function getPiProjectAgentPath(cwd = process.cwd(), ...segments: string[]): string {
-  return getPiProjectConfigPath(cwd, 'agent', ...segments);
-}
-
 export function getPiUserAgentPath(homeDir = os.homedir(), ...segments: string[]): string {
   return path.join(homeDir, PI_CONFIG_DIR, 'agent', ...segments);
 }
 
 export function getPiUserSkillsDir(homeDir = os.homedir()): string {
   return getPiUserAgentPath(homeDir, 'skills');
-}
-
-export function getPiMcpConfigPath(
-  scope: 'global' | 'project',
-  cwd = process.cwd(),
-  homeDir = os.homedir(),
-): string {
-  return scope === 'global'
-    ? getPiUserAgentPath(homeDir, 'mcp.json')
-    : getPiProjectAgentPath(cwd, 'mcp.json');
 }
 
 export function getAppendSystemTarget(

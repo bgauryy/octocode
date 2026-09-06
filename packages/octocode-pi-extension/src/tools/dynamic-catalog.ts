@@ -70,7 +70,7 @@ export function getDynamicCapabilitiesAddendum(installedSkillNames: Iterable<str
   return [
     '<dynamic_capabilities>',
     'Self-created reusable capabilities available this session (via callTool / skill type:"call"). ' +
-      'Prefer reusing these by name before proposing new ones; use their list modes for full schemas/steps.',
+      'Their list modes expose full schemas and steps.',
     ...renderSection('tools', toolEntries),
     ...renderSection('skills', skillEntries),
     '</dynamic_capabilities>',

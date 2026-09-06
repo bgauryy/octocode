@@ -9,12 +9,12 @@ import {
 } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import {
-  ensurePrivateDirectory,
   getMcpEnablement,
   listMcpOverrides,
   setMcpServerEnabled,
   setMcpToolEnabled,
-} from "@octocodeai/octocode-awareness/mcp-state";
+} from "@octocodeai/agent-contracts/mcp-state";
+import { ensurePrivateDirectory } from '@octocodeai/agent-contracts/permissions';
 import { openOctocodeDb } from "./storage-policy.js";
 import type {
   ContentPart,
@@ -787,16 +787,125 @@ export function resolveMcpCallContent(payload: unknown): ContentPart[] {
   return [{ type: "text", text: stringify(payload) }];
 }
 
+function mcpStructuredRows(payload: unknown): Record<string, unknown>[] {
+  if (!isPlainRecord(payload) || !isPlainRecord(payload["structuredContent"])) {
+    return [];
+  }
+  const rows = payload["structuredContent"]["results"];
+  return Array.isArray(rows)
+    ? rows.filter((row): row is Record<string, unknown> => isPlainRecord(row))
+    : [];
+}
+
+function numericField(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function structuredRowMetrics(row: Record<string, unknown>): {
+  data: Record<string, unknown>;
+  matches: number;
+  files: number;
+  references: number;
+  chars: number;
+} {
+  const data = isPlainRecord(row["data"]) ? row["data"] : {};
+  const stats = isPlainRecord(data["stats"]) ? data["stats"] : {};
+  return {
+    data,
+    matches: numericField(stats, "totalOccurrences"),
+    files: numericField(stats, "filesMatched") || numericField(data, "totalFiles"),
+    references: numericField(data, "totalReferences"),
+    chars: numericField(data, "returnedChars"),
+  };
+}
+
+function plural(value: number, singular: string): string {
+  const pluralWord = singular === "match" ? "matches" : `${singular}s`;
+  return `${value} ${value === 1 ? singular : pluralWord}`;
+}
+
+/** Aggregate every structured MCP batch row so receipts never report only row zero. */
+export function summarizeMcpStructuredResults(payload: unknown): string | undefined {
+  const rows = mcpStructuredRows(payload);
+  if (rows.length === 0) return undefined;
+  const totals = rows.reduce<{ matches: number; files: number; references: number; chars: number }>(
+    (sum, row) => {
+      const metric = structuredRowMetrics(row);
+      sum.matches += metric.matches;
+      sum.files += metric.files;
+      sum.references += metric.references;
+      sum.chars += metric.chars;
+      return sum;
+    },
+    { matches: 0, files: 0, references: 0, chars: 0 },
+  );
+  return [
+    plural(rows.length, "result"),
+    totals.matches > 0 ? plural(totals.matches, "match") : undefined,
+    totals.files > 0 ? plural(totals.files, "file") : undefined,
+    totals.references > 0 ? plural(totals.references, "reference") : undefined,
+    totals.chars > 0 ? `${totals.chars} chars` : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
+function tableCell(value: unknown): string {
+  return String(value ?? "").replace(/[|\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function summarizeStructuredRow(row: Record<string, unknown>): string {
+  const { data, matches, files, references, chars } = structuredRowMetrics(row);
+  if (typeof data["error"] === "string") return tableCell(data["error"]);
+  const explicit = typeof data["summary"] === "string" ? data["summary"] : undefined;
+  if (explicit) return tableCell(explicit);
+  const metrics = [
+    matches > 0 ? plural(matches, "match") : undefined,
+    files > 0 ? plural(files, "file") : undefined,
+    references > 0 ? plural(references, "reference") : undefined,
+    chars > 0 ? `${chars} chars` : undefined,
+    numericField(data, "totalLines") > 0
+      ? plural(numericField(data, "totalLines"), "line")
+      : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return metrics.join(" · ") || "ok";
+}
+
+/** Optional model-facing table view for large structured MCP batches. */
+export function resolveMcpCallTable(payload: unknown): ContentPart[] | undefined {
+  const rows = mcpStructuredRows(payload);
+  const aggregate = summarizeMcpStructuredResults(payload);
+  if (rows.length === 0 || !aggregate) return undefined;
+  const lines = rows.map((row, position) => {
+    const { data } = structuredRowMetrics(row);
+    const index = typeof row["index"] === "number" ? row["index"] : position;
+    const status = tableCell(row["status"] ?? (data["error"] ? "error" : "ok"));
+    const item = tableCell(
+      data["path"] ?? data["file"] ?? data["uri"] ?? data["name"] ?? `[${index}]`,
+    );
+    return `${index} | ${status} | ${item} | ${summarizeStructuredRow(row)}`;
+  });
+  return [
+    {
+      type: "text",
+      text: `${aggregate}\nindex | status | item | summary\n${lines.join("\n")}`,
+    },
+  ];
+}
+
 /** Session/UI metadata only; provider-visible MCP bytes live exclusively in content. */
 export function summarizeMcpCallDetails(payload: unknown): Record<string, unknown> {
   const record = isPlainRecord(payload) ? payload : {};
   const content = Array.isArray(record['content']) ? record['content'] : [];
+  const summary = summarizeMcpStructuredResults(payload);
   return {
     isError: record['isError'] === true,
     contentBlocks: content.length,
     textBlocks: content.filter((item) => isPlainRecord(item) && item['type'] === 'text').length,
     imageBlocks: content.filter((item) => isPlainRecord(item) && item['type'] === 'image').length,
     hasStructuredContent: record['structuredContent'] !== undefined && record['structuredContent'] !== null,
+    ...(summary ? { summary } : {}),
   };
 }
 
@@ -2455,8 +2564,12 @@ export async function handleMcpAction(
         }),
       );
     }
+    const tableContent =
+      params["responseView"] === "table"
+        ? resolveMcpCallTable(payload)
+        : undefined;
     return {
-      content: resolveMcpCallContent(payload),
+      content: tableContent ?? resolveMcpCallContent(payload),
       details: summarizeMcpCallDetails(payload),
       isError: payload?.isError === true,
     };
@@ -2712,10 +2825,17 @@ export function registerMcpTool(
           {},
           {
             description:
-              "Complete selected-server tool input. For Octocode tools, arguments.queries[] is nested inside the outer MCPTool.queries[] envelope.",
+              "Selected tool input. Octocode tool queries nest under arguments.queries[].",
             additionalProperties: true,
           },
         ),
+      ),
+      responseView: Type.Optional(
+        stringEnumSchema(
+          Type,
+          ["full", "table"],
+          "call output: full evidence (default) or a compact table for large batches.",
+        ) as TSchema,
       ),
       config: Type.Optional(
         Type.Object(
@@ -2804,6 +2924,12 @@ export function registerMcpTool(
         // Octocode MCP tools emit well-known key:value pairs (totalOccurrences,
         // filesMatched, returnedChars, summary, …) that we surface as compact stats.
         summarize(result: ToolCallResult): string {
+          const detailSummary =
+            isPlainRecord(result.details) &&
+            typeof result.details["summary"] === "string"
+              ? result.details["summary"]
+              : undefined;
+          if (detailSummary) return detailSummary;
           if (result.isError) {
             const errText =
               (
@@ -2879,17 +3005,17 @@ export function registerMcpTool(
   const common = {
     label: "MCPTool",
     description:
-      "MCP 2026-07-28 client for stdio and Streamable HTTP servers, with automatic era negotiation, internal schema validation, tools, resources, prompts, and runtime management.",
+      "Validated MCP client for tools, resources, prompts, and live server management.",
     promptSnippet:
-      "Use the injected enabled MCP catalog to select a tool. Before the first call to an unfamiliar tool, or whenever the compact summary is ambiguous, call MCPTool action:\"describe\" for its exact schema and then use only supported fields. When OCTOCODE_COMPACT_MCP is enabled the prompt contains a concise <mcp_catalog_index>; otherwise <mcp_catalog> includes exact descriptions and input schemas. Exact schemas are compiled and validated internally; there is no prepare or schema-lease round trip.",
+      "<mcp_catalog_index>: describe unfamiliar tools first. Exact schemas are compiled and validated internally.",
     promptGuidelines: [
-      "MCPTool has two schema layers: put MCP actions in outer MCPTool.queries[]; put the selected server-tool input only in queries[].arguments (for Octocode tools, commonly arguments.queries[]). Never place inner server-tool fields directly in MCPTool.queries[].",
-      "MCPTool default server: octocode = pinned local octocode-mcp binary (npx -y octocode-mcp@latest fallback) — the default research surface for code/file/structure/history/package lookups.",
-      "Canonical config is $OCTOCODE_HOME/extension/mcp/servers.json plus trusted workspace-scoped config under $OCTOCODE_HOME/extension/workspaces/.",
-      "Local servers use stdio; remote servers use Streamable HTTP. Only those transports are supported.",
+      "Put MCP actions in MCPTool.queries[] and tool input in queries[].arguments. Octocode tools nest arguments.queries[]. Never put inner fields in MCPTool.queries[].",
+      "Use the built-in octocode server for repository, GitHub, npm, and LSP research. Use responseView:\"table\" for large count/reference batches.",
+      "Config: $OCTOCODE_HOME/extension/mcp/servers.json plus trusted workspace-scoped config.",
+      "Local servers use stdio; remote servers use Streamable HTTP.",
       "Use resources/read-resource and prompts/get-prompt/complete for the non-tool core MCP primitives.",
       "Manage servers at runtime without restarting the agent: add/remove writes the canonical config; restart/stop reconnect. Live connections auto-reconnect when config changes.",
-      "Active MCP config directories are watched: external edits hot-reload automatically \u2014 stale connections and catalogs are dropped and the user is notified. The built-in `octocode` server is pinned-local first with an npx fallback and cannot be removed.",
+      "Active MCP config directories are watched: external edits hot-reload automatically \u2014 stale connections and catalogs are dropped and the user is notified. The built-in `octocode` server is pinned local first with an npx fallback and cannot be removed.",
       "Treat MCP servers as arbitrary code. Do not add or run untrusted MCP config without user approval; project-scope writes require a trusted project.",
     ],
     parameters,

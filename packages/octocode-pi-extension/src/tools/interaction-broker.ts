@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { type AuthorizationReceiptV1, type InteractionAnswerV1, type InteractionRequestV1, type OutboxEventV1, type StoredInteractionV1 } from '@octocodeai/octocode-awareness';
+import { normalizeWorkspacePath, type AuthorizationReceiptV1, type InteractionAnswerV1, type InteractionRequestV1, type OutboxEventV1, type StoredInteractionV1 } from '@octocodeai/octocode-awareness';
 import type { PiContext } from '../types.js';
 import { isPersistentStorageEnabled } from '@octocodeai/config';
 import { openPersistentAwareness } from './storage-policy.js';
@@ -18,6 +18,11 @@ interface InteractionStore {
 }
 
 type InteractionStoreFactory = (workspace: string) => InteractionStore;
+
+function interactionWorkspace(ctx: PiContext): string {
+  const workspace = ctx.cwd ?? process.cwd();
+  return normalizeWorkspacePath(workspace, workspace) ?? workspace;
+}
 function createEphemeralInteractionStore(): InteractionStore {
   return {
     createInteraction: () => undefined,
@@ -233,7 +238,7 @@ export function createHumanAuthorizationReceiptFromInteraction(
     consumeInteraction?: boolean;
   },
 ): AuthorizationReceiptV1 {
-  const workspace = ctx.cwd ?? process.cwd();
+  const workspace = interactionWorkspace(ctx);
   const sessionId = brokerSessionId(ctx);
   const store = storeFactory(workspace);
   try {
@@ -287,7 +292,7 @@ export function listPendingInteractionIds(ctx: PiContext): string[] {
 }
 
 export function listPendingInteractions(ctx: PiContext): InteractionRequestV1[] {
-  const workspace = ctx.cwd ?? process.cwd();
+  const workspace = interactionWorkspace(ctx);
   const store = storeFactory(workspace);
   try { return (store.listPendingInteractions?.({ sessionId: brokerSessionId(ctx), limit: 500 }) ?? []).map((item) => item.request); }
   finally { store.close(); }
@@ -305,7 +310,7 @@ export function createPendingInteraction(
   ctx: PiContext,
   params: { question: string; options: BrokerQuestionOption[]; kind?: 'question' | 'authorization'; expiresInMs?: number },
 ): InteractionRequestV1 {
-  const workspace = ctx.cwd ?? process.cwd();
+  const workspace = interactionWorkspace(ctx);
   const interactionId = `interaction_${randomUUID()}`;
   const createdAt = new Date().toISOString();
   const request: InteractionRequestV1 = {
@@ -370,7 +375,7 @@ export interface HostInteractionAnswerV1 {
 
 /** Submit an external/RPC answer against the canonical stored request. */
 export function submitHostInteractionAnswer(ctx: PiContext, input: HostInteractionAnswerV1): InteractionAnswerV1 {
-  const workspace = ctx.cwd ?? process.cwd();
+  const workspace = interactionWorkspace(ctx);
   const sessionId = brokerSessionId(ctx);
   if (input.version !== 1) throw new Error('interaction answer version is unsupported');
   if (input.sessionId !== sessionId) throw new Error('interaction answer session mismatch');
@@ -440,7 +445,7 @@ export async function drainInteractionContinuations(
   deliver: (continuation: InteractionContinuationV1) => void | Promise<void>,
   options: { consumerId?: string; limit?: number } = {},
 ): Promise<InteractionContinuationDrainResult> {
-  const workspace = ctx.cwd ?? process.cwd();
+  const workspace = interactionWorkspace(ctx);
   const sessionId = brokerSessionId(ctx);
   const consumerId = options.consumerId?.trim() || `interaction-host:${sessionId}`;
   const store = storeFactory(workspace);

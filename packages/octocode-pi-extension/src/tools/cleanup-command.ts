@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getOctocodeHome } from '@octocodeai/config';
-import type { PiContext, PiInstance } from '../types.js';
+import type { PiContext } from '../types.js';
 import { runMultiSelectOverlay, type SelectOverlayItem } from './ui-overlays.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -211,18 +211,7 @@ export function runCleanupOnInit(ctx: PiContext | undefined): void {
   if (defaultSelected.length === 0) return;
   const count = defaultSelected.length;
   ctx.ui?.notify?.(
-    `Cleanup available: ${count} stale item${count === 1 ? '' : 's'} — run /octocode-cleanup to review and delete.`,
+    `Cleanup available: ${count} stale item${count === 1 ? '' : 's'}.`,
     'info',
   );
-}
-
-// ─── Command registration ─────────────────────────────────────────────────────
-
-export function registerCleanupCommand(pi: PiInstance): void {
-  pi.registerCommand?.('octocode-cleanup', {
-    description: 'Clean up stale clones and scratch dirs in ~/.octocode/tmp. Shows sizes and ages; asks before deleting.',
-    handler: async (_args, ctx) => {
-      await runCleanupOverlay(ctx as PiContext | undefined);
-    },
-  });
 }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { evaluateHarnessGuard } from '../src/harness-guard.js';
 import { extractWriteTargetPaths } from '../src/write-targets.js';
-import { allowLocalFixtureProcesses } from '../../test-utils/external-effects-guard.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 let restoreLocalProcesses: (() => void) | undefined;
 beforeEach(() => { restoreLocalProcesses = allowLocalFixtureProcesses(); });
 afterEach(() => { restoreLocalProcesses?.(); });

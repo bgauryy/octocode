@@ -111,10 +111,10 @@ The build copies these main-agent skills into `dist/skills/`:
 - `octocode-architect`
 - `octocode-brainstorming`
 - `octocode-chrome-devtools`
+- `octocode-clean-code`
 - `octocode-code-graph`
 - `octocode-documentation`
 - `octocode-eval-benchmark`
-- `octocode-orchestrator`
 - `octocode-prompt-optimizer`
 - `octocode-research`
 - `octocode-rfc-generator`

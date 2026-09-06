@@ -27,7 +27,7 @@ import {
   PERMISSION_LEVELS,
   type ApprovalClass,
   type PermissionLevel,
-} from '@octocodeai/octocode-shared/protocols';
+} from '@octocodeai/agent-contracts/protocols';
 import {
   APPROVAL_CHOICE_ALWAYS,
   APPROVAL_CHOICE_NO,

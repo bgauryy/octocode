@@ -82,12 +82,17 @@ describe('first-class Awareness coordination tools', () => {
       'release',
       'wait',
     ]);
+
+    const messageSchema = tools.get('message')!.parameters as {
+      properties?: { queries?: { items?: { oneOf?: Array<{ title?: string }> } } };
+    };
+    expect(messageSchema.properties?.queries?.items?.oneOf?.map((variant) => variant.title)).toEqual(['send', 'read']);
   });
 
   it('lock executes acquire, wait, and release', async () => {
     writeFileSync(join(ws, 'locked.ts'), 'x');
 
-    const acquired = await run('lock', one({ action: 'acquire', file: 'locked.ts', ttlSeconds: 60 }));
+    const acquired = await run('lock', one({ action: 'acquire', file: 'locked.ts', testPlan: 'Run the lock coordination test.', ttlSeconds: 60 }));
     expect(acquired.result.isError).toBeFalsy();
     expect(acquired.text).toMatch(/Locked locked\.ts/);
 
@@ -107,7 +112,9 @@ describe('first-class Awareness coordination tools', () => {
     await run('message', one({ action: 'send', to: 'pi:peer', text: 'watch a.ts' }));
     process.env['OCTOCODE_AGENT_ID'] = 'pi:peer';
     const inbox = await run('message', one({ action: 'read' }));
-    expect(inbox.text).toMatch(/1 message/);    // 'read' lists + marks messages as read
+    expect(inbox.text).toMatch(/1 message/);
+    const unread = await run('message', one({ action: 'read' }));
+    expect(unread.text).toMatch(/0 message/);
   });
 
   it('message batch sequences send and read queries correctly', async () => {
@@ -157,7 +164,7 @@ describe('first-class Awareness coordination tools', () => {
   it('returns actionable errors for lock and message when persistent storage is disabled', async () => {
     process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
 
-    const lock = await run('lock', one({ action: 'acquire', file: 'memory-mode.ts' }));
+    const lock = await run('lock', one({ action: 'acquire', file: 'memory-mode.ts', testPlan: 'Verify memory-mode rejection.' }));
     expect(lock.result.isError).toBe(true);
     expect(lock.text).toMatch(/storage\.mode=memory/i);
     expect(lock.text).toMatch(/persistent storage is disabled/i);
@@ -170,7 +177,7 @@ describe('first-class Awareness coordination tools', () => {
 
   it('renders a held lock as a tool-specific warning', async () => {
     writeFileSync(join(ws, 'warning.ts'), 'x');
-    await run('lock', one({ action: 'acquire', file: 'warning.ts' }));
+    await run('lock', one({ action: 'acquire', file: 'warning.ts', testPlan: 'Verify a held lock is rendered as a warning.' }));
     process.env['OCTOCODE_AGENT_ID'] = 'pi:peer';
     const waited = await run('lock', one({ action: 'wait', file: 'warning.ts', waitMs: 0 }));
     const rendered = tools.get('lock')!.renderResult?.(waited.result, {}, undefined)?.render(100).join('\n') ?? '';

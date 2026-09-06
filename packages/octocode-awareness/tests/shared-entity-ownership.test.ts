@@ -14,8 +14,8 @@ describe('shared entity ownership', () => {
     const plans = source('src/plans.ts');
     const tasks = source('src/tasks-catalog.ts');
 
-    expect(plans).toContain("from '@octocodeai/octocode-shared/entities'");
-    expect(tasks).toContain("from '@octocodeai/octocode-shared/entities'");
+    expect(plans).toContain("from '@octocodeai/agent-contracts/entities'");
+    expect(tasks).toContain("from '@octocodeai/agent-contracts/entities'");
     expect(plans).not.toMatch(/(?:interface|type)\s+PlanRecord\b/);
     expect(tasks).not.toMatch(/(?:interface|type)\s+PlanTaskRecord\b/);
   });

@@ -23,7 +23,7 @@ import { createPlan } from '../src/plans.js';
 import { preFlightIntent } from '../src/intents-preflight.js';
 import { getWorkspaceStatus } from '../src/maintenance-workspace.js';
 import { queryAwareness } from '../src/repo-query.js';
-import { allowLocalFixtureProcesses } from '../../test-utils/external-effects-guard.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../out/octocode-awareness.js');
 const NODE = process.execPath;

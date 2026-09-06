@@ -168,10 +168,10 @@ export async function showToolHelp(toolName: string): Promise<boolean> {
 
   console.log(`  ${bold('Flags')}`);
   console.log(
-    `    ${c('cyan', '--json')}     ${dim('raw JSON envelope (structuredContent + content + isError)')}`
+    `    ${c('cyan', '--json')}     ${dim('direct structured result JSON (pretty)')}`
   );
   console.log(
-    `    ${c('cyan', '--compact')}  ${dim('lean structuredContent JSON')}`
+    `    ${c('cyan', '--compact')}  ${dim('direct structured result JSON (minified)')}`
   );
 
   console.log();

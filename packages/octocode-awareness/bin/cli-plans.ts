@@ -5,7 +5,7 @@ import { countPlans, createPlan, getPlan, joinPlan, listPlans, registerPlanDocum
 import { addTaskDependency, createTask, countReadyTasks, countTasks, listReadyTasks, listTasks } from '../src/tasks-ready.js';
 import { claimTask, heartbeatTaskClaim, releaseTaskClaim, retryTask, submitTask } from '../src/tasks-claims.js';
 import { getTask } from '../src/tasks-catalog.js';
-import type { PlanStatus, TaskStatus } from '@octocodeai/octocode-shared/entities';
+import type { PlanStatus, TaskStatus } from '@octocodeai/agent-contracts/entities';
 import { exportHarness } from '../src/maintenance-workspace.js';
 import { normalizeWorkspacePath } from '../src/git.js';
 import { ParsedArgs } from './cli-model.js';

@@ -2276,6 +2276,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@octocodeai/agent-contracts@npm:0.1.0, @octocodeai/agent-contracts@npm:^0.1.0, @octocodeai/agent-contracts@workspace:packages/octocode-agent-contracts":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/agent-contracts@workspace:packages/octocode-agent-contracts"
+  dependencies:
+    "@octocodeai/config": "npm:18.0.1"
+    "@types/node": "npm:^26.2.0"
+    "@vitest/coverage-v8": "npm:^4.1.11"
+    esbuild: "npm:^0.28.2"
+    typescript: "npm:^5.9.3"
+    vitest: "npm:^4.1.11"
+    yaml: "npm:2.9.0"
+  languageName: unknown
+  linkType: soft
+
 "@octocodeai/agent-core@npm:0.1.0":
   version: 0.1.0
   resolution: "@octocodeai/agent-core@npm:0.1.0"
@@ -2314,11 +2328,11 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-awareness@workspace:*, @octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
+"@octocodeai/octocode-awareness@npm:^1.5.0, @octocodeai/octocode-awareness@workspace:packages/octocode-awareness":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-awareness@workspace:packages/octocode-awareness"
   dependencies:
-    "@octocodeai/octocode-shared": "npm:0.1.0"
+    "@octocodeai/agent-contracts": "npm:^0.1.0"
     "@types/node": "npm:^26.2.0"
     "@vitest/coverage-v8": "npm:^4.1.11"
     esbuild: "npm:^0.28.2"
@@ -2422,16 +2436,6 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-shared@file:../octocode-agent/packages/octocode-shared::locator=octocode-monorepo%40workspace%3A.":
-  version: 0.1.0
-  resolution: "@octocodeai/octocode-shared@file:../octocode-agent/packages/octocode-shared#../octocode-agent/packages/octocode-shared::hash=ca1d18&locator=octocode-monorepo%40workspace%3A."
-  dependencies:
-    "@octocodeai/config": "npm:18.0.1"
-    yaml: "npm:2.9.0"
-  checksum: 10c0/c9c89611134f1532c134fd0f21659f89d975390c4215312ed8466760d8ab0c77a0299a2adc24459b75bd0ba6d31ef34954811b67b14a352d744c0b7329f61fb1
-  languageName: node
-  linkType: hard
-
 "@octocodeai/octocode-tools-core@npm:19.1.0, @octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-tools-core@workspace:packages/octocode-tools-core"
@@ -2470,12 +2474,12 @@ __metadata:
     "@modelcontextprotocol/client": "npm:^2.0.0"
     "@modelcontextprotocol/core": "npm:^2.0.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
+    "@octocodeai/agent-contracts": "npm:0.1.0"
     "@octocodeai/agent-core": "npm:0.1.0"
     "@octocodeai/agent-testing": "npm:^0.1.0"
     "@octocodeai/config": "npm:19.1.0"
     "@octocodeai/octocode-awareness": "npm:^1.5.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
-    "@octocodeai/octocode-shared": "npm:0.1.0"
     "@resvg/resvg-js": "npm:^2.6.2"
     "@types/node": "npm:^26.4.1"
     "@vitest/coverage-v8": "npm:^4.1.11"

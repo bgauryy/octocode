@@ -10,7 +10,7 @@ import { insertMemory } from '../src/memory-write.js';
 import { createPlan } from '../src/plans.js';
 import { claimTask } from '../src/tasks-claims.js';
 import { createTask as createTaskBase } from '../src/tasks-ready.js';
-import type { CreateTaskParams } from '@octocodeai/octocode-shared/entities';
+import type { CreateTaskParams } from '@octocodeai/agent-contracts/entities';
 import { startWork } from '../src/work.js';
 import { writeWorkspacePolicy } from '../src/workspace-policy.js';
 import { withEnabledAwarenessConfig } from './helpers/enabled-awareness-config.js';

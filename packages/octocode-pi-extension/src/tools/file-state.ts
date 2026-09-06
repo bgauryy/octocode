@@ -25,7 +25,7 @@
 import { chmod, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/octocode-awareness/mcp-state';
+import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/agent-contracts/permissions';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

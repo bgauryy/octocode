@@ -13,7 +13,6 @@ import {
   getDialLevel,
   loadDialLevel,
   parseDialLevel,
-  registerDialCommand,
   resetDialStateForTests,
   restoreDialOnStartup,
   type EffortLevel,
@@ -178,99 +177,6 @@ test('getDialLevel reflects the last applied level (default medium)', async () =
   assert.equal(getDialLevel(), 'low');
   await applyDialLevel(fake.pi, undefined, 'ultra', { home: tmpHome(), env: {} });
   assert.equal(getDialLevel(), 'ultra');
-});
-
-// ─── /octocode-dial command ───────────────────────────────────────────────────
-
-function registeredHandler(fake: FakePi, deps?: { home?: string; env?: NodeJS.ProcessEnv }): CommandDefinition {
-  registerDialCommand(fake.pi, deps);
-  const def = fake.commands.get('octocode-dial');
-  assert.ok(def, 'octocode-dial command must be registered');
-  return def!;
-}
-
-test('/octocode-dial rejects an unknown level with a helpful message', async () => {
-  resetDialStateForTests();
-  const fake = makeFakePi();
-  const env: NodeJS.ProcessEnv = {};
-  const def = registeredHandler(fake, { home: tmpHome(), env });
-  const { ctx, notifications } = makeCtx();
-
-  await def.handler('turbo', ctx);
-
-  assert.equal(notifications.length, 1);
-  assert.equal(notifications[0]!.level, 'error');
-  assert.match(notifications[0]!.message, /Unknown effort level 'turbo'/);
-  assert.match(notifications[0]!.message, /low, medium, high, ultra/);
-  // Nothing applied.
-  assert.deepEqual(fake.thinkingCalls, []);
-  assert.equal(env[DIAL_MAX_ACTIVE_ENV], undefined);
-  assert.equal(getDialLevel(), 'medium');
-});
-
-test('/octocode-dial high applies the level and reports the settings', async () => {
-  resetDialStateForTests();
-  const fake = makeFakePi();
-  const env: NodeJS.ProcessEnv = {};
-  const home = tmpHome();
-  const def = registeredHandler(fake, { home, env });
-  const { ctx, notifications } = makeCtx();
-
-  await def.handler(' high ', ctx);
-
-  assert.deepEqual(fake.thinkingCalls, ['high']);
-  assert.equal(env[DIAL_MAX_ACTIVE_ENV], '4');
-  assert.equal(getDialLevel(), 'high');
-  assert.equal(loadDialLevel(home), 'high');
-  assert.equal(notifications[0]!.level, 'info');
-  assert.match(notifications[0]!.message, /Effort dial: high/);
-  assert.match(notifications[0]!.message, /thinking high/);
-});
-
-test('/octocode-dial with no args uses the picker and applies the choice', async () => {
-  resetDialStateForTests();
-  const fake = makeFakePi();
-  const env: NodeJS.ProcessEnv = {};
-  const home = tmpHome();
-  const def = registeredHandler(fake, { home, env });
-  const { ctx, notifications } = makeCtx({
-    custom: (async () => 'ultra') as <T>(...args: unknown[]) => Promise<T | undefined>,
-  });
-
-  await def.handler('', ctx);
-
-  assert.deepEqual(fake.thinkingCalls, ['xhigh']);
-  assert.equal(env[DIAL_MAX_ACTIVE_ENV], '4');
-  assert.equal(getDialLevel(), 'ultra');
-  assert.match(notifications[0]!.message, /Effort dial: ultra/);
-});
-
-test('/octocode-dial with no args on a non-interactive host explains the arg form', async () => {
-  resetDialStateForTests();
-  const fake = makeFakePi();
-  const def = registeredHandler(fake, { home: tmpHome(), env: {} });
-  const { ctx, notifications } = makeCtx(); // no ui.custom / hasUI
-
-  await def.handler('', ctx);
-
-  assert.equal(notifications.length, 1);
-  assert.equal(notifications[0]!.level, 'warning');
-  assert.match(notifications[0]!.message, /octocode-dial <low\|medium\|high\|ultra>/);
-  assert.deepEqual(fake.thinkingCalls, []);
-  assert.equal(getDialLevel(), 'medium');
-});
-
-test('argument completions offer the levels with preset descriptions', async () => {
-  const fake = makeFakePi();
-  const def = registeredHandler(fake, { home: tmpHome(), env: {} });
-
-  const all = await def.getArgumentCompletions?.('');
-  assert.deepEqual(all?.map((item) => item.value), [...EFFORT_LEVELS]);
-  assert.match(all?.[3]?.description ?? '', /xhigh/);
-
-  const filtered = await def.getArgumentCompletions?.('ul');
-  assert.deepEqual(filtered?.map((item) => item.value), ['ultra']);
-  assert.equal(await def.getArgumentCompletions?.('zzz'), null);
 });
 
 test('DIAL_PRESETS covers exactly the four levels', () => {

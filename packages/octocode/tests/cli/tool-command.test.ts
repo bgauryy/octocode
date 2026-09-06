@@ -563,18 +563,16 @@ describe('toolCommand', () => {
       /\b(?:ghSearchPullRequests|ghSearchIssues|ghSearchCommits|prNumber|issueNumber)\b/
     );
     expect(context).toContain('`cache fetch` materializes content locally');
+    expect(context).toContain('CLI JSON modes omit that duplicate text');
     expect(context).toContain(
-      'MCP returns complete YAML text in content[].text plus full structuredContent'
+      'ordered rows: index, optional status/meta, and data'
     );
-    expect(context).toContain('inspect each row status for mixed batches');
     expect(context).toContain(
-      'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination windows content[].text only and remains visible in structuredContent.'
+      'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination only windows human-readable text; structured results remain complete.'
     );
     expect(context).not.toContain('mode:"discovery"');
     expect(context).not.toContain('Cheap modes: concise:true');
-    expect(context).toContain(
-      'structuredContent.responsePagination: object content[].text char window; structured data remains complete'
-    );
+    expect(context).not.toContain('structuredContent.responsePagination');
     expect(context).not.toContain(
       'Follow returned data.next/data.pagination only when hasMore.'
     );
@@ -600,7 +598,7 @@ describe('toolCommand', () => {
     expect(context).not.toContain('"$schema"');
     expect(context).toContain('Protocol: schema first');
     expect(context).toContain(
-      'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination windows content[].text only and remains visible in structuredContent.'
+      'Follow executable next.* continuations in row data and nested payloads when their pagination or partial state indicates more; scan/depth limits can require continuation even when pagination.hasMore is false. responsePagination only windows human-readable text; structured results remain complete.'
     );
     expect(context).not.toContain('Use Octocode tools carefully.');
     expect(context.length).toBeLessThanOrEqual(4000);
@@ -789,7 +787,7 @@ describe('toolCommand', () => {
         catalog: string;
         schema: string;
         runCompact: string;
-        runEnvelope: string;
+        runJson: string;
       };
       guidance?: string[];
       relations?: string[];
@@ -803,7 +801,7 @@ describe('toolCommand', () => {
     expect(parsed.commands.catalog).toBe('tools --json');
     expect(parsed.commands.schema).toBe('tools localSearch --scheme --json');
     expect(parsed.commands.runCompact).toContain('--compact');
-    expect(parsed.commands.runEnvelope).toContain('tools localSearch');
+    expect(parsed.commands.runJson).toContain('tools localSearch');
     expect(parsed.guidance?.join('\n')).toContain('absolute path');
     expect(parsed.relations?.join('\n').toLowerCase()).toContain('structural');
     expect(parsed.variants?.map(variant => variant.name)).toEqual([

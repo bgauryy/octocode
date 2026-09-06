@@ -1,4 +1,4 @@
-import type { Plan, PlanStatus, Task, TaskStatus } from '@octocodeai/octocode-shared/entities';
+import type { Plan, PlanStatus, Task, TaskStatus } from '@octocodeai/agent-contracts/entities';
 import { createPlan as createCanonicalPlan, getPlan as getCanonicalPlan, listPlans as listCanonicalPlans, updatePlanStatus } from '../plans.js';
 import { claimTask as claimCanonicalTask, heartbeatTaskClaim, releaseTaskClaim, submitTask } from '../tasks-claims.js';
 import { addTaskDependency, countReadyTasks, createTask, listReadyTasks, listTasks } from '../tasks-ready.js';

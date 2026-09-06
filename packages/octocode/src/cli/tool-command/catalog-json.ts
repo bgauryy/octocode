@@ -253,7 +253,7 @@ export async function printToolCatalogJson(
       compactSchema: 'tools <name> --scheme --json --compact',
       humanSchema: 'tools <name> --scheme',
       runCompact: AGENT_TOOL_COMMANDS.run,
-      runEnvelope: AGENT_TOOL_COMMANDS.runEnvelope,
+      runJson: AGENT_TOOL_COMMANDS.runJson,
     },
     tools: toolNames.map(toolName => {
       const fullDescription = getDirectToolDescription(toolName, metadata);
@@ -391,7 +391,7 @@ async function buildToolSchemaJson(
       compactSchema: `tools ${tool.name} --scheme --json --compact`,
       humanSchema: `tools ${tool.name} --scheme`,
       runCompact: compactRunCommand(tool.name),
-      runEnvelope: `tools ${tool.name} --queries '<json>' --json`,
+      runJson: `tools ${tool.name} --queries '<json>' --json`,
     },
     ...(commandPatterns.length > 0 ? { commandPatterns } : {}),
   };

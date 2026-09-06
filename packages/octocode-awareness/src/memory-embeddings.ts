@@ -3,7 +3,7 @@ import { utcNow, rowToMemory } from './helpers.js';
 import type { MemoryRow } from './types/work-maintenance.js';
 import type { MemoryRecord } from './types/identity-memory.js';
 import { attachMemoryReferences } from './memory-search.js';
-import { cosineSimilarity } from '@octocodeai/octocode-shared/embed';
+import { cosineSimilarity } from '@octocodeai/agent-contracts/embed';
 
 // ─── Embedding storage + cosine search (ARCH-6) ─────────────────────────────
 

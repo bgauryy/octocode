@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { hasFts, rebuildFts } from './db-maintenance.js';
-import { checkpointWal } from '@octocodeai/octocode-shared/sqlite';
+import { checkpointWal } from '@octocodeai/agent-contracts/sqlite';
 import { normalizeWorkspacePath } from './git.js';
 import { assertKnownOptions, normalizeArtifact } from './helpers.js';
 import { pruneStale } from './maintenance-stale.js';

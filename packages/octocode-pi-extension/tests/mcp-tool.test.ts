@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   setMcpToolEnabled,
-} from "@octocodeai/octocode-awareness/mcp-state";
+} from "@octocodeai/agent-contracts/mcp-state";
 import { openOctocodeDb } from "../src/tools/storage-policy.js";
 import { afterEach, beforeEach, test } from "vitest";
-import { __test__ as mcpTestHooks, getCachedMcpCatalogAddendum, getCachedMcpCounts, isCompactMcpEnabled, isMcpAiGuideEnabled, formatMcpSchemaValidationErrors, mcpCatalogReady, resolveMcpCallContent, resolveMcpCallText, stopAllMcpServers, warmMcpCatalog } from '../src/tools/mcp-tool.js';
+import { __test__ as mcpTestHooks, getCachedMcpCatalogAddendum, getCachedMcpCounts, isCompactMcpEnabled, isMcpAiGuideEnabled, formatMcpSchemaValidationErrors, mcpCatalogReady, resolveMcpCallContent, resolveMcpCallTable, resolveMcpCallText, summarizeMcpStructuredResults, stopAllMcpServers, warmMcpCatalog } from '../src/tools/mcp-tool.js';
 import { OCTOCODE_MCP_ENV_DEFAULTS } from '../src/tools/mcp-config.js';
 import { buildMcpCatalogSnapshot } from "../src/tools/mcp-catalog.js";
 import { projectMcpPath } from "../src/tools/mcp-config.js";
@@ -348,6 +348,34 @@ test("call content: compact stub fallback keeps structured data and native image
   });
   assert.match((content[0] as { text: string }).text, /full-result/);
   assert.deepEqual(content[1], image);
+});
+
+test("call summary aggregates every structured batch row instead of reporting the first row", () => {
+  const payload = {
+    structuredContent: {
+      results: [
+        { index: 0, data: { path: "a.ts", stats: { totalOccurrences: 2, filesMatched: 1 } } },
+        { index: 1, data: { path: "b.ts", stats: { totalOccurrences: 3, filesMatched: 2 } } },
+      ],
+    },
+  };
+  assert.equal(summarizeMcpStructuredResults(payload), "2 results · 5 matches · 3 files");
+});
+
+test("call table view keeps batch evidence compact without serializing match bodies", () => {
+  const content = resolveMcpCallTable({
+    structuredContent: {
+      results: [
+        { index: 0, data: { path: "a.ts", stats: { totalOccurrences: 2, filesMatched: 1 }, files: [{ matches: [{ value: "large match body" }] }] } },
+        { index: 1, status: "error", data: { path: "b.ts", error: "parse failed" } },
+      ],
+    },
+  });
+  const text = (content?.[0] as { text?: string } | undefined)?.text ?? "";
+  assert.match(text, /2 results · 2 matches · 1 file/);
+  assert.match(text, /a\.ts.*2 matches · 1 file/);
+  assert.match(text, /b\.ts.*parse failed/);
+  assert.doesNotMatch(text, /large match body/);
 });
 
 // ─── <mcp_catalog> prompt addendum (init discovery, compaction-surviving) ─────
@@ -1881,6 +1909,24 @@ test("prompt guidance distinguishes the MCP envelope from nested server argument
   assert.match(guidance, /MCPTool\.queries\[\]/);
   assert.match(guidance, /arguments\.queries\[\]/);
   assert.match(guidance, /never.*inner.*MCPTool\.queries\[\]/i);
+});
+
+test("schema: call queries expose the compact table response view", () => {
+  const def = buildMcpToolDef();
+  type S = {
+    properties?: {
+      queries?: {
+        items?: {
+          properties?: {
+            responseView?: { enum?: string[] };
+          };
+        };
+      };
+    };
+  };
+  const responseView = (def.parameters as S).properties?.queries?.items
+    ?.properties?.responseView;
+  assert.deepEqual(responseView?.enum, ["full", "table"]);
 });
 
 test("schema: per-query item requires reasoning", () => {

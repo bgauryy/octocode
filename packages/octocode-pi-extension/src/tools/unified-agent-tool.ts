@@ -533,6 +533,7 @@ export function registerUnifiedAgentTool(
       'Use profile:researcher/planner/architect for typed Octocode specialists; profile:browser for CDP work; profile:custom for lean workers.',
       'Use type:inspect without agentId to list all agents; with agentId to check status.',
       'Use type:wait to collect the current turn before trusting a worker is complete.',
+      'After wait or inspect, verify any key finding, distill it into session memory.md, and update the user when it changes the hypothesis, plan, risk, or next action; never persist or repeat a raw handback.',
       'Use type:kill after collecting results to free resources.',
       'Check /octocode-agents or the agent ledger for live worker status between calls.',
       'Provide labelled task packets (Goal/Context/Scope/Ownership/Acceptance/Return) to avoid [POLICY] warnings.',

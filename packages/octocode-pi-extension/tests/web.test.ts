@@ -79,6 +79,83 @@ const streamRes = (parts: string[]) => {
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
+test('web failures retain nested network error codes without exposing request credentials', async () => {
+  const fetchImpl = async () => {
+    throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect failed'), { code: 'ECONNRESET' }) });
+  };
+  for (const out of [
+    await webSearch('q', { engine: 'duckduckgo', fetchImpl, lookup: publicLookup }),
+    await webFetch('https://example.com', { fetchImpl, lookup: publicLookup }),
+    await webSearch('q', { engine: 'tavily', env: { TAVILY_API_KEY: 'secret-test-key' }, fetchImpl }),
+  ]) {
+    assert.match(out.error ?? '', /ECONNRESET/);
+    assert.doesNotMatch(out.error ?? '', /secret-test-key/);
+  }
+});
+
+test('automatic search fallback skips missing keys and continues past multiple auth failures', async () => {
+  const calls: string[] = [];
+  const result = await webSearch('q', {
+    env: { TAVILY_API_KEY: 'bad', EXA_API_KEY: 'also-bad' },
+    lookup: publicLookup,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return url.includes('duckduckgo')
+        ? textRes('<a class="result__a" href="https://example.com">Example</a>') as unknown as Response
+        : jsonRes({}, { status: 401 }) as unknown as Response;
+    },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.engine, 'duckduckgo');
+  assert.equal(calls.length, 3);
+  assert.ok(calls[1]?.includes('exa.ai'));
+});
+
+test('DuckDuckGo reports bot challenges instead of claiming no search results', async () => {
+  const out = await webSearch('q', {
+    env: {}, lookup: publicLookup,
+    fetchImpl: async () => textRes('<form id="challenge-form" action="//duckduckgo.com/anomaly.js">Select all squares containing a duck</form>', { status: 202 }) as unknown as Response,
+  });
+  assert.match(out.error ?? '', /DuckDuckGo.*challenge/i);
+  assert.equal(out.results, undefined);
+});
+
+test('DuckDuckGo retries one transient socket failure within the same deadline', async () => {
+  let attempts = 0;
+  const out = await duckDuckGoSearch('q', {
+    lookup: publicLookup,
+    fetchImpl: async () => {
+      if (++attempts === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('reset'), { code: 'ECONNRESET' }) });
+      return textRes('<a class="result__a" href="https://example.com">Example</a>') as unknown as Response;
+    },
+  });
+  assert.equal(out.error, undefined);
+  assert.equal(out.results?.length, 1);
+  assert.equal(attempts, 2);
+});
+
+test('DuckDuckGo never retries blocked destinations, TLS failures, or cancellation', async () => {
+  for (const code of ['CERT_HAS_EXPIRED', 'ABORT_ERR']) {
+    let attempts = 0;
+    const out = await duckDuckGoSearch('q', {
+      lookup: publicLookup,
+      fetchImpl: async () => {
+        attempts++;
+        throw new TypeError('fetch failed', { cause: Object.assign(new Error('failure'), { code }) });
+      },
+    });
+    assert.match(out.error ?? '', new RegExp(code));
+    assert.equal(attempts, 1);
+  }
+  let requests = 0;
+  const out = await duckDuckGoSearch('q', {
+    lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+    fetchImpl: async () => { requests++; return textRes('unexpected') as unknown as Response; },
+  });
+  assert.match(out.error ?? '', /blocked address/i);
+  assert.equal(requests, 0);
+});
+
 test('isBlockedIp blocks private/loopback/link-local/metadata/ULA/mapped, allows public', () => {
   for (const ip of [
     '127.0.0.1', '10.1.2.3', '192.168.0.1', '172.16.5.5', '169.254.169.254',

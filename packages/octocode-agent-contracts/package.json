@@ -1,0 +1,125 @@
+{
+  "name": "@octocodeai/agent-contracts",
+  "version": "0.1.0",
+  "description": "Canonical Octocode prompts, protocol types, entities, paths, permissions, and local SQLite plumbing shared across hosts.",
+  "keywords": [
+    "octocode",
+    "shared",
+    "paths",
+    "sqlite",
+    "sessions",
+    "prompts",
+    "protocols",
+    "agent"
+  ],
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode-agent.git",
+    "directory": "packages/octocode-agent-contracts"
+  },
+  "bugs": "https://github.com/bgauryy/octocode-agent/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "./out/index.js",
+  "types": "./out/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./out/index.d.ts",
+      "import": "./out/index.js",
+      "default": "./out/index.js"
+    },
+    "./paths": {
+      "types": "./out/paths.d.ts",
+      "import": "./out/paths.js",
+      "default": "./out/paths.js"
+    },
+    "./db": {
+      "types": "./out/db.d.ts",
+      "import": "./out/db.js",
+      "default": "./out/db.js"
+    },
+    "./schema": {
+      "types": "./out/schema.d.ts",
+      "import": "./out/schema.js",
+      "default": "./out/schema.js"
+    },
+    "./mcp-state": {
+      "types": "./out/mcp-state.d.ts",
+      "import": "./out/mcp-state.js",
+      "default": "./out/mcp-state.js"
+    },
+    "./sqlite": {
+      "types": "./out/sqlite.d.ts",
+      "import": "./out/sqlite.js",
+      "default": "./out/sqlite.js"
+    },
+    "./sqlite-version": {
+      "types": "./out/sqlite-version.d.ts",
+      "import": "./out/sqlite-version.js",
+      "default": "./out/sqlite-version.js"
+    },
+    "./embed": {
+      "types": "./out/embed.d.ts",
+      "import": "./out/embed.js",
+      "default": "./out/embed.js"
+    },
+    "./entities": {
+      "types": "./out/entities.d.ts",
+      "import": "./out/entities.js",
+      "default": "./out/entities.js"
+    },
+    "./permissions": {
+      "types": "./out/permissions.d.ts",
+      "import": "./out/permissions.js",
+      "default": "./out/permissions.js"
+    },
+    "./protocols": {
+      "types": "./out/protocols.d.ts",
+      "import": "./out/protocols.js",
+      "default": "./out/protocols.js"
+    },
+    "./agent-skills": {
+      "types": "./out/agent-skills.d.ts",
+      "import": "./out/agent-skills.js",
+      "default": "./out/agent-skills.js"
+    },
+    "./prompts": {
+      "types": "./out/prompts/index.d.ts",
+      "import": "./out/prompts/index.js",
+      "default": "./out/prompts/index.js"
+    }
+  },
+  "files": [
+    "out/**",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "clean": "rm -rf out/",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "node ../../node_modules/vitest/vitest.mjs run",
+    "test:coverage": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "verify": "yarn typecheck && yarn test && yarn build"
+  },
+  "dependencies": {
+    "@octocodeai/config": "18.0.1",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,4 +1,4 @@
-import type { MemoryItem } from '@octocodeai/octocode-shared/entities';
+import type { MemoryItem } from '@octocodeai/agent-contracts/entities';
 import { openAwarenessStore } from './open.js';
 
 export const EXTERNAL_MEMORY_ACTIONS = ['recall', 'record', 'forget', 'review', 'suggest'] as const;

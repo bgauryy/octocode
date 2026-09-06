@@ -1,6 +1,6 @@
-import type { AgentRecord,AgentStatus,LiteMessage,MemoryItem,PruneResult } from '@octocodeai/octocode-shared/entities';
+import type { AgentRecord,AgentStatus,LiteMessage,MemoryItem,PruneResult } from '@octocodeai/agent-contracts/entities';
 import { generateAgentName } from './agent-naming.js';
-import { bytesToEmbedding,cosineSimilarity,embeddingToBytes,isEmbeddingEnabled,runHostEmbedder } from '@octocodeai/octocode-shared/embed';
+import { bytesToEmbedding,cosineSimilarity,embeddingToBytes,isEmbeddingEnabled,runHostEmbedder } from '@octocodeai/agent-contracts/embed';
 import { CoordinationState } from './coordination-state.js';
 import { countPresentAgentPresence, countStaleAgentPresence } from './coordination-agent-presence.js';
 import { agentFromCanonicalRow,CanonicalAgentRow,CanonicalMemoryRow,CanonicalMessageRow,cutoffIso,DEFAULT_SEMANTIC_MIN_SIMILARITY,memoryFromCanonicalRow,messageFromCanonicalSignalRow,now,parseMetadata,required,splitFiles,splitTags } from './coordination-shared.js';

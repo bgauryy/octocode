@@ -17,16 +17,18 @@ reflection, and recovery for coding agents. It remains independent of
 - `bin/` owns CLI parsing and presentation; domain behavior remains in `src/`.
 - The package-local `skills/octocode-awareness/` directory is the canonical
   skill source. Generated helpers, `out/skills/`, and `.agents/skills/` are build output.
-- `@octocodeai/octocode-shared` owns Agent control-database paths and tables,
+- `@octocodeai/agent-contracts` owns Agent control-database paths and tables,
   low-level SQLite utilities, shared entity types, and cross-host protocol
   fragments. Shared types and utilities don't imply shared physical storage.
 
-During root development, the root `file:../octocode-agent/packages/octocode-shared`
+During root development, the root `file:../octocode-agent/packages/octocode-agent-contracts`
 resolution supplies a snapshot of the sibling shared-contract build. After rebuilding
 that contract, refresh the snapshot with `yarn install`. The published package keeps
 its semver development dependency and has no npm runtime dependencies. The sibling
-native host consumes Awareness through the published `@octocodeai/octocode-awareness`
-package portal.
+native host imports the public `@octocodeai/octocode-awareness` API through a local
+Yarn portal. Pi uses the Awareness workspace resolution. The root development setup
+maintains these links; the prepublish guard requires removing local resolutions
+before release.
 
 ## Storage and process boundaries
 

@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { getMemory } from './memory-recall.js';
 import { bumpAccess } from './memory-write.js';
 import { searchByEmbedding, storeEmbedding } from './memory-embeddings.js';
-import { resolveEmbedCommand, runHostEmbedder } from '@octocodeai/octocode-shared/embed';
+import { resolveEmbedCommand, runHostEmbedder } from '@octocodeai/agent-contracts/embed';
 import type { GetMemoryParams } from './types/identity-memory.js';
 
 export type StoreMemoryEmbeddingResult =

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Plan, PlanGraphResult, SourceStep, Task } from '@octocodeai/octocode-shared/entities';
+import type { Plan, PlanGraphResult, SourceStep, Task } from '@octocodeai/agent-contracts/entities';
 import { beginWrite } from '../db-transaction.js';
 import { createPlan, getPlan, updatePlanStatus } from '../plans.js';
 import { getTask, normalizeTaskPaths } from '../tasks-catalog.js';

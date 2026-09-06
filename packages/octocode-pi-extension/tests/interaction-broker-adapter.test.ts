@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'vitest';
-import { openAwareness } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness';
 
 import {
   registerInteractionBrokerAdapter,
@@ -25,7 +25,7 @@ function fixture(sessionId = 'rpc-session'): { ctx: PiContext } {
   const workspace = path.join(root, 'workspace');
   const dbPath = path.join(root, 'agent.sqlite3');
   fs.mkdirSync(workspace, { recursive: true });
-  setInteractionStoreFactoryForTests((storeWorkspace) => openAwareness({ workspace: storeWorkspace, dbPath }));
+  setInteractionStoreFactoryForTests((storeWorkspace) => openAwarenessStore({ workspace: storeWorkspace, dbPath }));
   return {
     ctx: {
       cwd: workspace,

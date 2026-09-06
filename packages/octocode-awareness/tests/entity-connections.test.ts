@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { initDb } from '../src/db-init.js';
 import { insertNotification } from '../src/notifications-core.js';
 import { acknowledgeNotifications, pruneNotifications } from '../src/notifications-signals.js';

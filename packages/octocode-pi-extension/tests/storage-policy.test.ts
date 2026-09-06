@@ -6,14 +6,14 @@ import { openOctocodeDb, openPersistentAwareness } from '../src/tools/storage-po
 
 const mocks = vi.hoisted(() => ({
   openStateDb: vi.fn(() => ({ kind: 'extension-state' })),
-  openAwareness: vi.fn(() => ({ kind: 'awareness' })),
+  openAwarenessStore: vi.fn(() => ({ kind: 'awareness' })),
 }));
 
 vi.mock('@octocodeai/octocode-awareness', () => ({
-  openAwareness: mocks.openAwareness,
+  openAwarenessStore: mocks.openAwarenessStore,
 }));
 
-vi.mock('@octocodeai/octocode-awareness/mcp-state', () => ({
+vi.mock('@octocodeai/agent-contracts/db', () => ({
   openOctocodeDb: mocks.openStateDb,
 }));
 
@@ -27,7 +27,7 @@ describe('persistent storage policy', () => {
     if (previousHome === undefined) delete process.env['OCTOCODE_HOME'];
     else process.env['OCTOCODE_HOME'] = previousHome;
     mocks.openStateDb.mockClear();
-    mocks.openAwareness.mockClear();
+    mocks.openAwarenessStore.mockClear();
   });
 
   it('never opens or creates SQLite state in memory mode', () => {
@@ -39,7 +39,7 @@ describe('persistent storage policy', () => {
     expect(() => openPersistentAwareness({ workspace: '/workspace' })).toThrow(
       'Persistent storage is disabled (storage.mode=memory)',
     );
-    expect(mocks.openAwareness).not.toHaveBeenCalled();
+    expect(mocks.openAwarenessStore).not.toHaveBeenCalled();
   });
 
   it('passes an explicit extension-private database path for the default home', () => {
@@ -73,6 +73,6 @@ describe('persistent storage policy', () => {
 
     openPersistentAwareness({ workspace: '/workspace' });
 
-    expect(mocks.openAwareness).toHaveBeenCalledWith({ workspace: '/workspace' });
+    expect(mocks.openAwarenessStore).toHaveBeenCalledWith({ workspace: '/workspace' });
   });
 });

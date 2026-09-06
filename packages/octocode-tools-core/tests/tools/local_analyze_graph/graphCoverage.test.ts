@@ -139,6 +139,12 @@ describe('graph coverage survives every public operation', () => {
       'unsupportedLinking',
     ]);
     expect(output.terminalLimit).toBe(true);
+    expect(output.completeness).toEqual({
+      results: 'complete',
+      graph: 'coverage-incomplete',
+      diagnostics: 'complete',
+      coverageGapReasons: ['unresolvedImports', 'unsupportedLinking'],
+    });
     expect(output.coverage).toMatchObject(built.coverage!);
   });
 
@@ -192,6 +198,16 @@ describe('graph coverage survives every public operation', () => {
         'diagnosticPage',
       ]);
       expect(output.terminalLimit).toBe(true);
+      expect(output.completeness).toEqual({
+        results: 'complete',
+        graph: 'coverage-incomplete',
+        diagnostics: 'pageable',
+        coverageGapReasons: [
+          'parseRecovery',
+          'unresolvedImports',
+          'unsupportedLinking',
+        ],
+      });
       if (operation === 'deadCode') {
         expect(output.confidence).toBe('low');
         expect(

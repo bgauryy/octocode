@@ -6,8 +6,8 @@ export interface LockQueryResult { blocked: boolean; message?: string }
 export interface AwarenessMutationGateDependencies {
   storeExists(workspace: string): boolean;
   queryTarget(target: string, workspace: string, agentId: string): LockQueryResult;
-  startWork(target: string, workspace: string, agentId: string): void;
-  endWork(target: string, workspace: string, agentId: string): void;
+  startWork(target: string, workspace: string, agentId: string): string;
+  endWork(target: string, workspace: string, agentId: string, runId: string): void;
   recordEdit?(target: string, workspace: string, agentId: string): void;
   warn?(message: string): void;
 }
@@ -54,7 +54,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function createAwarenessMutationGate(deps: AwarenessMutationGateDependencies) {
-  const owned = new Map<string, { target: string; workspace: string; agentId: string; activeCalls: number }>();
+  const owned = new Map<string, { target: string; workspace: string; agentId: string; runId: string; activeCalls: number }>();
   const keyFor = (target: string, workspace: string, agentId: string) => `${workspace}\0${agentId}\0${target}`;
   return {
     preflight(event: MutationToolEvent, workspace: string, agentId: string): { block: true; reason: string } | undefined {
@@ -74,15 +74,20 @@ export function createAwarenessMutationGate(deps: AwarenessMutationGateDependenc
       }
 
       for (const target of targets) {
+        const key = keyFor(target, workspace, agentId);
+        const existing = owned.get(key);
+        if (existing) {
+          existing.activeCalls += 1;
+          continue;
+        }
         try {
-          deps.startWork(target, workspace, agentId);
-          const key = keyFor(target, workspace, agentId);
-          const existing = owned.get(key);
+          const runId = deps.startWork(target, workspace, agentId);
           owned.set(key, {
             target,
             workspace,
             agentId,
-            activeCalls: (existing?.activeCalls ?? 0) + 1,
+            runId,
+            activeCalls: 1,
           });
         } catch (error) {
           deps.warn?.(`Awareness presence update failed: ${errorMessage(error)}`);
@@ -104,7 +109,7 @@ export function createAwarenessMutationGate(deps: AwarenessMutationGateDependenc
           continue;
         }
         try {
-          deps.endWork(target, workspace, agentId);
+          deps.endWork(target, workspace, agentId, item.runId);
           owned.delete(key);
         } catch (error) {
           deps.warn?.(`Awareness presence cleanup failed: ${errorMessage(error)}`);
@@ -113,7 +118,7 @@ export function createAwarenessMutationGate(deps: AwarenessMutationGateDependenc
     },
     cleanup(): void {
       for (const item of owned.values()) {
-        try { deps.endWork(item.target, item.workspace, item.agentId); }
+        try { deps.endWork(item.target, item.workspace, item.agentId, item.runId); }
         catch (error) { deps.warn?.(`Awareness presence cleanup failed: ${errorMessage(error)}`); }
       }
       owned.clear();

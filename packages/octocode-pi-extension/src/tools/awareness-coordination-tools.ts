@@ -5,15 +5,10 @@
  * verification, and work presence belong to unified plan/mutation flows.
  */
 
-import {
-  AWARENESS_COMMANDS,
-  type CommandGroup,
-  type CommandParam,
-  type AwarenessCommandRequest,
-  evaluatePeerInbound,
-} from '@octocodeai/octocode-awareness';
+import { evaluatePeerInbound } from '@octocodeai/octocode-awareness';
 import type { ToolDefinition, ToolCallResult, PiTheme, PiContext } from '../types.js';
 import type { registerUniqueTool } from './octocode-tools.js';
+import { openPersistentAwareness } from './storage-policy.js';
 import { buildQueryCallBlocks, buildQueryResultRows } from './render-helpers.js';
 import {
   buildQueryEnvelopeSchema,
@@ -23,12 +18,10 @@ import {
 } from './query-envelope.js';
 import {
   getAwarenessAgentId,
-  runAwarenessCommand,
   awarenessError,
   awarenessOk,
   renderAwarenessCall,
   renderAwarenessResult,
-  countRows,
 } from './awareness-shared.js';
 
 type TypeBoxBuilder = (typeof import('typebox'))['Type'];
@@ -37,127 +30,35 @@ type RegisterFn = typeof registerUniqueTool;
 type Params = Record<string, unknown>;
 
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v)).trim();
-const has = (v: unknown): boolean => str(v).length > 0;
 const renderedQuery = (value: Params): Params => Array.isArray(value['queries'])
   ? (value['queries'][0] as Params | undefined) ?? {}
   : value;
 
 // ─── Schema generation (best-practice discriminated union by `action`) ─────────
 
-function paramSchema(Type: TypeBoxBuilder, param: CommandParam): TSchema {
-  const base = { description: param.description };
-  if (param.enum) return Type.Unsafe({ type: 'string', enum: [...param.enum], ...base });
-  if (param.type === 'integer') {
-    return Type.Integer({
-      ...(param.min !== undefined ? { minimum: param.min } : {}),
-      ...(param.max !== undefined ? { maximum: param.max } : {}),
-      ...base,
-    });
-  }
-  if (param.type === 'boolean') return Type.Boolean(base);
-  if (param.type === 'string[]') return Type.Array(Type.String(), base);
-  return Type.String(base);
-}
-
-const toolParamName = (param: CommandParam): string => param.name === 'reason' ? 'reasoning' : param.name;
-
-function buildQuerySchema(Type: TypeBoxBuilder, group: CommandGroup): TSchema {
-  const props: Record<string, TSchema> = {
-    reasoning: Type.String({ minLength: 1, maxLength: QUERY_REASONING_MAX_LENGTH, description: 'Why this operation is necessary. For lock/work declarations, this is also stored as the ledger reason.' }),
-  };
-  if (!group.singleton) {
-    props['action'] = Type.Unsafe({ type: 'string', enum: group.actions.map((a) => a.action), description: `${group.resource} action` });
-  }
-  const seen = new Set(Object.keys(props));
-  for (const action of group.actions) {
-    for (const param of action.params) {
-      const name = toolParamName(param);
-      if (seen.has(name)) continue;
-      seen.add(name);
-      props[name] = Type.Optional(paramSchema(Type, param));
-    }
-  }
-  const options: Record<string, unknown> = { additionalProperties: false };
-  if (!group.singleton) {
-    // Discriminate on `action`: each variant declares exactly its required fields
-    // so the model's tool schema is self-documenting (not "all fields optional").
-    options['oneOf'] = group.actions.map((action) => ({
-      title: action.action,
-      properties: { action: { const: action.action } },
-      required: ['action', 'reasoning', ...action.params.filter((p) => p.required).map(toolParamName)],
-    }));
-  }
-  return Type.Object(props, options);
-}
-
-function buildParameters(Type: TypeBoxBuilder, group: CommandGroup): TSchema {
-  return buildQueryEnvelopeSchema(Type, buildQuerySchema(Type, group), {
-    maxItems: QUERY_BATCH_MAX_ITEMS,
-  });
-}
-
-// ─── Request generation (from the same descriptor) ─────────────────────────────
-// Build the STRUCTURED dispatcher request straight from the command descriptor —
-// no CLI arg-vector, no round-trip through the parser. `dispatchAwarenessCommand`
-// (shared with the CLI) owns the command→library mapping, so this only maps the
-// tool-facing values onto the descriptor's canonical param names. The host agent
-// id is passed as `agentId`; the dispatcher routes it (e.g. to `fromAgentId` for
-// `message send`), so `agentIdFlag` is no longer the host's concern.
-
-function coerceParam(param: CommandParam, value: unknown): unknown {
-  if (param.type === 'string[]') return Array.isArray(value) ? value.map(str).filter(Boolean) : str(value);
-  if (param.type === 'integer' || param.durationMs) return Number(value);
-  return str(value);
-}
-
-function buildRequest(group: CommandGroup, p: Params, agentId: string): AwarenessCommandRequest | { error: string } {
-  const action = group.singleton ? group.actions[0]!.action : str(p['action']);
-  const spec = group.actions.find((a) => a.action === action);
-  if (!spec) return { error: `unknown ${group.resource} action "${action || '(none)'}".` };
-  const params: Params = {};
-  if (spec.needsAgentId) params['agentId'] = agentId;
-  for (const param of spec.params) {
-    const v = p[toolParamName(param)];
-    if (param.required && !has(v)) return { error: `${group.resource} ${spec.action} requires ${toolParamName(param)}.` };
-    if (param.type === 'boolean') { if (v === true) params[param.name] = true; continue; }
-    if (!has(v)) continue;
-    params[param.name] = coerceParam(param, v);
-  }
-  return { command: group.cli, action: spec.action, params };
-}
-
-interface PreparedQuery {
-  action: string;
+interface PreparedLockQuery {
+  action: 'acquire' | 'release' | 'wait';
   params: Params;
-  request: AwarenessCommandRequest;
 }
 
-function prepareQueries(
-  group: CommandGroup,
-  raw: Record<string, unknown>,
-  agentId: string,
-): PreparedQuery[] | { error: string } {
+function prepareLockQueries(raw: Record<string, unknown>): PreparedLockQuery[] | { error: string } {
   const queries = raw['queries'];
   if (!Array.isArray(queries) || queries.length === 0) return { error: 'queries must be a non-empty array.' };
   if (queries.length > QUERY_BATCH_MAX_ITEMS) return { error: `queries supports at most ${QUERY_BATCH_MAX_ITEMS} operations per call.` };
-
-  const prepared: PreparedQuery[] = [];
+  const prepared: PreparedLockQuery[] = [];
   for (const [index, value] of queries.entries()) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { error: `queries[${index}] must be an object.` };
-    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: `queries[${index}] must be an object.` };
     const params = value as Params;
     const reasoning = str(params['reasoning']);
+    const action = str(params['action']);
+    const file = str(params['file']);
+    const testPlan = str(params['testPlan']);
     if (!reasoning) return { error: `queries[${index}] requires non-empty reasoning.` };
-    if (reasoning.length > QUERY_REASONING_MAX_LENGTH)
-      return { error: `queries[${index}] reasoning must be at most ${QUERY_REASONING_MAX_LENGTH} characters.` };
-    const built = buildRequest(group, params, agentId);
-    if ('error' in built) return { error: `queries[${index}] ${built.error}` };
-    prepared.push({
-      action: group.singleton ? group.actions[0]!.action : str(params['action']),
-      params,
-      request: built,
-    });
+    if (reasoning.length > QUERY_REASONING_MAX_LENGTH) return { error: `queries[${index}] reasoning must be at most ${QUERY_REASONING_MAX_LENGTH} characters.` };
+    if (action !== 'acquire' && action !== 'release' && action !== 'wait') return { error: `queries[${index}] has an unknown lock action.` };
+    if (!file) return { error: `queries[${index}] lock ${action} requires file.` };
+    if (action === 'acquire' && !testPlan) return { error: `queries[${index}] lock acquire requires testPlan.` };
+    prepared.push({ action, params });
   }
   return prepared;
 }
@@ -165,14 +66,15 @@ function prepareQueries(
 // ─── Exceptional explicit lock wrapper ────────────────────────────────────────
 
 function buildLockParameters(Type: TypeBoxBuilder): TSchema {
-  const withFile = (title: string, actionConst: string) => ({ title, properties: { action: { const: actionConst } }, required: ['reasoning', 'action', 'file'] });
+  const withFile = (title: string, actionConst: string, required: string[] = []) => ({ title, properties: { action: { const: actionConst } }, required: ['reasoning', 'action', 'file', ...required] });
   const itemSchema = Type.Object({
     reasoning: Type.String({ minLength: 1, maxLength: QUERY_REASONING_MAX_LENGTH, description: 'Why this lock operation is necessary.' }),
     action: Type.Unsafe({ type: 'string', enum: ['acquire', 'release', 'wait'], description: 'Exceptional lock action.' }),
     file: Type.Optional(Type.String({ description: 'Workspace-relative file path.' })),
+    testPlan: Type.Optional(Type.String({ description: 'Required verification plan for acquire.' })),
     ttlSeconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 3600, description: 'Lease seconds (default 1800).' })),
     waitMs: Type.Optional(Type.Integer({ minimum: 0, maximum: 60000, description: 'Max ms to wait for a peer-held lock.' })),
-  }, { additionalProperties: false, oneOf: [withFile('acquire', 'acquire'), withFile('release', 'release'), withFile('wait', 'wait')] });
+  }, { additionalProperties: false, oneOf: [withFile('acquire', 'acquire', ['testPlan']), withFile('release', 'release'), withFile('wait', 'wait')] });
   return buildQueryEnvelopeSchema(Type, itemSchema, {
     maxItems: QUERY_BATCH_MAX_ITEMS,
     reasoningDescription: 'Why this lock operation is necessary.',
@@ -190,28 +92,44 @@ function summarizeLock(action: string, json: unknown, p: Params): string {
 }
 
 function buildLockTool(Type: TypeBoxBuilder): ToolDefinition {
-  const group = AWARENESS_COMMANDS.find((candidate) => candidate.resource === 'lock');
-  if (!group) throw new Error('Awareness lock command descriptor is unavailable');
   return {
     name: 'lock', label: 'Lock',
     description: ['Exceptional exclusive file lock for non-mergeable work: single-writer configs, migration scripts, shared counters, or files where concurrent edits cannot be merged.', 'Mutation-time conflict checks are automatic — do not lock for ordinary mergeable edits.', 'On peer conflict: inspect the holder (message inbox); use waitMs to wait briefly; release your lock when done (always release).', 'Actions: acquire, wait (blocks until free or waitMs exceeded), release.'].join('\n'),
     promptSnippet: 'Exceptional exclusive locks; mutation-time conflict checks are automatic', parameters: buildLockParameters(Type),
     async execute(toolCallId: string, raw: Record<string, unknown>, signal: AbortSignal | undefined, onUpdate: unknown, ctx?: PiContext): Promise<ToolCallResult> {
-      const prepared = prepareQueries(group, raw, getAwarenessAgentId(ctx));
+      const prepared = prepareLockQueries(raw);
       if (!Array.isArray(prepared)) return awarenessError(`[lock] ${prepared.error}`);
       return executeQueryBatch({
         toolCallId,
         raw,
         signal,
-        onUpdate: typeof onUpdate === 'function' ? onUpdate as (update: ToolCallResult) => void : undefined,
-        ctx,
-        passthroughSingle: true,
-        async execute(_query, index) {
-          const operation = prepared[index]!;
-          const response = runAwarenessCommand(operation.request, ctx?.cwd ?? process.cwd());
-          if (!response.ok) return awarenessError(`[lock] ${response.error ?? 'unknown error'}`);
-          return awarenessOk(summarizeLock(operation.action, response.json, operation.params), operation.action, response.json);
-        },
+          onUpdate: typeof onUpdate === 'function' ? onUpdate as (update: ToolCallResult) => void : undefined,
+          ctx,
+          passthroughSingle: true,
+          async execute(_query, index) {
+            const operation = prepared[index]!;
+            const agentId = getAwarenessAgentId(ctx);
+            const filePath = str(operation.params['file']);
+            const workspace = ctx?.cwd ?? process.cwd();
+            let aw: ReturnType<typeof openPersistentAwareness> | undefined;
+            try {
+              aw = openPersistentAwareness({ workspace });
+              const json = operation.action === 'acquire'
+                ? aw.acquireLock({ filePath, agentId, reason: str(operation.params['reasoning']), testPlan: str(operation.params['testPlan']), ttlSeconds: Number(operation.params['ttlSeconds']) || undefined })
+                : operation.action === 'wait'
+                  ? aw.waitForLock({ filePath, agentId, waitMs: Number(operation.params['waitMs']) || 0 })
+                  : (() => {
+                    const lock = aw.listLocks().find((candidate) => candidate.agentId === agentId
+                      && (candidate.filePath === filePath || candidate.filePath.endsWith(`/${filePath}`)));
+                    return lock ? aw.releaseLock({ filePath: lock.filePath, agentId, runId: lock.runId }) : { released: false };
+                  })();
+              return awarenessOk(summarizeLock(operation.action, json, operation.params), operation.action, json);
+            } catch (error) {
+              return awarenessError(`[lock] ${error instanceof Error ? error.message : String(error)}`);
+            } finally {
+              aw?.close();
+            }
+          },
       });
     },
     renderCall(raw: unknown, theme?: PiTheme) {
@@ -225,20 +143,6 @@ function buildLockTool(Type: TypeBoxBuilder): ToolDefinition {
     },
   } as unknown as ToolDefinition;
 }
-
-// ─── Human summaries (per resource; falls back to the action summary) ──────────
-
-type Summarize = (action: string, json: unknown, p: Params) => string;
-
-const SUMMARIES: Record<string, Summarize> = {
-  message: (action, json, p) => {
-    if (action === 'read') return `${countRows(json)} message(s) from peers.`;
-    return str(p['to']) ? `Sent message to ${str(p['to'])}.` : 'Broadcast message to peers.';
-  },
-
-};
-
-const HINT_FIELDS = ['to', 'topic', 'messageId'] as const;
 
 export function applyPeerInboundPolicy(value: unknown, expectedAgentId: string): unknown {
   if (!Array.isArray(value)) return value;
@@ -259,28 +163,62 @@ export function applyPeerInboundPolicy(value: unknown, expectedAgentId: string):
   });
 }
 
-function makeTool(group: CommandGroup, Type: TypeBoxBuilder): ToolDefinition {
-  const operations = group.singleton
-    ? group.actions[0]!.summary
-    : group.actions.map((a) => `${a.action} — ${a.summary}`).join('; ');
-  const description = [
-    group.summary,
-    `${operations}. Pass one or more operations in queries; each query requires reasoning. The batch is validated before ordered in-process execution.`,
-  ].join('\n');
-  const promptSnippet = group.summary.split(/[.—]/)[0]!.trim();
-  const summarize: Summarize = SUMMARIES[group.resource] ?? ((action) => `${group.resource} ${action} ok.`);
+interface PreparedMessageQuery {
+  action: 'send' | 'read';
+  params: Params;
+}
 
+function buildMessageParameters(Type: TypeBoxBuilder): TSchema {
+  const item = Type.Object({
+    reasoning: Type.String({ minLength: 1, maxLength: QUERY_REASONING_MAX_LENGTH, description: 'Reason.' }),
+    action: Type.Unsafe({ type: 'string', enum: ['send', 'read'] }),
+    to: Type.Optional(Type.String({ description: 'Recipient; omit to broadcast.' })),
+    text: Type.Optional(Type.String({ description: 'Send text.' })),
+    topic: Type.Optional(Type.String()),
+    files: Type.Optional(Type.Array(Type.String())),
+    includeRead: Type.Optional(Type.Boolean({ description: 'Include read.' })),
+    markRead: Type.Optional(Type.Boolean({ description: 'Mark accepted read.' })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  }, {
+    additionalProperties: false,
+    oneOf: [
+      { title: 'send', properties: { action: { const: 'send' } }, required: ['action', 'reasoning', 'text'] },
+      { title: 'read', properties: { action: { const: 'read' } }, required: ['action', 'reasoning'] },
+    ],
+  });
+  return buildQueryEnvelopeSchema(Type, item, { maxItems: QUERY_BATCH_MAX_ITEMS, reasoningDescription: 'Reason.' });
+}
+
+function prepareMessageQueries(raw: Record<string, unknown>): PreparedMessageQuery[] | { error: string } {
+  const queries = raw['queries'];
+  if (!Array.isArray(queries) || queries.length === 0) return { error: 'queries must be a non-empty array.' };
+  if (queries.length > QUERY_BATCH_MAX_ITEMS) return { error: `queries supports at most ${QUERY_BATCH_MAX_ITEMS} operations per call.` };
+  const prepared: PreparedMessageQuery[] = [];
+  for (const [index, value] of queries.entries()) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: `queries[${index}] must be an object.` };
+    const params = value as Params;
+    const reasoning = str(params['reasoning']);
+    const action = str(params['action']);
+    if (!reasoning) return { error: `queries[${index}] requires non-empty reasoning.` };
+    if (reasoning.length > QUERY_REASONING_MAX_LENGTH) return { error: `queries[${index}] reasoning must be at most ${QUERY_REASONING_MAX_LENGTH} characters.` };
+    if (action !== 'send' && action !== 'read') return { error: `queries[${index}] has an unknown message action.` };
+    if (action === 'send' && !str(params['text'])) return { error: `queries[${index}] message send requires text.` };
+    if (params['files'] !== undefined && (!Array.isArray(params['files']) || params['files'].some((file) => !str(file)))) return { error: `queries[${index}] files must be an array of non-empty strings.` };
+    prepared.push({ action, params });
+  }
+  return prepared;
+}
+
+function buildMessageTool(Type: TypeBoxBuilder): ToolDefinition {
   return {
-    name: group.resource,
-    label: group.label,
-    description,
-    promptSnippet,
-    parameters: buildParameters(Type, group),
+    name: 'message',
+    label: 'Message',
+    description: 'Send messages or read a policy-filtered inbox; reads mark accepted messages read.',
+    promptSnippet: 'Send messages or read a policy-filtered inbox',
+    parameters: buildMessageParameters(Type),
     async execute(toolCallId: string, raw: Record<string, unknown>, signal: AbortSignal | undefined, onUpdate: unknown, ctx?: PiContext): Promise<ToolCallResult> {
-      const cwd = ctx?.cwd ?? process.cwd();
-      const prepared = prepareQueries(group, raw, getAwarenessAgentId(ctx));
-      if (!Array.isArray(prepared)) return awarenessError(`[${group.resource}] ${prepared.error}`);
-
+      const prepared = prepareMessageQueries(raw);
+      if (!Array.isArray(prepared)) return awarenessError(`[message] ${prepared.error}`);
       return executeQueryBatch({
         toolCallId,
         raw,
@@ -290,30 +228,50 @@ function makeTool(group: CommandGroup, Type: TypeBoxBuilder): ToolDefinition {
         passthroughSingle: true,
         async execute(_query, index) {
           const operation = prepared[index]!;
-          const response = runAwarenessCommand(operation.request, cwd);
-          if (!response.ok) return awarenessError(`[${group.resource}] ${response.error ?? 'unknown error'}`);
-          const safeJson = group.resource === 'message' && operation.action === 'read'
-            ? applyPeerInboundPolicy(response.json, getAwarenessAgentId(ctx))
-            : response.json;
-          return awarenessOk(
-            summarize(operation.action, safeJson, operation.params),
-            operation.action,
-            safeJson,
-          );
+          const agentId = getAwarenessAgentId(ctx);
+          let aw: ReturnType<typeof openPersistentAwareness> | undefined;
+          try {
+            aw = openPersistentAwareness({ workspace: ctx?.cwd ?? process.cwd() });
+            if (operation.action === 'send') {
+              const json = aw.sendMessage({
+                fromAgentId: agentId,
+                toAgentId: str(operation.params['to']) || null,
+                topic: str(operation.params['topic']) || null,
+                text: str(operation.params['text']),
+                files: Array.isArray(operation.params['files']) ? operation.params['files'].map(str).filter(Boolean) : [],
+              });
+              return awarenessOk(str(operation.params['to']) ? `Sent message to ${str(operation.params['to'])}.` : 'Broadcast message to peers.', 'send', json);
+            }
+            const inbox = aw.listMessages({
+              agentId,
+              includeRead: operation.params['includeRead'] === true,
+              topic: str(operation.params['topic']) || undefined,
+              limit: typeof operation.params['limit'] === 'number' ? operation.params['limit'] : undefined,
+            });
+            const safe = applyPeerInboundPolicy(inbox, agentId) as Array<Record<string, unknown>>;
+            if (operation.params['markRead'] !== false) {
+              for (const message of safe) {
+                const policy = message['inboundPolicy'] as { decision?: string } | undefined;
+                if (policy?.decision === 'accept') aw.markMessageRead({ messageId: str(message['messageId']), agentId });
+              }
+            }
+            return awarenessOk(`${safe.length} message(s) from peers.`, 'read', safe);
+          } catch (error) {
+            return awarenessError(`[message] ${error instanceof Error ? error.message : String(error)}`);
+          } finally {
+            aw?.close();
+          }
         },
       });
     },
     renderCall(raw: unknown, theme?: PiTheme) {
       return buildQueryCallBlocks(raw, theme, (envelope) => {
         const query = renderedQuery(envelope);
-        const action = group.singleton ? group.actions[0]!.action : str(query['action']);
-        const value = HINT_FIELDS.map((field) => str(query[field])).find(Boolean) ?? '';
-        return renderAwarenessCall(group.resource, action, value, theme);
+        return renderAwarenessCall('message', str(query['action']), str(query['to']) || str(query['topic']), theme);
       });
     },
     renderResult(result: ToolCallResult, _opts: unknown, theme?: PiTheme) {
-      return buildQueryResultRows(group.resource, result, theme)
-        ?? renderAwarenessResult(group.resource, result, theme);
+      return buildQueryResultRows('message', result, theme) ?? renderAwarenessResult('message', result, theme);
     },
   } as unknown as ToolDefinition;
 }
@@ -330,8 +288,5 @@ export function registerAwarenessCoordinationTools(
   registerFn: RegisterFn,
 ): void {
   registerFn(pi, registeredToolNames, buildLockTool(Type));
-  for (const group of AWARENESS_COMMANDS) {
-    if (group.resource !== 'message') continue;
-    registerFn(pi, registeredToolNames, makeTool(group, Type));
-  }
+  registerFn(pi, registeredToolNames, buildMessageTool(Type));
 }

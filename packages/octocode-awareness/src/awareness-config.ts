@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getOctocodeHome } from '@octocodeai/octocode-shared/paths';
+import { getOctocodeHome } from '@octocodeai/agent-contracts/paths';
 
 export const AWARENESS_CONFIG_VERSION = 1 as const;
 

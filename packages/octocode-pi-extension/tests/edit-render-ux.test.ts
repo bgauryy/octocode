@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { renderEditResult } from '../src/tools/edit-tool.js';
+import { collapsedEditRationales } from '../src/tools/edit-render-ux.js';
 
-test('collapsed multi-edit UI groups identical reasoning instead of repeating it', () => {
+test('collapsed multi-edit UI shows each rationale once without a Reasoning label', () => {
   const reasoning = 'Apply the same contract update to every branch.';
   const edits = Array.from({ length: 5 }, (_, editIndex) => ({
     editIndex,
@@ -14,12 +14,10 @@ test('collapsed multi-edit UI groups identical reasoning instead of repeating it
     removedLines: [`old-${editIndex}`],
     addedLines: [`new-${editIndex}`],
   }));
-  const rendered = renderEditResult({
-    content: [{ type: 'text', text: 'edited' }],
-    details: { replacements: 5, files: [{ path: '/workspace/example.ts', edits }] },
-  }, { expanded: false }, undefined, 'file (Octocode)').render(240).join('\n');
+  const rows = collapsedEditRationales([{ edits }]);
 
-  assert.equal(rendered.match(/Reasoning:/g)?.length, 1);
-  assert.match(rendered, /Reasoning: \(5 edits\) Apply the same contract update/);
-  assert.match(rendered, /2 more reasoning\/diff lines hidden/i, 'deduplication exposes four additional diff lines');
+  assert.deepEqual(rows, [
+    '(5 edits) Apply the same contract update to every branch.',
+  ]);
+  assert.doesNotMatch(rows.join('\n'), /Reasoning:/i);
 });

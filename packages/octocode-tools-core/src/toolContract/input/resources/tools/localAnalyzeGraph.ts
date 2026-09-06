@@ -16,7 +16,7 @@ export const localAnalyzeGraph: ToolSpec = defineTool({
   shortDescription:
     'Analyze a repository file graph through one bounded operation.',
   instructions:
-    'Map file topology, not symbol identity. dependencies/dependents need file; path needs file+target; deadCode/reachability accept roots; cycles needs no selector. Import edges and dead-code results are candidates—verify changes and deletions with exact reads plus LSP.',
+    'Map file topology, not symbol identity. dependencies/dependents need file; path needs file+target; deadCode/reachability accept roots; cycles needs no selector. Read completeness.results, completeness.graph, and completeness.diagnostics independently. Import edges and dead-code results are candidates—verify changes and deletions with exact reads plus LSP.',
   schema: {
     path: 'Absolute repository or package root to scan.',
     operation:
@@ -24,7 +24,8 @@ export const localAnalyzeGraph: ToolSpec = defineTool({
     file: 'Repository-relative source file for dependencies, dependents, or path.',
     target: 'Repository-relative destination file for path.',
     depth: 'Traversal depth for dependencies or dependents.',
-    entrypoints: 'Repository-relative roots for deadCode or reachability.',
+    entrypoints:
+      'Repository-relative file or dynamic asset directory roots for deadCode or reachability.',
     includeTests: 'Treat test files as reachability roots.',
     excludeDir: 'Directory names to prune from graph construction.',
     maxFiles: 'Maximum source files scanned; truncation is reported.',
@@ -108,7 +109,7 @@ const entrypointFields = {
     .array(z.string())
     .optional()
     .describe(
-      'Repo-relative reachability roots; omit to detect package.json main/exports/bin.'
+      'Repo-relative file or dynamic asset directory roots; omit to detect package.json main/exports/bin.'
     ),
   includeTests: z
     .boolean()

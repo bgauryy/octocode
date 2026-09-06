@@ -20,10 +20,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseAgentSkill } from '@octocodeai/octocode-shared/agent-skills';
+import { parseAgentSkill } from '@octocodeai/agent-contracts/agent-skills';
 import { getPiUserSkillsDir } from '../utils.js';
 import { KEYWORD_MATCH_THRESHOLD, tokenize, withRegistryLock, writeJsonAtomic, readJsonSafe } from './registry-store.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/mcp-state';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 

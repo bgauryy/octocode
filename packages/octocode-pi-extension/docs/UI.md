@@ -83,7 +83,7 @@ The footer degrades by priority: keep the required action and error state, then 
 |---|---|
 | Up/Down or Ctrl-P/Ctrl-N | Move one selectable row in logical reading order. |
 | Enter | Select or submit the focused control. |
-| Escape or Ctrl-C | Cancel the active decision or overlay. Escape clears an active filter first. |
+| Escape or Ctrl-C | Escape clears an active filter first; from a choice-backed custom answer it returns to the choices. Otherwise cancel the active decision or overlay. |
 | `/` | Start explicit filtering in `askUser`; shared overlays filter as you type. |
 | `1`–`9` | Select or toggle the corresponding visible option when the UI shows numbers. |
 | Space | Toggle the focused multi-select option. |
@@ -100,6 +100,7 @@ Every interactive widget maps explicit state to a pure view:
 - Validation keeps the value and focus in place and gives one actionable correction.
 - Loading keeps cancellation available and updates a factual progress label.
 - Submission collapses to the question and a concise result.
+- Terminal help names the actual outcome (`submitted`, `back`, `cancelled`, `timed out`, or `unavailable`).
 - Cancellation is neutral: neither an error nor a success.
 - Unavailable interactive UI produces an inline, machine-legible fallback for the agent.
 

@@ -430,10 +430,19 @@ function renderAskFinalLines(
   })();
   // success (green) is an OUTCOME color; cancelled/unavailable are neutral, not wins.
   const token = outcome.status === 'back' || outcome.status === 'cancelled' || outcome.status === 'timed_out' || outcome.status === 'unavailable' ? 'muted' : 'success';
+  const footer = outcome.status === 'back'
+    ? 'back'
+    : outcome.status === 'cancelled'
+      ? CLI_STATUS_TEXT.cancelled
+      : outcome.status === 'timed_out'
+        ? 'timed out'
+        : outcome.status === 'unavailable'
+          ? CLI_STATUS_TEXT.unavailable
+          : 'submitted';
   return renderAskFrame([
     ...askHeaderLines(question, width),
     ...wrapAskPayload(paint(theme, token, summary), ``, ``, width),
-    ...askFooterLines(theme, 'submitted', width),
+    ...askFooterLines(theme, footer, width),
   ], width, theme, undefined, headerLabel);
 }
 
@@ -564,7 +573,16 @@ async function runAskOverlay(
         finish({ status: 'text', value });
       };
       textInput.onSubmit = submitText;
-      textInput.onEscape = () => finish({ status: 'cancelled' });
+      textInput.onEscape = () => {
+        if (mode === 'text' && options.length > 0) {
+          mode = params.multiSelect ? 'multi' : 'single';
+          textInput.setValue('');
+          warning = undefined;
+          rerender();
+          return;
+        }
+        finish({ status: 'cancelled' });
+      };
       const renderTextPrompt = (
         question: string,
         placeholder: string | undefined,

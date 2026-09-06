@@ -31,7 +31,7 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
   memory: 'Recall, record, review, suggest, or forget durable Awareness learning. Record only verified reusable lessons, never secrets, routine status, or facts owned by code/docs.',
   lock: 'Acquire, wait for, or release an exceptional file lock. Ordinary mergeable edits rely on automatic peer checks and do not need a lock.',
   message: 'Send or read small cross-agent coordination messages for overlap, blockers, or decisions. Do not use as routine status ceremony.',
-  MCPTool: 'Use automatically discovered MCP tools for repo/GitHub/npm/LSP; prefer server:"octocode" over bash for code search/file reads. Describe unfamiliar tools before their first call. Manage stdio and Streamable HTTP servers.',
+  MCPTool: 'Use automatically discovered MCP tools; prefer server:"octocode" over bash for code search/file reads. Describe unfamiliar tools before their first call. Supports stdio and Streamable HTTP.',
 });
 
 export const SCHEMA_DESCRIPTION_MAX_CHARS = 180;

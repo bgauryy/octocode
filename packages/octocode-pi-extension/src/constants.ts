@@ -1,5 +1,3 @@
-export const PACKAGE_NAME = '@octocodeai/pi-extension';
-
 /**
  * Pi's config directory name. Mirrors the host's exported CONFIG_DIR_NAME /
  * package.json `piConfig.configDir`; kept as a local constant so the extension

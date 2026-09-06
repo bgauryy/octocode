@@ -62,7 +62,7 @@ Awareness reports observed verification debt, scoped contention, reference warni
 
 ## Integrate and verify
 
-In-process hosts import `openAwarenessStore` and external-agent helpers; unique continuity commands also expose `dispatchAwarenessCommand` from `@octocodeai/octocode-awareness`. The sibling native host consumes that published package portal. Internal callers import the owning module. Shared entity types and embedding utilities belong to `@octocodeai/octocode-shared/entities` and `@octocodeai/octocode-shared/embed`; Awareness does not provide compatibility modules for them. Preview optional hooks before installation, then check the selected host:
+In-process hosts import `openAwarenessStore` and external-agent helpers; unique continuity commands also expose `dispatchAwarenessCommand` from `@octocodeai/octocode-awareness`. The sibling native host imports that public package API through a local Yarn portal during development. Internal callers import the owning module. Shared entity types and embedding utilities belong to `@octocodeai/agent-contracts/entities` and `@octocodeai/agent-contracts/embed`; Awareness does not provide compatibility modules for them. Preview optional hooks before installation, then check the selected host:
 
 ```bash
 npx @octocodeai/octocode-awareness hooks install --host <host> --profile coordination --dry-run

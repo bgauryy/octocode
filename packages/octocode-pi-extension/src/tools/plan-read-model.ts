@@ -1,6 +1,7 @@
 import type { PiContext } from '../types.js';
+import type { TaskStatus } from '@octocodeai/agent-contracts/entities';
 import type { PlanCoordination, PlanDecision, PlanReviewComment, PlanStep, ReviewQuestion, ReviewState } from './active-plan.js';
-import { activePlanScope, dependencyIndexes, getPlan, getPlanCoordination, getPlanReviewState, getPlanTurnsSinceUpdate, STALE_PLAN_TURNS } from './active-plan.js';
+import { activePlanScope, dependencyIndexes, getPlan, getPlanCoordination, getPlanReviewState, getPlanTurnsSinceUpdate } from './active-plan.js';
 import { listPendingInteractionIds } from './interaction-broker.js';
 import { escapePromptMetadata } from './prompt-safety.js';
 import { openPersistentAwareness } from './storage-policy.js';
@@ -51,11 +52,8 @@ export interface PlanReadModelV1 {
   runtime: { turnsSinceUpdate: number };
 }
 
-type SharedTaskStatus = 'OPEN' | 'CLAIMED' | 'IN_PROGRESS' | 'BLOCKED' | 'VERIFY' | 'DONE' | 'FAILED' | 'CANCELLED';
-
-const SHARED_STATUS_TO_DISPLAY: Record<SharedTaskStatus, PlanReadModelTaskV1['status']> = {
+const SHARED_STATUS_TO_DISPLAY: Record<TaskStatus, PlanReadModelTaskV1['status']> = {
   OPEN: 'todo',
-  CLAIMED: 'doing',
   IN_PROGRESS: 'doing',
   BLOCKED: 'blocked',
   VERIFY: 'doing',
@@ -65,8 +63,9 @@ const SHARED_STATUS_TO_DISPLAY: Record<SharedTaskStatus, PlanReadModelTaskV1['st
 };
 
 function sharedDisplayStatus(status: string | undefined): PlanReadModelTaskV1['status'] | undefined {
+  if (status === 'CLAIMED') return 'doing';
   return status && status in SHARED_STATUS_TO_DISPLAY
-    ? SHARED_STATUS_TO_DISPLAY[status as SharedTaskStatus]
+    ? SHARED_STATUS_TO_DISPLAY[status as TaskStatus]
     : undefined;
 }
 
@@ -173,7 +172,7 @@ const CONTEXT_MARK: Record<PlanReadModelTaskV1['status'], string> = { todo: '[ ]
 export function renderPlanContext(model: PlanReadModelV1): string {
   if (model.tasks.length === 0 && model.pendingInteractionIds.length === 0) return '';
   const inputGate = model.pendingInteractionIds.length > 0
-    ? `input-needed: pending interactions ${model.pendingInteractionIds.map(escapePromptMetadata).join(', ')} — do not continue plan execution until the requested user input is resolved.`
+    ? `input-needed: pending interactions ${model.pendingInteractionIds.map(escapePromptMetadata).join(', ')}`
     : undefined;
   if (model.tasks.length === 0) return ['<active_plan>', inputGate!, 'next: awaiting user input', '</active_plan>'].join('\n');
   const metadata = [
@@ -197,37 +196,16 @@ export function renderPlanContext(model: PlanReadModelV1): string {
     ].filter((field): field is string => Boolean(field));
     return fields.length ? [`contract ${task.index}: ${fields.join(' | ')}`] : [];
   });
-  const executionAllowed = model.phase === 'executing' || model.phase === 'verifying';
-  const progress = `Your current task breakdown (${model.summary.done}/${model.summary.total} done).`;
-  if (inputGate) {
-    return ['<active_plan>', progress, ...metadata, ...rows, ...contracts, 'next: awaiting user input', '</active_plan>'].join('\n');
-  }
-  if (['complete', 'failed', 'abandoned', 'blocked'].includes(model.phase)) {
-    const next = model.phase === 'complete'
-      ? 'next: report verified results; clear the finished checklist when no longer needed'
-      : `next: report the ${model.phase} outcome and resolve its cause before resuming`;
-    return ['<active_plan>', progress, ...metadata, ...rows, ...contracts, next, '</active_plan>'].join('\n');
-  }
-  if (!executionAllowed) {
-    return ['<active_plan>', `This task breakdown is in ${model.phase.replace('_', ' ')} (${model.summary.done}/${model.tasks.length} done). Execution is paused; wait for the Start decision shown with the plan overview.`, ...metadata, ...rows, ...contracts, 'next: awaiting Start or requested changes', '</active_plan>'].join('\n');
-  }
-  const doing = model.tasks.filter((task) => task.status === 'doing');
-  const runnable = model.tasks.filter((task) => task.status === 'todo' && task.dependsOn.every((index) => model.tasks[index - 1]?.status === 'done'));
-  const current = doing[0] ?? runnable[0];
-  const nudges = doing.length === 0 && runnable.length > 0
-    ? ['note: no step is in progress — call plan with queries:[{reasoning:"Start the next runnable step.", action:"start", index:N}] so unfinished work has an active owner.']
-    : doing.length > 0 && runnable.length > 0
-      ? [`parallel-ready: ${runnable.map((task) => `${task.index}. ${escapePromptMetadata(task.activeText ?? task.text)}`).join(' | ')} — dependency-ready candidates. Check disjoint write ownership, available capacity, and independent decisions before delegation. Start selected lanes with action:"start" and index:N inside queries[]; give each worker bounded context, acceptance criteria, and a check command. Keep dependent work in the backlog and verify worker results before completing a step.`]
-      : [];
-  if (model.summary.done < model.summary.total && model.runtime.turnsSinceUpdate >= STALE_PLAN_TURNS) {
-    nudges.push(`note: this plan has not been updated in ${STALE_PLAN_TURNS}+ turns — use action:"start" or action:"complete" inside queries[], add or remove changed scope, or clear it if the work is done or abandoned.`);
-  }
-  const next = doing.length > 1
-    ? `now: ${doing.map((task) => escapePromptMetadata(task.activeText ?? task.text)).join(' | ')}`
-    : current ? `next: ${escapePromptMetadata(current.activeText ?? current.text)}`
-      : model.summary.done < model.summary.total ? 'next: resolve blocked dependencies before starting or delegating more work'
-        : 'next: (all steps done — verify, then use action:"clear" inside queries[])';
-  return ['<active_plan>', `Your current task breakdown (${model.summary.done}/${model.summary.total} done). Every plan call uses queries:[{reasoning, action, ...}]. Execute active steps; start independent parallel lanes with action:"start" and index:N; advance or clear with the matching action inside queries[].`, ...metadata, ...rows, ...contracts, next, ...nudges, '</active_plan>'].join('\n');
+  const current = model.tasks.filter((task) => task.status === 'doing');
+  return [
+    '<active_plan>',
+    `Progress: ${model.summary.done}/${model.summary.total} completed.`,
+    ...metadata,
+    ...rows,
+    ...contracts,
+    ...(current.length ? [`Current: ${current.map((task) => escapePromptMetadata(task.activeText ?? task.text)).join(' | ')}`] : []),
+    '</active_plan>',
+  ].join('\n');
 }
 
 export function renderPlanReadModel(model: PlanReadModelV1, format: 'terminal' | 'browser' | 'rpc'): string | PlanReadModelV1 {

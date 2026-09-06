@@ -4,7 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
-import type { PlanTaskRecord, TaskClaimRecord, TaskRunRecord } from '@octocodeai/octocode-shared/entities';
+import type { PlanTaskRecord, TaskClaimRecord, TaskRunRecord } from '@octocodeai/agent-contracts/entities';
 
 export const DEFAULT_CLAIM_LEASE_MS = 30 * 60_000;
 export const MAX_CLAIM_LEASE_MS = 60 * 60_000;

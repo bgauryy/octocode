@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { CLI_STATUS_TEXT, cliStatusGlyph, cliStatusToken, cliToolTitle, ansiForToken } from '../tui/cli-design.js';
 import type { ToolCallResult, PiTheme, RenderCallReturn } from '../types.js';
 import { makeComponentRenderer, wrapText } from './render-helpers.js';
+import { collapsedEditRationales } from './edit-render-ux.js';
 import { assertPathAllowed } from './path-guard.js';
 import { atomicWriteUtf8, withFileMutationQueue, recordFileReadStateFromContent, checkReadState, resolveFilePath, type ReadStateCheck } from './file-state.js';
 import { peerWipNotice, markOwnWrite } from './peer-wip.js';
@@ -667,17 +668,9 @@ function changesSuffix(prepared: PreparedEdit[]): string {
   return `\nChanges:\n${blocks.join('\n')}`;
 }
 
-function renderEditReasoningItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
-  const counts = new Map<string, number>();
-  for (const file of files) {
-    for (const edit of file.edits ?? []) {
-      const reasonText = edit.reasoning.trim();
-      if (!reasonText) continue;
-      counts.set(reasonText, (counts.get(reasonText) ?? 0) + 1);
-    }
-  }
-  return [...counts].map(([reasonText, count]) => ({
-    text: paint(theme, 'muted', `  Reasoning: ${count > 1 ? `(${count} edits) ` : ''}${reasonText}`),
+function renderEditRationaleItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
+  return collapsedEditRationales(files).map((rationale) => ({
+    text: paint(theme, 'muted', `  ${rationale}`),
     truncate: true,
   }));
 }
@@ -703,16 +696,16 @@ function renderEditDiffItems(files: RenderableEditFile[], theme?: PiTheme): Arra
 }
 
 function renderCollapsedEditDiffLines(header: string, files: RenderableEditFile[], theme?: PiTheme): RenderCallReturn {
-  const reasoningItems = renderEditReasoningItems(files, theme);
+  const rationaleItems = renderEditRationaleItems(files, theme);
   const diffItems = renderEditDiffItems(files, theme);
   const maxPreviewLines = 10;
-  const previewItems = [...reasoningItems, ...diffItems];
+  const previewItems = [...rationaleItems, ...diffItems];
   const shown = previewItems.slice(0, maxPreviewLines);
   const omitted = previewItems.length - shown.length;
   return makeComponentRenderer((_props, { width: width }) => [
     truncateToWidth(header, width),
     ...shown.map((item) => truncateToWidth(item.text, width)),
-    ...(omitted > 0 ? [truncateToWidth(paint(theme, 'muted', `  … ${omitted} more reasoning/diff line${omitted === 1 ? '' : 's'} hidden; expand for full details`), width)] : []),
+    ...(omitted > 0 ? [truncateToWidth(paint(theme, 'muted', `  … ${omitted} more detail line${omitted === 1 ? '' : 's'} hidden; expand for full details`), width)] : []),
   ], undefined);
 }
 

@@ -146,15 +146,28 @@ export function resolveEntrypoints(
     const rootPrefix = normalizeSlashes(rootAbsolutePath).replace(/\/$/, '');
     for (const raw of explicitEntrypoints) {
       let normalized = stripLeadingDotSlash(normalizeSlashes(raw));
-      if (normalized.startsWith(rootPrefix + '/')) {
+      if (normalized === rootPrefix) {
+        normalized = '.';
+      } else if (normalized.startsWith(rootPrefix + '/')) {
         normalized = normalized.slice(rootPrefix.length + 1);
       }
       normalized = posix.normalize(normalized);
       if (knownFiles.has(normalized)) {
         resolved.add(normalized);
+        continue;
+      }
+      // Dynamically loaded assets often have no import edge. Accept a directory
+      // root and conservatively retain every scanned file beneath it.
+      const prefix =
+        normalized === '.' ? '' : `${normalized.replace(/\/$/, '')}/`;
+      const assetFiles = [...knownFiles].filter(file =>
+        file.startsWith(prefix)
+      );
+      if (assetFiles.length > 0) {
+        for (const file of assetFiles) resolved.add(file);
       } else {
         warnings.push(
-          `entrypoint not found in scan: ${raw} — pass it relative to the scanned path (e.g. "src/index.ts"), or as an absolute path under it`
+          `entrypoint not found in scan: ${raw} — pass a file or dynamic asset directory relative to the scanned path, or an absolute path under it`
         );
       }
     }

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'vitest';
-import { workspaceAgentRoot } from '@octocodeai/octocode-shared/paths';
+import { workspaceAgentRoot } from '@octocodeai/agent-contracts/paths';
 import { buildDiscoverySnapshot, getDiscoveryFilePath, writeDiscoveryFile } from '../src/tools/discovery-file.js';
 import { discoverMcpConfigs, discoverMcpSystem } from '../src/tools/mcp-discovery.js';
 import { __test__ as mcpTestHooks } from '../src/tools/mcp-tool.js';

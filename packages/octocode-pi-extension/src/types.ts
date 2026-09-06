@@ -5,7 +5,7 @@
  * Octocode's tool results, runtime state, and UI projections.
  */
 
-import type { PromptMode } from '@octocodeai/octocode-shared/protocols';
+import type { PromptMode } from '@octocodeai/agent-contracts/protocols';
 
 import type {
   BuildSystemPromptOptions as PiBuildSystemPromptOptions,

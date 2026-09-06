@@ -44,7 +44,7 @@ test('settings actions use canonical optimistic revisions and redacted provenanc
   );
   const html = await renderMcpManagerPage(ctx);
   assert.match(html, /data-settings-revision="1"/);
-  assert.match(html, /runtime\.footer-density/);
+  assert.match(html, /Footer density/);
   assert.match(html, /effective provenance runtime/);
 });
 
@@ -154,7 +154,7 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
   assert.match(html, /data-action="set-permission-level"/);
   assert.match(html, /3 available now/);
   assert.match(html, /Search commands and descriptions/);
-  assert.match(html, /\/settings/);
+  assert.match(html, /\/configuration/);
   assert.match(html, /Run the release workflow/);
   assert.match(html, /data-command-source="prompt"/);
   assert.match(html, /\/prompts\/review\.md/);

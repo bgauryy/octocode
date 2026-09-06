@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import { setMcpServerEnabled } from '@octocodeai/octocode-awareness/mcp-state';
+import { setMcpServerEnabled } from '@octocodeai/agent-contracts/mcp-state';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 import {
   buildServerHeaders,

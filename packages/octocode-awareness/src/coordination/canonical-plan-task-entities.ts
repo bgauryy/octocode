@@ -1,4 +1,4 @@
-import type { Plan, PlanRecord, PlanTaskRecord, Task } from '@octocodeai/octocode-shared/entities';
+import type { Plan, PlanRecord, PlanTaskRecord, Task } from '@octocodeai/agent-contracts/entities';
 
 export function planEntity(plan: PlanRecord): Plan {
   return {

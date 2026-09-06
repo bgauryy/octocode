@@ -1,5 +1,5 @@
-import { openAwareness } from '@octocodeai/octocode-awareness';
-import { openOctocodeDb as openExtensionStateDb } from '@octocodeai/octocode-awareness/mcp-state';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openOctocodeDb as openExtensionStateDb } from '@octocodeai/agent-contracts/db';
 import { isPersistentStorageEnabled } from '@octocodeai/config';
 import { extensionStateDbPath } from '../extension-paths.js';
 
@@ -15,12 +15,12 @@ export function openOctocodeDb(): ReturnType<typeof openExtensionStateDb> {
 
 /** Open durable Awareness state only when machine persistence is enabled. */
 export function openPersistentAwareness(
-  options: Parameters<typeof openAwareness>[0],
-): ReturnType<typeof openAwareness> {
+  options: Parameters<typeof openAwarenessStore>[0],
+): ReturnType<typeof openAwarenessStore> {
   if (!isPersistentStorageEnabled()) {
     throw new Error(
       'Persistent storage is disabled (storage.mode=memory); Awareness state is unavailable',
     );
   }
-  return openAwareness(options);
+  return openAwarenessStore(options);
 }

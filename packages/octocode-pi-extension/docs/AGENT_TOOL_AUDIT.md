@@ -39,7 +39,7 @@ The remaining tools each own a distinct effect or capability boundary. Scores us
 | `memory` | 7.8 | Keep | Durable verified learning across runs; valuable only when used conditionally. |
 | `lock` | 7.6 | Keep | Exceptional non-mergeable exclusivity; ordinary conflicts stay automatic. |
 | `message` | 8.1 | Keep | Resolves concrete peer overlap and carries unread direct input. |
-| `MCPTool` | 9.4 | Keep | Progressive gateway to the 15 Octocode research tools and configured MCP servers without registering every schema directly. |
+| `MCPTool` | 9.4 | Keep | Progressive gateway to the 10 catalogued Octocode research tools and configured MCP servers without registering every schema directly. |
 
 ## Awareness value/noise audit
 

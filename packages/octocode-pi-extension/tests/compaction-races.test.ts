@@ -25,6 +25,7 @@ interface Harness {
   notes: Array<{ msg: string; level?: string }>;
   sentUserMessages: Array<{ content: unknown; opts?: Record<string, unknown> }>;
   sentMessages: Array<{ customType?: string; content?: unknown; details?: unknown }>;
+  activeTools: string[];
   handlerCount(event: string): number;
   fire(event: string, evt: unknown, ctx: unknown): Promise<unknown[]>;
 }
@@ -35,11 +36,14 @@ function makeHarness(): Harness {
   const notes: Array<{ msg: string; level?: string }> = [];
   const sentUserMessages: Array<{ content: unknown; opts?: Record<string, unknown> }> = [];
   const sentMessages: Array<{ customType?: string; content?: unknown; details?: unknown }> = [];
+  const activeTools = ['MCPTool', 'file', 'bash'];
   const pi = {
     registerTool: (definition: ToolDefinition) => tools.set(definition.name, definition),
     registerCommand: () => undefined,
     sendUserMessage: (content: unknown, opts?: Record<string, unknown>) => sentUserMessages.push({ content, opts }),
     sendMessage: (message: { customType?: string; content?: unknown; details?: unknown }) => sentMessages.push(message),
+    getActiveTools: () => [...activeTools],
+    setActiveTools: (next: string[]) => activeTools.splice(0, activeTools.length, ...next),
     on: (event: string, handler: Handler) => {
       const current = handlers.get(event) ?? [];
       current.push(handler);
@@ -53,6 +57,7 @@ function makeHarness(): Harness {
     notes,
     sentUserMessages,
     sentMessages,
+    activeTools,
     handlerCount: (event) => handlers.get(event)?.length ?? 0,
     fire: (event, evt, ctx) => Promise.all((handlers.get(event) ?? []).map((handler) => handler(evt, ctx))),
   };
@@ -146,6 +151,24 @@ test('only public Pi compaction hooks are registered', () => {
   assert.equal(harness.handlerCount('session_before_compact'), 1);
   assert.equal(harness.handlerCount('session_compact'), 1);
   assert.equal(harness.handlerCount('session_compact_failed'), 0);
+});
+
+test('successful compaction restores the exact pre-compaction tool surface', async () => {
+  const harness = makeHarness();
+  const { ctx } = makeCtx();
+  Object.assign(ctx, { cwd: testHome });
+  await harness.fire('session_before_compact', {
+    reason: 'threshold',
+    preparation: {},
+  }, ctx);
+  harness.activeTools.splice(0, harness.activeTools.length, 'bash');
+  await harness.fire('session_compact', {
+    compactionEntry: { id: 'cmp-tools' },
+    fromExtension: false,
+    reason: 'threshold',
+    willRetry: false,
+  }, ctx);
+  assert.deepEqual(harness.activeTools, ['MCPTool', 'file', 'bash']);
 });
 
 test('session shutdown discards staged smart-resume state without reading Pi stale context', async () => {

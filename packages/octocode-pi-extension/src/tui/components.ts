@@ -73,41 +73,6 @@ export const renderInlineRows: TuiComponent<InlineRowsProps> = (props, context) 
   return rows;
 };
 
-/**
- * Render a single ambient row. Lower-priority tail segments collapse into an
- * explicit `+N` disclosure instead of growing persistent chrome vertically.
- */
-export const renderBoundedInlineRow: TuiComponent<InlineRowsProps> = (props, context) => {
-  const width = safeWidth(context.width);
-  const separator = props.separator ?? SEP;
-  const ordered = (props.prioritizeAttention
-    ? [...props.segments].sort((a, b) => Number(Boolean(b.attention)) - Number(Boolean(a.attention)))
-    : [...props.segments])
-    .filter((item) => !!item.text?.trim());
-  if (ordered.length === 0) return [];
-
-  let row = props.prefix ?? '';
-  let consumed = 0;
-  for (let index = 0; index < ordered.length; index += 1) {
-    const value = segmentText(ordered[index]!, context.theme);
-    const joiner = row ? separator : '';
-    const remaining = ordered.length - index - 1;
-    const suffix = remaining > 0 ? `${separator}${paint(context.theme, 'muted', `+${remaining}`)}` : '';
-    if (visibleWidth(`${row}${joiner}${value}${suffix}`) > width) break;
-    row = `${row}${joiner}${value}`;
-    consumed = index + 1;
-  }
-
-  if (consumed === ordered.length) return [truncateToWidth(row, width)];
-  const marker = paint(context.theme, 'muted', `+${ordered.length - consumed}`);
-  const markerWidth = visibleWidth(marker) + visibleWidth(separator);
-  if (!row) {
-    const first = segmentText(ordered[0]!, context.theme);
-    return [`${truncateToWidth(first, Math.max(0, width - markerWidth))}${separator}${marker}`];
-  }
-  return [`${truncateToWidth(row, Math.max(0, width - markerWidth))}${separator}${marker}`];
-};
-
 export interface StackProps {
   sections: readonly (readonly string[])[];
 }

@@ -1,6 +1,6 @@
 import path from 'node:path';
-import type { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
-import { withSqliteBusyRetry } from '@octocodeai/octocode-shared/sqlite';
+import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { withSqliteBusyRetry } from '@octocodeai/agent-contracts/sqlite';
 import { containsSecretLikeText } from './memory-hardening.js';
 
 export type WorkerLifecycleRedaction = 'public' | 'sensitive' | 'secret' | 'internal';

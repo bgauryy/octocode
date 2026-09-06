@@ -1,4 +1,4 @@
-import { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import type { SQLInputValue } from 'node:sqlite';
 import { SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { AWARENESS_APPLICATION_ID } from './storage-scope.js';

@@ -53,7 +53,7 @@ describe('plan presentation read model', () => {
       sharedTaskStatuses: { p: 'FAILED', c: 'OPEN' },
     });
     expect(blocked.tasks[1]?.status).toBe('blocked');
-    expect(renderPlanContext(blocked)).toContain('next: resolve blocked dependencies');
+    expect(renderPlanContext(blocked)).toContain('[!] 2. Child');
     expect(renderPlanContext(blocked)).not.toContain('Start the next runnable step');
   });
 
@@ -61,7 +61,7 @@ describe('plan presentation read model', () => {
     const model = executionModel();
     model.pendingInteractionIds = ['question'];
     const prompt = renderPlanContext(model);
-    expect(prompt).toContain('next: awaiting user input');
+    expect(prompt).toContain('input-needed: pending interactions question');
     expect(prompt).not.toContain('parallel-ready:');
     expect(prompt).not.toContain('Execute active steps');
   });
@@ -153,7 +153,7 @@ describe('plan presentation read model', () => {
     expect(prompt).toContain('coordination: mode=required awareness-plan=plan-7 materialized=rev-7');
     expect(prompt).toContain('contract 2: accept=API passes contract tests | check=yarn test');
     expect(prompt).toContain('input-needed: pending interactions question-1, question-2');
-    expect(prompt).toContain('do not continue plan execution');
+    expect(prompt).not.toContain('do not continue plan execution');
     expect(renderPlanReadModel(model, 'terminal')).toContain('Input needed · question-1, question-2');
     expect(renderPlanReadModel(model, 'browser')).toContain('Input needed · question-1, question-2');
   });

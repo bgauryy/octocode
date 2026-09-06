@@ -1,4 +1,4 @@
-import type { DatabaseSync } from '@octocodeai/octocode-shared/sqlite';
+import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { connectDb, resolveDbPath } from '../src/db-runtime.js';
 import { mineWeakness } from '../src/memory-weakness.js';
 import { pruneStale } from '../src/maintenance-stale.js';

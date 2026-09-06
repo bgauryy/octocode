@@ -123,18 +123,6 @@ const MIN_REFRESH_MS = 8000;
 /** Max distinct workspaces retained in the status cache before LRU eviction. */
 const MAX_CACHED_CWDS = 32;
 
-/** The Awareness section lines for the unified panel, from the cached status (empty when none). */
-export function awarenessPanelLines(cwd: string, theme?: PiTheme, width?: number): string[] {
-  const status = cache.get(cwd)?.status;
-  return status ? formatAwarenessPanel(status, theme, width) : [];
-}
-
-/** Whether the cached Awareness status has anything worth showing for this workspace. */
-export function hasCachedAwarenessSignal(cwd: string): boolean {
-  const status = cache.get(cwd)?.status;
-  return status ? hasAwarenessSignal(status) : false;
-}
-
 /** Return the last cached Awareness status for command dashboards. */
 export function getCachedAwarenessStatus(cwd: string): ExternalAwarenessStatus | null {
   return cache.get(cwd)?.status ?? null;

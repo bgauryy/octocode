@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveEmbedCommand, runHostEmbedder } from '@octocodeai/octocode-shared/embed';
+import { resolveEmbedCommand, runHostEmbedder } from '@octocodeai/agent-contracts/embed';
 
 function withEmbedScript(source: string, fn: (command: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), 'oc-embed-'));

@@ -261,5 +261,3 @@ export const SUBAGENT_REGISTRY = {
     systemPromptPath: subagentPromptPath('architect'),
   },
 } satisfies Record<SubagentName, SubagentConfig>;
-
-export const SUBAGENT_NAMES = Object.keys(SUBAGENT_REGISTRY) as SubagentName[];

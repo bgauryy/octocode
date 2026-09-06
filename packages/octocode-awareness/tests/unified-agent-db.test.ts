@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AGENT_APPLICATION_ID, initOctocodeSchema } from '@octocodeai/octocode-shared/schema';
+import { AGENT_APPLICATION_ID, initOctocodeSchema } from '@octocodeai/agent-contracts/schema';
 import { openAwarenessStore } from '../src/coordination/open.js';
 import { connectDb } from '../src/db-runtime.js';
 import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';

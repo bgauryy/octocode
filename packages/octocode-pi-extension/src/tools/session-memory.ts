@@ -12,6 +12,8 @@ Agent-maintained notes for this Pi session. Keep at most 10 one-line entries per
 
 ## Improvements
 
+## Findings
+
 ## Decisions
 
 ## Handoff
@@ -22,6 +24,26 @@ Agent-maintained notes for this Pi session. Keep at most 10 one-line entries per
 export interface SessionArtifactPaths {
   memoryPath: string;
   auditPath: string;
+}
+
+export interface SessionMemoryUpdate {
+  content: string;
+  signature: string;
+}
+
+/** Deliver current session memory only when its bounded bytes changed. */
+export function projectSessionMemoryUpdate(
+  current: string,
+  deliveredSignature: string | undefined,
+): SessionMemoryUpdate {
+  if (current === deliveredSignature) return { content: '', signature: current };
+  if (!current) {
+    return {
+      content: deliveredSignature === undefined ? '' : 'Session memory cleared; no session notes remain.',
+      signature: '',
+    };
+  }
+  return { content: current, signature: current };
 }
 
 function truncateUtf8(text: string, maxBytes: number): string {

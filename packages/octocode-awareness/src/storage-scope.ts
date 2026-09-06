@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { getOctocodeHome } from '@octocodeai/octocode-shared/paths';
+import { getOctocodeHome } from '@octocodeai/agent-contracts/paths';
 
 export type AwarenessStorageScope = 'repo' | 'global';
 export const DEFAULT_AWARENESS_STORAGE_SCOPE: AwarenessStorageScope = 'global';

@@ -331,13 +331,6 @@ function makeHarness(entries: WorkerLedgerEntry[] = []): Harness {
   };
 }
 
-test('registerAgentInbox: registers the /octocode-inbox command', () => {
-  const h = makeHarness();
-  assert.ok(h.fakePi.commands[OCTOCODE_INBOX_COMMAND], 'command registered');
-  assert.ok(h.fakePi.commands[OCTOCODE_INBOX_COMMAND]!.description.length > 0);
-  h.registration.shutdown();
-});
-
 test('registerAgentInbox: worker exit while idle fires OSC + title flash + one notify, deduped per worker', () => {
   const h = makeHarness();
   const entry = makeEntry({ status: 'exited', normalizedStatus: 'done', result: 'refactor complete' });
@@ -430,37 +423,4 @@ test('registerAgentInbox leaves session_shutdown ownership to the extension life
   assert.equal(h.unsubCalls.length, 1);
   h.emit(makeEntry({ status: 'exited' }), 'exit');
   assert.deepEqual(h.notifications, []);
-});
-
-test('registerAgentInbox command handler: no-UI contexts get a warning instead of an overlay', async () => {
-  const h = makeHarness([makeEntry()]);
-  await h.fakePi.commands[OCTOCODE_INBOX_COMMAND]!.handler('', { hasUI: false } as unknown as PiContext);
-  assert.equal(h.notifications.length, 1);
-  assert.equal(h.notifications[0]!.level, 'warning');
-  assert.ok(h.notifications[0]!.msg.includes('interactive'));
-  h.registration.shutdown();
-});
-
-test('registerAgentInbox command handler: drives the injected overlay flow end to end', async () => {
-  const entry = makeEntry();
-  const fakePi = makeFakePi();
-  const notifications: Array<{ msg: string; level?: string }> = [];
-  const killedIds: string[] = [];
-  const overlayResults: Array<string | null> = [entry.agentId, 'kill'];
-  const registration = registerAgentInbox(
-    fakePi.pi,
-    (_ctx, msg, level) => { notifications.push({ msg, level }); },
-    {
-      registerListener: () => () => {},
-      listEntries: () => [entry],
-      runOverlay: async () => overlayResults.shift() ?? null,
-      kill: (id) => { killedIds.push(id); return true; },
-      notificationsEnabled: () => false,
-      now: () => NOW,
-    },
-  );
-  await fakePi.commands[OCTOCODE_INBOX_COMMAND]!.handler('', { hasUI: true, ui: {} } as unknown as PiContext);
-  assert.deepEqual(killedIds, [entry.agentId]);
-  assert.ok(notifications.some((n) => n.msg.includes('Killed worker atlas')));
-  registration.shutdown();
 });

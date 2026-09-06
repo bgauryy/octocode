@@ -1,5 +1,6 @@
 import type { ReadonlyFooterDataProvider, WorkingIndicatorOptions } from '@earendil-works/pi-coding-agent';
 import type { PiContext, PiTheme } from '../types.js';
+import { WORKING_WORD } from '../tui/content.js';
 import { createRuntimeStore, type ForegroundActivity, type ForegroundActivityInput, type RuntimeMcpState, type RuntimeState, type RuntimeStore } from './runtime-store.js';
 
 interface RuntimeBinding {
@@ -36,7 +37,7 @@ function mcpStageText(mcp: RuntimeMcpState): string | undefined {
 export function activityPresentation(activity: ForegroundActivity): { visible: boolean; message?: string; status?: string } {
   switch (activity.kind) {
     case 'idle': return { visible: false };
-    case 'thinking': return { visible: true, message: 'Thinking…', status: 'Thinking…' };
+    case 'thinking': return { visible: true, message: `${WORKING_WORD}…`, status: `${WORKING_WORD}…` };
     case 'researching': return { visible: true, message: `Researching…${activity.detail ? ` ${activity.detail}` : ''}`, status: 'Researching…' };
     case 'awaiting_input': return { visible: false, status: 'Input needed' };
     case 'planning': return { visible: true, message: `Planning…${activity.detail ? ` ${activity.detail}` : ''}`, status: 'Planning…' };

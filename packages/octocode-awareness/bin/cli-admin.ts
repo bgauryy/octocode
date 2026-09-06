@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { DatabaseSync as DatabaseSyncCtor } from '@octocodeai/octocode-shared/sqlite';
+import { DatabaseSync as DatabaseSyncCtor } from '@octocodeai/agent-contracts/sqlite';
 import { initDb } from '../src/db-init.js';
 import { hasFts } from '../src/db-maintenance.js';
 import { insertMemory } from '../src/memory-write.js';

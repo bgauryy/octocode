@@ -124,11 +124,11 @@ export { startWork, touchWork, endWork, listWork, showWork } from './work.js';
 
 // Collaborative plans and durable plan tasks
 export { createPlan, getPlan, listPlans, joinPlan, registerPlanDocument, updatePlanStatus } from './plans.js';
-export type { PlanStatus, PlanRecord, PlanDetail, PlanMemberRecord, PlanDocRecord, CreatePlanParams, JoinPlanParams, RegisterPlanDocParams } from '@octocodeai/octocode-shared/entities';
+export type { PlanStatus, PlanRecord, PlanDetail, PlanMemberRecord, PlanDocRecord, CreatePlanParams, JoinPlanParams, RegisterPlanDocParams } from '@octocodeai/agent-contracts/entities';
 export { createTask, listTasks, listReadyTasks, addTaskDependency } from './tasks-ready.js';
 export { getTask, activeTaskClaimForAgent } from './tasks-catalog.js';
 export { claimTask, heartbeatTaskClaim, submitTask, releaseTaskClaim, retryTask } from './tasks-claims.js';
-export type { TaskStatus, PlanTaskRecord, TaskClaimRecord, TaskRunRecord, CreateTaskParams } from '@octocodeai/octocode-shared/entities';
+export type { TaskStatus, PlanTaskRecord, TaskClaimRecord, TaskRunRecord, CreateTaskParams } from '@octocodeai/agent-contracts/entities';
 export type { ClaimTaskResult } from './tasks-claims.js';
 
 // Reflection

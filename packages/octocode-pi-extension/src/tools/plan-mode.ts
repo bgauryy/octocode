@@ -96,9 +96,6 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = Object.freeze(
   spawnagent: 'external-effect',
 });
 
-export const PLAN_MODE_BLOCK_REASON =
-  'Plan phase tracking is informational and does not restrict tool execution.';
-
 function sessionKey(ctx?: SessionIdentityInput): string {
   if (!ctx) return FALLBACK_SESSION_KEY;
   try {

@@ -10,7 +10,7 @@ import { createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updateP
 import { activeTaskClaimForAgent } from '../src/tasks-catalog.js';
 import { addTaskDependency, createTask as createTaskBase, listTasks } from '../src/tasks-ready.js';
 import { claimTask, heartbeatTaskClaim, releaseTaskClaim, retryTask, submitTask } from '../src/tasks-claims.js';
-import type { CreateTaskParams } from '@octocodeai/octocode-shared/entities';
+import type { CreateTaskParams } from '@octocodeai/agent-contracts/entities';
 import { preFlightIntent } from '../src/intents-preflight.js';
 function freshDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');

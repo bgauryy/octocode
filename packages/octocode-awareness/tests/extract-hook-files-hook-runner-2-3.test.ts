@@ -9,7 +9,7 @@ import { connectDb } from '../src/db-runtime.js';
 import { insertMemory } from '../src/memory-write.js';
 import { writeWorkspacePolicy } from '../src/workspace-policy.js';
 import { withEnabledAwarenessConfig } from './helpers/enabled-awareness-config.js';
-import { allowLocalFixtureProcesses } from '../../test-utils/external-effects-guard.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST_DIR = resolve(PACKAGE_ROOT, 'out');
 const HOOK_RUNNER = resolve(DIST_DIR, 'hook-runner.js');

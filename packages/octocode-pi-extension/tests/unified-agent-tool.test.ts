@@ -298,6 +298,15 @@ describe('schema', () => {
     }
   });
 
+  it('guides the parent to verify, persist, and surface key handback findings', async () => {
+    const tools = await loadSut();
+    const tool = tools.get('agent')!;
+    const guidance = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
+    expect(guidance).toMatch(/wait or inspect.*verify.*key finding.*memory\.md/is);
+    expect(guidance).toMatch(/update the user.*hypothesis.*plan.*risk.*next action/is);
+    expect(guidance).toMatch(/never.*raw handback/is);
+  });
+
   it('AGENT_OPERATIONS covers all seven expected ops', () => {
     const expected: AgentOperation[] = [
       'spawn', 'inspect', 'wait', 'message', 'steer', 'abort', 'kill',

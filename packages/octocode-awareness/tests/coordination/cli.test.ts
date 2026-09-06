@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { extractHookTargetPaths } from '../../src/coordination/hooks.js';
+import { extractHookTargetPaths, runPreEditLockGate } from '../../src/coordination/hooks.js';
 import { isCliEntrypoint, runCli } from '../../src/coordination/cli.js';
 import { writeWorkspacePolicy } from '../../src/workspace-policy.js';
+import { openAwarenessStore } from '../../src/coordination/open.js';
+import { canonicalizePath } from '../../src/git.js';
 
 let workspace: string;
 let stdout = '';
@@ -73,6 +75,36 @@ describe('coordination adapter commands', () => {
     expect(runCli(['hooks', 'pre-edit', '--workspace', workspace, '--agent-id', 'agent-a', '--event-json', JSON.stringify({ toolName: 'Write', input: { path: 'src/a.ts' } })])).toBe(0);
     expect(jsonOut<{ blocked: boolean }>().blocked).toBe(false);
     expect(existsSync(join(workspace, '.claude', 'settings.json'))).toBe(false);
+  });
+
+  it('blocks peer edits through a symlinked workspace alias while allowing the lock owner', async () => {
+    const alias = `${workspace}-alias`;
+    await symlink(workspace, alias, 'dir');
+    try {
+      const store = openAwarenessStore({ workspace, scope: 'repo' });
+      try {
+        const lock = store.acquireLock({
+          filePath: 'locked.ts',
+          agentId: 'owner',
+          reason: 'protect a non-mergeable migration',
+          testPlan: 'inspect the protected file',
+        });
+        expect(lock.filePath).toBe(canonicalizePath(join(workspace, 'locked.ts')));
+      } finally {
+        store.close();
+      }
+
+      const event = { toolName: 'Write', input: { path: 'locked.ts' } };
+      const blocked = runPreEditLockGate({ workspace: alias, scope: 'repo', agentId: 'peer', event });
+      expect(blocked.blocked).toBe(true);
+      expect(blocked.files).toEqual([canonicalizePath(join(workspace, 'locked.ts'))]);
+      expect(blocked.conflicts[0]?.lock.agentId).toBe('owner');
+
+      const owner = runPreEditLockGate({ workspace: alias, scope: 'repo', agentId: 'owner', event });
+      expect(owner.blocked).toBe(false);
+    } finally {
+      await rm(alias, { recursive: true, force: true });
+    }
   });
 
   it('rejects commands whose single owner is the root CLI', () => {

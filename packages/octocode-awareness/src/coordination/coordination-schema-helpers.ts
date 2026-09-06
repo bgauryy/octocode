@@ -1,4 +1,4 @@
-import type { HandoffNote } from '@octocodeai/octocode-shared/entities';
+import type { HandoffNote } from '@octocodeai/agent-contracts/entities';
 import { CoordinationMemoryAgents } from './coordination-memory-agents.js';
 import { handoffFromRow, type HandoffRow, type AwarenessSchema } from './coordination-shared.js';
 import { CANONICAL_CLI_COMMANDS } from '../schema/command-catalog.js';

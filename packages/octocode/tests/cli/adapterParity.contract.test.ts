@@ -180,7 +180,7 @@ describe('raw tools command adapter parity', () => {
   );
 
   it.each<Record<string, boolean>>([{}, { json: true }])(
-    'keeps full direct output for %j',
+    'selects the direct execution projection for %j',
     async options => {
       const testCase = ADAPTER_PARITY_CASES[0]!;
       const { executeToolCommand } =
@@ -190,10 +190,18 @@ describe('raw tools command adapter parity', () => {
         args: [testCase.name],
         options: { ...options, queries: JSON.stringify(testCase.input) },
       });
-      expect(directExecution).toHaveBeenLastCalledWith(
-        testCase.name,
-        expect.any(Object)
-      );
+      if (options.json) {
+        expect(directExecution).toHaveBeenLastCalledWith(
+          testCase.name,
+          expect.any(Object),
+          { resultProjection: 'structured' }
+        );
+      } else {
+        expect(directExecution).toHaveBeenLastCalledWith(
+          testCase.name,
+          expect.any(Object)
+        );
+      }
     }
   );
 

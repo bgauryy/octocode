@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-awareness",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "description": "Octocode Awareness: always-on workspace coordination — awareness, collaboration, learning, memory/wiki, bookkeeping, housekeeping, reflection — zero npm runtime deps.",
   "keywords": [
     "octocode",
@@ -60,7 +60,7 @@
     "verify": "yarn lint && yarn test"
   },
   "devDependencies": {
-    "@octocodeai/octocode-shared": "0.1.0",
+    "@octocodeai/agent-contracts": "^0.1.0",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",

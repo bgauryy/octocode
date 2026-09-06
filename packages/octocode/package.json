@@ -7,6 +7,7 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@inquirer/prompts": "^8.7.1",
+    "@octocodeai/agent-contracts": "0.1.0",
     "@octocodeai/config": "19.1.0",
     "@octocodeai/octocode-engine": "19.1.0",
     "@octocodeai/octocode-tools-core": "19.1.0",

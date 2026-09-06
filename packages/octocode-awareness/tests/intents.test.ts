@@ -9,7 +9,7 @@ import { canonicalizePath } from '../src/git.js';
 import { preFlightIntent } from '../src/intents-preflight.js';
 import { releaseFileLock } from '../src/intents-release.js';
 import { markVerified } from '../src/verify-mark.js';
-import { allowLocalFixtureProcesses } from '../../test-utils/external-effects-guard.js';
+import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 let restoreLocalProcesses: (() => void) | undefined;
 beforeEach(() => { restoreLocalProcesses = allowLocalFixtureProcesses(); });
 afterEach(() => { restoreLocalProcesses?.(); });

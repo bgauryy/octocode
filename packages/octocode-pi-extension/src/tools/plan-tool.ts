@@ -1106,8 +1106,8 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
             agentId: getAwarenessAgentId(ctx),
             ...(p.receipt ? { receipt: p.receipt } : {}),
           });
-          if (shared.reopened) {
-            return planError(`[PLAN] observed check failed; shared task ${shared.task.taskId} reopened and the local step remains in progress.`, 'check-failed');
+          if (!shared.verified) {
+            return planError(`[PLAN] observed check failed; shared task ${shared.task.taskId} has verification debt and the local step remains in progress.`, 'check-failed');
           }
         } catch (error) {
           return planError(`[PLAN] shared completion blocked: ${error instanceof Error ? error.message : String(error)}`, 'shared-completion');
@@ -1133,6 +1133,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
           verified = finalizeExternalPlan({
             workspace: coordination.coordinationWorkspace || planWorkspace(scope),
             planId: coordination.awarenessPlanId,
+            agentId: getAwarenessAgentId(ctx),
           });
         }
         if (verified) finishPlanVerification(scope, true, 'All declared task checks passed');

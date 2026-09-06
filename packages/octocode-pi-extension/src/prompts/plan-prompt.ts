@@ -1,7 +1,7 @@
 import {
   PLAN_PROMPT_MAX_GOAL,
   PLAN_PROMPT_TRUNCATION_MARKER,
-} from '@octocodeai/octocode-shared/prompts';
+} from '@octocodeai/agent-contracts/prompts';
 
 export function buildPlanPrompt(goal: string): string {
   const normalized = goal.replace(/\r\n?/g, '\n').trim();

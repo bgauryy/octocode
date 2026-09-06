@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { Task } from '@octocodeai/octocode-shared/entities';
+import type { Task } from '@octocodeai/agent-contracts/entities';
 import { openAwarenessStore } from './open.js';
 
 export type ExternalPlanScope = 'auto' | 'session' | 'shared';

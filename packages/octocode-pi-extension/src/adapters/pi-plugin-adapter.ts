@@ -2,7 +2,6 @@ import {
   RuntimeFailure,
   type AgentEventType,
   type LifecycleBus,
-  type LifecycleDecision,
   type LifecycleSubscription,
 } from '@octocodeai/agent-core';
 
@@ -46,5 +45,3 @@ export class PiPluginEventAdapter {
     );
   }
 }
-
-export type PiPluginLifecycleDecision = LifecycleDecision<Record<string, unknown>>;

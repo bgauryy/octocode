@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const OCTOCODE_CORE_PACKAGE = '@octocodeai/octocode-core';
-export const SHARED_PACKAGE = '@octocodeai/octocode-shared';
+export const SHARED_PACKAGE = '@octocodeai/agent-contracts';
 export const AGENT_TESTING_PACKAGE = '@octocodeai/agent-testing';
 
 export function enginePlatformPackages(enginePackage) {
@@ -48,7 +48,7 @@ export function localAgentTestingResolution(repoRoot) {
 }
 
 export function localSharedResolution(repoRoot) {
-  const relativeDirectory = '../octocode-agent/packages/octocode-shared';
+  const relativeDirectory = '../octocode-agent/packages/octocode-agent-contracts';
   return existsSync(resolve(repoRoot, relativeDirectory))
     ? `file:${relativeDirectory}`
     : undefined;

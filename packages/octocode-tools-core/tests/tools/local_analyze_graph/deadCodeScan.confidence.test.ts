@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -130,6 +130,26 @@ describe('scanForDeadCode entrypoint confidence signal', () => {
 
     expect(result.entrypointsResolved).toEqual(['foo.js']);
     expect(result.confidence).toBeUndefined();
+  });
+
+  it('accepts a directory as a dynamic asset root', async () => {
+    const dir = await createTempDir();
+    await writeFile(join(dir, 'entry.js'), "export const live = true;\n");
+    await mkdir(join(dir, 'agents', 'nested'), { recursive: true });
+    await writeFile(join(dir, 'agents', 'worker.mjs'), "export const worker = true;\n");
+    await writeFile(join(dir, 'agents', 'nested', 'helper.mjs'), "export const helper = true;\n");
+
+    const result = await scanForDeadCode(dir, {
+      entrypoints: ['entry.js', 'agents'],
+      includeTests: false,
+    });
+
+    expect(result.entrypointsResolved.sort()).toEqual([
+      'agents/nested/helper.mjs',
+      'agents/worker.mjs',
+      'entry.js',
+    ]);
+    expect(result.warnings).toEqual([]);
   });
 
   it('accepts an ABSOLUTE entrypoint path (the form every other local tool requires)', async () => {

@@ -52,19 +52,19 @@ function printToolResult(
   outputMode: OutputMode,
   formatResult: typeof formatCallToolResultForOutput
 ): void {
-  if (outputMode === 'compact') {
+  if (outputMode !== 'text') {
     const structured = (result as { structuredContent?: unknown })
       .structuredContent;
     console.log(
       JSON.stringify(
         structured ?? result,
         null,
-        args.options.pretty === true ? 2 : 0
+        outputMode === 'json' || args.options.pretty === true ? 2 : 0
       )
     );
     return;
   }
-  console.log(formatResult(result, outputMode === 'json' ? 'json' : 'text'));
+  console.log(formatResult(result, 'text'));
 }
 
 function printToolError(message: string, details: string[] = []): void {
@@ -240,7 +240,7 @@ export async function executeToolCommand(args: ParsedArgs): Promise<boolean> {
     const { executeDirectTool, formatCallToolResultForOutput } =
       await import('@octocodeai/octocode-tools-core/direct');
     const outputMode = getOutputMode(args);
-    const result = await (outputMode === 'compact'
+    const result = await (outputMode !== 'text'
       ? executeDirectTool(tool.name, input, { resultProjection: 'structured' })
       : executeDirectTool(tool.name, input));
     printToolResult(result, args, outputMode, formatCallToolResultForOutput);
