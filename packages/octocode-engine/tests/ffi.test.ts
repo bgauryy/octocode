@@ -81,6 +81,7 @@ const MINIFIER_FUNCTION_EXPORTS = [
   'getSupportedJsTsExtensions',
   'getSupportedGraphFactExtensions',
   'getGraphFactCapabilities',
+  'getGrammarCapabilities',
   'structuralSearchDetailed',
   'structuralSearchFiles',
   'structuralSearchFilesDetailed',
@@ -143,6 +144,34 @@ describe('removed language capabilities', () => {
       });
     }
   );
+});
+
+describe('canonical grammar capabilities', () => {
+  it('exposes every structural extension once with family metadata', () => {
+    const capabilities = addon!.getGrammarCapabilities();
+    const extensions = capabilities.flatMap(capability => capability.extensions);
+    expect(extensions.sort()).toEqual(
+      addon!.getSupportedStructuralExtensions().sort()
+    );
+    expect(new Set(extensions).size).toBe(extensions.length);
+    expect(capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          language: 'Kotlin',
+          languageId: 'kotlin',
+          extensions: ['kt', 'kts'],
+          structuralSearch: true,
+          signatureOutline: true,
+          graphFacts: true,
+        }),
+        expect.objectContaining({
+          language: 'Ruby',
+          languageId: 'ruby',
+          extensions: ['rb', 'rake', 'gemspec', 'ru'],
+        }),
+      ])
+    );
+  });
 });
 
 describe('getExtension', () => {

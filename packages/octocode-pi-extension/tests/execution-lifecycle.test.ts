@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PiContext, PiInstance } from '../src/types.js';
 import {
+  EXECUTION_ENTRY_TYPE,
+  EXECUTION_TRANSCRIPT_ENTRY_TYPE,
   createExecutionState,
   reduceExecutionEvent,
   type ExecutionEvent,
@@ -24,6 +26,7 @@ import {
   emitExecution,
   restoreExecutionJournal,
   expireExecutionInteractions,
+  syncExecutionEntities,
 } from '../src/tools/execution-runtime.js';
 
 function harness(branch: unknown[] = []) {
@@ -48,11 +51,13 @@ function harness(branch: unknown[] = []) {
   };
   stores.set(ctx, store);
   const events: ExecutionEvent[] = [];
+  const persistedTypes: string[] = [];
   const handlers = new Map<string, (event: any, ctx: PiContext) => unknown>();
   const pi = {
     on: (name: string, handler: any) => handlers.set(name, handler),
     appendEntry: (customType: string, data: ExecutionEvent) => {
       events.push(data);
+      persistedTypes.push(customType);
       branch.push({ type: 'custom', customType, data });
     },
   } as unknown as PiInstance;
@@ -61,6 +66,7 @@ function harness(branch: unknown[] = []) {
     ctx,
     pi,
     events,
+    persistedTypes,
     store,
     statuses,
     branch,
@@ -73,6 +79,73 @@ function harness(branch: unknown[] = []) {
 
 describe('Pi execution journal adapter', () => {
   beforeEach(() => vi.useRealTimers());
+  it('routes transcript events to a rendered entry type and replays both durable channels', async () => {
+    const h = harness();
+    await h.fire('session_start');
+    emitExecution(
+      h.ctx,
+      'plan.updated',
+      {
+        id: 'plan-1',
+        phase: 'executing',
+        tasks: [{ id: 'step-1', title: 'Implement UI', status: 'doing' }],
+      },
+      'transcript'
+    );
+    emitExecution(h.ctx, 'assistant.progress', { message: 'working' }, 'activity');
+
+    expect(h.persistedTypes).toContain(EXECUTION_TRANSCRIPT_ENTRY_TYPE);
+    expect(h.persistedTypes).toContain(EXECUTION_ENTRY_TYPE);
+
+    const resumed = harness([...h.branch]);
+    restoreExecutionJournal(resumed.ctx);
+    expect(resumed.store.getState().execution.plan?.tasks[0]).toMatchObject({
+      title: 'Implement UI',
+      status: 'doing',
+    });
+    expect(resumed.store.getState().execution.progress?.message).toBe('working');
+  });
+
+  it('publishes worker messages and state transitions once from canonical ledger facts', async () => {
+    const h = harness();
+    await h.fire('session_start');
+    const plan = {
+      planId: 'plan-1',
+      phase: 'executing',
+      tasks: [],
+    } as never;
+    const worker = {
+      agentId: 'agent-1',
+      name: 'atlas',
+      status: 'running',
+      task: 'Implement UI',
+      planStep: 'Render progress events',
+      startedAt: new Date(1_000).toISOString(),
+      updatedAt: new Date(2_000).toISOString(),
+      pendingMessages: 0,
+      lastMessage: {
+        direction: 'from-agent' as const,
+        action: 'reply' as const,
+        preview: 'Focused tests pass',
+        timestamp: 2_000,
+      },
+    };
+
+    syncExecutionEntities(h.ctx, plan, [worker]);
+    const firstCount = h.events.length;
+    syncExecutionEntities(h.ctx, plan, [worker]);
+    expect(h.events).toHaveLength(firstCount);
+    expect(h.events.filter(event => event.type === 'agent.message')).toHaveLength(1);
+    expect(h.events.filter(event => event.type === 'agent.transition')).toHaveLength(1);
+    expect(h.persistedTypes.filter(type => type === EXECUTION_TRANSCRIPT_ENTRY_TYPE)).toHaveLength(2);
+
+    syncExecutionEntities(h.ctx, plan, [
+      { ...worker, status: 'exited', normalizedStatus: 'done', updatedAt: new Date(3_000).toISOString() },
+    ]);
+    expect(
+      h.events.filter(event => event.type === 'agent.transition').at(-1)?.payload
+    ).toMatchObject({ from: 'running', to: 'done' });
+  });
   it('observes programmatic plan prompts and expires durable requests without inventing approval', async () => {
     const h = harness();
     await h.fire('session_start');

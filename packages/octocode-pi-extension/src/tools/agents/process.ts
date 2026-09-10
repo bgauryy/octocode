@@ -11,7 +11,7 @@
  * - proc.on('error') same ordering without touch transition override.
  * - stdout RPC/probe resolution: processRpcLine resolves record.pendingProbes via the record field.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -461,6 +461,9 @@ function recordInboundMessage(record: AgentRecord, message: unknown): void {
   if (!isAssistantOutputMessage(message)) return;
   const text = extractTextFromMessage(message);
   if (!text) return;
+  const fingerprint = createHash('sha256').update(text).digest('hex');
+  if (record.lastInboundMessageFingerprint === fingerprint) return;
+  record.lastInboundMessageFingerprint = fingerprint;
   recordMessageActivity(
     record,
     'from-agent',
@@ -595,6 +598,7 @@ function processRpcLine(record: AgentRecord, line: string): void {
     // overrides the live process state in the footer and ledger.
     record.normalizedResult = undefined;
     record.deltaSummary = undefined;
+    record.lastInboundMessageFingerprint = undefined;
     // ONE queued turn has started: decrement (never hard-reset) the pending
     // counter, so when two follow-ups are queued the ledger keeps showing
     // 'queued' work and agent_end after turn 1 does not resolve `wait` while

@@ -47,7 +47,7 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "@octocodeai/agent-contracts": "0.1.0",
     "@octocodeai/agent-core": "0.1.0",
-    "@octocodeai/config": "19.1.0",
+    "@octocodeai/config": "20.0.0",
     "@octocodeai/octocode-awareness": "2.1.0",
     "@octocodeai/octocode-engine": "19.1.0",
     "@octocodeai/octocode-extension-rust": "0.1.0",
@@ -73,6 +73,10 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.11"
   },
+  "bundledDependencies": [
+    "@octocodeai/agent-contracts",
+    "@octocodeai/config"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:skills": "node scripts/build.mjs --skills-only",

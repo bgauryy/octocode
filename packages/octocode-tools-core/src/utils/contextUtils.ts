@@ -150,6 +150,10 @@ export const contextUtils = {
     return loadNative().getGraphFactCapabilities();
   },
 
+  getGrammarCapabilities(): NativeContextUtils.GrammarCapability[] {
+    return loadNative().getGrammarCapabilities();
+  },
+
   structuralSearch(
     content: string,
     filePath: string,

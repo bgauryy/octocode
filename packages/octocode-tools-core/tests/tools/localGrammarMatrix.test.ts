@@ -11,6 +11,7 @@ import {
   structuralSearchDetailed,
 } from '@octocodeai/octocode-engine';
 import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { toStructuralSearchIncludeGlobs } from '../../src/shared/languageSelectors/classify.js';
 import { findDirectToolDefinition } from '@octocodeai/octocode-core/schema';
 import { AstSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
@@ -24,6 +25,30 @@ const cases = structuralExtensions.map(extension => ({
   source: fixtures.find(fixture => fixture.extensions.includes(extension))
     ?.source,
 }));
+
+const languageSelectorCases = [
+  ['TypeScript', ['ts', 'tsx', 'mts', 'cts']],
+  ['TSX', ['tsx']],
+  ['JavaScript', ['js', 'jsx', 'mjs', 'cjs']],
+  ['Python', ['py', 'pyi']],
+  ['Go', ['go']],
+  ['Rust', ['rs']],
+  ['Java', ['java']],
+  ['C', ['c', 'h']],
+  ['C++', ['cpp', 'hpp', 'cc', 'cxx', 'hh', 'hxx']],
+  ['C#', ['cs']],
+  ['Ruby', ['rb', 'rake', 'gemspec', 'ru']],
+  ['PHP', ['php']],
+  ['Kotlin', ['kt', 'kts']],
+  ['SQL', ['sql']],
+  ['HTML', ['html', 'htm']],
+  ['CSS', ['css']],
+  ['SCSS', ['scss']],
+  ['Scala', ['scala', 'sc', 'sbt']],
+  ['JSON', ['json', 'jsonc']],
+  ['YAML', ['yaml', 'yml']],
+  ['Swift', ['swift']],
+] as const;
 
 type Continuation = { tool: string; query: Record<string, unknown> };
 type Row = {
@@ -91,6 +116,21 @@ describe('production grammar matrix through the native and public tool boundarie
     );
     for (const extension of [...signatureExtensions, ...graphExtensions])
       expect(structuralExtensions).toContain(extension);
+  });
+
+  it.each(languageSelectorCases)(
+    'expands the %s language selector to every grammar extension',
+    (language, extensions) => {
+      expect(new Set(toStructuralSearchIncludeGlobs(language))).toEqual(
+        new Set(extensions.map(extension => `*.${extension}`))
+      );
+    }
+  );
+
+  it('keeps dot-prefixed selectors exact and unknown extensions usable', () => {
+    expect(toStructuralSearchIncludeGlobs('.scala')).toEqual(['*.scala']);
+    expect(toStructuralSearchIncludeGlobs('.kt')).toEqual(['*.kt']);
+    expect(toStructuralSearchIncludeGlobs('toml')).toEqual(['*.toml']);
   });
 
   it.each(['toml', 'lua', 'zig'])(

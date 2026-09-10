@@ -65,6 +65,7 @@ export * from './providers/github/githubStructure.js';
 export * from './providers/github/utils.js';
 export * from './providers/providerQueries.js';
 export * from './responses.js';
+export * from './grammarCapabilities.js';
 
 export * from './serverConfig.js';
 export * from './cacheMaintenance.js';

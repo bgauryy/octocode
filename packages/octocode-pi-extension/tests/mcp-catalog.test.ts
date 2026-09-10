@@ -128,6 +128,8 @@ test('explicit schema guide exposes complete nested discriminated query schemas'
   });
 
   const rendered = renderMcpCatalogSchemaGuide(snapshot);
+  assert.match(rendered, /MCPTool\(\{queries:\[\{reasoning:/);
+  assert.match(rendered, /arguments:<object matching inputSchema>/);
   assert.match(rendered, /operation="text"/);
   assert.match(rendered, /searchText/);
   assert.match(rendered, /regex.*smart.*fixed.*perl/);
@@ -214,7 +216,7 @@ test('the real localSearch CLI schema renders completely in the explicit schema 
     servers: [{ name: 'octocode', tools: [{ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }] }],
   });
   const guide = renderMcpCatalogSchemaGuide(snapshot);
-  const description = guide.split('description: ')[1]!.split('\n')[0]!;
+  const inputSchema = guide.split('inputSchema: ')[1]!.split('\n')[0]!;
   const items = tool.inputSchema.properties.queries.items;
   // The exact CLI contract distinguishes matchOnly from the general result views.
   // Every branch must retain all its required and optional fields in the guide.
@@ -223,13 +225,13 @@ test('the real localSearch CLI schema renders completely in the explicit schema 
     assert.ok(variant.required.includes('searchText'));
     assert.ok(variant.required.includes('path'));
     for (const field of Object.keys(variant.properties)) {
-      assert.ok(description.includes(field), `catalog omits ${field}`);
+      assert.ok(inputSchema.includes(field), `catalog omits ${field}`);
     }
   }
-  assert.ok(description.includes('matchOnly'));
-  assert.ok(description.includes('maxDepth'));
-  assert.doesNotMatch(description, /Input summary partial/);
-  assert.doesNotMatch(description, /Exact schema: MCPTool/);
+  assert.ok(inputSchema.includes('matchOnly'));
+  assert.ok(inputSchema.includes('maxDepth'));
+  assert.doesNotMatch(inputSchema, /Input summary partial/);
+  assert.doesNotMatch(inputSchema, /Exact schema: MCPTool/);
 });
 
 test('renders every branch of a large union inline with no truncation or recovery pointer', () => {
@@ -239,12 +241,12 @@ test('renders every branch of a large union inline with no truncation or recover
     type: 'object', required: ['operation', `requiredBranchField${index}`],
     properties: { operation: { const: `operation-${index}` }, [`requiredBranchField${index}`]: { type: 'string' } },
   }));
-  const description = renderMcpCatalogSchemaGuide(snapshot).split('description: ')[1]!.split('\n')[0]!;
-  assert.doesNotMatch(description, /Input summary omitted/);
-  assert.doesNotMatch(description, /partial/i);
-  assert.doesNotMatch(description, /Exact schema: MCPTool/);
-  assert.ok(description.includes('requiredBranchField0'), 'first branch renders');
-  assert.ok(description.includes('requiredBranchField99'), 'last branch renders with no truncation');
+  const inputSchema = renderMcpCatalogSchemaGuide(snapshot).split('inputSchema: ')[1]!.split('\n')[0]!;
+  assert.doesNotMatch(inputSchema, /Input summary omitted/);
+  assert.doesNotMatch(inputSchema, /partial/i);
+  assert.doesNotMatch(inputSchema, /Exact schema: MCPTool/);
+  assert.ok(inputSchema.includes('requiredBranchField0'), 'first branch renders');
+  assert.ok(inputSchema.includes('requiredBranchField99'), 'last branch renders with no truncation');
 });
 
 test('cached guides from before branch-preserving rendering are invalidated', async () => {
@@ -286,7 +288,7 @@ test('generated guide is accepted only when it covers every exact server and too
   const compiled = compileGeneratedMcpGuide(snapshot, response);
   assert.match(compiled!, /^<mcp_catalog_index>/);
   assert.match(compiled!, /tool: read\ndescription: Read files\. Input: path \(string, required\)\./);
-  assert.doesNotMatch(compiled!, /inputSchema/);
+  assert.match(compiled!, /inputSchema: Input: path \(string, required\)/);
 
   const incomplete = JSON.stringify({ servers: [{
     name: 'octocode',

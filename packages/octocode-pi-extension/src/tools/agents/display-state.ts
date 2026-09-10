@@ -8,6 +8,29 @@ export type WorkerDisplayState =
   | 'failed'
   | 'killed';
 
+/** Keep a just-settled worker visible long enough for the outcome to be noticed. */
+export const RECENT_AGENT_OUTCOME_MS = 10_000;
+
+export function isRecentAgentOutcome(
+  entry: {
+    state?: string;
+    status?: string;
+    normalizedStatus?: string;
+    pendingMessages?: number;
+    updatedAt: number;
+  },
+  now = Date.now(),
+): boolean {
+  const state = effectiveAgentStatus({
+    ...entry,
+    status: entry.status ?? entry.state,
+  });
+  return (
+    (state === 'done' || state === 'killed') &&
+    Math.max(0, now - entry.updatedAt) <= RECENT_AGENT_OUTCOME_MS
+  );
+}
+
 /** Shared by the footer, inbox, event journal, and agent result cards. */
 export function effectiveAgentStatus(entry: {
   status?: string;

@@ -124,8 +124,8 @@ and MCP server/tool pairs. Worker grants shows each worker's selected access.
 
 | `OCTOCODE_COMPACT_MCP` | Prompt projection |
 |---|---|
-| Unset/enabled | Bounded routing index with continuations; exact `catalog.json` remains private for validation. |
-| `0`/disabled | Exact enabled catalog projection for debugging. |
+| Unset/enabled | Schema-aware `mcp.md` with every enabled description and complete input contract. |
+| `0`/disabled | Unoptimized exact enabled catalog projection for debugging. |
 
 The default compact guide is deterministic. `OCTOCODE_MCP_AI_GUIDE=1` opts into
 model-authored guide generation. The exact `catalog.json` and compact `mcp.md`
@@ -136,8 +136,9 @@ the next turn's prompt/catalog without starting a new session. An unchanged
 projection stays byte-stable. A `stale` badge means a changed source is awaiting
 the next projection; it does not require `/new`.
 
-MCP discovery follows bounded list → describe: `MCPTool action:"list"` returns
-instructions and descriptions, and `action:"describe"` returns exact schemas.
+The prompt eagerly supplies enabled MCP descriptions and complete input contracts. The inspection
+surface stays bounded: `MCPTool action:"list"` returns instructions and descriptions,
+and `action:"describe"` returns one exact schema again.
 Skill list → load follows the same staged discovery pattern. Copy a partial
 result's executable `next` call unchanged; it carries the catalog revision and
 any field-fragment position. [Catalog contracts](CAPABILITIES.md#versioned-prompt-and-catalogs)

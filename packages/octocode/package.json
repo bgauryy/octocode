@@ -7,8 +7,7 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@inquirer/prompts": "^8.7.1",
-    "@octocodeai/agent-contracts": "0.1.0",
-    "@octocodeai/config": "19.1.0",
+    "@octocodeai/config": "20.0.0",
     "@octocodeai/octocode-engine": "19.1.0",
     "@octocodeai/octocode-tools-core": "19.1.0",
     "@octokit/auth-oauth-device": "^8.0.5",
@@ -27,6 +26,9 @@
     "vitest": "^4.1.11",
     "zod": "^4.5.4"
   },
+  "bundledDependencies": [
+    "@octocodeai/config"
+  ],
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },

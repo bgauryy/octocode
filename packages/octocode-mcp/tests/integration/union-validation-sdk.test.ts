@@ -62,8 +62,15 @@ describe('canonical union repair through the real MCP SDK', () => {
           arguments: { queries: [item.query] },
         });
         expect(result.isError).toBe(true);
-        const text = result.content
-          .filter(block => block.type === 'text')
+        const content = Array.isArray(result.content) ? result.content : [];
+        const text = content
+          .filter(
+            (block): block is { type: 'text'; text: string } =>
+              typeof block === 'object' &&
+              block !== null &&
+              block.type === 'text' &&
+              typeof block.text === 'string'
+          )
           .map(block => block.text)
           .join('\n');
         expect(text).toMatch(item.expected);

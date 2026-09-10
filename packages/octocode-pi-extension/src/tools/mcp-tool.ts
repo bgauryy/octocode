@@ -81,7 +81,7 @@ import {
   readMcpCatalogGuide,
   readMcpCatalogSnapshot,
   renderMcpCatalogExact,
-  renderMcpCatalogIndex,
+  renderMcpCatalogSchemaGuide,
   sameMcpCatalogContent,
   snapshotPathForWorkspace,
   stableSchemaDigest,
@@ -771,7 +771,7 @@ function cachePromptSnapshot(
     key,
     guide ??
       (isCompactMcpEnabled()
-        ? renderMcpCatalogIndex(snapshot)
+        ? renderMcpCatalogSchemaGuide(snapshot)
         : renderMcpCatalogExact(snapshot)),
   );
   capMapSize(cachedCatalogGuides, MAX_CACHED_CWDS);
@@ -938,7 +938,7 @@ export async function generateMcpCatalogGuide(
   });
   const complete = ctx?.modelRegistry?.complete;
   if (!ctx?.model || !complete)
-    return { guide: renderMcpCatalogIndex(snapshot), generated: false };
+    return { guide: renderMcpCatalogSchemaGuide(snapshot), generated: false };
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort(signal?.reason);
   if (signal?.aborted) abortFromCaller();
@@ -985,7 +985,7 @@ export async function generateMcpCatalogGuide(
     if (timer) clearTimeout(timer);
     signal?.removeEventListener("abort", abortFromCaller);
   }
-  return { guide: renderMcpCatalogIndex(snapshot), generated: false };
+  return { guide: renderMcpCatalogSchemaGuide(snapshot), generated: false };
 }
 
 
@@ -1010,7 +1010,7 @@ async function persistMcpArtifacts(
     ? { guide: options.guide, generated: false }
     : isMcpAiGuideEnabled()
       ? await generateMcpCatalogGuide(snapshot, options.ctx, options.signal)
-      : { guide: renderMcpCatalogIndex(snapshot), generated: false };
+      : { guide: renderMcpCatalogSchemaGuide(snapshot), generated: false };
   const snapshotPath = await writeMcpCatalogSnapshot(snapshot, {
     ...(options.home ? { home: options.home } : {}),
     guide: compiled.guide,
@@ -1021,8 +1021,8 @@ async function persistMcpArtifacts(
 
 /**
  * Warm MCP discovery once per workspace. By default the prompt receives the
- * generated/cache-efficient mcp.md guide. Set OCTOCODE_COMPACT_MCP=0 only when
- * debugging requires the full exact catalog in provider context.
+ * generated/cache-efficient mcp.md guide with every enabled input schema. Set
+ * OCTOCODE_COMPACT_MCP=0 for the unoptimized exact catalog projection.
  * A matching snapshot is prompt-ready immediately; live discovery publishes
  * updated contracts for execution and the next turn's prompt.
  */
@@ -1207,7 +1207,7 @@ export function warmMcpCatalog(
           const generatedGuide = compactMcp
             ? isMcpAiGuideEnabled()
               ? await generateMcpCatalogGuide(refreshed, ctx, signal)
-              : { guide: renderMcpCatalogIndex(refreshed), generated: false }
+              : { guide: renderMcpCatalogSchemaGuide(refreshed), generated: false }
             : { guide: renderMcpCatalogExact(refreshed), generated: false };
           promptGuide = generatedGuide.guide;
           await persistMcpArtifacts(refreshed, {
@@ -1359,7 +1359,7 @@ export function getCachedMcpCounts(ctx?: PiContext): {
 export function getCachedMcpCatalogAddendum(ctx?: PiContext): string {
   if (isWorkerCapabilityClient()) {
     const snapshot = getEffectiveMcpSnapshot(ctx);
-    return snapshot ? renderMcpCatalogIndex(snapshot) : '';
+    return snapshot ? renderMcpCatalogSchemaGuide(snapshot) : '';
   }
   const key = cacheKey(ctx);
   return cachedCatalogGuides.get(key) ?? "";

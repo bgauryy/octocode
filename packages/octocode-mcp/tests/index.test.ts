@@ -41,6 +41,7 @@ import { getEnabledTools, registerTools } from '../src/tools/toolsManager.js';
 import type { McpToolConfig } from '../src/tools/toolConfig.js';
 import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
 import { TOOL_NAMES } from '../../octocode-tools-core/src/tools/toolMetadata/names.js';
+import { getGrammarCapabilities } from '../../octocode-tools-core/src/grammarCapabilities.js';
 
 const mockMcpServer = {
   connect: vi.fn(function () {}),
@@ -193,7 +194,9 @@ describe('Index Module', () => {
       await import('../src/index.js');
       await waitForAsyncOperations();
       expect(mockMcpServerConstructor.mock.calls[0]?.[1]?.instructions).toBe(
-        buildMcpInstructions(['astSearch'])
+        buildMcpInstructions(['astSearch'], {
+          grammarCapabilities: getGrammarCapabilities(),
+        })
       );
       expect(mockRegisterTools).toHaveBeenCalledWith(mockMcpServer, undefined, {
         enabledTools: selected,

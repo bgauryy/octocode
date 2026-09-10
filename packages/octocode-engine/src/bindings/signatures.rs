@@ -99,6 +99,34 @@ pub fn get_graph_fact_capabilities() -> String {
     crate::signatures::graph_facts::graph_fact_capabilities_json()
 }
 
+/// Canonical parser-family inventory for runtime selectors and agent context.
+/// Names, aliases, extensions, and capability flags all come from the same
+/// registry used by structural search, signatures, graph facts, and LSP grammar
+/// detection; consumers must not maintain a parallel language table.
+#[napi(js_name = "getGrammarCapabilities")]
+pub fn get_grammar_capabilities() -> Vec<crate::types::GrammarCapability> {
+    crate::signatures::languages::all_entries()
+        .iter()
+        .map(|entry| crate::types::GrammarCapability {
+            language: entry.name.to_owned(),
+            language_id: entry.language_id.map(str::to_owned),
+            selector_aliases: entry
+                .selector_aliases
+                .iter()
+                .map(|alias| (*alias).to_owned())
+                .collect(),
+            extensions: entry
+                .extensions
+                .iter()
+                .map(|extension| (*extension).to_owned())
+                .collect(),
+            structural_search: true,
+            signature_outline: !entry.body_query.is_empty(),
+            graph_facts: !entry.body_query.is_empty(),
+        })
+        .collect()
+}
+
 /// Structural (AST) search — octocode's L2 layer. Resolves the grammar from
 /// `file_path`'s extension and matches a code-shaped `pattern` OR a YAML `rule`
 /// (exactly one). Returns node ranges (1-based lines, ready as `lineHint`s)
@@ -271,5 +299,49 @@ mod tests {
         let mut sorted = exts.clone();
         sorted.sort();
         assert_eq!(exts, sorted, "extension list must be sorted");
+    }
+
+    #[test]
+    fn grammar_capabilities_are_complete_and_preserve_family_aliases() {
+        let capabilities = get_grammar_capabilities();
+        let extensions: Vec<&str> = capabilities
+            .iter()
+            .flat_map(|capability| capability.extensions.iter().map(String::as_str))
+            .collect();
+        assert_eq!(
+            extensions.len(),
+            crate::signatures::languages::supported_extensions().len()
+        );
+        assert_eq!(
+            extensions
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            extensions.len(),
+            "every extension must belong to exactly one parser entry"
+        );
+
+        let kotlin = capabilities
+            .iter()
+            .find(|capability| capability.language == "Kotlin")
+            .expect("Kotlin capability");
+        assert_eq!(kotlin.extensions, ["kt", "kts"]);
+        assert!(kotlin.structural_search && kotlin.signature_outline && kotlin.graph_facts);
+
+        let ruby = capabilities
+            .iter()
+            .find(|capability| capability.language == "Ruby")
+            .expect("Ruby capability");
+        assert_eq!(ruby.extensions, ["rb", "rake", "gemspec", "ru"]);
+
+        let tsx = capabilities
+            .iter()
+            .find(|capability| capability.language == "TSX")
+            .expect("TSX capability");
+        assert!(tsx
+            .selector_aliases
+            .iter()
+            .any(|alias| alias == "typescript"));
     }
 }

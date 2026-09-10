@@ -32,7 +32,7 @@ pub use bindings::ripgrep::{parse_ripgrep_json, search_ripgrep, validate_ripgrep
 pub use bindings::security::{mask_sensitive_data, pattern_count, sanitize_content};
 pub use bindings::signatures::{
     extract_graph_facts, extract_js_symbols, extract_signatures, find_in_file_references,
-    get_graph_fact_capabilities, get_semantic_boundary_offsets,
+    get_grammar_capabilities, get_graph_fact_capabilities, get_semantic_boundary_offsets,
     get_supported_graph_fact_extensions, get_supported_js_ts_extensions,
     get_supported_signature_extensions, get_supported_structural_extensions, inspect_syntax_tree,
     structural_search, structural_search_detailed, structural_search_files,

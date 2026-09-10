@@ -150,6 +150,8 @@ export interface AgentRecord {
   pendingMessages: number;
   /** Latest directional parent↔worker communication for the footer ledger. */
   lastMessage?: WorkerMessageActivity;
+  /** Consecutive inbound-message dedupe; cleared when the next worker turn starts. */
+  lastInboundMessageFingerprint?: string;
   normalizedResult?: NormalizedWorkerResult;
   recoveryRisk: WorkerRecoveryRisk;
   ledgerEvents: WorkerLedgerEvent[];

@@ -6,8 +6,8 @@
  * MCPTool. The shared catalog owns the available research capabilities.
  * Full MCP discovery runs at session_start via warmMcpCatalog() and
  * before_agent_start awaits it (mcpCatalogReady). By default the first system
- * prompt receives the compact <mcp_catalog_index>; OCTOCODE_COMPACT_MCP=0 opts
- * into exact descriptions and schemas for debugging.
+ * prompt receives the schema-aware <mcp_catalog_index>; OCTOCODE_COMPACT_MCP=0 opts
+ * into the unoptimized exact catalog projection for debugging.
  */
 import { withOctocodeRender } from '../branding/renderers.js';
 import type { ToolDefinition } from '../types.js';
@@ -32,7 +32,7 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
   localServer: 'Serve an inspected static artifact on 127.0.0.1. Mount its directory, not an entire home or repository: every file in a mount may be exposed. Keep the served scope minimal. Use serve for a URL, open:true only with user authorization, and unmount when finished.',
   askUser: 'Collect one missing choice that changes the next action. A material trade-off needs an answer; routine authorized work does not need confirmation. Redundant questions stall work, and cancellation grants no authority. Choose one input mode, ask once, and use the explicit outcome.',
   awareness: 'Attend once and communicate when a peer must act. A blocker merits a signal; routine edits need no record. Reuse the host briefing, describe unfamiliar commands once, and call only the needed feature.',
-  MCPTool: 'Call MCP tools, resources, and prompts; server:"octocode" holds the code, GitHub, history, npm, and semantic research catalog. Put actions in queries[] and input in queries[].arguments; octocode tools nest queries[] there. Describe an unfamiliar tool once, then reuse that schema.',
+  MCPTool: 'Call MCP tools, resources, and prompts; server:"octocode" holds the code, GitHub, history, npm, and semantic research catalog. The system prompt lists every enabled tool description and complete input schema. Put actions in queries[] and input in queries[].arguments only; octocode tools nest queries[] there. Describe can return one selected schema again.',
 });
 
 /** One executable discovery recipe; workers inherit it through the MCP gateway. */

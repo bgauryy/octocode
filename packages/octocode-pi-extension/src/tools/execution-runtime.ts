@@ -4,6 +4,7 @@ import type { RuntimeStore } from './runtime-store.js';
 import { runtimeStoreFor } from './runtime-renderer.js';
 import {
   EXECUTION_ENTRY_TYPE,
+  EXECUTION_TRANSCRIPT_ENTRY_TYPE,
   isExecutionEvent,
   type ExecutionEvent,
   type ExecutionPayloads,
@@ -36,7 +37,13 @@ export function bindExecutionJournal(pi: PiInstance, ctx: PiContext): void {
   const store = runtimeStoreFor(ctx);
   if (!store) return;
   const journal = journalFor(store, ctx);
-  journal.persist = event => pi.appendEntry?.(EXECUTION_ENTRY_TYPE, event);
+  journal.persist = event =>
+    pi.appendEntry?.(
+      event.visibility === 'transcript'
+        ? EXECUTION_TRANSCRIPT_ENTRY_TYPE
+        : EXECUTION_ENTRY_TYPE,
+      event
+    );
   restoreExecutionJournal(ctx);
   emitExecution(ctx, 'session.started', {
     cwd: ctx.cwd,
@@ -52,7 +59,11 @@ export function readExecutionEvents(ctx: PiContext): ExecutionEvent[] {
       customType?: string;
       data?: unknown;
     };
-    if (value.type !== 'custom' || value.customType !== EXECUTION_ENTRY_TYPE)
+    if (
+      value.type !== 'custom' ||
+      (value.customType !== EXECUTION_ENTRY_TYPE &&
+        value.customType !== EXECUTION_TRANSCRIPT_ENTRY_TYPE)
+    )
       return [];
     if (!isExecutionEvent(value.data))
       throw new Error('Cannot read an invalid execution event');
@@ -181,18 +192,57 @@ export function syncExecutionEntities(
   )
     emitExecution(ctx, 'plan.updated', projectedPlan, 'transcript');
   for (const worker of workers) {
+    const previous = state.agents[worker.agentId];
     const projected = {
       id: worker.agentId,
       name: worker.name,
       parentRunId: state.runId ?? 'main',
       status: effectiveAgentStatus(worker),
       task: worker.task,
+      planStep: worker.planStep,
       activity: worker.activeTool,
+      pendingMessages: worker.pendingMessages,
+      lastMessage: worker.lastMessage
+        ? { ...worker.lastMessage }
+        : undefined,
       startedAt: Date.parse(worker.startedAt) || undefined,
       updatedAt: Date.parse(worker.updatedAt) || 0,
     };
     if (
-      JSON.stringify(state.agents[worker.agentId]) !== JSON.stringify(projected)
+      projected.lastMessage &&
+      JSON.stringify(previous?.lastMessage) !==
+        JSON.stringify(projected.lastMessage)
+    )
+      emitExecution(
+        ctx,
+        'agent.message',
+        {
+          id: worker.agentId,
+          name: worker.name,
+          ...projected.lastMessage,
+          task: worker.task,
+          planStep: worker.planStep,
+        },
+        'transcript'
+      );
+    if (!previous || previous.status !== projected.status)
+      emitExecution(
+        ctx,
+        'agent.transition',
+        {
+          id: worker.agentId,
+          name: worker.name,
+          from: previous?.status,
+          to: projected.status,
+          summary: worker.deltaSummary ?? worker.lastMessage?.preview,
+          task: worker.task,
+          planStep: worker.planStep,
+          updatedAt: projected.updatedAt,
+        },
+        'transcript'
+      );
+    if (
+      JSON.stringify(previous) !== JSON.stringify(projected)
     )
       emitExecution(ctx, 'agent.updated', projected, 'activity');
   }

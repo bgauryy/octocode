@@ -35,7 +35,7 @@ MCPTool({queries:[{reasoning:"Search remote code.", action:"call", server:"octoc
 
 Catalogued tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
 
-`warmMcpCatalog()` runs at `session_start`. The default prompt uses a bounded routing index; exact schemas stay private for validation. `MCPTool action:"list"` returns server instructions and tool descriptions in revision-bound pages. Copy any executable `next` call unchanged, then use `action:"describe"` for the chosen tool's exact schema. Calls validate against the current enabled catalog. Set `OCTOCODE_COMPACT_MCP=0` to inspect the exact catalog projection for debugging; `OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored guide generation.
+`warmMcpCatalog()` runs at `session_start`. The default prompt lists every enabled server/tool description and complete input contract in `<mcp_catalog_index>`, including the required `MCPTool → queries[] → arguments` call envelope. `MCPTool action:"list"` remains a revision-bound inspection surface with executable continuations, while `action:"describe"` returns one selected exact JSON schema. Calls validate against the current enabled catalog. Set `OCTOCODE_COMPACT_MCP=0` to inspect the unoptimized exact catalog projection for debugging; `OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored descriptions without removing schema contracts.
 
 **Edit stale-check**: `MCPTool` intercepts `server:"octocode" tool:"localFetch"` calls and runs `recordFileReadState()` so `file` operations with `type:"edit"` can detect stale targets.
 

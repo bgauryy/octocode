@@ -1,4 +1,4 @@
-import { effectiveAgentStatus } from './display-state.js';
+import { effectiveAgentStatus, isRecentAgentOutcome } from './display-state.js';
 /**
  * rendering.ts — TUI rendering layer for the agent ledger.
  *
@@ -251,16 +251,25 @@ export function refreshAgentLedgerUi(ctx?: PiContext): void {
   // Live refresh: while any worker is active, advance the spinner and re-render
   // every second on the shared ui-ticker clock (one timer process-wide).
   const anyActive = records.some((r) => !isTerminal(r));
-  if (anyActive && !hasUiTickSubscriber(LEDGER_TICK_KEY)) {
+  const hasRecentOutcome = records.some(record =>
+    isRecentAgentOutcome(
+      {
+        status: record.status,
+        normalizedStatus: record.normalizedResult?.status,
+        pendingMessages: record.pendingMessages,
+        updatedAt: record.updatedAt,
+      },
+      Date.now(),
+    )
+  );
+  if ((anyActive || hasRecentOutcome) && !hasUiTickSubscriber(LEDGER_TICK_KEY)) {
     setUiTickSubscriber(LEDGER_TICK_KEY, () => {
       ledgerSpinnerFrame = (ledgerSpinnerFrame + 1) % LEDGER_SPINNER.length;
-      if ([...agents.values()].some((r) => !isTerminal(r))) {
-        refreshAgentLedgerUi(ctx);
-      } else {
-        stopLedgerTicker();
-      }
+      // Refresh once at expiry too, so a completed worker cannot stick forever
+      // after the final process event.
+      refreshAgentLedgerUi(ctx);
     });
-  } else if (!anyActive) {
+  } else if (!anyActive && !hasRecentOutcome) {
     stopLedgerTicker();
   }
 }

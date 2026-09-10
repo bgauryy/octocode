@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   structuralSearch: vi.fn(),
   structuralSearchFiles: vi.fn(),
   structuralSearchFilesDetailed: vi.fn(),
+  getGrammarCapabilities: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -31,6 +32,7 @@ vi.mock('../../../src/utils/contextUtils.js', () => ({
     structuralSearch: mocks.structuralSearch,
     structuralSearchFiles: mocks.structuralSearchFiles,
     structuralSearchFilesDetailed: mocks.structuralSearchFilesDetailed,
+    getGrammarCapabilities: mocks.getGrammarCapabilities,
   },
 }));
 
@@ -73,6 +75,17 @@ describe('searchContentStructural', () => {
       files: [],
       diagnostics: [],
     });
+    mocks.getGrammarCapabilities.mockReturnValue([
+      {
+        language: 'C++',
+        languageId: 'cpp',
+        selectorAliases: [],
+        extensions: ['cpp', 'hpp', 'cc', 'cxx', 'hh', 'hxx'],
+        structuralSearch: true,
+        signatureOutline: true,
+        graphFacts: true,
+      },
+    ]);
   });
 
   it('does not suggest TypeScript return syntax for a C++ function pattern', async () => {

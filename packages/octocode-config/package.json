@@ -1,7 +1,8 @@
 {
   "name": "@octocodeai/config",
+  "private": true,
   "description": "Octocode unified env + config loader — zero deps, shared by MCP, CLI, extension, agent, and standalone skills.",
-  "version": "19.1.0",
+  "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": {
     "octocode-config": "./dist/cli.js"

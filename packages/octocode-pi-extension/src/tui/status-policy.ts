@@ -2,6 +2,7 @@ import type { InlineSegment } from './components.js';
 import { formatCompact, formatDurationShort } from '../ui-extras.js';
 import type { UxPriority, UxSnapshotV1 } from '../tools/ux-snapshot.js';
 import { truncateToWidth } from './width.js';
+import { isRecentAgentOutcome } from '../tools/agents/display-state.js';
 
 export type StatusDensity = 'automatic' | 'compact' | 'expanded';
 
@@ -77,6 +78,9 @@ function planSegments(snapshot: UxSnapshotV1): InlineSegment[] | undefined {
   if (plan.phase !== 'executing' && plan.phase !== 'verifying') {
     return [
       { text: `Plan ${plan.phase.replaceAll('_', ' ')}`, token: plan.phase === 'failed' ? 'error' : plan.phase === 'blocked' ? 'warning' : 'brand' },
+      ...(plan.phase === 'complete'
+        ? [{ text: `${plan.done}/${plan.displayTotal ?? plan.total} done`, token: 'success' as const }]
+        : []),
       ...(plan.phase === 'blocked' || plan.phase === 'failed' ? currentTask : []),
       { text: 'plan', token: 'link' },
     ];
@@ -229,7 +233,34 @@ function agentCandidates(snapshot: UxSnapshotV1, width: number): Candidate[] {
       ],
       detailRoute: '/octocode-inbox',
     }));
-  return [...attention, ...live];
+  const recentOutcomes = snapshot.agents
+    .filter(agent => isRecentAgentOutcome(agent, snapshot.observedAt))
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+    .map((agent, index): Candidate => ({
+      id: `worker-outcome:${agent.id}`,
+      priority: 'P3',
+      order: 1_500 + index,
+      segments: [
+        {
+          text: agent.state,
+          token: agent.state === 'done' ? 'success' : 'muted',
+          keepWhole: true,
+        },
+        {
+          text: truncateToWidth(
+            agent.label,
+            Math.max(4, Math.min(24, Math.floor(width / 4))),
+          ),
+          token: 'brand',
+        },
+        ...(agent.activeOperation ?? agent.assignment
+          ? [{ text: agent.activeOperation ?? agent.assignment!, token: 'muted' as const }]
+          : []),
+        { text: '/octocode-inbox', token: 'link' },
+      ],
+      detailRoute: '/octocode-inbox',
+    }));
+  return [...attention, ...live, ...recentOutcomes];
 }
 
 function candidates(

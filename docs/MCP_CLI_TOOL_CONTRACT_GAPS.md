@@ -199,11 +199,22 @@ The audit used the built monorepo artifacts, not source-only mocks:
 - The offline parity matrix passes for all 10 tools in tools-core, CLI, and MCP.
 - The held-out routing benchmark passes 12 tests and its ACCEPT gates.
 
-Primary source paths:
+Current ownership and verification paths:
 
-- `packages/octocode-tools-core/src/tools/directToolCatalog/`
-- `packages/octocode-tools-core/src/tools/toolConfig.ts`
-- `packages/octocode-tools-core/src/toolContract/`
-- `packages/octocode-mcp/src/tools/toolConfig.ts`
-- `packages/octocode-mcp/tests/scheme/all-tools.schema-contract.test.ts`
-- `packages/octocode-tools-core/tests/tools/schemaExecution.test.ts`
+- `@octocodeai/octocode-core/schema` in the sibling `octocode-mcp-host`
+  repository owns the public definitions, schemas, relations, examples, and
+  input preparation.
+- `packages/octocode-tools-core/src/tools/directToolCatalog.exec.ts` and
+  `packages/octocode-tools-core/src/tools/toolConfig.ts` attach execution and
+  runtime availability.
+- `packages/octocode-tools-core/tests/tools/schemaOwnership.architecture.test.ts`
+  enforces the ownership boundary.
+- `packages/octocode-mcp/src/tools/toolConfig.ts` and
+  `packages/octocode-mcp/tests/scheme/all-tools.schema-contract.test.ts` cover
+  MCP selection and schema parity.
+
+For the implementation audited on 2026-09-01, see the pinned
+[`directToolCatalog`](https://github.com/bgauryy/octocode/tree/e9121070fb8988aba0b9cc4b5cfccd7b2190240c/packages/octocode-tools-core/src/tools/directToolCatalog)
+and
+[`toolContract`](https://github.com/bgauryy/octocode/tree/e9121070fb8988aba0b9cc4b5cfccd7b2190240c/packages/octocode-tools-core/src/toolContract)
+snapshots.

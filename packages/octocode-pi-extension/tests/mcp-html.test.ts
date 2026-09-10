@@ -208,7 +208,7 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
   assert.doesNotMatch(html, /review<script>/);
   assert.match(html, /Search skills/);
   assert.match(html, /Agent prompt catalog/);
-  assert.match(html, /Compact mcp\.md guide is injected/);
+  assert.match(html, /Schema-aware mcp\.md is injected/);
   assert.match(html, /OCTOCODE_COMPACT_MCP/);
   assert.match(html, /default\/enabled/);
   assert.match(html, /MCP connections/);
@@ -264,7 +264,7 @@ test('settings.html identifies compact MCP as the enabled default', async () => 
 
   const html = await renderMcpManagerPage({ cwd } as unknown as PiContext);
 
-  assert.match(html, /Compact mcp\.md guide is injected/);
+  assert.match(html, /Schema-aware mcp\.md is injected/);
   assert.match(html, /OCTOCODE_COMPACT_MCP/);
   assert.match(html, /enabled/);
 });

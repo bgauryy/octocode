@@ -1,6 +1,8 @@
 # LSP in Octocode — Lifecycle, Provisioning, and the No-Fallback Contract
 
-Companion: `docs/context/LSP_GUIDE.md` (protocol primer + platformized resolution ladder).
+For the public query contract, see [`lspSearch`](../../../docs/OCTOCODE_TOOLS.md#lspsearch).
+For language and feature coverage, see
+[Supported languages and features](SUPPORTED_LANGUAGES_AND_FEATURES.md).
 
 ---
 
@@ -29,8 +31,8 @@ When a semantic operation needs a language server and **no server is available**
 
 ## Server availability classes
 
-octocode resolves servers through the ladder override → PATH → bundled →
-ecosystem discovery → managed cache; see `LSP_GUIDE.md` section 13. Use
+Octocode resolves servers through the ladder override → PATH → bundled →
+ecosystem discovery → managed cache. Use
 `npx octocode lsp-server list` for managed-download and toolchain servers,
 `npx octocode lsp-server status FILE_PATH` for the full resolution result for a
 specific file, and `npx octocode lsp-server install SERVER_NAME` to trigger a

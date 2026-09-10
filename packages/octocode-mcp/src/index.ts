@@ -17,6 +17,7 @@ import {
   getOctocodeDir,
   configureSecurity,
   securityRegistry,
+  getGrammarCapabilities,
 } from '@octocodeai/octocode-tools-core';
 import { version, name } from '../package.json';
 
@@ -125,6 +126,10 @@ export async function registerAllTools(
 }
 
 async function createServer(enabledTools: McpToolConfig[]): Promise<McpServer> {
+  const enabledNames = enabledTools.map(tool => tool.name);
+  const grammarCapabilities = enabledNames.includes('astSearch')
+    ? getGrammarCapabilities()
+    : undefined;
   const capabilities: {
     tools: { listChanged: boolean };
   } = {
@@ -133,7 +138,10 @@ async function createServer(enabledTools: McpToolConfig[]): Promise<McpServer> {
 
   return new McpServer(SERVER_CONFIG, {
     capabilities,
-    instructions: buildMcpInstructions(enabledTools.map(tool => tool.name)),
+    instructions: buildMcpInstructions(
+      enabledNames,
+      grammarCapabilities ? { grammarCapabilities } : {}
+    ),
   });
 }
 

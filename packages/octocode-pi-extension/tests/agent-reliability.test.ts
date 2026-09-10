@@ -24,6 +24,7 @@ import {
 import { setAgentProcessFactoryForTests, isSubagentProcess, setLedgerHidden } from '../src/tools/agents/registry.js';
 import { listWorkerLedgerEntries, listVisibleWorkerLedgerEntries, findLivePlanWorker } from '../src/tools/agents/ledger.js';
 import { MAX_AGENT_RECORDS, MAX_ACTIVE_AGENTS, DEFAULT_SPAWN_POLICY } from '../src/tools/agents/types.js';
+import { RECENT_AGENT_OUTCOME_MS } from '../src/tools/agents/display-state.js';
 import { extractDeltaSummary } from '../src/tools/agents/normalization.js';
 import { evaluateStepBudget } from '../src/tools/agents/policy.js';
 import { registerUnifiedAgentTool } from '../src/tools/agents/tool.js';
@@ -292,6 +293,31 @@ test('agent_end user prompt echoes do not overwrite assistant worker output', ()
   assert.doesNotMatch(record.lastOutput, /Goal: echoed original task/);
   assert.doesNotMatch(record.lastOutput, /Return only your review findings/);
   assert.equal(record.normalizedResult?.status, 'done');
+});
+
+test('message_end followed by agent_end records one inbound reply event', () => {
+  if (isSubagentProcess()) return;
+
+  const mock = makeMockAgentProcess({ stdinThrows: false });
+  setAgentProcessFactoryForTests(() => mock as never);
+  const record = spawnRpcAgent({ task: 'report progress', resourceMode: 'lean' });
+  const message = {
+    role: 'assistant',
+    content: [{ type: 'text', text: '[RESULT] tests pass\n[DONE] complete' }],
+  };
+  mock._emit(
+    'stdout:data',
+    Buffer.from(`${JSON.stringify({ type: 'message_end', message })}\n`),
+  );
+  mock._emit(
+    'stdout:data',
+    Buffer.from(`${JSON.stringify({ type: 'agent_end', messages: [message] })}\n`),
+  );
+
+  assert.equal(
+    record.ledgerEvents.filter(event => event.type === 'message' && /reply received/.test(event.message ?? '')).length,
+    1,
+  );
 });
 
 // ─── Worker launch mode: workers must not re-enter the SDK-embed launcher ─────
@@ -587,7 +613,7 @@ test('waitForAgentTurn forwards cancellation and releases worker listeners', asy
   assert.equal(record.activityListeners.size, 0);
 });
 
-test('L2: live ledger ticker runs while a worker is active and stops when it finishes', () => {
+test('L2: ledger ticker keeps a recent outcome visible, then stops after its grace period', () => {
   if (isSubagentProcess()) return;
   const ctx = {
     hasUI: true,
@@ -596,7 +622,7 @@ test('L2: live ledger ticker runs while a worker is active and stops when it fin
 
   const mock = makeMockAgentProcess({ stdinThrows: false, exitImmediately: false });
   setAgentProcessFactoryForTests(() => mock as never);
-  spawnRpcAgent({ task: 'long job', resourceMode: 'lean' }, ctx);
+  const record = spawnRpcAgent({ task: 'long job', resourceMode: 'lean' }, ctx);
 
   refreshAgentLedgerUi(ctx);
   assert.equal(isLedgerTickerActiveForTests(), true, 'ticker active while a worker runs');
@@ -604,7 +630,11 @@ test('L2: live ledger ticker runs while a worker is active and stops when it fin
   mock.exitCode = 0;
   mock._emit('close', 0, null);
   refreshAgentLedgerUi(ctx);
-  assert.equal(isLedgerTickerActiveForTests(), false, 'ticker stops once no worker is active');
+  assert.equal(isLedgerTickerActiveForTests(), true, 'ticker keeps the recent outcome repainting');
+
+  record.updatedAt = Date.now() - RECENT_AGENT_OUTCOME_MS - 1;
+  refreshAgentLedgerUi(ctx);
+  assert.equal(isLedgerTickerActiveForTests(), false, 'ticker stops after the outcome leaves the footer');
 
   stopLedgerTickerForTests();
 });

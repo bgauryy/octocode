@@ -2,6 +2,12 @@ use std::sync::LazyLock;
 use tree_sitter::Language;
 
 pub struct LanguageEntry {
+    /// Human-readable grammar family name exposed to tools and agent context.
+    pub name: &'static str,
+    /// Additional family selectors beyond `name` and `language_id`. This is
+    /// used only when one user-facing family spans multiple parser entries
+    /// (for example TypeScript also selecting the TSX grammar).
+    pub selector_aliases: &'static [&'static str],
     pub extensions: &'static [&'static str],
     /// LSP server language id (e.g. `"typescript"`, `"css"`). `None` for grammars
     /// with no configured language server (e.g. Scala) — those still do structural
@@ -113,6 +119,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
     #[allow(unused_mut)]
     let mut entries = vec![
         LanguageEntry {
+            name: "TypeScript",
+            selector_aliases: &[],
             // `.mts`/`.cts` are first-class TS (oxc + LSP already treat them so);
             // align signature/structural with that.
             extensions: &["ts", "mts", "cts"],
@@ -122,6 +130,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "TSX",
+            selector_aliases: &["typescript"],
             extensions: &["tsx"],
             language_id: Some("typescriptreact"),
             language: tree_sitter_typescript::LANGUAGE_TSX.into(),
@@ -129,6 +139,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "JavaScript",
+            selector_aliases: &[],
             extensions: &["js", "jsx", "mjs", "cjs"],
             language_id: Some("javascript"),
             language: tree_sitter_javascript::LANGUAGE.into(),
@@ -136,6 +148,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "Python",
+            selector_aliases: &[],
             // `.pyi` stubs parse with the Python grammar (LSP already maps them).
             extensions: &["py", "pyi"],
             language_id: Some("python"),
@@ -144,6 +158,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "hash",
         },
         LanguageEntry {
+            name: "Go",
+            selector_aliases: &[],
             extensions: &["go"],
             language_id: Some("go"),
             language: tree_sitter_go::LANGUAGE.into(),
@@ -151,6 +167,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "Rust",
+            selector_aliases: &[],
             extensions: &["rs"],
             language_id: Some("rust"),
             language: tree_sitter_rust::LANGUAGE.into(),
@@ -158,6 +176,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "Java",
+            selector_aliases: &[],
             extensions: &["java"],
             language_id: Some("java"),
             language: tree_sitter_java::LANGUAGE.into(),
@@ -165,6 +185,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "C",
+            selector_aliases: &[],
             extensions: &["c", "h"],
             language_id: Some("c"),
             language: tree_sitter_c::LANGUAGE.into(),
@@ -172,6 +194,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "Ruby",
+            selector_aliases: &[],
             extensions: &["rb", "rake", "gemspec", "ru"],
             language_id: Some("ruby"),
             language: tree_sitter_ruby::LANGUAGE.into(),
@@ -179,6 +203,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "hash",
         },
         LanguageEntry {
+            name: "PHP",
+            selector_aliases: &[],
             // PHP variables require `$` prefix — expando char must be `$` so
             // patterns like `foo($ARG)` parse as valid PHP. See structural/language.rs.
             extensions: &["php"],
@@ -188,6 +214,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "Kotlin",
+            selector_aliases: &[],
             extensions: &["kt", "kts"],
             language_id: Some("kotlin"),
             language: tree_sitter_kotlin_ng::LANGUAGE.into(),
@@ -196,6 +224,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
         },
         #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
+            name: "SQL",
+            selector_aliases: &[],
             extensions: &["sql"],
             language_id: Some("sql"),
             language: tree_sitter_sequel::LANGUAGE.into(),
@@ -208,6 +238,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
         // carry an EMPTY `body_query` so the signature path returns no outline
         // (markup/styles have no fn body to strip).
         LanguageEntry {
+            name: "HTML",
+            selector_aliases: &[],
             extensions: &["html", "htm"],
             language_id: Some("html"),
             language: tree_sitter_html::LANGUAGE.into(),
@@ -215,6 +247,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "html",
         },
         LanguageEntry {
+            name: "CSS",
+            selector_aliases: &[],
             extensions: &["css"],
             language_id: Some("css"),
             language: tree_sitter_css::LANGUAGE.into(),
@@ -222,6 +256,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "SCSS",
+            selector_aliases: &[],
             extensions: &["scss"],
             language_id: Some("scss"),
             language: tree_sitter_scss::language(),
@@ -234,6 +270,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
         // the LSP grammar map until a standard scala-ls binary path is established.
         #[cfg(feature = "tree-sitter-extended")]
         LanguageEntry {
+            name: "Scala",
+            selector_aliases: &[],
             extensions: &["scala", "sc", "sbt"],
             language_id: None,
             language: tree_sitter_scala::LANGUAGE.into(),
@@ -246,6 +284,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
         // etc. Empty body_query + their presence in NO_SYMBOL_EXTS keeps the
         // signature path returning None (data files have no code signatures).
         LanguageEntry {
+            name: "JSON",
+            selector_aliases: &[],
             extensions: &["json", "jsonc"],
             language_id: Some("json"),
             language: tree_sitter_json::LANGUAGE.into(),
@@ -253,6 +293,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
+            name: "YAML",
+            selector_aliases: &[],
             extensions: &["yaml", "yml"],
             language_id: Some("yaml"),
             language: tree_sitter_yaml::LANGUAGE.into(),
@@ -264,6 +306,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
     // Feature-gated grammars: conditional push after vec! creation is fine.
     #[cfg(feature = "tree-sitter-cpp")]
     entries.push(LanguageEntry {
+        name: "C++",
+        selector_aliases: &[],
         // Include the `.hh`/`.hxx` header variants the structural expando table
         // already anticipates.
         extensions: &["cpp", "hpp", "cc", "cxx", "hh", "hxx"],
@@ -275,6 +319,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
 
     #[cfg(feature = "tree-sitter-c-sharp")]
     entries.push(LanguageEntry {
+        name: "C#",
+        selector_aliases: &[],
         extensions: &["cs"],
         language_id: Some("csharp"),
         language: tree_sitter_c_sharp::LANGUAGE.into(),
@@ -284,6 +330,8 @@ fn init_language_table() -> Vec<LanguageEntry> {
 
     #[cfg(feature = "tree-sitter-swift")]
     entries.push(LanguageEntry {
+        name: "Swift",
+        selector_aliases: &[],
         extensions: &["swift"],
         language_id: Some("swift"),
         language: tree_sitter_swift::LANGUAGE.into(),

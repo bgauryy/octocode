@@ -3,7 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DIRECT_TOOL_DISCOVERY_DEFINITIONS, getToolAvailability, prepareDirectToolInput } from '@octocodeai/octocode-tools-core/schema';
+import {
+  DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+  prepareDirectToolInput,
+} from '@octocodeai/octocode-core/schema';
+import { getToolAvailability } from '@octocodeai/octocode-tools-core/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
 
 const __filename = fileURLToPath(import.meta.url);

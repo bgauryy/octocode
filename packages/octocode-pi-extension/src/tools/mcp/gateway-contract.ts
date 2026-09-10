@@ -16,7 +16,7 @@ export function mcpGatewayItemSchema() {
     name: z.string().optional().describe('Prompt name for get-prompt.'),
     ref: z.record(z.string(), z.unknown()).optional().describe('Prompt or resource-template reference for complete.'),
     argument: z.record(z.string(), z.unknown()).optional().describe('Partial argument for complete.'),
-    arguments: z.record(z.string(), z.unknown()).optional().describe('Selected tool input. Octocode tool queries nest under arguments.queries[].'),
+    arguments: z.record(z.string(), z.unknown()).optional().describe('Selected tool input for action:call. Put every target-tool field here, never beside action/server/tool. Octocode tool queries nest under arguments.queries[].'),
     responseView: z.enum(['full', 'table']).optional().describe('call output: full evidence (default) or a compact table for large batches.'),
     config: z.record(z.string(), z.unknown()).optional().describe('Server config for add: stdio {command,args?,env?,cwd?} or HTTP {url,headers?}.'),
     scope: z.enum(['project', 'global']).optional().describe('add/remove target: project (.agents/mcp.json) or global ($OCTOCODE_HOME/mcp.json).'),

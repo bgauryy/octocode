@@ -279,6 +279,22 @@ export declare function getSupportedGraphFactExtensions(): Array<string>
  */
 export declare function getGraphFactCapabilities(): string
 
+/**
+ * Canonical parser-family inventory for runtime selectors and agent context.
+ * Consumers must not maintain a parallel language table.
+ */
+export declare function getGrammarCapabilities(): Array<GrammarCapability>
+
+export interface GrammarCapability {
+  language: string
+  languageId?: string
+  selectorAliases: Array<string>
+  extensions: Array<string>
+  structuralSearch: boolean
+  signatureOutline: boolean
+  graphFacts: boolean
+}
+
 export interface FileSystemEntry {
   /** Absolute or input-root-relative path as returned by the platform. */
   path: string

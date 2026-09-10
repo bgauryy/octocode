@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  RECENT_AGENT_OUTCOME_MS,
+} from '../src/tools/agents/display-state.js';
+import {
   selectStatusRows,
   type StatusDensity,
 } from '../src/tui/status-policy.js';
@@ -132,10 +135,38 @@ test('plan phases distinguish review from execution and retain the verifying tas
     const text = row.map(segment => segment.text).join(' ');
     assert.match(text, new RegExp(`Plan ${phase.replaceAll('_', ' ')}`));
     assert.doesNotMatch(text, /running|Implementing/);
+    if (phase === 'complete') assert.match(text, /1\/4 done/);
   }
   const selected = selectStatusRows({ ...source, plan:{...source.plan!,phase:'verifying'} }, { width:100, height:40 });
   const text = selected.rows[selected.rowIds.indexOf('plan:progress')]!.map(segment => segment.text).join(' ');
   assert.match(text, /Plan verifying.*task 2 verifying: Implementing/);
+});
+
+test('recent completed workers remain briefly visible, then leave the footer for the inbox', () => {
+  const recent = selectStatusRows(
+    snapshot({
+      plan: undefined,
+      agents: [{ ...agent(1, 'done'), label: 'atlas', updatedAt: 10_000 }],
+    }),
+    { width: 100, height: 40 }
+  );
+  assert.match(
+    renderFooterView({ rows: recent.rows }, { width: 100 }).join('\n'),
+    /done.*atlas.*\/octocode-inbox/
+  );
+
+  const expired = selectStatusRows(
+    snapshot({
+      observedAt: 10_000 + RECENT_AGENT_OUTCOME_MS + 1,
+      plan: undefined,
+      agents: [{ ...agent(1, 'done'), label: 'atlas', updatedAt: 10_000 }],
+    }),
+    { width: 100, height: 40 }
+  );
+  assert.doesNotMatch(
+    renderFooterView({ rows: expired.rows }, { width: 100 }).join('\n'),
+    /atlas/
+  );
 });
 
 test('compact status keeps blocked workers visible when session metadata is present', () => {
@@ -468,7 +499,7 @@ test('agent summary is suppressed when all agents are blocked or failed', () => 
   );
 });
 
-test('mixed workers show named live rows and omit settled workers', () => {
+test('mixed workers show named live rows and omit expired settled workers', () => {
   const result = selectStatusRows(
     snapshot({
       agents: [
@@ -491,7 +522,7 @@ test('mixed workers show named live rows and omit settled workers', () => {
           label: 'luna',
           state: 'done',
           pendingMessages: 0,
-          updatedAt: 7_000,
+          updatedAt: -1,
         },
       ],
     }),

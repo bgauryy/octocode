@@ -1085,6 +1085,7 @@ test('enum tool params use string-enum schemas (Google API compat), never litera
   const mcpScope = prop('MCPTool', 'scope');
   assert.equal(mcpScope['type'], 'string');
   assert.deepEqual(mcpScope['enum'], ['project', 'global']);
+  assert.match(String(prop('MCPTool', 'arguments')['description']), /every target-tool field here, never beside action\/server\/tool/i);
   const agentTypes = queryPropertySchemas(tools.get('agent')!, 'type');
   assert.deepEqual([...new Set(agentTypes.flatMap((schema) => schema['enum'] as string[]))], ['spawn', 'inspect', 'configure', 'wait', 'message', 'steer', 'abort', 'kill']);
 
@@ -1264,7 +1265,7 @@ test('every direct tool contract is concise enough for per-turn agent context', 
   }
   assert.match(tools.get('bash')!.description!, /never for code search or file reads/i);
   assert.match(tools.get('MCPTool')!.description!, /server:"octocode" holds the code, GitHub, history, npm/i);
-  assert.match(tools.get('MCPTool')!.description!, /describe an unfamiliar tool once, then reuse that schema/i);
+  assert.match(tools.get('MCPTool')!.description!, /system prompt lists every enabled tool description and complete input schema/i);
   assert.match(tools.get('agent')!.description!, /use MCPTool for repository research/i);
   assert.match(tools.get('agent')!.description!, /implementer/);
   assert.match(tools.get('agent')!.description!, /custom.*requires.*tools.*systemPrompt/i);
@@ -2499,7 +2500,7 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.match(cachedPrompt, /instructions: Use echo only for MCP bridge smoke tests\./);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /description: Echo text/);
-    assert.doesNotMatch(cachedPrompt, /inputSchema:/);
+    assert.match(cachedPrompt, /inputSchema: Input: text \(string, required\)/);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /<runtime_capabilities>/);
     assert.match(cachedPrompt, /effective_inline_images: false/);

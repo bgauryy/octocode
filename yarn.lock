@@ -2182,7 +2182,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/agent-contracts@workspace:packages/octocode-agent-contracts"
   dependencies:
-    "@octocodeai/config": "npm:19.1.0"
+    "@octocodeai/config": "npm:20.0.0"
     "@types/node": "npm:^26.4.1"
     "@vitest/coverage-v8": "npm:^4.1.11"
     esbuild: "npm:^0.28.2"
@@ -2208,7 +2208,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/config@npm:19.1.0, @octocodeai/config@workspace:packages/octocode-config":
+"@octocodeai/config@npm:20.0.0, @octocodeai/config@workspace:packages/octocode-config":
   version: 0.0.0-use.local
   resolution: "@octocodeai/config@workspace:packages/octocode-config"
   dependencies:
@@ -2253,12 +2253,12 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
-  version: 18.3.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=698d74&locator=octocode-monorepo%40workspace%3A."
+"@octocodeai/octocode-core@npm:19.0.0":
+  version: 19.0.0
+  resolution: "@octocodeai/octocode-core@npm:19.0.0"
   dependencies:
     zod: "npm:^4.5.4"
-  checksum: 10c0/59fa0db8308f7550dd0a9bf7f01b42af283e6630c4ca88de4fd53fe7df05e02e06d830f7aafc681804080126260a2a662c8722f1442b04cf059168c348e47261
+  checksum: 10c0/c058943cd65cf32c70573e6a454bf54d25fc99e8fb576a15770a00bc5673caadbf826ae4064b5702c1906397919d7a703e0645002f0b260f6c699727bb3c473f
   languageName: node
   linkType: hard
 
@@ -2303,7 +2303,7 @@ __metadata:
   resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
   dependencies:
     "@napi-rs/cli": "npm:^3.9.0"
-    "@octocodeai/config": "npm:19.1.0"
+    "@octocodeai/config": "npm:20.0.0"
     "@octocodeai/octocode-engine-darwin-arm64": "npm:19.1.0"
     "@octocodeai/octocode-engine-darwin-x64": "npm:19.1.0"
     "@octocodeai/octocode-engine-linux-arm64-gnu": "npm:19.1.0"
@@ -2408,8 +2408,8 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/server": "npm:^2.0.0"
     "@npmcli/config": "npm:^11.0.1"
-    "@octocodeai/config": "npm:19.1.0"
-    "@octocodeai/octocode-core": "npm:18.3.0"
+    "@octocodeai/config": "npm:20.0.0"
+    "@octocodeai/octocode-core": "npm:19.0.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
     "@octokit/core": "npm:^7.0.8"
     "@octokit/oauth-methods": "npm:^6.0.5"
@@ -2444,7 +2444,7 @@ __metadata:
     "@octocodeai/agent-contracts": "npm:0.1.0"
     "@octocodeai/agent-core": "npm:0.1.0"
     "@octocodeai/agent-testing": "npm:^0.1.0"
-    "@octocodeai/config": "npm:19.1.0"
+    "@octocodeai/config": "npm:20.0.0"
     "@octocodeai/octocode-awareness": "npm:2.1.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
     "@octocodeai/octocode-extension-rust": "npm:0.1.0"
@@ -3976,6 +3976,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"balanced-match@npm:^1.0.0":
+  version: 1.0.2
+  resolution: "balanced-match@npm:1.0.2"
+  checksum: 10c0/9308baf0a7e4838a82bbfd11e01b1cb0f0cf2893bc1676c27c2a8c0e70cbae1c59120c3268517a8ae7fb6376b4639ef81ca22582611dbee4ed28df945134aaee
+  languageName: node
+  linkType: hard
+
 "balanced-match@npm:^4.0.2":
   version: 4.0.4
   resolution: "balanced-match@npm:4.0.4"
@@ -4061,7 +4068,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"brace-expansion@npm:^5.0.8":
+"brace-expansion@npm:^2.0.1":
+  version: 2.1.4
+  resolution: "brace-expansion@npm:2.1.4"
+  dependencies:
+    balanced-match: "npm:^1.0.0"
+  checksum: 10c0/6c0a0e2573eac1dc565b52b1e1bfbeba39bf1830d106ebbc61ff1eaefcf610e9111cd3baa091addd18e33292135c99e019d3184d966389d85dc958fdcdc1449f
+  languageName: node
+  linkType: hard
+
+"brace-expansion@npm:^5.0.5, brace-expansion@npm:^5.0.8":
   version: 5.0.9
   resolution: "brace-expansion@npm:5.0.9"
   dependencies:
@@ -5867,7 +5883,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"js-yaml@npm:4.3.2":
+"js-yaml@npm:^4.2.0":
   version: 4.3.2
   resolution: "js-yaml@npm:4.3.2"
   dependencies:
@@ -6281,7 +6297,25 @@ __metadata:
   languageName: node
   linkType: hard
 
-"minimatch@npm:10.2.6":
+"minimatch@npm:10.0.1":
+  version: 10.0.1
+  resolution: "minimatch@npm:10.0.1"
+  dependencies:
+    brace-expansion: "npm:^2.0.1"
+  checksum: 10c0/e6c29a81fe83e1877ad51348306be2e8aeca18c88fdee7a99df44322314279e15799e41d7cb274e4e8bb0b451a3bc622d6182e157dfa1717d6cda75e9cd8cd5d
+  languageName: node
+  linkType: hard
+
+"minimatch@npm:10.2.5":
+  version: 10.2.5
+  resolution: "minimatch@npm:10.2.5"
+  dependencies:
+    brace-expansion: "npm:^5.0.5"
+  checksum: 10c0/6bb058bd6324104b9ec2f763476a35386d05079c1f5fe4fbf1f324a25237cd4534d6813ecd71f48208f4e635c1221899bef94c3c89f7df55698fe373aaae20fd
+  languageName: node
+  linkType: hard
+
+"minimatch@npm:^10.0.3, minimatch@npm:^10.2.2, minimatch@npm:^10.2.4, minimatch@npm:^10.2.5":
   version: 10.2.6
   resolution: "minimatch@npm:10.2.6"
   dependencies:
@@ -6437,11 +6471,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-domexception@portal:./.yarn/shims/node-domexception::locator=octocode-monorepo%40workspace%3A.":
-  version: 0.0.0-use.local
-  resolution: "node-domexception@portal:./.yarn/shims/node-domexception::locator=octocode-monorepo%40workspace%3A."
+"node-domexception@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "node-domexception@npm:1.0.0"
+  checksum: 10c0/5e5d63cda29856402df9472335af4bb13875e1927ad3be861dc5ebde38917aecbf9ae337923777af52a48c426b70148815e890a5d72760f1b4d758cc671b1a2b
   languageName: node
-  linkType: soft
+  linkType: hard
 
 "node-fetch@npm:2.7.0":
   version: 2.7.0
@@ -6616,7 +6651,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.29.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/octocode-core": "npm:18.3.0"
+    "@octocodeai/octocode-core": "npm:19.0.0"
     "@octocodeai/octocode-tools-core": "npm:19.1.0"
     "@octokit/core": "npm:^7.0.8"
     "@octokit/plugin-throttling": "npm:^11.0.5"
@@ -6657,8 +6692,7 @@ __metadata:
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.7.1"
-    "@octocodeai/agent-contracts": "npm:0.1.0"
-    "@octocodeai/config": "npm:19.1.0"
+    "@octocodeai/config": "npm:20.0.0"
     "@octocodeai/octocode-engine": "npm:19.1.0"
     "@octocodeai/octocode-tools-core": "npm:19.1.0"
     "@octokit/auth-oauth-device": "npm:^8.0.5"

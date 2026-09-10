@@ -277,8 +277,8 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
   }).join('');
   const promptState = contextState?.status ?? artifacts.status;
   const modeSummary = artifacts.mode === 'compact'
-    ? 'Compact mcp.md guide is injected; exact catalog.json remains private for validation.'
-    : 'Exact enabled descriptions and input schemas from catalog.json are injected; mcp.md is ignored.';
+    ? 'Schema-aware mcp.md is injected with every enabled tool description and complete input contract.'
+    : 'Unoptimized enabled descriptions and exact input schemas from catalog.json are injected; mcp.md is ignored.';
   const importedCount = [...loaded.configuredServers.values()].filter((config) => config.discovered).length;
   const enabledSkillCount = skills.filter((skill) => skill.enabled).length;
   const footerDensity = getFooterDensity();

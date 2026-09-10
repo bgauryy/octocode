@@ -7,6 +7,21 @@ pub struct GetExtensionOptions {
     pub fallback: Option<String>,
 }
 
+/// One parser entry from the canonical grammar registry. Consumers use this
+/// runtime inventory for language selection and agent guidance instead of
+/// maintaining extension/name tables outside the engine.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct GrammarCapability {
+    pub language: String,
+    pub language_id: Option<String>,
+    pub selector_aliases: Vec<String>,
+    pub extensions: Vec<String>,
+    pub structural_search: bool,
+    pub signature_outline: bool,
+    pub graph_facts: bool,
+}
+
 // ── ripgrep_parser types ──────────────────────────────────────────────────────
 
 #[napi(object)]

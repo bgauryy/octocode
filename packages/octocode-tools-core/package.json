@@ -7,8 +7,8 @@
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
     "@npmcli/config": "^11.0.1",
-    "@octocodeai/config": "19.1.0",
-    "@octocodeai/octocode-core": "18.3.0",
+    "@octocodeai/config": "20.0.0",
+    "@octocodeai/octocode-core": "19.0.0",
     "@octocodeai/octocode-engine": "19.1.0",
     "@octokit/oauth-methods": "^6.0.5",
     "@octokit/openapi-types": "^29.0.1",
@@ -30,6 +30,9 @@
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
+  "bundledDependencies": [
+    "@octocodeai/config"
+  ],
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },

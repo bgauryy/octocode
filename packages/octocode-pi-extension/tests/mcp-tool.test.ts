@@ -154,10 +154,11 @@ test("mode-aware artifact persistence creates a validated compact guide only whe
   const guidePath = path.join(path.dirname(persisted.snapshotPath), "mcp.md");
   const guide = fs.readFileSync(guidePath, "utf8");
 
-  assert.match(guide, /^<!-- octocode-mcp-guide:v4 /);
+  assert.match(guide, /^<!-- octocode-mcp-guide:v5 /);
   assert.match(guide, /<mcp_catalog_index>/);
   assert.match(guide, /tool: echo/);
-  assert.doesNotMatch(guide, /text \(string, required\)/);
+  assert.match(guide, /text \(string, required\)/);
+  assert.match(guide, /inputSchema: Input: text \(string, required\)/);
   assert.deepEqual(JSON.parse(fs.readFileSync(persisted.snapshotPath, 'utf8')).servers[0].tools[0].inputSchema, snapshot.servers[0]!.tools[0]!.inputSchema);
 });
 
@@ -428,7 +429,7 @@ test("waitForMcpShutdown waits for tracked background MCP work", async () => {
   assert.equal(settled, true);
 });
 
-test("catalog addendum carries server instructions and a compact routing guide without exact schemas", () => {
+test("catalog addendum carries server instructions, descriptions, complete schemas, and the call envelope", () => {
   seedCatalog();
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
   assert.match(addendum, /<mcp_catalog_index>/);
@@ -436,8 +437,9 @@ test("catalog addendum carries server instructions and a compact routing guide w
   assert.match(addendum, /instructions: Use batched queries/);
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
-  assert.doesNotMatch(addendum, /inputSchema|schemaLease|SCHEMA_REQUIRED/);
-  assert.match(addendum, /before the first call.*unfamiliar tool.*action:"describe"/i);
+  assert.match(addendum, /inputSchema: Input:/);
+  assert.match(addendum, /arguments:<object matching inputSchema>/);
+  assert.doesNotMatch(addendum, /schemaLease|SCHEMA_REQUIRED/);
 });
 
 test("explicit exact catalog addendum carries enabled descriptions and input schemas", () => {
@@ -763,7 +765,7 @@ test("catalog addendum is byte-stable: tools appear in the output sorted regardl
   );
 });
 
-test("catalog addendum exposes an executable continuation for oversized server entries", () => {
+test("catalog addendum exposes every connected tool and complete schema without a prompt continuation", () => {
   mcpTestHooks.setCachedMcpCatalog(mcpCtx, [
     {
       name: "bigserver",
@@ -780,12 +782,12 @@ test("catalog addendum exposes an executable continuation for oversized server e
     },
   ]);
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
-  assert.ok((addendum.match(/^tool: tool-/gm)?.length ?? 0) < 300);
-  assert.match(addendum, /catalog_continuation:/);
-  assert.match(addendum, /"action":"list"/);
+  assert.equal(addendum.match(/^tool: tool-/gm)?.length, 300);
+  assert.equal(addendum.match(/^inputSchema: /gm)?.length, 300);
+  assert.doesNotMatch(addendum, /catalog_continuation:/);
 });
 
-test("catalog addendum never exposes oversized schemas and keeps sibling routing metadata", () => {
+test("catalog addendum exposes oversized schemas and keeps sibling routing metadata", () => {
   mcpTestHooks.setCachedMcpCatalog(mcpCtx, [
     {
       name: "octocode",
@@ -811,7 +813,8 @@ test("catalog addendum never exposes oversized schemas and keeps sibling routing
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
   assert.match(addendum, /tool: huge/);
   assert.match(addendum, /tool: localSearch/);
-  assert.doesNotMatch(addendum, /inputSchema/);
+  assert.match(addendum, /inputSchema:/);
+  assert.match(addendum, /value-899/);
 });
 
 test("catalog addendum renders long instructions and descriptions in full without truncation", () => {
@@ -1002,7 +1005,8 @@ test("lazy startup persists a cold index, freezes snapshot-hit prompt bytes, and
     const coldPrompt = renderMockSystemPrompt(fixture.ctx);
     assert.match(coldPrompt, /<mcp_catalog_index>/);
     assert.match(coldPrompt, /Mocked cache-flow tool/);
-    assert.doesNotMatch(coldPrompt, /inputSchema/);
+    assert.match(coldPrompt, /inputSchema:/);
+    assert.match(coldPrompt, /arguments:<object matching inputSchema>/);
     const snapshotDir = path.join(
       process.env["OCTOCODE_HOME"],
       "extension",
@@ -1667,13 +1671,14 @@ test("catalog metadata is escaped: malicious server/tool names cannot close or f
   );
 });
 
-test("compiled catalog prompt exposes names and descriptions without exact schemas", () => {
+test("compiled catalog prompt exposes names, descriptions, and complete schemas", () => {
   seedCatalog();
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
   assert.match(addendum, /<mcp_catalog_index>/);
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
-  assert.doesNotMatch(addendum, /inputSchema|schemaDigest|schemaLease/);
+  assert.match(addendum, /inputSchema: Input:/);
+  assert.doesNotMatch(addendum, /schemaDigest|schemaLease/);
 });
 
 test("compiled call rejects an unsupported schema without invoking the server", async () => {

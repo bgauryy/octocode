@@ -28,6 +28,7 @@ export const PUBLIC_NATIVE_EXPORT_NAMES = [
   'getSupportedJsTsExtensions',
   'getSupportedGraphFactExtensions',
   'getGraphFactCapabilities',
+  'getGrammarCapabilities',
   'structuralSearch',
   'structuralSearchDetailed',
   'structuralSearchFiles',

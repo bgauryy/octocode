@@ -37,6 +37,7 @@ export const scanGraphFacts = nativeBinding.scanGraphFacts
 export const getSupportedJsTsExtensions = nativeBinding.getSupportedJsTsExtensions
 export const getSupportedGraphFactExtensions = nativeBinding.getSupportedGraphFactExtensions
 export const getGraphFactCapabilities = nativeBinding.getGraphFactCapabilities
+export const getGrammarCapabilities = nativeBinding.getGrammarCapabilities
 export const structuralSearch = nativeBinding.structuralSearch
 export const structuralSearchDetailed = nativeBinding.structuralSearchDetailed
 export const structuralSearchFiles = nativeBinding.structuralSearchFiles

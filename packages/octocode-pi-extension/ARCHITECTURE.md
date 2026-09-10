@@ -59,7 +59,7 @@ previously resolved inventory that could introduce a second source identity.
 |---|---|---|
 | `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 20k tokens |
 | `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 2k tokens |
-| `mcp-tool-contracts` | `<mcp_catalog_index>` (compact, default) or `<mcp_catalog>` (full, `OCTOCODE_COMPACT_MCP=0`) | 30k tokens |
+| `mcp-tool-contracts` | `<mcp_catalog_index>` (schema-aware, default) or `<mcp_catalog>` (unoptimized, `OCTOCODE_COMPACT_MCP=0`) | 30k tokens |
 | `runtime-tool-contracts` | `<runtime_capabilities>` and current `capability_revision` | 10k tokens |
 | `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 20k tokens |
 | `available-skills` | `<available_skills>` — discovered skill list | 20k tokens |
@@ -188,7 +188,7 @@ tool palette. Measure the live contracts before estimating context savings.
 | `ghCloneRepo` | Standard |
 | `artifactSearch` | Standard |
 
-**Protocol**: Always call `MCPTool(action:"describe", server:"octocode", tool:"<name>")` before the first call to an unfamiliar tool.
+**Protocol**: The prompt publishes every enabled tool's complete input contract. Call it as `MCPTool({queries:[{reasoning, action:"call", server:"octocode", tool:"<name>", arguments:<schema-shaped input>} ]})`; target-tool fields never sit beside `action`/`server`/`tool`. Use `action:"describe"` only to return one selected exact JSON schema.
 
 ### 3.4 MCP binary resolution (`mcp/config.ts`)
 

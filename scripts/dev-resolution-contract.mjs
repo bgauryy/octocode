@@ -19,6 +19,7 @@ export function workspaceResolutionPackages(enginePackage) {
     '@octocodeai/octocode-awareness',
     '@octocodeai/octocode-tools-core',
     '@octocodeai/config',
+    '@octocodeai/agent-contracts',
     '@octocodeai/octocode-engine',
     '@octocodeai/octocode-extension-rust',
     ...enginePlatformPackages(enginePackage),
@@ -51,11 +52,9 @@ export function localAgentTestingResolution(repoRoot) {
   return existsSync(directory) ? pathToFileURL(directory).href : undefined;
 }
 
-export function localSharedResolution(repoRoot) {
-  const relativeDirectory = '../octocode-agent/packages/octocode-agent-contracts';
-  return existsSync(resolve(repoRoot, relativeDirectory))
-    ? `file:${relativeDirectory}`
-    : undefined;
+export function localSharedResolution(_repoRoot) {
+  // @octocodeai/agent-contracts is now a local workspace package — never resolve from sibling repo.
+  return undefined;
 }
 
 export function isLocalResolution(spec) {

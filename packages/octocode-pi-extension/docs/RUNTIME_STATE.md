@@ -8,8 +8,9 @@ The Pi extension has one ephemeral session/view store, created with `zustand/van
 every `session_start`. It is not a second configuration database. SQLite remains canonical
 for durable MCP server/tool enablement, server definition files remain canonical for
 transport configuration, `catalog.json` remains the exact derived inventory, and
-`mcp.md` is the default derived prompt cache. Set `OCTOCODE_COMPACT_MCP=0` only
-to debug with the exact catalog in provider context.
+`mcp.md` is the default derived prompt cache and contains every enabled tool description
+and complete input contract. Set `OCTOCODE_COMPACT_MCP=0` only to debug with the unoptimized
+exact catalog projection in provider context.
 
 ## Ownership
 
@@ -56,10 +57,10 @@ background failures become degraded task receipts; they do not reject session st
 ## MCP prompt readiness
 
 MCP has separate promises for prompt readiness and live refresh completion. By default,
-prompt readiness consumes matching `catalog.json` + `mcp.md`; exact schemas remain
-private for invocation validation. With `OCTOCODE_COMPACT_MCP=0`, a matching persisted
-`catalog.json` supplies `<mcp_catalog>` with enabled descriptions and schemas. Exact schemas refresh
-privately for execution and the next session. A cold or changed configuration waits up to
+prompt readiness consumes matching `catalog.json` + `mcp.md`; the guide supplies every
+enabled description and complete input contract. With `OCTOCODE_COMPACT_MCP=0`, a matching
+persisted `catalog.json` supplies the unoptimized `<mcp_catalog>` projection. Schemas refresh
+for execution and the next session. A cold or changed configuration waits up to
 35 seconds for stable first-turn prompt bytes. The compact guide is deterministic by
 default; `OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored guide generation.
 If the deadline wins, the late refresh is persisted for the next session.

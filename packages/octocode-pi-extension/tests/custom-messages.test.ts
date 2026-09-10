@@ -18,6 +18,7 @@ import { afterEach, beforeEach, test } from 'vitest';
 import {
   COMPACTION_CHECKPOINT_TYPE,
   buildCompactionCard,
+  buildExecutionEventCard,
   buildPeerEventCard,
   buildRecoveryCard,
   emitCompactionCheckpoint,
@@ -25,6 +26,7 @@ import {
   registerOctocodeMessageRenderers,
   type CompactionCheckpointDetails,
 } from '../src/tools/custom-messages.js';
+import { EXECUTION_TRANSCRIPT_ENTRY_TYPE, type ExecutionEvent } from '../src/tools/execution-events.js';
 import {
   registerCompactionHooks,
   resetCompactionCheckpointDedupe,
@@ -50,12 +52,14 @@ type Handler = (event: unknown, ctx: unknown) => unknown | Promise<unknown>;
 function makePi() {
   const sent: { msg: SentMessage; extraArgs: unknown[] }[] = [];
   const renderers = new Map<string, Renderer>();
+  const entryRenderers = new Map<string, Renderer>();
   const handlers = new Map<string, Handler[]>();
   const pi = {
     sendMessage: (msg: SentMessage, ...extraArgs: unknown[]) => {
       sent.push({ msg, extraArgs });
     },
     registerMessageRenderer: (type: string, renderer: Renderer) => renderers.set(type, renderer),
+    registerEntryRenderer: (type: string, renderer: Renderer) => entryRenderers.set(type, renderer),
     sendUserMessage: () => undefined,
     on: (event: string, handler: Handler) => {
       const arr = handlers.get(event) ?? [];
@@ -65,7 +69,24 @@ function makePi() {
   } as unknown as PiInstance;
   const fire = (event: string, evt: unknown, ctx: unknown) =>
     Promise.all((handlers.get(event) ?? []).map((h) => h(evt, ctx)));
-  return { pi, sent, renderers, fire };
+  return { pi, sent, renderers, entryRenderers, fire };
+}
+
+function executionEvent(
+  type: ExecutionEvent['type'],
+  payload: unknown,
+): ExecutionEvent {
+  return {
+    version: 1,
+    id: `event-${type}`,
+    sessionId: 'session-1',
+    runId: 'main',
+    sequence: 1,
+    timestamp: 1_000,
+    visibility: 'transcript',
+    type,
+    payload,
+  } as ExecutionEvent;
 }
 
 const compactionDetails: CompactionCheckpointDetails = {
@@ -152,6 +173,15 @@ test('card builders truncate every line to the given width', () => {
   const narrow = 24;
   for (const lines of [
     buildCompactionCard(compactionDetails, true, undefined, narrow),
+    buildExecutionEventCard(
+      executionEvent('agent.message', {
+        id: 'agent-1', name: 'atlas', direction: 'from-agent', action: 'reply',
+        preview: '界'.repeat(100), timestamp: 1_000,
+      }),
+      true,
+      undefined,
+      narrow,
+    ),
   ]) {
     for (const line of lines) {
       assert.ok(visibleWidth(line) <= narrow, `line exceeds width ${narrow}: ${JSON.stringify(line)}`);
@@ -210,12 +240,71 @@ test('emitters are safe when the host lacks sendMessage', () => {
 // ─── Renderer registration ────────────────────────────────────────────────────
 
 test('registerOctocodeMessageRenderers registers lifecycle and peer types', () => {
-  const { pi, renderers } = makePi();
+  const { pi, renderers, entryRenderers } = makePi();
   registerOctocodeMessageRenderers(pi);
   assert.deepEqual(
     [...renderers.keys()].sort(),
     [COMPACTION_CHECKPOINT_TYPE, 'octocode-peer-event'].sort(),
   );
+  assert.deepEqual([...entryRenderers.keys()], [EXECUTION_TRANSCRIPT_ENTRY_TYPE]);
+});
+
+test('execution cards render plan progress, agent messages, and terminal transitions', () => {
+  const plan = buildExecutionEventCard(
+    executionEvent('plan.updated', {
+      id: 'plan-1', phase: 'executing', tasks: [
+        { id: 'one', title: 'Research', status: 'done' },
+        { id: 'two', title: 'Implement footer', status: 'doing' },
+        { id: 'three', title: 'Validate Pi', status: 'todo' },
+      ],
+    }),
+    true,
+    undefined,
+    100,
+  ).join('\n');
+  assert.match(plan, /Plan.*executing/);
+  assert.match(plan, /1 done.*1 active.*1 ready/);
+  assert.match(plan, /Implement footer/);
+
+  const message = buildExecutionEventCard(
+    executionEvent('agent.message', {
+      id: 'agent-1', name: 'atlas', direction: 'from-agent', action: 'reply',
+      preview: 'Focused tests now pass', timestamp: 1_000, planStep: 'Implement UI',
+    }),
+    false,
+    undefined,
+    100,
+  ).join('\n');
+  assert.match(message, /Agent message.*atlas.*reply/);
+  assert.match(message, /Focused tests now pass/);
+
+  const transition = buildExecutionEventCard(
+    executionEvent('agent.transition', {
+      id: 'agent-1', name: 'atlas', from: 'running', to: 'done',
+      summary: 'Focused tests now pass', updatedAt: 2_000,
+    }),
+    false,
+    undefined,
+    100,
+  ).join('\n');
+  assert.match(transition, /Agent.*atlas.*done/);
+  assert.match(transition, /Focused tests now pass/);
+});
+
+test('registered execution entry renderer reads durable entry data', () => {
+  const { pi, entryRenderers } = makePi();
+  registerOctocodeMessageRenderers(pi);
+  const component = entryRenderers.get(EXECUTION_TRANSCRIPT_ENTRY_TYPE)!(
+    {
+      data: executionEvent('agent.message', {
+        id: 'agent-1', name: 'atlas', direction: 'to-agent', action: 'steer',
+        preview: 'Run the smoke test', timestamp: 1_000,
+      }),
+    },
+    { expanded: false },
+    theme,
+  ) as { render(width: number): string[] };
+  assert.match(component.render(100).join('\n'), /Run the smoke test/);
 });
 
 test('peer cards show attribution and bounded previews, with complete expandable content', () => {

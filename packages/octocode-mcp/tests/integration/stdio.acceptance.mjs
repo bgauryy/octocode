@@ -466,7 +466,10 @@ try {
     await check('GitHub file fetch rejects directory paths and removed directory mode', async () => {
       const directory = await invoke('ghGetFileContent', { queries: [{ ...repo, branch: sha, path: '' }] });
       assert.equal(directory.isError, true);
-      assert.match(JSON.stringify(directory.structuredContent), /directory/i);
+      assert.match(
+        JSON.stringify(directory.structuredContent ?? directory.content ?? directory),
+        /non-blank path|directory/i
+      );
       let rejected = false;
       try {
         const result = await invoke('ghGetFileContent', { queries: [{ ...repo, path: '', type: 'directory' }] });

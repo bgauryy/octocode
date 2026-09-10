@@ -45,6 +45,7 @@ const PUBLISHED_DEP_FIELDS = [
 const LOCAL_PROTOCOLS = ['workspace:', 'file:', 'link:', 'portal:'];
 
 const ENGINE_NPM_DIR = join(repoRoot, 'packages/octocode-engine/npm');
+const EXTENSION_RUST_NPM_DIR = join(repoRoot, 'packages/octocode-extension-rust/npm');
 const offenders = [];
 const checkedPackages = [];
 
@@ -99,7 +100,7 @@ function collectWorkspaceMemberNames() {
     const rootName = readJson(rootPkgPath).name;
     if (typeof rootName === 'string') names.add(rootName);
   }
-  const roots = [join(repoRoot, 'packages'), ENGINE_NPM_DIR];
+  const roots = [join(repoRoot, 'packages'), ENGINE_NPM_DIR, EXTENSION_RUST_NPM_DIR];
   for (const root of roots) {
     if (!existsSync(root)) continue;
     for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -148,6 +149,14 @@ if (existsSync(ENGINE_NPM_DIR)) {
   for (const entry of readdirSync(ENGINE_NPM_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     checkPackage(join(ENGINE_NPM_DIR, entry.name, 'package.json'));
+  }
+}
+
+// Extension-rust optional platform packages (packages/octocode-extension-rust/npm/*).
+if (existsSync(EXTENSION_RUST_NPM_DIR)) {
+  for (const entry of readdirSync(EXTENSION_RUST_NPM_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    checkPackage(join(EXTENSION_RUST_NPM_DIR, entry.name, 'package.json'));
   }
 }
 

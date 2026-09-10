@@ -21,7 +21,7 @@ These run with `npx vitest run` and gate every change:
 | Catalog registration and bulk-schema existence | `packages/octocode-mcp/tests/tools/directToolCatalog.test.ts` |
 | Shared pagination engine and bulk result continuations | `packages/octocode-tools-core/tests/utils/pagination.test.ts`, `bulk.pagination.test.ts` |
 | GitHub file and history pagination axes | `packages/octocode-tools-core/tests/github/fileContentPagination.test.ts`, `historyPaginationAxes.test.ts` |
-| npm and topology executable page unions | `packages/octocode-tools-core/tests/tools/package_search/pagination.test.ts`, `ast_search/topology/pagination.test.ts` |
+| Package and topology executable page unions | `packages/octocode-tools-core/tests/tools/package_search/artifactPagination.test.ts`, `packages/octocode-tools-core/tests/tools/ast_search/topology/topology.pagination.test.ts` |
 
 The markdown here covers what a unit test can't cheaply assert: **live** cursor
 walks to completion, real-result quality spot-checks, and concise-vs-basic token

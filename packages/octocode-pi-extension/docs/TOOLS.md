@@ -6,9 +6,10 @@ contract. The native product obtains live schemas and composes policy through it
 runtime adapters.
 
 The 10 Octocode research tools are reached through the built-in `octocode` MCP server;
-Pi-specific tools are implemented directly in `src/tools/`. Use `MCPTool` with
-`action:"describe"` before an unfamiliar research tool's first call, then reuse
-its schema. CLI-only hosts use `npx octocode tools <name> --scheme` instead.
+Pi-specific tools are implemented directly in `src/tools/`. The system prompt includes
+every enabled MCP tool description and complete input contract. Put the selected tool's
+input under `queries[].arguments`; `action:"describe"` returns its exact JSON schema again.
+CLI-only hosts use `npx octocode tools <name> --scheme` instead.
 
 The extension supplies its guarded same-name `bash`. For direct extension installs, it
 removes Pi `read`/`edit`/`write`/`grep`/`find`/`ls` on load and session start. `file`
@@ -433,10 +434,11 @@ for the complete cross-host location matrix.
 Startup reads a versioned private snapshot from
 `$OCTOCODE_HOME/extension/mcp/workspaces/<workspace-digest>/`. `catalog.json` retains exact
 schemas for enabled tools from enabled servers. By default the first-turn system prompt
-receives a compact `<mcp_catalog_index>` from `mcp.md`; calls still validate against the
-exact private schema. Set `OCTOCODE_COMPACT_MCP=0` only to inject the exact catalog for
-debugging. `OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored guide generation; otherwise
-the guide is deterministic and adds no model request.
+receives a schema-aware `<mcp_catalog_index>` from `mcp.md` with every enabled description
+and complete input contract; calls validate against the same exact catalog. Set
+`OCTOCODE_COMPACT_MCP=0` only to inject the unoptimized exact catalog for debugging.
+`OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored descriptions while preserving complete
+schema contracts; otherwise the guide is deterministic and adds no model request.
 There is no prepare action or schema lease.
 
 Cached prompt readiness is independent from live schema refresh: matching `catalog.json`

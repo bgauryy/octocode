@@ -21,12 +21,6 @@
   "packageManager": "yarn@4.9.1",
   "private": true,
   "repository": "bgauryy/octocode.git",
-  "resolutions": {
-    "js-yaml": "4.3.2",
-    "minimatch": "10.2.6",
-    "node-domexception": "portal:./.yarn/shims/node-domexception",
-    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core"
-  },
   "scripts": {
     "build": "yarn workspaces foreach -At --exclude octocode-monorepo run build",
     "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-engine build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",

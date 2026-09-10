@@ -159,6 +159,49 @@ describe('execution event projection', () => {
     });
   });
 
+  it('validates agent messages and transitions as semantic history without duplicating agent state', () => {
+    const events = [
+      event(
+        'agent.updated',
+        {
+          id: 'agent-1',
+          name: 'atlas',
+          parentRunId: 'main',
+          status: 'running',
+          updatedAt: 1_000,
+        },
+        1
+      ),
+      event(
+        'agent.message',
+        {
+          id: 'agent-1',
+          name: 'atlas',
+          direction: 'from-agent',
+          action: 'reply',
+          preview: 'Tests are green',
+          timestamp: 1_500,
+        },
+        2
+      ),
+      event(
+        'agent.transition',
+        {
+          id: 'agent-1',
+          name: 'atlas',
+          from: 'running',
+          to: 'done',
+          summary: 'Tests are green',
+          updatedAt: 2_000,
+        },
+        3
+      ),
+    ];
+    const state = replayExecutionEvents(serializeExecutionEvents(events));
+    expect(state.sequence).toBe(3);
+    expect(state.agents['agent-1']?.status).toBe('running');
+  });
+
   it('rejects corrupt event logs explicitly and preserves unknown usage', () => {
     expect(() => replayExecutionEvents('{broken}\n')).toThrow(/line 1/i);
     expect(() => replayExecutionEvents('{"type":"unknown"}\n')).toThrow(
@@ -186,6 +229,18 @@ describe('execution event projection', () => {
     event(
       'question.requested',
       { id: 'q', title: 'Question', persistent: 'yes' },
+      1
+    ),
+    event(
+      'agent.message',
+      {
+        id: 'agent-1',
+        name: 'atlas',
+        direction: 'sideways',
+        action: 'reply',
+        preview: 'bad direction',
+        timestamp: 1,
+      },
       1
     ),
   ])('rejects malformed payloads during replay: $type', invalid => {

@@ -3,6 +3,9 @@ import { retainRecent } from './execution-retention.js';
 
 /** Semantic execution history. Schemas own transport validation and inferred types. */
 export const EXECUTION_ENTRY_TYPE = 'octocode-execution-event';
+/** Transcript-visible execution facts. Still a CustomEntry: durable UI, zero model-context cost. */
+export const EXECUTION_TRANSCRIPT_ENTRY_TYPE =
+  'octocode-execution-transcript-event';
 const nonnegative = z.number().finite().nonnegative();
 const outputReferenceSchema = z.discriminatedUnion('kind', [
   z.strictObject({
@@ -34,8 +37,38 @@ const agentSchema = z.strictObject({
   parentRunId: z.string().min(1),
   status: z.string(),
   task: z.string().optional(),
+  planStep: z.string().optional(),
   activity: z.string().optional(),
+  pendingMessages: nonnegative.optional(),
+  lastMessage: z
+    .strictObject({
+      direction: z.enum(['to-agent', 'from-agent']),
+      action: z.enum(['send', 'steer', 'follow-up', 'reply']),
+      preview: z.string(),
+      timestamp: nonnegative,
+    })
+    .optional(),
   startedAt: nonnegative.optional(),
+  updatedAt: nonnegative,
+});
+const agentMessageSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string(),
+  direction: z.enum(['to-agent', 'from-agent']),
+  action: z.enum(['send', 'steer', 'follow-up', 'reply']),
+  preview: z.string(),
+  timestamp: nonnegative,
+  task: z.string().optional(),
+  planStep: z.string().optional(),
+});
+const agentTransitionSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string(),
+  from: z.string().optional(),
+  to: z.string(),
+  summary: z.string().optional(),
+  task: z.string().optional(),
+  planStep: z.string().optional(),
   updatedAt: nonnegative,
 });
 const planSchema = z.strictObject({
@@ -107,6 +140,8 @@ const payloadSchemas = {
   'file.changed': fileSchema,
   'plan.updated': planSchema,
   'agent.updated': agentSchema,
+  'agent.message': agentMessageSchema,
+  'agent.transition': agentTransitionSchema,
   'permission.requested': z.strictObject({
     id: z.string().min(1),
     title: z.string(),
@@ -491,6 +526,9 @@ export function reduceExecutionEvent(
         ...next,
         agents: { ...state.agents, [event.payload.id]: { ...event.payload } },
       };
+    case 'agent.message':
+    case 'agent.transition':
+      return next;
     case 'question.requested':
     case 'permission.requested':
       return {
