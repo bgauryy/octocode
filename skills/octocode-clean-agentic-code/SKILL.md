@@ -3,7 +3,7 @@ name: octocode-clean-agentic-code
 description: "Use when a codebase needs dead weight cut: shims, legacy stubs, re-exports, aliases, duplicate logic, patch regexes, verbose comments, junk docs, bloated config, god files, god folders, misplaced files, redundant schemas, stale protocol stubs, unused dependencies, version misalignment, rigid mocks, skipped tests, or agent-introduced junk such as reinvented helpers, parallel subsystems, scope-creep leftovers, error-masking catch blocks, and special-cased tests. Also use it to strip decision residue from code, comments, skills, and docs: pasted probe output, provenance and research trails, process metadata, counts nobody re-derives, and restated facts. Trigger phrases include clean up, remove legacy, dead code audit, god file, unused deps, test hygiene, clean up after the agent, remove AI slop, remove metadata, or drop stale numbers. Not for feature work or behavioral refactors."
 ---
 
-# Octocode Clean Agentic Code
+# Octocode clean agentic code
 
 Cut dead weight — shims, re-exports, duplicates, patch kludges, junk prose, redundant schemas, dependency junk, oversized config, god files, misplaced files, and agent residue — without changing observable behavior.
 
@@ -28,7 +28,7 @@ Workspace output contract: chat-only findings stay in chat. Saved inventory repo
 | Patch kludges | inline regex fixups, monkey-patches, always-true environment conditionals |
 | Junk prose | syntax-narration comments, dead comment blocks, god documentation, stale TODOs, change narration |
 | Decision residue | decision narration, pasted probe output, provenance trails, process metadata, stale counts, restated facts |
-| Schema / type redundancy | type aliases that just re-name, duplicate interfaces, stale protocol stubs, redundant enums |
+| Schema / type redundancy | type aliases that only rename, duplicate interfaces, stale protocol stubs, redundant enums |
 | Dependency junk | unused deps, duplicate declarations, version misalignment, phantom deps, unresolvable names |
 | Test debt | numbered/dated iteration files, skipped tests with no ticket, rigid mocks coupling to private internals, redundant stubs with no expect reference, environment-coupled tests, unused beforeEach/afterEach setup |
 | Agent residue | scope-creep leftovers, zero-dependent new files, error-masking catch blocks, special-cased tests |
@@ -47,5 +47,5 @@ Workspace output contract: chat-only findings stay in chat. Saved inventory repo
 - When symbol proof, caller lists, import graphs, or structural search are needed, load `references/octocode.md` — tool routing for LSP, graph, and structural queries.
 
 ## Related routes
-- Use `octocode-research` for blast-radius mapping before deletions; `octocode-roast` for a blunt smell inventory; `octocode-eval-benchmark` to measure before/after metrics; `octocode-skills` when changing this skill folder.
+- Use `octocode-research` for blast-radius evidence before deletions; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-roast` for a blunt smell inventory, `octocode-eval-benchmark` for before/after metrics, and `octocode-skills` when changing this folder.
 - No scripts — proof uses `octocode-research` and the project's own repository tools; verification runs the project's own test suite.

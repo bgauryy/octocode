@@ -12,8 +12,7 @@ Workspace output contract: chat-only findings stay in chat. New saved reports de
 
 ## Rules
 
-- Prefer exposed Octocode MCP tools. In this monorepo use `node packages/octocode/out/octocode.js`; elsewhere use `npx -y octocode`.
-- Read `tools <name> --scheme --json --compact` before an unfamiliar raw call; reuse the schema until the tool/version changes. Batch independent probes up to the reported limit.
+- Use `octocode-research` for the MCP/CLI workflow and live tool/grammar discovery; this skill owns graph-specific interpretation.
 - Orient cheaply. Use the graph only for dependencies, dependents, paths, cycles, reachability, or dead-code candidates—not symbol lookup.
 - A graph edge is syntactic file evidence, not symbol identity. A graph smell is a hypothesis, not a defect.
 - Never recommend deletion from reachability or `deadCode` alone. Never call a cycle harmful until exact runtime edges and an impact are shown. <!-- style-lint: ignore-line passive-voice -->

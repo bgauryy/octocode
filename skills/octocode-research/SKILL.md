@@ -40,7 +40,7 @@ For query templates across all ten tools, load `references/tool-examples.md` and
 
 ## Tools and output
 
-Prefer current Octocode MCP contracts. In this monorepo use `node packages/octocode/out/octocode.js`; installed skills use `npx -y octocode`. Inspect `tools <name> --scheme --json --compact` before an unfamiliar raw call, then use `tools <name> --queries '<json>' --compact`. Batch independent queries within the interface limit; sequence dependent calls and follow relevant returned continuations, including nested or diagnostic pages.
+Prefer exposed Octocode MCP tools. Otherwise use `node packages/octocode/out/octocode.js` in this monorepo or `npx -y octocode` from an installed skill. Run `context --compact` once per session or tool-version change to discover enabled tools and runtime grammars. Inspect a schema only before an unfamiliar hand-authored call; reuse it, batch independent queries within its limit, sequence dependent calls, and copy relevant `next.*` continuations unchanged.
 
 Return `Finding · Evidence · Confidence · Next`; decisions add verdict, risks, exact anchors, verification, and the smallest safe fix. Related: `octocode-brainstorming`, `octocode-rfc-generator`, `octocode-eval-benchmark`, `octocode-documentation`, `octocode-skills`, `octocode-subagent`, `octocode-roast`.
 

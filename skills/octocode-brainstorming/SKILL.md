@@ -31,7 +31,7 @@ Pause for direction when the idea contains unrelated decisions, evidence remains
 - When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require measurable acceptance.
 
 ## Related routes
-- Use `octocode-rfc-generator` for a Build verdict; `octocode-research` for technical evidence; `octocode-eval-benchmark` for measurable experiments.
+- Use `octocode-rfc-generator` for a Build verdict and `octocode-eval-benchmark` for measurable experiments. For technical evidence, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.
 - Use `octocode-skills` when changing this skill folder.
 - Use `octocode-subagent` to dispatch and synthesize workers — see `references/web-search-workers.md` for the brainstorm-specific Scout/Aggregator/Checker topology.
 

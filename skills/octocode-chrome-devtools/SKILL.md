@@ -22,6 +22,7 @@ Ask before real-profile access, cookie transfer, CAPTCHA/MFA, purchases, sends, 
 - Static map/bulk extract → `octocode-scraping`; DOM/action → `page-snapshot` then `dom-operations-check`; live graph → `graph-actionability-check` and diagnostics if empty.
 - Page health → performance/network/storage measure checks, then `measure-query`; standalone HAR → `har-pager`; deep bodies only after measure/query through `live-har-monitor` or `network-body-har-fetch-check`.
 - Prove captured API data without Chrome → with optional `octocode-scraping` installed, run `scripts/har-ingest-to-scrape.mjs`, then `scripts/corpus-run-local.mjs`.
+- For repository, package, or source-map implementation claims, use `octocode-research`; it owns the MCP/CLI workflow and live tool/grammar discovery.
 
 ## Scripts
 

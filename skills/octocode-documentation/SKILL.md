@@ -51,4 +51,4 @@ For style work, start at `references/style-index.md`, then load only the matchin
 
 Run `node scripts/style-lint.mjs <changed paths>`, then hand-check non-Markdown text. ERROR findings block completion; WARN findings need correction or explanation; INFO findings need judgment. Run `--self-test` after changing a lint rule. Use `scripts/refresh-word-list.mjs --dry-run` only to check word-list drift; it fetches the live guide without writing.
 
-Finish when the approved docs pass fact, link, safety, structure, and style checks. Name any unverified claims or residual findings. Route code-only research to `octocode-research` and skill folders to `octocode-skills`.
+Finish when the approved docs pass fact, link, safety, structure, and style checks. Name unverified claims or residual findings. For repository facts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery; route skill folders to `octocode-skills`.

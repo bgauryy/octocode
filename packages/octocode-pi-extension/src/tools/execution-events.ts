@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import { retainRecent } from './execution-retention.js';
+import {
+  executionAgentMessageSchema,
+  executionAgentSchema,
+  executionAgentTransitionSchema,
+} from './execution-agent-events.js';
 
 /** Semantic execution history. Schemas own transport validation and inferred types. */
 export const EXECUTION_ENTRY_TYPE = 'octocode-execution-event';
@@ -30,46 +35,6 @@ const fileSchema = z.strictObject({
   operation: z.enum(['create', 'modify', 'delete', 'rename']),
   additions: nonnegative.optional(),
   deletions: nonnegative.optional(),
-});
-const agentSchema = z.strictObject({
-  id: z.string().min(1),
-  name: z.string(),
-  parentRunId: z.string().min(1),
-  status: z.string(),
-  task: z.string().optional(),
-  planStep: z.string().optional(),
-  activity: z.string().optional(),
-  pendingMessages: nonnegative.optional(),
-  lastMessage: z
-    .strictObject({
-      direction: z.enum(['to-agent', 'from-agent']),
-      action: z.enum(['send', 'steer', 'follow-up', 'reply']),
-      preview: z.string(),
-      timestamp: nonnegative,
-    })
-    .optional(),
-  startedAt: nonnegative.optional(),
-  updatedAt: nonnegative,
-});
-const agentMessageSchema = z.strictObject({
-  id: z.string().min(1),
-  name: z.string(),
-  direction: z.enum(['to-agent', 'from-agent']),
-  action: z.enum(['send', 'steer', 'follow-up', 'reply']),
-  preview: z.string(),
-  timestamp: nonnegative,
-  task: z.string().optional(),
-  planStep: z.string().optional(),
-});
-const agentTransitionSchema = z.strictObject({
-  id: z.string().min(1),
-  name: z.string(),
-  from: z.string().optional(),
-  to: z.string(),
-  summary: z.string().optional(),
-  task: z.string().optional(),
-  planStep: z.string().optional(),
-  updatedAt: nonnegative,
 });
 const planSchema = z.strictObject({
   id: z.string().min(1),
@@ -139,9 +104,9 @@ const payloadSchemas = {
   'skill.failed': skillSchema,
   'file.changed': fileSchema,
   'plan.updated': planSchema,
-  'agent.updated': agentSchema,
-  'agent.message': agentMessageSchema,
-  'agent.transition': agentTransitionSchema,
+  'agent.updated': executionAgentSchema,
+  'agent.message': executionAgentMessageSchema,
+  'agent.transition': executionAgentTransitionSchema,
   'permission.requested': z.strictObject({
     id: z.string().min(1),
     title: z.string(),
@@ -181,7 +146,7 @@ const envelopeSchema = z.strictObject({
 export type OutputReference = z.infer<typeof outputReferenceSchema>;
 export type ExecutionUsage = z.infer<typeof usageSchema>;
 export type ExecutionFile = z.infer<typeof fileSchema>;
-export type ExecutionAgent = z.infer<typeof agentSchema>;
+export type ExecutionAgent = z.infer<typeof executionAgentSchema>;
 export type ExecutionPlan = z.infer<typeof planSchema>;
 export type ExecutionStatus =
   'requested' | 'running' | 'succeeded' | 'failed' | 'cancelled';

@@ -847,16 +847,8 @@ describe('cli/commands/auth', () => {
   });
 
   describe('authCommand', () => {
-    it('opens the provider picker for subcommand login', async () => {
-      const { login, authCommand, getAuthStatus, select } =
-        await loadAuthModule();
-      vi.mocked(getAuthStatus).mockReturnValue({
-        authenticated: false,
-        hostname: 'github.com',
-        tokenSource: 'none',
-      });
-      vi.mocked(select).mockResolvedValue('login');
-      vi.mocked(login).mockResolvedValue({ success: true, username: 'x' });
+    it('warns and redirects when auth login is called (use standalone login)', async () => {
+      const { authCommand } = await loadAuthModule();
 
       await authCommand.handler!({
         command: 'auth',
@@ -864,10 +856,10 @@ describe('cli/commands/auth', () => {
         options: {},
       });
 
-      expect(login).toHaveBeenCalled();
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Authentication complete')
+        expect.stringContaining('Use the standalone login command')
       );
+      expect(process.exitCode).toBe(EXIT.USAGE);
     });
 
     it('allows Octocode login even when gh CLI is the active source', async () => {
@@ -902,24 +894,8 @@ describe('cli/commands/auth', () => {
       );
     });
 
-    it('runs gh auth login when gh CLI is selected', async () => {
-      const {
-        authCommand,
-        getAuthStatus,
-        select,
-        runGitHubAuthLogin,
-        checkGitHubAuth,
-      } = await loadAuthModule();
-      vi.mocked(getAuthStatus).mockReturnValue({
-        authenticated: false,
-        hostname: 'github.enterprise.test',
-        tokenSource: 'none',
-      });
-      vi.mocked(checkGitHubAuth).mockReturnValue({
-        installed: true,
-        authenticated: false,
-      });
-      vi.mocked(select).mockResolvedValue('gh-login');
+    it('warns and redirects when auth login is called with enterprise hostname', async () => {
+      const { authCommand } = await loadAuthModule();
 
       await authCommand.handler!({
         command: 'auth',
@@ -930,22 +906,14 @@ describe('cli/commands/auth', () => {
         },
       });
 
-      expect(runGitHubAuthLogin).toHaveBeenCalledWith({
-        web: true,
-        hostname: 'github.enterprise.test',
-        gitProtocol: 'ssh',
-      });
-      expect(process.exitCode).toBeUndefined();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Use the standalone login command')
+      );
+      expect(process.exitCode).toBe(EXIT.USAGE);
     });
 
-    it('delegates to logout for subcommand logout', async () => {
-      const { logout, authCommand, getAuthStatus } = await loadAuthModule();
-      vi.mocked(getAuthStatus).mockReturnValue({
-        authenticated: true,
-        username: 'bob',
-        hostname: 'github.com',
-      });
-      vi.mocked(logout).mockResolvedValue({ success: true });
+    it('warns and redirects when auth logout is called (use standalone logout)', async () => {
+      const { authCommand } = await loadAuthModule();
 
       await authCommand.handler!({
         command: 'auth',
@@ -953,7 +921,10 @@ describe('cli/commands/auth', () => {
         options: { yes: true },
       });
 
-      expect(logout).toHaveBeenCalledWith('github.com');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Use the standalone logout command')
+      );
+      expect(process.exitCode).toBe(EXIT.USAGE);
     });
 
     it('prints auth status subcommand', async () => {
@@ -1065,8 +1036,13 @@ describe('cli/commands/auth', () => {
       expect(getAuthStatus).toHaveBeenCalledWith('github.enterprise.test');
     });
 
-    it('rejects removed auth token subcommand', async () => {
+    it('rejects unknown auth subcommand token with usage error', async () => {
       const { authCommand, getToken } = await loadAuthModule();
+
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
 
       await authCommand.handler!({
         command: 'auth',
@@ -1075,14 +1051,19 @@ describe('cli/commands/auth', () => {
       });
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('auth token was removed')
+        expect.stringContaining('Provide an auth action')
       );
       expect(getToken).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(EXIT.USAGE);
     });
 
-    it('rejects removed auth token subcommand in json mode', async () => {
+    it('rejects unknown auth subcommand token in json mode', async () => {
       const { authCommand, getToken } = await loadAuthModule();
+
+      Object.defineProperty(process.stdout, 'isTTY', {
+        value: false,
+        configurable: true,
+      });
 
       await authCommand.handler!({
         command: 'auth',
@@ -1092,7 +1073,7 @@ describe('cli/commands/auth', () => {
 
       const parsed = findJsonLine();
       expect(parsed.success).toBe(false);
-      expect(String(parsed.error)).toContain('auth token was removed');
+      expect(String(parsed.error)).toContain('Provide an auth action');
       expect(getToken).not.toHaveBeenCalled();
       expect(process.exitCode).toBe(EXIT.USAGE);
     });

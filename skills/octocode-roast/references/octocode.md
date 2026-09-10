@@ -1,19 +1,13 @@
 # Octocode research delegation
 
-Load when a roast needs local code, GitHub, package, history, or artifact research through Octocode.
+Load when a roast needs repository, GitHub, history, or package evidence. Why: severity must follow proof; `octocode-research` owns evidence collection.
 
-This skill does not define Octocode research rules. Use `octocode-research` for the router, tool choice, evidence grades, citation discipline, and MCP/CLI fallback behavior.
+Use `octocode-research` when available. It owns MCP-first/CLI-fallback invocation, live tool and runtime-grammar discovery, schemas, batching, continuations, and evidence limits. If absent, use exposed Octocode MCP tools; otherwise run `npx -y octocode context --compact`, inspect an unfamiliar tool once with `npx -y octocode tools <name> --scheme --json --compact`, and follow returned `next.*` calls unchanged.
 
-## How To Route
-
-1. When `octocode-research` is available, load it, and request code evidence for the roast target.
-2. Otherwise, ask for consent before installation or continue with normal repository tools and mark reduced coverage.
-3. After consent, install with the Octocode CLI:
+Install only when authorized:
 
 ```bash
 npx -y octocode skill install octocode-research
 ```
 
-Add `--platform <target>` after you approve installation for a specific host, such as `codex`, `claude`, `cursor`, or `pi`.
-
-Return the evidence here for severity ranking, tone calibration, and the fix checkpoint.
+Return proof for severity ranking, tone calibration, and the fix checkpoint.

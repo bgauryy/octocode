@@ -58,12 +58,17 @@ const SPECS: readonly CLICommandSpec[] = [
     usage:
       'install --ide <ide> [--method npx] [--force] [--check] [--rollback] [--backup-path <path>] [--json]',
     scheme: [
-      'required option: --ide supported client id; --check validates without writing.',
+      'required option: --ide supported client id; --check validates without writing; --list enumerates valid IDE ids.',
     ],
     whenToUse: ['Configure or validate an MCP client installation.'],
-    examples: ['install --ide cursor', 'install --ide claude-code --check'],
+    examples: [
+      'install --list',
+      'install --ide cursor',
+      'install --ide claude-code --check',
+    ],
     options: [
       flag('ide', 'IDE to configure', true),
+      flag('list', 'Print all supported IDE ids and exit'),
       flag('method', 'Installation method', true, 'npx'),
       flag('force', 'Overwrite existing configuration'),
       flag('check', 'Pre-flight only'),
@@ -74,18 +79,20 @@ const SPECS: readonly CLICommandSpec[] = [
   },
   {
     name: 'auth',
-    description: 'Manage GitHub authentication',
-    usage:
-      'auth [login|logout|refresh|status] [--hostname <host>] [--git-protocol <ssh|https>] [--force] [--yes] [--json]',
-    scheme: ['The optional action defaults to interactive auth management.'],
-    whenToUse: ['Use auth status --json for a narrow non-interactive check.'],
-    examples: ['auth status --json', 'auth login'],
+    description: 'Manage GitHub authentication (refresh token or check status)',
+    usage: 'auth <refresh|status> [--hostname <host>] [--json]',
+    scheme: [
+      'Subcommands: refresh (renew stored token), status (check auth state). Use standalone login/logout for credential management.',
+    ],
+    whenToUse: [
+      'Use auth status --json for a narrow non-interactive auth check.',
+      'Use auth refresh to renew an expired stored token.',
+      'Use login / logout for credential management.',
+    ],
+    examples: ['auth status --json', 'auth refresh'],
     options: [
       flag('hostname', 'GitHub Enterprise hostname', true),
-      flag('git-protocol', 'Git protocol: ssh or https', true),
-      flag('force', 'Re-authenticate'),
       flag('status', 'Auth-only status probe'),
-      flag('yes', 'Skip confirmation'),
       flag('json', 'Output JSON'),
     ],
   },
@@ -136,17 +143,21 @@ const SPECS: readonly CLICommandSpec[] = [
     description: 'Manage language servers for semantic research',
     usage:
       'lsp-server <list|status|install|uninstall|clean> [name...] [options]',
-    scheme: ['The positional subcommand selects inspection or provisioning.'],
+    scheme: [
+      'The positional subcommand selects inspection or provisioning.',
+      'Aliases: which = status, remove = uninstall.',
+    ],
     whenToUse: ['Diagnose or provision a missing semantic provider.'],
     examples: [
       'lsp-server status src/main.rs',
       'lsp-server install rust-analyzer',
+      'lsp-server which rust-analyzer',
     ],
     options: [
       flag('all', 'Select every downloadable server'),
       flag('force', 'Re-download managed state'),
       flag('yes', 'Allow non-interactive download'),
-      flag('platform', 'Target platform id', true),
+      flag('platform', 'Target platform id (host platform only)', true),
       flag('json', 'Output JSON'),
     ],
   },

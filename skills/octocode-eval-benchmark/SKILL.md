@@ -42,7 +42,7 @@ Stop when the contract is undefined, checks cannot run comparably, the harness c
 - When reporting, load `references/output.md`, and run `scripts/loop-report.mjs` — require goal, baseline, result, and verdict.
 
 ## Related routes and verification
-- Use `octocode-research` for evidence under test; `octocode-brainstorming` before evaluating an unresolved idea; `octocode-rfc-generator` for a design KPI contract.
+- Use `octocode-research` for evidence under test; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-brainstorming` before evaluating an unresolved idea and `octocode-rfc-generator` for a design KPI contract.
 - Use `octocode-subagent` to fan out parallel hypotheses or benchmark trials within one iteration — measurement, keep/discard, graders, and the subagent cookbook (`references/subagent-cookbook.md`) stay frozen here.
 - Use `octocode-prompt-optimizer` for wording after the KPI is fixed; `octocode-skills` for folder edits after ACCEPT. <!-- style-lint: ignore-line passive-voice -->
 - When changing this skill, run `scripts/check-description.mjs` then `scripts/eval-skill.mjs --self-test`, and a matching `--case` — catch trigger and self-routing regressions; cases live in `evals/` (`cases.json`, `trigger-cases.json`, `kpi-contract.json`).

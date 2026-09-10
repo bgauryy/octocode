@@ -8,8 +8,6 @@ import {
 import { Spinner } from '../../../utils/spinner.js';
 import { formatAuthStatusAsJson, printAuthStatus } from '../shared.js';
 import { runAuthMenu } from './menu.js';
-import { loginCommand } from './login-command.js';
-import { logoutCommand } from './logout-command.js';
 
 export const authCommand: CLICommand = {
   name: 'auth',
@@ -17,6 +15,7 @@ export const authCommand: CLICommand = {
     { name: 'hostname', hasValue: true },
     { name: 'json' },
     { name: 'status' },
+    // Note: force/yes/git-protocol are not needed here; use standalone login/logout commands.
   ],
   handler: async (args: ParsedArgs) => {
     const subcommand = args.args[0];
@@ -26,14 +25,14 @@ export const authCommand: CLICommand = {
       'github.com';
     const jsonOutput = Boolean(args.options['json']);
 
-    if (subcommand === 'login') {
-      if (!jsonOutput && !args.options['force'] && process.stdout.isTTY) {
-        return runAuthMenu(args);
-      }
-      return loginCommand.handler(args);
-    }
-    if (subcommand === 'logout') {
-      return logoutCommand.handler(args);
+    if (subcommand === 'login' || subcommand === 'logout') {
+      console.log();
+      console.log(
+        `  ${c('yellow', '⚠')} Use the standalone ${c('cyan', subcommand)} command instead of auth ${subcommand}.`
+      );
+      console.log();
+      process.exitCode = EXIT.USAGE;
+      return;
     }
     if (subcommand === 'status' || args.options['status']) {
       if (jsonOutput) {
@@ -50,24 +49,6 @@ export const authCommand: CLICommand = {
       return;
     }
 
-    if (subcommand === 'token') {
-      const message =
-        'auth token was removed. Use `auth status --json` to check token presence.';
-      if (jsonOutput) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            error: message,
-          })
-        );
-      } else {
-        console.log();
-        console.log(`  ${c('red', '✗')} ${message}`);
-        console.log();
-      }
-      process.exitCode = EXIT.USAGE;
-      return;
-    }
     if (subcommand === 'refresh') {
       const currentStatus = await getAuthStatusAsync(hostname);
       const tokenSource = currentStatus.tokenSource;
@@ -185,16 +166,19 @@ export const authCommand: CLICommand = {
           JSON.stringify({
             success: false,
             error:
-              'Provide an auth action: login, logout, refresh, or status. Use `auth status --json` for read-only auth state.',
+              'Provide an auth action: refresh or status. Use standalone `login` or `logout` for credential management. Use `auth status --json` for read-only auth state.',
           })
         );
       } else {
         console.log();
         console.log(
-          `  ${c('red', '✗')} Provide an auth action: login, logout, refresh, or status.`
+          `  ${c('red', '✗')} Provide an auth action: refresh or status.`
         );
         console.log(
           `  ${dim('Use')} ${c('cyan', 'auth status --json')} ${dim('for read-only auth state.')}`
+        );
+        console.log(
+          `  ${dim('Use')} ${c('cyan', 'login')} ${dim('or')} ${c('cyan', 'logout')} ${dim('for credential management.')}`
         );
         console.log();
       }

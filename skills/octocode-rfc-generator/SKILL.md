@@ -37,6 +37,6 @@ Start with `RFC.md`. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, `KPI.md`, or `
 - When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
 
 ## Related routes and verification
-- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-eval-benchmark` for KPI rigor. <!-- style-lint: ignore-line passive-voice -->
+- Use `octocode-brainstorming` before RFC when worth-building is unresolved and `octocode-eval-benchmark` for KPI rigor. To close factual questions, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery. <!-- style-lint: ignore-line passive-voice -->
 - Use `octocode-skills` when changing this skill folder.
 - Before delivery validate the document contract section by section and report the real result.

@@ -25,7 +25,7 @@ Workspace output contract: chat-only recommendations stay in chat. New reviews, 
 - Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — check navigation, useful content, and standalone execution. Assess advisory formatting warnings in context.
 - When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md`, and use `assets/hooks/` — map the correct host event and avoid silent no-ops.
 - When installing, load `references/install-gates.md`, then `references/install-destinations.md`; remote sources use `references/fetch-remote.md`, local creation uses `references/create-local-skill.md`, and vendor links use `references/skill-sync.md` — secure approval, destination, and provenance before writes.
-- When evidence needs code/package/repository research, load `references/octocode.md` — delegate research mechanics instead of duplicating them.
+- When evidence needs code/package/repository research, load `references/octocode.md` — delegate the MCP/CLI workflow and live tool/grammar discovery instead of duplicating them.
 - When tracing source provenance, load `references/references.md`; when authoring a source appendix, start from `references/references-template.md` — keep claims auditable without bloating instructions.
 
 ## Related routes

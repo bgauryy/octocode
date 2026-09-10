@@ -93,9 +93,13 @@ describe('Pi execution journal adapter', () => {
       'transcript'
     );
     emitExecution(h.ctx, 'assistant.progress', { message: 'working' }, 'activity');
+    emitExecution(h.ctx, 'user.message', { messageId: 'native-message' }, 'transcript');
 
     expect(h.persistedTypes).toContain(EXECUTION_TRANSCRIPT_ENTRY_TYPE);
     expect(h.persistedTypes).toContain(EXECUTION_ENTRY_TYPE);
+    expect(h.persistedTypes.at(-1)).toBe(
+      EXECUTION_ENTRY_TYPE,
+    );
 
     const resumed = harness([...h.branch]);
     restoreExecutionJournal(resumed.ctx);

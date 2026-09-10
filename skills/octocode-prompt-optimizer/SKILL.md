@@ -47,7 +47,7 @@ Load references that resolve the current decision. Reuse material already read a
 | Improving this skill | `octocode-eval-benchmark`, else `references/improve-loop.md` | measurable acceptance instead of intuition |
 
 ## Related routes
-- Use `octocode-skills` for skill-folder architecture/review; `octocode-research` to verify cited contracts; `octocode-eval-benchmark` for held-out behavior.
+- Use `octocode-skills` for skill-folder architecture/review and `octocode-eval-benchmark` for held-out behavior. To verify technical contracts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.
 - Use `octocode-subagent` for delegation topology.
 
 ## Done

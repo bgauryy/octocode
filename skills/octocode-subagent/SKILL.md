@@ -20,7 +20,7 @@ Stop when acceptance is met or progress needs missing authority or information. 
 - At FRAME, load `references/orchestration-contract.md` when goal, authority, budget, ownership, or critical path needs definition — bound activity to the requested outcome.
 - When deciding solo, batch, specialist, or clean worker, load `references/spawn-gate.md` — delegation must earn its coordination cost.
 - When splitting work, load `references/decompose.md`; when choosing supervisor, pipeline, handoff, or swarm load `references/patterns.md` — create a dependency-aware topology.
-- Before spawning, load `references/packets.md`; when delegating technical research load `references/octocode.md` — make worker context and tool routing self-contained.
+- Before spawning, load `references/packets.md`; when delegating technical research load `references/octocode.md` — make worker context self-contained while `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.
 - When selecting host model/thinking effort, load `references/model-routing.md` — smallest capable configured model.
 - When waiting, steering, messaging, or stopping workers, load `references/coordinate.md`; for independent remote peers load `references/a2a.md`.
 - When parallel writers share mutable state, load `references/workspace.md`; when peers, locks, messages, verification debt, or reusable memory can change EXECUTE/VERIFY, load `references/awareness.md`.

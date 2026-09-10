@@ -22,6 +22,14 @@ interface Journal {
 }
 const journals = new WeakMap<RuntimeStore, Journal>();
 
+function hasExecutionTranscriptCard(event: ExecutionEvent): boolean {
+  return (
+    event.type === 'plan.updated' ||
+    event.type === 'agent.message' ||
+    event.type === 'agent.transition'
+  );
+}
+
 function journalFor(store: RuntimeStore, ctx: PiContext): Journal {
   let journal = journals.get(store);
   if (!journal) {
@@ -39,7 +47,7 @@ export function bindExecutionJournal(pi: PiInstance, ctx: PiContext): void {
   const journal = journalFor(store, ctx);
   journal.persist = event =>
     pi.appendEntry?.(
-      event.visibility === 'transcript'
+      event.visibility === 'transcript' && hasExecutionTranscriptCard(event)
         ? EXECUTION_TRANSCRIPT_ENTRY_TYPE
         : EXECUTION_ENTRY_TYPE,
       event

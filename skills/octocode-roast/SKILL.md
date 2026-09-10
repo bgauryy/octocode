@@ -32,7 +32,7 @@ Use the memorable labels in `references/sin-catalog.md`, but rank by demonstrate
 - When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
 
 ## Related routes
-- Use `octocode-research` for evidence gathering; `octocode-eval-benchmark` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
+- Use `octocode-research` for evidence gathering; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-eval-benchmark` to measure roast usefulness and `octocode-prompt-optimizer` only for tone/instruction wording.
 - Use `octocode-skills` when changing this skill folder.
 
 ## Output

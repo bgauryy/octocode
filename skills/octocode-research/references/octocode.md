@@ -6,29 +6,23 @@ Load when tool selection, transport, availability, or recovery is unclear. The l
 Prefer exposed Octocode MCP tools with current public contracts. If unavailable, use the built checkout CLI; an installed skill can use `npx -y octocode`. These share core-owned contracts and tools-core runners. Do not substitute a legacy tool with different fields.
 
 ```bash
+node packages/octocode/out/octocode.js context --compact
 node packages/octocode/out/octocode.js tools --json --compact
 node packages/octocode/out/octocode.js tools localSearch --scheme --json --compact
 node packages/octocode/out/octocode.js tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"needle","maxFiles":10}' --compact
 ```
 
-Use `context --minimal` only for protocol orientation. Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use full schema JSON when compact fields do not resolve a condition. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.
+Run `context --compact` once per session or tool-version change to discover enabled tools and the runtime grammar inventory. Treat that inventory as authoritative: a displayed language name, grammar ID, or alias selects its family; a dot-prefixed extension selects exactly; parser availability does not imply LSP availability. Never copy a static grammar list into a skill. Use `context --minimal` only when inventory is unnecessary.
+
+Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use full schema JSON when compact fields do not resolve a condition. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 
-## 10 public tools
-| Need | Tool |
-|---|---|
-| Local text | `localSearch` with `searchText` |
-| Local AST, files, tree, symbols, topology | `astSearch` with the corresponding `operation` |
-| Exact local content | `localFetch` |
-| File dependencies, dependents, paths, cycles, reachability, dead-code candidates | `astSearch` topology |
-| Symbol identity, references, call/type relationships, capabilities | `lspSearch` |
-| GitHub code / tree / repositories | `ghSearch` |
-| Exact remote file | `ghGetFileContent` |
-| PR, issue, commit discovery | `ghSearchHistory` |
-| PR, issue, commit, comparison detail | `ghGetHistoryItem` |
-| Cached shallow checkout | `ghCloneRepo` |
-| Package metadata or capability discovery | `artifactSearch` with ecosystem `type`; exact `packageName` or discovery `keywords` (PyPI exact only) |
+## Choose by evidence question
+
+- Local: `localSearch` for text, `astSearch` for syntax/files/tree/symbols/topology, `localFetch` for exact content, and `lspSearch` for semantic identity and relationships.
+- GitHub: `ghSearch` for discovery, `ghGetFileContent` for a known file, `ghSearchHistory` for history discovery, and `ghGetHistoryItem` for a known item or comparison.
+- Materialization and packages: `ghCloneRepo` for an enabled shallow checkout; `artifactSearch` for ecosystem metadata or capability discovery.
 
 The default catalog contains 9 tools; the full discovery catalog includes opt-in `ghCloneRepo`. Local access, clone, storage, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 

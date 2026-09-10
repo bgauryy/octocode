@@ -104,7 +104,7 @@ See the repository [configuration guide](https://github.com/bgauryy/octocode/blo
 | `/octocode-status` | Inspect session usage, tools, skills, plan, agents, and pending decisions; `events` shows the selected branch’s execution journal and `export` saves JSONL. |
 | `/configuration` | Alias for `/config`. |
 
-The footer separates live activity from session metadata. `/octocode-status` opens details; `/octocode-status export` writes the semantic journal into the session artifact directory. Full messages and tool output remain in Pi’s transcript. The footer shows `/config`. The page controls MCP connections and tools,
+The footer separates live activity from session metadata. It lists active workers and briefly retains done/killed outcomes before their full detail remains in `/octocode-inbox`. Plan updates, worker state transitions, and parent↔worker messages appear as durable transcript cards without entering model context. `/octocode-status` opens details; `/octocode-status export` writes the semantic journal into the session artifact directory. Full messages and tool output remain in Pi’s transcript. The footer shows `/config`. The page controls MCP connections and tools,
 skill sources, command hooks, permissions, theme, effort, and footer density. It also shows models and worker grants and opens the current plan
 for review. Host-provided and user-installed commands remain in the live inventory.
 The recovery command remains preview-first and does not rewrite input through regex triggers.

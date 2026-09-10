@@ -28,6 +28,7 @@ export const installCommand: CLICommand = {
   name: 'install',
   options: [
     { name: 'ide', hasValue: true },
+    { name: 'list' },
     { name: 'method', hasValue: true, default: 'npx' },
     { name: 'force' },
     { name: 'check' },
@@ -37,6 +38,7 @@ export const installCommand: CLICommand = {
   ],
   handler: async (args: ParsedArgs) => {
     const rawIde = args.options['ide'];
+    const listOnly = Boolean(args.options['list']);
     const methodOpt = args.options['method'];
     const method = (typeof methodOpt === 'string' ? methodOpt : 'npx') as
       InstallMethod | string;
@@ -45,6 +47,21 @@ export const installCommand: CLICommand = {
     const rollback = Boolean(args.options['rollback']);
     const rawBackupPath = args.options['backup-path'];
     const jsonOutput = Boolean(args.options['json']);
+
+    if (listOnly) {
+      const ids = SUPPORTED_INSTALL_CLIENTS;
+      if (jsonOutput) {
+        console.log(JSON.stringify({ supported: ids }));
+      } else {
+        console.log();
+        console.log(`  ${bold('Supported IDE ids for --ide:')}`);
+        for (const id of ids) {
+          console.log(`    ${c('cyan', id)}`);
+        }
+        console.log();
+      }
+      return;
+    }
 
     if (typeof rawIde !== 'string' || rawIde.trim().length === 0) {
       if (!process.stdout.isTTY || jsonOutput) {

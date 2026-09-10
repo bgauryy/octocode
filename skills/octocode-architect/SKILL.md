@@ -14,6 +14,7 @@ Flow: `THINK → PLAN → CODE → REVIEW`.
 - Name the use case and the smallest useful slice before editing. No use case or unresolved contract → stop and surface the gap.
 - Decompose before solving: split the task into meaningful problems, map dependencies, run independent work concurrently when useful, verify each piece, then compose the result.
 - Inspect the implementation, callers, runtime wiring, data flow, tests, and similar behavior. Description is not evidence.
+- For repository, GitHub, package, or symbol evidence, use `octocode-research`; it owns the MCP/CLI workflow and live tool/grammar discovery.
 - Map affected scope and impact before the write: interfaces, consumers, persisted data, operations, tests, and rollback. Recheck them in the diff afterward.
 - Before editing, inspect the working tree and record comparable baseline checks. Existing changes may belong to a human or another agent: preserve them; never stash, reset, overwrite, or discard them; coordinate overlapping paths before writing.
 - After editing, rerun the same or directly comparable checks and classify each failure as pre-existing, introduced by your change, introduced by concurrent work, or uncertain. Fix only in-scope failures; report the others with attribution evidence.

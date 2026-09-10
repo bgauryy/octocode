@@ -4090,9 +4090,14 @@ test('agent ledger splits ambient counts from bounded worker detail', async () =
     });
     spawned[0]!.emitStdout({ type: 'agent_end', messages: [] });
     spawned[0]!.close(0);
-    // Settled workers remain in the inbox; ambient footer space belongs to live
-    // work and failures, so the completed row disappears entirely.
-    assert.doesNotMatch(footerText(), /ui-worker|\bok\b/, 'completed worker detail leaves the ambient footer');
+    // A just-completed worker stays visible briefly so the user can notice the
+    // outcome, while full/raw output remains routed to the inbox.
+    assert.match(
+      footerText(),
+      /done[\s\S]*ui-worker[\s\S]*inbox/,
+      'completed worker outcome remains briefly visible with its detail route',
+    );
+    assert.doesNotMatch(footerText(), /\[DONE\]/, 'raw handback markers remain in the inbox');
     assert.equal(
       widgetCalls.some((call) => call.key === 'octocode-status-panel'),
       false,
