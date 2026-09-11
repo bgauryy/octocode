@@ -32,11 +32,7 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Lint
-        # octocode-engine excluded: Rust/clippy compilation is too costly for CI
-        run: yarn lint:ci
-
-      # Build must run before Typecheck/Test: packages consume their siblings'
+      # Build must run before Lint/Docs/Typecheck/Test: packages consume their siblings'
       # compiled output (e.g. @octocodeai/octocode-engine subpath exports map to
       # ./dist/*, which is gitignored), and tools-core tests load the host
       # octocode-engine native addon through the workspace dependency.
@@ -47,6 +43,10 @@ jobs:
 
       - name: Verify docs
         run: yarn docs:verify
+
+      - name: Lint
+        # octocode-engine excluded: Rust/clippy compilation is too costly for CI
+        run: yarn lint:ci
 
       - name: Verify build outputs
         run: node scripts/workspace-health.mjs check-outputs
