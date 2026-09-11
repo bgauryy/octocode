@@ -32,9 +32,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Verify docs
-        run: yarn docs:verify
-
       - name: Lint
         # octocode-engine excluded: Rust/clippy compilation is too costly for CI
         run: yarn lint:ci
@@ -47,6 +44,9 @@ jobs:
         # build:ci builds the host octocode-engine native addon once, then skips
         # rebuilding octocode-engine while compiling dependent packages.
         run: yarn build:ci
+
+      - name: Verify docs
+        run: yarn docs:verify
 
       - name: Verify build outputs
         run: node scripts/workspace-health.mjs check-outputs

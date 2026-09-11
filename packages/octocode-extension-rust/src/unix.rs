@@ -31,6 +31,11 @@ fn too_large(maximum: usize) -> String {
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+// mode_t is u16 on macOS and u32 on Linux; normalize it for stored mode values.
+#[allow(clippy::unnecessary_cast)]
+fn mode_bits(value: libc::mode_t) -> u32 {
+    value as u32
+}
 fn cname(name: &str) -> FsResult<CString> {
     CString::new(name).map_err(|_| "INVALID_PATH: Path contains NUL".into())
 }
@@ -234,7 +239,7 @@ fn snapshot_at(
             size: 0,
         });
     };
-    let kind = before.mode & libc::S_IFMT as u32;
+    let kind = before.mode & mode_bits(libc::S_IFMT);
     let mut bytes = if include_content {
         Some(Vec::new())
     } else {
@@ -242,7 +247,7 @@ fn snapshot_at(
     };
     let mut hasher = Sha256::new();
     let size;
-    let is_symlink = kind == libc::S_IFLNK as u32;
+    let is_symlink = kind == mode_bits(libc::S_IFLNK);
     if is_symlink && allow_symlink {
         let mut target = vec![0u8; maximum.min(32768).saturating_add(1)];
         // SAFETY: valid directory/name and initialized writable buffer; readlinkat never follows leaf.
@@ -267,7 +272,7 @@ fn snapshot_at(
             bytes.extend_from_slice(&target);
         }
     } else {
-        if kind != libc::S_IFREG as u32 {
+        if kind != mode_bits(libc::S_IFREG) {
             return Err("NOT_REGULAR_FILE: File path must identify a regular file (symlinks require explicit leaf mode)".into());
         }
         if before.size < 0 || before.size as u64 > maximum as u64 {
@@ -370,11 +375,11 @@ impl EvidenceFile {
             return Err("source_missing".into());
         }
         let before = stat_at(&parent)?.ok_or("source_missing")?;
-        let kind = before.mode & libc::S_IFMT as u32;
-        if kind == libc::S_IFLNK as u32 {
+        let kind = before.mode & mode_bits(libc::S_IFMT);
+        if kind == mode_bits(libc::S_IFLNK) {
             return Err("symlink_source".into());
         }
-        if kind != libc::S_IFREG as u32 {
+        if kind != mode_bits(libc::S_IFREG) {
             return Err("not_regular_file".into());
         }
         // SAFETY: pinned directory and single validated leaf; no-follow and nonblocking defeat link/FIFO races.
