@@ -13,6 +13,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  skill-installer-windows:
+    name: Skill installer (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build config dependency
+        run: yarn workspace @octocodeai/config build
+
+      - name: Verify cross-platform skill installer
+        run: yarn workspace @octocodeai/octocode-skill-installer verify
+
   ci:
     name: Lint, Build & Test
     runs-on: ubuntu-latest
