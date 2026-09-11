@@ -3,9 +3,8 @@ import { sqlEnum } from '@octocodeai/agent-contracts/schema';
 import { CONTINUITY_SCHEMA_DDL, EVENT_OUTBOX_TYPED_INDEX_DDL } from './db-continuity-schema.js';
 import { LOCAL_HISTORY_INDEX_DDL, LOCAL_HISTORY_SCHEMA_DDL } from './db-history-schema.js';
 import { AWARENESS_META_DDL, HOOK_RECEIPTS_DDL } from './db-meta-schema.js';
+export { AWARENESS_SCHEMA_VERSION } from './storage-scope.js';
 // ─── Schema ───────────────────────────────────────────────────────────────────
-
-export const AWARENESS_SCHEMA_VERSION = 3;
 
 export const SCHEMA_DDL = `
     ${AWARENESS_META_DDL}
