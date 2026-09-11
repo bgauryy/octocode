@@ -10,11 +10,20 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 describe('canonical orientation resource leads', () => {
   it('returns only current, existing architecture sources', () => {
     const leads = resourceLeads('awareness architecture and memory', REPO_ROOT);
+    const generatedRfc = resolve(
+      REPO_ROOT,
+      '.octocode/rfc/awareness-one-surface/RFC.md'
+    );
+    const architecture = resolve(
+      REPO_ROOT,
+      'packages/octocode-awareness/ARCHITECTURE.md'
+    );
 
     expect(leads.map(({ source }) => source)).toEqual([
-      resolve(REPO_ROOT, '.octocode/rfc/awareness-one-surface/RFC.md'),
-      resolve(REPO_ROOT, 'packages/octocode-awareness/ARCHITECTURE.md'),
+      ...(existsSync(generatedRfc) ? [generatedRfc] : []),
+      architecture,
     ]);
+    expect(existsSync(architecture)).toBe(true);
     expect(leads.every(({ source }) => typeof source === 'string' && existsSync(source))).toBe(true);
     expect(JSON.stringify(leads)).not.toMatch(/homeostatic|self-reflection/);
   });
