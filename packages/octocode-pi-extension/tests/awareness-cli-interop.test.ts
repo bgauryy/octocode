@@ -363,7 +363,7 @@ describe.each(['global', 'repo'] as const)(
               reasoning:
                 'Publish a fixture signal through the installed Awareness CLI using native Pi bindings.',
               command:
-                '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" signal publish --agent-id "$OCTOCODE_AGENT_ID" --workspace "$OCTOCODE_AWARENESS_WORKSPACE" --to-agent external-skill-agent --kind fyi --subject "Bash bridge" --body "Native identity and database" --compact',
+                '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" message send --agent-id "$OCTOCODE_AGENT_ID" --workspace "$OCTOCODE_AWARENESS_WORKSPACE" --to-agent external-skill-agent --kind fyi --subject "Bash bridge" --body "Native identity and database" --compact',
               timeout: 10,
             },
           ],

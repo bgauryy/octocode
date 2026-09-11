@@ -2,7 +2,7 @@
  * maintenance.ts — Background maintenance, smart briefing, and session lifecycle operations.
  *
  * pruneStale:          deletes expired exclusive locks; work/run lifecycle stays independent.
- * notifyGet:           returns a smart workspace briefing (top memories + weakness + refinements).
+ * notifyGet:           returns a smart workspace briefing (top memories + weakness).
  * digest:              archives expired memories, prunes stale rows/locks, rebuilds FTS.
  * getWorkspaceStatus:  reads active locks, agents, and memory store stats.
  * exportMemoryDoc:     queries all active memories and returns a markdown report string.
@@ -18,14 +18,13 @@ import { assertKnownOptions, normalizeArtifact, summarizeText } from './helpers.
 import { queryMemory } from './memory-recall.js';
 import { getNotifications } from './notifications-inbox.js';
 import { compactBriefItems, notificationBriefText, summarizeUtf8 } from './maintenance-brief-format.js';
-import { BriefItem, NotifyGetBriefResult, NotifyGetResult, openRefinementCount } from './maintenance-stale.js';
+import { BriefItem, NotifyGetBriefResult, NotifyGetResult } from './maintenance-stale.js';
 
 /**
  * Returns a smart workspace briefing instead of an empty inbox.
  * — Unread agent signals addressed to this agent (or broadcasts)
  * — Top memories (GOTCHA/BUG/DECISION, importance >=6, scoped to workspace)
  * — Top mine-weakness cluster (failure_signature with count >=2)
- * — Count of open refinements
  * Designed to be called by notify-deliver.sh before supported user prompts.
  * Optional prompt-time maintenance preview is controlled by
  * OCTOCODE_NOTIFY_RUN_DIGEST=1; it never applies the digest.
@@ -276,14 +275,6 @@ export function notifyGet(
         kind: 'weakness',
         text: `⚠️ Recurring: ${topWk.failure_signature} (${topWk.freq}x, avg imp ${Math.round(topWk.avg_imp)})`,
       });
-    }
-  } catch { observationFailed = true; /* skip this section on error */ }
-
-  // 3. Open repo-fix refinements count (session handoffs are excluded by default)
-  try {
-    const refCount = openRefinementCount(db, { workspacePath: wsPath, artifact, cwd: notifyCwd });
-    if (refCount > 0) {
-      items.push({ kind: 'refinement', text: `📋 ${refCount} open refinement(s) pending` });
     }
   } catch { observationFailed = true; /* skip this section on error */ }
 

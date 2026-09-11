@@ -18,11 +18,16 @@ Inspect an unfamiliar schema once, including relations and operation variants; r
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 
-## Choose by evidence question
+## 10 public tools
 
-- Local: `localSearch` for text, `astSearch` for syntax/files/tree/symbols/topology, `localFetch` for exact content, and `lspSearch` for semantic identity and relationships.
-- GitHub: `ghSearch` for discovery, `ghGetFileContent` for a known file, `ghSearchHistory` for history discovery, and `ghGetHistoryItem` for a known item or comparison.
-- Materialization and packages: `ghCloneRepo` for an enabled shallow checkout; `artifactSearch` for ecosystem metadata or capability discovery.
+| Evidence question | Tool |
+|---|---|
+| GitHub code / tree / repositories | `ghSearch` |
+| Known GitHub file | `ghGetFileContent` |
+| GitHub history discovery / known item | `ghSearchHistory` / `ghGetHistoryItem` |
+| Repeated cross-file GitHub analysis | `ghCloneRepo` when enabled |
+| Local text / syntax or topology / exact content / symbol identity | `localSearch` / `astSearch` / `localFetch` / `lspSearch` |
+| Package metadata or capability discovery | `artifactSearch` |
 
 The default catalog contains 9 tools; the full discovery catalog includes opt-in `ghCloneRepo`. Local access, clone, storage, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 

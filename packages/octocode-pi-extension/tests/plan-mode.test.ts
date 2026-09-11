@@ -32,14 +32,14 @@ test('every shipped support/override tool has declared effect metadata', () => {
   assert.equal(getToolEffect('web'), 'read');
 });
 
-test('Awareness tool effects follow the canonical command catalog', () => {
-  const query = (command?: string) => ({ queries: [{ action: command ? 'call' : 'list', ...(command ? { command } : {}) }] });
-  assert.equal(getToolEffect('awareness', query()), 'read');
-  assert.equal(getToolEffect('awareness', query('status')), 'read');
-  assert.equal(getToolEffect('awareness', query('signal publish')), 'coordination-write');
-  assert.equal(getToolEffect('awareness', query('history restore-apply')), 'workspace-write');
-  assert.equal(getToolEffect('awareness', query('memory prune')), 'external-effect');
-  assert.equal(getToolEffect('awareness', query('not a command')), undefined);
+test('Awareness tool effects follow the canonical operation catalog', () => {
+  const query = (operation?: string, params?: Record<string, unknown>) => ({ queries: [{ ...(operation ? { operation } : {}), ...(params ? { params } : {}) }] });
+  assert.equal(getToolEffect('awareness', query()), undefined);
+  assert.equal(getToolEffect('awareness', query('context.orient')), 'read');
+  assert.equal(getToolEffect('awareness', query('message.send')), 'coordination-write');
+  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'apply' })), 'workspace-write');
+  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'preview' })), 'read');
+  assert.equal(getToolEffect('awareness', query('not.an.operation')), undefined);
 });
 
 test('capability receipts are deterministic and deny precedence is fail-closed', () => {

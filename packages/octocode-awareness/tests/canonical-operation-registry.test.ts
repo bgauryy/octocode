@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import {
   getAwarenessOperationDescriptor,
   listAwarenessOperationDescriptors,
-  operationCallForLegacyCommand,
 } from '../src/schema/operation-catalog.js';
 
 describe('canonical operation registry contract', () => {
@@ -40,26 +39,25 @@ describe('canonical operation registry contract', () => {
     })).toBe('coordination-write');
   });
 
-  it('maps routine CLI routes into canonical calls and leaves admin routes explicit', () => {
-    expect(operationCallForLegacyCommand('signal publish', {
-      workspace: '/host-owned', agent_id: 'host-owned', kind: 'fyi', subject: 'Update',
-    })).toEqual({ operation: 'message.send', params: { kind: 'fyi', subject: 'Update' } });
-    expect(operationCallForLegacyCommand('lock wait', { target_file: ['src/a.ts'] }))
-      .toEqual({ operation: 'work.protect', params: { action: 'wait', target_file: ['src/a.ts'] } });
-    expect(operationCallForLegacyCommand('database consolidate', {})).toBeUndefined();
-  });
-
-  it('has no dependency on the parallel legacy registry or dispatchers', () => {
+  it('has no parallel command registry, compatibility mapper, or generic dispatcher', () => {
     const catalog = readFileSync(new URL('../src/schema/operation-catalog.ts', import.meta.url), 'utf8');
     const executor = readFileSync(new URL('../src/operation-executor.ts', import.meta.url), 'utf8');
-    expect(catalog).not.toContain('getAwarenessCommandDescriptor');
-    for (const dependency of ['COMMAND_ROUTES', 'runDatabaseCommandHandler', 'runLockCommand', 'executeAwarenessCommand']) {
-      expect(executor).not.toContain(dependency);
+    const cli = readFileSync(new URL('../src/command-cli.ts', import.meta.url), 'utf8');
+    for (const path of [
+      '../src/command-api.ts',
+      '../src/command-contracts.ts',
+      '../src/command-continuations.ts',
+      '../src/command-dispatch.ts',
+      '../src/commands/routes.ts',
+      '../src/schema/command-catalog.ts',
+    ]) {
+      expect(existsSync(new URL(path, import.meta.url)), path).toBe(false);
     }
-    for (const descriptor of listAwarenessOperationDescriptors()) {
-      for (const command of descriptor.legacyCommands) {
-        if (descriptor.operation !== 'context.orient') expect(operationCallForLegacyCommand(command, {})).toBeDefined();
-      }
+    for (const source of [catalog, executor, cli]) {
+      for (const dependency of [
+        'executeAwarenessCommand', 'COMMAND_ROUTES', 'commandIndex',
+        'getAwarenessCommandDescriptor', 'operationCallForLegacyCommand', 'legacyCommands',
+      ]) expect(source).not.toContain(dependency);
     }
   });
 });

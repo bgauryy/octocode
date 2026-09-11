@@ -1,6 +1,6 @@
 ---
 name: octocode-architect
-description: "Use when an architecture decision or refactor needs evidence about algorithms, boundaries, contracts, external/internal data and control flow, hot paths, coupling, blast radius, cycles, reachability, performance, or maintainability. Not for evidence collection without an architecture decision → octocode-research, or behavior-preserving cleanup → octocode-clean-agentic-code."
+description: "Use when an architecture decision or refactor needs evidence about boundaries, contracts, data/control flow, coupling, blast radius, cycles, reachability, performance, or maintainability. Not for evidence collection without a decision → octocode-research; behavior-preserving cleanup → octocode-clean-agentic-code."
 ---
 
 # Octocode Architect

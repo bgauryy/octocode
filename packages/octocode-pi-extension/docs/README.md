@@ -44,7 +44,6 @@ use `node $OCTOCODE_CLI tools <name> --scheme`.
 | [SETTINGS.md](SETTINGS.md) | `/config` OS browser control center: commands, MCP, source review, skills, models, hooks, persistence, security, and next-turn refresh. |
 | [RUNTIME_STATE.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/RUNTIME_STATE.md) | Session initialization, Zustand state ownership, MCP readiness, and disposal. |
 | [SESSION_ARTIFACTS.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/SESSION_ARTIFACTS.md) | Where session files live (plans, screenshots, logs, compaction snapshots), manifest, and cleanup. |
-| [CRON.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/CRON.md) | Session job safety model, default jobs, and cron-style maintenance commands. |
 
 ### Audit and decisions
 

@@ -11,7 +11,6 @@ import { notifyGet } from '../src/maintenance-briefing.js';
 import { digest } from '../src/maintenance-digest.js';
 import { getWorkspaceStatus, exportMemoryDoc } from '../src/maintenance-workspace.js';
 import { insertMemory } from '../src/memory-write.js';
-import { insertRefinement, updateRefinement } from '../src/refinements.js';
 import { insertNotification } from '../src/notifications-core.js';
 import { auditUnverified } from '../src/verify-audit.js';
 function freshDb(): DatabaseSync {
@@ -210,9 +209,9 @@ describe('digest dry_run', () => {
     const result = digest(db, { dry_run: true });
     expect(Object.keys(result).sort()).toEqual([
       'archived_memories', 'candidate_ids', 'candidate_limit', 'dry_run', 'failed_stale_active_runs', 'fts_rebuilt', 'ok', 'pressure_age_days',
-      'pressure_samples', 'pruned_locks', 'pruned_old', 'pruned_refinements', 'pruned_runs', 'resolved_handoff_signals',
+      'pressure_samples', 'pruned_locks', 'pruned_old', 'pruned_runs', 'resolved_handoff_signals',
       'stale_active_runs', 'stale_handoff_signals', 'stale_missing_refs', 'stale_open_signals', 'stale_pending_runs',
-      'would_archive', 'would_fail_stale_active_runs', 'would_prune_locks', 'would_prune_old', 'would_prune_refinements', 'would_prune_runs',
+      'would_archive', 'would_fail_stale_active_runs', 'would_prune_locks', 'would_prune_old', 'would_prune_runs',
       'would_resolve_handoff_signals',
     ]);
     expect(result).toMatchObject({
@@ -225,7 +224,7 @@ describe('digest dry_run', () => {
       pressure_samples: { run_ids: [], active_run_ids: [], signal_ids: [], handoff_signal_ids: [], memory_ids: [] },
       candidate_limit: 20,
       candidate_ids: {
-        expire_memory_ids: [], purge_memory_ids: [], locks: [], refinement_ids: [], run_ids: [], stale_active_run_ids: [],
+        expire_memory_ids: [], purge_memory_ids: [], locks: [], run_ids: [], stale_active_run_ids: [],
       },
     });
   });
@@ -266,26 +265,6 @@ describe('digest', () => {
     const stale = db.prepare('SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?').get('stale') as Record<string, unknown> | undefined;
     expect(stale).toBeUndefined();
   });
-  it('prunes terminal handoffs and completed refinements while keeping active repo fixes', () => {
-    const db = freshDb();
-    const old = new Date(Date.now() - 45 * 86400000).toISOString();
-    const fresh = new Date().toISOString();
-    const handoff = insertRefinement(db, { reasoning: 'handoff', remember: 'Review session handoff for agent', quality: 'handoff' }).refinementId;
-    updateRefinement(db, { refinementId: handoff, state: 'done', actorAgentId: 'tester', checkReceipt: 'handoff consumed' });
-    const done = insertRefinement(db, { reasoning: 'done', remember: 'done fix', quality: 'bad', state: 'open' }).refinementId;
-    updateRefinement(db, { refinementId: done, state: 'done', actorAgentId: 'tester', checkReceipt: 'fixture verified' });
-    const active = insertRefinement(db, { reasoning: 'active', remember: 'active fix', quality: 'bad', state: 'open' }).refinementId;
-    db.prepare('UPDATE refinements SET created_at = ?, updated_at = ? WHERE refinement_id IN (?, ?)').run(old, old, handoff, done);
-    db.prepare('UPDATE refinements SET created_at = ?, updated_at = ? WHERE refinement_id = ?').run(fresh, fresh, active);
-
-    const dry = digest(db, { dry_run: true });
-    expect(dry.would_prune_refinements).toBe(2);
-    const result = digest(db, {});
-    expect(result.pruned_refinements).toBe(2);
-    const remaining = db.prepare('SELECT refinement_id FROM refinements').all() as Array<{ refinement_id: string }>;
-    expect(remaining.map(r => r.refinement_id)).toEqual([active]);
-  });
-
   it('compacts old terminal standalone runs while retaining verification receipts', () => {
     const db = freshDb();
     const old = '2020-01-01T00:00:00Z';
@@ -318,8 +297,6 @@ describe('getWorkspaceStatus', () => {
     expect(typeof result.active_memories).toBe('number');
     expect(typeof result.pending_runs).toBe('number');
     expect(typeof result.active_runs).toBe('number');
-    expect(typeof result.actionable_refinements).toBe('number');
-    expect(typeof result.all_open_refinements).toBe('number');
     expect(Array.isArray(result.locks)).toBe(true);
   });
 

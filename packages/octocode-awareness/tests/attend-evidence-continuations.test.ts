@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db-init.js';
 import { attendAwareness } from '../src/attend-query.js';
-import { executeAwarenessCommand } from '../src/command-api.js';
+import { createAwarenessClient } from '../src/client.js';
 import { insertMemory } from '../src/memory-write.js';
 
 const cleanups: Array<() => void> = [];
@@ -42,12 +42,12 @@ describe('attention evidence and continuations', () => {
     expect(first.next.continuations).toHaveLength(1);
     const continuation = first.next.continuations?.[0];
     expect(continuation).toMatchObject({ command: 'memory recall' });
-    const executed = await executeAwarenessCommand(continuation!, {
+    const client = createAwarenessClient({
       database: dbPath,
       workspace,
       agentId: 'owner',
-      compact: false,
     });
+    const executed = await client.execute({ operation: 'memory.recall', params: continuation!.params });
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ memories: expect.any(Array) });
     expect((executed.payload as { memories: unknown[] }).memories.length).toBeGreaterThanOrEqual(5);
@@ -89,11 +89,14 @@ describe('attention evidence and continuations', () => {
     expect(first).toMatchObject({ partial: true, partial_reasons: expect.arrayContaining(['workboard']) });
     const continuation = first.next.continuations?.find(item => item.command === 'query workboard');
     expect(continuation).toBeDefined();
-    const executed = await executeAwarenessCommand(continuation!, {
+    const client = createAwarenessClient({
       database: dbPath,
       workspace,
       agentId: 'owner',
-      compact: false,
+    });
+    const executed = await client.execute({
+      operation: 'work.list',
+      params: { kind: 'workboard', ...continuation!.params },
     });
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ rows: expect.any(Array) });

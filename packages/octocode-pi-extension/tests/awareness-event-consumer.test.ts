@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness/host';
 import { awarenessEventStatusText, registerAwarenessEventConsumer, resolvePiEventConsumerId } from '../src/tools/awareness-event-consumer.js';
-import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness';
+import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness/host';
 import type { PiContext, PiInstance } from '../src/types.js';
 
 const workspace = '/work/repo';

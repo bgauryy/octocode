@@ -2,8 +2,8 @@ import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
 import { z } from 'zod';
 import type {
   AwarenessOperationEffect,
+  AwarenessOperationResult,
   CanonicalDomainHandler,
-  CanonicalOperationResult,
   CanonicalRouteBinding,
 } from '../operation-contracts.js';
 import type { AwarenessStorageScope } from '../storage-scope.js';
@@ -69,14 +69,13 @@ export interface AwarenessOperationDescriptor<K extends AwarenessOperation = Awa
   use: string;
   visibility: 'routine';
   effects: readonly AwarenessOperationEffect[];
-  legacyCommands: readonly string[];
   inputSchema: Readonly<Record<string, unknown>>;
   validate(params?: unknown): AwarenessOperationParams[K];
   effect(params?: AwarenessOperationParams[K]): AwarenessOperationEffect;
   approval(params?: AwarenessOperationParams[K]): ApprovalClass | undefined;
   outputBudget: number;
   continuations(payload: unknown): unknown;
-  handler(context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]): Promise<CanonicalOperationResult>;
+  handler(context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]): Promise<AwarenessOperationResult>;
 }
 
 interface Route extends Omit<CanonicalRouteBinding, 'schema'> {
@@ -159,10 +158,7 @@ interface DescriptorInput<K extends AwarenessOperation> {
   inputSchema?: Record<string, unknown>;
   outputBudget?: number;
 }
-const routeSets = new Map<AwarenessOperation, readonly Route[]>();
-
 function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): AwarenessOperationDescriptor<K> {
-  routeSets.set(input.operation, input.routes);
   const routeSchemas = input.routes.map(routeSchema);
   const inputSchema = input.inputSchema ?? (routeSchemas.length === 1
     ? routeSchemas[0]!
@@ -191,7 +187,6 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     use: input.use,
     visibility: 'routine' as const,
     effects: Object.freeze(effects),
-    legacyCommands: Object.freeze(input.routes.map(route => route.command)),
     inputSchema: Object.freeze(inputSchema),
     validate: (params?: unknown) => resolve(params).params as AwarenessOperationParams[K],
     effect: (params?: AwarenessOperationParams[K]) => resolve(params).route.effect,
@@ -302,27 +297,3 @@ if (operationDescriptors.length > 19) throw new Error('Routine Awareness surface
 const byOperation = new Map<AwarenessOperation, AwarenessOperationDescriptor>(operationDescriptors.map(row => [row.operation, row]));
 export function listAwarenessOperationDescriptors(): readonly AwarenessOperationDescriptor[] { return operationDescriptors; }
 export function getAwarenessOperationDescriptor(operation: string): AwarenessOperationDescriptor | undefined { return byOperation.get(operation as AwarenessOperation); }
-
-/** Explicit compatibility boundary from a legacy CLI route to the routine surface. */
-export function operationCallForLegacyCommand(
-  command: string,
-  input: Record<string, unknown>,
-): AwarenessOperationCall | undefined {
-  const route = reverseRoutes.get(command);
-  // Legacy `attend` has a wider projection/pagination contract than bounded context.orient.
-  if (!route || route.operation === 'context.orient') return undefined;
-  const params = { ...input };
-  for (const field of HOST_FIELDS) delete params[field];
-  delete params['action'];
-  if (route.selector) params[route.selector[0]] = route.selector[1];
-  return { operation: route.operation, ...(Object.keys(params).length ? { params } : {}) } as AwarenessOperationCall;
-}
-
-export function resolveAwarenessOperation(call: Exclude<AwarenessOperationCall, { operation: 'context.orient' }>): { command: string; params: Params } {
-  const descriptor = byOperation.get(call.operation);
-  const routes = routeSets.get(call.operation);
-  if (!descriptor || !routes) throw new Error(`Unknown Awareness operation: ${call.operation}`);
-  const params = descriptor.validate(call.params) as Params;
-  const route = selectRoute(call.operation, routes, params);
-  return { command: route.command, params: paramsForRoute(route, params) };
-}

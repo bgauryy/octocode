@@ -30,7 +30,7 @@ import { HistoryError } from './history-store.js';
 import { commandSchemaProperties } from './schema/command-properties.js';
 import { DEFAULT_RETRY_MS, DEFAULT_WAIT_MS } from './maintenance-stale.js';
 import { waitForLock } from './maintenance-session.js';
-import type { CanonicalExecutionContext, CanonicalOperationResult, CanonicalRouteBinding } from './operation-contracts.js';
+import type { AwarenessOperationResult, CanonicalExecutionContext, CanonicalRouteBinding } from './operation-contracts.js';
 import { storageScopeForCommand } from './workspace-policy.js';
 
 const validators = new Map<string, z.ZodType>();
@@ -159,7 +159,7 @@ export async function executeCanonicalRoute(
   binding: CanonicalRouteBinding,
   input: Record<string, unknown>,
   context: CanonicalExecutionContext,
-): Promise<CanonicalOperationResult> {
+): Promise<AwarenessOperationResult> {
   const command = binding.command;
   const output: AwarenessCommandOutput = { command, compact: true, text: '', diagnostics: [] };
   return commandOutput.run(output, async () => {
@@ -268,7 +268,7 @@ function itemSummary(row: Record<string, unknown>) {
 export async function executeContextOrient(
   context: CanonicalExecutionContext,
   input: OrientParams = {},
-): Promise<CanonicalOperationResult> {
+): Promise<AwarenessOperationResult> {
   const limit = input.limit ?? 3;
   const offset = input.offset ?? 0;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 3) throw new Error('context.orient limit must be an integer from 1 to 3');

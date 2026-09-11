@@ -80,12 +80,12 @@ function defaultInternalTool(event: Readonly<ToolEvent>): boolean {
   if (name.includes('awareness') || name.startsWith('__')) return true;
   if (name !== 'bash') return false;
   const toolInput = record(event['input']) ?? record(event.args);
-  const isAwarenessCommand = (value: unknown): boolean => typeof value === 'string'
+  const isAwarenessCliInvocation = (value: unknown): boolean => typeof value === 'string'
     && /(?:OCTOCODE_AWARENESS_CLI|@octocodeai\/octocode-awareness|\boctocode-awareness\b)/i.test(value);
-  if (isAwarenessCommand(toolInput?.['command'])) return true;
+  if (isAwarenessCliInvocation(toolInput?.['command'])) return true;
   const queries = toolInput?.['queries'];
   if (!Array.isArray(queries) || queries.length === 0 || queries.length > 100) return false;
-  return queries.every((query) => isAwarenessCommand(record(query)?.['command']));
+  return queries.every((query) => isAwarenessCliInvocation(record(query)?.['command']));
 }
 
 function eventId(event: ToolEvent): string | undefined {

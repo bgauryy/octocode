@@ -14,12 +14,12 @@ import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects
 import builtOctocodeExtension, { readPiPhysiology } from '@octocodeai/pi-extension';
 import { COMPACTION_CHECKPOINT_TYPE } from '../src/tools/custom-messages.js';
 import type { PiContext } from '../src/types.js';
+import { createAwarenessClient } from '@octocodeai/octocode-awareness';
 import {
   execHistoryCli,
-  executeAwarenessCommand,
   openAwarenessStore,
   watchAwarenessEventHints,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import { registerAwarenessEventConsumer } from '../src/tools/awareness-event-consumer.js';
 import type { PiInstance } from '../src/types.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
@@ -247,19 +247,17 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       await session.waitForIdle();
       await watcherStarted;
       expect(contexts).toHaveLength(1);
+      const peer = createAwarenessClient({ workspace, database, agentId: 'peer' });
       for (const index of [1, 2]) {
-        const sent = await executeAwarenessCommand(
-          {
-            command: 'signal publish',
-            params: {
-              kind: 'blocker',
-              to_agent: ['native-recipient'],
-              subject: `wake ${index}`,
-              body: `exact-challenge-${index}`,
-            },
+        const sent = await peer.execute({
+          operation: 'message.send',
+          params: {
+            kind: 'blocker',
+            to_agent: ['native-recipient'],
+            subject: `wake ${index}`,
+            body: `exact-challenge-${index}`,
           },
-          { workspace, database, agentId: 'peer' }
-        );
+        });
         expect(sent.exitCode, JSON.stringify(sent.payload)).toBe(0);
       }
       await vi.waitFor(() => expect(hintCount).toBeGreaterThan(0), {
@@ -332,7 +330,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
         type: 'toolCall', id: 'awareness-schema', name: 'bash', arguments: {
           queries: [{
             reasoning: 'Inspect the installed Awareness CLI through Pi-provided bindings.',
-            command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" schema command verify audit --compact',
+            command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" schema command work verify --compact',
             timeout: 10,
           }],
         },
@@ -439,7 +437,7 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(providerPrompts[0]).toContain(octocodeHome);
       const toolResultsBeforeCompact = JSON.stringify(created.session.sessionManager.getEntries());
       expect(toolResultsBeforeCompact).toContain('# Awareness');
-      expect(toolResultsBeforeCompact).toContain('verify audit');
+      expect(toolResultsBeforeCompact).toContain('work verify');
       expect(lifecycle).toEqual(expect.arrayContaining(['before_agent_start', 'turn_start', 'turn_end']));
       expect(usages).toContainEqual(expect.objectContaining({ phase: 'turn_end', contextWindow: 8_192 }));
       expect(usages.some((usage) => usage.phase === 'turn_end' && (usage.tokens ?? 0) >= 3_000)).toBe(true);

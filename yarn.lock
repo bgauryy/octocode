@@ -2807,7 +2807,7 @@ __metadata:
     "@modelcontextprotocol/server": "npm:^2.0.0"
     "@npmcli/config": "npm:^11.0.1"
     "@octocodeai/config": "npm:20.0.0"
-    "@octocodeai/octocode-core": "npm:19.0.0"
+    "@octocodeai/octocode-core": "npm:19.0.1"
     "@octocodeai/octocode-engine": "npm:19.1.0"
     "@octokit/core": "npm:^7.0.8"
     "@octokit/oauth-methods": "npm:^6.0.5"
@@ -7057,7 +7057,7 @@ __metadata:
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.30.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/octocode-core": "npm:19.0.0"
+    "@octocodeai/octocode-core": "npm:19.0.1"
     "@octocodeai/octocode-tools-core": "npm:19.1.0"
     "@octokit/core": "npm:^7.0.8"
     "@octokit/plugin-throttling": "npm:^11.0.5"

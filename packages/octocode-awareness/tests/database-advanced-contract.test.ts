@@ -8,7 +8,7 @@ const ADVANCED_TABLES = [
   'awareness_agents', 'awareness_meta', 'delivery_state', 'hook_receipts',
   'awareness_locks', 'awareness_memories', 'memory_refs', 'plan_docs', 'plan_members', 'awareness_plans',
   'local_history_durability', 'local_history_operations', 'local_history_restores', 'local_history_versions',
-  'refinements', 'run_files', 'sessions', 'signal_reads', 'signals',
+  'run_files', 'sessions', 'signal_reads', 'signals',
   'task_claims', 'task_dependencies', 'task_paths', 'task_runs', 'awareness_tasks',
 ] as const;
 
@@ -30,6 +30,7 @@ describe('advanced Awareness database contract', () => {
     expect(db.prepare('PRAGMA application_id').get()).toEqual({ application_id: AWARENESS_APPLICATION_ID });
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    expect(db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='refinements'").get()).toBeUndefined();
     expect([...indexes]).toEqual(expect.arrayContaining([
       'idx_awareness_memories_scope', 'idx_awareness_plans_scope', 'idx_awareness_tasks_plan_status',
       'idx_run_files_path_active', 'idx_awareness_locks_file_path', 'idx_signals_scope',

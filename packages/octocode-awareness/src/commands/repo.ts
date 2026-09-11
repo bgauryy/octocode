@@ -6,35 +6,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import { mineDocStaleness, proposeDocRefresh } from '../docs.js';
 import { listSkillDocs, showSkillDoc } from '../docs-catalog.js';
 import { attendWorkspace } from '../attend-presence.js';
-import { developerReviewDoc, formatAwarenessQueryResult, queryAwareness } from '../repo-query.js';
+import { formatAwarenessQueryResult, queryAwareness } from '../repo-query.js';
 import { ParsedArgs } from './args.js';
 import { EmitOptions, emit } from '../command-output.js';
 import { flagBool, resolveAgentId } from './args.js';
-
-export function cmdDeveloperReview(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const format = String(args['format'] ?? 'json').toLowerCase();
-  const result = developerReviewDoc(db, {
-    workspacePath: args['workspace'] ? String(args['workspace']) : process.cwd(),
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    query: args['query'] ? String(args['query']) : null,
-    limit: args['limit'] ? parseInt(String(args['limit']), 10) : opts.compact ? 5 : undefined,
-    state: Array.isArray(args['state']) ? args['state'].map(String) : args['state'] ? String(args['state']) : null,
-  });
-  if (format === 'markdown') {
-    writeCommandText(result.markdown);
-    return 0;
-  }
-  return emit({
-    db_path: dbPath,
-    view: 'developer-review',
-    open: result.open,
-    resolved: result.resolved,
-    count: result.rows.length,
-    rows: result.rows,
-  }, 0, opts);
-}
 
 export function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
   const view = String(args['view'] ?? args._[0] ?? 'all');

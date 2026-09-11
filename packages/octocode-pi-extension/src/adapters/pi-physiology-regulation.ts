@@ -1,4 +1,4 @@
-import { assessRuntimeRegulation } from '@octocodeai/octocode-awareness';
+import { assessRuntimeRegulation } from '@octocodeai/octocode-awareness/host';
 import type { PiRuntimeObservation } from '@octocodeai/agent-contracts/physiology';
 
 /** Advisory projection only. Pi owns compaction, retries, and provider execution. */

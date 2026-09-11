@@ -203,7 +203,7 @@ test('registered skill tool loads the bundled Awareness instructions when no use
     assert.equal(loaded.isError ?? false, false, text);
     assert.match(text, /skill: octocode-awareness \[bundled\]/);
     assert.match(text, /# Awareness/);
-    assert.match(text, /verify audit/);
+    assert.match(text, /work verify/);
     assert.equal(getSkillUsage().get('octocode-awareness')?.count, 1);
   } finally {
     assetPaths.mockRestore();

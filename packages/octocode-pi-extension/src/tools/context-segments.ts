@@ -1,4 +1,4 @@
-import { AWARENESS_PI_HOST_PROMPT, assertContextSegmentAuthority, contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT, assertContextSegmentAuthority, contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 
 export interface ContextSegmentInput {
   id: string;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'vitest';
-import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness/host';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
 import { PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
 import { buildPiSystemPrompt, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';

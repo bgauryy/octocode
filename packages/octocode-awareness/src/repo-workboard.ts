@@ -46,8 +46,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
   }
 
   // Session handoffs are published as self-addressed `kind='handoff'` signals and
-  // surface through the openSignals lane above — one inbox, no parallel refinement
-  // stream. The repo-fix refinement queue stays out of Inbox (query it explicitly).
+  // surface through the openSignals lane above.
 
   const verificationRows: AwarenessQueryRow[] = [];
   for (const row of taskRows(db, withScope(params, { state: ['VERIFY'], limit: 500 }))) {
@@ -168,7 +167,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
 
   for (const row of developerReviewRows(db, withScope(params, { state: ['open', 'ongoing'], limit: 200 }))) {
     pushLimited(columns, counts, 'DeveloperReview', {
-      item_type: String(row['source']) === 'refinement' ? 'refinement' : 'memory',
+      item_type: 'memory',
       id: String(row['id']),
       title: summarize(String(row['feedback']), 120),
       detail: summarize(String(row['context']), 180),
@@ -249,15 +248,12 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
   const profile = Object.fromEntries(repoProfileRows(db, params).map(row => [String(row['metric']), Number(row['count'] ?? 0)])) as Record<string, number>;
   const activeMemories = Number(profile['active_memories'] ?? 0);
   const taskCount = Number(profile['tasks'] ?? 0);
-  const allOpenRefinements = Number(profile['all_open_refinements'] ?? 0);
-  const actionableRefinements = Number(profile['actionable_refinements'] ?? 0);
   const openSignalCount = Number(profile['open_signals'] ?? 0);
   const missingFileRefs = Number(profile['missing_file_refs'] ?? 0);
   const projectionWarnings = [
     missingFileRefs > 0 ? 'missing_file_refs' : null,
     activeMemories > 200 ? 'active_memories_over_200' : null,
     taskCount > 500 ? 'task_rows_over_500' : null,
-    allOpenRefinements > 40 ? 'all_open_refinements_over_40' : null,
   ].filter((warning): warning is string => Boolean(warning));
   pushLimited(columns, counts, 'ProjectionHealth', {
     item_type: 'projection',
@@ -271,8 +267,6 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     active_memories: activeMemories,
     missing_file_refs: missingFileRefs,
     tasks: taskCount,
-    actionable_refinements: actionableRefinements,
-    all_open_refinements: allOpenRefinements,
     open_signals: openSignalCount,
     created_at: utcNow(),
   }, limit);

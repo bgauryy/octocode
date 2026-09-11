@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { AwarenessQueryParams, AwarenessQueryRow, BindValue, limitOf, utcNow } from './repo-model.js';
 import { addExactScope, addNullableScope, addTextFilter, localPathFromReference, scopeFromParams, stripLocationSuffix, withScope, workspaceArtifactScope } from './repo-scope.js';
 import { memoryRows, runRows, taskRows } from './repo-plans.js';
-import { addSignalVisibility, agentRows, developerReviewRows, lockRows, refinementRows, signalRows } from './repo-coordination.js';
+import { addSignalVisibility, agentRows, developerReviewRows, lockRows, signalRows } from './repo-coordination.js';
 import { summarize } from './repo-formats.js';
 import { queryEditLog } from './audit.js';
 
@@ -28,7 +28,6 @@ export function trackFile(
     tasks: 0,
     runs: 0,
     locks: 0,
-    refinements: 0,
     signals: 0,
     edits: 0,
     last_seen_at: null,
@@ -74,9 +73,6 @@ export function fileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
   }
   for (const row of lockRows(db, withScope(params, { limit: 500 }))) {
     trackFile(files, String(row['path']), 'locks', String(row['acquired_at']), scope.workspacePath);
-  }
-  for (const row of refinementRows(db, withScope(params, { limit: 500 }))) {
-    for (const file of row['files'] as string[]) trackFile(files, file, 'refinements', String(row['updated_at']), scope.workspacePath);
   }
   for (const row of signalRows(db, withScope(params, { limit: 500 }))) {
     for (const file of row['files'] as string[]) trackFile(files, file, 'signals', String(row['created_at']), scope.workspacePath);
@@ -135,11 +131,6 @@ export function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams):
   lockWhere.push("t.status = 'ACTIVE'", '(l.expires_at IS NULL OR l.expires_at > ?)');
   lockBinds.push(utcNow());
 
-  const allRefinementWhere = ["state IN ('open','ongoing')"];
-  const refinementBinds: BindValue[] = [];
-  addExactScope(allRefinementWhere, refinementBinds, scope);
-  const actionableRefinementWhere = [...allRefinementWhere, "quality NOT IN ('handoff','instructions')"];
-
   const signalWhere = ["status = 'open'"];
   const signalBinds: BindValue[] = [];
   addExactScope(signalWhere, signalBinds, scope);
@@ -154,8 +145,6 @@ export function repoProfileRows(db: DatabaseSync, params: AwarenessQueryParams):
     { metric: 'tasks', count: countWhere(db, 'awareness_tasks t JOIN awareness_plans p ON p.plan_id = t.plan_id', taskWhere, taskBinds) },
     { metric: 'runs', count: countWhere(db, 'task_runs', runWhere, runBinds) },
     { metric: 'active_locks', count: countWhere(db, 'awareness_locks l JOIN task_runs t ON t.run_id = l.run_id', lockWhere, lockBinds) },
-    { metric: 'actionable_refinements', count: countWhere(db, 'refinements', actionableRefinementWhere, refinementBinds) },
-    { metric: 'all_open_refinements', count: countWhere(db, 'refinements', allRefinementWhere, refinementBinds) },
     { metric: 'open_signals', count: countWhere(db, 'signals', signalWhere, signalBinds) },
     { metric: 'known_agents', count: agentRows(db, withScope(params, { limit: 500 })).length },
     { metric: 'tracked_files', count: trackedFiles.length },
@@ -205,16 +194,6 @@ export function activityRows(db: DatabaseSync, params: AwarenessQueryParams): Aw
       detail: summarize(String(row['body'] ?? ''), 180),
       agent_id: String(row['from_agent']),
       created_at: String(row['created_at']),
-    });
-  }
-  for (const row of refinementRows(db, withScope(params, { limit }))) {
-    rows.push({
-      kind: 'refinement',
-      id: String(row['refinement_id']),
-      title: `${row['state']}: ${summarize(String(row['remember']), 100)}`,
-      detail: summarize(String(row['reasoning']), 180),
-      agent_id: String(row['agent_id']),
-      created_at: String(row['updated_at']),
     });
   }
   return rows

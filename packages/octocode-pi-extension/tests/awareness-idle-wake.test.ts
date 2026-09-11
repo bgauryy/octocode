@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { AwarenessEventStore, AwarenessEventHintOptions, OutboxEventV1 } from '@octocodeai/octocode-awareness';
+import type { AwarenessEventStore, AwarenessEventHintOptions, OutboxEventV1 } from '@octocodeai/octocode-awareness/host';
 import { registerAwarenessEventConsumer } from '../src/tools/awareness-event-consumer.js';
 import type { PiContext, PiInstance } from '../src/types.js';
 

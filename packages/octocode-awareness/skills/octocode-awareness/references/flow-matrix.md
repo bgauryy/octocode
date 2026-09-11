@@ -1,19 +1,15 @@
-# Shared Awareness Flow
+# Awareness Flow Matrix
 
-Use the live schema for exact flags: `schema commands --compact` and
-`schema command <noun> [action]`. Reads are observational; mutations require
-the caller's existing authorization and scope.
+Use the live schema for exact fields: `schema commands --compact` and `schema command <concept> <operation> --compact`.
 
-| Need | Routine route | Boundary |
+| Need | Operation | Boundary |
 |---|---|---|
-| Orient | `attend` or targeted `status`/`query` | Read only what can change the next action. |
-| Coordinate | `agent list`, `signal list/publish/reply` | Send only a decision-changing question, request, blocker, or handoff. |
-| Continue unfinished work | `handoff add`, `handoff list`, `handoff clear` | Keep one concise summary and file pointers; clear only after acting. |
-| Plan/protect | `task ready/claim`, `work list/show`, `lock acquire/wait` | Plans and locks are opt in; presence is advisory. |
-| Finish tracked work | `task submit/release`, `work end`, `verify audit`, `verify mark` | Run the declared check; only an observed receipt proves success. |
-| Learn | `memory recall/record`, `reflect record` | Record reusable verified lessons, not routine status. |
+| Orient | `context.orient` | Read only what can change the next action. |
+| Coordinate | `message.list/send/reply/resolve` | Send only decision-changing information. |
+| Share ownership | `work.create/list/show/claim/update/depend` | Track only work needing shared ownership, dependencies, or resumption. |
+| Protect a path | `work.protect` | Exceptional non-mergeable work only. |
+| Close verification debt | `work.verify` | Mark only an observed check result. |
+| Reuse evidence | `memory.recall/record` | Store verified lessons, not status. |
+| Recover bytes | `history.status/timeline/read/restore` | Capture is host-owned; apply only an authorized preview. |
 
-Specialist routes remain available by exact schema/help lookup: refinements are
-owned follow-up records, `session capture` is hook-driven, and reflection is
-optional challenge or learning. They are not prerequisites for an ordinary
-request or a routine continuation.
+Reads are observational. Mutations require the caller's existing authorization and scope.

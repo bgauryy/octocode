@@ -3,7 +3,7 @@ import {
   detectAgentHost as detectExternalAgentHost,
   generateAgentName,
   type AgentHost as ExternalAgentHost,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 
 export type AgentHost = Exclude<ExternalAgentHost, 'agent'>;
 

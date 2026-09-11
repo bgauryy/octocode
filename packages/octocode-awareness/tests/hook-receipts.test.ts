@@ -67,6 +67,10 @@ describe('hook runtime receipts', () => {
       workspace_path: '/tmp/ws', host: 'claude', event: 'PreToolUse', status: 'success',
       last_seen_at: '2026-06-01T00:00:00Z',
     }], ['PreToolUse'], now)).toMatchObject({ status: 'stale', coverage: '1/1' });
+    expect(hookRuntimeReceiptHealth([{
+      workspace_path: '/tmp/ws', host: 'claude', event: 'PreToolUse', status: 'degraded',
+      last_seen_at: '2026-07-12T11:59:00Z',
+    }], ['PreToolUse'], now)).toMatchObject({ status: 'degraded', coverage: '1/1' });
   });
 
   it('treats complete Claude skill frontmatter as a definition, not settings config', () => {

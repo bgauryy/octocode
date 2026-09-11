@@ -232,8 +232,6 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
     bridge: {
       inbox: workboard['Inbox']?.length ?? 0,
       handoffs: handoffRows.length,
-      actionable_refinements: profile['actionable_refinements'] ?? 0,
-      all_open_refinements: profile['all_open_refinements'] ?? 0,
       open_signals: profile['open_signals'] ?? 0,
       plans: profile['plans'] ?? 0,
       tasks: profile['tasks'] ?? 0,
@@ -242,7 +240,6 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
 
   const signalIds = uniqueStrings((workboard['Inbox'] ?? []).filter(row => row['item_type'] === 'signal').map(row => String(row['id'])));
   const handoffIds = uniqueStrings(handoffRows.map(row => String(row['id'])));
-  const refinementIds = uniqueStrings(Object.values(workboard).flat().filter(row => row['item_type'] === 'refinement').map(row => String(row['id'])));
   const agentIds = uniqueStrings(Object.values(workboard).flat().map(row => String(row['agent_id'] ?? '')));
   const sourceRefs = evidence.flatMap(item => item.references);
   const driveState = {
@@ -260,8 +257,6 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
       signal_id_count: signalIds.length,
       handoff_ids: handoffIds.slice(0, compact ? 3 : 12),
       handoff_id_count: handoffIds.length,
-      refinement_ids: refinementIds.slice(0, compact ? 4 : 12),
-      refinement_id_count: refinementIds.length,
       agent_ids: agentIds.slice(0, compact ? 6 : 24),
       agent_id_count: agentIds.length,
       source_refs: sourceRefs.slice(0, compact ? 5 : 12),

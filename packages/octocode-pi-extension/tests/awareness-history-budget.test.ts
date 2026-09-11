@@ -3,11 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test, vi } from 'vitest';
+import { createAwarenessHost } from '@octocodeai/octocode-awareness/host';
 
 vi.mock('../src/tools/execution-runtime.js', () => ({ emitExecution: vi.fn() }));
 vi.mock('../src/branding/renderers.js', () => ({ withOctocodeRender: (tool: unknown) => tool }));
 
-import { type AwarenessCommandRunner } from '../src/tools/awareness-command-runner.js';
+import { type AwarenessOperationRunner } from '../src/tools/awareness-operation-runner.js';
 import { registerAwarenessTool } from '../src/tools/awareness-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { ToolResultError } from '../src/tools/tool-result-error.js';
@@ -43,7 +44,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function makeTool(runner?: AwarenessCommandRunner): ToolDefinition {
+function makeTool(runner?: AwarenessOperationRunner): ToolDefinition {
   let definition: ToolDefinition | undefined;
   const pi = {
     registerTool(value: ToolDefinition) {
@@ -114,16 +115,23 @@ function makeBinaryFixture(): Buffer {
 }
 
 async function capture(
-  tool: ToolDefinition,
   ctx: PiContext,
   phase: 'before' | 'after',
   files: string[],
   outcome?: string,
 ): Promise<void> {
-  const params: Record<string, unknown> = { phase, file: files, operation_id: OPERATION_ID };
-  if (outcome) params.outcome = outcome;
-  const response = await run(tool, { action: 'call', command: 'history capture', params }, ctx);
-  assert.equal(response.isError, false, modelText(response));
+  const host = createAwarenessHost({
+    workspace: ctx.cwd,
+    agentId: 'pi:history-budget',
+    sessionId: ctx.sessionManager?.getSessionId?.(),
+    database: process.env.OCTOCODE_AWARENESS_DB,
+  });
+  await host.captureHistory({
+    phase,
+    file: files,
+    operation_id: OPERATION_ID,
+    ...(outcome ? { outcome } : {}),
+  });
 }
 
 test('bounds native history reads while preserving exact operation/file/side continuations', async () => {
@@ -134,16 +142,15 @@ test('bounds native history reads while preserving exact operation/file/side con
     { name: 'binary.bin', before: makeBinaryFixture(), after: Buffer.from(makeBinaryFixture()).map((value, index) => value ^ (index & 0xff)) },
   ];
   for (const fixture of fixtures) writeFileSync(path.join(root, fixture.name), fixture.before);
-  await capture(tool, ctx, 'before', fixtures.map(fixture => fixture.name));
+  await capture(ctx, 'before', fixtures.map(fixture => fixture.name));
   for (const fixture of fixtures) writeFileSync(path.join(root, fixture.name), fixture.after);
-  await capture(tool, ctx, 'after', fixtures.map(fixture => fixture.name), 'success');
+  await capture(ctx, 'after', fixtures.map(fixture => fixture.name), 'success');
 
   for (const fixture of fixtures) {
     for (const side of ['before', 'after'] as const) {
       const expected = fixture[side];
       let queries: Record<string, unknown>[] | undefined = [{
-        action: 'call',
-        command: 'history read',
+        operation: 'history.read',
         // Deliberately omit limit: this exercises the native output-limit retry.
         params: { operation_id: OPERATION_ID, file: fixture.name, side },
       }];
@@ -154,7 +161,7 @@ test('bounds native history reads while preserving exact operation/file/side con
         calls += 1;
         assert.ok(calls <= MAX_READ_CALLS, `${fixture.name} ${side} exceeded ${MAX_READ_CALLS} native calls`);
         const query: Record<string, unknown> = queries[0];
-        assert.equal(query.command, 'history read');
+        assert.equal(query.operation, 'history.read');
         const params = query.params as Record<string, unknown>;
         assert.equal(params.operation_id, OPERATION_ID);
         assert.equal(params.file, fixture.name);

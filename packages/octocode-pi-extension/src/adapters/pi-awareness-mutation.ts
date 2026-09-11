@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
-import { connectDb, insertEditLog, loadWorkspacePolicy } from '@octocodeai/octocode-awareness';
+import { loadWorkspacePolicy } from '@octocodeai/octocode-awareness/host';
 import { resolveAwarenessDatabase } from '../tools/awareness-context.js';
 import { runAwarenessPreEdit, resolveAwarenessCoordinationScope } from '../assets.js';
 import { openPersistentAwareness } from '../tools/storage-policy.js';
@@ -48,22 +48,6 @@ export const awarenessMutationGate = createAwarenessMutationGate({
     const aw = openPersistentAwareness({ workspace, scope: resolveAwarenessCoordinationScope(workspace) });
     try { aw.endWork({ filePath: target, agentId, runId }); }
     finally { aw.close(); }
-  },
-  recordEdit: (target, workspace, agentId) => {
-    if (!isPersistentStorageEnabled()) return;
-    const scope = resolveAwarenessCoordinationScope(workspace);
-    const database = connectDb(resolveAwarenessDatabase(workspace, scope));
-    try {
-      insertEditLog(database, {
-        agentId,
-        filePath: target,
-        operation: 'update',
-        workspacePath: workspace,
-        artifact: 'pi-native-hook',
-      });
-    } finally {
-      database.close();
-    }
   },
   warn: (message) => console.warn(`[octocode] ${message}`),
 });

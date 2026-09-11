@@ -1,4 +1,4 @@
-// Tokenization shared by the shell adapter and legacy continuation decoding.
+// Tokenization for the canonical shell adapter.
 import type { ParsedArgs } from './commands/args.js';
 
 export const ARRAY_FLAGS = new Set(['tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);

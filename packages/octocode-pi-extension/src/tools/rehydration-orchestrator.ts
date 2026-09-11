@@ -1,6 +1,6 @@
 import type { PlanPhase } from './plan-domain.js';
 import path from 'node:path';
-import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 import { estimateContextTokens } from './context-segments.js';
 import type { PiContext, PiInstance } from '../types.js';
 import {

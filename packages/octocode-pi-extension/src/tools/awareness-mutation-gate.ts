@@ -12,7 +12,6 @@ export interface AwarenessMutationGateDependencies {
   /** Null means a pre-existing owned run was refreshed, not created by this gate. */
   startWork(target: string, workspace: string, agentId: string): string | null;
   endWork(target: string, workspace: string, agentId: string, runId: string): void;
-  recordEdit?(target: string, workspace: string, agentId: string): void;
   warn?(message: string): void;
 }
 
@@ -119,15 +118,11 @@ export function createAwarenessMutationGate(deps: AwarenessMutationGateDependenc
       }
       return undefined;
     },
-    complete(event: MutationToolEvent, workspace: string, agentId: string, succeeded: boolean): void {
+    complete(event: MutationToolEvent, workspace: string, agentId: string, _succeeded: boolean): void {
       for (const target of extractMutationTargets(event, workspace)) {
         const key = keyFor(target, workspace, agentId);
         const item = owned.get(key);
         if (!item) continue;
-        if (succeeded && deps.recordEdit) {
-          try { deps.recordEdit(target, workspace, agentId); }
-          catch (error) { deps.warn?.(`Awareness edit receipt failed: ${errorMessage(error)}`); }
-        }
         if (item.activeCalls > 1) {
           item.activeCalls -= 1;
           continue;

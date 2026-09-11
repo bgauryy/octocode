@@ -10,7 +10,9 @@ export const coreEntryPoints = {
   'octocode-awareness': 'bin/awareness.ts',
   'hook-runner':        'bin/hook-runner-entry.ts',
   'extract-hook-files': 'bin/extract-hook-files.ts',
-  'schema-api':         'src/schema/cli.ts',
+  'schema-api':         'src/schema-api.ts',
+  'host-api':           'src/host-api.ts',
+  'admin-api':          'src/admin-api.ts',
 };
 
 /** Standalone (non-split) bundles that land in the Agent Skill's scripts/. */

@@ -4,7 +4,7 @@ import { getCurrentPlanReadModel, renderPlanContext } from './plan-read-model.js
 import { emitCompactionCheckpoint, type CompactionCheckpointDetails } from './custom-messages.js';
 import { writeCompactionArtifact } from './compaction-artifacts.js';
 import { clearAllReadStates } from './file-state.js';
-import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 import { createSessionArtifactContext, writeRehydrationLedger } from './session-artifacts.js';
 import { listPendingInteractionIds, listPendingInteractions } from './interaction-broker.js';
 import { clearPendingRehydration, runAndRecordRehydration } from './rehydration-orchestrator.js';

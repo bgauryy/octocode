@@ -48,7 +48,7 @@ describe('task CLI action contracts', () => {
 });
 
 describe('CLI-only discovery fields', () => {
-  for (const [command, schema] of [['plan list', schemas.plan], ['task list', schemas.task], ['task ready', schemas.task], ['refinement get', schemas.refine_query]] as const) {
+  for (const [command, schema] of [['plan list', schemas.plan], ['task list', schemas.task], ['task ready', schemas.task]] as const) {
     it(`${command} exposes its supported row limit and full output flag`, () => {
       const properties = structuredClone(z.toJSONSchema(schema).properties!) as Record<string, unknown>;
       projectCliProperties(properties, command);

@@ -141,47 +141,6 @@ export function signalRows(db: DatabaseSync, params: AwarenessQueryParams): Awar
   }));
 }
 
-export function refinementRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
-  const scope = scopeFromParams(params);
-  const where: string[] = [];
-  const binds: BindValue[] = [];
-  addExactScope(where, binds, scope);
-  addTextFilter(where, binds, params.query, ['reasoning', 'remember', 'quality', 'state', 'files_json', 'agent_id']);
-  addStateFilter(where, binds, stringList(params.state), 'state', state => state.toLowerCase());
-  const since = params.since?.trim();
-  if (since) {
-    where.push('created_at >= ?');
-    binds.push(since);
-  }
-  const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db.prepare(
-    `SELECT refinement_id, agent_id, workspace_path, artifact, repo, ref, files_json,
-            reasoning, remember, quality, state, created_at, updated_at
-       FROM refinements
-       ${sqlWhere}
-      ORDER BY
-        CASE state WHEN 'open' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END,
-        datetime(updated_at) DESC
-      LIMIT ?`
-  ).all(...binds, limitOf(params.limit)) as unknown as Array<Record<string, string | null>>;
-
-  return rows.map(row => ({
-    refinement_id: String(row['refinement_id']),
-    agent_id: String(row['agent_id']),
-    quality: String(row['quality']),
-    state: String(row['state']),
-    reasoning: String(row['reasoning']),
-    remember: String(row['remember']),
-    files: parseJsonList(row['files_json']),
-    workspace_path: String(row['workspace_path']),
-    artifact: row['artifact'] ?? null,
-    repo: row['repo'] ?? null,
-    ref: row['ref'] ?? null,
-    created_at: String(row['created_at']),
-    updated_at: String(row['updated_at']),
-  }));
-}
-
 /** Pull the feedback clause out of a reflection narrative, if present. */
 export function extractInstructionsFeedback(observation: string): string {
   const marker = 'instructions feedback:';
@@ -195,47 +154,13 @@ export function extractInstructionsFeedback(observation: string): string {
 
 /**
  * Feedback addressed to the human developer who authored the agent's operating
- * instructions. Primary source is the tracked `instructions`-quality refinement queue
- * (open/ongoing/done lifecycle); developer-review-tagged memories that no refinement
- * already represents are folded in so manually-tagged or historical feedback still shows.
+ * instructions. Developer-review-tagged memories are the canonical source.
  */
 export function developerReviewRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
   const scope = scopeFromParams(params);
   const limit = limitOf(params.limit, 60, 500);
 
-  const refWhere = ["quality = 'instructions'"];
-  const refBinds: BindValue[] = [];
-  addExactScope(refWhere, refBinds, scope);
-  addTextFilter(refWhere, refBinds, params.query, ['reasoning', 'remember', 'files_json', 'agent_id']);
-  addStateFilter(refWhere, refBinds, stringList(params.state), 'state', state => state.toLowerCase());
-  const refRows = db.prepare(
-    `SELECT refinement_id, agent_id, workspace_path, artifact, repo, ref, files_json,
-            reasoning, remember, state, created_at, updated_at
-       FROM refinements
-      WHERE ${refWhere.join(' AND ')}
-      ORDER BY CASE state WHEN 'open' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END, datetime(updated_at) DESC
-      LIMIT ?`
-  ).all(...refBinds, limit) as unknown as Array<Record<string, string | null>>;
-
-  const rows: AwarenessQueryRow[] = refRows.map(row => ({
-    source: 'refinement',
-    id: String(row['refinement_id']),
-    refinement_id: String(row['refinement_id']),
-    state: String(row['state']),
-    feedback: String(row['remember']),
-    context: String(row['reasoning']),
-    files: parseJsonList(row['files_json']),
-    agent_id: String(row['agent_id']),
-    workspace_path: row['workspace_path'] ?? null,
-    artifact: row['artifact'] ?? null,
-    repo: row['repo'] ?? null,
-    ref: row['ref'] ?? null,
-    created_at: String(row['created_at']),
-    updated_at: String(row['updated_at']),
-  }));
-
-  // Fold in developer-review memories a refinement doesn't already carry.
-  const refTexts = refRows.map(row => String(row['remember'] ?? '').trim()).filter(Boolean);
+  const rows: AwarenessQueryRow[] = [];
   const memWhere = ["state = 'ACTIVE'", `tags_json LIKE '%"developer-review"%'`];
   const memBinds: BindValue[] = [];
   addNullableScope(memWhere, memBinds, scope);
@@ -249,7 +174,6 @@ export function developerReviewRows(db: DatabaseSync, params: AwarenessQueryPara
   ).all(...memBinds, limit) as unknown as Array<Record<string, string | number | null>>;
   for (const row of memRows) {
     const observation = String(row['observation'] ?? '');
-    if (refTexts.some(text => text && observation.includes(text))) continue;
     rows.push({
       source: 'memory',
       id: String(row['memory_id']),

@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeWorkspacePath } from './git.js';
 import { assertKnownOptions, normalizeArtifact, parseJsonList, utcNow } from './helpers.js';
-import { openRefinementCount } from './maintenance-stale.js';
 import { toSimpleLock } from './intents-preflight.js';
 import { countReadyTasks } from './tasks-ready.js';
 import type { FileLock } from './types/identity-memory.js';
@@ -18,8 +17,6 @@ export interface WorkspaceStatusResult {
   ready_tasks: number;
   in_progress_tasks: number;
   verify_tasks: number;
-  actionable_refinements: number;
-  all_open_refinements: number;
   lock_count: number;
   locks: FileLock[];
 }
@@ -75,20 +72,6 @@ export function getWorkspaceStatus(
     `SELECT COUNT(*) AS c FROM awareness_tasks t JOIN awareness_plans p ON p.plan_id = t.plan_id WHERE t.status = 'VERIFY'${planScope}`,
   ).get(...planScopeParams) as { c: number }).c;
 
-  const actionableRefinements = openRefinementCount(db, {
-    workspacePath: wsPath,
-    artifact,
-    repo: params.repo as string | undefined,
-    cwd: params.cwd as string | undefined,
-  });
-  const allOpenRefinements = openRefinementCount(db, {
-    workspacePath: wsPath,
-    artifact,
-    repo: params.repo as string | undefined,
-    cwd: params.cwd as string | undefined,
-    includeHandoffs: true,
-  });
-
   type LockRow = { file_path: string; agent_id: string; run_id: string; reason: string; expires_at: string | null };
   const lockWhereParts: string[] = ['(fl.expires_at IS NULL OR fl.expires_at > ?)', "ai.status = 'ACTIVE'"];
   const lockParams: (string | number)[] = [utcNow()];
@@ -126,8 +109,6 @@ export function getWorkspaceStatus(
     ready_tasks: readyTasks,
     in_progress_tasks: inProgressTasks,
     verify_tasks: verifyTasks,
-    actionable_refinements: actionableRefinements,
-    all_open_refinements: allOpenRefinements,
     lock_count: lockCount,
     locks,
   };

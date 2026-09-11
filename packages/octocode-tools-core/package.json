@@ -8,7 +8,7 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@npmcli/config": "^11.0.1",
     "@octocodeai/config": "20.0.0",
-    "@octocodeai/octocode-core": "19.0.0",
+    "@octocodeai/octocode-core": "19.0.1",
     "@octocodeai/octocode-engine": "19.1.0",
     "@octokit/oauth-methods": "^6.0.5",
     "@octokit/openapi-types": "^29.0.1",

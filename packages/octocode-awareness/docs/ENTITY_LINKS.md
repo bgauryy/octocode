@@ -3,7 +3,7 @@
 Use this reference when tracing a record by ID. Discover the live inventory with
 `schema entities --all --compact`. Entity names and constraints come from
 [canonical DDL](../src/db-schema.ts), [continuity DDL](../src/db-continuity-schema.ts),
-and the [worker projection](../src/worker-lifecycle-ledger.ts).
+and the [worker lifecycle DDL](../src/db-worker-schema.ts).
 
 IDs are opaque handles. Canonical writers generate prefixed UUIDs; continuity and host IDs follow their owning contracts. Do not infer ownership from a prefix. Root commands and host APIs resolve the same records and relationships.
 

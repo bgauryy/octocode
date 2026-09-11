@@ -78,9 +78,9 @@ MCP call details likewise retain only block counts and status metadata; full tex
 structured content, and image bytes live solely in the bounded model content or
 its lossless spill artifact.
 
-The `awareness` tool is the model-facing coordination, learning, verification, history, and maintenance facade. It reads the canonical package catalog: use `action:"list"`, then `action:"describe"` for an unfamiliar command, then `action:"call"`. Pi injects database, workspace, and actor fields. Calls import the Awareness package API directly. Commands described as `external-host-only` are internal host lifecycle callbacks.
+The `awareness` tool exposes nineteen canonical operations across Context, Work, Message, Memory, and History. A query supplies `operation` plus validated `params`; Pi binds database, workspace, actor, and scope. Read operations may be batched, while a mutation must be the only query. Host lifecycle callbacks are available only through the explicit host API.
 
-Session-scoped maintenance jobs are configured with environment settings; see [CRON.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/CRON.md). `OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts` is the direct support-tool source of truth.
+`OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts` is the direct support-tool source of truth.
 
 ---
 
@@ -365,42 +365,11 @@ Pi-core/runtime banners that do not pass through extension hooks, such as a mode
 
 ## Memory and Awareness
 
-`plan` is for complex dependencies, coordinated ownership, consequential risk, substantial work spanning sessions, or an explicit planning request. Skip it for routine fixes, a few straightforward steps, or simple delegation. It owns session/shared projection and receipt-gated completion. There is no separate public `task` tool: plan steps become shared Awareness tasks when projection is needed, while `agent.task` is the assignment text given to a spawned worker. Signals, locks, memory, history, and maintenance use the native `awareness` tool. Peer registry, event delivery, and existing-lock checks run by default. Automatic work records and worker audits require guard/full; native history requires full. Reuse native run/task IDs and observed receipts.
+`plan` is for complex dependencies, coordinated ownership, consequential risk, substantial work spanning sessions, or an explicit planning request. Skip it for routine fixes. Pi projects shared plan state through canonical Work operations when needed and reuses native IDs and observed receipts.
 
-Pi imports `executeAwarenessCommand` and the canonical command descriptors directly. The tool supplies trusted database, workspace, and identity context; model parameters use descriptor fields such as `to_agent`, without host bindings. Pi includes the short `AWARENESS_PI_HOST_PROMPT` once; the complete guide stays on demand. External hosts use the CLI with the same physical database, distinct stable identities and their own physical checkout paths. Linked Git worktrees share peers, signals and memory. See the [API reference](../../octocode-awareness/docs/API.md).
+Pi uses `createAwarenessClient` for routine operations and `createAwarenessHost` for lifecycle-owned history capture. It claims native lifecycle ownership at session start, so shell hooks do not duplicate Pi events. External hosts use the CLI with the same physical database and distinct stable identities. Linked Git worktrees can share coordination state; separate clones or databases cannot.
 
-See [AWARENESS_AGENT_FLOW.md](AWARENESS_AGENT_FLOW.md) for communication and lifecycle ownership and [REFLECT.md](REFLECT.md) for learning and maintenance guidance. Load the bundled `octocode-awareness` skill for operating detail.
-
-### Signal-driven pattern
-
-```
-[start]    reuse peer briefing or attend once
-[plan]     complex work only, or explicit request: scope auto/session/shared → Start → declared check
-[complete] plan.complete + observed receipt → shared verification → next ready dependency
-[mutation] explicit targets → peer-lock preflight → advisory presence only in guard/full
-[signal]   native peer event → awareness signal list/reply/ack/resolve when relevant
-[rare]     awareness lock for non-mergeable state · signal for useful peer coordination
-[learn]    awareness memory after substantial work, only for verified reusable learning
-[finish]   tracked work: awareness verify audit after final writes
-```
-
-### Native Awareness command reference
-
-Use these command names with `action: "call"`. Describe an unfamiliar route first;
-the package catalog owns exact fields and executable continuations.
-
-| Command                                  | Purpose                                                                                                        |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `memory recall`                          | Retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
-| `memory record`                          | Store verified root cause, decision, workaround, or gotcha                                                     |
-| `memory forget`, `memory archive`        | Preview item-scoped cleanup with `dry_run: true`                                                               |
-| `status`                                 | Show plans, tasks, locks, work presence, agents, messages, handoffs, checks, and memory counts                 |
-| `signal publish`, `signal list`, `signal reply`, `signal ack`, `signal resolve` | Directed, scoped peer communication |
-| `handoff add\|list\|clear`               | Manual continuation notes for later agents                                                                     |
-| `lock acquire\|release\|list`            | Optional exclusive protection for sensitive paths                                                              |
-| `verify audit`                           | Audit owned tracked-work debt after final writes                                                              |
-| `verify mark`                            | Record observed SUCCESS or FAILED for an explicit owned run ID                                                 |
-| `maintenance digest`, `signal prune`     | Inspect scoped `--dry-run` candidates before authorized cleanup                                                |
+The model starts with a host briefing or `context.orient`. It uses Work for ownership, dependencies, path protection, and verification; Message for decision-changing communication; Memory for verified reusable learning; and History for inspection or authorized restore. For the exact nineteen-operation catalog, see [AWARENESS_AGENT_FLOW.md](AWARENESS_AGENT_FLOW.md) and the [API reference](../../octocode-awareness/docs/API.md).
 
 ## MCP Servers
 

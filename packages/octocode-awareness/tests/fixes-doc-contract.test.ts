@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import { initDb } from '../src/db-init.js';
 import { insertMemory } from '../src/memory-write.js';
 import { getMemory } from '../src/memory-recall.js';
-import { insertRefinement, updateRefinement, getRefinements } from '../src/refinements.js';
-import { reflect } from '../src/reflect.js';
 import { pruneStale } from '../src/maintenance-stale.js';
 import { preFlightIntent } from '../src/intents-preflight.js';
 import { fillScope } from '../src/git.js';
@@ -22,86 +20,6 @@ function freshDb(): DatabaseSync {
   initDb(db);
   return db;
 }
-
-describe('reflect — judgment_note / duo / eval_failures', () => {
-  it('folds judgmentNote into the narrative observation', async () => {
-    const db = freshDb();
-    const r = reflect(db, {
-      agentId: 'a', task: 'shipped feature', outcome: 'worked',
-      judgmentNote: 'checked E2E output; timing untested',
-    });
-    const { memories } = (await getMemory(db, { query: 'shipped feature', limit: 5 }));
-    const mem = memories.find((m) => m.memory_id === r.learning_memory_id);
-    expect(mem?.observation).toContain('judgment: checked E2E output; timing untested');
-  });
-
-  it('duo emits an advisory reflection_duo packet and stores nothing extra', () => {
-    const db = freshDb();
-    const r = reflect(db, { agentId: 'a', task: 'ambiguous refactor', outcome: 'partial', duo: true });
-    expect(r.reflection_duo?.advisory).toBe(true);
-    expect(r.reflection_duo?.roles.map((x) => x.role)).toEqual(['supporter', 'skeptic']);
-    // Only the single learning memory exists — the packet is not stored.
-    const count = (db.prepare('SELECT COUNT(*) c FROM awareness_memories').get() as { c: number }).c;
-    expect(count).toBe(1);
-  });
-
-  it('evalFailures become eval-tagged memories without double-counting the summary', () => {
-    const db = freshDb();
-    const r = reflect(db, {
-      agentId: 'a', task: 'eval run', outcome: 'failed',
-      evalFailures: [
-        { id: 'q1', dimension: 'correctness', failure_signature: 'mechanism:x|cause:y', suggested_lesson: 'always check z' },
-        { id: 'q2', suggested_lesson: 'second lesson' },
-      ],
-    });
-    expect(r.eval_failure_count).toBe(2);
-    expect(r.eval_failure_ids).toHaveLength(2);
-
-    const rows = db.prepare(
-      "SELECT memory_id, failure_signature, observation, tags_json FROM awareness_memories"
-    ).all() as Array<{ memory_id: string; failure_signature: string | null; observation: string; tags_json: string }>;
-    // Structured eval rows are the failure events. The summary deliberately
-    // carries no signature so one failed eval cannot form a count=2 cluster.
-    const main = rows.find((x) => x.memory_id === r.learning_memory_id);
-    expect(main?.failure_signature).toBeNull();
-    const evalMems = rows.filter((x) => r.eval_failure_ids.includes(x.memory_id));
-    expect(evalMems).toHaveLength(2);
-    expect(evalMems.map((memory) => memory.failure_signature))
-      .toContain('mechanism:x|cause:y');
-    for (const m of evalMems) expect(JSON.parse(m.tags_json)).toContain('eval');
-  });
-});
-
-describe('refinement update lifecycle', () => {
-  it('updateRefinement requires and preserves an auditable closure receipt (open → done)', () => {
-    const db = freshDb();
-    const { refinementId } = insertRefinement(db, {
-      agentId: 'a', reasoning: 'why', remember: 'do the thing',
-      quality: 'bad', state: 'open', workspacePath: '/tmp/ws',
-    });
-    expect(() => updateRefinement(db, { refinementId, state: 'done' }))
-      .toThrow(/actor.*check receipt/i);
-    const upd = updateRefinement(db, {
-      refinementId,
-      state: 'done',
-      actorAgentId: 'reviewer',
-      checkReceipt: 'focused refinement lifecycle test passed',
-    });
-    expect(upd.updated).toBe(true);
-    expect(upd.refinement?.state).toBe('done');
-    expect(upd.refinement?.remember).toBe('do the thing'); // untouched
-    expect(upd.refinement?.reasoning).toContain('Closure receipt');
-    expect(upd.refinement?.reasoning).toContain('reviewer');
-    expect(upd.refinement?.reasoning).toContain('focused refinement lifecycle test passed');
-    const { count } = getRefinements(db, { workspacePath: '/tmp/ws' }); // defaults open+ongoing
-    expect(count).toBe(0);
-  });
-
-  it('updateRefinement on a missing id reports updated:false', () => {
-    const db = freshDb();
-    expect(updateRefinement(db, { refinementId: 'ref_missing', state: 'done' }).updated).toBe(false);
-  });
-});
 
 describe('getMemory explain', () => {
   it('attaches score_components whose weighted sum equals the score', async () => {

@@ -34,7 +34,7 @@ the concise activation, discovery, coordination, and safety contract.
 ## Initialize
 
 ```bash
-npx @octocodeai/octocode-awareness attend --workspace "$PWD" --compact
+npx @octocodeai/octocode-awareness context orient --workspace "$PWD" --compact
 ```
 
 CLI use and installed hooks need no global feature configuration. Missing configuration uses lean defaults. Use `config init` with explicit feature overrides only when customization is needed. Configuration preferences never authorize hook installation.
@@ -66,6 +66,7 @@ Discovery is lazy — reach for an inventory only when the next action needs it:
 
 ```bash
 npx @octocodeai/octocode-awareness schema commands --compact
+npx @octocodeai/octocode-awareness schema command context orient --compact
 npx @octocodeai/octocode-awareness docs list --compact
 ```
 
@@ -78,7 +79,6 @@ npx @octocodeai/octocode-awareness docs list --compact
 | `scripts/extract-hook-files.mjs` | Host payload path extraction. |
 | `scripts/hooks/*.sh` | Thin lifecycle wrappers. |
 | [scripts/install.mjs](scripts/install.mjs) | Installer implementation; prefer the public `skill install` command and its preview. |
-| [scripts/smoke-multi-agent.mjs](scripts/smoke-multi-agent.mjs) | Isolated coordination smoke check after a package build. |
 | [scripts/hooks/pre-edit.sh](scripts/hooks/pre-edit.sh), [scripts/hooks/post-edit.sh](scripts/hooks/post-edit.sh), [scripts/hooks/stop-verify.sh](scripts/hooks/stop-verify.sh) | Opt-in guard/full profile wrappers for tracked edits and verification. |
 | [scripts/hooks/session-compact.sh](scripts/hooks/session-compact.sh) | Opt-in full-profile continuity hook. |
 

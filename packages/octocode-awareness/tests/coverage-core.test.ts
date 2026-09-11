@@ -14,7 +14,6 @@ import { insertMemory } from '../src/memory-write.js';
 import { searchByEmbedding, storeEmbedding } from '../src/memory-embeddings.js';
 import { insertNotification } from '../src/notifications-core.js';
 import { pruneNotifications } from '../src/notifications-signals.js';
-import { deleteRefinement, getRefinements, insertRefinement, updateRefinement } from '../src/refinements.js';
 import { endSession, getOrCreateSession, insertSession, listSessions } from '../src/sessions.js';
 import { auditUnverified } from '../src/verify-audit.js';
 import { markVerified } from '../src/verify-mark.js';
@@ -67,47 +66,6 @@ describe('core branch coverage helpers', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-
-  it('updates, filters, dry-runs, and deletes refinements', () => {
-    const db = freshDb();
-    const { refinementId } = insertRefinement(db, {
-      agentId: 'agent-a',
-      workspacePath: '/repo',
-      artifact: 'svc',
-      reasoning: 'old reasoning',
-      remember: 'old note',
-      quality: 'good',
-      state: 'open',
-      files: ['/repo/a.ts'],
-    });
-
-    expect(() => updateRefinement(db, { refinementId })).toThrow('no fields');
-    const missing = updateRefinement(db, { refinementId: 'ref_missing', state: 'done' });
-    expect(missing).toEqual({ updated: false, refinement: null });
-
-    const updated = updateRefinement(db, {
-      refinementId,
-      state: 'ongoing',
-      quality: 'bad',
-      reasoning: 'new reasoning',
-      remember: 'new note',
-      files: ['/repo/b.ts'],
-    });
-    expect(updated.updated).toBe(true);
-    expect(updated.refinement).toMatchObject({
-      quality: 'bad',
-      state: 'ongoing',
-      reasoning: 'new reasoning',
-      remember: 'new note',
-      files: ['/repo/b.ts'],
-    });
-
-    expect(getRefinements(db, { workspacePath: '/repo', artifact: 'svc', states: ['ongoing'], quality: 'bad' }).count).toBe(1);
-    expect(deleteRefinement(db, { refinementIds: [], workspacePath: '/repo' })).toEqual({ deleted: 0, refinement_ids: [] });
-    const dry = deleteRefinement(db, { refinementIds: [refinementId], workspacePath: '/repo', artifact: 'svc', dryRun: true });
-    expect(dry).toMatchObject({ deleted: 0, dry_run: true, would_delete: 1 });
-    expect(deleteRefinement(db, { refinementIds: [refinementId], workspacePath: '/repo', artifact: 'svc' })).toMatchObject({ deleted: 1 });
   });
 
   it('records harness logs and filters sessions', () => {

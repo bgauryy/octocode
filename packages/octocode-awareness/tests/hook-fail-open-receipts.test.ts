@@ -22,7 +22,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-it('fails open for the host while recording failed lifecycle telemetry', async () => {
+it('fails open for the host while recording degraded lifecycle telemetry', async () => {
   const root = mkdtempSync(join(tmpdir(), 'awareness-hook-fail-open-'));
   roots.push(root);
   const workspace = join(root, 'repo');
@@ -46,7 +46,7 @@ it('fails open for the host while recording failed lifecycle telemetry', async (
   const database = connectDb(resolveDbPath(null, { workspace, scope: 'repo' }));
   expect(hookReceipts(database, workspace, 'codex')).toContainEqual(expect.objectContaining({
     event: 'SessionEnd',
-    status: 'failure',
+    status: 'degraded',
   }));
   expect(stderr.mock.calls.map(([message]) => String(message)).join(''))
     .toContain('session-end warning (continuing): injected session finalization failure');

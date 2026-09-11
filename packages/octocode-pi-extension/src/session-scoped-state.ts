@@ -39,12 +39,6 @@ export interface SessionScopedState {
   latestAvailableSkills: DiscoveredSkill[] | undefined;
   /** Skill list supplied by the host with the turn's system prompt options. */
   latestPiSkills: SkillInfo[] | undefined;
-  /**
-   * Unread peer-message count last surfaced via the cron callback. Proactive TUI
-   * notification only — separate from per-turn LLM injection. `-1` means nothing
-   * has been surfaced yet, which is distinct from a surfaced count of `0`.
-   */
-  lastCronUnreadAlerted: number;
 }
 
 export function freshSessionScopedState(): SessionScopedState {
@@ -61,6 +55,5 @@ export function freshSessionScopedState(): SessionScopedState {
     sessionArtifactPathsContext: '',
     latestAvailableSkills: undefined,
     latestPiSkills: undefined,
-    lastCronUnreadAlerted: -1,
   };
 }

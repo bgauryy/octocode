@@ -210,8 +210,8 @@ Registered via `createHookComposer(pi, …)` (middleware composer that catches a
 | Event | Middleware ID | What it does |
 |---|---|---|
 | `resources_discover` | `bundled-skills` | Returns `{ skillPaths: [dist/skills/] }` so Pi discovers bundled skills |
-| `session_start` | `octocode-session-start` | Resets metrics state, applies Octocode UI, starts cron scheduler, reasserts the native-tool replacement set for direct hosts, loads `.env` via `propagateOctocodeEnv` (global + project, trust-gated), notifies on env changes |
-| `session_shutdown` | `octocode-session-shutdown` | Stops cron scheduler, kills spawned agents, stops MCP servers, clears all status labels and widgets |
+| `session_start` | `octocode-session-start` | Resets metrics state, applies Octocode UI, claims Pi's native Awareness lifecycle ownership, reasserts the native-tool replacement set for direct hosts, loads `.env` via `propagateOctocodeEnv` (global + project, trust-gated), notifies on env changes |
+| `session_shutdown` | `octocode-session-shutdown` | Kills spawned agents, stops MCP servers, and clears all status labels and widgets |
 | `model_select` | `octocode-model-select` | Logs model selection; updates UI thinking-level label |
 | `thinking_level_select` | `octocode-thinking-select` | Logs thinking level; refreshes UI label |
 | `input` | `octocode-session-autoname` | Names the session from the first substantive user message |

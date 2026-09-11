@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test, vi } from 'vitest';
 import { createPiFlowHarness } from '@octocodeai/agent-testing';
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import extension from '../src/index.js';
 import type { PiContext, PiInstance } from '../src/types.js';
 import { activePlanScope, clearPlan, setPlan } from '../src/tools/planning/plan-store.js';

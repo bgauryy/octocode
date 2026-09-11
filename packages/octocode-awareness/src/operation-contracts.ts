@@ -8,7 +8,7 @@ export type AwarenessOperationEffect =
   | 'host-config-write'
   | 'destructive-admin';
 
-export interface CanonicalOperationResult {
+export interface AwarenessOperationResult {
   payload: unknown;
   exitCode: number;
   text?: string;

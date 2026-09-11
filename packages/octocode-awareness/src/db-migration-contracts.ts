@@ -11,6 +11,7 @@ export type DatabaseMigrationSourceVersion =
   | 'worker-lifecycle-path-identity-upgrade'
   | 'worker-lifecycle-history-durability-upgrade'
   | 'worker-lifecycle-history-durability-path-identity-upgrade'
+  | 'refinements-upgrade'
   | 'event-stream-convergence-upgrade';
 
 export interface DatabaseMigrationVerificationRequest {
@@ -48,6 +49,7 @@ const COPY_ON_WRITE_SOURCE_STATES = new Set<SchemaState>([
   'worker-lifecycle-path-identity-upgrade',
   'worker-lifecycle-history-durability-upgrade',
   'worker-lifecycle-history-durability-path-identity-upgrade',
+  'refinements-upgrade',
   'event-stream-convergence-upgrade',
   'legacy-renamed-predecessor',
 ]);

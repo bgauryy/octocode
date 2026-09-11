@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   defaultDbPath,
   AWARENESS_PI_HOST_PROMPT,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import { SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
 import { OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
 import type { PiContext } from '../src/types.js';

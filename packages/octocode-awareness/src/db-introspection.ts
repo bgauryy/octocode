@@ -7,7 +7,12 @@ import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { AWARENESS_SCHEMA_VERSION, FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { WORKER_LIFECYCLE_DDL } from './db-worker-schema.js';
 import { EVENT_OUTBOX_V1_DDL, EVENT_OUTBOX_V1_INDEX_DDL } from './db-continuity-schema.js';
-import { PREDECESSOR_EVENT_RELATIONS, PREDECESSOR_EVENT_RELATIONS_DDL } from './db-predecessor-schema.js';
+import {
+  LEGACY_RENAMED_V1_SCHEMA_DDL,
+  PREDECESSOR_EVENT_RELATIONS,
+  PREDECESSOR_EVENT_RELATIONS_DDL,
+  PREDECESSOR_REFINEMENTS_DDL,
+} from './db-predecessor-schema.js';
 
 export function tableColumns(db: DatabaseSync, tableName: string): Set<string> {
   const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as unknown as TableInfoRow[];
@@ -22,7 +27,6 @@ export interface ColumnInfo {
 }
 
 let _canonicalColumns: Map<string, ColumnInfo[]> | undefined;
-let _predecessorColumns: Map<string, ColumnInfo[]> | undefined;
 
 /** Desired columns per table, derived from the executable DDL. */
 export function canonicalColumns(): Map<string, ColumnInfo[]> {
@@ -43,35 +47,18 @@ export function canonicalColumns(): Map<string, ColumnInfo[]> {
   }
 }
 
-function predecessorColumns(): Map<string, ColumnInfo[]> {
-  if (_predecessorColumns) return _predecessorColumns;
-  const predecessor = new DatabaseSync(':memory:');
-  try {
-    predecessor.exec(SCHEMA_DDL);
-    predecessor.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
-    const tables = predecessor.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
-    ).all() as unknown as Array<{ name: string }>;
-    _predecessorColumns = new Map(tables.map(({ name }) => [
-      name,
-      predecessor.prepare(`PRAGMA table_info(${name})`).all() as unknown as ColumnInfo[],
-    ]));
-    return _predecessorColumns;
-  } finally {
-    predecessor.close();
-  }
-}
-
 function isEventStreamConvergencePredecessor(db: DatabaseSync, identity: SchemaIdentity): boolean {
   if (identity.applicationId !== AWARENESS_APPLICATION_ID) return false;
   const current = new Set(canonicalColumns().keys());
-  const expected = new Set([...current, ...PREDECESSOR_EVENT_RELATIONS]);
+  const hasRefinements = identity.relations.some(({ name }) => name === 'refinements');
+  const expected = new Set([...current, ...(hasRefinements ? ['refinements'] : []), ...PREDECESSOR_EVENT_RELATIONS]);
   const actual = identity.relations.filter(({ name }) => !/^memories_fts(?:_|$)/.test(name));
   if (actual.length !== expected.size || actual.some(({ name, type }) => type !== 'table' || !expected.has(name))) return false;
   const canonical = new DatabaseSync(':memory:');
   try {
     canonical.exec(SCHEMA_DDL);
     canonical.exec(SCHEMA_INDEX_DDL);
+    if (hasRefinements) canonical.exec(PREDECESSOR_REFINEMENTS_DDL);
     canonical.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
     if (identity.relations.some(({ name }) => name === 'memories_fts')) canonical.exec(FTS_SCHEMA_DDL);
     assertSchemaObjects(readSchemaObjects(db), readSchemaObjects(canonical));
@@ -108,12 +95,14 @@ export function assertCanonicalSchemaFingerprint(db: DatabaseSync): void {
 function assertSchemaFingerprint(db: DatabaseSync, options: {
   omittedTables?: readonly string[];
   eventOutboxVersion?: 1 | 2;
+  includeRefinements?: boolean;
 } = {}): void {
   const objects = readSchemaObjects(db);
   const canonical = new DatabaseSync(':memory:');
   try {
     canonical.exec(SCHEMA_DDL);
     canonical.exec(SCHEMA_INDEX_DDL);
+    if (options.includeRefinements) canonical.exec(PREDECESSOR_REFINEMENTS_DDL);
     if (options.eventOutboxVersion === 1) {
       canonical.exec('DROP INDEX IF EXISTS idx_event_outbox_retention_sequence');
       canonical.exec('DROP INDEX IF EXISTS idx_event_outbox_type_sequence');
@@ -157,6 +146,7 @@ export type SchemaState =
   | 'worker-lifecycle-path-identity-upgrade'
   | 'worker-lifecycle-history-durability-upgrade'
   | 'worker-lifecycle-history-durability-path-identity-upgrade'
+  | 'refinements-upgrade'
   | 'event-stream-convergence-upgrade'
   | 'legacy-renamed-predecessor';
 
@@ -189,15 +179,19 @@ function isLegacyRenamedPredecessor(db: DatabaseSync, identity: SchemaIdentity):
     .map(({ name }) => name);
   if (relations.length !== LEGACY_RENAMED_RELATIONS.size
     || !relations.every((name) => LEGACY_RENAMED_RELATIONS.has(name))) return false;
-  const expectedColumns = predecessorColumns();
-  return relations.every((source) => {
-    const destination = LEGACY_RELATION_DESTINATIONS[source] ?? source;
-    const expected = expectedColumns.get(destination);
-    if (!expected) return false;
-    const defaulted = new Set(LEGACY_DEFAULTED_COLUMNS[source] ?? []);
-    const wanted = expected.map(({ name }) => name).filter((name) => !defaulted.has(name));
-    return [...tableColumns(db, source)].join('\0') === wanted.join('\0');
-  });
+  const expected = new DatabaseSync(':memory:');
+  try {
+    expected.exec(LEGACY_RENAMED_V1_SCHEMA_DDL);
+    if (identity.relations.some(({ name }) => name === 'memories_fts')) expected.exec(FTS_SCHEMA_DDL);
+    try {
+      assertSchemaObjects(readSchemaObjects(db), readSchemaObjects(expected));
+    } catch (error) {
+      throw new Error(`legacy-renamed-v1 schema fingerprint mismatch: ${(error as Error).message}`);
+    }
+    return true;
+  } finally {
+    expected.close();
+  }
 }
 
 export function stableIdentityHash(value: string): string {
@@ -278,8 +272,9 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
   const relationNames = new Set(identity.relations.map(({ name }) => name));
   const canonicalCount = [...expected].filter((name) => relationNames.has(name)).length;
   const hasWorkerLifecycle = relationNames.has('worker_lifecycle_events');
+  const hasRefinements = relationNames.has('refinements');
   const knownAwarenessHost = identity.relations.every(({ name, type }) => (
-    type === 'table' && (expected.has(name) || name === 'memories_fts' || name === 'worker_lifecycle_events')
+    type === 'table' && (expected.has(name) || name === 'memories_fts' || name === 'worker_lifecycle_events' || name === 'refinements')
   ));
   if (identity.applicationId === 0) {
     if (identity.relations.length === 0) return 'fresh';
@@ -305,7 +300,7 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
       ...(missingDurability ? ['local_history_durability'] : []),
     ];
     if (predecessorEventEnvelope) {
-      assertSchemaFingerprint(db, { omittedTables, eventOutboxVersion: 1 });
+      assertSchemaFingerprint(db, { omittedTables, eventOutboxVersion: 1, includeRefinements: hasRefinements });
       if (!missingMeta) readAwarenessMetaVersion(db, [2]);
       if (missingMeta && missingDurability) return 'event-envelope-history-durability-path-identity-upgrade';
       if (missingMeta) return 'event-envelope-path-identity-upgrade';
@@ -314,21 +309,26 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
     }
     if (canonicalCount !== expected.size) {
       if (canonicalCount === expected.size - 1 && missingMeta) {
-        assertSchemaFingerprint(db, { omittedTables: ['awareness_meta'] });
+        assertSchemaFingerprint(db, { omittedTables: ['awareness_meta'], includeRefinements: hasRefinements });
         return hasWorkerLifecycle ? 'worker-lifecycle-path-identity-upgrade' : 'canonical-path-identity';
       }
       if (canonicalCount === expected.size - 1 && missingDurability) {
         // Match the complete predecessor fingerprint before any migration write.
-        assertSchemaFingerprint(db, { omittedTables: ['local_history_durability'] });
+        assertSchemaFingerprint(db, { omittedTables: ['local_history_durability'], includeRefinements: hasRefinements });
         return hasWorkerLifecycle ? 'worker-lifecycle-history-durability-upgrade' : 'history-durability-upgrade';
       }
       if (canonicalCount === expected.size - 2 && missingMeta && missingDurability) {
-        assertSchemaFingerprint(db, { omittedTables: ['awareness_meta', 'local_history_durability'] });
+        assertSchemaFingerprint(db, { omittedTables: ['awareness_meta', 'local_history_durability'], includeRefinements: hasRefinements });
         return hasWorkerLifecycle
           ? 'worker-lifecycle-history-durability-path-identity-upgrade'
           : 'history-durability-path-identity-upgrade';
       }
       throw new Error('Awareness requires the exact current canonical schema; this database is not supported and has not been changed. Select a fresh Awareness store.');
+    }
+    if (hasRefinements) {
+      assertSchemaFingerprint(db, { includeRefinements: true });
+      readAwarenessMeta(db);
+      return hasWorkerLifecycle ? 'worker-lifecycle-upgrade' : 'refinements-upgrade';
     }
     assertCanonicalRelationContract(db, identity.relations);
     assertCanonicalSchemaFingerprint(db);

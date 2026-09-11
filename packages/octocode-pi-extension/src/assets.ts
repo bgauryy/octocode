@@ -8,7 +8,7 @@ import {
   type AwarenessStorageScope,
   type PreEditHookResult,
   type PreEditHookOptions,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 
 const extensionDir = path.dirname(fileURLToPath(import.meta.url));
 const requireFromExtension = createRequire(import.meta.url);
@@ -16,7 +16,7 @@ const requireFromExtension = createRequire(import.meta.url);
 // One root package and one CLI serve both the harness and external agents.
 export const AWARENESS_PACKAGE = '@octocodeai/octocode-awareness';
 
-export interface AwarenessCommandSpec {
+export interface AwarenessCliInvocation {
   cmd: string;
   args: string[];
 }
@@ -29,9 +29,9 @@ export function resolveAwarenessCliPath(): string {
  * Build a spawn spec (`node cli.js …`) for the Awareness bin. Retained for
  * the surfaces the model/user or a foreign host invokes as a real command:
  * launcher verbs (surfaces.ts) and the `$OCTOCODE_AWARENESS_CLI` env var. The
- * extension's own calls import executeAwarenessCommand directly.
+ * extension host adapters import the explicit Awareness host API.
  */
-export function buildAwarenessCommand(args: string[] = []): AwarenessCommandSpec {
+export function buildAwarenessCliInvocation(args: string[] = []): AwarenessCliInvocation {
   return { cmd: process.execPath, args: [resolveAwarenessCliPath(), ...args] };
 }
 

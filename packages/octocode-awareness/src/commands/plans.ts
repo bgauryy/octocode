@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { forgetMemory, archiveMemories, restoreMemories } from '../memory-lifecycle.js';
-import { deleteRefinement } from '../refinements.js';
 import { countPlans, createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updatePlanStatus } from '../plans.js';
 import { addTaskDependency, createTask, countReadyTasks, countTasks, listReadyTasks, listTasks } from '../tasks-ready.js';
 import { claimTask, heartbeatTaskClaim, releaseTaskClaim, retryTask, submitTask } from '../tasks-claims.js';
@@ -303,19 +302,6 @@ export function cmdMemoryLifecycle(
   const result = action === 'archive'
     ? archiveMemories(db, params)
     : restoreMemories(db, params);
-  return emit({ db_path: dbPath, ...result }, 0, opts);
-}
-
-export function cmdRefineDelete(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawIds = args['refinement_id'];
-  const refinementIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
-  if (refinementIds.length === 0) return emit({ error: '--refinement-id is required' }, 1, opts);
-  const result = deleteRefinement(db, {
-    refinementIds,
-    workspacePath: args['workspace'] ? String(args['workspace']) : undefined,
-    artifact: args['artifact'] ? String(args['artifact']) : undefined,
-    dryRun: Boolean(args['dry_run']),
-  });
   return emit({ db_path: dbPath, ...result }, 0, opts);
 }
 

@@ -21,7 +21,7 @@ import {
 import type { PiContext } from '../src/types.js';
 import { makeMockAgentProcess } from './helpers/mock-process.js';
 import { extensionWorkspaceRoot } from '../src/extension-paths.js';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 
 function git(cwd: string, args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });

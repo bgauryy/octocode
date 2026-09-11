@@ -183,22 +183,6 @@ export const SCHEMA_DDL = `
 
     ${HOOK_RECEIPTS_DDL}
 
-    CREATE TABLE IF NOT EXISTS refinements (
-      refinement_id  TEXT PRIMARY KEY,
-      agent_id       TEXT NOT NULL,
-      workspace_path TEXT NOT NULL,
-      artifact       TEXT,
-      repo           TEXT,
-      ref            TEXT,
-      files_json     TEXT NOT NULL DEFAULT '[]',
-      reasoning      TEXT NOT NULL,
-      remember       TEXT NOT NULL,
-      quality        TEXT NOT NULL CHECK(quality IN ('good','bad','handoff','instructions')) DEFAULT 'good',
-      state          TEXT NOT NULL CHECK(state IN ('open','ongoing','done')) DEFAULT 'open',
-      created_at     TEXT NOT NULL,
-      updated_at     TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS signals (
       signal_id      TEXT PRIMARY KEY,
       workspace_path TEXT NOT NULL,
@@ -297,10 +281,6 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_awareness_locks_acquired_at ON awareness_locks(acquired_at);
   CREATE INDEX IF NOT EXISTS idx_awareness_locks_expires_at  ON awareness_locks(expires_at);
   CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
-  CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
-  CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
-  CREATE INDEX IF NOT EXISTS idx_refinements_repo          ON refinements(repo);
-  CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_signals_status         ON signals(status);
   CREATE INDEX IF NOT EXISTS idx_signals_to_agent       ON signals(to_agent);
   CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);

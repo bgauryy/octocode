@@ -21,6 +21,7 @@ import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
 import { WORKER_LIFECYCLE_DDL } from './db-worker-schema.js';
 import {
   MIGRATED_EVENT_TABLES,
+  NON_DIRECT_MIGRATION_TABLES,
   assertLogicalDestination,
   assertNoHistoryRowsForConsolidation,
   assertValidSource,
@@ -32,6 +33,7 @@ import {
   tableNames,
 } from './db-consolidation-validation.js';
 import { copyLegacyHandoffSignals } from './db-consolidation-handoffs.js';
+import { assertClassifiableRefinements, copyClassifiedRefinements } from './db-consolidation-refinements.js';
 import type { DatabaseConsolidationOptions } from './db-consolidation-validation.js';
 import { verifyDatabaseMigration as verifyDatabaseMigrationImpl } from './db-migration-verification.js';
 import {
@@ -124,6 +126,7 @@ export function applyDatabaseMigration(
       throw new Error(`unsupported migration source; expected exact ${preview.sourceVersion} predecessor`);
     }
     assertValidSource(source);
+    assertClassifiableRefinements(source);
     const sourceMeta = readMigrationAwarenessMeta(source);
     const replayPlan = eventReplayPlan(source);
     destination = new DatabaseSync(temporaryPath);
@@ -132,10 +135,13 @@ export function applyDatabaseMigration(
     destination.exec(SCHEMA_DDL);
     destination.exec(SCHEMA_INDEX_DDL);
     const copiedTables = copyMappedTables(source, destination, LEGACY_RELATION_DESTINATIONS, {
-      omittedSourceTables: new Set(['awareness_meta', ...MIGRATED_EVENT_TABLES]),
+      omittedSourceTables: new Set(['awareness_meta', ...NON_DIRECT_MIGRATION_TABLES]),
     });
     if (sourceMeta) copiedTables.awareness_meta = 1;
     copySequenceHighWaterMarks(source, destination);
+    if (tableNames(source).includes('refinements')) {
+      copiedTables.refinements = copyClassifiedRefinements(source, destination);
+    }
     Object.assign(copiedTables, copySyntheticEvents(source, destination));
     copyLegacyHandoffSignals(source, destination);
     const migratedAt = utcNow();
@@ -243,18 +249,21 @@ export function previewDatabaseMigration(
     const state = inspectSchemaState(sourceDb);
     const sourceVersion = migrationSourceVersion(state);
     assertValidSource(sourceDb);
+    assertClassifiableRefinements(sourceDb);
     const relations = tableNames(sourceDb).filter((name) => !SQLITE_OR_FTS_AUXILIARY.test(name));
     const copiedTables: Record<string, number> = {};
     const transformations = relations.map((relation) => {
       const count = sourceDb.prepare(`SELECT COUNT(*) AS count FROM ${JSON.stringify(relation)}`).get() as { count: number | bigint };
       const rows = Number(count.count);
       copiedTables[relation] = rows;
-      const destination = MIGRATED_EVENT_TABLES.has(relation)
+      const destination = relation === 'refinements'
+        ? 'classified canonical owner'
+        : MIGRATED_EVENT_TABLES.has(relation)
         ? 'event_outbox'
         : LEGACY_RELATION_DESTINATIONS[relation] ?? relation;
       const expectedColumns = canonicalColumns().get(destination) ?? [];
       const sourceColumns = tableColumns(sourceDb, relation);
-      const defaultedColumns = MIGRATED_EVENT_TABLES.has(relation)
+      const defaultedColumns = NON_DIRECT_MIGRATION_TABLES.has(relation)
         ? []
         : state === 'legacy-renamed-predecessor'
           ? LEGACY_DEFAULTED_COLUMNS[relation] ?? []

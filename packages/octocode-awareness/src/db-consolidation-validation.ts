@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { LEGACY_RELATION_DESTINATIONS } from './db-introspection.js';
 import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
 import { legacyHandoffEvents, type MigrationEvent } from './db-consolidation-handoffs.js';
+import { refinementDestinationCounts, refinementMigrationEvents } from './db-consolidation-refinements.js';
 
 const SQLITE_AUXILIARY = /^(?:sqlite_|memories_fts(?:_|$))/;
 type SqlScalar = Exclude<SQLInputValue, undefined>;
@@ -150,6 +151,7 @@ export function assertLogicalDestination(destination: DatabaseSync): void {
 export const MIGRATED_EVENT_TABLES = new Set([
   'task_events', 'run_log', 'edit_log', 'harness_log', 'handoffs', 'worker_lifecycle_events',
 ]);
+export const NON_DIRECT_MIGRATION_TABLES = new Set([...MIGRATED_EVENT_TABLES, 'refinements']);
 
 export interface MigrationEventReplayPlan {
   ids: string[];
@@ -261,7 +263,7 @@ function workerEvents(source: DatabaseSync): MigrationEvent[] {
 }
 
 function syntheticEvents(source: DatabaseSync): MigrationEvent[] {
-  return [...legacyEvents(source), ...workerEvents(source)];
+  return [...legacyEvents(source), ...workerEvents(source), ...refinementMigrationEvents(source)];
 }
 
 export function eventReplayPlan(source: DatabaseSync): MigrationEventReplayPlan {
@@ -305,16 +307,19 @@ export function verifyMigrationContent(source: DatabaseSync, destination: Databa
   expectedEventHighWater: number;
 }): void {
   const synthetic = syntheticEvents(source);
+  const refinementAdditions = refinementDestinationCounts(source);
   for (const [sourceTable, expected] of Object.entries(options.expectedCounts)) {
     const sourceCount = source.prepare(`SELECT COUNT(*) AS count FROM ${JSON.stringify(sourceTable)}`).get() as { count: number | bigint };
     if (Number(sourceCount.count) !== expected) throw new Error(`migration source row-count changed for ${sourceTable}`);
-    if (MIGRATED_EVENT_TABLES.has(sourceTable)) continue;
+    if (NON_DIRECT_MIGRATION_TABLES.has(sourceTable)) continue;
     const destinationTable = LEGACY_RELATION_DESTINATIONS[sourceTable] ?? sourceTable;
     const destinationCount = destination.prepare(`SELECT COUNT(*) AS count FROM ${JSON.stringify(destinationTable)}`).get() as { count: number | bigint };
     const handoffCount = sourceTable === 'signals' && migrationHasTable(source, 'handoffs')
       ? Number((source.prepare('SELECT COUNT(*) AS count FROM handoffs').get() as { count: number | bigint }).count)
       : 0;
-    const destinationExpected = sourceTable === 'event_outbox' ? expected + synthetic.length : expected + handoffCount;
+    const destinationExpected = sourceTable === 'event_outbox'
+      ? expected + synthetic.length
+      : expected + handoffCount + (refinementAdditions[destinationTable] ?? 0);
     if (Number(destinationCount.count) !== destinationExpected) throw new Error(`migration row-count mismatch for ${sourceTable}->${destinationTable}`);
   }
   const destinationEvents = destination.prepare(`SELECT sequence,event_id,workspace_path,event_type,aggregate_kind,aggregate_id,

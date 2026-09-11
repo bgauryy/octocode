@@ -1,4 +1,4 @@
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 import { openOctocodeDb as openExtensionStateDb } from '@octocodeai/agent-contracts/db';
 import { isPersistentStorageEnabledForExtension } from '@octocodeai/config';
 import { extensionStateDbPath } from '../extension-paths.js';

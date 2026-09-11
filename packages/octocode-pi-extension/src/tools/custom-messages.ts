@@ -1,7 +1,7 @@
 import { truncateToWidth } from '../tui/width.js';
 import { stripVTControlCharacters } from 'node:util';
 import { wrapTextWithAnsi } from '@earendil-works/pi-tui';
-import { AWARENESS_PEER_EVENT_MESSAGE_TYPE } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PEER_EVENT_MESSAGE_TYPE } from '@octocodeai/octocode-awareness/host';
 /**
  * custom-messages — branded transcript cards for Octocode lifecycle moments.
  *

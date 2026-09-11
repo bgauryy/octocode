@@ -141,7 +141,7 @@ if (compact) {
     ok: true,
     required_skills: bundledSkills.filter((skill) => skill.required).map((skill) => skill.name),
     optional_skill_count: bundledSkills.filter((skill) => !skill.required).length,
-    next: "Run npx @octocodeai/octocode-awareness init --compact once, then attend --compact.",
+    next: "Run context orient once with the installed Awareness CLI.",
   }));
   process.exit(0);
 }
@@ -159,7 +159,7 @@ console.log(
         schema: `${schemaCommand} list`,
         awareness: `${awarenessCommand} workspace status --workspace "$PWD" --compact`,
         init: `${awarenessCommand} init --compact`,
-        attend: `${awarenessCommand} attend --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact`,
+        orient: `${awarenessCommand} context orient --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --compact`,
         hooks_preview_codex: `${awarenessCommand} hooks install --host codex --project-dir "$PWD" --dry-run --compact`,
         hooks_install_codex: `${awarenessCommand} hooks install --host codex --project-dir "$PWD" --compact`,
         hooks_check_codex: `${awarenessCommand} hooks check --host codex --project-dir "$PWD" --strict --compact`,
@@ -171,7 +171,7 @@ console.log(
         `This package bundles ${bundledSkills.length} skill(s) under bundled_skills above; octocode-awareness is the package skill to install from this path.`,
         "Use npx octocode for other workflow skill install/update/lint and research/search operations when needed.",
         "Export one stable OCTOCODE_AGENT_ID for the CLI and host hooks.",
-        "Run npx @octocodeai/octocode-awareness init --compact once, then workspace status and attend from each repo.",
+        "Run context orient once per repository, then refresh only after relevant shared state changes.",
         "When Claude skill frontmatter is active, use it as the hook surface and do not also install duplicate project settings; hooks check inspects settings files only.",
         "For project hooks: preview with --dry-run, install after user approval, then run hooks check --strict for that host.",
       ],

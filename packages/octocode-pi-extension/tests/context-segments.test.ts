@@ -1,4 +1,4 @@
-import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness/host';
 import { describe, expect, it } from 'vitest';
 import { assembleContextSegments, assertContextTokenBudget, contextSegmentFromInput, estimateContextTokens } from '../src/tools/context-segments.js';
 

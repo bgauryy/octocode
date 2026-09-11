@@ -11,10 +11,10 @@ import {
   ROUTINE_AWARENESS_OPERATIONS,
   listAwarenessOperationDescriptors,
 } from '../src/schema/operation-catalog.js';
-import { executeAwarenessCommand } from '../src/command-api.js';
 import { executeAwarenessCli } from '../src/command-cli.js';
 import { connectDb } from '../src/db-runtime.js';
 import { runAwarenessHistoryOperation } from '../src/history.js';
+import { registerAgent } from '../src/agents.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -28,6 +28,12 @@ function fixture(agentId = 'owner') {
     database: join(workspace, 'awareness.sqlite3'),
     compact: true,
   };
+}
+
+function register(context: ReturnType<typeof fixture>, agentId = context.agentId, agentName = 'Owner'): void {
+  const db = connectDb(context.database);
+  try { registerAgent(db, { agentId, agentName, workspacePath: context.workspace }); }
+  finally { db.close(); }
 }
 
 describe('canonical Awareness client', () => {
@@ -57,13 +63,13 @@ describe('canonical Awareness client', () => {
     expect(readFileSync(new URL('../src/client.ts', import.meta.url), 'utf8'))
       .not.toContain('executeAwarenessCommand');
     const cliSource = readFileSync(new URL('../src/command-cli.ts', import.meta.url), 'utf8');
-    expect(cliSource).toContain('operationCallForLegacyCommand');
-    expect(cliSource.indexOf('if (routineCall)')).toBeLessThan(cliSource.indexOf('return executeAwarenessCommand'));
+    expect(cliSource).not.toContain('operationCallForLegacyCommand');
+    expect(cliSource).not.toContain('executeAwarenessCommand');
   });
 
   it('returns a bounded orientation and a minimal not-modified response', async () => {
     const context = fixture();
-    await executeAwarenessCommand({ command: 'agent register', params: { agent_name: 'Owner' } }, context);
+    register(context);
     const client = createAwarenessClient(context);
     const first = await client.orient();
     expect(first).toMatchObject({
@@ -82,7 +88,7 @@ describe('canonical Awareness client', () => {
 
   it('checks the event high-water mark before reading orientation domains', async () => {
     const context = fixture();
-    await executeAwarenessCommand({ command: 'agent register', params: { agent_name: 'Owner' } }, context);
+    register(context);
     const client = createAwarenessClient(context);
     const first = await client.orient();
     const db = new (await import('node:sqlite')).DatabaseSync(context.database);
@@ -97,7 +103,7 @@ describe('canonical Awareness client', () => {
 
   it('invalidates the orientation revision after a canonical event write', async () => {
     const context = fixture();
-    await executeAwarenessCommand({ command: 'agent register', params: { agent_name: 'Owner' } }, context);
+    register(context);
     const client = createAwarenessClient(context);
     const first = await client.orient();
     const sent = await client.execute({
@@ -155,10 +161,7 @@ describe('canonical Awareness client', () => {
   it('returns executable canonical continuations for bounded peer pages', async () => {
     const context = fixture();
     for (let i = 0; i < 4; i++) {
-      await executeAwarenessCommand(
-        { command: 'agent register', params: { agent_name: `Peer ${i} ${'N'.repeat(72)}` } },
-        { ...context, agentId: `peer-${i}` },
-      );
+      register(context, `peer-${i}`, `Peer ${i} ${'N'.repeat(72)}`);
     }
     const client = createAwarenessClient(context);
     const first = await client.orient({ limit: 2 });
@@ -175,9 +178,9 @@ describe('canonical Awareness client', () => {
   it('preserves executable continuations for partial detail projections', async () => {
     const context = fixture();
     for (let index = 0; index < 5; index++) {
-      const sent = await executeAwarenessCommand({ command: 'signal publish', params: {
+      const sent = await createAwarenessClient({ ...context, agentId: `peer-${index}` }).execute({ operation: 'message.send', params: {
         kind: 'fyi', subject: `detail ${index}`, to_agent: ['owner'],
-      } }, { ...context, agentId: `peer-${index}` });
+      } });
       expect(sent.exitCode, JSON.stringify(sent.payload)).toBe(0);
     }
     const client = createAwarenessClient(context);
@@ -252,20 +255,12 @@ describe('canonical Awareness client', () => {
       offset: 2,
       content: Buffer.from('cd').toString('base64'),
     });
-    const legacy = await createAwarenessClient(context, { continuationFormat: 'legacy' }).execute({
-      operation: 'history.read', params: {
-        operation_id: 'paged-read', file: 'paged.txt', side: 'before', limit: 2,
-      },
-    });
-    expect(legacy.payload).toMatchObject({
-      next: { command: 'history read', args: { operation_id: 'paged-read', offset: 2 } },
-    });
     const cli = await executeAwarenessCli([
       'history', 'read', '--db', context.database, '--workspace', context.workspace,
       '--operation-id', 'paged-read', '--file', 'paged.txt', '--side', 'before', '--limit', '2', '--compact',
     ]);
     expect(cli.payload).toMatchObject({
-      next: { command: 'history read', args: { operation_id: 'paged-read', offset: 2 } },
+      next: { operation: 'history.read', params: { operation_id: 'paged-read', offset: 2 } },
     });
   });
 });

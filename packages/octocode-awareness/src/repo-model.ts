@@ -10,11 +10,9 @@ export const AWARENESS_QUERY_VIEWS = [
   'locks',
   'agents',
   'signals',
-  'refinements',
   'files',
   'activity',
   'workboard',
-  'developer-review',
 ] as const;
 
 export type AwarenessQueryView = (typeof AWARENESS_QUERY_VIEWS)[number];

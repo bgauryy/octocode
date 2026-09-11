@@ -2,10 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { selectCommand, UNKNOWN_COMMAND } from '../src/cli-adapter/cli-routing.js';
 import {
   DEFAULT_WORKSPACE_POLICY,
+  claimNativeHookOwner,
   hookCommandEnabled,
+  hookIntegrationOwner,
   loadWorkspacePolicy,
   storageScopeForCommand,
   workspacePolicyPath,
@@ -43,10 +44,30 @@ describe('workspace Awareness policy', () => {
       expect(loadWorkspacePolicy(workspace)).toEqual({
         path: workspacePolicyPath(workspace),
         exists: true,
-        policy,
+        policy: { ...policy, hooks: { ...policy.hooks, owners: DEFAULT_WORKSPACE_POLICY.hooks.owners } },
       });
       expect(storageScopeForCommand('work-command', workspace)).toBe('global');
       expect(storageScopeForCommand('tell-memory', workspace)).toBe('repo');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('persists one native integration owner without changing storage or profile', () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'awareness-policy-owner-'));
+    try {
+      writeWorkspacePolicy(workspace, {
+        version: 1,
+        storage: { repository: 'repo', memory: 'global' },
+        hooks: { profile: 'full' },
+      });
+      expect(hookIntegrationOwner(workspace, 'codex')).toBe('shell');
+      expect(claimNativeHookOwner({ workspace, host: 'codex' })).toMatchObject({ changed: true, owner: 'native' });
+      expect(claimNativeHookOwner({ workspace, host: 'codex' })).toMatchObject({ changed: false, owner: 'native' });
+      expect(loadWorkspacePolicy(workspace).policy).toMatchObject({
+        storage: { repository: 'repo', memory: 'global' },
+        hooks: { profile: 'full', owners: { codex: 'native', pi: 'native' } },
+      });
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -65,20 +86,5 @@ describe('workspace Awareness policy', () => {
     expect(hookCommandEnabled('coordination', 'session-compact')).toBe(false);
     expect(hookCommandEnabled('full', 'notify-deliver')).toBe(true);
     expect(hookCommandEnabled('full', 'session-end')).toBe(true);
-  });
-});
-
-describe('unified CLI facade', () => {
-  it('rejects retired convenience aliases and keeps canonical noun/verb routes', () => {
-    for (const argv of [['setup'], ['next'], ['inspect', 'workboard'], ['verify'], ['close'], ['init'], ['refinement', 'list']]) {
-      expect(selectCommand(argv)).toEqual({ command: UNKNOWN_COMMAND, rest: argv });
-    }
-    expect(selectCommand(['verify', 'audit'])).toEqual({ command: 'audit-unverified', rest: [] });
-    expect(selectCommand(['skill', 'install', '--platform', 'shared', '--global'])).toEqual({
-      command: 'skill-install', rest: ['--platform', 'shared', '--global'],
-    });
-    expect(selectCommand(['work', 'end', '--run-id', 'run-1'])).toEqual({
-      command: 'work-command', rest: ['--action', 'end', '--run-id', 'run-1'],
-    });
   });
 });

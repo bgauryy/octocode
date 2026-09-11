@@ -4,16 +4,14 @@ import { assertKnownOptions } from './helpers.js';
 import { AWARENESS_QUERY_VIEWS, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, AwarenessQuerySection, AwarenessQueryView, boundedRows, limitOf, normalizeFormat, normalizeView, stringList, utcNow } from './repo-model.js';
 import { activityRows, fileRows, repoProfileRows } from './repo-files.js';
 import { memoryRows, planRows, runRows, taskRows } from './repo-plans.js';
-import { agentRows, developerReviewRows, lockRows, refinementRows, signalRows } from './repo-coordination.js';
+import { agentRows, lockRows, signalRows } from './repo-coordination.js';
 import { workboardRows } from './repo-workboard.js';
 import { scopeFromParams, withScope } from './repo-scope.js';
-import { renderDeveloperReviewDoc } from './repo-docs.js';
 import { completenessText, escapeHtml, renderHtmlSection, toCsv, toMarkdown, toTable } from './repo-formats.js';
 import { atomicWriteText, resolveWorkspaceOutputPath } from './repo-projection.js';
 import { queryContinuation } from './repo-continuations.js';
 import { getDatabasePath } from './db-runtime.js';
 
-const DEVELOPER_REVIEW_EXPORT_MAX_LINES = 200;
 const QUERY_OPTION_KEYS = [
   'view', 'workspacePath', 'artifact', 'repo', 'ref', 'query', 'limit', 'agentId',
   'preferAgentId', 'preferFiles', 'state', 'label', 'file', 'since', 'includeBodies', 'cwd',
@@ -33,11 +31,9 @@ export function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: 
     case 'locks': return lockRows(db, params);
     case 'agents': return agentRows(db, params);
     case 'signals': return signalRows(db, params);
-    case 'refinements': return refinementRows(db, params);
     case 'files': return fileRows(db, params);
     case 'activity': return activityRows(db, params);
     case 'workboard': return workboardRows(db, params);
-    case 'developer-review': return developerReviewRows(db, params);
     case 'all': return [];
   }
 }
@@ -130,24 +126,6 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
     continuation: completeness.continuation,
     ...queryContinuation(getDatabasePath(db), scope.workspacePath, view, params, requestedLimit, completeness.is_partial),
     filters,
-  };
-}
-
-/**
- * Developer-review digest for the CLI `reflect developer-review` command, including
- * an explicit bounded Markdown export.
- */
-export function developerReviewDoc(
-  db: DatabaseSync,
-  params: AwarenessQueryParams = {},
-): { rows: AwarenessQueryRow[]; open: number; resolved: number; markdown: string } {
-  const rows = developerReviewRows(db, params);
-  const open = rows.filter(row => String(row['state']) !== 'done').length;
-  return {
-    rows,
-    open,
-    resolved: rows.length - open,
-    markdown: renderDeveloperReviewDoc(rows, DEVELOPER_REVIEW_EXPORT_MAX_LINES),
   };
 }
 

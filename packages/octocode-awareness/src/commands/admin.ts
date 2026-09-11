@@ -4,7 +4,6 @@ import { initDb } from '../db-init.js';
 import { hasFts } from '../db-maintenance.js';
 import { insertMemory } from '../memory-write.js';
 import { getMemory } from '../memory-recall.js';
-import { reflect } from '../reflect.js';
 import { getWorkspaceStatus } from '../maintenance-workspace.js';
 import { pruneNotifications, agentSignal } from '../notifications-signals.js';
 import { registerAgent, listAgents } from '../agents.js';
@@ -298,24 +297,16 @@ export async function cmdSelfTest(opts: EmitOptions): Promise<number> {
     return emit({ ok: false, error: 'FTS recall returned no results' }, 1, opts);
   }
 
-  // Reflect (direct call — no stdout patching)
-  const reflectResult = reflect(testDb, {
-    agentId: testAgent, task: 'self-test', outcome: 'worked', fixRepo: 'test fix',
-  });
-
   return emit({
     ok: true,
     db: ':memory:',
     fts_enabled: hasFts(testDb),
     memory_written: memoryId,
     memory_recalled: results[0]!.memory_id,
-    reflection_memory: reflectResult.learning_memory_id,
-    refinement_id: reflectResult.repo_fix_refinement_id,
     checks: {
       write: Boolean(memoryId),
       fts_recall: results.length > 0,
       scoring: typeof results[0]!.score === 'number',
-      refinement: Boolean(reflectResult.repo_fix_refinement_id),
     },
   }, 0, opts);
 }

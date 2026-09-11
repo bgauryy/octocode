@@ -1,4 +1,4 @@
-import type { ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import type { ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 
 export type PromptPlacement = 'frozen-system' | 'versioned-system' | 'turn-context' | 'transcript';
 export interface PromptLifecycleRuleV1 {

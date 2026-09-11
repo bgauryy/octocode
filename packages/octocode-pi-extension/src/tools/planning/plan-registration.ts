@@ -26,7 +26,7 @@ import {
   finalizeExternalPlan,
   type ObservedCheckReceipt,
   type ExternalPlanScope,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import { getAwarenessAgentId } from '../awareness-shared.js';
 import { assertPersistentAwarenessEnabled } from '../storage-policy.js';
 import { executeQueryBatch, toToolSchema, type QueryRecord } from '../query-envelope.js';

@@ -30,22 +30,6 @@ export interface MemoryRow {
   _bm25?: number;
 }
 
-export interface RefinementRow {
-  refinement_id: string;
-  agent_id: string;
-  workspace_path: string;
-  artifact: string | null;
-  repo: string | null;
-  ref: string | null;
-  files_json: string;
-  reasoning: string;
-  remember: string;
-  quality: string;
-  state: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // ─── Advisory file work ──────────────────────────────────────────────────────
 
 export interface WorkRunRecord {
