@@ -105,12 +105,8 @@ describe('exact verified memory pointers', () => {
     });
     const first = awareness.recallVerifiedMemory({ query: 'Paged evidence', limit: 1, now: '2026-09-30T00:00:00Z' });
     expect(first).toMatchObject({ memories: [expect.any(Object)], partial: true });
-    expect(first.next?.call.params.now).toBe('2026-09-30T00:00:00Z');
-    const continuation = first.next!.call.params;
-    const next = awareness.recallVerifiedMemory({
-      query: String(continuation.query), limit: Number(continuation.limit), offset: Number(continuation.offset),
-      now: String(continuation.now), revision: String(continuation.revision),
-    });
+    expect(first.next?.params.now).toBe('2026-09-30T00:00:00Z');
+    const next = awareness.recallVerifiedMemory(first.next!.params);
     expect(next.memories).toHaveLength(1);
     expect(next.memories[0]?.memoryId).not.toBe(first.memories[0]?.memoryId);
   });

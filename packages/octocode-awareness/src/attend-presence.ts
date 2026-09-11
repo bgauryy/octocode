@@ -4,27 +4,18 @@ import { normalizeWorkspacePath, repositoryWorkspacePaths } from './git.js';
 import { assertKnownOptions } from './helpers.js';
 import { attendAwareness } from './attend-query.js';
 import type { AttendParams } from './attend-model.js';
-import { workspaceChanges } from './workspace-changes.js';
 
 export interface AttendWorkspaceParams extends AttendParams {
   details?: boolean;
-  changes?: boolean;
   offset?: number;
 }
 
 /** The default lobby reads presence only. Detailed coordination is requested explicitly. */
 export function attendWorkspace(db: DatabaseSync, params: AttendWorkspaceParams = {}) {
-  assertKnownOptions(params, ['details', 'changes', 'offset', 'revision', 'runtimeObservation', 'agentId', 'workspacePath',
+  assertKnownOptions(params, ['details', 'offset', 'revision', 'runtimeObservation', 'agentId', 'workspacePath',
     'artifact', 'repo', 'ref', 'query', 'file', 'limit', 'compact', 'includeBodies', 'explainOrgan', 'cwd'], 'attendWorkspace');
-  const { details, changes, offset = 0, ...inspection } = params;
+  const { details, offset = 0, ...inspection } = params;
   const files = Array.isArray(params.file) ? params.file : params.file ? [params.file] : [];
-  if (changes) {
-    if (details || params.query?.trim() || files.length || params.artifact || params.repo || params.ref || params.explainOrgan) {
-      throw new Error('attend: changes cannot be combined with coordination detail filters');
-    }
-    return workspaceChanges(db, { workspacePath: params.workspacePath, cwd: params.cwd,
-      agentId: params.agentId, limit: params.limit, offset, revision: params.revision, includeBodies: params.includeBodies });
-  }
   if (details || params.query?.trim() || files.length || params.explainOrgan || params.revision || params.artifact || params.repo || params.ref || params.includeBodies) {
     if (offset !== 0) throw new Error('attend: offset is only available for the default peer briefing');
     return attendAwareness(db, inspection);

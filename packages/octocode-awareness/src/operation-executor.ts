@@ -31,6 +31,7 @@ import { commandSchemaProperties } from './schema/command-properties.js';
 import { DEFAULT_RETRY_MS, DEFAULT_WAIT_MS } from './maintenance-stale.js';
 import { waitForLock } from './maintenance-session.js';
 import type { AwarenessOperationResult, CanonicalExecutionContext, CanonicalRouteBinding } from './operation-contracts.js';
+import type { AwarenessOperationCall } from './schema/operation-types.js';
 import { storageScopeForOperation } from './workspace-policy.js';
 
 const validators = new Map<string, z.ZodType>();
@@ -246,7 +247,7 @@ interface AttendDetail {
   workboard?: Record<string, Array<Record<string, unknown>>>;
   counts?: Record<string, number>;
   operational_state?: { unavailable?: unknown[]; context?: { pressure?: string } };
-  next?: { continuations?: Array<{ command?: string; params?: Record<string, unknown> }> };
+  next?: { continuations?: AwarenessOperationCall[] };
 }
 
 function itemSummary(row: Record<string, unknown>) {

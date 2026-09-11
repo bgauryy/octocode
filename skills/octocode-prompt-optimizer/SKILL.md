@@ -10,7 +10,7 @@ related-skill: `octocode-eval-benchmark`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Optimize instruction behavior, not prose aesthetics. A rule that states a preference changes nothing — "be efficient with tools" leaves every call open; "reuse a schema you already fetched; fetch only for an unfamiliar tool" decides the next call.
+Optimize behavior through clear intent and precise language, not prose aesthetics. A rule that states a preference changes nothing — "be efficient with tools" leaves every call open; "reuse a schema you already fetched; fetch only for an unfamiliar tool" decides the next call.
 
 Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`.
 

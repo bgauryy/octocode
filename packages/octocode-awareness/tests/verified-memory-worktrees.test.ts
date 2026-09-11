@@ -47,22 +47,8 @@ function fixture() {
   return { main, peer, clone, database, open, history, git };
 }
 
-function resume(store: ReturnType<typeof openAwarenessStore>, call: { params: Record<string, unknown> }): VerifiedMemoryPageV1 {
-  const params = call.params;
-  return store.recallVerifiedMemory({
-    ...(params.memory_id ? { memoryId: String(params.memory_id) } : {}),
-    ...(params.query !== undefined ? { query: String(params.query) } : {}),
-    ...(params.source_digest ? { sourceDigest: String(params.source_digest) } : {}),
-    ...(params.scope ? { scope: params.scope as VerifiedMemoryRecallParams['scope'] } : {}),
-    ...(params.artifact ? { artifact: String(params.artifact) } : {}),
-    ...(params.file ? { file: params.file as string | string[] } : {}),
-    ...(params.area ? { area: String(params.area) } : {}),
-    ...(params.strict_scope !== undefined ? { strictScope: Boolean(params.strict_scope) } : {}),
-    ...(params.limit !== undefined ? { limit: Number(params.limit) } : {}),
-    ...(params.offset !== undefined ? { offset: Number(params.offset) } : {}),
-    ...(params.now !== undefined ? { now: String(params.now) } : {}),
-    ...(params.revision !== undefined ? { revision: String(params.revision) } : {}),
-  });
+function resume(store: ReturnType<typeof openAwarenessStore>, params: VerifiedMemoryRecallParams): VerifiedMemoryPageV1 {
+  return store.recallVerifiedMemory(params);
 }
 
 describe('verified memories across Git worktrees', () => {
@@ -81,13 +67,10 @@ describe('verified memories across Git worktrees', () => {
     const recall = () => reader.recallVerifiedMemory({ memoryId: id });
     const page = recall();
     expect(page.memories[0]?.historyEvidence).toMatchObject({ state: 'recorded', next: { call: {
-      command: 'history inspect', params: { operation_id: 'source-checkpoint', source_workspace: main },
+      operation: 'history.read',
+      params: { operation_id: 'source-checkpoint', source_workspace: main, file: 'source.ts', side: 'after' },
     } } });
-    const inspected = await history(peer, 'inspect', page.memories[0]!.historyEvidence!.next!.call.params);
-    const inspection = inspected as { rows: Array<{ next: { after: { operation: 'history.read'; params: Record<string, unknown> } } }> };
-    expect(inspection.rows).toHaveLength(1);
-    const readCall = inspection.rows[0]!.next.after;
-    expect(readCall.params).toMatchObject({ source_workspace: main, operation_id: 'source-checkpoint', file: 'source.ts' });
+    const readCall = page.memories[0]!.historyEvidence!.next!.call;
     const read = await createAwarenessClient({ workspace: peer, database, agentId: 'reader' }).execute(readCall);
     expect(read.exitCode, JSON.stringify(read.payload)).toBe(0);
     expect(Buffer.from(String((read.payload as { content: string }).content), 'base64').toString()).toBe('export const evidence = 1;\n');
@@ -100,7 +83,7 @@ describe('verified memories across Git worktrees', () => {
       db.prepare("UPDATE local_history_operations SET status = 'partial' WHERE operation_id = ?").run('source-checkpoint');
       expect(recall().memories[0]?.historyEvidence?.state).toBe('incomplete');
       expect(reader.recallVerifiedMemory({ memoryId: id, revision: page.revision }))
-        .toMatchObject({ partialReasons: ['snapshot_changed'], next: { call: { params: { memory_id: id, offset: 0 } } } });
+        .toMatchObject({ partialReasons: ['snapshot_changed'], next: { params: { memoryId: id, offset: 0 } } });
       db.prepare('DELETE FROM local_history_versions WHERE operation_id = ?').run('source-checkpoint');
       db.prepare('DELETE FROM local_history_operations WHERE operation_id = ?').run('source-checkpoint');
       expect(recall().memories[0]?.historyEvidence).toMatchObject({ state: 'unavailable' });
@@ -143,16 +126,16 @@ describe('verified memories across Git worktrees', () => {
     const received = new Set(first.memories.map(memory => memory.memoryId));
     let page = first;
     while (page.next) {
-      page = resume(reader, page.next.call);
+      page = resume(reader, page.next.params);
       expect(page.partialReasons).not.toContain('snapshot_changed');
       for (const memory of page.memories) { expect(received.has(memory.memoryId)).toBe(false); received.add(memory.memoryId); }
     }
     expect(received).toEqual(ids);
-    const changed = { ...first.next!.call, params: { ...first.next!.call.params, query: 'different' } };
+    const changed = { ...first.next!.params, query: 'different' };
     expect(resume(reader, changed).partialReasons).toEqual(['snapshot_changed']);
-    for (const workspace of [main, clone]) expect(resume(open(workspace), first.next!.call).partialReasons)
+    for (const workspace of [main, clone]) expect(resume(open(workspace), first.next!.params).partialReasons)
       .toEqual(['snapshot_changed']);
     git(main, 'worktree', 'add', '-qb', 'new-peer', join(main, '..', 'new-peer'));
-    expect(resume(reader, first.next!.call).partialReasons).toEqual(['snapshot_changed']);
+    expect(resume(reader, first.next!.params).partialReasons).toEqual(['snapshot_changed']);
   });
 });
