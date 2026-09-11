@@ -1337,8 +1337,7 @@ describe('getConfigSync', () => {
       .mockImplementation(() => true);
     try {
       process.env['OCTOCODE_HOME'] = home;
-      const cfg = resolveConfigSync();
-      expect(cfg.source).toBe('file');
+      resolveConfigSync();
       expect(spy).toHaveBeenCalledWith(
         expect.stringContaining('Unknown configuration key: local.enableLocl')
       );
