@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openAwarenessStore } from '../../src/coordination/open.js';
 import type { AwarenessStore } from '../../src/coordination/coordination-continuity.js';
+import { AWARENESS_DB_FILENAME } from '../../src/storage-scope.js';
 
 let workspace: string;
 let aw: AwarenessStore;
@@ -35,7 +36,7 @@ describe('AwarenessStore canonical coordination', () => {
   it('reports canonical storage and empty scoped state', () => {
     const status = aw.status();
     expect(status.workspace).toMatch(/aw-lite-/);
-    expect(status.dbPath).toBe(join(status.workspace, '.octocode', 'awareness.sqlite3'));
+    expect(status.dbPath).toBe(join(status.workspace, '.octocode', AWARENESS_DB_FILENAME));
     expect(status).toMatchObject({ plans: 0, tasks: 0, readyTasks: 0, inProgressTasks: 0, pendingChecks: 0, locks: 0, work: 0 });
   });
 
