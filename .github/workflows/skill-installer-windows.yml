@@ -40,8 +40,11 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
+      - name: Remove local development resolutions
+        run: node scripts/prepublish.mjs --fix
+
       - name: Install dependencies
-        run: yarn install --immutable
+        run: yarn install
 
       - name: Build config dependency
         run: yarn workspace @octocodeai/config build
