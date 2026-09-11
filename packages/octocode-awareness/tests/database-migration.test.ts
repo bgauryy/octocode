@@ -8,12 +8,14 @@ import { applyDatabaseMigration, previewDatabaseMigration, verifyDatabaseMigrati
 import { inspectSchemaState, readAwarenessMeta, type SchemaState } from '../src/db-introspection.js';
 import { AWARENESS_SCHEMA_VERSION, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { EVENT_OUTBOX_V1_DDL, EVENT_OUTBOX_V1_INDEX_DDL } from '../src/db-continuity-schema.js';
+import { PREDECESSOR_EVENT_RELATIONS_DDL } from '../src/db-predecessor-schema.js';
 import { AWARENESS_META_DDL } from '../src/db-meta-schema.js';
 import { WORKER_LIFECYCLE_DDL } from '../src/db-worker-schema.js';
 import { captureHistory } from '../src/history-capture.js';
 import { previewHistoryRestore } from '../src/history-restore.js';
 import { createHistoryContext, historyHash, historyStoragePaths } from '../src/history-store.js';
 import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
+import { initDb } from '../src/db-init.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -28,11 +30,12 @@ function legacyFixture() {
   const destinationPath = join(root, 'canonical.sqlite3');
   const db = new DatabaseSync(sourcePath);
   db.exec(SCHEMA_DDL.replace(AWARENESS_META_DDL, ''));
+  db.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
   for (const relation of [
     'authorization_receipts', 'capability_receipts', 'event_acknowledgements', 'event_consumers',
     'event_outbox', 'handoffs', 'local_history_durability', 'local_history_operations',
     'local_history_restores', 'local_history_versions', 'pending_interactions',
-  ]) db.exec(`DROP TABLE ${JSON.stringify(relation)}`);
+  ]) db.exec(`DROP TABLE IF EXISTS ${JSON.stringify(relation)}`);
   for (const [current, legacy] of [
     ['awareness_agents', 'agents'], ['awareness_locks', 'locks'], ['awareness_memories', 'memories'],
     ['awareness_plans', 'plans'], ['awareness_tasks', 'tasks'],
@@ -121,6 +124,18 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
       (run_id,file_path,reason_override,source,started_at,heartbeat_at,expires_at,ended_at)
       VALUES ('run-1','src/a.ts',NULL,'EXPLICIT',?,?,?,NULL)`)
       .run(createdAt, createdAt, '2026-01-02T03:14:05Z');
+    db.prepare(`INSERT INTO task_events
+      (event_id,task_id,run_id,agent_id,event_type,message,created_at)
+      VALUES ('task-event-1','task-1','run-1','agent-1','CLAIMED','claimed',?)`).run(createdAt);
+    db.prepare(`INSERT INTO run_log
+      (event_id,run_id,agent_id,event_type,message,created_at)
+      VALUES ('run-event-1','run-1','agent-1','STARTED','started',?)`).run(createdAt);
+    db.prepare(`INSERT INTO edit_log
+      (edit_id,session_id,run_id,agent_id,file_path,operation,workspace_path,created_at)
+      VALUES ('edit-1',NULL,'run-1','agent-1','src/a.ts','update',?,?)`).run(workspace, createdAt);
+    db.prepare(`INSERT INTO harness_log
+      (harness_id,session_id,agent_id,workspace_path,event_type,payload_json,memory_id,run_id,created_at)
+      VALUES ('harness-1',NULL,'agent-1',?,'capture','{"ok":true}',NULL,'run-1',?)`).run(workspace, createdAt);
     db.close();
     const storeId = historyHash(realpathSync(sourcePath));
     const localGitRoot = join(workspace, '.octocode', '.localGit', storeId, 'awareness-v1', historyHash(workspace));
@@ -148,6 +163,15 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
         .toEqual({ task_id: 'task-1', source_step_key: null, check_command: null, created_at: createdAt });
       expect(destination.prepare('SELECT run_id,file_path,started_at FROM run_files').get())
         .toEqual({ run_id: 'run-1', file_path: 'src/a.ts', started_at: createdAt });
+      expect(destination.prepare('SELECT event_id,event_type,retention_class FROM event_outbox ORDER BY sequence').all())
+        .toEqual([
+          { event_id: 'legacy.task:task-event-1', event_type: 'task.claimed', retention_class: 'delivery' },
+          { event_id: 'legacy.run:run-event-1', event_type: 'run.started', retention_class: 'delivery' },
+          { event_id: 'legacy.edit:edit-1', event_type: 'edit.update', retention_class: 'operational' },
+          { event_id: 'legacy.harness:harness-1', event_type: 'harness.capture', retention_class: 'operational' },
+        ]);
+      expect(destination.prepare(`SELECT name FROM sqlite_schema WHERE type = 'table'
+        AND name IN ('task_events','run_log','edit_log','harness_log','handoffs')`).all()).toEqual([]);
       expect(historyStoragePaths(createHistoryContext(destination, workspace))).toMatchObject({
         root: localGitRoot, layout: 'awareness-v1', current_path_preserved: true,
       });
@@ -174,6 +198,42 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
     expect(() => applyDatabaseMigration(sourcePath, destinationPath, { workspace })).toThrow(/destination already exists/);
     expect(digest(sourcePath)).toBe(sourceBefore);
     expect(digest(destinationPath)).toBe(destinationBefore);
+  });
+});
+
+describe('event-stream convergence predecessor migration', () => {
+  it('preserves the source and maps one legacy handoff to a signal and typed peer event', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'awareness-stream-predecessor-')));
+    roots.push(root);
+    const workspace = join(root, 'workspace');
+    mkdirSync(workspace);
+    const sourcePath = join(root, 'source.sqlite3');
+    const destinationPath = join(root, 'destination.sqlite3');
+    const source = new DatabaseSync(sourcePath);
+    initDb(source);
+    source.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
+    source.prepare(`INSERT INTO handoffs(handoff_id,workspace_path,agent_id,summary,files_json,created_at)
+      VALUES ('handoff-1',?,'agent-a','Resume parser work','["src/parser.ts"]','2026-01-01T00:00:00Z')`).run(workspace);
+    expect(inspectSchemaState(source)).toBe('event-stream-convergence-upgrade');
+    source.close();
+    const before = digest(sourcePath);
+
+    const preview = previewDatabaseMigration(sourcePath, destinationPath);
+    expect(preview).toMatchObject({ sourceVersion: 'event-stream-convergence-upgrade', sourceUnchanged: true });
+    expect(preview.transformations).toContainEqual(expect.objectContaining(
+      { source: 'handoffs', destination: 'event_outbox', rows: 1 }));
+    const report = applyDatabaseMigration(sourcePath, destinationPath);
+    expect(digest(sourcePath)).toBe(before);
+    expect(report.sourceVersion).toBe('event-stream-convergence-upgrade');
+    const destination = new DatabaseSync(destinationPath, { readOnly: true });
+    expect(destination.prepare(`SELECT signal_id,kind,subject,status FROM signals WHERE signal_id='handoff-1'`).get())
+      .toEqual({ signal_id: 'handoff-1', kind: 'handoff', subject: 'Resume parser work', status: 'open' });
+    expect(destination.prepare(`SELECT event_type,aggregate_id,retention_class FROM event_outbox
+      WHERE event_id='legacy.handoff:handoff-1'`).get())
+      .toEqual({ event_type: 'peer.message', aggregate_id: 'handoff-1', retention_class: 'delivery' });
+    expect(destination.prepare(`SELECT name FROM sqlite_schema WHERE type='table'
+      AND name IN ('handoffs','task_events','run_log','edit_log','harness_log')`).all()).toEqual([]);
+    destination.close();
   });
 });
 

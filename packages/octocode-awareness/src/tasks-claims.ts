@@ -96,6 +96,7 @@ export function heartbeatTaskClaim(
       WHERE task_id = ? AND run_id = ? AND agent_id = ? AND expires_at > ?`)
       .run(now, expiresAt, params.taskId, params.runId, params.agentId, now) as { changes: number };
     found = result.changes > 0;
+    if (found) event(db, params.taskId, params.runId, params.agentId, 'HEARTBEAT', 'claim heartbeat', now);
     db.exec('COMMIT');
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch { /* transaction did not begin */ }

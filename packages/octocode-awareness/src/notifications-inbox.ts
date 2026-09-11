@@ -5,6 +5,8 @@ import { SIGNALS_SELECT_BASE, SIGNALS_SELECT_LEFT_JOIN_READS, SIGNALS_SELECT_ORD
 import type { GetNotificationsParams, GetNotificationsResult, ResolveNotificationParams, ResolveNotificationResult } from './types/notifications-agents.js';
 import { appendSignalScope, assertSignalsExist, canReadOrJoinThread, isThreadParticipant, NotificationRow, rowToNotification } from './notifications-core.js';
 import { decodeSignalCursor, encodeSignalCursor } from './signal-pagination.js';
+import { beginWrite } from './db-transaction.js';
+import { appendDomainEvent } from './event-outbox.js';
 
 // ─── getNotifications ──────────────────────────────────────────────────────────
 
@@ -141,39 +143,72 @@ export function resolveNotification(
     : { workspace_path: null, artifact: null, repo: null, ref: null };
   const resolved: string[] = [];
   const now = utcNow();
+  const fallbackWorkspace = readScope(
+    { workspace_path: null, artifact: null, repo: null, ref: null }, cwd ?? process.cwd(),
+  ).workspace_path ?? process.cwd();
+  const canResolveThread = !threadId || !agentId || isThreadParticipant(db, threadId, agentId);
+  const transaction = beginWrite(db);
 
-  if (notificationIds.length > 0) {
-    const ph = notificationIds.map(() => '?').join(',');
-    const where = [`signal_id IN (${ph})`, "status = 'open'"];
-    const binds: (string | number)[] = [...notificationIds];
-    appendSignalScope(where, binds, scope, '');
-    if (agentId) {
-      const authorizedIds = notificationIds.filter((signalId) => {
-        const row = db.prepare('SELECT thread_id FROM signals WHERE signal_id = ?')
-          .get(signalId) as { thread_id: string } | undefined;
-        return row ? isThreadParticipant(db, row.thread_id, agentId) : false;
-      });
-      if (authorizedIds.length === 0) return { resolved: 0, signal_ids: [] };
-      where.push(`signal_id IN (${authorizedIds.map(() => '?').join(',')})`);
-      binds.push(...authorizedIds);
+  try {
+    if (notificationIds.length > 0) {
+      const ph = notificationIds.map(() => '?').join(',');
+      const where = [`signal_id IN (${ph})`, "status = 'open'"];
+      const binds: (string | number)[] = [...notificationIds];
+      appendSignalScope(where, binds, scope, '');
+      if (agentId) {
+        const authorizedIds = notificationIds.filter((signalId) => {
+          const row = db.prepare('SELECT thread_id FROM signals WHERE signal_id = ?')
+            .get(signalId) as { thread_id: string } | undefined;
+          return row ? isThreadParticipant(db, row.thread_id, agentId) : false;
+        });
+        if (authorizedIds.length === 0) {
+          transaction.commit();
+          return { resolved: 0, signal_ids: [] };
+        }
+        where.push(`signal_id IN (${authorizedIds.map(() => '?').join(',')})`);
+        binds.push(...authorizedIds);
+      }
+      const rows = db.prepare(
+        `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')}
+         RETURNING signal_id, workspace_path, thread_id`
+      ).all(now, ...binds) as unknown as Array<{ signal_id: string; workspace_path: string | null; thread_id: string }>;
+      for (const row of rows) {
+        resolved.push(row.signal_id);
+        appendDomainEvent(db, {
+          workspace: row.workspace_path ?? scope.workspace_path ?? fallbackWorkspace,
+          eventType: 'peer.message.resolved', retentionClass: 'delivery',
+          actorId: agentId ?? 'system', actorKind: agentId ? 'agent' : 'system',
+          source: agentId ? 'tool' : 'harness',
+          aggregateKind: 'message', aggregateId: row.signal_id, aggregateRevision: now,
+          createdAt: now, payload: { thread_id: row.thread_id }, eventIdPrefix: 'revt',
+        });
+      }
     }
-    const rows = db.prepare(
-      `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')} RETURNING signal_id`
-    ).all(now, ...binds) as unknown as Array<{ signal_id: string }>;
-    resolved.push(...rows.map(r => r.signal_id));
-  }
 
-  if (threadId) {
-    if (agentId && !isThreadParticipant(db, threadId, agentId)) {
-      return { resolved: resolved.length, signal_ids: [...new Set(resolved)] };
+    if (threadId && canResolveThread) {
+      const where = ['thread_id = ?', "status = 'open'"];
+      const binds: (string | number)[] = [threadId];
+      appendSignalScope(where, binds, scope, '');
+      const rows = db.prepare(
+        `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')}
+         RETURNING signal_id, workspace_path, thread_id`
+      ).all(now, ...binds) as unknown as Array<{ signal_id: string; workspace_path: string | null; thread_id: string }>;
+      for (const row of rows) {
+        resolved.push(row.signal_id);
+        appendDomainEvent(db, {
+          workspace: row.workspace_path ?? scope.workspace_path ?? fallbackWorkspace,
+          eventType: 'peer.message.resolved', retentionClass: 'delivery',
+          actorId: agentId ?? 'system', actorKind: agentId ? 'agent' : 'system',
+          source: agentId ? 'tool' : 'harness',
+          aggregateKind: 'message', aggregateId: row.signal_id, aggregateRevision: now,
+          createdAt: now, payload: { thread_id: row.thread_id }, eventIdPrefix: 'revt',
+        });
+      }
     }
-    const where = ['thread_id = ?', "status = 'open'"];
-    const binds: (string | number)[] = [threadId];
-    appendSignalScope(where, binds, scope, '');
-    const rows = db.prepare(
-      `UPDATE signals SET status = 'resolved', resolved_at = ? WHERE ${where.join(' AND ')} RETURNING signal_id`
-    ).all(now, ...binds) as unknown as Array<{ signal_id: string }>;
-    resolved.push(...rows.map(r => r.signal_id));
+    transaction.commit();
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
   }
 
   return { resolved: resolved.length, signal_ids: [...new Set(resolved)] };

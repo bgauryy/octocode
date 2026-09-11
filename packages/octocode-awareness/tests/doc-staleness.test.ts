@@ -24,6 +24,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../src/db-init.js';
 import { mineDocStaleness, proposeDocRefresh } from '../src/docs.js';
+import { queryHarnessLog } from '../src/audit.js';
+import { appendDomainEvent } from '../src/event-outbox.js';
 import type { HarnessLogRow } from '../src/types/plans-docs.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,7 +37,7 @@ function freshDb(): DatabaseSync {
   return db;
 }
 
-/** Insert an edit_log row at an explicit timestamp — avoids same-second ordering flakiness. */
+/** Append an edit event at an explicit timestamp — avoids same-second ordering flakiness. */
 function seedEdit(db: DatabaseSync, opts: {
   filePath: string;
   createdAt: string;
@@ -43,17 +45,22 @@ function seedEdit(db: DatabaseSync, opts: {
   linesRemoved?: number | null;
   workspacePath?: string | null;
 }): void {
-  db.prepare(`
-    INSERT INTO edit_log (edit_id, agent_id, file_path, operation, lines_added, lines_removed, workspace_path, created_at)
-    VALUES (?, 'agent-test', ?, 'update', ?, ?, ?, ?)
-  `).run(
-    'edit_' + randomUUID(),
-    opts.filePath,
-    opts.linesAdded ?? null,
-    opts.linesRemoved ?? null,
-    opts.workspacePath ?? null,
-    opts.createdAt,
-  );
+  appendDomainEvent(db, {
+    eventId: 'edit_' + randomUUID(),
+    workspace: opts.workspacePath ?? process.cwd(),
+    eventType: 'workspace.edit.update',
+    retentionClass: 'audit',
+    actorId: 'agent-test',
+    aggregateKind: 'file',
+    aggregateId: opts.filePath,
+    createdAt: opts.createdAt,
+    payload: {
+      old_file_path: null,
+      lines_added: opts.linesAdded ?? null,
+      lines_removed: opts.linesRemoved ?? null,
+      artifact: null,
+    },
+  });
 }
 
 const DOC = '/repo/packages/foo/ARCHITECTURE.md';
@@ -290,7 +297,7 @@ describe('proposeDocRefresh', () => {
     const harnessId = proposeDocRefresh(db, entry, { agentId: 'agent-doc', workspacePath: '/repo' });
     expect(harnessId).toMatch(/^harness_/);
 
-    const row = db.prepare('SELECT * FROM harness_log WHERE harness_id = ?').get(harnessId) as unknown as HarnessLogRow;
+    const row = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId) as HarnessLogRow;
     expect(row.event_type).toBe('propose');
     expect(row.agent_id).toBe('agent-doc');
     expect(row.workspace_path).toBe('/repo');
@@ -311,8 +318,8 @@ describe('proposeDocRefresh', () => {
     const result = mineDocStaleness(db, { targets: [{ docFile: DOC, sourceDirs: [SRC] }] });
     const harnessId = proposeDocRefresh(db, result.entries[0]!, { agentId: 'agent-doc' });
 
-    const row = db.prepare('SELECT payload_json FROM harness_log WHERE harness_id = ?').get(harnessId) as { payload_json: string };
-    const payload = JSON.parse(row.payload_json);
+    const row = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId)!;
+    const payload = JSON.parse(row.payload_json ?? 'null');
     expect(payload.evidence.doc_last_synced_at).toBeNull();
     expect(payload.proposed_change).toContain('no prior edit_log record');
   });

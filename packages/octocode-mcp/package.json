@@ -9,15 +9,15 @@
     "@modelcontextprotocol/server": "^2.0.0",
     "@octocodeai/octocode-core": "19.0.0",
     "@octocodeai/octocode-tools-core": "19.1.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@octokit/core": "^7.0.8",
     "@octokit/plugin-throttling": "^11.0.5",
     "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.11",
-    "@vitest/ui": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/ui": "^5.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "node-cache": "^5.1.2",
@@ -25,8 +25,8 @@
     "rollup": "^4.63.1",
     "rollup-plugin-dts": "^6.5.1",
     "typescript": "^6.0.3",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   },
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"

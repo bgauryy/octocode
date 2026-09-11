@@ -1,50 +1,46 @@
-# IMPLEMENTATION.md template — build document
+# PLAN.md / IMPLEMENTATION.md template — build document
 
-Load when writing the live implementer plan. Why: close every RFC question with evidence, then order build, and verification by dependency.
-Reference `RFC.md` anchors; never restate goals or scope. Success metrics stay in `KPI.md`.
+Load when writing a standalone `PLAN.md` or RFC-linked `IMPLEMENTATION.md`. Why: resolve execution questions, make acceptance explicit, then order build and verification by dependency. Reference the primary artifact; never restate its goals or scope.
 ```markdown
-# Implementation: {Title}
+# {Plan | Implementation}: {Title}
 
-> Decision: `RFC.md` §Summary / §Rationale
-
-## Resolved Questions
-| RFC open question (§) | Resolution or explicit deferral | Evidence | Confidence |
+## Plan Context
+- Primary: {`RFC.md` §Summary / §Rationale | standalone settled direction and evidence}
+- Goal (standalone only): {checkable outcome}
+- Scope (standalone only): {included and excluded work}
+- Constraints: {compatibility, policy, platform, or delivery boundaries}
+## Execution Questions
+| Non-blocking question (§) | Resolution or explicit deferral | Evidence | Confidence |
 |---|---|---|---|
-
-Decision-blocking questions are closed. Each remaining deferral names its impact, reason, owner, and revisit trigger.
-
+Decision blockers closed before the direction was selected. Each deferral names impact, reason, owner, and revisit trigger.
+## Acceptance Contract
+Use `KPI.md` anchors when measurement has a separate lifecycle; otherwise complete this table before writing steps.
+| Requirement | Pass/fail acceptance | Guardrail or rollback threshold |
+|---|---|---|
 ## Approach
-One or two lines linking the selected RFC recommendation.
+One or two lines linking the settled direction and acceptance contract.
 ## Steps
+Order steps so prerequisites and enabling outputs precede consumers. Every dependency names `none`, a prerequisite anchor, or an earlier step ID.
 ### Phase 1: {name}
-- [ ] {dependency-ordered, shippable step} — `path:line` — RFC §{anchor}
+- [ ] S1. {shippable step} — Depends on: {none | prerequisite anchor | earlier step ID} — Produces: {artifact/contract} — Acceptance: {KPI or inline anchor} — Verify: {command/check} — `path:line`
 ### Phase 2: {name}
-- [ ] {next step} — `path:line` — RFC §{anchor}
-
+- [ ] S2. {next shippable step} — Depends on: {none | prerequisite anchor | earlier step ID} — Produces: {artifact/contract} — Acceptance: {KPI or inline anchor} — Verify: {command/check} — `path:line`
 ## Files, APIs, and Contracts
 | Surface | Change | Blast-radius evidence | Compatibility |
 |---|---|---|---|
-
 ## Risk Mitigations
-| RFC risk/pre-mortem | Preventive action | Detection |
+| Primary risk/pre-mortem | Preventive action | Detection |
 |---|---|---|
-
 ## Test and Verification Plan
 | Type | Scope | Approach | Command |
 |---|---|---|---|
-
-Verification asks whether the build matches design; validation asks whether `KPI.md` moved.
-
+Verification asks whether the build matches design; validation asks whether the acceptance contract moved.
 ## Rollout, Migration, and Rollback
 - Sequence and observable proceed signal
-- Flags/canary/percentage gate
-- Rollback trigger mirrored in `KPI.md`
+- Trigger: `KPI.md` §Decision Rule when present; otherwise the inline Acceptance Contract
+- Flags/canary/percentage gate and rollback procedure
 - Owner/approver
-
-## Critical References
-- {exact local or external anchor} — how it constrains the plan
+When `KPI.md` exists, it owns the measurable rollback threshold; this procedure references that threshold.
 ```
-
-Gate: every decision-blocking question is resolved with evidence; other questions are explicitly deferred. Include estimates only when requested and evidence-based; keep steps reversible where useful. Use `RESOURCES.md` when the source inventory needs its own file. <!-- style-lint: ignore-line passive-voice -->
-
-Next: bind these steps to acceptance with `references/rfc-kpi.md`; record the source inventory with `references/rfc-resources.md`.
+Gate: decision blockers closed before direction selection; every execution question is resolved or explicitly deferred. Every step depends only on a prerequisite or earlier step, links to acceptance, and has a verification check; reorder or split any step that fails. Include estimates only when requested and evidence-based.
+Next: record provenance with `references/rfc-resources.md`, then validate through `references/workflow.md` § Validate and deliver.

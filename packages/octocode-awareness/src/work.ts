@@ -7,23 +7,21 @@ import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { canonicalizePath, normalizeWorkspacePath } from './git.js';
 import { ensureRunSession } from './sessions.js';
+import { appendWorkEvent } from './work-events.js';
 import type { EndWorkParams, ListWorkParams, ListWorkResult, StartWorkParams, StartWorkResult, TouchWorkParams, WorkConflict, WorkFileRecord, WorkMutationResult, WorkPeer, WorkPresence, WorkRunRecord } from './types/work-maintenance.js';
 
 const DEFAULT_PRESENCE_TTL_MS = 10 * 60_000;
 const MAX_PRESENCE_TTL_MS = 60 * 60_000;
 const PEER_DETAIL_LIMIT = 5;
-
 function required(value: string | null | undefined, name: string): string {
   const normalized = value?.trim() ?? '';
   if (!normalized) throw new Error(`${name} is required`);
   return normalized;
 }
-
 function workspaceRoot(workspacePath?: string | null): string {
   const candidate = workspacePath ?? process.cwd();
   return normalizeWorkspacePath(candidate, candidate) ?? resolve(candidate);
 }
-
 export function normalizeFiles(files: string[], workspacePath?: string | null): string[] {
   if (files.length === 0) throw new Error('at least one target file is required');
   const base = canonicalizePath(workspacePath ? resolve(workspacePath) : process.cwd());
@@ -32,12 +30,10 @@ export function normalizeFiles(files: string[], workspacePath?: string | null): 
     return canonicalizePath(isAbsolute(value) ? resolve(value) : resolve(base, value));
   }))];
 }
-
 function expiry(ttlMs?: number | null): string {
   const effective = Math.min(Math.max(1, ttlMs ?? DEFAULT_PRESENCE_TTL_MS), MAX_PRESENCE_TTL_MS);
   return new Date(Date.now() + effective).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
-
 export function getRun(db: DatabaseSync, runId: string): WorkRunRecord {
   const row = db.prepare('SELECT * FROM task_runs WHERE run_id = ?').get(runId) as unknown as WorkRunRecord | undefined;
   if (!row) throw new Error(`run not found: ${runId}`);
@@ -136,6 +132,7 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
     runId ??= `run_${randomUUID().replace(/-/g, '')}`;
 
     let run = db.prepare('SELECT * FROM task_runs WHERE run_id = ?').get(runId) as unknown as WorkRunRecord | undefined;
+    const createdRun = !run;
     if (run) {
       if (run.agent_id !== agentId) throw new Error(`run ${runId} belongs to ${run.agent_id}`);
       if (run.status !== 'ACTIVE') throw new Error(`run ${runId} is not ACTIVE`);
@@ -209,6 +206,8 @@ export function startWork(db: DatabaseSync, params: StartWorkParams): StartWorkR
       }
     }
     db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ?').run(now, runId);
+    appendWorkEvent(db, { workspace: wsPath, type: createdRun ? 'work.started' : 'work.extended', agentId, runId,
+      sessionId: params.sessionId, createdAt: now, payload: { files, exclusive: params.exclusive === true, origin: requestedOrigin } });
     transaction.commit();
     return { ok: true, ...mutationResult(db, runId, files) };
   } catch (error) {
@@ -279,6 +278,9 @@ export function renewWorkLease(
       }
     }
     db.prepare('UPDATE task_runs SET updated_at = ? WHERE run_id = ?').run(now, params.runId);
+    appendWorkEvent(db, { workspace: workspaceRoot(currentRun.workspace_path), type: 'work.touched',
+      agentId: params.agentId, runId: params.runId, sessionId: currentRun.session_id, createdAt: now,
+      payload: { files: targets, locks_renewed: targets.filter((file) => lockedTargets.has(file)).length } });
     transaction.commit();
     return {
       result: mutationResult(db, params.runId, targets),
@@ -319,10 +321,13 @@ export function endWork(db: DatabaseSync, params: EndWorkParams): WorkMutationRe
     }
     const active = db.prepare(`SELECT 1 FROM run_files
       WHERE run_id = ? AND ended_at IS NULL AND expires_at > ? LIMIT 1`).get(params.runId, now);
-    if (!active) {
-      db.prepare(`UPDATE task_runs SET status = 'PENDING', updated_at = ?
-        WHERE run_id = ? AND status = 'ACTIVE' AND origin IN ('WORK','HOOK')`).run(now, params.runId);
-    }
+    const settled = !active
+      ? db.prepare(`UPDATE task_runs SET status = 'PENDING', updated_at = ?
+          WHERE run_id = ? AND status = 'ACTIVE' AND origin IN ('WORK','HOOK')`).run(now, params.runId) as { changes: number }
+      : { changes: 0 };
+    if (targets.length > 0 || settled.changes > 0) appendWorkEvent(db, { workspace: workspaceRoot(run.workspace_path),
+      type: 'work.ended', agentId: params.agentId, runId: params.runId, sessionId: run.session_id,
+      createdAt: now, payload: { files: targets, settled: settled.changes > 0 } });
     transaction.commit();
   } catch (error) {
     try { transaction.rollback(); } catch { /* transaction did not open */ }

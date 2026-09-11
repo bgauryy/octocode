@@ -37,14 +37,14 @@ Explain why this design wins. Compare viable options, including do-nothing when 
 State decision-relevant lessons from local systems, ecosystem implementations, standards, or research. Put the inventory in `RESOURCES.md`.
 
 ## Unresolved Questions
-- [ ] {question} — owner / next proof
-Each question must be closed with evidence in `IMPLEMENTATION.md` or explicitly deferred with a trigger.
+Decision blockers: none. A decision blocker must close before comparing options or recommending; while one remains, keep Status `Draft` and do not present a recommendation.
+- [ ] {non-blocking execution question} — impact / owner / next proof or deferral trigger
+Carry execution questions into `IMPLEMENTATION.md`; resolve them with evidence or defer them explicitly before Ready for Review.
 
 ## Future Possibilities
 Optional extensions that remain outside this decision.
 ```
 
-Quality gate: exact citations support non-obvious claims; decision-blocking uncertainty is resolved and remaining uncertainty is explicit; goals and scope appear only here. <!-- style-lint: ignore-line passive-voice -->
-Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing.
+Quality gate: exact citations support non-obvious claims; decision-blocking uncertainty is resolved and remaining uncertainty is explicit; goals and scope appear only here. Every citation states why it matters; option comparisons render as a markdown table; no filler or duplicate phrasing. <!-- style-lint: ignore-line passive-voice -->
 
-Next: when the change touches existing code load `references/rfc-prerequisites.md`; otherwise close the open questions and build with `references/rfc-implementation.md`.
+Next: when the change touches existing code load `references/rfc-prerequisites.md`; once blockers close and the decision is settled, define separate acceptance with `references/rfc-kpi.md` when warranted, then build with `references/rfc-implementation.md`.

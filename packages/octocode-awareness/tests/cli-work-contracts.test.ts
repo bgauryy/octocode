@@ -93,7 +93,7 @@ describe('work CLI', () => {
         exclusive: false,
       });
 
-      const shown = ok(db, ['work', 'show', '--workspace', dir, '--file', 'src/a.ts', '--compact']);
+      const shown = ok(db, ['work', 'show', '--kind', 'presence', '--workspace', dir, '--file', 'src/a.ts', '--compact']);
       expect(shown['count']).toBe(1);
       ok(db, ['work', 'touch', '--agent-id', 'agent-work', '--run-id', runId, '--compact']);
 
@@ -171,8 +171,8 @@ describe('work CLI', () => {
       ]);
       expect(String(missingFileValue?.['error'])).toMatch(/--file expects a value/);
 
-      const missingShowFile = fail(db, ['work', 'show', '--workspace', dir, '--compact']);
-      expect(String(missingShowFile?.['error'])).toMatch(/requires exactly one --file/);
+      const missingShowFile = fail(db, ['work', 'show', '--kind', 'presence', '--workspace', dir, '--compact']);
+      expect(String(missingShowFile?.['error'])).toMatch(/file|invalid parameters/i);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });

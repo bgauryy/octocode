@@ -22,6 +22,8 @@ import {
   AGENTS_LIST_ORDER,
 } from './sql/agents.js';
 import type { AgentIdentity, RegisterAgentParams, ListAgentsResult } from './types/identity-memory.js';
+import { beginWrite } from './db-transaction.js';
+import { appendLifecycleEvent } from './lifecycle-events.js';
 
 // ─── Register / touch ────────────────────────────────────────────────────────
 
@@ -52,9 +54,18 @@ export function registerAgent(
     ...(params.agentVendor !== undefined ? { vendor: params.agentVendor?.trim() || null } : {}),
     ...(params.agentHost !== undefined ? { host: params.agentHost?.trim() || null } : {}),
   };
-  db.prepare(AGENTS_UPSERT).run(agentId, agentName, workspacePath, artifact, context, now, now, JSON.stringify(metadata));
-  const row = db.prepare(`${AGENTS_LIST_SELECT} WHERE workspace_path = ? AND agent_id = ?`).get(workspacePath, agentId) as unknown as AgentIdentity;
-  return { ...row, workspace_path: row.workspace_path || null };
+  const transaction = beginWrite(db);
+  try {
+    db.prepare(AGENTS_UPSERT).run(agentId, agentName, workspacePath, artifact, context, now, now, JSON.stringify(metadata));
+    appendLifecycleEvent(db, { workspace: workspacePath, type: 'agent.registered', agentId,
+      aggregateKind: 'agent', aggregateId: agentId, createdAt: now, payload: { name: agentName || null } });
+    const row = db.prepare(`${AGENTS_LIST_SELECT} WHERE workspace_path = ? AND agent_id = ?`).get(workspacePath, agentId) as unknown as AgentIdentity;
+    transaction.commit();
+    return { ...row, workspace_path: row.workspace_path || null };
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
+  }
 }
 
 /**
@@ -62,12 +73,19 @@ export function registerAgent(
  * Lightweight — call on every tool invocation to keep the registry fresh.
  */
 export function touchAgent(db: DatabaseSync, agentId: string, workspacePath: string | null = null, artifact: string | null = null): void {
+  let transaction: ReturnType<typeof beginWrite> | null = null;
   try {
+    transaction = beginWrite(db);
     const normalized = workspacePath ? normalizeWorkspacePath(workspacePath, workspacePath) ?? workspacePath : '';
     const stamp = utcNow();
     const updated = db.prepare(AGENTS_UPDATE_LAST_SEEN)
       .run(stamp, normalizeArtifact(artifact), normalized, agentId) as { changes: number };
-    if (updated.changes > 0) return;
+    if (updated.changes > 0) {
+      appendLifecycleEvent(db, { workspace: normalized, type: 'agent.touched', agentId,
+        aggregateKind: 'agent', aggregateId: agentId, createdAt: stamp });
+      transaction.commit();
+      return;
+    }
 
     // An agent can be present in more than one workspace. A touch in a new
     // scope creates that scope's canonical registry row from the most-recent
@@ -75,7 +93,10 @@ export function touchAgent(db: DatabaseSync, agentId: string, workspacePath: str
     const prior = db.prepare(`SELECT agent_name, artifact, context, metadata_json
       FROM awareness_agents WHERE agent_id = ? ORDER BY last_seen_at DESC LIMIT 1`)
       .get(agentId) as { agent_name: string; artifact: string | null; context: string | null; metadata_json: string } | undefined;
-    if (!prior) return;
+    if (!prior) {
+      transaction.commit();
+      return;
+    }
     db.prepare(AGENTS_UPSERT).run(
       agentId,
       prior.agent_name,
@@ -86,7 +107,13 @@ export function touchAgent(db: DatabaseSync, agentId: string, workspacePath: str
       stamp,
       prior.metadata_json,
     );
-  } catch { /* non-critical registry touch */ }
+    appendLifecycleEvent(db, { workspace: normalized, type: 'agent.touched', agentId,
+      aggregateKind: 'agent', aggregateId: agentId, createdAt: stamp });
+    transaction.commit();
+  } catch {
+    try { transaction?.rollback(); } catch { /* transaction did not open */ }
+    /* non-critical registry touch */
+  }
 }
 
 // ─── Resolve ──────────────────────────────────────────────────────────────────

@@ -217,9 +217,16 @@ describe('skill install command', () => {
         options
       ).payload?.error
     ).toContain('either --global or --project-dir');
-    expect(
-      runSkillInstall(['--platform', 'all', '--project-dir', root], options)
-        .payload?.error
-    ).toContain('claude-desktop');
+    const allProject = runSkillInstall(
+      ['--platform', 'all', '--project-dir', root, '--dry-run'],
+      options
+    );
+    expect(allProject.exitCode).toBe(0);
+    const allPayload = allProject.payload as {
+      ok: boolean;
+      skills: Array<{ destinations: unknown[] }>;
+    };
+    expect(allPayload.ok).toBe(true);
+    expect(allPayload.skills[0]!.destinations).toHaveLength(7);
   });
 });

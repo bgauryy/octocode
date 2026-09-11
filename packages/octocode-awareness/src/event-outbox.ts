@@ -54,6 +54,39 @@ export interface DomainEventInput<T = unknown> {
   eventIdPrefix?: string;
 }
 
+export function workspaceEventHighWater(db: DatabaseSync, workspace: string): number {
+  const row = db.prepare('SELECT COALESCE(MAX(sequence), 0) AS sequence FROM event_outbox WHERE workspace_path = ?')
+    .get(workspace) as { sequence: number | bigint };
+  return Number(row.sequence);
+}
+
+/**
+ * Append a canonical fallback only when the domain mutation did not already
+ * append a more specific event in this workspace.
+ */
+export function ensureCanonicalMutationEvent(db: DatabaseSync, params: {
+  workspace: string;
+  actorId: string;
+  sessionId?: string | null;
+  command: string;
+  beforeSequence: number;
+  payload?: Record<string, unknown>;
+  createdAt?: string;
+}): number {
+  const current = workspaceEventHighWater(db, params.workspace);
+  if (current > params.beforeSequence) return current;
+  return appendDomainEvent(db, {
+    workspace: params.workspace,
+    eventType: `canonical.${params.command.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    retentionClass: 'operational',
+    actorId: params.actorId,
+    sessionId: params.sessionId,
+    createdAt: params.createdAt ?? new Date().toISOString(),
+    payload: params.payload ?? {},
+    eventIdPrefix: 'cevt',
+  });
+}
+
 /** Build and append one canonical domain event. The caller owns the transaction. */
 export function appendDomainEvent<T>(db: DatabaseSync, input: DomainEventInput<T>): number {
   const prefix = input.eventIdPrefix ?? 'evt';

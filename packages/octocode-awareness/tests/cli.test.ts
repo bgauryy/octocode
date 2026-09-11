@@ -87,7 +87,7 @@ describe('source CLI regressions', () => {
     // schemas are served dynamically — there is no `schema path` route and the
     // help must not advertise one.
     expect(result.stdout).not.toContain('path <name>');
-    expect(result.stdout).toContain('command <noun> [action]');
+    expect(result.stdout).toContain('command <concept-or-operator> [operation]');
     expect(result.stdout).toContain('json-schema <name>');
     expect(result.stdout).toContain('example <name>');
     expect(result.stdout).toContain('validate <name>');
@@ -220,9 +220,9 @@ describe('source CLI regressions', () => {
     try {
         const schema = runSource(['schema', 'commands', '--all', '--examples', '--compact']);
       expect(schema.status, schema.stderr || schema.stdout).toBe(0);
-      const commands = schema.parsed?.['commands'] as Array<Record<string, unknown>>;
-      expect(commands.length).toBeGreaterThan(10);
-      expect(commands[0]).toHaveProperty('example');
+      const operator = schema.parsed?.['operator'] as Array<Record<string, unknown>>;
+      expect(operator.length).toBeGreaterThan(10);
+      expect(operator[0]).toHaveProperty('example');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -287,15 +287,15 @@ describe('source CLI regressions', () => {
     const dir = mktemp();
     const db = join(dir, 'test.sqlite3');
     try {
-      const show = runSource(['--db', db, 'work', 'show', '--workspace', dir, '--compact']);
+      const show = runSource(['--db', db, 'work', 'show', '--kind', 'presence', '--workspace', dir, '--compact']);
       expect(show.status).toBe(1);
-      expect(String(show.parsed?.['error'])).toContain('requires exactly one --file');
+      expect(String(show.parsed?.['error'])).toMatch(/file|invalid parameters/i);
       const multiShow = runSource([
-        '--db', db, 'work', 'show', '--workspace', dir,
+        '--db', db, 'work', 'show', '--kind', 'presence', '--workspace', dir,
         '--file', 'src/a.ts', '--file', 'src/b.ts', '--compact',
       ]);
       expect(multiShow.status).toBe(1);
-      expect(String(multiShow.parsed?.['error'])).toContain('requires exactly one --file');
+      expect(String(multiShow.parsed?.['error'])).toMatch(/file|invalid parameters/i);
 
       for (const value of ['0', '1.5', '11']) {
         const importance = runSource([

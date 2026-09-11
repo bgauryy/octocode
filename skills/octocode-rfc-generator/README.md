@@ -15,16 +15,16 @@ Use `octocode-brainstorming` first while the worth-building question remains ope
 - Compares viable alternatives and the status quo when relevant.
 - Separates goals, non-goals, prerequisites, implementation, KPIs, and sources by ownership.
 - Closes decision-blocking questions with evidence.
-- Orders implementation and verification by dependency.
+- Defines acceptance first, then orders implementation and verification by dependency.
 - Defines measurable acceptance, rollout, rollback, and audit reasoning.
 
 ## Workflow
 
 ```text
-UNDERSTAND → RESEARCH → PREREQUISITES → COMPARE → WRITE → CLOSE QUESTIONS → KPI → VALIDATE → DELIVER
+UNDERSTAND → RESEARCH → PREREQUISITES → CLOSE DECISION BLOCKERS → DECIDE/CONFIRM → DEFINE ACCEPTANCE → PLAN → VALIDATE → DELIVER
 ```
 
-`RFC.md` is the default decision artifact. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, `KPI.md`, or `RESOURCES.md` only when the content needs a separate lifecycle.
+Use `RFC.md` for a consequential decision and standalone `PLAN.md` for execution of an already-settled decision. Add `PREREQUISITES.md`, `IMPLEMENTATION.md`, `KPI.md`, or `RESOURCES.md` only when the content needs a separate lifecycle.
 
 ## Install
 
@@ -34,4 +34,4 @@ npx -y octocode skill install octocode-rfc-generator
 
 ## Maintainer verification
 
-Validate the document contract, then run the `octocode-skills` review against this folder.
+Run `node scripts/validate-rfc.mjs <file-or-folder>` for generated artifacts, then run the `octocode-skills` review against this folder.

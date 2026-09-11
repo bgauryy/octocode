@@ -163,17 +163,6 @@ export const SCHEMA_DDL = `
       expires_at   TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS task_events (
-      event_id   TEXT PRIMARY KEY,
-      task_id    TEXT NOT NULL REFERENCES awareness_tasks(task_id) ON DELETE CASCADE,
-      run_id     TEXT REFERENCES task_runs(run_id) ON DELETE SET NULL,
-      agent_id   TEXT NOT NULL,
-      event_type TEXT NOT NULL
-                 CHECK(event_type IN ('CREATED','DEPENDENCY_ADDED','CLAIMED','SUBMITTED','BLOCKED','RELEASED','CLAIM_EXPIRED','VERIFIED','VERIFICATION_FAILED')),
-      message    TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS awareness_locks (
       lock_id     TEXT PRIMARY KEY,
       file_path   TEXT NOT NULL,
@@ -193,16 +182,6 @@ export const SCHEMA_DDL = `
     );
 
     ${HOOK_RECEIPTS_DDL}
-
-    CREATE TABLE IF NOT EXISTS run_log (
-      event_id   TEXT PRIMARY KEY,
-      run_id     TEXT,
-      agent_id   TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      message    TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(run_id) REFERENCES task_runs(run_id) ON DELETE SET NULL
-    );
 
     CREATE TABLE IF NOT EXISTS refinements (
       refinement_id  TEXT PRIMARY KEY,
@@ -276,40 +255,10 @@ export const SCHEMA_DDL = `
       PRIMARY KEY(workspace_path, agent_id)
     );
 
-    CREATE TABLE IF NOT EXISTS edit_log (
-      edit_id        TEXT PRIMARY KEY,
-      session_id     TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
-      run_id         TEXT REFERENCES task_runs(run_id) ON DELETE SET NULL,
-      agent_id       TEXT NOT NULL,
-      file_path      TEXT NOT NULL,
-      operation      TEXT NOT NULL CHECK(operation IN ('create','update','delete','move','rename')),
-      old_file_path  TEXT,          -- populated for move/rename operations
-      lines_added    INTEGER,
-      lines_removed  INTEGER,
-      content_hash   TEXT,          -- sha256 of file content after edit
-      workspace_path TEXT,
-      artifact       TEXT,
-      created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS harness_log (
-      harness_id   TEXT PRIMARY KEY,
-      session_id   TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
-      agent_id     TEXT NOT NULL,
-      workspace_path TEXT,
-      artifact     TEXT,
-      event_type   TEXT NOT NULL CHECK(event_type IN ('mine','propose','validate','apply','capture','reflect')),
-      payload_json TEXT,           -- JSON with event-specific data
-      memory_id    TEXT REFERENCES awareness_memories(memory_id) ON DELETE SET NULL,
-      run_id       TEXT REFERENCES task_runs(run_id) ON DELETE SET NULL,
-      created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    );
-
     ${LOCAL_HISTORY_SCHEMA_DDL}
 `;
 
 export const SCHEMA_INDEX_DDL = `
-  CREATE INDEX IF NOT EXISTS idx_handoffs_open ON handoffs(workspace_path, cleared_at, created_at);
   CREATE INDEX IF NOT EXISTS idx_event_outbox_workspace_sequence ON event_outbox(workspace_path, sequence);
   CREATE INDEX IF NOT EXISTS idx_event_outbox_aggregate ON event_outbox(workspace_path, aggregate_kind, aggregate_id, sequence);
   ${EVENT_OUTBOX_TYPED_INDEX_DDL}
@@ -342,7 +291,6 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_task_runs_agent      ON task_runs(agent_id, status);
   CREATE INDEX IF NOT EXISTS idx_task_runs_task       ON task_runs(task_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_task_runs_scope      ON task_runs(workspace_path, artifact);
-  CREATE INDEX IF NOT EXISTS idx_task_events_task     ON task_events(task_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_run_files_path_active ON run_files(file_path, ended_at, expires_at);
   CREATE INDEX IF NOT EXISTS idx_run_files_heartbeat   ON run_files(heartbeat_at);
   CREATE INDEX IF NOT EXISTS idx_awareness_locks_file_path   ON awareness_locks(file_path);
@@ -364,19 +312,6 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_awareness_agents_workspace ON awareness_agents(workspace_path);
   CREATE INDEX IF NOT EXISTS idx_awareness_agents_scope     ON awareness_agents(workspace_path, artifact);
   CREATE INDEX IF NOT EXISTS idx_awareness_agents_last_seen ON awareness_agents(last_seen_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_session     ON edit_log(session_id);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_run         ON edit_log(run_id);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_agent       ON edit_log(agent_id);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_file        ON edit_log(file_path);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_workspace   ON edit_log(workspace_path);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_scope       ON edit_log(workspace_path, artifact);
-  CREATE INDEX IF NOT EXISTS idx_edit_log_created_at  ON edit_log(created_at);
-  CREATE INDEX IF NOT EXISTS idx_harness_log_session    ON harness_log(session_id);
-  CREATE INDEX IF NOT EXISTS idx_harness_log_agent      ON harness_log(agent_id);
-  CREATE INDEX IF NOT EXISTS idx_harness_log_scope      ON harness_log(workspace_path, artifact);
-  CREATE INDEX IF NOT EXISTS idx_harness_log_event_type ON harness_log(event_type);
-  CREATE INDEX IF NOT EXISTS idx_harness_log_memory     ON harness_log(memory_id);
-  CREATE INDEX IF NOT EXISTS idx_harness_log_run        ON harness_log(run_id);
   ${LOCAL_HISTORY_INDEX_DDL}
 `;
 export const FTS_SCHEMA_DDL = `

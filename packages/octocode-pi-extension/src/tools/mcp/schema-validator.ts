@@ -196,7 +196,7 @@ export function compileMcpSchemaValidator(
       Settings.Set({ maxErrors: 256 });
       try {
         ErrorSchema(
-          new Stack({}, inputSchema),
+          Stack({}, inputSchema),
           context,
           '#',
           '',

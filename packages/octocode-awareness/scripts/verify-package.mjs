@@ -120,12 +120,13 @@ for (const required of [
 ]) {
   assert(files.includes(required), `packed artifact is missing ${required}`);
 }
-// Publish only built runtime assets, standalone skills, and npm root metadata.
+// Publish only built runtime assets and npm root metadata. The package-owned
+// skills/ tree is development input; build stages the runtime copy under out/.
 const topLevelGroups = new Set(files.map((path) => path.split('/')[0]));
 for (const group of topLevelGroups) {
   assert(
-    ['out', 'skills', 'LICENSE', 'README.md', 'package.json'].includes(group),
-    `unexpected top-level published path "${group}" — everything but out/, skills/, LICENSE, README.md, package.json must nest under out/`,
+    ['out', 'LICENSE', 'README.md', 'package.json'].includes(group),
+    `unexpected top-level published path "${group}" — everything but out/, LICENSE, README.md, package.json must nest under out/`,
   );
 }
 assert(pkg.types === './out/types/src/index.d.ts', `package types must point at the verified declaration entry, got ${String(pkg.types)}`);
@@ -137,15 +138,14 @@ assert(!files.some((path) => path.endsWith('.node')), 'Awareness must not bundle
 assert(!files.some((path) => path.startsWith('dist/')), 'legacy dist/ artifacts must not ship');
 assert(packageSkills.length > 0, 'skill discovery found zero skills under package skills/');
 for (const skill of packageSkills) {
-  // Both copies ship deliberately: skills/ is the user-facing tree (works
-  // without the extension); out/skills/ is the runtime-bundled copy.
-  assert(
-    files.includes(`skills/${skill}/SKILL.md`),
-    `packed artifact must ship skills/${skill}/SKILL.md`,
-  );
   assert(
     files.includes(`out/skills/${skill}/SKILL.md`),
     `packed artifact must ship out/skills/${skill}/SKILL.md`,
+  );
+  const packagedSkillManifests = files.filter((path) => path.endsWith(`/skills/${skill}/SKILL.md`));
+  assert(
+    packagedSkillManifests.length === 1,
+    `packed artifact must contain exactly one ${skill} SKILL.md, got ${packagedSkillManifests.join(', ') || 'none'}`,
   );
 }
 assert(!files.some((path) => path.endsWith('.map')), 'source maps must not ship in the package');
@@ -176,7 +176,7 @@ try {
   const installed = join(isolated, 'package');
   const cli = join(installed, 'out/octocode-awareness.js');
   const installedOptions = { cwd: installed, env: { ...process.env, NODE_PATH: '', OCTOCODE_HOME: join(isolated, 'home') } };
-  for (const tree of ['skills', 'out/skills']) {
+  for (const tree of ['out/skills']) {
     const skill = join(installed, tree, 'octocode-awareness');
     for (const file of ['SKILL.md', 'references/architecture.md', 'scripts/awareness.mjs', 'scripts/hook-runner.mjs']) {
       assert(readFileSync(join(skill, file)).equals(readFileSync(join(packageRoot, 'skills/octocode-awareness', file))),
@@ -191,8 +191,10 @@ try {
   const help = run(process.execPath, [cli, '--help'], installedOptions);
   assert(help.includes(join(installed, 'out/skills')), 'published CLI must discover its bundled skill tree');
   assert(help.includes('octocode-awareness'), 'published CLI must name its bundled skill');
-  assert(help.includes('skill install --platform'), 'published CLI must explain how to install its bundled skill');
-  assert(help.includes('docs list --compact'), 'published CLI must advertise the command backed by bundled skill docs');
+  const skillHelp = run(process.execPath, [cli, 'skill', '--help'], installedOptions);
+  assert(skillHelp.includes('skill install'), 'published CLI must explain how to install its bundled skill');
+  const docsHelp = run(process.execPath, [cli, 'docs', '--help'], installedOptions);
+  assert(docsHelp.includes('docs list'), 'published CLI must advertise the command backed by bundled skill docs');
   const skillProject = join(isolated, 'skill-project');
   mkdirSync(skillProject, { recursive: true });
   const skillDestination = join(skillProject, '.agents/skills/octocode-awareness');

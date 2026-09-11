@@ -18,7 +18,7 @@ function fixture() {
   return { root, workspace, octocodeHome, piAgentDir, write };
 }
 
-describe.sequential('Pi model adapter', () => {
+describe('Pi model adapter', { concurrent: false }, () => {
   it('merges model IDs into real Pi 0.84.4, preserving native overrides, sibling models and active auth', async () => {
     expect(VERSION).toBe('0.84.4');
     vi.stubEnv('PI_OFFLINE', '1');

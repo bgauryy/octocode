@@ -1,3 +1,15 @@
+import {
+  AST_SEARCH_TOOL_NAME,
+  GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
+  GITHUB_SEARCH_HISTORY_TOOL_NAME,
+  GITHUB_SEARCH_TOOL_NAME,
+  LOCAL_SEARCH_TOOL_NAME,
+  LSP_SEARCH_TOOL_NAME,
+  STATIC_TOOL_NAMES,
+} from '@octocodeai/octocode-core/schema';
+
+const MAX_GUIDANCE_CHARS = 120;
+
 // These calls suggest new research; they do not continue a bounded result.
 // Unknown next keys are preserved so adding a continuation cannot lose data.
 const ADVISORY_CALLS = new Set([
@@ -13,7 +25,6 @@ const ADVISORY_CALLS = new Set([
   'cloneForSemantics',
   'lspDefinition',
   'lspReferences',
-  'verifyReferences',
   'readIssue',
   'prDetail',
 ]);
@@ -40,11 +51,109 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function concise(value: string): string {
-  const text = value.replace(/\s+/g, ' ').trim();
-  if (text.length <= 160) return text;
-  const prefix = text.slice(0, 159);
+  let text = value.replace(/\s+/g, ' ').trim();
+  if (text && !/[.!?…]$/.test(text)) text += '.';
+  if (text.length <= MAX_GUIDANCE_CHARS) return text;
+  const prefix = text.slice(0, MAX_GUIDANCE_CHARS - 1);
   const boundary = prefix.lastIndexOf(' ');
-  return `${prefix.slice(0, boundary > 80 ? boundary : 159)}…`;
+  return `${prefix.slice(0, boundary > 60 ? boundary : MAX_GUIDANCE_CHARS - 1)}…`;
+}
+
+function hasExecutableCall(value: unknown): boolean {
+  const call = record(value);
+  return typeof call?.tool === 'string' && record(call.query) !== undefined;
+}
+
+function hasRecovery(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasRecovery);
+  const node = record(value);
+  if (!node) return false;
+  if (
+    Array.isArray(node.hints) &&
+    node.hints.some(hint => typeof hint === 'string' && hint.trim())
+  )
+    return true;
+  if (Object.values(record(node.next) ?? {}).some(hasExecutableCall))
+    return true;
+  for (const [key, child] of Object.entries(node)) {
+    if (METADATA_CONTAINERS.has(key) && hasRecovery(child)) return true;
+    if (
+      key === 'repositories' &&
+      Object.values(record(child) ?? {}).some(hasRecovery)
+    )
+      return true;
+  }
+  return false;
+}
+
+const ACTIONABLE_ERROR =
+  /\b(?:broaden|check|choose|correct|disable|enable|pass|provide|refresh|remove|retry|run|select|set|specify|supply|try|use|verify|wait)\b/i;
+
+function hasActionableError(value: unknown): boolean {
+  const node = record(value);
+  if (!node) return false;
+  const error = node.error;
+  if (typeof error === 'string' && ACTIONABLE_ERROR.test(error)) return true;
+  const nested = record(error)?.error;
+  return typeof nested === 'string' && ACTIONABLE_ERROR.test(nested);
+}
+
+function fallbackHint(
+  toolName: string | undefined,
+  queryValue: unknown
+): string | undefined {
+  const query = record(queryValue) ?? {};
+  switch (toolName) {
+    case GITHUB_SEARCH_TOOL_NAME:
+      return query.operation === 'tree'
+        ? 'Verify owner/repo/branch, or broaden path/depth.'
+        : 'Broaden keywords or remove filters.';
+    case STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT:
+      return 'Verify owner/repo/branch/path, or remove matchString.';
+    case GITHUB_SEARCH_HISTORY_TOOL_NAME:
+      return 'Broaden keywords or remove history filters.';
+    case GITHUB_GET_HISTORY_ITEM_TOOL_NAME:
+      return 'Verify owner/repo and the number, ref, or compare refs.';
+    case STATIC_TOOL_NAMES.PACKAGE_SEARCH:
+      return 'Check packageName, or broaden keywords.';
+    case STATIC_TOOL_NAMES.GITHUB_CLONE_REPO:
+      return 'Verify owner/repo/branch and sparsePath.';
+    case LOCAL_SEARCH_TOOL_NAME:
+      return 'Broaden searchText, path, or filters.';
+    case AST_SEARCH_TOOL_NAME:
+      if (query.operation === 'files' || query.treeKind === 'filesystem')
+        return 'Broaden path or file filters.';
+      if (query.operation === 'topology')
+        return 'Inspect diagnostics, then broaden the graph scope if needed.';
+      return 'Broaden the syntax/name query, path, or filters.';
+    case STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT:
+      return 'Verify path/range, or remove matchString.';
+    case LSP_SEARCH_TOOL_NAME:
+      return 'Refresh uri/symbolName/lineHint, or broaden workspaceRoot.';
+    default:
+      return undefined;
+  }
+}
+
+export interface HintPolicyContext {
+  toolName?: string;
+  queries?: readonly unknown[];
+}
+
+function addFallbackHint(
+  value: unknown,
+  position: number,
+  context: HintPolicyContext
+): void {
+  const row = record(value);
+  if (!row || (row.status !== 'empty' && row.status !== 'error')) return;
+  if (hasRecovery(row)) return;
+  if (row.status === 'error' && hasActionableError(row.data)) return;
+  const data = record(row.data);
+  if (!data) return;
+  const queryIndex = typeof row.index === 'number' ? row.index : position;
+  const hint = fallbackHint(context.toolName, context.queries?.[queryIndex]);
+  if (hint) data.hints = [hint];
 }
 
 function shapeNext(value: unknown, recovery: boolean): unknown {
@@ -90,10 +199,17 @@ function visit(value: unknown, recovery: boolean, seen: Set<string>): void {
   if ('hints' in node) {
     const hints: string[] = [];
     if (needsHelp && Array.isArray(node.hints)) {
-      for (const hint of node.hints) {
-        if (typeof hint !== 'string') continue;
-        const short = concise(hint);
-        if (!short || seen.has(short) || seen.size >= 2) continue;
+      const candidates = node.hints
+        .filter((hint): hint is string => typeof hint === 'string')
+        .map(concise)
+        .filter(Boolean)
+        .sort(
+          (left, right) =>
+            Number(ACTIONABLE_ERROR.test(right)) -
+            Number(ACTIONABLE_ERROR.test(left))
+        );
+      for (const short of candidates) {
+        if (!short || seen.has(short) || seen.size >= 1) continue;
         seen.add(short);
         hints.push(short);
       }
@@ -104,6 +220,12 @@ function visit(value: unknown, recovery: boolean, seen: Set<string>): void {
 }
 
 /** Apply once after tool finalization, before rendering either public channel. */
-export function applyHintPolicy(rows: unknown[]): void {
-  for (const row of rows) visit(row, false, new Set());
+export function applyHintPolicy(
+  rows: unknown[],
+  context: HintPolicyContext = {}
+): void {
+  rows.forEach((row, index) => {
+    addFallbackHint(row, index, context);
+    visit(row, false, new Set());
+  });
 }

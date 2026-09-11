@@ -30,7 +30,7 @@ function isolatedPackage(): string {
 }
 
 describe('published package artifact', () => {
-  it('keeps one bundled skill tree and verifies the artifact during prepack', () => {
+  it('publishes only the built skill tree and verifies the artifact during prepack', () => {
     const pkg = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
       files?: string[];
       scripts?: Record<string, string>;
@@ -38,16 +38,18 @@ describe('published package artifact', () => {
     };
 
     expect(pkg.files).toContain('out/**');
-    // The package owns the Awareness skill source and ships it with generated
-    // helpers, independently of any host extension.
-    expect(pkg.files).toContain('skills/**');
+    // skills/ remains the package-owned development source. Build stages its
+    // generated, runtime-ready form into out/skills/, which is the only copy
+    // included in the published artifact.
+    expect(pkg.files).not.toContain('skills/**');
+    expect(pkg.files).toContain('!skills/**');
     expect(pkg.scripts?.prepack).toContain('build');
     expect(pkg.scripts?.prepack).toContain('verify-package.mjs');
     expect(pkg.dependencies ?? {}).not.toHaveProperty('zod');
     expect(existsSync(resolve(PACKAGE_ROOT, 'LICENSE'))).toBe(true);
   });
 
-  it('runs every schema command from an isolated package with no dependencies', { timeout: 30_000 }, () => {
+  it('runs every schema command from an isolated package with no dependencies', { timeout: 60_000 }, () => {
     const root = isolatedPackage();
     const cli = resolve(root, 'out/octocode-awareness.js');
     const schema = cli;

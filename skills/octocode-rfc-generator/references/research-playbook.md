@@ -9,7 +9,7 @@ Use the research/tool route in `SKILL.md`. Ask `octocode-research` for the neede
 | Scenario | Research tracks |
 |---|---|
 | Existing-system change | Local current state + local affected scope; external prior art if options are unclear |
-| New RFC with no handoff | Ask to use `octocode-brainstorming` first when available; if continuing, delegate local/external proof to `octocode-research` |
+| New RFC with unresolved value or option space | Use `octocode-brainstorming` while the worth-building question, option space, or decision criteria remain unresolved; otherwise proceed to `octocode-research` |
 | Greenfield choice | External prior art + package/repository comparison; local constraints if repository exists |
 | Migration | Local current state + contracts/data flows + external migration examples |
 | Library/package adoption | npm/package metadata + repository source + local integration points |
@@ -17,7 +17,7 @@ Use the research/tool route in `SKILL.md`. Ask `octocode-research` for the neede
 | RFC validation | Map each claim to local/external evidence; mark confirmed/likely/uncertain |
 | Closing open questions (IMPLEMENTATION.md) | Ask `octocode-research` to resolve each question with local/external/history evidence; a resolution without a citation is not resolved. |
 
-For new RFC research without a brainstorming handoff, ask `octocode-research` to cover the relevant local surface before writing.
+A brainstorming handoff is not required when the worth-building question and decision criteria are already settled. Ask `octocode-research` to cover the relevant local surface before writing.
 Add external package, GitHub, history, and docs evidence when prior art matters.
 Put the broad source inventory in `RESOURCES.md`; cite decisive claims inline where they affect the decision.
 
@@ -39,4 +39,4 @@ Put the broad source inventory in `RESOURCES.md`; cite decisive claims inline wh
 | Scope too broad | split into multiple RFCs or phases |
 | Another pass is unlikely to close the gap | summarize what is known and ask for direction |
 
-Next: with the claim ledger filled, compare options, and write the decision through `references/rfc-template.md`; when the change touches existing code load `references/rfc-prerequisites.md` first; carry every still-open question into `references/rfc-implementation.md`.
+Next: close decision blockers through `references/rfc-prerequisites.md` or further research. For decision mode, compare options and write through `references/rfc-template.md`; for plan mode, confirm the settled direction. Define separate acceptance with `references/rfc-kpi.md` when warranted, then carry only execution questions into `references/rfc-implementation.md`.

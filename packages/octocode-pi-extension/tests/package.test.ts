@@ -453,22 +453,18 @@ test('build copies bundled Octocode skills without secret env files', () => {
     schemaSpec.args,
     { encoding: 'utf8' }
   );
-  const commandSchema = (JSON.parse(schemaOutput) as { commands: Record<string, Record<string, string[]>> }).commands;
-  const hasCommand = (command: string, actionPrefix: string) =>
-    Object.values(commandSchema).some((group) => group[command]?.some((action) => action.startsWith(actionPrefix)) === true);
-  for (const [command, actionPrefix] of [
-    ['status', '<direct>'],
-    ['plan', 'create'],
-    ['task', 'claim'],
-    ['lock', 'acquire'],
-    ['work', 'start'],
-    ['verify', 'audit'],
-    ['memory', 'recall'],
-    ['agent', 'register'],
-    ['signal', 'publish'],
-    ['hooks', 'pre-edit'],
-  ] as const) {
-    assert.equal(hasCommand(command, actionPrefix), true, `Awareness schema includes ${command} ${actionPrefix}`);
+  const commandSchema = JSON.parse(schemaOutput) as {
+    concepts: Record<string, string[]>;
+    operations: string[];
+  };
+  assert.deepEqual(Object.keys(commandSchema.concepts), ['context', 'work', 'message', 'memory', 'history']);
+  assert.equal(commandSchema.operations.length, 19);
+  const operations = new Set(commandSchema.operations);
+  for (const operation of [
+    'context.orient', 'work.create', 'work.claim', 'work.protect', 'work.update',
+    'work.verify', 'memory.recall', 'message.send', 'history.restore',
+  ]) {
+    assert.equal(operations.has(operation), true, `Awareness schema includes ${operation}`);
   }
 
   // Skills live ONLY in dist/skills now (single source, surfaced via the
@@ -3656,7 +3652,7 @@ test('Awareness pre-edit gate blocks lock conflicts', async () => {
         const after = store.listWork({ filePath: 'README.md', agentId: 'agent-b' })[0];
         assert.ok(after, 'native completion must preserve manually owned work');
         assert.equal(after.runId, before.runId);
-        const command = buildAwarenessCommand(['--db', store.dbPath, 'work', 'show', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
+        const command = buildAwarenessCommand(['--db', store.dbPath, 'work', 'show', '--kind', 'presence', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
         const shown = JSON.parse(execFileSync(command.cmd, command.args, { encoding: 'utf8' })) as { files: Array<{ run_id: string; test_plan: string }> };
         assert.equal(shown.files.find((row) => row.run_id === before.runId)?.test_plan, 'yarn test', 'automatic presence must preserve the declared verification contract');
       } finally { store.close(); }

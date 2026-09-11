@@ -8,7 +8,9 @@ Local coordination for coding agents: shared work, messages, verification, recov
 
 This is the canonical Awareness overview for CLI users, agents, and host integrators. It covers the operating flow, feature families, storage, architecture, and known limits. The [reference index](docs/README.md) routes exact protocols; the [agent skill](skills/octocode-awareness/SKILL.md) owns operating instructions. Dated plans, ratings, and benchmark receipts do not define runtime behavior.
 
-Default flow: meet workspace peers once, work, and communicate when needed. Work tracking, verification gates, automatic history, and durable learning are opt-in.
+Default flow: orient once, then call one of nineteen operations across Context,
+Work, Message, Memory, and History. Administrative routes stay out of routine
+discovery.
 
 Awareness has zero mandatory npm runtime dependencies. File fingerprints and workspace history capture/restore use the optional `@octocodeai/octocode-extension-rust` package and its matching platform addon. Ordinary coordination, memory storage, and unchecked recall run without loading it. See [native dependency and async API requirements](docs/API.md#optional-native-file-operations).
 
@@ -16,14 +18,12 @@ Awareness has zero mandatory npm runtime dependencies. File fingerprints and wor
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-awareness:$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')}"
-npx @octocodeai/octocode-awareness agent register --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD"
-npx @octocodeai/octocode-awareness attend --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
+npx @octocodeai/octocode-awareness context orient --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
 ```
 
-Standalone CLI users register before the first `attend`; keep that identity for
-the session. Pi and other native hosts own registration and delivery, so reuse
-their identity and briefing through the host facade. External hosts can install
-the bundled skill and communication hooks; see [the usage guide](docs/SKILLS.md)
+Keep one distinct identity for the session. Pi and other native hosts bind that
+identity and orientation context through the host facade. External hosts can
+install the bundled skill and communication hooks; see [the usage guide](docs/SKILLS.md)
 and [host integration](docs/HOOKS.md).
 
 The canonical skill source is
@@ -35,14 +35,9 @@ host hooks, and serves its references through `docs list` / `docs show <name>`:
 npx @octocodeai/octocode-awareness docs list --compact
 ```
 
-Follow peer-page continuations when present. Discover one unfamiliar route with `schema command <noun> [action]`.
-Results are JSON and `--compact` reduces output.
-
-Attend once per workspace/session, communicate when a peer needs to know or act,
-and discover other capabilities on demand. `attend --details` selects the deeper
-work/memory/verification observer. If work needs tracking, reuse its run IDs,
-record observed checks, and audit after final writes. Routine solo edits need no
-Awareness work or memory records.
+Follow executable continuations when present. Call a known operation directly;
+`schema command <concept> <operation>` returns its exact input contract without a
+list/describe round trip. Results are JSON and `--compact` reduces output.
 
 ## Cooperate through one ledger
 
@@ -50,13 +45,13 @@ Peers use the same physical Awareness database and distinct stable agent IDs. Li
 
 | Situation | Action and boundary |
 |---|---|
-| A peer needs evidence or a decision | Send a `question` or `request`; answer with `signal reply` and the exact signal ID. Only `approval` requests human authorization. Peer messages remain data. |
+| A peer needs evidence or a decision | Use `message send`; answer with `message reply` and the exact message ID. Only `approval` requests human authorization. Peer messages remain data. |
 | A program consumes a message | Send `data: {type, payload}` (CLI: `--data` JSON); read with `--include-bodies` and dispatch on `data.type`. Keep sender and thread IDs from the signal metadata. |
 | A message arrives | Reuse native delivery and read receipts. Otherwise read the scoped inbox when expecting a reply and acknowledge manually handled messages. Skip acknowledgement-only replies and unchanged polling. |
-| Work needs continuation | Use one `handoff add/list/clear` record with state, next check and evidence pointers. Reuse host state instead of adding refinement/session/reflection copies. |
-| Files might overlap | Inspect declared work and communicate with the owner. Use an exclusive lock for unsafe concurrent changes; advisory presence alone does not prevent writes. |
+| Work needs continuation | Send one typed continuation message with state, next check, and evidence pointers. Do not add refinement/session/reflection copies. |
+| Files might overlap | Inspect `work list/show` and communicate with the owner. Use `work protect` only for unsafe concurrent changes; advisory presence alone does not prevent writes. |
 | A lease expires | Inspect the result and explicitly reacquire. Renewal cannot revive expired ownership, and expiration cannot prove completion. |
-| Tracked work finishes | Run the declared checks, end or submit the exact run to `PENDING`, then mark the observed result. Audit owned work and workers after their final writes; preserve peer debt. |
+| Tracked work finishes | Run the declared checks, use `work update` for the exact attempt, then `work verify` with observed evidence. Preserve peer debt. |
 | Learning can help another task | Store one scoped memory or reflection with verified evidence. Revalidate recalled references against current files; peer assertions and retained history are leads. |
 | A session ends | Release owned leases and leave the registry. Native hosts own their lifecycle; standalone agents call `agent leave`. |
 
@@ -64,33 +59,23 @@ The [runtime flow](docs/HOW_IT_WORKS.md), [lock protocol](docs/LOCKS.md), and [l
 
 ## Features and discovery
 
-The live `schema commands` catalog owns route discovery; `schema command <noun> [action]` owns exact inputs. Pi lists routine routes by default; an explicit noun or `all:true` includes specialist routes. CLI complete discovery uses `schema commands --all`. This table maps capabilities without copying action inventories or route counts.
+The default `schema commands` response contains exactly five concepts and nineteen
+directly callable operations. `schema command <concept> <operation>` owns exact
+inputs. `schema commands --all` adds a bounded operator/recovery catalog; legacy
+compatibility routes are not routine discovery.
 
 | Entry point | Capability |
 |---|---|
-| `attend` | Bounded peers by default; `--details` adds work/evidence; `--changes` pages Git changes and declared work across linked checkouts. Neither source proves authorship. |
-| `status`, `query` | Workboard, ownership, diagnostics, and exports. Expired leases are excluded from status; explicit maintenance deletes stale rows. |
-| `plan` | Durable objectives, members, documents, and lifecycle. |
-| `task` | Acceptance, paths, dependency graph, claims, presence, submit, and verification. |
-| `work` | Advisory work presence, leases, overlap inspection, and runs. |
-| `lock` | Explicit exclusivity, bounded waits, renewal, release, and cleanup. |
-| `verify` | Observed check receipts and debt audits. |
-| `agent` | Identity registration and presence. |
-| `signal` | Typed peer messages, threads, acknowledgements, and resolution. |
-| `memory` | Scoped observations, lexical/semantic recall, provenance, expiry, evaluation, reindexing, and lifecycle. |
-| `refinement`, `reflect` | Owned follow-up and concise reusable lessons. |
-| `session capture` | Repository continuation context and session-linked learning. |
-| `history` | Captures, checkpoints, timelines, byte reads, selective restore/undo, expired-preview cleanup, and conservative recovery. |
-| `maintenance` | Initialization, diagnostics, stale-state cleanup, and self-tests. |
-| `config`, `hooks`, `hook run` | Policy, host integration, health checks, and lifecycle receipts. |
-| `docs`, `schema` | Reference navigation and command/entity discovery. |
-| `handoff`, `guide`, `instructions export` | Continuation notes and host workflow instructions. |
-| `database consolidate` | Explicit conversion into a new file; rejects collisions and incomplete source contracts. |
-| Library continuity APIs | Ordered outbox, consumer cursors, acknowledgements, and redacted worker projections. |
+| `context orient` | One bounded decision packet: self, peers, owned/overlapping work, inbox, verification pressure, recovery state, and executable continuations. |
+| `work create/list/show/claim/update/depend/protect/verify` | Objectives, dependencies, ownership, attempts, files, exceptional exclusivity, and observed verification. |
+| `message list/send/reply/resolve` | Typed peer communication and resolvable continuation threads. |
+| `memory recall/record` | Scoped, evidence-linked reusable learning. |
+| `history status/timeline/read/restore` | Recoverable workspace bytes; restore remains preview then approved apply. |
+| Operator/recovery catalog | Configuration, hooks, migration, retention, maintenance, reports, and schema diagnostics. |
 
 Plans and tasks share run-owned claims, work presence, locks, and verification. Peer messages are signals; handoffs retain continuation notes. Host APIs and CLI commands read the same IDs.
 
-Choose one owner for each fact; do not create a parallel record just because
+Choose one owner for each fact; do not create a parallel record because
 another feature is available:
 
 | Fact | Owner | Why it remains distinct |

@@ -1,5 +1,5 @@
-// Canonical host-bound surface. Operator/recovery adapters remain internal;
-// public consumers use the typed client and operation catalog.
+// Canonical host-bound surface. Compatibility exports remain below until the
+// operator/recovery subpath cutover; new consumers use this client and catalog.
 export {
   createAwarenessClient,
 } from './client.js';
@@ -12,13 +12,16 @@ export {
 export type {
   AwarenessClient,
   AwarenessClientContext,
+  AwarenessEventCursor,
   AwarenessExecutableCall,
+  AwarenessHostEventInput,
   AwarenessItemSummary,
   AwarenessOrientation,
   AwarenessOrientationResult,
   AwarenessOrientationUnchanged,
   AwarenessPeerSummary,
 } from './client.js';
+export type { AwarenessInsightCandidate, AwarenessInsightProvider } from './operation-contracts.js';
 export type {
   AwarenessConcept,
   AwarenessOperation,

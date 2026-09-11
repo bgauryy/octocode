@@ -1,23 +1,36 @@
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import { attendWorkspace } from './attend-presence.js';
-import { runDatabaseCommandHandler } from './command-dispatch.js';
-import { runLockCommand } from './command-locks.js';
-import { structuredAwarenessContinuations } from './command-continuations.js';
 import {
   AwarenessInputError,
   commandOutput,
+  emit,
   type AwarenessCommandOutput,
 } from './command-output.js';
-import type { AwarenessCommandResult } from './command-api.js';
-import { COMMAND_ROUTES } from './commands/routes.js';
-import type { ParsedArgs } from './commands/args.js';
+import {
+  MAX_CLI_RETRY_INTERVAL_SECONDS,
+  MAX_CLI_WAIT_SECONDS,
+  parseBoundedSeconds,
+  resolveAgentId,
+  valuesFor,
+  type ParsedArgs,
+} from './commands/args.js';
+import { cmdAgentSignal } from './commands/admin.js';
+import { cmdGetMemory, cmdTellMemory } from './commands/memory.js';
+import { cmdPlan, cmdTask } from './commands/plans.js';
+import { cmdQuery } from './commands/repo.js';
+import { cmdAuditUnverified, cmdPreFlightIntent, cmdReleaseFileLock, cmdVerify, cmdWork } from './commands/work.js';
 import { connectDb, resolveDbPath } from './db-runtime.js';
+import { beginWrite } from './db-transaction.js';
+import { ensureCanonicalMutationEvent, workspaceEventHighWater } from './event-outbox.js';
 import { normalizeWorkspacePath, repositoryWorkspacePaths } from './git.js';
 import { HistoryError } from './history-store.js';
-import { getAwarenessCommandDescriptor } from './schema/cli.js';
 import { commandSchemaProperties } from './schema/command-properties.js';
+import { DEFAULT_RETRY_MS, DEFAULT_WAIT_MS } from './maintenance-stale.js';
+import { waitForLock } from './maintenance-session.js';
+import type { CanonicalExecutionContext, CanonicalOperationResult, CanonicalRouteBinding } from './operation-contracts.js';
 import { storageScopeForCommand } from './workspace-policy.js';
 
 const validators = new Map<string, z.ZodType>();
@@ -30,15 +43,6 @@ const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 const asRows = (value: unknown): Array<Record<string, unknown>> =>
   Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => Boolean(record(row))) : [];
-
-interface CanonicalExecutionContext {
-  database?: string;
-  workspace: string;
-  agentId: string;
-  sessionId?: string;
-  scope?: import('./storage-scope.js').AwarenessStorageScope;
-  signal?: AbortSignal;
-}
 
 interface OrientParams {
   if_revision?: string;
@@ -84,47 +88,138 @@ function bindHost(
   params[key] = value;
 }
 
-/** Canonical operation execution path: no argv and no legacy command API. */
-export async function executeCanonicalCommand(
-  command: string,
+async function executeDomainHandler(
+  db: import('node:sqlite').DatabaseSync,
+  binding: CanonicalRouteBinding,
+  args: ParsedArgs,
+  dbPath: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  const opts = { compact: true, cli: false } as const;
+  if (binding.action && ['plan', 'task', 'work', 'signal'].includes(binding.handler)) args.action = binding.action;
+  switch (binding.handler) {
+    case 'plan': return cmdPlan(db, args, dbPath, opts);
+    case 'task': return cmdTask(db, args, dbPath, opts);
+    case 'work': return cmdWork(db, args, dbPath, opts);
+    case 'query':
+      if (binding.action) args.view = binding.action;
+      return cmdQuery(db, args, dbPath, opts);
+    case 'verify': return cmdVerify(db, args, dbPath, opts);
+    case 'verify-audit': return cmdAuditUnverified(db, args, dbPath, opts);
+    case 'signal': return cmdAgentSignal(db, args, dbPath, opts);
+    case 'memory-record': return cmdTellMemory(db, args, dbPath, opts);
+    case 'memory-recall': return cmdGetMemory(db, args, dbPath, opts);
+    case 'lock-release': return cmdReleaseFileLock(db, args, dbPath, opts);
+    case 'history': {
+      const { runHistoryCommand } = await import('./commands/history.js');
+      signal?.throwIfAborted();
+      const result = await runHistoryCommand(db, binding.action!, args);
+      return emit(result, result.ok === false ? 2 : 0, opts);
+    }
+    case 'lock-acquire': {
+      const waitMs = (parseBoundedSeconds(args, 'wait_seconds', 0, MAX_CLI_WAIT_SECONDS) ?? DEFAULT_WAIT_MS / 1000) * 1000;
+      const retryMs = (parseBoundedSeconds(args, 'retry_interval', 1, MAX_CLI_RETRY_INTERVAL_SECONDS) ?? DEFAULT_RETRY_MS / 1000) * 1000;
+      const started = performance.now();
+      const claim = () => cmdPreFlightIntent(db, args, dbPath, opts);
+      const first = claim();
+      if (first !== 2 || args['wait_seconds'] === undefined || waitMs === 0) return first;
+      while (performance.now() - started < waitMs) {
+        await delay(Math.min(retryMs, waitMs - (performance.now() - started)), undefined, { signal });
+        signal?.throwIfAborted();
+        const available = waitForLock(db, {
+          agent_id: resolveAgentId(args), target_files: valuesFor(args, 'target_file'),
+          workspace_path: args['workspace'], artifact: args['artifact'], wait_ms: 0,
+        });
+        if (available.lock_free) return claim();
+      }
+      return first;
+    }
+    case 'lock-wait': {
+      const waitMs = (parseBoundedSeconds(args, 'wait_seconds', 0, MAX_CLI_WAIT_SECONDS) ?? DEFAULT_WAIT_MS / 1000) * 1000;
+      const retryMs = (parseBoundedSeconds(args, 'retry_interval', 1, MAX_CLI_RETRY_INTERVAL_SECONDS) ?? DEFAULT_RETRY_MS / 1000) * 1000;
+      const started = performance.now();
+      const check = () => waitForLock(db, {
+        agent_id: resolveAgentId(args), target_files: valuesFor(args, 'target_file'),
+        workspace_path: args['workspace'], artifact: args['artifact'], wait_ms: 0,
+      });
+      signal?.throwIfAborted();
+      let result = check();
+      while (!result.lock_free && performance.now() - started < waitMs) {
+        await delay(Math.min(retryMs, waitMs - (performance.now() - started)), undefined, { signal });
+        signal?.throwIfAborted();
+        result = check();
+      }
+      return emit({ db_path: dbPath, ...result, waited_ms: Math.floor(performance.now() - started) }, result.lock_free ? 0 : 2, opts);
+    }
+  }
+}
+
+/** Canonical operation execution path: direct domain binding, no legacy registry or dispatcher. */
+export async function executeCanonicalRoute(
+  binding: CanonicalRouteBinding,
   input: Record<string, unknown>,
   context: CanonicalExecutionContext,
-): Promise<AwarenessCommandResult> {
+): Promise<CanonicalOperationResult> {
+  const command = binding.command;
   const output: AwarenessCommandOutput = { command, compact: true, text: '', diagnostics: [] };
   return commandOutput.run(output, async () => {
     try {
       context.signal?.throwIfAborted();
-      const descriptor = getAwarenessCommandDescriptor(command);
-      if (!descriptor) throw new AwarenessInputError(`Unknown Awareness command route: ${command}`);
       const params = { ...input };
-      const properties = commandSchemaProperties(descriptor.inputSchema);
+      const properties = commandSchemaProperties(binding.schema);
       bindHost(params, properties, 'workspace', context.workspace);
-      if (descriptor.injected.includes('agent-id')) {
+      if ((Object.hasOwn(properties, 'agent_id') || Object.hasOwn(properties, 'lead_agent_id'))
+        && command !== 'work list' && command !== 'work show') {
         bindHost(params, properties, Object.hasOwn(properties, 'agent_id') ? 'agent_id' : 'lead_agent_id', context.agentId);
       }
       bindHost(params, properties, 'session_id', context.sessionId);
-      validate(command, params, descriptor.inputSchema as Record<string, unknown>);
-      const workspace = resolve(context.workspace);
-      const route = COMMAND_ROUTES[command];
-      const scope = storageScopeForCommand(route?.command ?? command, workspace, context.scope);
+      validate(command, params, binding.schema as Record<string, unknown>);
+      const workspace = normalizeWorkspacePath(context.workspace, context.workspace) ?? resolve(context.workspace);
+      const storageCommand = binding.handler === 'memory-record' ? 'tell-memory'
+        : binding.handler === 'memory-recall' ? 'get-memory' : command;
+      const scope = storageScopeForCommand(storageCommand, workspace, context.scope);
       const dbPath = resolveDbPath(context.database, { scope, workspace });
       const db = connectDb(dbPath);
+      // Memory evidence performs filesystem reads before its domain-owned
+      // row+event transaction. Task mutations also own their row+event
+      // transaction so claim lifecycle methods can use BEGIN IMMEDIATE without
+      // nesting under this executor.
+      const domainOwnsWriteTransaction = binding.handler === 'memory-record'
+        || (binding.handler === 'task' && binding.effect === 'coordination-write')
+        || binding.handler === 'lock-acquire'
+        || binding.handler === 'lock-release';
+      const transactional = binding.effect === 'coordination-write' && !domainOwnsWriteTransaction;
+      const outer = transactional ? beginWrite(db) : undefined;
+      const beforeSequence = binding.effect === 'read' ? undefined : workspaceEventHighWater(db, workspace);
       let exitCode: number;
       try {
-        const args = handlerParams(params);
-        if (route?.action) args.action = route.action;
-        const [noun, action] = command.split(' ');
-        if (noun === 'query' && action) args.view = action;
-        if (command === 'lock wait' || command === 'lock acquire') {
-          exitCode = await runLockCommand(db, command, args, dbPath, { compact: true, cli: false }, context.signal);
-        } else {
-          exitCode = await runDatabaseCommandHandler(db, route?.command ?? noun!, args, dbPath, { compact: true, cli: false }, context.signal);
+        exitCode = await executeDomainHandler(db, binding, handlerParams(params), dbPath, context.signal);
+        if (exitCode !== 0) {
+          outer?.rollback();
+          return { payload: output.payload ?? null, exitCode };
         }
+        if (beforeSequence !== undefined) {
+          const eventWrite = outer ?? beginWrite(db);
+          try {
+            ensureCanonicalMutationEvent(db, {
+              workspace, actorId: context.agentId, sessionId: context.sessionId,
+              command, beforeSequence, payload: { effect: binding.effect },
+            });
+            if (!outer) eventWrite.commit();
+          } catch (error) {
+            if (!outer) eventWrite.rollback();
+            throw error;
+          }
+        }
+        outer?.commit();
+      } catch (error) {
+        outer?.rollback();
+        throw error;
       } finally {
         db.close();
       }
       return {
-        payload: structuredAwarenessContinuations(output.payload ?? null),
+        payload: output.payload ?? null,
         exitCode,
         ...(output.text ? { text: output.text } : {}),
         ...(output.diagnostics.length ? { diagnostics: output.diagnostics } : {}),
@@ -173,7 +268,7 @@ function itemSummary(row: Record<string, unknown>) {
 export async function executeContextOrient(
   context: CanonicalExecutionContext,
   input: OrientParams = {},
-): Promise<AwarenessCommandResult> {
+): Promise<CanonicalOperationResult> {
   const limit = input.limit ?? 3;
   const offset = input.offset ?? 0;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 3) throw new Error('context.orient limit must be an integer from 1 to 3');
@@ -225,11 +320,16 @@ export async function executeContextOrient(
     }).slice(0, 3).map(itemSummary);
     const verifyRows = asRows(board.Verify);
     const partialReasons = [...new Set([...(presence.partialReasons ?? []), ...(detail.partial_reasons ?? [])])];
-    const next: Array<{ operation: string; params?: Record<string, unknown> }> = [];
+    const next: Array<Record<string, unknown>> = [];
     if (presence.partial === true) next.push({ operation: 'context.orient', params: { limit, offset: offset + peers.length } });
+    if (detail.partial === true) {
+      const continuations = detail.next?.continuations ?? [];
+      if (!continuations.length) throw new Error('partial orientation detail is missing an executable continuation');
+      next.push(...continuations);
+    }
     const unavailable = detail.operational_state?.unavailable ?? [];
     const handoff = inbox.find(message => message.title?.toLowerCase().includes('handoff'));
-    const payload = {
+    const payload: Record<string, unknown> = {
       revision,
       unchanged: false,
       self: { actorId: context.agentId, ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
@@ -244,6 +344,21 @@ export async function executeContextOrient(
       partialReasons,
     };
     db.exec('COMMIT');
+    if (context.insightProvider) {
+      const suggested = await context.insightProvider.suggest({
+        workspace, agentId: context.agentId, overlaps, limit: 3,
+      });
+      const candidates = suggested.slice(0, 3).flatMap(candidate => {
+        const summary = text(candidate.summary, 160);
+        const attribution = text(candidate.attribution, 80);
+        if (!summary || !attribution || !Number.isFinite(candidate.confidence)) return [];
+        return [{
+          summary, attribution, confidence: Math.max(0, Math.min(1, candidate.confidence)),
+          ...(text(candidate.path, 240) ? { path: text(candidate.path, 240) } : {}),
+        }];
+      });
+      if (candidates.length) payload.insights = { advisory: true, candidates };
+    }
     return { exitCode: 0, payload };
   } catch (error) {
     try { db.exec('ROLLBACK'); } catch { /* transaction already ended */ }

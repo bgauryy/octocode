@@ -16,12 +16,31 @@ import {
   readAwarenessMeta,
   readMigrationAwarenessMeta,
   tableColumns,
-  type SchemaState,
 } from './db-introspection.js';
 import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
 import { WORKER_LIFECYCLE_DDL } from './db-worker-schema.js';
-import { assertLogicalDestination, assertNoHistoryRowsForConsolidation, assertValidSource, copyCommonTables, copyMappedTables, tableNames, text } from './db-consolidation-validation.js';
+import {
+  MIGRATED_EVENT_TABLES,
+  assertLogicalDestination,
+  assertNoHistoryRowsForConsolidation,
+  assertValidSource,
+  copyCommonTables,
+  copyMappedTables,
+  copySequenceHighWaterMarks,
+  copySyntheticEvents,
+  eventReplayPlan,
+  tableNames,
+} from './db-consolidation-validation.js';
+import { copyLegacyHandoffSignals } from './db-consolidation-handoffs.js';
 import type { DatabaseConsolidationOptions } from './db-consolidation-validation.js';
+import { verifyDatabaseMigration as verifyDatabaseMigrationImpl } from './db-migration-verification.js';
+import {
+  migrationSourceVersion,
+  schemaStateForMigrationVersion,
+  type DatabaseMigrationSourceVersion as DatabaseMigrationSourceVersionContract,
+  type DatabaseMigrationVerification as DatabaseMigrationVerificationContract,
+  type DatabaseMigrationVerificationRequest as DatabaseMigrationVerificationRequestContract,
+} from './db-migration-contracts.js';
 import { utcNow } from './helpers.js';
 import { historyStoragePathsForIdentity } from './history-store.js';
 
@@ -34,18 +53,6 @@ export interface DatabaseConsolidationReport {
 }
 
 const SQLITE_OR_FTS_AUXILIARY = /^(?:sqlite_|memories_fts(?:_|$))/;
-
-export type DatabaseMigrationSourceVersion =
-  | 'legacy-renamed-v1'
-  | 'canonical-path-identity'
-  | 'event-envelope-upgrade'
-  | 'event-envelope-path-identity-upgrade'
-  | 'event-envelope-history-durability-upgrade'
-  | 'event-envelope-history-durability-path-identity-upgrade'
-  | 'worker-lifecycle-upgrade'
-  | 'worker-lifecycle-path-identity-upgrade'
-  | 'worker-lifecycle-history-durability-upgrade'
-  | 'worker-lifecycle-history-durability-path-identity-upgrade';
 
 export interface DatabaseMigrationPreview {
   dryRun: true;
@@ -72,31 +79,6 @@ export interface DatabaseMigrationPreview {
   };
 }
 
-export interface DatabaseMigrationVerificationRequest {
-  sourcePath: string;
-  destinationPath: string;
-  sourceVersion: DatabaseMigrationSourceVersion;
-  expectedStoreId: string;
-  expectedCounts: Readonly<Record<string, number>>;
-  expectedEventIds: readonly string[];
-  expectedEventSequences: readonly number[];
-  expectedEventHighWater: number;
-  expectedLocalGitRoot?: string;
-}
-
-export interface DatabaseMigrationVerification {
-  integrity: 'ok';
-  foreignKeyViolations: 0;
-  storeId: string;
-  sourcePresent: boolean;
-  destinationPresent: boolean;
-  tableCountsVerified: number;
-  eventOrderVerified: true;
-  eventReplayVerified: true;
-  localGitRootReachable: true | null;
-  localGitObjectsVerified: number | null;
-}
-
 export interface DatabaseMigrationReport extends Omit<DatabaseMigrationPreview, 'dryRun' | 'localGit'> {
   dryRun: false;
   published: true;
@@ -113,202 +95,13 @@ export interface DatabaseMigrationReport extends Omit<DatabaseMigrationPreview, 
   };
 }
 
+export const verifyDatabaseMigration = verifyDatabaseMigrationImpl;
+export type DatabaseMigrationSourceVersion = DatabaseMigrationSourceVersionContract;
+export type DatabaseMigrationVerification = DatabaseMigrationVerificationContract;
+export type DatabaseMigrationVerificationRequest = DatabaseMigrationVerificationRequestContract;
+
 function fileDigest(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
-}
-
-const COPY_ON_WRITE_SOURCE_STATES = new Set<SchemaState>([
-  'canonical-path-identity',
-  'event-envelope-upgrade',
-  'event-envelope-path-identity-upgrade',
-  'event-envelope-history-durability-upgrade',
-  'event-envelope-history-durability-path-identity-upgrade',
-  'worker-lifecycle-upgrade',
-  'worker-lifecycle-path-identity-upgrade',
-  'worker-lifecycle-history-durability-upgrade',
-  'worker-lifecycle-history-durability-path-identity-upgrade',
-  'legacy-renamed-predecessor',
-]);
-
-function migrationSourceVersion(state: SchemaState): DatabaseMigrationSourceVersion {
-  if (!COPY_ON_WRITE_SOURCE_STATES.has(state)) {
-    throw new Error(`database migration does not support source state ${state}; source has not been changed`);
-  }
-  return state === 'legacy-renamed-predecessor' ? 'legacy-renamed-v1' : state as DatabaseMigrationSourceVersion;
-}
-
-function schemaStateForMigrationVersion(version: DatabaseMigrationSourceVersion): SchemaState {
-  return version === 'legacy-renamed-v1' ? 'legacy-renamed-predecessor' : version;
-}
-
-function hasTable(db: DatabaseSync, table: string): boolean {
-  return Boolean(db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?").get(table));
-}
-
-function eventReplayPlan(source: DatabaseSync): { ids: string[]; sequences: number[]; highWater: number } {
-  const events = hasTable(source, 'event_outbox')
-    ? source.prepare('SELECT sequence,event_id FROM event_outbox ORDER BY sequence').all() as Array<{ sequence: number | bigint; event_id: string }>
-    : [];
-  const ids = events.map(({ event_id }) => event_id);
-  const sequences = events.map(({ sequence }) => Number(sequence));
-  let highWater = sequences.at(-1) ?? 0;
-  if (hasTable(source, 'sqlite_sequence')) {
-    const row = source.prepare("SELECT seq FROM sqlite_sequence WHERE name='event_outbox'").get() as { seq: number | bigint } | undefined;
-    if (row) highWater = Math.max(highWater, Number(row.seq));
-  }
-  if (hasTable(source, 'worker_lifecycle_events')) {
-    const workers = source.prepare('SELECT packet_id FROM worker_lifecycle_events ORDER BY sequence').all() as Array<{ packet_id: string }>;
-    for (const { packet_id } of workers) {
-      ids.push(`worker_lifecycle:${packet_id}`);
-      sequences.push(++highWater);
-    }
-  }
-  return { ids, sequences, highWater };
-}
-
-function copyWorkerLifecycleEvents(source: DatabaseSync, destination: DatabaseSync): number {
-  if (!hasTable(source, 'worker_lifecycle_events')) return 0;
-  const rows = source.prepare(`SELECT packet_id,workspace_path,session_id,worker_id,correlation_id,
-      event_type,redaction,created_at,payload_json,recorded_at
-    FROM worker_lifecycle_events ORDER BY sequence`).all() as Array<Record<string, unknown>>;
-  const insert = destination.prepare(`INSERT INTO event_outbox
-    (event_id,workspace_path,event_type,aggregate_kind,aggregate_id,aggregate_revision,actor_json,
-      provenance_json,payload_json,session_id,correlation_id,created_at,expires_at,schema_version,retention_class)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,1,'operational')`);
-  for (const row of rows) {
-    const packetId = text(row.packet_id, 'worker_lifecycle_events', 'packet_id');
-    const workerId = text(row.worker_id, 'worker_lifecycle_events', 'worker_id');
-    const eventType = text(row.event_type, 'worker_lifecycle_events', 'event_type');
-    const redaction = text(row.redaction, 'worker_lifecycle_events', 'redaction');
-    const recordedAt = text(row.recorded_at, 'worker_lifecycle_events', 'recorded_at');
-    let payload: unknown;
-    try { payload = JSON.parse(text(row.payload_json, 'worker_lifecycle_events', 'payload_json')); }
-    catch { throw new Error(`unsupported source row: worker_lifecycle_events.payload_json is invalid JSON for ${packetId}`); }
-    insert.run(
-      `worker_lifecycle:${packetId}`,
-      text(row.workspace_path, 'worker_lifecycle_events', 'workspace_path'),
-      'worker.lifecycle',
-      'worker',
-      workerId,
-      null,
-      JSON.stringify({ kind: 'tool', id: workerId }),
-      JSON.stringify({ source: 'harness', trust: 'attributed-data' }),
-      JSON.stringify({ event_type: eventType, redaction, payload, recorded_at: recordedAt }),
-      text(row.session_id, 'worker_lifecycle_events', 'session_id'),
-      text(row.correlation_id, 'worker_lifecycle_events', 'correlation_id'),
-      text(row.created_at, 'worker_lifecycle_events', 'created_at'),
-    );
-  }
-  return rows.length;
-}
-
-function verifyLocalGitObjects(destination: DatabaseSync, root: string | undefined): { reachable: true | null; objects: number | null } {
-  if (!root || !existsSync(root)) return { reachable: null, objects: null };
-  const gitDir = join(root, 'repo.git');
-  const oids = new Set<string>();
-  if (hasTable(destination, 'local_history_operations')) {
-    const rows = destination.prepare(`SELECT before_commit_oid,after_commit_oid FROM local_history_operations`).all() as Array<{
-      before_commit_oid: string | null; after_commit_oid: string | null;
-    }>;
-    for (const row of rows) for (const oid of [row.before_commit_oid, row.after_commit_oid]) if (oid) oids.add(oid);
-  }
-  if (hasTable(destination, 'local_history_versions')) {
-    const rows = destination.prepare('SELECT before_oid,after_oid FROM local_history_versions').all() as Array<{
-      before_oid: string | null; after_oid: string | null;
-    }>;
-    for (const row of rows) for (const oid of [row.before_oid, row.after_oid]) if (oid) oids.add(oid);
-  }
-  for (const oid of oids) {
-    if (!/^[0-9a-f]{40}$/.test(oid) || !existsSync(join(gitDir, 'objects', oid.slice(0, 2), oid.slice(2)))) {
-      throw new Error(`migration LocalGit object is missing or invalid: ${oid}`);
-    }
-  }
-  return { reachable: true, objects: oids.size };
-}
-
-export function verifyDatabaseMigration(request: DatabaseMigrationVerificationRequest): DatabaseMigrationVerification {
-  if (!existsSync(request.sourcePath)) throw new Error(`migration source no longer exists: ${request.sourcePath}`);
-  if (!existsSync(request.destinationPath)) throw new Error(`migration destination does not exist: ${request.destinationPath}`);
-  const source = new DatabaseSync(request.sourcePath, { readOnly: true });
-  const destination = new DatabaseSync(request.destinationPath, { readOnly: true });
-  try {
-    const expectedSourceState = schemaStateForMigrationVersion(request.sourceVersion);
-    if (inspectSchemaState(source) !== expectedSourceState) throw new Error(`migration source no longer matches ${request.sourceVersion}`);
-    if (inspectSchemaState(destination) !== 'canonical') throw new Error('migration destination is not canonical');
-    const meta = readAwarenessMeta(destination);
-    if (meta.storeId !== request.expectedStoreId) throw new Error('migration destination store_id does not match the source mapping');
-    assertDatabaseIntegrity(destination);
-    const workerCount = request.expectedCounts.worker_lifecycle_events ?? 0;
-    for (const [sourceTable, expected] of Object.entries(request.expectedCounts)) {
-      const sourceCount = source.prepare(`SELECT COUNT(*) AS count FROM ${JSON.stringify(sourceTable)}`).get() as { count: number | bigint };
-      if (Number(sourceCount.count) !== expected) throw new Error(`migration source row-count changed for ${sourceTable}`);
-      if (sourceTable === 'worker_lifecycle_events') {
-        const packets = source.prepare('SELECT packet_id FROM worker_lifecycle_events ORDER BY sequence').all() as Array<{ packet_id: string }>;
-        const mapped = destination.prepare('SELECT 1 AS present FROM event_outbox WHERE event_id=?');
-        if (packets.some(({ packet_id }) => !mapped.get(`worker_lifecycle:${packet_id}`))) {
-          throw new Error('migration row-count mismatch for worker_lifecycle_events->event_outbox');
-        }
-        continue;
-      }
-      const destinationTable = LEGACY_RELATION_DESTINATIONS[sourceTable] ?? sourceTable;
-      const destinationCount = destination.prepare(`SELECT COUNT(*) AS count FROM ${JSON.stringify(destinationTable)}`).get() as { count: number | bigint };
-      const destinationExpected = sourceTable === 'event_outbox' ? expected + workerCount : expected;
-      if (Number(destinationCount.count) !== destinationExpected) throw new Error(`migration row-count mismatch for ${sourceTable}->${destinationTable}`);
-    }
-    const destinationEventOrder = destination.prepare('SELECT sequence,event_id FROM event_outbox ORDER BY sequence').all() as Array<{
-      sequence: number | bigint; event_id: string;
-    }>;
-    if (JSON.stringify(destinationEventOrder.map(({ event_id }) => event_id)) !== JSON.stringify(request.expectedEventIds)
-      || JSON.stringify(destinationEventOrder.map(({ sequence }) => Number(sequence))) !== JSON.stringify(request.expectedEventSequences)) {
-      throw new Error('migration event replay order does not match the previewed source order');
-    }
-    const destinationHighWater = destination.prepare("SELECT seq FROM sqlite_sequence WHERE name='event_outbox'").get() as { seq: number | bigint } | undefined;
-    if (Number(destinationHighWater?.seq ?? 0) !== request.expectedEventHighWater) {
-      throw new Error('migration event sequence high-water mark does not match the previewed source');
-    }
-    const sourceEvents = hasTable(source, 'event_outbox') ? source.prepare(`SELECT event_id,workspace_path,event_type,aggregate_kind,aggregate_id,
-      aggregate_revision,actor_json,provenance_json,payload_json,session_id,correlation_id,created_at,expires_at
-      FROM event_outbox ORDER BY sequence`).all() as Array<Record<string, unknown>> : [];
-    const destinationEvents = destination.prepare(`SELECT event_id,workspace_path,event_type,aggregate_kind,aggregate_id,
-      aggregate_revision,actor_json,provenance_json,payload_json,session_id,correlation_id,created_at,expires_at,schema_version,retention_class
-      FROM event_outbox ORDER BY sequence`).all() as Array<Record<string, unknown>>;
-    for (let index = 0; index < sourceEvents.length; index += 1) {
-      const expected = { ...sourceEvents[index], schema_version: 1, retention_class: 'delivery' };
-      if (JSON.stringify(destinationEvents[index]) !== JSON.stringify(expected)) throw new Error(`migration event replay mismatch at source sequence ${index + 1}`);
-    }
-    if (hasTable(source, 'worker_lifecycle_events')) {
-      const workers = source.prepare(`SELECT packet_id,workspace_path,session_id,worker_id,correlation_id,event_type,
-        redaction,created_at,payload_json,recorded_at FROM worker_lifecycle_events ORDER BY sequence`).all() as Array<Record<string, unknown>>;
-      for (let index = 0; index < workers.length; index += 1) {
-        const worker = workers[index]!;
-        const event = destinationEvents[sourceEvents.length + index]!;
-        const expectedPayload = JSON.stringify({ event_type: worker.event_type, redaction: worker.redaction,
-          payload: JSON.parse(String(worker.payload_json)), recorded_at: worker.recorded_at });
-        if (event.event_id !== `worker_lifecycle:${worker.packet_id}` || event.workspace_path !== worker.workspace_path
-          || event.event_type !== 'worker.lifecycle' || event.aggregate_kind !== 'worker' || event.aggregate_id !== worker.worker_id
-          || event.aggregate_revision !== null || event.actor_json !== JSON.stringify({ kind: 'tool', id: worker.worker_id })
-          || event.provenance_json !== JSON.stringify({ source: 'harness', trust: 'attributed-data' })
-          || event.payload_json !== expectedPayload || event.session_id !== worker.session_id
-          || event.correlation_id !== worker.correlation_id || event.created_at !== worker.created_at
-          || event.expires_at !== null || event.schema_version !== 1 || event.retention_class !== 'operational') {
-          throw new Error(`migration worker event replay mismatch at source sequence ${index + 1}`);
-        }
-      }
-    }
-    const localGit = verifyLocalGitObjects(destination, request.expectedLocalGitRoot);
-    return {
-      integrity: 'ok',
-      foreignKeyViolations: 0,
-      storeId: meta.storeId,
-      sourcePresent: true,
-      destinationPresent: true,
-      tableCountsVerified: Object.keys(request.expectedCounts).length,
-      eventOrderVerified: true,
-      eventReplayVerified: true,
-      localGitRootReachable: localGit.reachable,
-      localGitObjectsVerified: localGit.objects,
-    };
-  } finally { source.close(); destination.close(); }
 }
 
 /** Apply the exact previewed predecessor conversion to a new atomically published file. */
@@ -339,12 +132,12 @@ export function applyDatabaseMigration(
     destination.exec(SCHEMA_DDL);
     destination.exec(SCHEMA_INDEX_DDL);
     const copiedTables = copyMappedTables(source, destination, LEGACY_RELATION_DESTINATIONS, {
-      omittedSourceTables: new Set(['awareness_meta', 'worker_lifecycle_events']),
+      omittedSourceTables: new Set(['awareness_meta', ...MIGRATED_EVENT_TABLES]),
     });
     if (sourceMeta) copiedTables.awareness_meta = 1;
     copySequenceHighWaterMarks(source, destination);
-    const workerRows = copyWorkerLifecycleEvents(source, destination);
-    if (hasTable(source, 'worker_lifecycle_events')) copiedTables.worker_lifecycle_events = workerRows;
+    Object.assign(copiedTables, copySyntheticEvents(source, destination));
+    copyLegacyHandoffSignals(source, destination);
     const migratedAt = utcNow();
     destination.prepare(`INSERT INTO awareness_meta
         (application_id, schema_version, store_id, created_at, last_migrated_at)
@@ -456,12 +249,12 @@ export function previewDatabaseMigration(
       const count = sourceDb.prepare(`SELECT COUNT(*) AS count FROM ${JSON.stringify(relation)}`).get() as { count: number | bigint };
       const rows = Number(count.count);
       copiedTables[relation] = rows;
-      const destination = relation === 'worker_lifecycle_events'
+      const destination = MIGRATED_EVENT_TABLES.has(relation)
         ? 'event_outbox'
         : LEGACY_RELATION_DESTINATIONS[relation] ?? relation;
       const expectedColumns = canonicalColumns().get(destination) ?? [];
       const sourceColumns = tableColumns(sourceDb, relation);
-      const defaultedColumns = relation === 'worker_lifecycle_events'
+      const defaultedColumns = MIGRATED_EVENT_TABLES.has(relation)
         ? []
         : state === 'legacy-renamed-predecessor'
           ? LEGACY_DEFAULTED_COLUMNS[relation] ?? []
@@ -506,18 +299,6 @@ export function previewDatabaseMigration(
     };
   } finally {
     sourceDb.close();
-  }
-}
-
-function copySequenceHighWaterMarks(source: DatabaseSync, destination: DatabaseSync): void {
-  if (!source.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='sqlite_sequence'").get()) return;
-  const rows = source.prepare('SELECT name, seq FROM sqlite_sequence').all() as Array<{ name: string; seq: number | bigint }>;
-  for (const row of rows) {
-    if (row.name !== 'event_outbox' && row.name !== 'worker_lifecycle_events') continue;
-    if (!destination.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?").get(row.name)) continue;
-    const existing = destination.prepare('SELECT seq FROM sqlite_sequence WHERE name=?').get(row.name) as { seq: number | bigint } | undefined;
-    if (!existing) destination.prepare('INSERT INTO sqlite_sequence(name,seq) VALUES (?,?)').run(row.name, row.seq);
-    else if (row.seq > existing.seq) destination.prepare('UPDATE sqlite_sequence SET seq=? WHERE name=?').run(row.seq, row.name);
   }
 }
 

@@ -59,7 +59,7 @@ function fixture() {
 
 const count = (text: string, marker: string): number => text.split(marker).length - 1;
 
-describe.sequential('agents protocol prompt projection', () => {
+describe('agents protocol prompt projection', { concurrent: false }, () => {
   it('refreshes skill revisions between turns and never reimports reviewed inventory as native Pi metadata', async () => {
     const f = fixture();
     vi.stubEnv('OCTOCODE_STORAGE_MODE', 'persistent');

@@ -2,7 +2,7 @@
 
 Load when reassessing an existing RFC against live code — first read, periodic re-check, or before any delete/archive/keep call. Full process: `references/workflow.md` § Reassess existing RFCs.
 
-Produce this whenever an existing RFC is checked against the live repository. With source-edit authority, insert it under `RFC.md`'s header fields; otherwise present the block in chat and leave the file untouched. <!-- style-lint: ignore-line passive-voice -->
+Produce this whenever an existing RFC is checked against the live repository. The dated audit block is an append-only exception to an accepted RFC's freeze: do not rewrite its accepted decision. With source-edit authority, insert or append the new block under `RFC.md`'s header fields; otherwise present it in chat and leave the file untouched. <!-- style-lint: ignore-line passive-voice -->
 
 ```markdown
 ## Audit Reasoning — kept/updated ({date})

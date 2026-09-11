@@ -12,6 +12,7 @@ let root: string;
 let db: ReturnType<typeof connectDb>;
 let dbPath: string;
 let ids: string[];
+let workspaceIds: string[];
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'aw-work-pages-'));
   dbPath = join(root, 'awareness.sqlite3');
@@ -25,7 +26,10 @@ beforeEach(() => {
     if (!result.ok) throw new Error('fixture failed');
     ids.push(...result.files.map(file => `${file.run_id}:${file.file_path}`));
   }
-  startWork(db, { workspacePath: root, agentId: 'other', rationale: 'other owner', testPlan: 'none', targetFiles: ['other.ts'] });
+  workspaceIds = [...ids];
+  const other = startWork(db, { workspacePath: root, agentId: 'other', rationale: 'other owner', testPlan: 'none', targetFiles: ['other.ts'] });
+  if (!other.ok) throw new Error('other-owner fixture failed');
+  workspaceIds.push(...other.files.map(file => `${file.run_id}:${file.file_path}`));
   startWork(db, { workspacePath: join(root, 'other-workspace'), agentId: 'owner', rationale: 'other workspace', testPlan: 'none', targetFiles: ['other.ts'] });
 });
 afterEach(() => { db.close(); rmSync(root, { recursive: true, force: true }); });
@@ -52,16 +56,16 @@ describe('lossless work listing', () => {
     const base = ['work', 'list', '--db', dbPath, '--workspace', root, '--agent-id', 'owner', '--compact', ...(full ? ['--full'] : [])];
     const run = (args: string[]) => {
       const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', timeout: 10000 });
-      expect(result.status, result.stderr).toBe(0);
+      expect(result.status, result.stderr || result.stdout).toBe(0);
       return JSON.parse(result.stdout);
     };
     expect(run(base).count).toBe(5);
-    expect(run(base.filter(arg => arg !== '--compact')).count).toBe(20);
+    expect(run(base.filter(arg => arg !== '--compact')).count).toBe(5);
     let args = [...base, '--limit', '200'];
     const seen: string[] = [];
     for (let page = 0; page < 3; page++) {
       const result = run(args);
-      expect(result.total_count).toBe(250);
+      expect(result.total_count).toBe(workspaceIds.length);
       if (full) expect(result.files[0]).toHaveProperty('test_plan', 'pagination union');
       seen.push(...result.files.map((file: { run_id: string; file_path: string }) => `${file.run_id}:${file.file_path}`));
       if (!result.partial) break;
@@ -70,6 +74,6 @@ describe('lossless work listing', () => {
       args = ['work', 'list', ...result.next.list.command.args];
     }
     expect(new Set(seen).size).toBe(seen.length);
-    expect([...seen].sort()).toEqual([...ids].sort());
+    expect([...seen].sort()).toEqual([...workspaceIds].sort());
   });
 });

@@ -1,7 +1,15 @@
 import type { HandoffNote } from '@octocodeai/agent-contracts/entities';
 import { CoordinationMemoryAgents } from './coordination-memory-agents.js';
 import { handoffFromRow, type HandoffRow, type AwarenessSchema } from './coordination-shared.js';
-import { CANONICAL_CLI_COMMANDS } from '../schema/command-catalog.js';
+import { AWARENESS_CONCEPTS, listAwarenessOperationDescriptors } from '../schema/operation-catalog.js';
+
+function canonicalCommands(): Record<string, string[]> {
+  const descriptors = listAwarenessOperationDescriptors();
+  return Object.fromEntries(AWARENESS_CONCEPTS.map(concept => [
+    concept,
+    descriptors.filter(row => row.concept === concept).map(row => row.operation.slice(concept.length + 1)),
+  ]));
+}
 
 export abstract class AwarenessSchemaHelpers extends CoordinationMemoryAgents {
   schema(): AwarenessSchema {
@@ -16,7 +24,7 @@ export abstract class AwarenessSchemaHelpers extends CoordinationMemoryAgents {
         agent: ['agentId', 'name', 'role', 'status', 'metadata', 'createdAt', 'lastSeenAt'],
         message: ['messageId', 'fromAgentId', 'toAgentId', 'topic', 'text', 'files', 'createdAt', 'readAt'],
       },
-      commands: Object.fromEntries(Object.entries(CANONICAL_CLI_COMMANDS).map(([noun, actions]) => [noun, [...actions]])),
+      commands: canonicalCommands(),
     };
   }
 

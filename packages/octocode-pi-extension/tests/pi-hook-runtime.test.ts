@@ -32,7 +32,7 @@ function fixture(command: string, event = 'tool_call', timeout = 2) {
   return { root, workspace, runtime, review, write, source, state };
 }
 
-describe.sequential('declarative Pi hooks', () => {
+describe('declarative Pi hooks', { concurrent: false }, () => {
   it('executes reviewed shell commands once, gives hooks event JSON, and reloads without duplicate registration', async () => {
     const f = fixture('read payload; printf "%s\\n" "$payload" >> calls.txt', 'tool_execution_end');
     f.review();

@@ -20,6 +20,8 @@ import {
   SESSIONS_LIST_CLAUSE_ARTIFACT,
   SESSIONS_LIST_CLAUSE_ACTIVE,
 } from './sql/sessions.js';
+import { beginWrite } from './db-transaction.js';
+import { appendLifecycleEvent } from './lifecycle-events.js';
 
 // ─── Scope ────────────────────────────────────────────────────────────────────
 
@@ -64,16 +66,18 @@ export function ensureRunSession(
   }
 
   const now = utcNow();
-  db.prepare(SESSIONS_INSERT).run(
-    sessionId,
-    params.agentId,
-    workspacePath,
-    artifact,
-    null,
-    null,
-    now,
-  );
-  return getSession(db, sessionId)!;
+  const transaction = beginWrite(db);
+  try {
+    db.prepare(SESSIONS_INSERT).run(sessionId, params.agentId, workspacePath, artifact, null, null, now);
+    appendLifecycleEvent(db, { workspace: workspacePath, type: 'session.started', agentId: params.agentId,
+      aggregateKind: 'session', aggregateId: sessionId, sessionId, createdAt: now });
+    const row = getSession(db, sessionId)!;
+    transaction.commit();
+    return row;
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
+  }
 }
 
 // ─── Insert ───────────────────────────────────────────────────────────────────
@@ -85,15 +89,17 @@ export function insertSession(db: DatabaseSync, params: InsertSessionParams): Se
   const artifact = normalizeArtifact(params.artifact);
   const workspacePath = scopedWorkspacePath(params.workspacePath);
 
-  db.prepare(SESSIONS_INSERT).run(
-    sessionId,
-    params.agentId,
-    workspacePath,
-    artifact,
-    params.repo ?? null,
-    params.ref ?? null,
-    now,
-  );
+  const transaction = beginWrite(db);
+  try {
+    db.prepare(SESSIONS_INSERT).run(sessionId, params.agentId, workspacePath, artifact,
+      params.repo ?? null, params.ref ?? null, now);
+    appendLifecycleEvent(db, { workspace: workspacePath, type: 'session.started', agentId: params.agentId,
+      aggregateKind: 'session', aggregateId: sessionId, sessionId, createdAt: now });
+    transaction.commit();
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
+  }
 
   return {
     session_id: sessionId,
@@ -123,10 +129,20 @@ export function endSession(db: DatabaseSync, params: EndSessionParams): SessionR
     where.push('artifact IS ?');
     binds.push(normalizeArtifact(params.artifact));
   }
-  const result = db.prepare(
-    `UPDATE sessions SET ended_at = ?, summary = ? WHERE ${where.join(' AND ')} RETURNING *`,
-  ).get(now, params.summary ?? null, ...binds) as SessionRow | undefined;
-  return result ?? null;
+  const transaction = beginWrite(db);
+  try {
+    const result = db.prepare(
+      `UPDATE sessions SET ended_at = ?, summary = ? WHERE ${where.join(' AND ')} RETURNING *`,
+    ).get(now, params.summary ?? null, ...binds) as SessionRow | undefined;
+    if (result) appendLifecycleEvent(db, { workspace: result.workspace_path, type: 'session.ended',
+      agentId: params.agentId, aggregateKind: 'session', aggregateId: params.sessionId,
+      sessionId: params.sessionId, createdAt: now, payload: { summary: params.summary ?? null } });
+    transaction.commit();
+    return result ?? null;
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
+  }
 }
 
 // ─── Get ──────────────────────────────────────────────────────────────────────

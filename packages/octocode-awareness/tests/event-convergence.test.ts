@@ -48,8 +48,7 @@ describe('canonical domain event convergence', () => {
       event_type: 'validate',
       payload_json: JSON.stringify({ passed: true }),
     })]);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM edit_log').get()).toEqual({ count: 0 });
-    expect(db.prepare('SELECT COUNT(*) AS count FROM harness_log').get()).toEqual({ count: 0 });
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('edit_log','harness_log')").all()).toEqual([]);
     expect(db.prepare(`SELECT event_type, retention_class FROM event_outbox ORDER BY sequence`).all())
       .toEqual([
         { event_type: 'workspace.edit.update', retention_class: 'audit' },
@@ -80,8 +79,7 @@ describe('canonical domain event convergence', () => {
     ]);
     expect(first.next).toEqual({ afterSequence: first.events[1]!.sequence });
     expect(second.next).toBeNull();
-    expect(db.prepare('SELECT COUNT(*) AS count FROM task_events').get()).toEqual({ count: 0 });
-    expect(db.prepare('SELECT COUNT(*) AS count FROM run_log').get()).toEqual({ count: 0 });
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('task_events','run_log')").all()).toEqual([]);
     db.close();
   });
 

@@ -543,7 +543,7 @@ describe('toolCommand', () => {
     expect(context).toContain('TOOL CALLS');
     expect(context).toContain('tools <name>');
     expect(context).toContain(
-      'Choose the available tool that answers the next unresolved question'
+      'Choose the available tool for the next unresolved question'
     );
     expect(context).toContain('1. ghSearch');
     expect(context).toContain('2. ghSearchHistory');
@@ -575,9 +575,9 @@ describe('toolCommand', () => {
     );
     // full mode includes complete tool descriptions
     expect(context).toContain(
-      'Discover GitHub code, repositories, or a known repository tree.'
+      'Discover GitHub repositories, indexed code, or a repository tree.'
     );
-    expect(context).toContain('Create a cached, shallow checkout');
+    expect(context).toContain('Cache a shallow GitHub checkout');
   });
 
   it('builds a lean default tools context (compact field lists)', async () => {
@@ -589,7 +589,7 @@ describe('toolCommand', () => {
     const context = await getToolsContextString();
 
     // lean mode includes short tool descriptions inline
-    expect(context).toContain('1. ghSearch — Discover GitHub code');
+    expect(context).toContain('1. ghSearch — Discover GitHub repositories');
     expect(context).not.toContain('"$schema"');
     expect(context).toContain('Protocol: answer the next unresolved question');
     expect(context).toContain(
@@ -745,7 +745,7 @@ describe('toolCommand', () => {
       entry => entry.name === 'localSearch'
     );
     expect(localSearch).toBeDefined();
-    expect(localSearch?.fullDescription).toMatch(/lexical/);
+    expect(localSearch?.fullDescription).toMatch(/literal or regex/);
     expect(localSearch?.inputSchema?.type).toBe('object');
     expect(Array.isArray(localSearch?.fields)).toBe(true);
     expect(

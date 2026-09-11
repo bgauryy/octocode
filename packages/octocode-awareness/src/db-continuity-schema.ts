@@ -28,18 +28,8 @@ export const EVENT_OUTBOX_TYPED_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_event_outbox_type_sequence ON event_outbox(workspace_path, event_type, sequence);
 `;
 
-/** Durable communication, handoff, and authorization records in the canonical store. */
+/** Durable event, interaction, and authorization records in the canonical store. */
 export const CONTINUITY_SCHEMA_DDL = `
-      CREATE TABLE IF NOT EXISTS handoffs (
-        handoff_id TEXT PRIMARY KEY,
-        workspace_path TEXT NOT NULL,
-        agent_id TEXT NOT NULL,
-        summary TEXT NOT NULL,
-        files_json TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        cleared_at TEXT
-      );
-
       CREATE TABLE IF NOT EXISTS event_outbox (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         event_id TEXT NOT NULL UNIQUE,

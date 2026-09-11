@@ -35,7 +35,7 @@ describe('public command adapters against real isolated stores', () => {
 
   it('rejects malformed shell input before creating a store and exposes canonical corrections', async () => {
     for (const args of [
-      ['not-a-command'], ['coordination', 'agent', 'list'], ['message', 'list'], ['check', 'run'],
+      ['not-a-command'], ['coordination', 'agent', 'list'], ['check', 'run'],
       ['status', 'unexpected'], ['status', '--limit', 'oops'], ['signal', 'publish', '--kind', 'fyi', '--kind', 'request'],
       ['status', '--unknown', 'true'], ['status', '--no-limit'], ['status', '--workspace'],
       ['database', 'consolidate'], ['hook', 'run', 'notify-deliver'],

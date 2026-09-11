@@ -18,7 +18,7 @@ describe('work read selectors and acting identity', () => {
     const next = (attend.payload as { next: { command: AwarenessCommandCall } }).next.command;
     expect(next.command).toBe('work show');
     const inspection = await executeAwarenessCommand(next, context);
-    expect(inspection.exitCode).toBe(0);
+    expect(inspection.exitCode, JSON.stringify(inspection.payload)).toBe(0);
     expect(inspection.payload).toMatchObject({ files: [expect.objectContaining({ agent_id: 'peer' })] });
     expect((await executeAwarenessCommand({ command: 'work list', params: { agent_id: 'peer' } }, context)).payload)
       .toMatchObject({ files: [expect.objectContaining({ agent_id: 'peer' })] });

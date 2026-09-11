@@ -4,8 +4,14 @@ import { cliAllowedFlags } from '../schema/cli-contract.js';
 import { getAwarenessCommandDescriptor } from '../schema/cli.js';
 import { commandSchemaProperties } from '../schema/command-properties.js';
 import { commandIndex } from '../schema/command-catalog.js';
+import {
+  AWARENESS_CONCEPTS,
+  getAwarenessOperationDescriptor,
+  listAwarenessOperationDescriptors,
+} from '../schema/operation-catalog.js';
 import { COMMAND_DISPLAY, COMMAND_EXAMPLE, COMMAND_TO_SCHEMA, HELP, HELP_COMPACT, ROUTE_EXAMPLE } from './cli-help-data.js';
 import { extractGlobalDb, normalizeToken, selectCommand } from './cli-routing.js';
+import { formatSkillPlatformHelp } from '@octocodeai/octocode-skill-installer';
 
 export const COMMAND_HELP: Record<string, string> = {
   'database consolidate': `usage: npx @octocodeai/octocode-awareness database consolidate --source <existing-file> --destination <new-file> [--dry-run] [--compact]
@@ -107,12 +113,21 @@ examples:
   npx @octocodeai/octocode-awareness docs show agent-cheatsheet
   npx @octocodeai/octocode-awareness docs show agent-cheatsheet --compact  # JSON only
 schema: npx @octocodeai/octocode-awareness schema json-schema docs_catalog --compact`,
-  'skill-install': `usage: npx @octocodeai/octocode-awareness skill install --platform <shared|common|agents|codex|codex-native|claude|claude-desktop|cursor|opencode|pi|copilot|gemini|all> (--global | --project-dir <path>) [--mode symlink|copy|auto] [--dry-run] [--force]
+  'skill-install': `usage: npx @octocodeai/octocode-awareness skill install --platform <${formatSkillPlatformHelp()}> (--global | --project-dir <path>) [--mode symlink|copy|auto] [--dry-run] [--force|--upgrade]
 examples:
   npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
   npx @octocodeai/octocode-awareness skill install --platform pi --global --dry-run
-note: preview first; run again without --dry-run only after approval. Existing identical installs are unchanged; differing destinations require --force.
-schema: none`, 
+note: Preview first. --upgrade refreshes changed bundled content while preserving arbitrary destination drift; --force replaces differing content.
+schema: npx @octocodeai/octocode-awareness schema json-schema skill_install --compact`,
+  'skill-list': `usage: npx @octocodeai/octocode-awareness skill list [--compact]
+Lists the one bundled Awareness skill and its canonical install state.
+schema: npx @octocodeai/octocode-awareness schema json-schema skill_list --compact`,
+  'skill-check': `usage: npx @octocodeai/octocode-awareness skill check [--platform <${formatSkillPlatformHelp()}> (--global | --project-dir <path>)] [--compact]
+Checks the canonical copy by default. A platform check requires one explicit scope.
+schema: npx @octocodeai/octocode-awareness schema json-schema skill_check --compact`,
+  'skill-remove': `usage: npx @octocodeai/octocode-awareness skill remove (--canonical | --platform <${formatSkillPlatformHelp()}> (--global | --project-dir <path>)) [--dry-run|--confirm] [--compact]
+Preview is the default. --confirm applies removal. Platform removal preserves the canonical copy.
+schema: npx @octocodeai/octocode-awareness schema json-schema skill_remove --compact`,
   'plan-command': `usage: npx @octocodeai/octocode-awareness plan create|list|show|join|doc|status [options]
 create: --name <text> --objective <text> --lead-agent-id <id> --workspace <repo> [--artifact <name>]
 list: [--workspace <repo>] [--status <status>] [--limit <1-200>] [--full]
@@ -144,11 +159,11 @@ schema: npx @octocodeai/octocode-awareness schema json-schema work --compact`,
 payload: host JSON on stdin; common fields are cwd/workspace, session_id, tool_name, and tool_input/path
 store: hook run intentionally rejects --db; payload workspace selects its configured Awareness store`,
   'hooks-install': hooksInstallUsage(),
-  'schema': `usage: npx @octocodeai/octocode-awareness schema commands|entities|list|command <noun> [action]|json-schema <name>|example <name>|validate <name> <json-file|->
+  'schema': `usage: npx @octocodeai/octocode-awareness schema commands|entities|list|command <concept-or-operator> [operation]|json-schema <name>|example <name>|validate <name> <json-file|->
 examples:
   npx @octocodeai/octocode-awareness schema commands --compact
   npx @octocodeai/octocode-awareness schema entities --compact
-  npx @octocodeai/octocode-awareness schema command memory recall --compact
+  npx @octocodeai/octocode-awareness schema command work protect --compact
   npx @octocodeai/octocode-awareness schema json-schema query --compact`,
   'init': `usage: npx @octocodeai/octocode-awareness maintenance init [--db <path>]
 example: npx @octocodeai/octocode-awareness maintenance init --db-scope global --compact`,
@@ -170,6 +185,15 @@ export function helpFor(command: string | null, options: { compact?: boolean; ro
   if (!command && options.routeKey?.startsWith('noun:')) {
     const noun = options.routeKey.slice('noun:'.length);
     if (noun === 'schema') return COMMAND_HELP.schema!;
+    if ((AWARENESS_CONCEPTS as readonly string[]).includes(noun)) {
+      const actions = listAwarenessOperationDescriptors()
+        .filter(row => row.concept === noun)
+        .map(row => row.operation.slice(noun.length + 1));
+      return [
+        `usage: npx @octocodeai/octocode-awareness ${noun} ${actions.join('|')} [options]`,
+        `direct: npx @octocodeai/octocode-awareness ${noun} ${actions[0]} --help`,
+      ].join('\n');
+    }
     const actions = [...new Set(commandIndex.map(entry => entry.command)
       .filter((route) => route.startsWith(`${noun} `))
       .map((route) => route.slice(noun.length + 1)))];
@@ -182,6 +206,23 @@ export function helpFor(command: string | null, options: { compact?: boolean; ro
     ].join('\n');
   }
   if (!command) return options.compact ? HELP_COMPACT : HELP;
+  const canonicalName = command.includes('.')
+    ? command
+    : (options.routeKey ?? command).trim().replace(/\s+/, '.');
+  const operation = getAwarenessOperationDescriptor(canonicalName);
+  if (operation) {
+    const display = operation.operation.replace('.', ' ');
+    const flags = [...new Set([
+      ...Object.keys(commandSchemaProperties(operation.inputSchema)),
+      'workspace', 'agent_id', 'session_id', 'db', 'db_scope', 'compact', 'help',
+    ])].map(hyphenFlag);
+    return [
+      `usage: npx @octocodeai/octocode-awareness ${display} [options]`,
+      `flags: ${flags.join(' ')}`,
+      `effect: ${operation.effects.join('|')}`,
+      `example: npx @octocodeai/octocode-awareness ${display}${operation.operation === 'context.orient' ? ' --workspace "$PWD" --compact' : ' [options]'}`,
+    ].join('\n');
+  }
   const normalized = command.replace(/_/g, '-');
   const catalog = commandIndex.find((entry) => entry.command === (options.routeKey ?? COMMAND_DISPLAY[normalized] ?? normalized));
   const descriptor = catalog ? getAwarenessCommandDescriptor(catalog.command) : undefined;
@@ -231,10 +272,15 @@ export function commandFromHelpArgv(argv: string[]): { command: string | null; r
   const first = normalizeToken(firstRaw);
   const second = normalizeToken(secondRaw);
   let routeKey: string | undefined;
-  if (first && second && commandIndex.some(entry => entry.command === `${first} ${second}`)) routeKey = `${first} ${second}`;
+  const operationName = first && second ? `${first}.${second}` : undefined;
+  if (operationName && getAwarenessOperationDescriptor(operationName)) routeKey = `${first} ${second}`;
+  else if (first && second && commandIndex.some(entry => entry.command === `${first} ${second}`)) routeKey = `${first} ${second}`;
   else if (first && commandIndex.some(entry => entry.command === first)) routeKey = first;
-  let command = routeKey ? COMMAND_ROUTES[routeKey]?.command ?? routeKey : selectCommand(filtered).command ?? null;
-  if (first && !second && !commandIndex.some(entry => entry.command === first) && commandIndex.some(entry => entry.command.startsWith(`${first} `))) {
+  let command = operationName && getAwarenessOperationDescriptor(operationName)
+    ? operationName
+    : routeKey ? COMMAND_ROUTES[routeKey]?.command ?? routeKey : selectCommand(filtered).command ?? null;
+  if (first && !second && ((AWARENESS_CONCEPTS as readonly string[]).includes(first)
+    || (!commandIndex.some(entry => entry.command === first) && commandIndex.some(entry => entry.command.startsWith(`${first} `))))) {
     command = null;
     routeKey = `noun:${first}`;
   }

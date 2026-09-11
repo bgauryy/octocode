@@ -67,10 +67,10 @@ describe('generic hook lifecycle', () => {
       await runHookCommand('pre-edit', JSON.stringify(write), { host: 'codex' });
       await runHookCommand('post-edit', JSON.stringify({ ...write, hook_event_name: 'PostToolUse', tool_response: { status: 'running' } }), { host: 'codex' });
       const database = connectDb(resolveDbPath(null, { workspace, scope: 'repo' }));
-      expect(database.prepare('SELECT COUNT(*) AS count FROM edit_log').get()).toEqual({ count: 0 });
+      expect(database.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type LIKE 'edit.%'").get()).toEqual({ count: 0 });
       expect(database.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE status = 'ACTIVE'").get()).toEqual({ count: 1 });
       await runHookCommand('post-edit', JSON.stringify({ ...write, hook_event_name: 'PostToolUse', tool_response: { status: 'partial' } }), { host: 'codex' });
-      expect(database.prepare('SELECT COUNT(*) AS count FROM edit_log').get()).toEqual({ count: 0 });
+      expect(database.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type LIKE 'edit.%'").get()).toEqual({ count: 0 });
       expect(database.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE status = 'ACTIVE'").get()).toEqual({ count: 0 });
       database.close();
     } finally {

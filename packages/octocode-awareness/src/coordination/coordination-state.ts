@@ -5,6 +5,7 @@ import { releaseFileLock } from '../intents-release.js';
 import { startWork, listWork, endWork, getRun, normalizeFiles } from '../work.js';
 import { markVerified } from '../verify-mark.js';
 import { insertNotification } from '../notifications-core.js';
+import { resolveNotification } from '../notifications-inbox.js';
 import type { CheckAudit,CheckStatus,HandoffNote,Lock,LockWaitResult,Task,WorkPresence } from '@octocodeai/agent-contracts/entities';
 import { CoordinationPlansTasks } from './coordination-plans-tasks.js';
 import { handoffFromRow,type HandoffRow,normalizeLeaseSeconds,now,required,sleepMs,splitFiles } from './coordination-shared.js';
@@ -112,10 +113,14 @@ export abstract class CoordinationState extends CoordinationPlansTasks {
   }
 
   clearHandoff(params: { handoffId: string }): { cleared: boolean } {
-    const result = this.db.prepare(`UPDATE signals SET status = 'resolved', resolved_at = ?
-      WHERE workspace_path = ? AND signal_id = ? AND kind = 'handoff' AND status = 'open'`)
-      .run(now(), this.workspace, required(params.handoffId, 'handoff-id'));
-    return { cleared: result.changes > 0 };
+    const handoffId = required(params.handoffId, 'handoff-id');
+    const exists = this.db.prepare(`SELECT 1 FROM signals
+      WHERE workspace_path = ? AND signal_id = ? AND kind = 'handoff'`)
+      .get(this.workspace, handoffId);
+    if (!exists) return { cleared: false };
+    return { cleared: resolveNotification(this.db, {
+      notificationIds: [handoffId], workspacePath: this.workspace,
+    }).resolved > 0 };
   }
 
   auditChecks(params: { agentId?: string | null; planId?: string | null; minAgeMs?: number | null } = {}): CheckAudit {

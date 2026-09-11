@@ -53,7 +53,6 @@ export function insertEditLog(db: DatabaseSync, params: InsertEditLogParams): { 
     eventType: `workspace.edit.${params.operation}`,
     retentionClass: 'audit',
     actorId: params.agentId,
-    actorKind: 'hook',
     source: 'hook',
     aggregateKind: 'file',
     aggregateId: params.filePath,

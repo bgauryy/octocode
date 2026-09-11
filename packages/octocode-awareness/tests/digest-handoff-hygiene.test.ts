@@ -4,6 +4,7 @@ import { initDb } from '../src/db-init.js';
 import { digest } from '../src/maintenance-digest.js';
 import { insertNotification } from '../src/notifications-core.js';
 import { auditUnverified } from '../src/verify-audit.js';
+import { latestRunVerification } from '../src/event-outbox.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -120,7 +121,7 @@ describe('digest handoff hygiene', () => {
     expect(db.prepare("SELECT status FROM task_runs WHERE run_id = 'run_stale_active'").get())
       .toEqual({ status: 'FAILED' });
     expect(auditUnverified(db, { workspacePath: '/repo' }).count).toBe(0);
-    expect((db.prepare("SELECT message FROM run_log WHERE run_id = 'run_stale_active'").get() as { message: string }).message)
+    expect(latestRunVerification(db, 'run_stale_active')!.message)
       .toContain('maintenance digest: stale ACTIVE run');
   });
 

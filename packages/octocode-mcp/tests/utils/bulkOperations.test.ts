@@ -861,7 +861,7 @@ describe('executeBulkOperation', () => {
       expect(responseText).not.toContain('Custom hint 2');
     });
 
-    it('should include custom hints for empty status', async () => {
+    it('should keep one custom hint for empty status', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
         status: 'empty' as const,
@@ -875,10 +875,10 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('Try broadening search');
-      expect(responseText).toContain('Check spelling');
+      expect(responseText).not.toContain('Check spelling');
     });
 
-    it('should include custom hints for error status', async () => {
+    it('should keep one custom hint for error status', async () => {
       const queries = [{ id: 'q1' }];
       const processor = vi.fn().mockResolvedValue({
         status: 'error' as const,
@@ -892,7 +892,7 @@ describe('executeBulkOperation', () => {
 
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('Wait before retrying');
-      expect(responseText).toContain('Use authentication');
+      expect(responseText).not.toContain('Use authentication');
     });
 
     it('should deduplicate recovery hints within each empty query', async () => {
@@ -1466,7 +1466,7 @@ describe('executeBulkOperation', () => {
       expect(result.isError).toBe(true);
       const responseText = getTextContent(result.content);
       expect(responseText).toContain('Wait 60 seconds');
-      expect(responseText).toContain('Use authentication token');
+      expect(responseText).not.toContain('Use authentication token');
       expect(responseText).toContain('index: 0');
       expect(responseText).toContain('index: 1');
     });
@@ -1501,7 +1501,8 @@ describe('executeBulkOperation', () => {
       const hintAMatches = (responseText.match(/Hint A/g) || []).length;
       const hintBMatches = (responseText.match(/Hint B/g) || []).length;
       expect(hintAMatches).toBe(2);
-      expect(hintBMatches).toBe(2);
+      expect(hintBMatches).toBe(1);
+      expect(responseText).not.toMatch(/Hint C|Hint D/);
     });
 
     it('should handle error status without hints array', async () => {

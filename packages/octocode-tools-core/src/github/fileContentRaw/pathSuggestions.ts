@@ -14,14 +14,16 @@ export function buildPathSuggestionHints(
     );
   });
 
-  const hints: string[] = [];
+  const suggestion = suggestions[0];
+  if (!suggestion) return [];
   if (isCaseMismatch) {
-    hints.push(
-      'GitHub paths are case-sensitive. Verify exact casing with ghSearch operation:"tree".'
-    );
+    return [
+      `Use path "${suggestion}"; GitHub paths are case-sensitive. Use ghSearch operation:"tree" for alternatives.`,
+    ];
   }
-  hints.push(`Did you mean: ${suggestions.join(', ')}?`);
-  return hints;
+  return [
+    `Try path "${suggestion}", or use ghSearch operation:"tree" for alternatives.`,
+  ];
 }
 
 export async function findPathSuggestions(

@@ -9,11 +9,27 @@ import {
   type AwarenessOperationDescriptor,
   type AwarenessOperationParams,
 } from './schema/operation-catalog.js';
+import { appendDomainEvent, listOutboxEvents, type DomainEventInput, type OutboxEventPage } from './event-outbox.js';
+import { connectDb, resolveDbPath } from './db-runtime.js';
+import type { AwarenessInsightCandidate, AwarenessInsightProvider } from './operation-contracts.js';
+import { storageScopeForCommand } from './workspace-policy.js';
 
 export interface AwarenessClientContext extends Omit<AwarenessCommandContext, 'compact' | 'continuations'> {
   workspace: string;
   agentId: string;
   sessionId?: string;
+  insightProvider?: AwarenessInsightProvider;
+}
+
+export interface AwarenessHostEventInput extends Omit<DomainEventInput, 'workspace' | 'actorId' | 'createdAt'> {
+  createdAt?: string;
+}
+
+export interface AwarenessEventCursor {
+  afterSequence?: number;
+  limit?: number;
+  eventType?: string;
+  retentionClass?: DomainEventInput['retentionClass'];
 }
 
 export interface AwarenessExecutableCall<K extends AwarenessOperation = AwarenessOperation> {
@@ -51,6 +67,7 @@ export interface AwarenessOrientation {
   next: AwarenessExecutableCall[];
   partial: boolean;
   partialReasons: string[];
+  insights?: { advisory: true; candidates: AwarenessInsightCandidate[] };
 }
 
 export interface AwarenessOrientationUnchanged {
@@ -65,9 +82,49 @@ export interface AwarenessClient {
   orient(params?: AwarenessOperationParams['context.orient']): Promise<AwarenessOrientationResult>;
   execute<K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessCommandResult>;
   operations(): readonly AwarenessOperationDescriptor[];
+  recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }>;
+  consumeEvents(params?: AwarenessEventCursor): Promise<OutboxEventPage>;
 }
 
-export function createAwarenessClient(context: AwarenessClientContext): AwarenessClient {
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function findExecutableCall(value: unknown): AwarenessExecutableCall | undefined {
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = findExecutableCall(child);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  const object = record(value);
+  if (!object) return undefined;
+  if (typeof object['operation'] === 'string' && getAwarenessOperationDescriptor(object['operation'])) {
+    return {
+      operation: object['operation'] as AwarenessOperation,
+      ...(record(object['params']) ? { params: object['params'] as AwarenessOperationParams[AwarenessOperation] } : {}),
+    };
+  }
+  for (const child of Object.values(object)) {
+    const found = findExecutableCall(child);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function schemaSupportsLimit(schema: Readonly<Record<string, unknown>>): boolean {
+  if (record(schema['properties'])?.['limit']) return true;
+  return ['oneOf', 'anyOf', 'allOf'].some(key =>
+    Array.isArray(schema[key]) && (schema[key] as unknown[]).some(child => Boolean(record(child)) && schemaSupportsLimit(record(child)!)));
+}
+
+interface AwarenessClientAdapterOptions { continuationFormat?: 'canonical' | 'legacy' }
+
+export function createAwarenessClient(
+  context: AwarenessClientContext,
+  adapter: AwarenessClientAdapterOptions = {},
+): AwarenessClient {
   const bound = Object.freeze({ ...context });
   const execute = async <K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessCommandResult> => {
     const descriptor = getAwarenessOperationDescriptor(call.operation) as AwarenessOperationDescriptor<K> | undefined;
@@ -77,17 +134,86 @@ export function createAwarenessClient(context: AwarenessClientContext): Awarenes
     try {
       const params = descriptor.validate(call.params);
       const executed = await descriptor.handler(bound, params);
-      return { ...executed, payload: descriptor.continuations(executed.payload) };
+      const payload = adapter.continuationFormat === 'legacy'
+        ? executed.payload
+        : descriptor.continuations(executed.payload);
+      const actualBytes = Buffer.byteLength(JSON.stringify(payload));
+      if (adapter.continuationFormat !== 'legacy' && actualBytes > descriptor.outputBudget) {
+        const inputParams = record(params) ?? {};
+        const currentLimit = typeof inputParams['limit'] === 'number' ? inputParams['limit'] : undefined;
+        const retry = schemaSupportsLimit(descriptor.inputSchema) && (currentLimit === undefined || currentLimit > 1)
+          ? {
+              operation: call.operation,
+              params: {
+                ...inputParams,
+                ...(call.operation === 'context.orient' ? { if_revision: undefined } : {}),
+                limit: currentLimit === undefined
+                  ? 1
+                  : Math.max(1, Math.min(
+                      currentLimit - 1,
+                      Math.floor(currentLimit * descriptor.outputBudget / actualBytes * 0.8),
+                    )),
+              },
+            } as AwarenessExecutableCall
+          : findExecutableCall(payload);
+        if (!retry) throw new Error(`${call.operation} exceeded its output budget without an executable continuation`);
+        return {
+          exitCode: 2,
+          payload: {
+            ok: false,
+            error_code: 'OUTPUT_BUDGET_EXCEEDED',
+            operation: call.operation,
+            completed: executed.exitCode === 0,
+            effect: descriptor.effect(params),
+            budget_bytes: descriptor.outputBudget,
+            actual_bytes: actualBytes,
+            next: { retry },
+          },
+        };
+      }
+      return { ...executed, payload };
     } catch (error) {
+      const issues = error && typeof error === 'object' && Array.isArray((error as { issues?: unknown }).issues)
+        ? (error as { issues: unknown[] }).issues : undefined;
       return {
         exitCode: 1,
-        payload: { ok: false, operation: call.operation, error: error instanceof Error ? error.message : String(error) },
+        payload: {
+          ok: false,
+          operation: call.operation,
+          error: error instanceof Error ? error.message : String(error),
+          ...(issues ? { issues } : {}),
+        },
       };
     }
   };
   return Object.freeze({
     context: bound,
     operations: listAwarenessOperationDescriptors,
+    async recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }> {
+      const scope = storageScopeForCommand('event-outbox', bound.workspace, bound.scope);
+      const db = connectDb(resolveDbPath(bound.database, { scope, workspace: bound.workspace }));
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const sequence = appendDomainEvent(db, {
+          ...input,
+          workspace: bound.workspace,
+          actorId: bound.agentId,
+          createdAt: input.createdAt ?? new Date().toISOString(),
+          ...(bound.sessionId && input.sessionId === undefined ? { sessionId: bound.sessionId } : {}),
+        });
+        db.exec('COMMIT');
+        return { sequence };
+      } catch (error) {
+        try { db.exec('ROLLBACK'); } catch { /* transaction already ended */ }
+        throw error;
+      } finally { db.close(); }
+    },
+    async consumeEvents(params: AwarenessEventCursor = {}): Promise<OutboxEventPage> {
+      const scope = storageScopeForCommand('event-outbox', bound.workspace, bound.scope);
+      const db = connectDb(resolveDbPath(bound.database, { scope, workspace: bound.workspace }));
+      try { return listOutboxEvents(db, { workspace: bound.workspace, ...params }); }
+      finally { db.close(); }
+    },
     async orient(params?: AwarenessOperationParams['context.orient']): Promise<AwarenessOrientationResult> {
       const result = await execute({ operation: 'context.orient', ...(params ? { params } : {}) });
       if (result.exitCode !== 0) throw new Error(`context.orient failed: ${JSON.stringify(result.payload)}`);

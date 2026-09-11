@@ -8,7 +8,7 @@ import { event, getTask, hydrateTask, normalizeTaskPaths, required } from './tas
 
 export function createTask(
   db: DatabaseSync,
-  params: CreateTaskParams,
+  params: CreateTaskParams & { checkCommand?: string | null },
 ): { task: PlanTaskRecord } {
   const plan = db.prepare('SELECT workspace_path, status FROM awareness_plans WHERE plan_id = ?')
     .get(params.planId) as { workspace_path: string; status: string } | undefined;
@@ -27,9 +27,10 @@ export function createTask(
   const transaction = beginWrite(db);
   try {
     db.prepare(`INSERT INTO awareness_tasks
-      (task_id, plan_id, title, reasoning, acceptance_criteria, status, priority, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)`)
-      .run(taskId, params.planId, title, reasoning, acceptance, params.priority ?? 0, createdBy, now, now);
+      (task_id, plan_id, title, reasoning, acceptance_criteria, check_command, status, priority, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)`)
+      .run(taskId, params.planId, title, reasoning, acceptance, params.checkCommand?.trim() || null,
+        params.priority ?? 0, createdBy, now, now);
     const insertPath = db.prepare('INSERT INTO task_paths(task_id, path, ordinal) VALUES (?, ?, ?)');
     paths.forEach((path, ordinal) => insertPath.run(taskId, path, ordinal));
     event(db, taskId, null, createdBy, 'CREATED', reasoning, now);

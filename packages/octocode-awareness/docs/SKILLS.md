@@ -20,7 +20,39 @@ The CLI bundles only `octocode-awareness`. It atomically materializes a durable
 copy under `$OCTOCODE_HOME/skills/octocode-awareness`, then links the selected
 host directory to that copy. The link never targets an npm or `npx` cache. Use
 `skill install --help` for host-specific user/project destinations; do not derive
-package paths in a prompt. Initialization and identical installs are safe to repeat.
+package paths in a prompt. `claude-desktop` reuses Claude Code's destination;
+`codex-native`, `shared`, `common`, and `agents` reuse Codex's `.agents/skills`
+destination. `--platform all` selects each distinct destination once.
+Initialization and identical installs are safe to repeat.
+Use `--upgrade` to refresh the durable canonical copy while preserving managed
+platform links or copies; arbitrary destination drift still requires `--force`.
+
+Inspect and remove the bundled skill through the same lifecycle:
+
+```bash
+# Bundled catalog plus durable-copy state.
+npx @octocodeai/octocode-awareness skill list --compact
+
+# With no platform, check only the durable canonical copy.
+npx @octocodeai/octocode-awareness skill check --compact
+# Platform checks require the exact scope that was installed.
+npx @octocodeai/octocode-awareness skill check --platform shared \
+    --project-dir "$PWD" --compact
+
+# Removal previews by default. --confirm applies the exact previewed paths.
+npx @octocodeai/octocode-awareness skill remove --platform shared \
+    --project-dir "$PWD" --compact
+npx @octocodeai/octocode-awareness skill remove --platform shared \
+    --project-dir "$PWD" --confirm --compact
+```
+
+Platform removal always preserves `$OCTOCODE_HOME/skills/octocode-awareness`.
+Removing that durable copy is a separate explicit operation: preview
+`skill remove --canonical`, then add `--confirm`. Canonical-only removal preserves
+platform entries, which become broken links until the skill is installed again or
+each scoped platform entry is removed. This safer contract differs from Octocode's
+broad no-platform removal: Awareness never infers a destructive scope. `--force`
+does not select a removal scope.
 
 The package bundles only the Awareness skill for the collaboration lifecycle. The
 separately owned `octocode-orchestrator` skill remains in the sibling

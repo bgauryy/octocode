@@ -9,12 +9,12 @@ import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
 const AWARENESS_TABLES = [
    'authorization_receipts',
   'awareness_agents', 'awareness_locks', 'awareness_memories', 'awareness_meta', 'awareness_plans', 'awareness_tasks', 'capability_receipts',
-  'delivery_state', 'edit_log', 'event_acknowledgements', 'event_consumers',
-  'event_outbox', 'handoffs', 'harness_log', 'hook_receipts',
+  'delivery_state', 'event_acknowledgements', 'event_consumers',
+  'event_outbox', 'hook_receipts',
     'local_history_durability', 'local_history_operations', 'local_history_restores', 'local_history_versions', 'memory_refs',
   'pending_interactions', 'plan_docs', 'plan_members',  'refinements',
-  'run_files', 'run_log', 'sessions', 'signal_reads', 'signals',
-  'task_claims', 'task_dependencies', 'task_events', 'task_paths', 'task_runs',
+  'run_files', 'sessions', 'signal_reads', 'signals',
+  'task_claims', 'task_dependencies', 'task_paths', 'task_runs',
 
 ] as const;
 

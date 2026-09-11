@@ -133,7 +133,8 @@ function createBulkResponse<
     );
     const responseChannels = buildResponseChannels(
       finalizedContent,
-      finalized.keysPriority ?? fullKeysPriority
+      finalized.keysPriority ?? fullKeysPriority,
+      { toolName: config.toolName, queries }
     );
     const finalizedText = finalized.renderText
       ? finalized.renderText(responseChannels.structuredContent)
@@ -169,7 +170,8 @@ function createBulkResponse<
 
   const responseChannels = buildResponseChannels(
     responseData,
-    fullKeysPriority
+    fullKeysPriority,
+    { toolName: config.toolName, queries }
   );
   const formattedText = responseChannels.text;
   const paginated = paginateBulkText(formattedText, pagination);

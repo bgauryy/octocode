@@ -1,13 +1,24 @@
 import { readFile } from 'node:fs/promises';
 import { executeAwarenessCommand, type AwarenessCommandResult } from './command-api.js';
+import { createAwarenessClient } from './client.js';
 import { getAwarenessCommandDescriptor } from './schema/cli.js';
 import { commandIndex } from './schema/command-catalog.js';
 import { commandSchemaProperties } from './schema/command-properties.js';
+import {
+  getAwarenessOperationDescriptor,
+  operationCallForLegacyCommand,
+  type AwarenessOperationCall,
+} from './schema/operation-catalog.js';
 import { parseStorageScope } from './storage-scope.js';
 import { parseArgs } from './command-parser.js';
 import { extractGlobalDb, validateFlagValues } from './cli-adapter/cli-routing.js';
 import { commandFromHelpArgv, helpFor } from './cli-adapter/cli-help.js';
 import { AwarenessInputError, commandOutput } from './command-output.js';
+
+const IDENTITY_OPTIONAL_OPERATIONS = new Set([
+  'work.list', 'work.show', 'memory.recall',
+  'history.status', 'history.timeline', 'history.read', 'history.restore',
+]);
 
 function coerce(value: unknown, schema: Record<string, unknown>): unknown {
   const variants = [schema, ...(Array.isArray(schema.anyOf) ? schema.anyOf as Record<string, unknown>[] : [])];
@@ -38,7 +49,12 @@ function coerce(value: unknown, schema: Record<string, unknown>): unknown {
 export async function executeAwarenessCli(argv: string[], io: { readStdin?: () => Promise<string> } = {}): Promise<AwarenessCommandResult> {
   return commandOutput.run({ command: '', compact: argv.includes('--compact'), text: '', diagnostics: [] }, async () => {
     try {
-      if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
+  if (
+    !argv.length ||
+    argv.includes('--help') ||
+    argv.includes('-h') ||
+    argv.every((arg) => arg === '--compact')
+  ) {
         const target = commandFromHelpArgv(argv);
         return { exitCode: 0, payload: null, text: helpFor(target.command, { compact: argv.includes('--compact'), routeKey: target.routeKey }) };
       }
@@ -51,6 +67,31 @@ export async function executeAwarenessCli(argv: string[], io: { readStdin?: () =
       if (globals.dbPath) parsed.db = globals.dbPath;
       if (globals.dbScope) parsed.db_scope = globals.dbScope;
       const words = parsed._;
+      const canonicalName = words.length >= 2 ? `${words[0]}.${words[1]}` : '';
+      const canonicalDescriptor = getAwarenessOperationDescriptor(canonicalName);
+      if (canonicalDescriptor) {
+        if (words.length > 2) throw new Error('unexpected positional arguments');
+        const { _: _words, db, db_scope, compact: _compact, workspace, agent_id, session_id, ...params } = parsed;
+        if (db !== undefined && typeof db !== 'string') throw new Error('--db expects a path');
+        const properties = commandSchemaProperties(canonicalDescriptor.inputSchema);
+        const unknown = Object.keys(params).find(field => !Object.hasOwn(properties, field));
+        if (unknown) throw new AwarenessInputError(`Unknown flag --${unknown.replaceAll('_', '-')}`);
+        const input = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, coerce(value, properties[key] ?? {})]));
+        const actorId = typeof agent_id === 'string' ? agent_id : process.env.OCTOCODE_AGENT_ID?.trim();
+        if (!actorId && !IDENTITY_OPTIONAL_OPERATIONS.has(canonicalDescriptor.operation)) {
+          throw new AwarenessInputError('Canonical Awareness operations require --agent-id or OCTOCODE_AGENT_ID');
+        }
+        return createAwarenessClient({
+          database: db as string | undefined,
+          workspace: typeof workspace === 'string' ? workspace : process.cwd(),
+          scope: db_scope === undefined ? undefined : parseStorageScope(String(db_scope)),
+          agentId: actorId ?? 'anonymous-reader',
+          sessionId: typeof session_id === 'string' ? session_id : undefined,
+        }, { continuationFormat: 'legacy' }).execute({
+          operation: canonicalDescriptor.operation,
+          params: input,
+        } as AwarenessOperationCall);
+      }
       const route = [...commandIndex].sort((a, b) => b.command.length - a.command.length)
         .find(entry => entry.command.split(' ').every((word, i) => words[i] === word));
       const descriptor = route ? getAwarenessCommandDescriptor(route.command) : undefined;
@@ -92,10 +133,31 @@ export async function executeAwarenessCli(argv: string[], io: { readStdin?: () =
       }
       if (descriptor.command === 'hooks pre-edit' && input.event_json === undefined) input.event_json = await readInput('-');
       if (db !== undefined && typeof db !== 'string') throw new Error('--db expects a path');
+      const explicitAgentId = typeof input.agent_id === 'string' ? input.agent_id : typeof input.lead_agent_id === 'string' ? input.lead_agent_id : process.env.OCTOCODE_AGENT_ID?.trim() || undefined;
+      const routineCall = operationCallForLegacyCommand(descriptor.command, input);
+      if (routineCall) {
+        if (descriptor.injected.includes('agent-id') && !explicitAgentId) {
+          throw new AwarenessInputError(`${descriptor.command} requires --agent-id or OCTOCODE_AGENT_ID`);
+        }
+        const unknown = Object.keys(input).find(field => !Object.hasOwn(properties, field));
+        if (unknown) {
+          if (descriptor.command === 'task create' && ['test_plan', 'lease_minutes'].includes(unknown)) {
+            throw new AwarenessInputError(`--${unknown.replaceAll('_', '-')} belongs to task claim, not task create`);
+          }
+          throw new AwarenessInputError(`Unknown flag --${unknown.replaceAll('_', '-')}`);
+        }
+        return createAwarenessClient({
+          database: db as string | undefined,
+          workspace: typeof input.workspace === 'string' ? input.workspace : process.cwd(),
+          scope: db_scope === undefined ? undefined : parseStorageScope(String(db_scope)),
+          agentId: explicitAgentId ?? 'cli',
+        }, { continuationFormat: 'legacy' }).execute(routineCall);
+      }
+      // Explicit compatibility lane for operator/recovery commands outside the routine catalog.
       return executeAwarenessCommand({ command: descriptor.command, params: input }, {
         database: db as string | undefined,
         scope: db_scope === undefined ? undefined : parseStorageScope(String(db_scope)),
-        agentId: typeof input.agent_id === 'string' ? input.agent_id : typeof input.lead_agent_id === 'string' ? input.lead_agent_id : process.env.OCTOCODE_AGENT_ID?.trim() || undefined,
+        agentId: explicitAgentId,
         continuations: 'cli',
         compact: compact === true || process.env.OCTOCODE_AWARENESS_COMPACT === '1',
         readInput,

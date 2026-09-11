@@ -3,6 +3,7 @@ import { beginWrite } from './db-transaction.js';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import type { FileLockReleaseStatus, ReleaseFileLockParams, ReleaseFileLockResult } from './types/locks-reflection.js';
 import { resolveTargetFiles, VALID_RELEASE_STATUSES, workspaceScopeRoot } from './intents-preflight.js';
+import { appendWorkEvent } from './work-events.js';
 
 /**
  * Release file locks for a run or specific files.
@@ -104,9 +105,12 @@ export function releaseFileLock(
     };
   }
 
-  const runMetadata = db.prepare(`SELECT run_id, task_id, origin FROM task_runs
+  const runMetadata = db.prepare(`SELECT run_id, task_id, origin, workspace_path, session_id FROM task_runs
     WHERE run_id IN (${runIds.map(() => '?').join(',')})`)
-    .all(...runIds) as unknown as Array<{ run_id: string; task_id: string | null; origin: 'TASK' | 'WORK' | 'HOOK' }>;
+    .all(...runIds) as unknown as Array<{
+      run_id: string; task_id: string | null; origin: 'TASK' | 'WORK' | 'HOOK';
+      workspace_path: string | null; session_id: string | null;
+    }>;
   if (effectiveStatus !== 'ACTIVE' && runMetadata.some((run) => run.task_id != null)) {
     throw new Error('task-linked runs must use task submit or task release; lock release may only keep them ACTIVE');
   }
@@ -115,6 +119,7 @@ export function releaseFileLock(
   // savepoint when a host already owns the outer write transaction.
   const transaction = beginWrite(db);
   let updatedRuns = 0;
+  const mutatedRunIds = new Set(locks.map((lock) => lock.run_id));
   try {
     const lockIds = locks.map((lock) => lock.lock_id);
     if (lockIds.length > 0) {
@@ -143,7 +148,19 @@ export function releaseFileLock(
            WHERE run_id = ? AND agent_id = ? AND status IN ('ACTIVE','PENDING')`
         ).run(effectiveStatus, now, tid, agentId) as { changes: number };
         updatedRuns += updated.changes;
+        if (updated.changes > 0) mutatedRunIds.add(tid);
       }
+    }
+
+    for (const tid of mutatedRunIds) {
+      const metadata = runMetadata.find((run) => run.run_id === tid);
+      if (!metadata) continue;
+      const releasedFiles = locks.filter((lock) => lock.run_id === tid).map((lock) => lock.file_path);
+      appendWorkEvent(db, {
+        workspace: workspaceScopeRoot(metadata.workspace_path ?? workspacePath ?? process.cwd()),
+        type: 'work.protection-released', agentId, runId: tid, sessionId: metadata.session_id,
+        createdAt: now, payload: { status: effectiveStatus, files: releasedFiles, locks_released: releasedFiles.length },
+      });
     }
 
     transaction.commit();

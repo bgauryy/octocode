@@ -8,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { canonicalizePath, normalizeWorkspacePath } from './git.js';
 import { getDatabasePath } from './db-runtime.js';
+import { appendDomainEvent } from './event-outbox.js';
 import type {
   PlanStatus,
   CreatePlanParams,
@@ -120,6 +121,11 @@ export function createPlan(
       db.prepare(`INSERT INTO plan_docs(plan_id, relative_path, title, kind, ordinal)
         VALUES (?, 'PLAN.md', ?, 'PRIMARY', 0)`)
         .run(planId, name);
+      appendDomainEvent(db, {
+        workspace: workspacePath, eventType: 'plan.created', retentionClass: 'operational',
+        actorId: leadAgentId, aggregateKind: 'plan', aggregateId: planId, aggregateRevision: now,
+        createdAt: now, payload: { status: 'ACTIVE' }, eventIdPrefix: 'pevt',
+      });
       transaction.commit();
     } catch (error) {
       try { transaction.rollback(); } catch { /* transaction did not open */ }
@@ -187,10 +193,23 @@ export function joinPlan(db: DatabaseSync, params: JoinPlanParams): PlanMemberRe
   const agentId = required(params.agentId, 'agent id');
   if (!getPlan(db, params.planId)) throw new Error(`plan not found: ${params.planId}`);
   const now = utcNow();
-  db.prepare(`INSERT INTO plan_members(plan_id, agent_id, role, joined_at)
-    VALUES (?, ?, 'CONTRIBUTOR', ?)
-    ON CONFLICT(plan_id, agent_id) DO NOTHING`)
-    .run(params.planId, agentId, now);
+  const transaction = beginWrite(db);
+  try {
+    const inserted = db.prepare(`INSERT INTO plan_members(plan_id, agent_id, role, joined_at)
+      VALUES (?, ?, 'CONTRIBUTOR', ?)
+      ON CONFLICT(plan_id, agent_id) DO NOTHING`)
+      .run(params.planId, agentId, now) as { changes: number };
+    if (inserted.changes > 0) appendDomainEvent(db, {
+      workspace: getPlan(db, params.planId)!.workspace_path,
+      eventType: 'plan.joined', retentionClass: 'operational', actorId: agentId,
+      aggregateKind: 'plan', aggregateId: params.planId, aggregateRevision: now,
+      createdAt: now, payload: { member_id: agentId }, eventIdPrefix: 'pevt',
+    });
+    transaction.commit();
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
+  }
   return db.prepare(
     'SELECT agent_id, role, joined_at FROM plan_members WHERE plan_id = ? AND agent_id = ?',
   ).get(params.planId, agentId) as unknown as PlanMemberRecord;
@@ -217,10 +236,23 @@ export function registerPlanDocument(
   const nextOrdinal = (db.prepare(
     'SELECT COALESCE(MAX(ordinal), 0) + 1 AS ordinal FROM plan_docs WHERE plan_id = ?',
   ).get(params.planId) as { ordinal: number }).ordinal;
-  db.prepare(`INSERT INTO plan_docs(plan_id, relative_path, title, kind, ordinal)
-    VALUES (?, ?, ?, 'SUPPORTING', ?)
-    ON CONFLICT(plan_id, relative_path) DO UPDATE SET title = excluded.title`)
-    .run(params.planId, relativePath, required(params.title, 'document title'), nextOrdinal);
+  const now = utcNow();
+  const transaction = beginWrite(db);
+  try {
+    db.prepare(`INSERT INTO plan_docs(plan_id, relative_path, title, kind, ordinal)
+      VALUES (?, ?, ?, 'SUPPORTING', ?)
+      ON CONFLICT(plan_id, relative_path) DO UPDATE SET title = excluded.title`)
+      .run(params.planId, relativePath, required(params.title, 'document title'), nextOrdinal);
+    appendDomainEvent(db, {
+      workspace: plan.workspace_path, eventType: 'plan.documented', retentionClass: 'operational',
+      actorId: params.agentId, aggregateKind: 'plan', aggregateId: params.planId,
+      aggregateRevision: now, createdAt: now, payload: { path: relativePath }, eventIdPrefix: 'pevt',
+    });
+    transaction.commit();
+  } catch (error) {
+    try { transaction.rollback(); } catch { /* transaction did not open */ }
+    throw error;
+  }
   return db.prepare(
     'SELECT relative_path, title, kind, ordinal FROM plan_docs WHERE plan_id = ? AND relative_path = ?',
   ).get(params.planId, relativePath) as unknown as PlanDocRecord;
@@ -266,6 +298,12 @@ export function updatePlanStatus(
     }
     db.prepare('UPDATE awareness_plans SET status = ?, updated_at = ? WHERE plan_id = ?')
       .run(params.status, now, params.planId);
+    appendDomainEvent(db, {
+      workspace: plan.workspace_path, eventType: 'plan.status-changed', retentionClass: 'operational',
+      actorId: params.agentId, aggregateKind: 'plan', aggregateId: params.planId,
+      aggregateRevision: now, createdAt: now,
+      payload: { from: plan.status, to: params.status }, eventIdPrefix: 'pevt',
+    });
     transaction.commit();
   } catch (error) {
     try { transaction.rollback(); } catch { /* transaction did not open */ }

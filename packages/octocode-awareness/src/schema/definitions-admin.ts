@@ -22,6 +22,21 @@ export const adminSchemas = {
     mode: z.enum(['symlink', 'copy', 'auto']).optional(),
     dry_run: z.boolean().optional(),
     force: z.boolean().optional(),
+    upgrade: z.boolean().optional(),
+  }),
+  skill_list: empty,
+  skill_check: z.object({
+    platform: text.optional(),
+    global: z.boolean().optional(),
+    project_dir: path.optional(),
+  }),
+  skill_remove: z.object({
+    platform: text.optional(),
+    canonical: z.boolean().optional(),
+    global: z.boolean().optional(),
+    project_dir: path.optional(),
+    dry_run: z.boolean().optional(),
+    confirm: z.boolean().optional(),
   }),
   maintenance_init: empty,
   maintenance_self_test: empty,
@@ -43,6 +58,9 @@ export const adminSchemas = {
 
 export const adminExamples = {
   skill_install: { platform: 'codex', project_dir: '.', mode: 'symlink', dry_run: true },
+  skill_list: {},
+  skill_check: { platform: 'codex', project_dir: '.' },
+  skill_remove: { platform: 'codex', project_dir: '.', dry_run: true },
   maintenance_init: {},
   maintenance_self_test: {},
   hooks_install: { host: 'codex', project_dir: '.', dry_run: true },

@@ -38,6 +38,7 @@ const READ_COMMANDS = new Set([
   'schema json-schema', 'schema example', 'schema validate', 'memory recall-verified',
   'memory evaluate', 'handoff list', 'guide', 'instructions export', 'history status',
   'history timeline', 'history read', 'history inspect', 'history restore-preview', 'history retention-preview',
+  'skill list', 'skill check',
 ]);
 const COORDINATION_WRITE_COMMANDS = new Set([
   'plan create', 'plan join', 'plan doc', 'plan status', 'task create', 'task claim',
@@ -49,7 +50,7 @@ const COORDINATION_WRITE_COMMANDS = new Set([
   'hooks pre-edit', 'history capture', 'history checkpoint',
 ]);
 const WORKSPACE_WRITE_COMMANDS = new Set(['reflect export-harness', 'history restore-apply']);
-const HOST_CONFIG_WRITE_COMMANDS = new Set(['skill install', 'config init', 'hooks install', 'hooks remove']);
+const HOST_CONFIG_WRITE_COMMANDS = new Set(['skill install', 'skill remove', 'config init', 'hooks install', 'hooks remove']);
 const DESTRUCTIVE_ADMIN_COMMANDS = new Set([
   'memory forget', 'memory archive', 'memory reindex', 'memory prune', 'refinement delete',
   'lock prune', 'signal prune', 'maintenance digest', 'database consolidate',
@@ -72,7 +73,8 @@ const RECOVERY_COMMANDS = new Set([
   'history retention-prune', 'history recovery', 'history evidence',
 ]);
 const NO_DATABASE_INJECTION = new Set([
-  'docs list', 'docs show', 'docs staleness', 'skill install', 'maintenance self-test',
+  'docs list', 'docs show', 'docs staleness', 'skill install', 'skill list', 'skill check',
+  'skill remove', 'maintenance self-test',
   'config show', 'config init', 'config validate', 'hooks install', 'hooks check',
   'hooks remove', 'hook run', 'schema commands', 'schema command', 'schema entities',
   'schema list', 'schema json-schema', 'schema example', 'schema validate', 'guide',
@@ -109,6 +111,7 @@ function effectFor(command: string): AwarenessCommandEffect {
 
 function approvalFor(command: string, effect: AwarenessCommandEffect): ApprovalClass | undefined {
   if (command === 'skill install' || command === 'hooks install') return 'install';
+  if (command === 'skill remove') return 'fs-delete';
   if (effect === 'host-config-write') return 'system';
   if (effect === 'workspace-write') return 'fs-delete';
   if (effect === 'destructive-admin') return 'infra';
@@ -174,7 +177,10 @@ const rawCommandIndex = [
   { command: "docs list", schema: "docs_catalog", use: "List skill reference docs (references/*.md).", example: "npx @octocodeai/octocode-awareness docs list --compact" },
   { command: "docs show", schema: "docs_catalog", use: "Show one skill reference by name.", example: "npx @octocodeai/octocode-awareness docs show architecture" },
   { command: "docs staleness", schema: "doc_staleness", use: "Find docs likely stale from edit activity.", example: 'npx @octocodeai/octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact' },
-  { command: "skill install", schema: "skill_install", use: "Preview or copy the bundled octocode-awareness skill into an explicit agent platform and scope.", example: 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run' },
+  { command: "skill install", schema: "skill_install", use: "Preview or link the bundled octocode-awareness skill into an explicit agent platform and scope.", example: 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run' },
+  { command: "skill list", schema: "skill_list", use: "List the bundled Awareness skill and its canonical install state.", example: "npx @octocodeai/octocode-awareness skill list --compact" },
+  { command: "skill check", schema: "skill_check", use: "Check the canonical Awareness skill and optional explicit platform destination.", example: 'npx @octocodeai/octocode-awareness skill check --platform shared --project-dir "$PWD" --compact' },
+  { command: "skill remove", schema: "skill_remove", use: "Preview or remove an explicit platform destination or canonical copy.", example: 'npx @octocodeai/octocode-awareness skill remove --platform shared --project-dir "$PWD" --compact' },
   { command: "maintenance digest", schema: "digest", use: "Preview or run memory, expired-lock, terminal-refinement, and terminal-run cleanup; signal/reference pressure is report-only.", example: 'npx @octocodeai/octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact' },
   { command: "maintenance init", schema: "maintenance_init", use: "Initialize the Awareness workflow store deterministically; safe to repeat.", example: "npx @octocodeai/octocode-awareness maintenance init --compact" },
   { command: "maintenance self-test", schema: "maintenance_self_test", use: "Run in-memory DB smoke checks.", example: "npx @octocodeai/octocode-awareness maintenance self-test --compact" },
@@ -186,7 +192,7 @@ const rawCommandIndex = [
   { command: "hooks remove", schema: "hooks_remove", use: "Remove awareness-owned hook config after a detailed preview.", example: "npx @octocodeai/octocode-awareness hooks remove --host codex --dry-run" },
   { command: "hook run", schema: "hook_run", use: "Internal hook dispatcher used by wrappers.", example: "octocode-awareness hook run pre-edit < hook-payload.json" },
   { command: "schema commands", schema: "schema_commands", use: "Print this command-to-schema map.", example: "npx @octocodeai/octocode-awareness schema commands --compact" },
-  { command: "schema command", schema: "schema_command", use: "Print exact CLI flags and requirements for one noun/action route.", example: "npx @octocodeai/octocode-awareness schema command signal list --compact" },
+  { command: "schema command", schema: "schema_command", use: "Print exact CLI flags and requirements for one concept operation or operator route.", example: "npx @octocodeai/octocode-awareness schema command work protect --compact" },
   { command: "schema entities", schema: "schema_entities", use: "Print the read-only Awareness entity catalog from canonical DDL.", example: "npx @octocodeai/octocode-awareness schema entities --compact" },
   { command: "schema list", schema: "schema_list", use: "Print schema names only.", example: "npx @octocodeai/octocode-awareness schema list --compact" },
   { command: "schema json-schema", schema: "schema_json_schema", use: "Print one JSON schema.", example: "npx @octocodeai/octocode-awareness schema json-schema memory_recall --compact" },
@@ -228,11 +234,4 @@ export const commandIndex: readonly AwarenessCommandCatalogEntry[] = Object.free
       ...(row.command === 'hook run' ? { stdinField: 'payload' } : {}),
     });
   }),
-);
-
-/** Vocabulary is derived from the same rows used by schema discovery. */
-export const CANONICAL_CLI_COMMANDS: Readonly<Record<string, readonly string[]>> = Object.freeze(
-  Object.fromEntries([...new Set(commandIndex.map(row => row.command.split(' ')[0]!))].map(noun => [
-    noun, Object.freeze(commandIndex.filter(row => row.command.startsWith(`${noun} `)).map(row => row.command.slice(noun.length + 1))),
-  ])),
 );

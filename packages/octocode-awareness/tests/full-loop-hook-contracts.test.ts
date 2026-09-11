@@ -305,7 +305,7 @@ describe('full-loop host hook contracts', () => {
       }), { host: 'claude' })).toBe(0);
 
       const database = connectDb(resolveDbPath(null, { workspace, scope: 'repo' }));
-      expect(database.prepare('SELECT COUNT(*) AS count FROM edit_log').get()).toEqual({ count: 0 });
+      expect(database.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type LIKE 'edit.%'").get()).toEqual({ count: 0 });
       expect(database.prepare('SELECT COUNT(*) AS count FROM run_files').get()).toEqual({ count: 0 });
       expect(database.prepare('SELECT COUNT(*) AS count FROM task_runs').get()).toEqual({ count: 0 });
       expect(auditUnverified(database, { agentId: 'hook-failure-agent', workspacePath: workspace }).count).toBe(0);

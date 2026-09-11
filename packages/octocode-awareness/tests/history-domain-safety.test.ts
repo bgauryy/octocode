@@ -108,7 +108,7 @@ describe('history domain adversarial contracts', () => {
     expect(before).toMatchObject({ operation: { status: 'partial', outcome: 'unknown' } });
     const after = await value.call('capture', { agent_id: 'a', phase: 'after', operation_id: 'partial', outcome: 'failure' });
     expect(after).toMatchObject({ operation: { status: 'partial', outcome: 'failure' } });
-    expect(value.db.prepare("SELECT COUNT(*) AS count FROM task_events WHERE event_type IN ('VERIFIED','VERIFICATION_FAILED')").get()).toEqual({ count: 0 });
+    expect(value.db.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type IN ('task.verified','task.verification-failed')").get()).toEqual({ count: 0 });
     value.db.close();
   });
 

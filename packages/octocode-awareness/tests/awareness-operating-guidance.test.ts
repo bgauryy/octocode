@@ -9,11 +9,13 @@ const skillRoot = resolve(import.meta.dirname, '../skills/octocode-awareness');
 const read = (path: string) => readFileSync(resolve(skillRoot, path), 'utf8');
 
 describe('Awareness operating guidance', () => {
-  it('makes identity registration and discovery visible in help and command examples', () => {
+  it('keeps identity administration out of routine help while retaining exact operator contracts', () => {
     for (const help of [HELP, HELP_COMPACT]) {
-      expect(help).toContain('agent register');
-      expect(help).toContain('agent list');
-      expect(help).toContain('OCTOCODE_AGENT_ID');
+      expect(help).not.toContain('agent register');
+      expect(help).not.toContain('agent list');
+      expect(help).not.toContain('OCTOCODE_AGENT_ID');
+      expect(help.toLowerCase()).toContain('context');
+      expect(help.toLowerCase()).toContain('message');
     }
     const registration = commandIndex.find(entry => entry.command === 'agent register');
     expect(registration?.example).toBe(ROUTE_EXAMPLE['agent register']);

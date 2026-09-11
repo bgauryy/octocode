@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -7,6 +7,17 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const isomorphicGitVersion = (
+  JSON.parse(
+    readFileSync(
+      join(
+        dirname(createRequire(import.meta.url).resolve('isomorphic-git')),
+        'package.json'
+      ),
+      'utf8'
+    )
+  ) as { version: string }
+).version;
 const roots: string[] = [];
 
 afterEach(() => {
@@ -107,7 +118,7 @@ describe('built local-history CLI contract', () => {
     for (const script of [cli, runner]) {
       const status = expectOk(invoke(script, ['--db', ':memory:', 'history', 'status', '--workspace', workspace, '--compact'], workspace));
       expect(status).toMatchObject({ available: false, initialized: false, disabled_reason: 'memory_database' });
-      expect(status['backend']).toMatchObject({ name: 'isomorphic-git', version: '1.41.9', bundled: true, system_git_required: false });
+      expect(status['backend']).toMatchObject({ name: 'isomorphic-git', version: isomorphicGitVersion, bundled: true, system_git_required: false });
     }
     expect(existsSync(join(workspace, '.octocode'))).toBe(false);
     expect(readdirSync(root).sort()).toEqual(before);

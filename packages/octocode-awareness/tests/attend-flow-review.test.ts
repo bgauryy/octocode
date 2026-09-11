@@ -78,7 +78,13 @@ describe('attend structured-next adversarial review', () => {
       target: { file: 'src/shared.ts' },
       command: {
         name: 'work show',
-        args: ['--db', dbPath, '--workspace', workspace, '--file', 'src/shared.ts', '--compact'],
+        args: [
+          '--db', dbPath,
+          '--workspace', workspace,
+          '--kind', 'presence',
+          '--file', 'src/shared.ts',
+          '--compact',
+        ],
       },
     });
     expect(packet.next).not.toHaveProperty('claim');

@@ -9,6 +9,12 @@ import { adminExamples, adminSchemas } from './definitions-admin.js';
 import { integrationSchemas } from './definitions-integration.js';
 import { projectCommandInput } from './command-input.js';
 import { historyExamples, historyRequestSchemas } from './definitions-history.js';
+import {
+  AWARENESS_CONCEPTS,
+  getAwarenessOperationDescriptor,
+  listAwarenessOperationDescriptors,
+  type AwarenessOperation,
+} from './operation-catalog.js';
 
 import { schemas, type SchemaName } from './registry.js';
 export const examples = { ...coreExamples, ...integrationExamples, ...adminExamples, ...historyExamples };
@@ -27,48 +33,46 @@ const listableSchemas = [
 ];
 
 
-// Discovery is classified per route rather than per noun: routine memory and
-// history reads stay in the lobby while maintenance/recovery actions move to
-// the advanced tier. Every route remains available through --all and exact
-// schema/help lookup.
-const COMPACT_ADVANCED_COMMANDS = new Set<string>([
-  "memory archive", "memory restore", "memory forget", "memory evaluate", "memory reindex", "memory prune",
-  "lock prune", "refinement delete", "signal prune",
-  "history restore-preview", "history restore-apply", "history retention-preview", "history retention-prune",
-  "history recovery", "history evidence",
-  "history capture", "query all",
-]);
-const COMPACT_CORE_NOUNS = new Set(["verify", "attend", "plan", "task", "work", "memory", "signal", "query", "history", "handoff"]);
-const COMPACT_CORE_COMMANDS = new Set([
-  "status", "agent register", "agent list", "lock acquire", "lock wait", "lock release",
-]);
+/** Explicit operator/recovery discovery. Legacy routes not named here remain
+ * callable for compatibility but do not consume standing discovery context. */
+export const OPERATOR_RECOVERY_COMMANDS = Object.freeze([
+  'memory archive', 'memory restore', 'memory forget', 'memory evaluate', 'memory reindex', 'memory prune',
+  'lock prune', 'signal prune',
+  'history capture', 'history checkpoint', 'history inspect', 'history retention-preview',
+  'history retention-prune', 'history recovery', 'history evidence',
+  'reflect mine-weakness', 'reflect export-harness', 'reflect developer-review',
+  'docs list', 'docs show', 'docs staleness', 'skill install', 'skill list', 'skill check', 'skill remove',
+  'maintenance digest', 'maintenance init', 'maintenance self-test',
+  'config show', 'config init', 'config validate',
+  'hooks install', 'hooks check', 'hooks remove',
+  'schema commands', 'schema command', 'schema entities', 'schema list',
+  'schema json-schema', 'schema example', 'schema validate',
+  'database consolidate',
+] as const);
 
-// Rare/expert/redundant commands stay fully available under `--all` and
-// `<command> --help`, but are hidden from the default lobby catalog to keep the
-// agent-facing surface small. Removing them here removes catalog verbosity, not
-// capability.
-const COMPACT_HIDE = new Set<string>([
-  "reflect mine-weakness", "reflect export-harness", "reflect developer-review",
-  "query developer-review", "docs staleness",
-  "refinement get", "refinement set", "session capture",
-  "schema list", "schema json-schema", "schema example", "schema validate",
-]);
-
-function commandDiscoveryTier(command: string): 'core' | 'advanced' | 'hidden' {
-  if (COMPACT_HIDE.has(command)) return 'hidden';
-  if (COMPACT_ADVANCED_COMMANDS.has(command)) return 'advanced';
-  return COMPACT_CORE_COMMANDS.has(command) || COMPACT_CORE_NOUNS.has(command.split(' ')[0]!) ? 'core' : 'advanced';
+if (OPERATOR_RECOVERY_COMMANDS.length > 45) {
+  throw new Error('Awareness operator and recovery discovery exceeds the forty-five-operation budget');
 }
 
-function groupedCommandIndex() {
-  const grouped: Record<"core" | "advanced", Record<string, string[]>> = { core: {}, advanced: {} };
-  for (const row of commandIndex) {
-    const tier = commandDiscoveryTier(row.command);
-    if (tier === 'hidden') continue;
-    const [noun, ...rest] = row.command.split(" ");
-    (grouped[tier][noun!] ??= []).push(rest.length > 0 ? rest.join(" ") : noun === "query" ? "<view>" : "<direct>");
-  }
-  return grouped;
+const operatorRecoverySet = new Set<string>(OPERATOR_RECOVERY_COMMANDS);
+
+function canonicalOperationName(commandName: string): AwarenessOperation | undefined {
+  const normalized = commandName.trim().replace(/\s+/, '.');
+  return getAwarenessOperationDescriptor(normalized) ? normalized as AwarenessOperation : undefined;
+}
+
+function routineDiscovery() {
+  const descriptors = listAwarenessOperationDescriptors();
+  const concepts = Object.fromEntries(AWARENESS_CONCEPTS.map(concept => [
+    concept,
+    descriptors.filter(row => row.concept === concept).map(row => row.operation.slice(concept.length + 1)),
+  ]));
+  return {
+    concepts,
+    operations: descriptors.map(row => row.operation),
+    call: '<concept> <operation> [flags]',
+    schema: 'schema command <concept> <operation>',
+  };
 }
 
 function printJson(payload: unknown, compact = false): void {
@@ -78,7 +82,7 @@ function printJson(payload: unknown, compact = false): void {
 function usage() {
   return `Usage:
   npx @octocodeai/octocode-awareness schema commands [--compact] [--all] [--examples]
-  npx @octocodeai/octocode-awareness schema command <noun> [action] [--compact]
+  npx @octocodeai/octocode-awareness schema command <concept-or-operator> [operation] [--compact]
   npx @octocodeai/octocode-awareness schema entities [--compact] [--all]
   npx @octocodeai/octocode-awareness schema list
   npx @octocodeai/octocode-awareness schema json-schema <schema-name>
@@ -93,7 +97,7 @@ function toJsonSchema(schema: z.ZodType) {
   throw new Error("This script requires Zod v4 with z.toJSONSchema().");
 }
 
-export function cliCommandSchema(commandName: string): Record<string, unknown> | null {
+function legacyCliCommandSchema(commandName: string): Record<string, unknown> | null {
   const row = commandIndex.find((candidate) => candidate.command === commandName);
   if (!row?.schema) return null;
   const schema = schemas[row.schema as SchemaName];
@@ -109,6 +113,21 @@ export function cliCommandSchema(commandName: string): Record<string, unknown> |
   if (row.positionals) output["x-cli-positionals"] = row.positionals;
   if (row.stdinField) output["x-cli-stdin-field"] = row.stdinField;
   return output;
+}
+
+export function cliCommandSchema(commandName: string): Record<string, unknown> | null {
+  const operationName = canonicalOperationName(commandName);
+  if (!operationName) return legacyCliCommandSchema(commandName);
+  const descriptor = getAwarenessOperationDescriptor(operationName)!;
+  return {
+    ...structuredClone(descriptor.inputSchema),
+    'x-awareness-operation': operationName,
+    'x-cli-command': operationName.replace('.', ' '),
+    'x-cli-context': ['db', 'db_scope', 'workspace', 'agent_id', 'session_id', 'compact'],
+    'x-awareness-effect': descriptor.effects,
+    'x-awareness-approval': 'parameter-sensitive',
+    'x-awareness-output-budget': descriptor.outputBudget,
+  };
 }
 
 export interface AwarenessCommandDescriptor extends AwarenessCommandCatalogEntry {
@@ -133,7 +152,7 @@ export function getAwarenessCommandDescriptor(commandName: string): AwarenessCom
   if (cached) return cached;
   const row = commandIndex.find((candidate) => candidate.command === commandName);
   if (!row) return undefined;
-  const inputSchema = cliCommandSchema(commandName);
+  const inputSchema = legacyCliCommandSchema(commandName);
   if (!inputSchema) return undefined;
   const descriptor = deepFreeze({ ...row, inputSchema });
   descriptorCache.set(commandName, descriptor);
@@ -148,7 +167,8 @@ export function listAwarenessCommandDescriptors(options: { routine?: boolean } =
     return descriptor;
   }));
   return options.routine
-    ? routineDescriptorList ??= Object.freeze(descriptorList.filter(row => commandDiscoveryTier(row.command) === 'core'))
+    ? routineDescriptorList ??= Object.freeze(descriptorList.filter(row =>
+      listAwarenessOperationDescriptors().some(operation => operation.legacyCommands.includes(row.command))))
     : descriptorList;
 }
 
@@ -187,17 +207,20 @@ export async function runSchemaCommand(command: string | undefined, params: Reco
   }
 
   if (command === "commands") {
-    const commands = includeAll
-      ? commandIndex.map((row) => includeExamples
+    const routine = routineDiscovery();
+    const operator = includeAll
+      ? commandIndex.filter(row => operatorRecoverySet.has(row.command)).map(row => includeExamples
         ? row
-        : ({ command: row.command, schema: row.schema, effect: row.effect, piMode: row.piMode, injected: row.injected, ...(row.approvalClass ? { approvalClass: row.approvalClass } : {}), ...(row.positionals ? { positionals: row.positionals } : {}), ...(row.stdinField ? { stdinField: row.stdinField } : {}) }))
-      : groupedCommandIndex();
+        : ({ command: row.command, effect: row.effect, piMode: row.piMode, ...(row.approvalClass ? { approvalClass: row.approvalClass } : {}) }))
+      : undefined;
     printJson({
       ok: true,
+      kind: 'awareness.cli-surface',
       hint: includeAll
-        ? "Flat command detail. Use `<command> --help` or `schema command <noun> [action]` for one exact contract."
-        : "Attend once; communicate when useful. Other features are on demand. Pass --all for the complete catalog.",
-      commands,
+        ? "Routine operations stay canonical; operator/recovery commands are explicit and never part of the model lobby."
+        : "Call `<concept> <operation>` directly. Use `context orient` once; pass --all only for operator/recovery discovery.",
+      ...routine,
+      ...(operator ? { operator } : {}),
     }, compact);
     return 0;
   }
@@ -210,7 +233,7 @@ export async function runSchemaCommand(command: string | undefined, params: Reco
       return printJsonError({
         error_code: "UNKNOWN_CLI_COMMAND",
         error: `Unknown or schema-less CLI command: ${requestedCommandName || "<missing>"}`,
-        hint: "Use `schema commands --all --compact` to list command names.",
+        hint: "Use `schema commands --compact` for the five-concept surface or add --all for operator/recovery commands.",
       }, 1, compact);
     }
     printJson(commandSchema, compact);

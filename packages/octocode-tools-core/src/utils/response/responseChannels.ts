@@ -4,18 +4,19 @@ import {
   sanitizeStructuredContent,
 } from '../../responses.js';
 import { hoistSharedFields, relativizeResultPaths } from './pathRelativize.js';
-import { applyHintPolicy } from './hintPolicy.js';
+import { applyHintPolicy, type HintPolicyContext } from './hintPolicy.js';
 
 export function buildResponseChannels<T extends object>(
   responseData: T,
-  keysPriority: readonly string[]
+  keysPriority: readonly string[],
+  hintContext: HintPolicyContext = {}
 ): { text: string; structuredContent: T } {
   const responseRecord = responseData as Record<string, unknown>;
   let effectiveKeys = keysPriority;
   const rows = (responseData as { results?: unknown }).results;
 
   if (Array.isArray(rows)) {
-    applyHintPolicy(rows);
+    applyHintPolicy(rows, hintContext);
     const rowRefs = rows as Array<{ data?: unknown }>;
     const base = relativizeResultPaths(rowRefs);
     if (base) responseRecord.base = base;

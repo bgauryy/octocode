@@ -48,7 +48,7 @@ export function decideNext(input: FlowInput): AttendNext {
   if (input.inspection) return {
     action: input.inspection.locked ? 'inspect_lock' : 'inspect_overlap',
     reason: 'Inspect the scoped peer work before interacting edits.', target: { file: input.inspection.file },
-    ...command('work show', ['--file', input.inspection.file]),
+    ...command('work show', ['--kind', 'presence', '--file', input.inspection.file]),
   };
   if (input.runtimeActions.includes('inspect_context_headroom')) return {
     action: 'inspect_context_headroom', reason: 'Inspect host context headroom before expanding the working set.',
@@ -62,7 +62,7 @@ export function decideNext(input: FlowInput): AttendNext {
   };
   if (input.peerFile) return {
     action: 'inspect_overlap', reason: 'Read peer work before choosing an overlapping edit.', target: { file: input.peerFile },
-    ...command('work show', ['--file', input.peerFile]),
+    ...command('work show', ['--kind', 'presence', '--file', input.peerFile]),
   };
   if (input.inboxCount > 0) return {
     action: 'inspect_inbox', reason: 'Read the scoped inbox and resolve its relevant prerequisite.',

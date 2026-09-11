@@ -92,12 +92,8 @@ export abstract class CoordinationPlansTasks extends CoordinationBase {
       createdBy: required(params.agentId, 'agent-id'),
       priority: params.priority,
       dependsOn: dependencies,
+      checkCommand: params.checkCommand,
     }).task;
-    if (params.checkCommand?.trim()) {
-      this.db.prepare('UPDATE awareness_tasks SET check_command = ? WHERE task_id = ?')
-        .run(params.checkCommand.trim(), task.task_id);
-      task.check_command = params.checkCommand.trim();
-    }
     return taskEntity(task);
   }
 

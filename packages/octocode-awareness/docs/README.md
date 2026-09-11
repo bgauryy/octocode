@@ -3,9 +3,9 @@
 Start with the [canonical Awareness guide](../README.md) for all feature families,
 CLI/API entry points, architecture, local Git, expiration, and known limits.
 This index routes detailed references; it does not own another overview or assessment.
-Command names and schemas come from
-`npx @octocodeai/octocode-awareness schema commands --compact`; prose docs do not duplicate the
-complete command inventory.
+Routine operation names come from
+`npx @octocodeai/octocode-awareness schema commands --compact`; add `--all` only
+for the bounded operator/recovery catalog. Prose docs do not duplicate either inventory.
 
 | Document | Owns |
 |---|---|

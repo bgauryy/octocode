@@ -9,16 +9,16 @@ import { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '@octocodeai/octocode-core/sch
 describe('local search and AST description contracts', () => {
   it('distinguishes lexical matching from structure and semantic identity', () => {
     expect(PUBLIC_TOOL_DESCRIPTIONS.localSearch).toMatch(
-      /matching is lexical/i
+      /literal or regex matches/i
     );
     expect(PUBLIC_TOOL_DESCRIPTIONS.localSearch).toMatch(
-      /AST for syntax.*file discovery.*topology/i
+      /astSearch for syntax or topology/i
     );
     expect(PUBLIC_TOOL_DESCRIPTIONS.astSearch).toMatch(
       /files.*tree.*symbols.*match.*topology/i
     );
     expect(PUBLIC_TOOL_DESCRIPTIONS.astSearch).toMatch(
-      /LSP for cross-file identity/i
+      /lspSearch for semantic identity/i
     );
   });
 

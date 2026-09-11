@@ -144,7 +144,7 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe.sequential('real Pi runtime contract', () => {
+describe('real Pi runtime contract', { concurrent: false }, () => {
   it.each(['partial batch', 'returned error'] as const)('marks a %s as failed while retaining evidence for the next model turn', async mode => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-real-pi-batch-'));
     temporaryRoots.push(root);

@@ -39,9 +39,10 @@ describe('canonical handoff continuation workflow', () => {
     expect(store.listHandoffs({ includeCleared: true })).toMatchObject([{ handoffId: saved.handoffId }]);
     expect(store.clearHandoff({ handoffId: saved.handoffId })).toEqual({ cleared: false });
     const db = new DatabaseSync(join(workspace, 'awareness.sqlite3'), { readOnly: true });
-    expect(db.prepare('SELECT COUNT(*) AS count FROM handoffs').get()).toEqual({ count: 0 });
+    expect(db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'handoffs'").get()).toBeUndefined();
     expect(db.prepare("SELECT COUNT(*) AS count FROM signals WHERE kind = 'handoff'").get()).toEqual({ count: 1 });
     expect(db.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type = 'peer.message'").get()).toEqual({ count: 1 });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE event_type = 'peer.message.resolved'").get()).toEqual({ count: 1 });
     db.close();
   });
 

@@ -9,6 +9,7 @@ import { getAwarenessCommandDescriptor, listAwarenessCommandDescriptors } from '
 import { executeAwarenessCli } from '../src/command-cli.js';
 import { commandIndex } from '../src/schema/command-catalog.js';
 import { HISTORY_ROUTE_DESCRIPTORS } from '../src/schema/definitions-history.js';
+import { getAwarenessOperationDescriptor } from '../src/schema/operation-catalog.js';
 import { tsxCli } from './helpers/tsx-cli.js';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -90,8 +91,12 @@ describe('CLI discovery contracts', () => {
       expect(result.exitCode, descriptor.command).toBe(0);
       expect(result.text, descriptor.command).toContain(`usage: npx @octocodeai/octocode-awareness ${descriptor.command} [options]`);
       const flags = result.text!.split('\n').find(line => line.startsWith('flags: '))!.slice(7).split(' ');
-      const globals = ['database consolidate', 'hook run'].includes(descriptor.command) ? ['compact', 'help'] : ['db', 'db_scope', 'compact', 'help'];
-      expect(flags, descriptor.command).toEqual([...new Set([...Object.keys(commandSchemaProperties(descriptor.inputSchema)), ...globals])].map(flag => `--${flag.replaceAll('_', '-')}`));
+      const operation = getAwarenessOperationDescriptor(descriptor.command.replace(' ', '.'));
+      const properties = operation ? commandSchemaProperties(operation.inputSchema) : commandSchemaProperties(descriptor.inputSchema);
+      const globals = operation
+        ? ['workspace', 'agent_id', 'session_id', 'db', 'db_scope', 'compact', 'help']
+        : ['database consolidate', 'hook run'].includes(descriptor.command) ? ['compact', 'help'] : ['db', 'db_scope', 'compact', 'help'];
+      expect(flags, descriptor.command).toEqual([...new Set([...Object.keys(properties), ...globals])].map(flag => `--${flag.replaceAll('_', '-')}`));
     }
   });
 
@@ -118,7 +123,7 @@ describe('CLI discovery contracts', () => {
     }
   });
 
-  it('rejects removed duplicate coordination routes with a canonical replacement', () => {
+  it('rejects removed prefixes while accepting canonical operation routes', () => {
     const root = mkdtempSync(join(tmpdir(), 'aw-cli-contract-'));
     try {
       const failure = runSource(['coordination', 'task', 'list', '--unknown', '--compact'], root);
@@ -130,9 +135,11 @@ describe('CLI discovery contracts', () => {
         hint: expect.stringContaining('task'),
       });
 
-      const message = runSource(['message', 'send', '--compact'], root);
-      expect(message.status).toBe(1);
-      expect(message.parsed).toMatchObject({ error_code: 'REMOVED_CLI_ROUTE', hint: expect.stringContaining('signal') });
+      const message = runSource([
+        'message', 'send', '--agent-id', 'sender', '--kind', 'fyi', '--subject', 'Canonical route', '--compact',
+      ], root);
+      expect(message.status, message.stderr || message.stdout).toBe(0);
+      expect(message.parsed).toMatchObject({ ok: true });
 
       const check = runSource(['check', 'audit', '--compact'], root);
       expect(check.status).toBe(1);

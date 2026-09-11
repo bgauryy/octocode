@@ -5,51 +5,31 @@ import { HISTORY_ROUTE_DESCRIPTORS } from '../schema/definitions-history.js';
 
 export const HELP = `  🐙 Octocode Awareness
 
-  AGENT SETUP  guide                          skill installation, workflow, and all commands
-    agent register --agent-id <stable-id>      add --agent-name, --agent-vendor, --agent-host
-    agent list --workspace <repo>              discover IDs/names/vendors/hosts; follow next continuations
-    Reuse your host ID or set OCTOCODE_AGENT_ID once to a unique session ID; labels are self-reported.
+  ONE SURFACE · FIVE CONCEPTS · NINETEEN OPERATIONS
+    context  orient
+    work     create · list · show · claim · update · depend · protect · verify
+    message  list · send · reply · resolve
+    memory   recall · record
+    history  status · timeline · read · restore
 
-  ROUTINE LOOP
-    attend [--query <text>]                     return the next useful action
-    work start --agent-id <id> --file <path>    declare bounded advisory work
-    work end --agent-id <id> --run-id <id>      finish work and create verification debt
-    verify mark --agent-id <id> --run-id <id>   record an observed check receipt
-    verify audit [--agent-id <id>]              show unresolved verification debt
+  ROUTINE  context orient → call the selected <concept> <operation> directly
+  EXAMPLE  work create --kind standalone --file src/a.ts --rationale "edit" --test-plan "yarn test"
+  SCHEMA   schema command <concept> <operation> --compact
+  MAP      schema commands --compact
 
-  LEARNING  reflect record only after a verified reusable lesson, recurring failure, or owned follow-up
+  OPERATOR  schema commands --all --compact
+    Configuration, hooks, migration, retention, maintenance, and diagnostics stay out of routine context.
 
-  DEFAULT POLICY
-    database                → $OCTOCODE_HOME/awareness/awareness.sqlite3
-    repo override           → <workspace>/.octocode/awareness.sqlite3
-    hooks                    → coordination profile (edit guards + stop verification)
-
-  EXPERT COMMANDS
-    attend · plan · task · work · verify · signal · memory record/recall · refinement · query · reflect
-    schema commands --all --compact            complete command catalog
-    schema command <noun> [action]             exact fields
-    <noun> [action] --help                     focused usage
-
-  HOOKS
-    hooks install --host codex|claude|cursor --profile guard|coordination|full --dry-run
-    Preview and ask immediately before a real install. Pi uses native events.
-
-  RUNNER  npx @octocodeai/octocode-awareness <command> [options]
-  AGENT LOOP  attend → work start → work end → verify mark → verify audit
-  FLAGS   --compact lean JSON · --db-scope repo|global explicit one-call override · --db explicit path
+  RUNNER  npx @octocodeai/octocode-awareness <concept> <operation> [options]
+  CONTEXT  --workspace <repo> · --agent-id <id> · --db-scope repo|global · --db <path>
+  OUTPUT   --compact lean JSON; partial results include executable next calls
   EXIT    0 ok · 1 input/verification debt · 2 conflict/wait/strict hook health
-  SKILL   octocode-awareness bundled at ${BUNDLED_SKILLS_DIR}
-  SKILL INSTALL  npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run
-  SKILL DOCS  npx @octocodeai/octocode-awareness docs list --compact`;
+  SKILL   ${BUNDLED_SKILLS.length} bundled at ${BUNDLED_SKILLS_DIR}; install is an explicit operator action`;
 
-export const HELP_COMPACT = `octocode-awareness canonical noun/verb CLI: attend -> work start -> work end -> verify mark -> verify audit; use --compact for JSON.
-setup: guide for skill installation, agent instructions, and all commands
-identity: agent register --agent-id "$OCTOCODE_AGENT_ID" --agent-name <name> --agent-vendor <provider> --agent-host <app>; reuse a host ID or set a unique session ID once; agent list --workspace "$PWD" discovers peers
-bundled-skills(${BUNDLED_SKILLS.length}): ${BUNDLED_SKILLS.map(({ name }) => name).join(',')} @ ${BUNDLED_SKILLS_DIR}; install: skill install --platform shared --project-dir "$PWD" --dry-run; docs: docs list --compact
-policy: $OCTOCODE_HOME/awareness/awareness.sqlite3, workspace-scoped rows, hooks=coordination
-expert: attend|plan|task|work|verify|signal|memory|refinement|query|reflect; schema commands --all --compact for the full map
-overrides: --db-scope repo|global changes one call; --db selects an explicit path
-hooks: install --host codex|claude|cursor --profile guard|coordination|full --dry-run; preview and ask before install
+export const HELP_COMPACT = `octocode-awareness: one direct CLI surface; call context orient once, then <concept> <operation>.
+concepts: context=orient; work=create|list|show|claim|update|depend|protect|verify; message=list|send|reply|resolve; memory=recall|record; history=status|timeline|read|restore
+schema: schema commands --compact; exact: schema command <concept> <operation> --compact; operator/recovery: schema commands --all --compact
+context: --workspace <repo> --agent-id <id> --db-scope repo|global --db <path>; partial results retain executable next calls
 exits: 0 ok / 1 validation|verification debt / 2 conflict|wait|strict hook health`;
 
 export const COMMAND_TO_SCHEMA: Record<string, string> = {
@@ -79,6 +59,10 @@ export const COMMAND_TO_SCHEMA: Record<string, string> = {
   'mine-weakness': 'mine_weakness',
   'doc-staleness': 'doc_staleness',
   'docs-catalog': 'docs_catalog',
+  'skill-install': 'skill_install',
+  'skill-list': 'skill_list',
+  'skill-check': 'skill_check',
+  'skill-remove': 'skill_remove',
   'digest': 'digest',
   'reflect': 'reflect',
   'plan-command': 'plan',
@@ -116,6 +100,9 @@ export const COMMAND_DISPLAY: Record<string, string> = {
   'doc-staleness': 'docs staleness',
   'docs-catalog': 'docs list|show',
   'skill-install': 'skill install',
+  'skill-list': 'skill list',
+  'skill-check': 'skill check',
+  'skill-remove': 'skill remove',
   'digest': 'maintenance digest',
   'init': 'maintenance init',
   'self-test': 'maintenance self-test',
@@ -158,6 +145,9 @@ export const COMMAND_EXAMPLE: Record<string, string> = {
   'doc-staleness': 'npx @octocodeai/octocode-awareness docs staleness --targets-json \'[{"docFile":"README.md","sourceDirs":["src"]}]\' --compact',
   'docs-catalog': 'npx @octocodeai/octocode-awareness docs list --compact',
   'skill-install': 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run',
+  'skill-list': 'npx @octocodeai/octocode-awareness skill list --compact',
+  'skill-check': 'npx @octocodeai/octocode-awareness skill check --compact',
+  'skill-remove': 'npx @octocodeai/octocode-awareness skill remove --platform shared --project-dir "$PWD"',
   'digest': 'npx @octocodeai/octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact',
   'init': 'npx @octocodeai/octocode-awareness maintenance init --compact',
   'self-test': 'npx @octocodeai/octocode-awareness maintenance self-test --compact',
@@ -187,6 +177,9 @@ export const ROUTE_EXAMPLE: Record<string, string> = {
   'docs list': 'npx @octocodeai/octocode-awareness docs list --compact',
   'docs show': 'npx @octocodeai/octocode-awareness docs show agent-cheatsheet',
   'skill install': 'npx @octocodeai/octocode-awareness skill install --platform shared --project-dir "$PWD" --dry-run',
+  'skill list': 'npx @octocodeai/octocode-awareness skill list --compact',
+  'skill check': 'npx @octocodeai/octocode-awareness skill check --compact',
+  'skill remove': 'npx @octocodeai/octocode-awareness skill remove --platform shared --project-dir "$PWD"',
   'hooks install': 'npx @octocodeai/octocode-awareness hooks install --host codex --dry-run',
   'hooks check': 'npx @octocodeai/octocode-awareness hooks check --host codex --strict',
   'hooks remove': 'npx @octocodeai/octocode-awareness hooks remove --host codex --dry-run',

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 it('captures and checks memory evidence through the real built CLI with lean status preserved', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'awareness-memory-cli-'));
@@ -19,6 +20,10 @@ it('captures and checks memory evidence through the real built CLI with lean sta
     writeFileSync(join(workspace, 'dependency.ts'), 'export const input = 1;');
     run('memory', 'record', '--agent-id', 'reader', '--task-context', 'source value', '--observation', 'Inspect the value contract before editing.',
       '--importance', '5', '--file', 'source.ts', '--file', 'dependency.ts', '--capture-fingerprint');
+    const db = new DatabaseSync(join(workspace, 'awareness.sqlite3'), { readOnly: true });
+    expect(db.prepare("SELECT event_type, COUNT(*) AS count FROM event_outbox GROUP BY event_type").all())
+      .toEqual([{ event_type: 'memory.recorded', count: 1 }]);
+    db.close();
     expect(run('memory', 'recall').memories[0].evidence).toMatchObject({ state: 'unknown', reason: 'unchecked' });
     expect(run('memory', 'recall', '--check-fingerprint').memories[0].evidence.state).toBe('fresh');
     writeFileSync(join(workspace, 'dependency.ts'), 'export const input = 2;');

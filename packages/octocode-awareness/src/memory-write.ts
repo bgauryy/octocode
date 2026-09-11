@@ -6,6 +6,7 @@
  * bumpAccess:   update access count and timestamp.
  */
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow, normalizeTags, normalizeReferences, normalizeLabel } from './helpers.js';
 import { fillScope } from './git.js';
@@ -14,6 +15,7 @@ import type { InsertMemoryParams, InsertMemoryResult } from './types/identity-me
 import { canonicalMemoryInstant, LABEL_HALF_LIFE_DAYS } from './memory-scoring.js';
 import { findSimilarMemories } from './memory-search.js';
 import { prepareMemoryEvidence } from './memory-evidence.js';
+import { appendDomainEvent } from './event-outbox.js';
 
 // ─── bumpAccess ───────────────────────────────────────────────────────────────
 
@@ -190,6 +192,19 @@ export function insertPreparedMemory(db: DatabaseSync, params: InsertMemoryParam
       if (r.changes !== 1) throw new Error(`supersedes target changed concurrently: ${oldId}`);
       superseded.push(oldId);
     }
+
+    appendDomainEvent(db, {
+      workspace: scope.workspace_path ?? resolve(cwd ?? process.cwd()),
+      eventType: 'memory.recorded',
+      retentionClass: 'audit',
+      actorId: agentId,
+      aggregateKind: 'memory',
+      aggregateId: memoryId,
+      aggregateRevision: createdAt,
+      createdAt,
+      payload: { label: normalizedLabel, importance: imp, superseded },
+      eventIdPrefix: 'mevt',
+    });
 
     if (ownsTransaction) db.exec('COMMIT');
   } catch (e) {

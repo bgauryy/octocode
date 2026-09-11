@@ -297,19 +297,19 @@ describe('digest', () => {
       (run_id, file_path, source, started_at, heartbeat_at, expires_at, ended_at)
       VALUES ('run_old_terminal', '/repo/src/a.ts', 'HOOK', ?, ?, ?, ?)`)
       .run(old, old, old, old);
-    db.prepare(`INSERT INTO run_log(event_id, run_id, agent_id, event_type, message, created_at)
-      VALUES ('evt_receipt', 'run_old_terminal', 'agent', 'VERIFIED', 'focused test passed', ?)`)
-      .run(old);
+    db.prepare(`INSERT INTO event_outbox(event_id,workspace_path,event_type,schema_version,retention_class,
+      aggregate_kind,aggregate_id,actor_json,provenance_json,payload_json,created_at)
+      VALUES ('evt_receipt','/repo','run.verified',1,'audit','run','run_old_terminal',
+        '{"kind":"agent","id":"agent"}','{"source":"tool","trust":"attributed-data"}',
+        '{"message":"focused test passed"}',?)`).run(old);
 
     expect(digest(db, { dry_run: true, workspace_path: '/repo', operational_retention_days: 1 }).would_prune_runs).toBe(1);
     expect(digest(db, { workspace_path: '/repo', operational_retention_days: 1 }).pruned_runs).toBe(1);
     expect(db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE run_id = 'run_old_terminal'").get()).toEqual({ count: 0 });
-    expect(db.prepare("SELECT run_id, message FROM run_log WHERE event_id = 'evt_receipt'").get())
-      .toEqual({ run_id: null, message: 'focused test passed' });
+    expect(db.prepare("SELECT aggregate_id, payload_json FROM event_outbox WHERE event_id = 'evt_receipt'").get()).toEqual(
+      { aggregate_id: 'run_old_terminal', payload_json: '{"message":"focused test passed"}' });
   });
-
 });
-
 describe('getWorkspaceStatus', () => {
   it('returns ok:true with counts and locks', () => {
     const db = freshDb();

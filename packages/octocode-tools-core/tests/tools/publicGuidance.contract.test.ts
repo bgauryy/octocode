@@ -16,7 +16,7 @@ const RETIRED_PUBLIC_NAMES =
 describe('public guidance uses only registered tool names', () => {
   it('describes strict search and exact-item history operations', () => {
     expect(PUBLIC_TOOL_DESCRIPTIONS.ghSearchHistory).toMatch(
-      /discover.*metadata/i
+      /number or ref is unknown.*filter metadata/i
     );
     expect(PUBLIC_TOOL_DESCRIPTIONS.ghGetHistoryItem).toMatch(/read a known/i);
     expect(
@@ -58,15 +58,17 @@ describe('public guidance uses only registered tool names', () => {
       /exact by default/i
     );
     expect(PUBLIC_TOOL_DESCRIPTIONS.ghGetFileContent).toMatch(
-      /line\/UTF-8 byte pagination/i
+      /matchString.*line ranges.*minify:symbols/i
     );
     expect(PUBLIC_TOOL_DESCRIPTIONS.ghGetFileContent).toMatch(
-      /next\.continue when bounded/i
+      /ghSearch.*ghCloneRepo/i
     );
   });
 
   it('returns a runnable unified tree hint for case mismatches', () => {
     const hints = buildPathSuggestionHints('src/file.ts', ['src/File.ts']);
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toContain('src/File.ts');
     expect(hints[0]).toContain('ghSearch operation:"tree"');
     expect(hints.join('\n')).not.toMatch(RETIRED_PUBLIC_NAMES);
   });

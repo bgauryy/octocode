@@ -80,7 +80,7 @@ describe('tool-command coverage', () => {
     expect(output).toContain('Full protocol: context --full');
     expect(output).toContain('ghSearch');
     expect(output).toContain(
-      'Discover GitHub code, repositories, or a known repository tree.'
+      'Discover GitHub repositories, indexed code, or a repository tree.'
     );
     expect(output).toContain('localSearch');
     expect(output).not.toContain('[path*');
@@ -150,9 +150,9 @@ describe('tool-command coverage', () => {
     );
     // full mode includes the complete description text on a separate line
     expect(full).toContain(
-      'Discover GitHub code, repositories, or a known repository tree.'
+      'Discover GitHub repositories, indexed code, or a repository tree.'
     );
-    expect(full).toContain('Create a cached, shallow checkout');
+    expect(full).toContain('Cache a shallow GitHub checkout');
   });
 
   it('A1: --compact emits minified structuredContent only', async () => {

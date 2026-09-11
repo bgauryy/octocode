@@ -18,17 +18,17 @@
     "node-cache": "^5.1.2",
     "npm-registry-fetch": "^20.0.1",
     "octokit": "^5.0.5",
-    "zod": "^4.5.4"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@octokit/core": "^7.0.8",
     "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "typescript": "^6.0.3",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   },
   "bundledDependencies": [
     "@octocodeai/config"

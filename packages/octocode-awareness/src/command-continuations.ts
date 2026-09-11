@@ -8,6 +8,12 @@ export function awarenessContinuationCall(command: string, args: string[]): Awar
   if (!descriptor) throw new Error(`Unknown continuation command: ${command}`);
   const { _: positionals, db: _db, db_scope: _scope, compact: _compact, ...params } = parseArgs(args);
   const properties = descriptor.inputSchema.properties as Record<string, Record<string, unknown>>;
+  // Canonical CLI selectors can be redundant once a continuation is decoded
+  // back to its uniquely bound legacy library command.
+  if (
+    command === 'work show' &&
+    (params.kind === 'presence' || (Array.isArray(params.kind) && params.kind.length === 1 && params.kind[0] === 'presence'))
+  ) delete params.kind;
   for (const [key, value] of Object.entries(params)) {
     const property = properties[key];
     if (!property) continue;

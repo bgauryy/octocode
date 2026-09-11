@@ -76,23 +76,6 @@ describe('CLI command content is sourced from its canonical registry', () => {
     // declare it — so help can never under-document a working flag again.
     const offenders: string[] = [];
 
-    // Flags shipped ahead of an octocode-core spec release. Each entry is
-    // KNOWN missing from --help until core documents it — remove the entry
-    // the moment the core spec catches up so the guard re-arms.
-    const pendingCoreSpec = new Set([
-      // Bundled octocode-skills subcommands merged into `octocode skill`; remove
-      // these once octocode-core's skill command spec documents the local
-      // list/install/check/info/remove surface.
-      'skill:global',
-      'skill:project-dir',
-      'skill:force',
-      'skill:workspace',
-      'skill:repo',
-      'skill:path',
-      'skill:fix',
-      'skill:no-env',
-    ]);
-
     for (const name of REGISTERED_COMMAND_NAMES) {
       const command = await loadCommand(name);
       if (!command) {
@@ -110,7 +93,6 @@ describe('CLI command content is sourced from its canonical registry', () => {
       for (const opt of command.options ?? []) {
         const core = coreByName.get(opt.name);
         if (!core) {
-          if (pendingCoreSpec.has(`${name}:${opt.name}`)) continue;
           offenders.push(`${name}: --${opt.name} not documented in core spec`);
           continue;
         }

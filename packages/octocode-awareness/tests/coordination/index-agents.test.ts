@@ -52,11 +52,12 @@ describe('agent naming', () => {
         .all()
         .map((r) => (r as { name: string }).name);
       expect(names).toEqual(expect.arrayContaining([
-        'handoffs', 'awareness_memories', 'memory_refs', 'awareness_agents', 'signals', 'signal_reads',
+        'event_outbox', 'awareness_memories', 'memory_refs', 'awareness_agents', 'signals', 'signal_reads',
         'awareness_plans', 'awareness_tasks', 'awareness_locks', 'task_runs', 'run_files',
       ]));
       expect(names).not.toEqual(expect.arrayContaining([
         'plans', 'tasks', 'locks', 'work_presence', 'memories', 'agents', 'messages', 'message_receipts',
+        'handoffs', 'task_events', 'run_log', 'edit_log', 'harness_log',
       ]));
       expect(names).not.toEqual(expect.arrayContaining([
         'octocode_meta', 'agent_sessions', 'mcp_server_overrides',

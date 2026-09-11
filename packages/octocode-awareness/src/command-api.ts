@@ -158,6 +158,21 @@ export async function executeAwarenessCommand(request: AwarenessCommandCall, con
         context.signal?.throwIfAborted();
         const result = runSkillInstall(params, { skillsDir: BUNDLED_SKILLS_DIR, cwd: workspace });
         output.payload = result.payload; exitCode = result.exitCode;
+      } else if (request.command === 'skill list') {
+        const { runSkillList } = await import('./skill-list-command.js');
+        context.signal?.throwIfAborted();
+        const result = runSkillList(params, { skillsDir: BUNDLED_SKILLS_DIR, cwd: workspace });
+        output.payload = result.payload; exitCode = result.exitCode;
+      } else if (request.command === 'skill check') {
+        const { runSkillCheck } = await import('./skill-check-command.js');
+        context.signal?.throwIfAborted();
+        const result = runSkillCheck(params, { skillsDir: BUNDLED_SKILLS_DIR, cwd: workspace });
+        output.payload = result.payload; exitCode = result.exitCode;
+      } else if (request.command === 'skill remove') {
+        const { runSkillRemove } = await import('./skill-remove-command.js');
+        context.signal?.throwIfAborted();
+        const result = runSkillRemove(params, { skillsDir: BUNDLED_SKILLS_DIR, cwd: workspace });
+        output.payload = result.payload; exitCode = result.exitCode;
       } else if (noun === 'hooks' && action !== 'pre-edit') {
         const { runHooksInstall } = await import('./hooks-install-command.js');
         context.signal?.throwIfAborted();

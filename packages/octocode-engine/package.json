@@ -6,20 +6,20 @@
   "dependencies": {
     "@octocodeai/config": "20.0.0",
     "bash-language-server": "^5.6.0",
-    "pyright": "^1.1.413",
+    "pyright": "^1.1.414",
     "typescript": "^6.0.3",
-    "typescript-language-server": "^5.3.0",
+    "typescript-language-server": "^6.0.0",
     "vscode-langservers-extracted": "^4.10.0",
     "yaml-language-server": "^1.24.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.9.0",
+    "@napi-rs/cli": "^3.9.1",
     "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   },
   "bundledDependencies": [
     "@octocodeai/config"

@@ -28,7 +28,7 @@ describe('initDb creates all required tables', () => {
   const db = freshDb();
 
   const requiredTables = [
-    'authorization_receipts', 'capability_receipts', 'event_outbox', 'event_consumers', 'event_acknowledgements', 'pending_interactions', 'handoffs',
+    'authorization_receipts', 'capability_receipts', 'event_outbox', 'event_consumers', 'event_acknowledgements', 'pending_interactions',
     'awareness_meta',
     'awareness_memories',
     'memories_fts',
@@ -40,19 +40,15 @@ describe('initDb creates all required tables', () => {
     'task_paths',
     'task_dependencies',
     'task_claims',
-    'task_events',
     'task_runs',
     'run_files',
     'awareness_locks',
     'delivery_state',
-    'run_log',
     'signals',
     'signal_reads',
     'awareness_agents',
     'sessions',
     'refinements',
-    'edit_log',
-    'harness_log',
   ] as const;
 
   for (const table of requiredTables) {
@@ -334,20 +330,14 @@ describe('signals table column names', () => {
 });
 
 describe('lifecycle enum constraints', () => {
-  it('rejects unknown task event types', () => {
+  it('rejects unknown event retention classes', () => {
     const db = freshDb();
-    db.prepare(`INSERT INTO awareness_plans(plan_id, name, objective, lead_agent_id, status, workspace_path, doc_dir, created_at, updated_at)
-      VALUES ('plan_lifecycle', 'Lifecycle', 'Keep lifecycle values bounded.', 'lead', 'ACTIVE', '/tmp/repo', '.octocode/plan/lifecycle', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`).run();
-    db.prepare(`INSERT INTO awareness_tasks(task_id, plan_id, title, reasoning, acceptance_criteria, status, created_by, created_at, updated_at)
-      VALUES ('task_lifecycle', 'plan_lifecycle', 'Task', 'reason', 'verify', 'OPEN', 'lead', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`).run();
-
-    expect(() => db.prepare(`INSERT INTO task_events(event_id, task_id, agent_id, event_type, message, created_at)
-      VALUES ('event_bad', 'task_lifecycle', 'lead', 'BOGUS', 'bad event', '2026-01-01T00:00:00Z')`).run())
+    const insert = db.prepare(`INSERT INTO event_outbox(event_id,workspace_path,event_type,actor_json,provenance_json,
+      payload_json,created_at,retention_class) VALUES (?, '/tmp/repo', 'task.created', '{}', '{}', '{}',
+      '2026-01-01T00:00:00Z', ?)`);
+    expect(() => insert.run('event_bad', 'forever'))
       .toThrow(/CHECK constraint failed/);
-
-    expect(() => db.prepare(`INSERT INTO task_events(event_id, task_id, agent_id, event_type, message, created_at)
-      VALUES ('event_good', 'task_lifecycle', 'lead', 'CREATED', 'created', '2026-01-01T00:00:00Z')`).run())
-      .not.toThrow();
+    expect(() => insert.run('event_good', 'audit')).not.toThrow();
   });
 
   it('rejects unknown signal statuses', () => {

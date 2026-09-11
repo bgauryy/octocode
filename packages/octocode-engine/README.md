@@ -421,7 +421,7 @@ and minify capability lives in the
 
 ```bash
 npx octocode skill list
-npx octocode skill install octocode-research --platform pi
+npx octocode skill install octocode-research --platform pi --global
 npx octocode skill check --json
 npx octocode skill help
 ```
@@ -546,7 +546,7 @@ npx node-doctor
 - **Skill route — recommended, leanest.** Drop the [`octocode-research`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
 
   ```bash
-  npx octocode skill install octocode-research --platform pi
+  npx octocode skill install octocode-research --platform pi --global
   ```
 
 - **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is called. Cloning requires explicit enablement.

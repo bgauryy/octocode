@@ -42,7 +42,7 @@ describe('canonical local history domain', () => {
     const result = await call('read', { operation_id: 'edit-1', file: 'a.ts', side: 'before' });
     expect(result).toMatchObject({ encoding: 'base64', content: Buffer.from('before').toString('base64') });
     expect(readFileSync(join(workspace, '.git', 'index'), 'utf8')).toBe('user-index');
-    expect(db.prepare('SELECT COUNT(*) AS n FROM edit_log').get()).toMatchObject({ n: 0 });
+    expect(db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'edit_log'").get()).toBeUndefined();
   });
   it('replays a matching before capture, rejects altered inputs and a foreign actor', async () => {
     const initial = await before();

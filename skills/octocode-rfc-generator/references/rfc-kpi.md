@@ -1,12 +1,12 @@
 # KPI.md template — success and verification
 
 Load when defining acceptance and post-ship success. Why: bind RFC goals to testable behavior, measurable outcomes, guardrails, and a decision rule.
-Reference `RFC.md` goals; never restate them.
+Reference `RFC.md` goals or standalone `PLAN.md` context; never restate them.
 
 ````markdown
 # Success and Verification: {Title}
 
-> Verifies `RFC.md` §Goals and the `IMPLEMENTATION.md` build.
+> Verifies {`RFC.md` §Goals | `PLAN.md` §Plan Context} and the implementation steps.
 
 ## User Stories
 - As a {persona}, I want {capability}, so that {benefit}. → RFC goal #{n}
@@ -35,14 +35,14 @@ Feature: {feature}
 
 ## Decision Rule
 - Success if {primary reaches target within window and guardrails hold}.
-- Roll back or iterate if {threshold/condition}; mirror the implementation rollback trigger.
+- Roll back or iterate if {measurable threshold/condition}. KPI.md owns the measurable rollback threshold; the plan owns the procedure.
 
 ## Traceability
-| RFC requirement (§) | Story | Acceptance check | Verification | Post-ship status |
-|---|---|---|---|---|
+| Primary requirement (§) | Implementation step(s) | Story | Acceptance check | Verification | Post-ship status |
+|---|---|---|---|---|---|
 ````
 
-Gate: every requirement has a pass/fail check, verification method, and current status; add a user story when it clarifies the behavior.
+Gate: every requirement maps to implementation step IDs, a pass/fail check, verification method, and current status; every step maps back to a requirement. Add a user story when it clarifies behavior.
 Use outcome, leading, and guardrail metrics when they are decision-relevant. Mark omitted, untracked, or stale signals honestly rather than inventing targets.
 
-Next: record provenance with `references/rfc-resources.md`, then validate and deliver per `references/workflow.md` § Validate and deliver.
+Next: build dependency-ordered steps with `references/rfc-implementation.md`, then record provenance and validate per `references/workflow.md` § Validate and deliver.
