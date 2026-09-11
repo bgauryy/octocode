@@ -22,4 +22,4 @@ For platform validation, go straight to the relevant vendor: OpenAI/Anthropic/Go
 - Record the dated signal—release/activity/citation/ranking/velocity—not merely presence.
 - Apply the `references/confidence.md` markers and the `references/tools.md` formal-source ladder to every citation.
 
-Next: to corroborate a dated signal in repository/package data load `references/octocode.md`; to dispatch a Trend and Source Scout load `references/web-search-workers.md`; once momentum is settled continue the flow at stress-test with `references/debate.md`. <!-- style-lint: ignore-line passive-voice -->
+Next: to corroborate a dated signal in repository/package data use the technical-evidence route in `SKILL.md`; to dispatch a Trend and Source Scout load `references/web-search-workers.md`; once momentum is settled continue the flow at stress-test with `references/debate.md`. <!-- style-lint: ignore-line passive-voice -->

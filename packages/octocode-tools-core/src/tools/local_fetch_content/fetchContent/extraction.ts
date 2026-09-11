@@ -2,23 +2,12 @@ import { matchContext } from '../../../utils/file/matchContext.js';
 import { buildSecurityLimitResult } from './pagination.js';
 import { selectMatchingSource } from '../../../utils/file/contentExtractor.js';
 import { countLines } from '../../../utils/core/lines.js';
-import type { LocalFetchToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { FetchContentQuery } from '@octocodeai/octocode-core/schema';
 import { LOCAL_TOOL_ERROR_CODES } from '../../../errors/localToolErrors.js';
 import { createNoMatchesResult } from './validation.js';
+import type { ExtractionState } from './types.js';
 
-export interface ExtractionState {
-  resultContent?: string;
-  sourceLines?: number[];
-  actualStartLine?: number;
-  actualEndLine?: number;
-  matchRanges?: Array<{ start: number; end: number }>;
-  /** Source lines containing matches before pagination. */
-  matchedLines?: number[];
-  selectedMatchCount?: number;
-  warnings?: string[];
-  earlyResult?: LocalFetchToolResult;
-}
+export type { ExtractionState } from './types.js';
 
 function buildMatchExtractionState(
   query: FetchContentQuery,

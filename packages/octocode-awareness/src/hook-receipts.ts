@@ -17,6 +17,7 @@ export interface HookReceipt {
 }
 
 export const HOOK_RECEIPT_STALE_MS = 7 * 24 * 60 * 60_000;
+export const HOOK_RECEIPT_SUCCESS_SAMPLE_MS = 5 * 60_000;
 
 export function upsertHookReceipt(db: DatabaseSync, receipt: {
   workspacePath: string;
@@ -24,16 +25,34 @@ export function upsertHookReceipt(db: DatabaseSync, receipt: {
   event: string;
   status: HookReceiptStatus;
   observedAt?: string;
-}): void {
+  minimumIntervalMs?: number;
+}): boolean {
   const workspacePath = canonicalizePath(receipt.workspacePath);
   const event = receipt.event.trim().slice(0, 128);
-  if (!event) return;
+  if (!event) return false;
+  const observedAt = receipt.observedAt ?? utcNow();
+  const minimumIntervalMs = receipt.minimumIntervalMs ?? 0;
+  if (receipt.status === 'success' && minimumIntervalMs > 0) {
+    const previous = db.prepare(`SELECT status, last_seen_at FROM hook_receipts
+      WHERE workspace_path = ? AND host = ? AND event = ?`)
+      .get(workspacePath, receipt.host, event) as { status: HookReceiptStatus; last_seen_at: string } | undefined;
+    const previousMs = previous ? Date.parse(previous.last_seen_at) : Number.NaN;
+    const observedMs = Date.parse(observedAt);
+    if (previous?.status === 'success'
+      && Number.isFinite(previousMs)
+      && Number.isFinite(observedMs)
+      && observedMs >= previousMs
+      && observedMs - previousMs < minimumIntervalMs) {
+      return false;
+    }
+  }
   db.prepare(`INSERT INTO hook_receipts(workspace_path, host, event, status, last_seen_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(workspace_path, host, event) DO UPDATE SET
       status = excluded.status,
       last_seen_at = excluded.last_seen_at`)
-    .run(workspacePath, receipt.host, event, receipt.status, receipt.observedAt ?? utcNow());
+    .run(workspacePath, receipt.host, event, receipt.status, observedAt);
+  return true;
 }
 
 export function recordHookReceiptBestEffort(receipt: {
@@ -41,16 +60,19 @@ export function recordHookReceiptBestEffort(receipt: {
   host: HookReceiptHost;
   event: string;
   status: HookReceiptStatus;
-}): void {
+  observedAt?: string;
+  minimumIntervalMs?: number;
+}): boolean {
   let database: DatabaseSync | undefined;
   try {
     database = connectDb(resolveDbPath(null, {
       workspace: receipt.workspacePath,
       scope: storageScopeForCommand('hook', receipt.workspacePath),
     }));
-    upsertHookReceipt(database, receipt);
+    return upsertHookReceipt(database, receipt);
   } catch {
     // Hook execution remains authoritative; telemetry must never block it.
+    return false;
   } finally {
     try { database?.close(); } catch { /* best effort */ }
   }

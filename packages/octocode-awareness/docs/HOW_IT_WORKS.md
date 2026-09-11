@@ -281,11 +281,14 @@ consumer cursor in sequence. A delivery or acknowledgement error stops that drai
 at the failed event so a later drain can recover without skipping it. Transport
 acknowledgements and signal read receipts remain separate records.
 
-The host supplies lifecycle drains and wake-ups; Awareness has no background
-message-arrival watcher. Pi drains at session start and agent completion, after
-creating a persistent session. A message arriving after the final drain needs a
-host wake or explicit inbox read. Delivery does not imply handling: `signal ack`
-records handling, and `signal resolve` with `thread_id` closes the finished conversation.
+The host owns lifecycle drains and wake-ups. Pi drains at session start and agent
+completion after creating a persistent session. It also watches the selected
+database, WAL, and directory for change hints, then performs the same authoritative
+drain. Watch/read failures retry quickly and settle on a sparse 30-second recovery
+interval; lifecycle drains remain the fallback. Hosts without this watcher need a
+lifecycle opportunity or explicit inbox read after an idle arrival. Delivery does
+not imply handling: `signal ack` records handling, and `signal resolve` with
+`thread_id` closes the finished conversation.
 
 ## Context model
 

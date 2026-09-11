@@ -693,9 +693,7 @@ fn matching_anchor_paths(
     exclude_dir: &[String],
     hidden: Option<bool>,
     no_ignore: Option<bool>,
-    // Accepted for API uniformity; ripgrep-native has no max_depth, so the
-    // anchor-prefilter path can't enforce it. The no-anchor walker path does.
-    _max_depth: Option<u32>,
+    max_depth: Option<u32>,
     anchor: &str,
 ) -> Result<HashSet<String>, String> {
     let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
@@ -708,8 +706,9 @@ fn matching_anchor_paths(
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
         hidden,
         no_ignore,
-        // max_depth is not a RipgrepSearchOptions field — enforced by the
-        // `collect_files` walker instead (this prefilter path holes it).
+        // Structural depth counts root files as 1; ripgrep's public option
+        // counts them as 0 and adds one when configuring its walker.
+        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
@@ -747,6 +746,7 @@ fn matching_anchor_candidate_files(
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
         hidden,
         no_ignore,
+        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
@@ -791,7 +791,7 @@ fn matching_anchor_union_paths(
     exclude_dir: &[String],
     hidden: Option<bool>,
     no_ignore: Option<bool>,
-    _max_depth: Option<u32>,
+    max_depth: Option<u32>,
     anchors: &[String],
 ) -> Result<HashSet<String>, String> {
     let pattern = anchors_to_regex(anchors);
@@ -805,6 +805,7 @@ fn matching_anchor_union_paths(
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
         hidden,
         no_ignore,
+        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
@@ -839,6 +840,7 @@ fn matching_anchor_union_candidate_files(
         exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
         hidden,
         no_ignore,
+        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })

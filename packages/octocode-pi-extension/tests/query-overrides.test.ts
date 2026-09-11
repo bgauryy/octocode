@@ -13,7 +13,11 @@ beforeAll(() => {
 });
 afterAll(() => restoreProcessGuard());
 
-function register(registerTool: typeof registerBashTool): ToolDefinition {
+function register(registerTool: (
+  pi: { registerTool?(def: ToolDefinition): void },
+  registeredToolNames: Set<string>,
+  registerFn: (pi: { registerTool?(def: ToolDefinition): void }, registeredToolNames: Set<string>, def: ToolDefinition) => void,
+) => unknown): ToolDefinition {
   let captured: ToolDefinition | undefined;
   const pi = { registerTool: (def: ToolDefinition) => { captured = def; } };
   const registerFn = (

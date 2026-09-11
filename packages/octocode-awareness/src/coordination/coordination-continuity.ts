@@ -12,6 +12,10 @@ import {
   type InteractionAnswerV1,
   type InteractionRequestV1,
 } from '../continuity-contracts.js';
+import {
+  outboxEventFromRow,
+  type OutboxRow,
+} from '../event-outbox.js';
 import { CoordinationPlanGraph } from './coordination-plan-graph.js';
 import { id, now, required } from './coordination-shared.js';
 import { repositoryWorkspacePaths } from '../git.js';
@@ -22,45 +26,6 @@ export interface StoredInteractionV1 {
   status: InteractionRequestV1['status'];
   answer?: InteractionAnswerV1;
   resolvedAt?: string;
-}
-
-interface OutboxRow {
-  sequence: number;
-  event_id: string;
-  workspace_path: string;
-  event_type: string;
-  aggregate_kind: string | null;
-  aggregate_id: string | null;
-  aggregate_revision: string | null;
-  actor_json: string;
-  provenance_json: string;
-  payload_json: string;
-  session_id: string | null;
-  correlation_id: string | null;
-  created_at: string;
-  expires_at: string | null;
-}
-
-function eventFromRow(row: OutboxRow): OutboxEventV1 {
-  return {
-    sequence: row.sequence,
-    version: 1,
-    eventId: row.event_id,
-    workspace: row.workspace_path,
-    ...(row.session_id ? { sessionId: row.session_id } : {}),
-    ...(row.correlation_id ? { correlationId: row.correlation_id } : {}),
-    type: row.event_type,
-    actor: JSON.parse(row.actor_json) as AgentEventEnvelopeV1['actor'],
-    provenance: JSON.parse(row.provenance_json) as AgentEventEnvelopeV1['provenance'],
-    ...(row.aggregate_kind && row.aggregate_id ? { aggregate: {
-      kind: row.aggregate_kind,
-      id: row.aggregate_id,
-      ...(row.aggregate_revision ? { revision: row.aggregate_revision } : {}),
-    } } : {}),
-    createdAt: row.created_at,
-    ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
-    payload: JSON.parse(row.payload_json) as unknown,
-  };
 }
 
 export class AwarenessStore extends CoordinationPlanGraph {
@@ -85,7 +50,7 @@ export class AwarenessStore extends CoordinationPlanGraph {
     const scope = this.eventScope();
     const rows = this.db.prepare(`SELECT * FROM event_outbox WHERE ${scope.where} AND sequence > ? ORDER BY sequence ASC LIMIT ?`)
       .all(...scope.values, cursor?.sequence ?? 0, limit) as unknown as OutboxRow[];
-    return rows.map(eventFromRow);
+    return rows.map((row) => outboxEventFromRow(row));
   }
 
   acknowledgeEvent(params: { consumerId: string; eventId: string; decision: InboundDecision }): { sequence: number; decision: InboundDecision; duplicate: boolean } {

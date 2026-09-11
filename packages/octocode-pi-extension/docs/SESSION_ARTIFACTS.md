@@ -76,7 +76,7 @@ combined with a SHA-256 fingerprint of the session + workspace, so:
 
 ### Session memory contract
 
-`memory.md` is bounded continuity for the current Pi session, not the durable Awareness `memory` tool. Its template has `Gotchas`, `Improvements`, `Findings`, `Decisions`, `Handoff`, and `Reflections` sections. Keep at most 10 one-line entries per section, each no longer than 200 characters; the prompt projection is capped at 4 KB.
+`memory.md` is bounded continuity for the current Pi session, not the durable Awareness `memory` tool. Its template has `Gotchas`, `Improvements`, `Findings`, `Decisions`, `Handoff`, and `Reflections` sections. Keep at most 10 non-empty one-line entries total, each no longer than 200 characters, and keep the file within 4,000 UTF-8 bytes. Invalid memory is excluded from prompt and compaction projection and shown as an attention state; an unavailable read is distinct from empty memory.
 
 When research or a subagent returns a key result, the parent first verifies it, then records a concise session-relevant fact under `Findings`. The next turn compares the bounded current bytes with the last delivered version, so changed or cleared notes are surfaced once without repeating unchanged memory. Successful compaction independently validates and rehydrates the current memory owner. The parent also updates the user when a fact changes the hypothesis, plan, risk, or next action. Routine progress stays out of both channels. Raw handbacks and unverified claims are never copied into `memory.md`.
 

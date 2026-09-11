@@ -5,7 +5,7 @@ import { registerAgent } from '../src/agents.js';
 import { attendWorkspace } from '../src/attend-presence.js';
 import { cmdAttend } from '../src/commands/repo.js';
 import { parseArgs } from '../src/command-parser.js';
-import { validateFlagValues } from '../bin/cli-routing.js';
+import { validateFlagValues } from '../src/cli-adapter/cli-routing.js';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });

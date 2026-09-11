@@ -254,6 +254,15 @@ vi.mock('../src/subagents.js', async () => {
         systemPromptPath: '/mock/implementer/SYSTEM_PROMPT.md',
         extraSkillPaths: [],
       },
+      reviewer: {
+        name: 'reviewer',
+        label: 'Reviewer',
+        tools: ['MCPTool', 'skill', 'awareness'],
+        resourceMode: 'octocode',
+        thinking: 'medium',
+        systemPromptPath: '/mock/reviewer/SYSTEM_PROMPT.md',
+        extraSkillPaths: [],
+      },
       'browser-agent': {
         name: 'browser-agent',
         label: 'Browser Agent',
@@ -264,7 +273,7 @@ vi.mock('../src/subagents.js', async () => {
         extraSkillPaths: [],
       },
     },
-    SUBAGENT_NAMES: ['researcher', 'planner', 'architect', 'implementer', 'browser-agent'],
+    SUBAGENT_NAMES: ['researcher', 'planner', 'architect', 'implementer', 'reviewer', 'browser-agent'],
     loadSystemPrompt: vi.fn(() => '# Mock System Prompt'),
     resolveSubagentSkills: vi.fn(() => []),
     getExternalSkillDirs: vi.fn(() => []),
@@ -317,7 +326,7 @@ describe('schema', () => {
     expect(schema.required).toContain('queries');
   });
 
-  function schemaBranches(schema: ToolDefinition['parameters']): Array<{ properties?: Record<string, { const?: string; enum?: string[]; minLength?: number; maxLength?: number }>; required?: string[] }> {
+  function schemaBranches(schema: ToolDefinition['parameters']): Array<{ properties?: Record<string, { const?: string; enum?: string[]; minLength?: number; maxLength?: number; description?: string }>; required?: string[] }> {
     const root = schema as { properties?: { queries?: { minItems?: number; items?: { anyOf?: unknown[]; oneOf?: unknown[] } } } };
     const items = root.properties?.queries?.items;
     return (items?.anyOf ?? items?.oneOf ?? []) as Array<{ properties?: Record<string, { const?: string; enum?: string[]; minLength?: number; maxLength?: number }>; required?: string[] }>;
@@ -350,6 +359,16 @@ describe('schema', () => {
     expect(custom?.required).toEqual(expect.arrayContaining(['goal', 'context', 'scope', 'ownership', 'acceptance', 'returnShape', 'tools', 'systemPrompt']));
   });
 
+  it('marks planStep as optional and exclusive to an existing executing-plan assignment', async () => {
+    const tools = await loadSut();
+    const tool = tools.get('agent')!;
+    const branches = schemaBranches(tool.parameters);
+    const spawns = branches.filter((branch) => branch.properties?.['type']?.enum?.includes('spawn'));
+    expect(spawns.length).toBeGreaterThan(0);
+    expect(spawns.every((branch) => !branch.required?.includes('planStep'))).toBe(true);
+    expect(spawns.every((branch) => /plan task ID.*omit for standalone/is.test(String(branch.properties?.['planStep']?.description)))).toBe(true);
+  });
+
   it('guides the parent through bounded delegation, verification, integration, and continuation', async () => {
     const tools = await loadSut();
     const tool = tools.get('agent')!;
@@ -367,9 +386,9 @@ describe('schema', () => {
     expect([...AGENT_OPERATIONS].sort()).toEqual([...expected].sort());
   });
 
-  it('AGENT_PROFILES covers all six expected profiles', () => {
+  it('AGENT_PROFILES covers all seven expected profiles', () => {
     const expected: AgentProfile[] = [
-      'researcher', 'planner', 'architect', 'implementer', 'browser', 'custom',
+      'researcher', 'planner', 'architect', 'implementer', 'reviewer', 'browser', 'custom',
     ];
     expect([...AGENT_PROFILES].sort()).toEqual([...expected].sort());
   });
@@ -486,6 +505,21 @@ describe('plan worker assignment', () => {
       sharedTaskStatuses: { 'shared-research': 'DONE', 'shared-implement': 'IN_PROGRESS' },
     });
   }
+
+  it('drops an unbound planStep and spawns standalone when no parent plan exists', async () => {
+    const model = assignmentModel();
+    model.phase = 'abandoned';
+    model.tasks = [];
+    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(model);
+    const agentProcess = await import('../src/tools/agents/process.js');
+    const tools = await loadSut();
+    const result = await run(
+      tools.get('agent')!,
+      batch({ type: 'spawn', task: 'Independent architecture review', planStep: 'architecture-review-integration' }),
+    );
+    expect(vi.mocked(agentProcess.spawnRpcAgent).mock.calls[0]![0].planStep).toBeUndefined();
+    expect(result.text).toMatch(/ignored unbound planStep.*standalone subagents do not require a plan/is);
+  });
 
   it('carries the canonical task contract using effective shared status', async () => {
     vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(assignmentModel());

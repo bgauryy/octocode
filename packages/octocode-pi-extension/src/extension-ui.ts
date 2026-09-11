@@ -1,5 +1,8 @@
 import { getPermissionLevel } from './tools/approval.js';
-import { getCachedAwarenessStatus } from './tools/awareness-status.js';
+import {
+  getAwarenessStatusHealth,
+  getCachedAwarenessStatus,
+} from './tools/awareness-status.js';
 import { listVisibleWorkerLedgerEntries } from './tools/agents/ledger.js';
 import { recordSessionTitle } from './tools/desktop-notify.js';
 import { getActiveDialLevel } from './tools/effort-dial.js';
@@ -36,10 +39,10 @@ import {
 } from './tools/plan-read-model.js';
 import type { InlineSegment } from './tui/components.js';
 import { deriveUxSnapshot } from './tools/ux-snapshot.js';
+import { buildFooterDiagnostics } from './tools/footer-diagnostics.js';
 import {
   selectStatusRows,
   type StatusDensity,
-  type StatusDiagnosticV1,
 } from './tui/status-policy.js';
 
 /**
@@ -74,6 +77,7 @@ interface FooterFacts {
   plan: PlanReadModelV1;
   workers: ReturnType<typeof listVisibleWorkerLedgerEntries>;
   awareness: ReturnType<typeof getCachedAwarenessStatus>;
+  awarenessHealth: ReturnType<typeof getAwarenessStatusHealth>;
   permissionLevel: ReturnType<typeof getPermissionLevel>;
   dial: ReturnType<typeof getActiveDialLevel>;
   density: StatusDensity;
@@ -212,96 +216,14 @@ function buildOctocodeFooterLines(
             skills: runtimeState.context.skills,
           },
   });
-  const diagnostics: StatusDiagnosticV1[] = [
-    {
-      id: 'session',
-      priority: 'P4',
-      segments: identity.map((segment, index) => ({
-        ...segment,
-        keepWhole: index > 0 && !segment.text.startsWith('/'),
-      })),
-    },
-    ...(runtimeState.statuses['octocode-event-log']
-      ? [
-          {
-            id: 'event-log',
-            priority: 'P1' as const,
-            segments: [
-              {
-                text: runtimeState.statuses['octocode-event-log']!,
-                token: 'warning' as const,
-                attention: true,
-              },
-              {
-                text: '/octocode-status events',
-                token: 'link' as const,
-                attention: true,
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(state.githubAuth.status === 'missing' ||
-    state.githubAuth.status === 'error'
-      ? [
-          {
-            id: 'github',
-            priority: 'P3' as const,
-            segments: [
-              {
-                text: 'GitHub login required',
-                token: 'warning' as const,
-                attention: true,
-              },
-              {
-                text: '/configuration',
-                token: 'link' as const,
-                attention: true,
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(metrics.length > 0
-      ? [{ id: 'metrics', priority: 'P4' as const, segments: metrics }]
-      : []),
-    ...(cachedAwareness?.verifyTasks
-      ? [
-          {
-            id: 'awareness-checks',
-            priority: 'P1' as const,
-            segments: [
-              {
-                text: `Verify · ${cachedAwareness.verifyTasks} checks pending`,
-                token: 'warning' as const,
-                attention: true,
-              },
-              { text: 'awareness', token: 'link' as const, attention: true },
-            ],
-          },
-        ]
-      : []),
-    ...(runtimeState.statuses['octocode-awareness-events']
-      ? [
-          {
-            id: 'awareness-delivery',
-            priority: 'P2' as const,
-            segments: [
-              {
-                text: runtimeState.statuses['octocode-awareness-events']!,
-                token: 'warning' as const,
-                attention: true,
-              },
-              {
-                text: '/octocode-inbox',
-                token: 'link' as const,
-                attention: true,
-              },
-            ],
-          },
-        ]
-      : []),
-  ];
+  const diagnostics = buildFooterDiagnostics({
+    identity,
+    metrics,
+    statuses: runtimeState.statuses,
+    githubStatus: state.githubAuth.status,
+    awareness: cachedAwareness,
+    awarenessHealth: facts.awarenessHealth,
+  });
   const selected = selectStatusRows(snapshot, {
     width,
     height,
@@ -323,6 +245,7 @@ export function updateOctocodeMetricsUi(
     plan,
     workers,
     awareness: getCachedAwarenessStatus(ctx.cwd ?? process.cwd()),
+    awarenessHealth: getAwarenessStatusHealth(ctx.cwd ?? process.cwd()),
     permissionLevel: getPermissionLevel(ctx),
     dial: getActiveDialLevel(),
     density: statusDensity(),

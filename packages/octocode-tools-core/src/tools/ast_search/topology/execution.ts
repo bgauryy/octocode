@@ -33,8 +33,10 @@ function inferPathIfMissing(
   // discriminated-union variants; cast to a read-only looser type so we can
   // probe them safely without narrowing the union.
   const q = query as { file?: string; target?: string; entrypoints?: string[] };
-  const candidate = q.file ?? q.target ?? q.entrypoints?.[0];
-  if (!candidate || !isAbsolute(candidate)) return query;
+  const candidate = [q.file, q.target, ...(q.entrypoints ?? [])].find(
+    value => value !== undefined && isAbsolute(value)
+  );
+  if (!candidate) return query;
   return {
     ...query,
     path: inferRootFromAbsoluteFile(candidate, query.rustWorkspace),

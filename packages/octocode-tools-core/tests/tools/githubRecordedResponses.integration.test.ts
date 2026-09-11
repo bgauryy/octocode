@@ -33,10 +33,7 @@ import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
 import { cleanup, initialize } from '../../src/serverConfig.js';
 import { fetchMultipleGitHubFileContents } from '../../src/tools/github_fetch_content/execution.js';
 import { executeGitHubSearch } from '../../src/tools/github_search/execution.js';
-import { searchMultipleGitHubCode } from '../../src/tools/github_search_code/execution.js';
 import { searchMultipleGitHubHistory } from '../../src/tools/github_search_pull_requests/historyExecutions.js';
-import { searchMultipleGitHubRepos } from '../../src/tools/github_search_repos/execution.js';
-import { exploreMultipleRepositoryStructures } from '../../src/tools/github_view_repo_structure/execution.js';
 
 const pagination = {
   currentPage: 1,
@@ -222,15 +219,6 @@ describe('recorded authenticated GitHub response smokes', () => {
     expect(unifiedRows?.every(row => row.status !== 'error')).toBe(true);
 
     const runs = await Promise.all([
-      searchMultipleGitHubCode({
-        queries: [
-          {
-            owner: 'recorded',
-            repo: 'fixture',
-            keywords: ['needle'],
-          },
-        ],
-      }),
       fetchMultipleGitHubFileContents({
         queries: [
           prepared('ghGetFileContent', {
@@ -242,9 +230,6 @@ describe('recorded authenticated GitHub response smokes', () => {
           }),
         ],
       }),
-      searchMultipleGitHubRepos({
-        queries: [{ keywords: ['fixture'] }],
-      }),
       searchMultipleGitHubHistory({
         queries: [
           prepared('ghSearchHistory', {
@@ -255,19 +240,9 @@ describe('recorded authenticated GitHub response smokes', () => {
           }),
         ],
       }),
-      exploreMultipleRepositoryStructures({
-        queries: [
-          {
-            owner: 'recorded',
-            repo: 'fixture',
-            path: 'src',
-            branch: 'main',
-          },
-        ],
-      }),
     ]);
 
-    const labels = ['code', 'content', 'repos', 'pullRequests', 'structure'];
+    const labels = ['content', 'pullRequests'];
     for (const [index, run] of runs.entries()) {
       const row = firstRow(labels[index] ?? String(index), run);
       expect(row.status).not.toBe('error');

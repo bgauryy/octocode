@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { getOctocodeHome } from '@octocodeai/config';
@@ -7,9 +6,30 @@ import { extensionHome } from '../../extension-paths.js';
 import { atomicWriteUtf8 } from '../file-state.js';
 import { escapePromptMetadata } from '../prompt-safety.js';
 import { renderMcpRoutingIndex as renderMcpCatalogIndex } from './catalog-pages.js';
+import {
+  MCP_CATALOG_SNAPSHOT_VERSION,
+  isRecord,
+  sha256,
+  stableJson,
+  stableSchemaDigest,
+  type BuildMcpCatalogSnapshotOptions,
+  type McpCatalogServerSnapshot,
+  type McpCatalogSnapshotV1,
+  type McpCatalogSourceIdentity,
+  type McpCatalogToolSnapshot,
+} from './catalog-model.js';
 export { renderMcpCatalogIndex };
+export { MCP_CATALOG_SNAPSHOT_VERSION, stableJson, stableSchemaDigest } from './catalog-model.js';
+export type {
+  BuildMcpCatalogSnapshotOptions,
+  McpCatalogServerInput,
+  McpCatalogServerSnapshot,
+  McpCatalogSnapshotV1,
+  McpCatalogSourceIdentity,
+  McpCatalogToolInput,
+  McpCatalogToolSnapshot,
+} from './catalog-model.js';
 
-export const MCP_CATALOG_SNAPSHOT_VERSION = 1 as const;
 const DEFAULT_SERVER_NAME = 'octocode';
 const MAX_SNAPSHOT_CHARS = 16 * 1024 * 1024;
 const MAX_SCHEMA_CHARS = 512 * 1024;
@@ -25,91 +45,12 @@ const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const KEY_PATTERN = /^[a-f0-9]{32}$/;
 
-export interface McpCatalogSourceIdentity {
-  scope: string;
-  path: string;
-}
-
-export interface McpCatalogToolSnapshot {
-  name: string;
-  description?: string;
-  inputSchema: unknown;
-  schemaDigest: string;
-}
-
-export interface McpCatalogServerSnapshot {
-  name: string;
-  configSignature: string;
-  instructions?: string;
-  tools: McpCatalogToolSnapshot[];
-}
-
-export interface McpCatalogSnapshotV1 {
-  version: typeof MCP_CATALOG_SNAPSHOT_VERSION;
-  workspaceKey: string;
-  capturedAt: string;
-  configDigest: string;
-  servers: McpCatalogServerSnapshot[];
-}
-
-export interface McpCatalogToolInput {
-  name: string;
-  description?: string;
-  inputSchema: unknown;
-}
-
-export interface McpCatalogServerInput {
-  name: string;
-  instructions?: string;
-  tools: McpCatalogToolInput[];
-}
-
-export interface BuildMcpCatalogSnapshotOptions {
-  cwd: string;
-  sources: McpCatalogSourceIdentity[];
-  configSignatures: Record<string, string>;
-  servers: McpCatalogServerInput[];
-  capturedAt?: string;
-}
-
 export interface McpCatalogMeasurement {
   eagerChars: number;
   indexChars: number;
   instructionDescriptionChars: number;
   schemaChars: number;
   reductionRatio: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
-
-function canonicalize(value: unknown, seen: Set<object>): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (Array.isArray(value)) return value.map((item) => canonicalize(item, seen));
-  if (!isRecord(value)) return null;
-  if (seen.has(value)) throw new Error('MCP schema must not contain cycles');
-  seen.add(value);
-  const normalized: Record<string, unknown> = {};
-  for (const key of Object.keys(value).sort()) {
-    const item = value[key];
-    if (item !== undefined) normalized[key] = canonicalize(item, seen);
-  }
-  seen.delete(value);
-  return normalized;
-}
-
-export function stableJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value, new Set()));
-}
-
-export function stableSchemaDigest(schema: unknown): string {
-  return sha256(stableJson(schema));
 }
 
 /**

@@ -30,4 +30,4 @@ Delete a redundant test when equivalent behavior and regression cases remain cov
 
 Do not relax acceptance or widen a mock to make a deletion look safe.
 
-Next: for the queries that find these, load `references/octocode.md`; for replacements, load `references/test-quality.md`; to run the batch, load `references/cleanup-playbook.md`.
+Next: for the queries that find these, use the symbol-evidence route in `SKILL.md`; for replacements, load `references/test-quality.md`; to run the batch, load `references/cleanup-playbook.md`.

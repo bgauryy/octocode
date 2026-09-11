@@ -1,13 +1,19 @@
 import { mcpGatewayItemSchema } from './mcp/gateway-contract.js';
+import { McpCatalogExecution } from './mcp/catalog-execution.js';
 import { computeReload, createCatalogRefreshQueue } from './mcp/catalog-refresh.js';
 export { computeReload } from './mcp/catalog-refresh.js';
-import { summarizeSchema, formatMcpSchemaValidationErrors } from './mcp/presentation.js';
+import {
+  formatMcpSchemaValidationErrors,
+  renderMcpCall,
+  renderMcpResult,
+  summarizeMcpBatchResult,
+  summarizeSchema,
+} from './mcp/presentation.js';
 export { formatMcpSchemaValidationErrors };
 import { isWorkerCapabilityClient, dispatchWorkerMcpAction, getCurrentWorkerCapabilities } from './worker-capabilities.js';
 import { readMcpCatalogPage } from './mcp/catalog-pages.js';
 import { workerMcpCatalogSnapshot } from './mcp/worker-catalog.js';
 import { DIRECT_TOOL_DESCRIPTIONS, MCP_SCHEMA_DISCOVERY_EXAMPLE } from './octocode-tools.js';
-import { truncateToWidth } from '../tui/width.js';
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,9 +35,6 @@ import type {
   NotifyFn,
   PiContext,
   PiInstance,
-  PiTheme,
-  RenderCallReturn,
-  RenderContext,
   ToolCallResult,
   ToolDefinition,
 } from "../types.js";
@@ -72,7 +75,6 @@ import {
   setManagedStatus,
 } from "./runtime-renderer.js";
 import { recordFileReadState } from "./file-state.js";
-import { buildOctocodeSingleRenderCall, buildOctocodeRenderCall, buildOctocodeRenderResult, buildToolView, extractQueryResultRows, makeCachedRenderer, makeComponentRenderer } from './render-helpers.js';
 import {
   buildMcpCatalogSnapshot,
   buildMcpGuideGenerationPrompt,
@@ -126,7 +128,7 @@ const pendingConnections = new Map<string, Promise<McpConnection>>();
 const cachedCatalogs = new Map<string, ListedMcpServer[]>();
 const cachedSnapshots = new Map<string, McpCatalogSnapshotV1>();
 const cachedCatalogGuides = new Map<string, string>();
-const schemaFreshServers = new Set<string>();
+const schemaCatalogs = new McpCatalogExecution<ListedMcpServer>();
 const compiledValidators = new Map<string, McpCompiledSchemaValidator>();
 const mcpSchemaMetrics = {
   snapshotHits: 0,
@@ -548,7 +550,7 @@ export function stopAllMcpServers(): number {
   cachedCatalogs.clear();
   cachedSnapshots.clear();
   cachedCatalogGuides.clear();
-  schemaFreshServers.clear();
+  schemaCatalogs.clear();
   compiledValidators.clear();
   return names.length;
 }
@@ -846,10 +848,7 @@ function invalidateCwdCache(ctx?: PiContext): void {
   cachedCatalogs.delete(key);
   cachedSnapshots.delete(key);
   cachedCatalogGuides.delete(key);
-  for (const freshnessKey of [...schemaFreshServers]) {
-    if (freshnessKey.startsWith(`${key}\0`))
-      schemaFreshServers.delete(freshnessKey);
-  }
+  schemaCatalogs.invalidateWorkspace(key);
   compiledValidators.clear();
 }
 
@@ -870,10 +869,7 @@ function invalidateServerCache(name: string): void {
       else cachedCatalogs.set(key, next);
     }
   }
-  for (const freshnessKey of [...schemaFreshServers]) {
-    if (freshnessKey.includes(`\0${name}\0`))
-      schemaFreshServers.delete(freshnessKey);
-  }
+  schemaCatalogs.invalidateServer(name);
   compiledValidators.clear();
 }
 
@@ -1515,7 +1511,7 @@ export const __test__ = {
     cachedCatalogs.clear();
     cachedSnapshots.clear();
     cachedCatalogGuides.clear();
-    schemaFreshServers.clear();
+    schemaCatalogs.clear();
     compiledValidators.clear();
     mcpSchemaMetrics.snapshotHits = 0;
     mcpSchemaMetrics.snapshotMisses = 0;
@@ -1666,14 +1662,6 @@ async function listServerTools(
 }
 
 
-function schemaFreshServerKey(
-  ctx: PiContext | undefined,
-  server: string,
-  signature: string,
-): string {
-  return `${cacheKey(ctx)}\0${server}\0${signature}`;
-}
-
 async function ensureCurrentServerCatalog(
   server: string,
   loaded: McpLoadedConfig,
@@ -1683,17 +1671,20 @@ async function ensureCurrentServerCatalog(
   const config = loaded.servers.get(server);
   if (!config) return undefined;
   const signature = configSignature(normalizeServerConfig(server, config));
-  const freshnessKey = schemaFreshServerKey(ctx, server, signature);
+  const identity = { workspace: cacheKey(ctx), server, signature };
   const cached = cachedCatalogs
     .get(cacheKey(ctx))
     ?.find(
       (entry) => entry.name === server && entry.configSignature === signature,
     );
-  if (cached && schemaFreshServers.has(freshnessKey)) return cached;
-  const listed = await listServerTools(server, config, ctx, signal);
-  cacheListedCatalog(ctx, [listed], { loaded, updatePromptSnapshot: false });
-  schemaFreshServers.add(freshnessKey);
-  return listed;
+  if (cached && schemaCatalogs.isFresh(identity)) return cached;
+  return schemaCatalogs.resolve(
+    identity,
+    () => listServerTools(server, config, ctx, signal),
+    (listed) => {
+      cacheListedCatalog(ctx, [listed], { loaded, updatePromptSnapshot: false });
+    },
+  );
 }
 
 function validatorForSchema(
@@ -2084,15 +2075,16 @@ export async function handleMcpAction(
   if (action === "describe") {
     if (loaded.servers.size === 0)
       return result(formatConfig(loaded, ctx?.cwd ?? process.cwd()));
-    const names = [serverName!];
-    const listed: ListedMcpServer[] = [];
-    for (const name of names)
-      listed.push(
-        await listServerTools(name, loaded.servers.get(name)!, ctx, signal),
-      );
     const toolName =
       typeof params["tool"] === "string" ? params["tool"] : undefined;
-    const server = listed[0]!;
+    const server = await ensureCurrentServerCatalog(
+      serverName!,
+      loaded,
+      ctx,
+      signal,
+    );
+    if (!server)
+      return result(`Unknown MCP server: ${serverName}`, undefined, true);
     const tool = server.tools.find(
       (candidate) => isPlainRecord(candidate) && candidate["name"] === toolName,
     );
@@ -2102,7 +2094,6 @@ export async function handleMcpAction(
         { server, warnings: loaded.warnings },
         true,
       );
-    cacheListedCatalog(ctx, listed, { loaded, updatePromptSnapshot: false });
     return result(
       stringify({
         server: server.name,
@@ -2306,181 +2297,6 @@ export async function handleMcpAction(
   return result(`Unknown MCP action: ${action}`, undefined, true);
 }
 
-function formatMcpTarget(args: unknown): { action: string; target: string } {
-  const p = isPlainRecord(args) ? args : {};
-  const action = String(p["action"] ?? "operation");
-  const target =
-    [p["server"], p["tool"]].filter(Boolean).join("/") || "configured servers";
-  return { action, target };
-}
-
-function clip(text: string, width: number): string {
-  const clean = text.replace(/\s+/g, " ").trim();
-  // Cell-width aware: a code-unit slice miscounts CJK/emoji and can hand pi a
-  // line wider than the terminal.
-  return truncateToWidth(clean, width);
-}
-
-/** Extract effective per-action params from a single-query envelope. */
-function extractQueryParams(args: unknown): Record<string, unknown> {
-  const envelope = isPlainRecord(args) ? args : {};
-  const queries = Array.isArray(envelope["queries"])
-    ? envelope["queries"]
-    : null;
-  if (queries && queries.length === 1 && isPlainRecord(queries[0])) {
-    return queries[0] as Record<string, unknown>;
-  }
-  return {};
-}
-
-function renderCall(args: unknown, theme?: PiTheme): RenderCallReturn {
-  const p = extractQueryParams(args);
-  const server =
-    typeof p["server"] === "string"
-      ? p["server"]
-      : DEFAULT_OCTOCODE_MCP_SERVER_NAME;
-  if (p["action"] === "call" && typeof p["tool"] === "string") {
-    const displayName =
-      server === DEFAULT_OCTOCODE_MCP_SERVER_NAME
-        ? p["tool"]
-        : `${server}.${p["tool"]}`;
-    // When the inner arguments carry multiple sub-queries (e.g. localFetch
-    // reading a.ts AND b.ts) expand them fully so each path + reason is visible.
-    // For a single inner sub-query, the outer buildQueryCallBlocks already appends
-    // the MCPTool query’s reasoning as an indented line; calling buildOctocodeRenderCall
-    // here would add the inner sub-query reason too, producing two redundant lines.
-    const innerEnvelope = isPlainRecord(p["arguments"])
-      ? (p["arguments"] as Record<string, unknown>)
-      : {};
-    const innerQueryCount = Array.isArray(innerEnvelope["queries"])
-      ? innerEnvelope["queries"].length
-      : 0;
-    if (innerQueryCount > 1) {
-      return buildOctocodeRenderCall(displayName, p["arguments"], theme);
-    }
-    return buildOctocodeSingleRenderCall(displayName, p["arguments"], theme);
-  }
-
-  const { action, target } = formatMcpTarget(p);
-  return makeComponentRenderer((_props, { width: width }) => {
-    const line = `mcp ${action} · ${target}`;
-    return [theme?.fg ? theme.fg("dim", clip(line, width)) : clip(line, width)];
-  }, undefined);
-}
-
-function renderResult(
-  resultValue: ToolCallResult,
-  opts: { expanded?: boolean; isPartial?: boolean },
-  theme?: PiTheme,
-  context?: RenderContext,
-): RenderCallReturn {
-  // ── Multi-query: one result row per called tool, no redundant batch header ──
-  // The call-phase already shows `↳ N queries · sequential`; repeating `MCPTool
-  // · N queries · sequential` in the result duplicates it. Instead render each
-  // row with the actual called tool name so the user sees what ran and what it
-  // returned (e.g. ✓ localSearch · 22 matches · 1 file) not a generic label.
-  const envelope = isPlainRecord(context?.args)
-    ? (context!.args as Record<string, unknown>)
-    : {};
-  const queryList = Array.isArray(envelope["queries"])
-    ? (envelope["queries"] as Record<string, unknown>[])
-    : [];
-  if (queryList.length > 1) {
-    const rows = extractQueryResultRows(resultValue);
-    if (rows.length > 1) {
-      return makeCachedRenderer((width) =>
-        rows.flatMap((row) => {
-          const query = queryList[row.index] ?? {};
-          const qServer =
-            typeof query["server"] === "string"
-              ? query["server"]
-              : DEFAULT_OCTOCODE_MCP_SERVER_NAME;
-          const toolName =
-            query["action"] === "call" && typeof query["tool"] === "string"
-              ? qServer === DEFAULT_OCTOCODE_MCP_SERVER_NAME
-                ? (query["tool"] as string)
-                : `${qServer}.${query["tool"] as string}`
-              : "MCPTool";
-          return buildToolView(
-            {
-              name: toolName,
-              state:
-                row.status === "success"
-                  ? "success"
-                  : row.status === "failed"
-                    ? "error"
-                    : "neutral",
-              segments: row.summary
-                ? [
-                    {
-                      text: row.summary,
-                      token: row.status === "success" ? "dim" : "error",
-                    },
-                  ]
-                : [],
-            },
-            theme,
-          ).render(width);
-        }),
-      );
-    }
-  }
-
-  // ── Single-query: delegate to per-tool or MCP-action renderers ──
-  const args = extractQueryParams(context?.args);
-  const server =
-    typeof args["server"] === "string"
-      ? args["server"]
-      : DEFAULT_OCTOCODE_MCP_SERVER_NAME;
-  if (
-    args["action"] === "call" &&
-    server === DEFAULT_OCTOCODE_MCP_SERVER_NAME &&
-    typeof args["tool"] === "string"
-  ) {
-    return buildOctocodeRenderResult(
-      args["tool"],
-      resultValue,
-      opts,
-      theme,
-      context,
-    );
-  }
-
-  const { action, target } = formatMcpTarget(args);
-  // In-flight (streaming, or the stdio server still spawning): show a running
-  // row instead of fabricating a completed "MCP result" line.
-  if (opts.isPartial) {
-    return makeComponentRenderer((_props, { width: width }) => {
-      const line = `mcp ${action} · ${target} · running…`;
-      // In-flight is not an alert: gold (warning) is reserved for act-on-me. Use
-      // the identity/in-flight brand color like other running rows.
-      return [
-        theme?.fg ? theme.fg("accent", clip(line, width)) : clip(line, width),
-      ];
-    }, undefined);
-  }
-  const lines = (resultValue.content[0] as { text?: string } | undefined)?.text
-    ?.split("\n")
-    .filter(Boolean) ?? ["MCP result"];
-  const head = lines[0] ?? "MCP result";
-  const second = lines.find((line) => /^[-•]\s+|\w+:\s/.test(line));
-  // Pi ignores the returned isError; context.isError is the reliable flag.
-  const isError = Boolean(resultValue.isError) || Boolean(context?.isError);
-  const prefix = isError ? "mcp error" : `mcp ${action}`;
-  return makeComponentRenderer((_props, { width: width }) => {
-    const color = isError ? "error" : "dim";
-    const rendered = [`${prefix} · ${target} · ${head}`];
-    if (second && second !== head) rendered.push(`  ${second}`);
-    return rendered.map((line) =>
-      theme?.fg ? theme.fg(color, clip(line, width)) : clip(line, width),
-    );
-  }, undefined);
-}
-// Opt out of the branded multi-query override: this renderResult handles multi-query
-// rows itself (with per-row actual tool names), so the branded wrapper must not
-// intercept and replace them with the generic MCPTool label.
-(renderResult as { multiQueryAware?: boolean }).multiQueryAware = true;
-
 export function registerMcpTool(
   pi: PiInstance,
   registeredToolNames: Set<string>,
@@ -2551,78 +2367,7 @@ export function registerMcpTool(
         ) {
           return handleMcpAction(query, batchSignal, itemCtx);
         },
-        // Prefer a useful stat line over structural YAML headers in result rows.
-        summarize(result: ToolCallResult): string {
-          const detailSummary =
-            isPlainRecord(result.details) &&
-            typeof result.details["summary"] === "string"
-              ? result.details["summary"]
-              : undefined;
-          if (detailSummary) return detailSummary;
-          if (result.isError) {
-            const errText =
-              (
-                result.content as Array<{ type: string; text?: string }>
-              )?.find?.((p) => p?.type === "text")?.text ?? "";
-            return (
-              errText
-                .split("\n")
-                .map((l) => l.trim())
-                .filter(Boolean)
-                .at(-1) ?? "failed"
-            );
-          }
-          const text =
-            (result.content as Array<{ type: string; text?: string }>)?.find?.(
-              (p) => p?.type === "text",
-            )?.text ?? "";
-          const trimmed = text
-            .split("\n")
-            .map((l) => l.trim())
-            .filter(Boolean);
-          // Build a key→value index; first-seen wins (shallowest YAML scope)
-          const kv: Record<string, string> = {};
-          for (const line of trimmed) {
-            const colon = line.indexOf(":");
-            if (colon > 0) {
-              const k = line.slice(0, colon).trim();
-              const v = line.slice(colon + 1).trim();
-              if (v && !kv[k]) kv[k] = v;
-            }
-          }
-          // Self-describing summary (localSearch tree: "N entries (M files, …)")
-          if (kv["summary"]) return kv["summary"];
-          // Code search stats
-          const parts: string[] = [];
-          if (kv["totalOccurrences"])
-            parts.push(`${kv["totalOccurrences"]} matches`);
-          if (
-            kv["filesMatched"] &&
-            kv["filesMatched"] !== kv["totalOccurrences"]
-          )
-            parts.push(
-              `${kv["filesMatched"]} file${kv["filesMatched"] === "1" ? "" : "s"}`,
-            );
-          if (parts.length > 0) return parts.join(" · ");
-          // File-content stats
-          if (kv["returnedChars"] && kv["totalLines"])
-            return `${kv["returnedChars"]} chars · ${kv["totalLines"]} lines`;
-          if (kv["totalLines"]) return `${kv["totalLines"]} lines`;
-          if (kv["returnedChars"]) return `${kv["returnedChars"]} chars`;
-          if (kv["totalEntries"]) return `${kv["totalEntries"]} entries`;
-          // Fallback: first line that carries real content (skip structural YAML keys)
-          const SKIP =
-            /^(results|base|pagination|data|stats|files|next|hints|shared|status|path|result|id|meta|reasoning|text|content|modified|fileType|name|capped|searchTime|searchEngine|matchedLines|filesSearched|bytesSearched|totalFiles|totalMatches|totalMatchRows|returnedMatchRows)$/i;
-          const meaningful = trimmed.find(
-            (l) =>
-              !SKIP.test((l.split(":")[0] ?? "").trim()) &&
-              !l.startsWith("-") &&
-              !l.startsWith("✓") &&
-              !l.startsWith("✗") &&
-              l.length > 2,
-          );
-          return meaningful ?? trimmed[0] ?? "ok";
-        },
+        summarize: summarizeMcpBatchResult,
       });
       if (isWorkerCapabilityClient() && output.isError) throw new Error(output.content.filter(part => part.type === 'text').map(part => part.text).join('\n'));
       return output;
@@ -2649,8 +2394,8 @@ export function registerMcpTool(
     ],
     parameters,
     execute,
-    renderCall,
-    renderResult,
+    renderCall: renderMcpCall,
+    renderResult: renderMcpResult,
   } satisfies Omit<ToolDefinition, "name">;
 
   registerFn(pi, registeredToolNames, { name: "MCPTool", ...common });

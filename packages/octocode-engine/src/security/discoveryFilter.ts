@@ -1,13 +1,11 @@
+import { SENSITIVE_DIRECTORY_NAMES } from './sensitiveDirectories.js';
+
 // Discovery pruning lists: skip these dirs/files/extensions during tree walks.
-// SYNC NOTE: pathPatterns.ts:IGNORED_PATH_PATTERNS and
-// filePatterns.ts:IGNORED_FILE_PATTERNS overlap these lists (e.g. .git, .aws,
-// .ssh, .docker, .kube, id_rsa, .pem, .key). The two systems have different
-// roles — pathPatterns/filePatterns block *access* (read-time check);
-// discoveryFilter blocks *visibility* (tree-walk pruning). Both must be kept
-// in sync so that adding a sensitive path/file to one is reflected in the other.
+// Sensitive directory names share their source with access-time blocking;
+// remaining entries are discovery noise that stays readable by exact path.
 export const DISCOVERY_IGNORED_FOLDER_NAMES = [
+  ...SENSITIVE_DIRECTORY_NAMES,
   '.github',
-  '.git',
   '.vscode',
   '.devcontainer',
   '.config',
@@ -67,11 +65,7 @@ export const DISCOVERY_IGNORED_FOLDER_NAMES = [
   '.byebug_history',
   '.rspec_status',
   '.mvn',
-  '.aws',
   '.gcp',
-  '.ssh',
-  '.kube',
-  '.docker',
   'fastlane',
   'DerivedData',
   'xcuserdata',

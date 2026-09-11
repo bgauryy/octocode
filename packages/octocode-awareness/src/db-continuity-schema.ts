@@ -1,3 +1,33 @@
+/** Exact predecessor retained only for fingerprinted in-place upgrades. */
+export const EVENT_OUTBOX_V1_DDL = `
+      CREATE TABLE IF NOT EXISTS event_outbox (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        workspace_path TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        aggregate_kind TEXT,
+        aggregate_id TEXT,
+        aggregate_revision TEXT,
+        actor_json TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        session_id TEXT,
+        correlation_id TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT
+      );
+`;
+
+export const EVENT_OUTBOX_V1_INDEX_DDL = `
+  CREATE INDEX IF NOT EXISTS idx_event_outbox_workspace_sequence ON event_outbox(workspace_path, sequence);
+  CREATE INDEX IF NOT EXISTS idx_event_outbox_aggregate ON event_outbox(workspace_path, aggregate_kind, aggregate_id, sequence);
+`;
+
+export const EVENT_OUTBOX_TYPED_INDEX_DDL = `
+  CREATE INDEX IF NOT EXISTS idx_event_outbox_retention_sequence ON event_outbox(workspace_path, retention_class, sequence);
+  CREATE INDEX IF NOT EXISTS idx_event_outbox_type_sequence ON event_outbox(workspace_path, event_type, sequence);
+`;
+
 /** Durable communication, handoff, and authorization records in the canonical store. */
 export const CONTINUITY_SCHEMA_DDL = `
       CREATE TABLE IF NOT EXISTS handoffs (
@@ -24,7 +54,10 @@ export const CONTINUITY_SCHEMA_DDL = `
         session_id TEXT,
         correlation_id TEXT,
         created_at TEXT NOT NULL,
-        expires_at TEXT
+        expires_at TEXT,
+        schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version > 0),
+        retention_class TEXT NOT NULL DEFAULT 'delivery'
+          CHECK(retention_class IN ('delivery', 'operational', 'audit'))
       );
 
       CREATE TABLE IF NOT EXISTS event_consumers (

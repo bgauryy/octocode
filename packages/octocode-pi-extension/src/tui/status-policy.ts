@@ -3,6 +3,7 @@ import { formatCompact, formatDurationShort } from '../ui-extras.js';
 import type { UxPriority, UxSnapshotV1 } from '../tools/ux-snapshot.js';
 import { truncateToWidth } from './width.js';
 import { recentAgentOutcomeCandidates } from './status-agent-outcomes.js';
+import { backgroundCandidates, type StatusCandidate } from './status-background.js';
 
 export type StatusDensity = 'automatic' | 'compact' | 'expanded';
 
@@ -26,13 +27,7 @@ export interface StatusSelectionV1 {
   omitted: number;
   detailRoutes: string[];
 }
-interface Candidate {
-  id: string;
-  priority: UxPriority;
-  order: number;
-  segments: InlineSegment[];
-  detailRoute?: string;
-}
+type Candidate = StatusCandidate;
 const PRIORITY_ORDER: Record<UxPriority, number> = {
   P0: 0,
   P1: 1,
@@ -149,10 +144,11 @@ function attentionCandidates(snapshot: UxSnapshotV1): Candidate[] {
         item.kind === 'authorization' ||
         item.kind === 'runtime_failed' ||
         item.kind === 'plan_blocked' ||
+        item.kind === 'background_failed' ||
         item.kind === 'stale_source'
     )
     .map(item => ({
-      id: `attention:${item.id}`,
+      id: item.kind === 'background_failed' ? item.id : `attention:${item.id}`,
       priority: item.priority,
       order: -item.createdAt,
       segments: [
@@ -273,6 +269,7 @@ function candidates(
       detailRoute: 'plan',
     });
   result.push(...agentCandidates(snapshot, width));
+  result.push(...backgroundCandidates(snapshot));
   if (snapshot.messages.unread + snapshot.messages.queued > 0)
     result.push({
       id: 'messages:summary',

@@ -10,6 +10,7 @@ The extension exposes one model-callable `agent` facade for spawning workers and
 | `planner` | `web`, `MCPTool`, `file`, `skill`, `awareness`, `bash`, enabled skills | typed Octocode | Dependency-ordered plans, risks, verification strategy, and RFC handoffs. |
 | `architect` | `bash`, `web`, `MCPTool`, `file`, `skill`, `awareness`, enabled skills | typed Octocode | Root-cause and architecture analysis with targeted debug or test loops. |
 | `implementer` | `bash`, `MCPTool`, `file`, `skill`, `awareness`, enabled skills | typed Octocode | One bounded source change under exclusive ownership, with an observed acceptance check. |
+| `reviewer` | `MCPTool`, `skill`, `awareness`, enabled skills | typed Octocode | Read-only verification of acceptance criteria with a PASS, WARN, or FAIL verdict. |
 | `browser` | `chromeDebug`, `MCPTool`, `skill`, `awareness`, `bash`, enabled skills | typed Octocode | Multi-turn security, network, DOM, coverage, worker, or emulation workflows. |
 | `custom` | caller-selected least-capability tools and explicit role prompt | explicit | A role not covered above; never an implicit catch-all. |
 
@@ -17,13 +18,19 @@ Typed profiles use packaged prompts and role-bounded tool sets. `custom` require
 
 Workers never receive the `agent` facade, and worker-process registration omits the tool and skill smith surfaces, so workers can't spawn sub-workers recursively. A spawn returns an `agentId`; use it in a later lifecycle query. Spawn queries and lifecycle queries with explicit IDs can't share a batch because generated IDs aren't available during preflight.
 
+Use `cohortId` to group workers that contribute to the same bounded outcome. An `inspect`
+result includes attention-first cohort counts without copying task text or worker output.
+At 80% of the configured step budget, the worker status warns that wrap-up should begin.
+At the hard budget, it requests an explicit partial handback with evidence, verification,
+confidence, and a next action instead of implying completion.
+
 ## Delegate a plan task
 
 Isolated delegation needs no plan. Use plan tracking only for complex dependencies,
 coordinated ownership, consequential risk, substantial work spanning sessions, or
 an explicit planning request.
 
-For work tracked by the parent plan, pass `planStep` with the exact stable task ID from the `Task IDs for agent.planStep` line in a `plan` result. The active plan context also includes `task-id` values. Display indices and task labels aren't valid `planStep` values. Omit `planStep` for independent work that has no parent plan assignment.
+For independent work, omit `planStep`. For work tracked by the parent plan, pass `planStep` with the exact stable task ID from the `Task IDs for agent.planStep` line in a `plan` result. The active plan context also includes `task-id` values. Display indices and task labels aren't valid `planStep` values.
 
 1. Start the reviewed revision and each runnable task you intend to delegate. The one Start decision authorizes the displayed revision and begins execution atomically. Independent tasks can run in parallel after their dependencies finish.
 2. Call `plan` with `action:"show"` and copy the task's stable ID.
@@ -49,6 +56,11 @@ The `agent` query `type` selects an operation:
 | `kill` | Terminate the process and optionally remove its record. |
 
 Worker-to-parent results are pull-based: inspect or wait for `[DONE]`, `[BLOCKED]`, or `[FAILED]` markers. Workers can't steer, abort, or kill each other. Kill a worker after collecting its final receipt unless another turn is planned; idle workers still hold a process until killed or session shutdown.
+
+For consequential work, spawn `profile:"reviewer"` after the implementation evidence is
+available. The reviewer has no `file`, `bash`, or browser-control capability and returns
+one advisory PASS, WARN, or FAIL verdict. It cannot edit the workspace or complete the
+parent plan.
 
 The `wait` operation's `timeoutMs` sets a silence window. An active worker can keep the wait open beyond that window; a quiet worker can return a status snapshot before its turn finishes. Check the returned status before treating the result as complete.
 

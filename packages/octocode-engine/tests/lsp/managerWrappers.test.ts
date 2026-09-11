@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 async function withMockedManager(
-  run: (mocks: { client: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> } }) => Promise<void>,
+  run: (mocks: {
+    client: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> };
+  }) => Promise<void>,
   options: { startError?: Error } = {}
 ) {
   vi.resetModules();
@@ -27,12 +29,10 @@ async function withMockedManager(
   };
   vi.doMock('../../src/lsp/config.js', () => ({
     getLanguageServerForFile: vi.fn(buildConfig),
-    resolveServerForFile: vi.fn(
-      (filePath: string, workspaceRoot: string) => {
-        const config = buildConfig(filePath, workspaceRoot);
-        return config ? { config, source: 'path' } : null;
-      }
-    ),
+    resolveServerForFile: vi.fn((filePath: string, workspaceRoot: string) => {
+      const config = buildConfig(filePath, workspaceRoot);
+      return config ? { config, source: 'path' } : null;
+    }),
   }));
   vi.doMock('../../src/lsp/native.js', () => ({
     nativeBinding: {
@@ -89,7 +89,10 @@ describe('manager wrapper flow', () => {
       const manager = await import('../../src/lsp/manager.js');
 
       await expect(
-        manager.acquirePooledClientDetailed('/workspace', '/workspace/a.missing')
+        manager.acquirePooledClientDetailed(
+          '/workspace',
+          '/workspace/a.missing'
+        )
       ).resolves.toMatchObject({ ok: false, kind: 'unavailable' });
       await expect(
         manager.acquirePooledClient('/workspace', '/workspace/a.missing')
@@ -134,6 +137,17 @@ describe('manager wrapper flow', () => {
       expect(manager.parsePoolIdleTimeoutMs('garbage')).toBe(60_000);
       expect(manager.parsePoolIdleTimeoutMs('0')).toBe(60_000);
       expect(manager.parsePoolIdleTimeoutMs('2500')).toBe(2_500);
+    });
+  });
+
+  it('parses and bounds the LSP pool capacity', async () => {
+    await withMockedManager(async () => {
+      const manager = await import('../../src/lsp/manager.js');
+
+      expect(manager.parsePoolMaxEntries('garbage')).toBe(4);
+      expect(manager.parsePoolMaxEntries('0')).toBe(4);
+      expect(manager.parsePoolMaxEntries('8')).toBe(8);
+      expect(manager.parsePoolMaxEntries('100')).toBe(32);
     });
   });
 });

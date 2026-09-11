@@ -49,13 +49,14 @@ describe('SKILL.md hook frontmatter', () => {
     expect(fm).not.toContain('scripts/hooks/harness-guard.sh');
   });
 
-  it('registers message delivery and session departure without write matchers', () => {
+  it('registers message-boundary delivery and session departure without per-tool hooks', () => {
     const fm = frontmatter(SKILL_MD);
     expect(fm).not.toContain('PreCompact:');
     expect(fm).not.toContain('PostCompact:');
     expect(fm).not.toContain('matcher:');
-    expect(fm).toContain('PostToolUseFailure:');
-    expect(fm).toContain('scripts/hooks/post-edit.sh');
+    expect(fm).not.toContain('PostToolUse:');
+    expect(fm).not.toContain('PostToolUseFailure:');
+    expect(fm).not.toContain('scripts/hooks/post-edit.sh');
     expect(fm).toContain('SubagentStart:');
     expect(fm).toContain('UserPromptSubmit:');
     expect(fm).toContain('Notification:');

@@ -10,6 +10,7 @@ const candidates = [
     ? [resolve(here, '..', '..')] : []),
   join(here, 'skills'),
   resolve(here, '..', 'skills'),
+  resolve(here, '..', '..', 'skills'),
   ...(process.env.OCTOCODE_SKILL_ROOT ? [resolve(process.env.OCTOCODE_SKILL_ROOT, '..')] : []),
 ];
 export const BUNDLED_SKILLS_DIR = candidates.find(candidate =>

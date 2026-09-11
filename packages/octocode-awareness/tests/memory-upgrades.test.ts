@@ -4,7 +4,6 @@ import { initDb } from '../src/db-init.js';
 import { insertMemory } from '../src/memory-write.js';
 import { getMemory } from '../src/memory-recall.js';
 import { forgetMemory } from '../src/memory-lifecycle.js';
-import { runAwarenessToolOperation } from '../src/tool-operations.js';
 
 /**
  * 2026-07-07 upgrade set from the agentic-memory research pass:
@@ -148,39 +147,4 @@ describe('salience floor on broad forget selectors', () => {
     expect(db.prepare('SELECT 1 FROM awareness_memories WHERE memory_id = ?').get(global)).toBeTruthy();
   });
 
-  it('honors forget scope filters through the tool-operation dispatcher', async () => {
-    const db = freshDb();
-    const inScope = (await insertMemory(db, {
-      taskContext: 'tool op a',
-      observation: 'deprecated dispatcher memory a',
-      importance: 3,
-      tags: ['deprecated'],
-      workspacePath: '/workspace/a',
-    })).memoryId;
-    const outOfScope = (await insertMemory(db, {
-      taskContext: 'tool op b',
-      observation: 'deprecated dispatcher memory b',
-      importance: 3,
-      tags: ['deprecated'],
-      workspacePath: '/workspace/b',
-    })).memoryId;
-
-    const result = (await runAwarenessToolOperation(db, 'forget', {
-      tags: ['deprecated'],
-      workspace_path: '/workspace/a',
-      dry_run: true,
-    }));
-    const payload = result.payload as { would_delete: number; memory_ids: string[] };
-    expect(result.exitCode).toBe(0);
-    expect(payload.would_delete).toBe(1);
-    expect(payload.memory_ids).toEqual([inScope]);
-
-    const bySchemaId = (await runAwarenessToolOperation(db, 'forget', {
-      memory_id: [inScope],
-      workspace_path: '/workspace/a',
-      dry_run: true,
-    }));
-    expect((bySchemaId.payload as { memory_ids: string[] }).memory_ids).toEqual([inScope]);
-    expect(db.prepare('SELECT 1 FROM awareness_memories WHERE memory_id = ?').get(outOfScope)).toBeTruthy();
-  });
 });

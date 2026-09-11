@@ -1022,6 +1022,37 @@ fn structural_files_honors_max_depth() {
 }
 
 #[test]
+fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
+    let root = temp_root("prefilter_maxdepth");
+    fs::create_dir_all(root.join("nested")).expect("nested");
+    fs::write(root.join("match.ts"), "target(value);\n").expect("match");
+    fs::write(root.join("nested/noanchor.ts"), "other(value);\n").expect("deep");
+
+    let result = search_files(StructuralSearchFilesOptions {
+        path: root.to_string_lossy().to_string(),
+        pattern: Some("target($X)".to_owned()),
+        rule: None,
+        include: None,
+        exclude_dir: None,
+        exclude: None,
+        hidden: None,
+        no_ignore: None,
+        // Structural native depth counts the root as 0 and root files as 1.
+        max_depth: Some(1),
+        max_files: Some(10),
+        max_file_bytes: None,
+    })
+    .expect("structural search");
+
+    assert_eq!(result.parsed_files, 1);
+    assert_eq!(
+        result.skipped_by_pre_filter, 0,
+        "the anchor prefilter must not scan the nested file before depth filtering"
+    );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+#[test]
 fn search_files_separates_unsupported_from_prefilter_skips() {
     let root = temp_root("conflation");
     // `match.ts` carries the anchor and matches the pattern.

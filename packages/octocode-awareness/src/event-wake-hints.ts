@@ -12,7 +12,8 @@ export interface AwarenessEventHintOptions {
  * Filesystem notifications are only hints. A read-only outbox sequence check
  * suppresses our own receipt/WAL churn; every delivery still reads SQLite.
  * Watching the directory survives WAL recreation and atomic DB replacement.
- * No idle polling: failed watches/reads get three delayed recovery attempts.
+ * No idle polling: failed watches/reads retry quickly, then stay armed on a
+ * sparse recovery interval until the source returns or the watcher is closed.
  */
 export function watchAwarenessEventHints(options: AwarenessEventHintOptions): { close(): void } {
   if (options.database === ':memory:') return { close() {} };
@@ -26,6 +27,7 @@ export function watchAwarenessEventHints(options: AwarenessEventHintOptions): { 
   let sequence = 0;
   let failures = 0;
   const retryDelays = [100, 500, 2000];
+  const recoveryRetryMs = 30_000;
 
   const schedule = (delay = 50): void => {
     if (closed || scheduled) return;
@@ -35,8 +37,9 @@ export function watchAwarenessEventHints(options: AwarenessEventHintOptions): { 
   const failed = (error: unknown): void => {
     if (closed) return;
     try { options.onError?.(error); } catch { /* diagnostics never own delivery */ }
-    const delay = retryDelays[failures++];
-    if (delay !== undefined) schedule(delay);
+    const delay = retryDelays[failures] ?? recoveryRetryMs;
+    failures = Math.min(failures + 1, retryDelays.length);
+    schedule(delay);
   };
   const attach = (): void => {
     if (closed) return;

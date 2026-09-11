@@ -1,13 +1,18 @@
 ---
 name: octocode-brainstorming
-description: "Use when an idea needs options, feasibility testing, adjacent opportunities, or scope exploration before building."
+description: "Use when an unresolved idea needs options, feasibility testing, adjacent opportunities, or scope exploration before building. Not for implementing a settled decision or evaluating a defined change."
 ---
 
 # Octocode Brainstorming
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-research`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Evidence-grounded idea exploration.
 Flow: `FRAME → DIVERGE → RESEARCH → CROSS-POLLINATE → STRESS-TEST → SYNTHESIZE → DECIDE`.
 
-Workspace output contract: chat-only answers stay in chat. New artifacts default to `<workspace>/.octocode/octocode-brainstorming/`; resumable run ledgers use `<workspace>/.octocode/brainstorming/runs/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+Artifacts: `<output>/octocode-brainstorming/`; resumable runs: `<output>/brainstorming/runs/`. Chat-only answers stay in chat; approved edits keep their named paths.
 
 ## Modes and lobby rules
 - Generate: create distinct angles, then validate the strongest few. Validate: reframe enough to avoid anchoring, then investigate. Map: expand adjacent terms and existing solutions.
@@ -21,14 +26,14 @@ Workspace output contract: chat-only answers stay in chat. New artifacts default
 Pause for direction when the idea contains unrelated decisions, evidence remains too thin, or conflicting for a defensible verdict, or the next research round costs more than it can change. Otherwise state the uncertainty and recommend the smallest decision-changing step.
 
 ## Smart routes — load only what the current step needs
-- When framing the idea and diverging into angles, build the Surface Plan with `references/tools.md`; when code/repository/package evidence is active, load `references/octocode.md` — choose sources deliberately and delegate technical research correctly.
+- When framing the idea and diverging into angles, build the Surface Plan with `references/tools.md`. When code/repository/package evidence is active, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, and follow executable continuations — choose sources deliberately and delegate technical research correctly.
 - When generic results cannot prove momentum, crowdedness, publication, or shipped prior art, load `references/trend-sources.md` — add time-sensitive evidence without domain lock-in.
 - When cross-pollinating leads from one active surface into another, stay in `references/tools.md` and `references/web-search-workers.md` — carry each finding across surfaces instead of closing a surface early.
 - When stress-testing, load `references/debate.md` — run the three lenses and cross-examination before converging.
 - When research is substantial, multi-turn, or delegated, load `references/hook-communication.md`. Run `scripts/brainstorm-run.mjs` to preserve a resumable claim/source/decision ledger.
 - During DECIDE and synthesis, load `references/output.md`. Score every prior-art claim with `references/confidence.md`; if you approve a durable artifact, load `references/brief-template.md` — match chat brevity or saved decision depth.
 - When methods or source contracts are challenged, load `references/grounding.md` — make the process falsifiable. <!-- style-lint: ignore-line passive-voice -->
-- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require measurable acceptance.
+- When improving this skill, use `octocode-eval-benchmark`; if unavailable, record goal, KPI, baseline, smallest change, comparable result, and accept/revert — require measurable acceptance.
 
 ## Related routes
 - Use `octocode-rfc-generator` for a Build verdict and `octocode-eval-benchmark` for measurable experiments. For technical evidence, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.

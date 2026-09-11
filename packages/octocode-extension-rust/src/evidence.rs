@@ -199,9 +199,7 @@ pub fn fingerprint_files(
         batch_maximum: max_batch_bytes as u64,
         files_maximum: max_files as usize,
         deadline: Instant::now() + Duration::from_millis(timeout_ms as u64),
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
 

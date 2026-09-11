@@ -11,13 +11,13 @@ import { beginWrite } from './db-transaction.js';
  *                  transitions to prevent orphaning ACTIVE locks as SUCCESS.
  *                  A linked plan task moves VERIFY → DONE | FAILED with it.
  */
-import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
 import type { RunStatus } from './types/identity-memory.js';
-import { RUN_LOG_INSERT_VERIFIED, RUNS_UPDATE_ACTIVE_TO_FAILED, RUNS_UPDATE_PENDING_VERIFIED_BY_AGENT, RUNS_UPDATE_PENDING_VERIFIED_BY_WORKSPACE, RUNS_SELECT_STATUS, RUNS_SELECT_PENDING_IDS } from './sql/runs.js';
+import { RUNS_UPDATE_ACTIVE_TO_FAILED, RUNS_UPDATE_PENDING_VERIFIED_BY_AGENT, RUNS_UPDATE_PENDING_VERIFIED_BY_WORKSPACE, RUNS_SELECT_STATUS, RUNS_SELECT_PENDING_IDS } from './sql/runs.js';
 import { AgentStatusRow, closeRunFiles, failStaleLinkedTask, finishLinkedTask, MarkVerifiedParams, MarkVerifiedResult, VALID_VERIFY_STATUSES } from './verify-shared.js';
+import { appendRunVerificationEvent } from './event-outbox.js';
 
 /**
  * Transition a PENDING task to SUCCESS or FAILED.
@@ -92,11 +92,7 @@ export function markVerified(
         finishLinkedTask(db, row.run_id, status, agentId, now, receipt || undefined);
         ids.push(row.run_id);
         if (receipt) {
-          try {
-            db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-              'evt_' + randomUUID().replace(/-/g, ''), row.run_id, agentId, receipt, now,
-            );
-          } catch { /* non-critical audit log */ }
+          appendRunVerificationEvent(db, { runId: row.run_id, agentId, message: receipt, createdAt: now });
         }
       }
       transaction.commit();
@@ -155,11 +151,7 @@ export function markVerified(
         const adoptionReceipt = `verification adopted by ${agentId} from ${row.agent_id}: ${receipt}`;
         closeRunFiles(db, runId, now);
         finishLinkedTask(db, runId, status, row.agent_id, now, adoptionReceipt);
-        try {
-          db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-            'evt_' + randomUUID().replace(/-/g, ''), runId, agentId, adoptionReceipt, now,
-          );
-        } catch { /* non-critical audit log */ }
+        appendRunVerificationEvent(db, { runId, agentId, message: adoptionReceipt, createdAt: now });
         transaction.commit();
         return { ok: true, run_id: runId, status: status as RunStatus, updated_at: now };
       }
@@ -188,11 +180,7 @@ export function markVerified(
         }
         closeRunFiles(db, runId, now);
         failStaleLinkedTask(db, runId, agentId, now, receipt);
-        try {
-          db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-            'evt_' + randomUUID().replace(/-/g, ''), runId, agentId, receipt, now,
-          );
-        } catch { /* non-critical audit log */ }
+        appendRunVerificationEvent(db, { runId, agentId, message: receipt, createdAt: now });
         transaction.commit();
         return { ok: true, run_id: runId, status: 'FAILED', updated_at: now };
       }
@@ -205,11 +193,7 @@ export function markVerified(
     }
 
     if (receipt) {
-      try {
-        db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-          'evt_' + randomUUID().replace(/-/g, ''), runId, agentId, receipt, now,
-        );
-      } catch { /* non-critical audit log */ }
+      appendRunVerificationEvent(db, { runId, agentId, message: receipt, createdAt: now });
     }
 
     closeRunFiles(db, runId, now);

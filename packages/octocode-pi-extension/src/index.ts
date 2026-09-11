@@ -1,12 +1,11 @@
 import type {PromptMode} from '@octocodeai/agent-contracts/protocols';
 import fs from 'node:fs';
-import path from 'node:path';
 import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from "@octocodeai/config";
-import { extensionWorkspaceRoot } from './extension-paths.js';
-import { connectDb, contentDigest, insertEditLog } from '@octocodeai/octocode-awareness';
-import { resolveAwarenessDatabase } from './tools/awareness-context.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
+import { contentDigest } from '@octocodeai/octocode-awareness';
 import { openPersistentAwareness } from './tools/storage-policy.js';
+import { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
+export { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
+export type { InternalErrorLogOptions } from './internal-error-log.js';
 import { DISABLED_BUILTIN_TOOL_NAMES, OVERRIDDEN_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from './constants.js';
 import { checkForCoreUpdate, readOwnVersion } from './core-update-check.js';
 import { ensureAdaptiveThinkingCompatibility } from './model-compat.js';
@@ -17,14 +16,10 @@ import {
   getInstallSource,
   getAwarenessCLIPath,
   resolveAwarenessCliPath,
-  runAwarenessPreEdit,
-  resolveAwarenessCoordinationScope,
 } from './assets.js';
-
 // Expose the Awareness CLI for agents. The env var holds the SCRIPT PATH
-// ONLY so the documented `node "$OCTOCODE_AWARENESS_CLI" <command>` invocation
-// works in every shell (a "node /path" two-token string breaks under quoting
-// and under zsh's no-word-split default). Guarded: a broken/missing install
+// ONLY so `node "$OCTOCODE_AWARENESS_CLI" <command>` works in every shell; a
+// two-token "node /path" value breaks under quoting or zsh. A broken install
 // must not throw at import time and kill the whole extension load.
 try {
   process.env.OCTOCODE_AWARENESS_CLI = resolveAwarenessCliPath();
@@ -45,15 +40,11 @@ import { writeDiscoveryFile } from './tools/discovery-file.js';
 import { estimateTokens } from './utils.js';
 import { getDirectToolContractStats, registerUniqueTool } from './tools/octocode-tools.js';
 import {
-  registerCompactionHooks,
   resetCompactionCheckpointDedupe,
   setCompactionRehydrationSegmentsProvider,
 } from './tools/compaction-hooks.js';
-import { registerCompactionPolicyGuidance } from './tools/compaction-policy-guidance.js';
-import { registerRuntimeInspectors } from './tui/runtime-inspector.js';
 import { collectPublicCommands, EXTENSION_COMMANDS } from './commands.js';
 import { bindExecutionJournal, emitExecution, restoreExecutionJournal } from './tools/execution-runtime.js';
-import { registerLifecycleUi } from './tools/lifecycle-ui.js';
 import { budgetToolResult } from './tools/tool-result-budget.js';
 import { cleanupSpawnedAgentsForShutdown } from './tools/agents/process.js';
 import { listWorkerLedgerEntries } from './tools/agents/ledger.js';
@@ -73,7 +64,7 @@ import { registerMediaTool } from './tools/create-media-tool.js';
 import { renderRuntimeCapabilitiesAddendum } from './tools/image-render.js';
 import { setPeerWipBaseline, setPeerWipStatusPainter } from './tools/peer-wip.js';
 import { registerBashTool } from './tools/bash-tool.js';
-import { createAwarenessMutationGate } from './tools/awareness-mutation-gate.js';
+import type { JobManager } from './tools/bash-bg-tool.js';
 import {
   INITIAL_CONTEXT_TOKEN_BUDGET,
   PROVIDER_CONTEXT_TOKEN_BUDGET,
@@ -84,10 +75,8 @@ import {
 import {
   clearCurrentContextSources,
   mergeCurrentContextSources,
-  readSessionPeerEvent,
   readSessionToolResult,
   registerCurrentContextSource,
-  sessionPeerEventOrigin,
   sessionToolResultOrigin,
 } from './tools/context-source-registry.js';
 import { applyStartupPermissionLevel, resetApprovalStore } from './tools/approval.js';
@@ -126,9 +115,9 @@ import {
 } from './tools/interaction-broker.js';
 import { renderAwarenessCliContext } from './tools/awareness-cli-context.js';
 import { registerAwarenessTool } from './tools/awareness-tool.js';
-import { AWARENESS_PI_HOST_PROMPT, loadWorkspacePolicy } from '@octocodeai/octocode-awareness';
-import { awarenessEventStatusText, registerAwarenessEventConsumer } from './tools/awareness-event-consumer.js';
-import { getAwarenessAgentId, getAwarenessAgentIdentity } from './tools/awareness-shared.js';
+import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness';
+import { getAwarenessAgentId } from './tools/awareness-shared.js';
+import { registerRuntimeUiPhase } from './tools/runtime-ui-registration.js';
 import {
   activePlanScope,
   adoptPlanFromBranch,
@@ -157,7 +146,6 @@ import { clearAllReadStates } from './tools/file-state.js';
 import { registerAgentInbox, type AgentInboxRegistration } from './tools/agents/inbox.js';
 import { probeGitHubAuth } from './tools/github-auth-status.js';
 import { registerOctocodeAutocomplete } from './tools/autocomplete-providers.js';
-import { buildRecoveryCard, registerOctocodeMessageRenderers } from './tools/custom-messages.js';
 import { initCheckpointStore } from './tools/checkpoints.js';
 import { registerRewindCommand } from './tools/rewind-command.js';
 import { createSessionArtifactContext } from './tools/session-artifacts.js';
@@ -165,10 +153,10 @@ import { freshSessionScopedState } from './session-scoped-state.js';
 import {
   initializeSessionMemory,
   projectSessionMemoryUpdate,
-  readSessionMemory,
   renderSessionArtifactPaths,
   SESSION_MEMORY_MAX_BYTES,
 } from './tools/session-memory.js';
+import { readSessionMemoryForContext } from './tools/session-memory-runtime.js';
 import { initializeSessionIndexes } from './tools/session-index.js';
 import {
   appendSessionAuditEntry,
@@ -203,222 +191,19 @@ import {
 } from './adapters/pi-host-compatibility.js';
 import { createPiCanonicalRegistryComposition } from './adapters/pi-registry-adapters.js';
 import { collectPiRetainedContentDigests } from './adapters/pi-retained-context.js';
-import { makeComponentRenderer } from './tools/render-helpers.js';
-import { renderBannerWithTagline, type BannerSessionInfo, type BannerTheme } from './branding/banner.js';
 import { pickProvider } from './web.js';
 import { createHookComposer, type HookMiddleware } from './hook-composer.js';
 import { registerPiPhysiology } from './adapters/pi-physiology.js';
 import { createPiHistoryAdapter } from './adapters/pi-history-adapter.js';
 import { createPiPhysiologyAdvisory } from './adapters/pi-physiology-regulation.js';
+import {
+  awarenessMutationGate,
+  runAwarenessMutationGate,
+  updateAwarenessRegistry,
+} from './adapters/pi-awareness-mutation.js';
 export { readPiPhysiology } from './adapters/pi-physiology.js';
 import { createOctocodeCronScheduler } from './scheduler.js';
 import type {BeforeAgentStartEvent, PiInstance, PiContext, OctocodePiExtensionOptions, SessionShutdownEvent, ThinkingLevelEvent, SkillInfo, NotifyFn} from './types.js';
-
-// Native events, guards and the CLI shell bridge share one stable identity.
-
-const awarenessMutationGate = createAwarenessMutationGate({
-  enabled: isPersistentStorageEnabled,
-  trackWork: (workspace) => loadWorkspacePolicy(workspace).policy.hooks.profile !== 'coordination',
-  storeExists: (workspace) => {
-    if (!isPersistentStorageEnabled()) return false;
-    const scope = resolveAwarenessCoordinationScope(workspace);
-    return fs.existsSync(resolveAwarenessDatabase(workspace, scope));
-  },
-  queryTarget: (target, workspace, agentId) => {
-    const scope = resolveAwarenessCoordinationScope(workspace);
-    const result = runAwarenessPreEdit({
-      workspace,
-      scope,
-      dbPath: resolveAwarenessDatabase(workspace, scope),
-      agentId,
-      host: 'pi',
-      event: { toolName: 'write', input: { path: target } },
-    });
-    return { blocked: result.blocked, message: result.message };
-  },
-  startWork: (target, workspace, agentId) => {
-    const aw = openPersistentAwareness({ workspace, scope: resolveAwarenessCoordinationScope(workspace) });
-    try {
-      const existing = aw.listWork({ filePath: target, agentId })[0];
-      const work = aw.startWork({
-        filePath: target,
-        agentId,
-        ...(existing ? { runId: existing.runId } : {}),
-        reason: 'Automatic Pi mutation presence',
-        testPlan: 'Inspect the resulting file and run applicable repository checks before marking this mutation verified',
-      });
-      return existing ? null : work.runId;
-    } finally {
-      aw.close();
-    }
-  },
-  endWork: (target, workspace, agentId, runId) => {
-    const aw = openPersistentAwareness({ workspace, scope: resolveAwarenessCoordinationScope(workspace) });
-    try {
-      aw.endWork({ filePath: target, agentId, runId });
-    } finally {
-      aw.close();
-    }
-  },
-  recordEdit: (target, workspace, agentId) => {
-    if (!isPersistentStorageEnabled()) return;
-    const scope = resolveAwarenessCoordinationScope(workspace);
-    const database = connectDb(resolveAwarenessDatabase(workspace, scope));
-    try {
-      insertEditLog(database, {
-        agentId,
-        filePath: target,
-        operation: 'update',
-        workspacePath: workspace,
-        artifact: 'pi-native-hook',
-      });
-    } finally {
-      database.close();
-    }
-  },
-  warn: (message) => console.warn(`[octocode] ${message}`),
-});
-
-/**
- * Fire-and-forget Awareness registry presence. Join at session_start with
- * the session-stable agent id, readable name and actual model provider.
- * Routing uses IDs; vendor and host metadata let peers identify the runtime.
- * Leave at shutdown so the registry doesn't accumulate stale ACTIVE rows.
- * Best-effort: never blocks the session and never throws.
- */
-function updateAwarenessRegistry(action: 'join' | 'leave', _pi: PiInstance, ctx?: PiContext, cwdOverride?: string): void {
-  const cwd = cwdOverride ?? ctx?.cwd ?? process.cwd();
-  let aw: ReturnType<typeof openPersistentAwareness> | undefined;
-  try {
-    aw = openPersistentAwareness({ workspace: cwd });
-    const agentId = getAwarenessAgentId(cwdOverride === undefined ? ctx : undefined);
-    if (action === 'join') aw.joinAgent({ ...getAwarenessAgentIdentity(ctx), role: 'lead' });
-    else aw.leaveAgent({ agentId });
-  } catch { /* Awareness unresolved — skip */ }
-  finally { aw?.close(); }
-}
-
-function runAwarenessMutationGate(event: { toolName?: string; input?: Record<string, unknown> }, ctx?: PiContext): { block?: boolean; reason?: string } | void {
-  const workspace = ctx?.cwd ?? process.cwd();
-  const agentId = getAwarenessAgentId(ctx);
-  return awarenessMutationGate.preflight(event, workspace, agentId);
-}
-
-export function getInternalErrorLogPath(
-  cwd = process.cwd(),
-  sessionManager?: { getSessionId?(): string | undefined; getSessionFile?(): string | undefined },
-): string {
-  if (sessionManager) {
-    try {
-      // resolveSessionIdentity is pure computation (zero I/O). The session artifact dir
-      // is created lazily on the first real appendFile write, not on every path lookup.
-      return createSessionArtifactContext({ cwd, sessionManager }).resolve('logs/error.txt');
-    } catch { /* fallback when cwd is unavailable */ }
-  }
-  return path.join(extensionWorkspaceRoot(cwd), 'logs', 'error.txt');
-}
-
-function normalizeError(error: unknown): { name?: string; message: string; stack?: string; cause?: string } {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      cause: error.cause === undefined ? undefined : String(error.cause),
-    };
-  }
-  return { message: String(error) };
-}
-
-function redactForLog(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'string') {
-    return value
-      .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
-      .replace(/(api[_-]?key|token|secret|password)=([^\s&]+)/gi, '$1=[REDACTED]');
-  }
-  if (typeof value !== 'object') return value;
-  if (seen.has(value)) return '[Circular]';
-  if (depth >= 6) return '[MaxDepth]';
-  seen.add(value);
-  if (Array.isArray(value)) {
-    return value.slice(0, 50).map((item) => redactForLog(item, depth + 1, seen));
-  }
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>).slice(0, 100)) {
-    if (/authorization|cookie|set-cookie|token|secret|password|api[_-]?key|access[_-]?key|credential/i.test(key)) {
-      out[key] = '[REDACTED]';
-    } else {
-      out[key] = redactForLog(item, depth + 1, seen);
-    }
-  }
-  return out;
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(redactForLog(value), null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function formatContextForLog(ctx: PiContext | undefined): string[] {
-  const usage = ctx?.getContextUsage?.();
-  return [
-    `cwd: ${ctx?.cwd ?? process.cwd()}`,
-    ctx?.mode ? `mode: ${ctx.mode}` : '',
-    ctx?.model?.id ? `model: ${ctx.model.id}` : '',
-    ctx?.model ? `modelReasoning: ${String(ctx.model.reasoning)}` : '',
-    usage && usage.tokens != null ? `context: ${usage.tokens}/${usage.contextWindow} (${Math.round((usage.tokens / usage.contextWindow) * 100)}%)` : usage ? 'context: unknown (post-compaction)' : '',
-  ].filter(Boolean);
-}
-
-export interface InternalErrorLogOptions {
-  severity?: 'error' | 'warning';
-  stack?: boolean;
-}
-
-export function logInternalError(
-  source: string,
-  error: unknown,
-  details: Record<string, unknown> = {},
-  ctx?: PiContext,
-  options: InternalErrorLogOptions = {},
-): void {
-  try {
-    const severity = options.severity ?? 'error';
-    const includeStack = options.stack ?? severity === 'error';
-    const logPath = getInternalErrorLogPath(ctx?.cwd ?? process.cwd(), ctx?.sessionManager);
-    const normalized = normalizeError(error);
-    const durationMs = typeof details['durationMs'] === 'number' ? details['durationMs'] : undefined;
-    const redactedDetails = Object.keys(details).length > 0 ? safeJson(details) : '';
-    ensurePrivateDirectory(path.dirname(logPath));
-    hardenPrivateFile(logPath);
-    fs.appendFileSync(
-      logPath,
-      [
-        severity === 'warning' ? '=== Octocode Pi Extension Warning ===' : '=== Octocode Pi Extension Error ===',
-        `timestamp: ${new Date().toISOString()}`,
-        `uptimeMs: ${Math.round(process.uptime() * 1000)}`,
-        `source: ${source}`,
-        `severity: ${severity}`,
-        durationMs === undefined ? '' : `durationMs: ${durationMs}`,
-        ...formatContextForLog(ctx),
-        normalized.name ? `error.name: ${normalized.name}` : '',
-        `error.message: ${normalized.message}`,
-        normalized.cause ? `error.cause: ${normalized.cause}` : '',
-        redactedDetails ? `details: ${redactedDetails}` : '',
-        includeStack && normalized.stack ? `stack:\n${normalized.stack}` : '',
-        '---',
-      ].filter(Boolean).join('\n') + '\n',
-      { encoding: 'utf8', mode: PRIVATE_FILE_MODE },
-    );
-    hardenPrivateFile(logPath);
-  } catch {
-    // Logging must never become the reason the extension fails.
-  }
-}
 
 function notify(ctx: PiContext | undefined, message: string, level = 'info'): void {
   if (level === 'error') {
@@ -561,9 +346,9 @@ interface SupportToolRegistrationArgs {
   getPiSkills: () => SkillInfo[] | undefined;
 }
 
-function registerSupportToolPhase({ pi, registeredToolNames, notify, getPiSkills }: SupportToolRegistrationArgs): void {
+function registerSupportToolPhase({ pi, registeredToolNames, notify, getPiSkills }: SupportToolRegistrationArgs): JobManager {
   registerFileTool(pi, registeredToolNames, registerUniqueTool);
-  registerBashTool(pi, registeredToolNames, registerUniqueTool);
+  const bashBgManager = registerBashTool(pi, registeredToolNames, registerUniqueTool);
   registerReadMediaTool(pi, registeredToolNames, registerUniqueTool);
   registerMediaTool(pi, registeredToolNames, registerUniqueTool);
   registerRunFfmpegTool(pi, registeredToolNames, registerUniqueTool);
@@ -586,72 +371,7 @@ function registerSupportToolPhase({ pi, registeredToolNames, notify, getPiSkills
   registerAskUserTool(pi, registeredToolNames, registerUniqueTool);
   registerAwarenessTool(pi, registeredToolNames, registerUniqueTool);
   registerMcpTool(pi, registeredToolNames, registerUniqueTool);
-}
-
-interface RuntimeUiRegistrationArgs {
-  pi: PiInstance;
-  notify: NotifyFn;
-}
-
-function registerRuntimeUiPhase({ pi, notify }: RuntimeUiRegistrationArgs): void {
-  registerLifecycleUi(pi, updateOctocodeMetricsUi);
-  registerRuntimeInspectors(pi);
-  registerCompactionHooks(pi, notify);
-  registerCompactionPolicyGuidance(pi, notify);
-  registerAwarenessEventConsumer(pi, {
-    resolveExpectedAgentId: (ctx) => getAwarenessAgentId(ctx),
-    onDelivery: (message, ctx) => {
-      const eventId = message.details.eventId;
-      runtimeStoreFor(ctx)?.getState().setContext({
-        lastPeerDeliveryEstimate: { method: 'ceil-utf16-chars/4', sequence: message.details.sequence, tokens: estimateContextTokens(message.content) },
-      });
-      registerCurrentContextSource(ctx, {
-        version: 1,
-        id: `peer-event:${eventId}`,
-        kind: 'peer-event',
-        origin: sessionPeerEventOrigin(eventId),
-        authority: 'external-data',
-        scope: 'turn',
-        visibility: 'inspectable',
-        rehydrate: 'on-trigger',
-        capture: false,
-        readCurrent: (current) => readSessionPeerEvent(current, eventId),
-      });
-    },
-    onObservability: (stats, ctx) => {
-      runtimeStoreFor(ctx)?.getState().setStatus(
-        'octocode-awareness-events',
-        awarenessEventStatusText(stats),
-      );
-      if (stats.drainAccepted > 0) {
-        clearAwarenessCacheEntry(ctx.cwd ?? process.cwd());
-        refreshAwarenessPanel(ctx);
-      }
-      updateOctocodeMetricsUi(ctx);
-    },
-  });
-  // Branded conversation cards (compaction checkpoints / awareness peer events)
-  // — must be registered before compaction-hooks emits the first card.
-  registerOctocodeMessageRenderers(pi);
-  pi.registerEntryRenderer?.(REHYDRATION_RECEIPT_ENTRY_TYPE, (entry, options, theme) =>
-    makeComponentRenderer((_props, { width }) => buildRecoveryCard(entry.data, options?.expanded === true, theme, width), undefined),
-  );
-  // Fresh-session banner card: a durable TUI-only transcript entry (never in
-  // LLM context) — the wordmark scrolls past like a splash instead of
-  // occupying the header, and re-renders on resume where it originally sat.
-  pi.registerEntryRenderer?.(OCTOCODE_BANNER_ENTRY_TYPE, (entry, _options, theme) => {
-    // Read the session-info snapshot stamped into the entry at append time so
-    // the banner shows startup model/thinking without any time-varying bytes.
-    const data = entry as { model?: string; provider?: string; thinking?: string } | undefined;
-    const sessionInfo: BannerSessionInfo | undefined =
-      data?.model || data?.provider || data?.thinking
-        ? { model: data.model, provider: data.provider, thinking: data.thinking }
-        : undefined;
-    return makeComponentRenderer((_props, { width }) =>
-      renderBannerWithTagline(theme as BannerTheme, width, readOwnVersion(getAssetPaths().baseDir), sessionInfo),
-      undefined,
-    );
-  });
+  return bashBgManager;
 }
 
 interface TurnMetricsRegistrationArgs {
@@ -758,6 +478,7 @@ async function wireOctocodePiExtension(
   // cleanupSpawnedAgentsForShutdown() kills workers, or the teardown burst of
   // killed/exit ledger events would spam desktop notifications.
   let agentInbox: AgentInboxRegistration | undefined;
+  let bashBgManager: JobManager | undefined;
   let sessionRuntime: SessionRuntime | undefined;
   let pendingMcpDiscoveryWrite: Promise<void> | undefined;
   let interactionBrokerAdapter: RegisteredInteractionBrokerAdapter | undefined;
@@ -899,7 +620,7 @@ async function wireOctocodePiExtension(
       appendSessionAuditForContext(ctx, { event: 'session.shutdown', detail: { reason } });
       const canUseShutdownContext = reason === 'quit';
       awarenessMutationGate.cleanup();
-      updateAwarenessRegistry('leave', pi, undefined, latestSessionCwd);
+      updateAwarenessRegistry('leave', undefined, latestSessionCwd);
       cronScheduler.stop();
       stopMcpConfigWatchers();
       closeConfiguration(ctx);
@@ -945,6 +666,7 @@ async function wireOctocodePiExtension(
       session = freshSessionScopedState();
       await sessionRuntime?.dispose('replace');
       const runtime = new SessionRuntime({ ctx, onDispose: (reason) => disposeSessionResources(reason ?? 'shutdown', ctx) });
+      runtime.addCleanup(() => bashBgManager?.dispose());
       sessionRuntime = runtime;
       if (ctx) {
         try {
@@ -1027,7 +749,7 @@ async function wireOctocodePiExtension(
             visibility: 'inspectable',
             rehydrate: 'always',
             tokenBudget: Math.ceil(SESSION_MEMORY_MAX_BYTES / 4),
-            readCurrent: () => readSessionMemory(artifacts),
+            readCurrent: () => readSessionMemoryForContext(ctx, artifacts),
           });
           appendSessionAuditEntry(artifacts, {
             event: 'session.start',
@@ -1162,7 +884,7 @@ async function wireOctocodePiExtension(
       // Announce this session in the shared Awareness agent registry with
       // its name and provider (peers discover IDs via `agent list` and use
       // `signal publish --to-agent` to communicate).
-      updateAwarenessRegistry('join', pi, ctx);
+      updateAwarenessRegistry('join', ctx);
       // Full MCP discovery at init: connect every enabled configured server and
       // cache only enabled tools with descriptions and exact input schemas.
       // Fire-and-forget here; before_agent_start awaits it (bounded) so turn 1's
@@ -1281,7 +1003,7 @@ async function wireOctocodePiExtension(
     });
 
     hooks.on('model_select', 'octocode-model-select', async (_event: unknown, ctx: PiContext | undefined) => {
-      updateAwarenessRegistry('join', pi, ctx);
+      updateAwarenessRegistry('join', ctx);
       // thinking_level_select fires before model_select when the model change
       // clamps the thinking level, so pi.getThinkingLevel() is already updated.
       applyOctocodeUi(ctx, pi.getThinkingLevel?.());
@@ -1292,7 +1014,7 @@ async function wireOctocodePiExtension(
     });
 
     hooks.on('session_info_changed', 'octocode-awareness-name-refresh', async (_event: unknown, ctx: PiContext | undefined) => {
-      updateAwarenessRegistry('join', pi, ctx);
+      updateAwarenessRegistry('join', ctx);
     });
 
     hooks.on('thinking_level_select', 'octocode-thinking-select', async (event: ThinkingLevelEvent, ctx: PiContext | undefined) => {
@@ -1424,6 +1146,8 @@ async function wireOctocodePiExtension(
       const noContext = Boolean(pi.getFlag?.('no-context'));
       let piPrompt = event.systemPrompt;
       if (session.managedPromptAddendum) piPrompt = piPrompt.replace(session.managedPromptAddendum, '').trim();
+      // Enforce the no-overengineering constraint on every turn.
+      if (!piPrompt.includes('Do not over-engineer.')) piPrompt = `${piPrompt}\n\nDo not over-engineer.`;
       if (noContext) {
         piPrompt = stripProjectContext(piPrompt);
         if (!warnedContextDrift && piPrompt.includes('<project_context>')) {
@@ -1468,7 +1192,7 @@ async function wireOctocodePiExtension(
       // verification, and Awareness mapping changes—not only status/id changes.
       const planContext = worker ? '' : renderPlanContext(getCurrentPlanReadModel(ctx, planScope));
       const currentSessionMemory = session.sessionArtifactContext
-        ? readSessionMemory(session.sessionArtifactContext) ?? ''
+        ? readSessionMemoryForContext(ctx, session.sessionArtifactContext) ?? ''
         : '';
       const recoveryPending = Boolean(ctx && hasPendingRehydration(ctx));
       const currentUserRequests = ctx && recoveryPending ? readSessionUserRequestContext(ctx) ?? '' : '';
@@ -1627,16 +1351,15 @@ async function wireOctocodePiExtension(
   }
 
   if (pi.registerTool) {
-
-    registerSupportToolPhase({
+    bashBgManager = registerSupportToolPhase({
       pi,
       registeredToolNames,
       notify,
       getPiSkills: () => session.latestPiSkills,
     });
     registerRuntimeUiPhase({ pi, notify });
-  registerTurnMetricsPhase({ pi, startMetricsTicker, stopMetricsTicker, toolStartTimes, toolInputs });
-  agentInbox = registerWorkerToolPhase({ pi, registeredToolNames, notify });
+    registerTurnMetricsPhase({ pi, startMetricsTicker, stopMetricsTicker, toolStartTimes, toolInputs });
+    agentInbox = registerWorkerToolPhase({ pi, registeredToolNames, notify });
 
     // ── Foreground activity fallback: bracket generic model reasoning ────────────
     // Registered AFTER all phase hooks so these sit at the END of the turn_start

@@ -22,7 +22,7 @@ export async function createPrivateHistoryIo(rootDir: string, canonicalStore: st
     for (let attempt = 0; ; attempt++) {
       try { return await native.snapshotFile(path, maximum, true); }
       catch (error) {
-        if (attempt >= 3 || !(error instanceof Error) || !/PRECONDITION_FAILED/.test(error.message)) throw error;
+        if (attempt >= 3 || native.nativeErrorCode(error) !== native.NativeErrorCodes.PRECONDITION_FAILED) throw error;
       }
     }
   };
@@ -54,7 +54,8 @@ export async function createPrivateHistoryIo(rootDir: string, canonicalStore: st
     try {
       receipt = await native.replaceFile(canonical, bytes, snapshot.version, metadataLimit, 0o600, undefined, 0o700);
     } catch (error) {
-      if (!(error instanceof Error) || !/PRECONDITION_FAILED/.test(error.message)) throw error;
+      if (native.nativeErrorCode(error) !== native.NativeErrorCodes.PRECONDITION_FAILED) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
       const winner = await stableSnapshot(canonical, metadataLimit);
       if (!snapshot.exists && !winner.exists && attempt < 3) {
         // A peer may create a shared missing ancestor while this distinct target
@@ -67,7 +68,7 @@ export async function createPrivateHistoryIo(rootDir: string, canonicalStore: st
         // Independent initializers may publish the same HEAD/config. Accept only
         // an identical stable winner, never a changed value or a create-only ref.
         if (createOnly) throw error;
-        if (!winner.exists || !winner.content!.equals(bytes)) throw new Error(`${error.message} [history metadata publication: ${relative(rootDir, path)}]`, { cause: error });
+        if (!winner.exists || !winner.content!.equals(bytes)) throw new Error(`${detail} [history metadata publication: ${relative(rootDir, path)}]`, { cause: error });
       }
       pendingFlush.add(canonical);
       return;

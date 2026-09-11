@@ -160,7 +160,7 @@ One guarded mutation boundary with `type:"edit" | "write" | "delete"`:
 - `write`: atomic create or full overwrite with parent-directory creation, canonical target/version checks, exclusive temporary creation, and post-write read-state recording. A competing creator cannot be silently overwritten.
 - `delete`: files and symbolic links only; directories are rejected, and native identity/content snapshots are rechecked before unlinking. A symbolic link is removed without deleting its target.
 
-The dedicated extension Rust package executes file I/O and edit-preparation diff in native workers. File reads and mutation content have a 64 MiB limit. Successful receipts include `committed:true` and a separate `durable` sync result; post-commit sync or bookkeeping failures become warnings. See [FILE_MUTATIONS.md](FILE_MUTATIONS.md) for build requirements, platform support and the native boundary.
+The dedicated extension Rust package executes file I/O and edit-preparation diff in native workers. File reads and mutation content have a 64 MiB limit. Successful receipts include `committed:true`, a separate `durable` sync result, and a versioned `mutation` receipt with applied/no-op classification, pre/post fingerprints, touched byte and line counts, and explicit diff/patch truncation flags. Receipts don't copy file contents. A stale commit returns a runnable `MCPTool` → `localFetch` recovery query. Post-commit sync or bookkeeping failures become warnings. See [FILE_MUTATIONS.md](FILE_MUTATIONS.md) for build requirements, platform support and the native boundary.
 
 Every query requires one concise `reasoning`. Mixed batches reject duplicate paths and fully preflight every operation before the first mutation. All paths use the shared cwd/home/temp/`ALLOWED_PATHS` guard. Use `delete` only when removal is explicitly in scope. Details: [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
 
@@ -249,10 +249,11 @@ Spawn profiles:
 | `planner`    | Dependency-ordered implementation plans, risks, verification strategy, and RFC handoffs. |
 | `architect`  | Root-cause and architecture analysis with local tools and targeted shell checks.         |
 | `implementer`| One bounded code change under exclusive ownership with an observed acceptance check.     |
+| `reviewer`   | Read-only acceptance review with a typed PASS, WARN, or FAIL verdict.                     |
 | `browser`    | Routed multi-turn Chrome DevTools work.                                                  |
 | `custom`     | An explicit uncovered role with caller-selected tools and a required system prompt.      |
 
-Typed workers use Octocode `MCPTool` and matching skills for repository research; the implementer additionally receives `file` for its explicit ownership. Role policy keeps researcher/planner/architect/browser product work read-only except for assigned artifacts, and limits shell to Awareness or role-bounded checks. Each worker has a distinct Awareness identity in the parent's database/workspace. Browser workers receive `chromeDebug`, `MCPTool`, `skill`, `awareness`, and `bash`. Custom workers must declare a non-empty role `systemPrompt` and an explicit least-capability `tools` list; `tools:[]` maps to Pi's `--no-tools`, and lean mode disables extension and skill loading.
+Typed workers use Octocode `MCPTool` and matching skills for repository research; the implementer additionally receives `file` for its explicit ownership. The reviewer receives only `MCPTool`, `skill`, and `awareness`; it is advisory and can't mutate files or mark a plan complete. Role policy keeps researcher/planner/architect/browser product work read-only except for assigned artifacts, and limits shell to Awareness or role-bounded checks. Each worker has a distinct Awareness identity in the parent's database/workspace. Browser workers receive `chromeDebug`, `MCPTool`, `skill`, `awareness`, and `bash`. Custom workers must declare a non-empty role `systemPrompt` and an explicit least-capability `tools` list; `tools:[]` maps to Pi's `--no-tools`, and lean mode disables extension and skill loading.
 
 ```text
 agent({queries:[{
@@ -269,7 +270,7 @@ agent({queries:[{reasoning:"Collect the browser turn.",type:"wait",agentId:"abc1
 agent({queries:[{reasoning:"Free the completed worker.",type:"kill",agentId:"abc123",remove:true}]})
 ```
 
-Spawn policy is warning-first: task packets should name goal, context, scope, ownership, acceptance, and return shape. Capacity limits block before process creation. Workers never receive the `agent` facade, so recursive spawning is unavailable. Spawn first and use the returned ID in a later call; generated IDs can't be referenced by another item in the same preflighted batch.
+Spawn policy is warning-first: task packets should name goal, context, scope, ownership, acceptance, and return shape. Optional `cohortId` groups related workers in bounded, attention-first inspect summaries. The completion policy requests wrap-up at 80% of the step budget and an honest partial handback at the hard limit. Capacity limits block before process creation. Workers never receive the `agent` facade, so recursive spawning is unavailable. Spawn first and use the returned ID in a later call; generated IDs can't be referenced by another item in the same preflighted batch.
 
 ### `/octocode-inbox`
 

@@ -4,7 +4,7 @@
 //! site to its enclosing owner. Only `collect_program_calls` is public to the
 //! parent module; everything else is an internal walker.
 
-use super::{property_key_name, GraphCall, LineIndex};
+use super::js_oxc_shared::{property_key_name, GraphCall, LineIndex};
 use oxc_ast::ast::*;
 use oxc_span::Span;
 

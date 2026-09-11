@@ -1,7 +1,8 @@
 import type {
   CollectionPages,
+  CollectionState,
   CollectionStates,
-} from './prContentFetcher/collectionPaging.js';
+} from '../types/collectionPaging.js';
 import type { components } from '@octokit/openapi-types';
 import type { RestEndpointMethodTypes } from '@octokit/plugin-rest-endpoint-methods';
 import type { DiffPreview } from '../utils/parsers/diff.js';
@@ -54,7 +55,7 @@ export interface CommitInfo {
   author: string;
   date: string;
   files: CommitFileInfo[];
-  filesCollectionState?: import('./prContentFetcher/collectionPaging.js').CollectionState;
+  filesCollectionState?: CollectionState;
 }
 
 export interface HistoryCommitFile {

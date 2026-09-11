@@ -25,30 +25,26 @@ export async function runStopVerify(
   payload: Record<string, unknown>,
   features: AwarenessFeatureConfig = DEFAULT_AWARENESS_CONFIG.features,
 ): Promise<number> {
-  try {
-    const database = db(payload);
-    registerHookAgent(database, payload, 'hook:stop-verify');
-    const finalizedRunIds = withHookDbRetry(() => finalizeActiveFallbackHookRuns(
-      database,
-      payload,
-      workspace(payload) ?? process.cwd(),
+  const database = db(payload);
+  registerHookAgent(database, payload, 'hook:stop-verify');
+  const finalizedRunIds = withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+    database,
+    payload,
+    workspace(payload) ?? process.cwd(),
+  ));
+  if (!features.verificationGate || process.env.OCTOCODE_NO_VERIFY_GATE === '1') return 0;
+  const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
+  if (report.count > 0) {
+    // A recursive Stop with no newly finalized work already surfaced this
+    // unchanged debt. Allow it to conclude to avoid an infinite host loop.
+    // New continuation edits create/finalize a new aggregate and must surface
+    // one fresh continuation before the following unchanged recursive Stop.
+    if (isStopHookActive(payload) && finalizedRunIds.length === 0) return 0;
+    return completeHookControl(hookBlockOutcome(
+      shellHookHost(payload),
+      'stop',
+      verificationDebtSignal(report.count),
     ));
-    if (!features.verificationGate || process.env.OCTOCODE_NO_VERIFY_GATE === '1') return 0;
-    const report = auditUnverified(database, { agentId: agentId(payload), ...scopeArgs(payload) });
-    if (report.count > 0) {
-      // A recursive Stop with no newly finalized work already surfaced this
-      // unchanged debt. Allow it to conclude to avoid an infinite host loop.
-      // New continuation edits create/finalize a new aggregate and must surface
-      // one fresh continuation before the following unchanged recursive Stop.
-      if (isStopHookActive(payload) && finalizedRunIds.length === 0) return 0;
-      return completeHookControl(hookBlockOutcome(
-        shellHookHost(payload),
-        'stop',
-        verificationDebtSignal(report.count),
-      ));
-    }
-  } catch (error) {
-    writeCommandDiagnostic(`npx @octocodeai/octocode-awareness verify warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return 0;
 }
@@ -133,27 +129,23 @@ async function runCommunication(
 ): Promise<number> {
   if (process.env.OCTOCODE_NO_NOTIFY === '1' || !canDeliverHookCommunication(payload)) return 0;
   const maintenanceContext = maybePreviewDigest(payload, features);
-  try {
-    const database = db(payload);
-    registerHookAgent(database, payload, 'hook:notify-deliver');
-    const messageContext = features.notifications
-      ? peerBriefing(database, {
-          agentId: agentId(payload), sessionId: hookSessionCorrelation(payload) ?? undefined,
-          workspacePath: workspace(payload) ?? process.cwd(), artifact: artifact(payload),
-        })
-      : null;
-    const context = [messageContext, maintenanceContext].filter(Boolean).join('\n');
-    if (context) {
-      const outputEvent = hookEventName(payload) ?? (shellHookHost(payload) === 'cursor' ? 'sessionStart' : 'UserPromptSubmit');
-      const envelope = hookContextEnvelope(
-        shellHookHost(payload), outputEvent,
-        context,
-      );
-      // Some native events, such as Cursor postToolUseFailure, expose no context channel.
-      if (Object.keys(envelope).length > 0) writeHookPayload(envelope);
-    }
-  } catch (error) {
-    writeCommandDiagnostic(`octocode-awareness message delivery warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+  const database = db(payload);
+  registerHookAgent(database, payload, 'hook:notify-deliver');
+  const messageContext = features.notifications
+    ? peerBriefing(database, {
+        agentId: agentId(payload), sessionId: hookSessionCorrelation(payload) ?? undefined,
+        workspacePath: workspace(payload) ?? process.cwd(), artifact: artifact(payload),
+      })
+    : null;
+  const context = [messageContext, maintenanceContext].filter(Boolean).join('\n');
+  if (context) {
+    const outputEvent = hookEventName(payload) ?? (shellHookHost(payload) === 'cursor' ? 'sessionStart' : 'UserPromptSubmit');
+    const envelope = hookContextEnvelope(
+      shellHookHost(payload), outputEvent,
+      context,
+    );
+    // Some native events, such as Cursor postToolUseFailure, expose no context channel.
+    if (Object.keys(envelope).length > 0) writeHookPayload(envelope);
   }
   return 0;
 }
@@ -163,35 +155,31 @@ export async function runSessionEnd(
   features: AwarenessFeatureConfig = DEFAULT_AWARENESS_CONFIG.features,
   options: { settleWork?: boolean } = {},
 ): Promise<number> {
-  try {
-    const database = db(payload);
-    registerHookAgent(database, payload, 'hook:session-end');
-    if (options.settleWork !== false) withHookDbRetry(() => finalizeActiveFallbackHookRuns(
-      database,
-      payload,
-      workspace(payload) ?? process.cwd(),
-    ));
-    if (options.settleWork !== false && features.sessionCapture && process.env.OCTOCODE_NO_SESSION_CAPTURE !== '1' && hookReason(payload) !== 'clear') {
-      sessionCapture(database, {
-        agent_id: agentId(payload),
-        workspace_path: workspace(payload) ?? undefined,
-        artifact: artifact(payload) ?? undefined,
-        reason: hookReason(payload) || undefined,
-      });
-    }
-    // Mark the session ended so its still-held locks read as abandoned
-    // (holder_session_active:false) to any agent that later conflicts on them.
-    const sid = sessionId(payload);
-    if (sid) endSession(database, {
-      sessionId: sid,
-      agentId: agentId(payload),
-      workspacePath: workspace(payload) ?? process.cwd(),
-      artifact: artifact(payload),
+  const database = db(payload);
+  registerHookAgent(database, payload, 'hook:session-end');
+  if (options.settleWork !== false) withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+    database,
+    payload,
+    workspace(payload) ?? process.cwd(),
+  ));
+  if (options.settleWork !== false && features.sessionCapture && process.env.OCTOCODE_NO_SESSION_CAPTURE !== '1' && hookReason(payload) !== 'clear') {
+    sessionCapture(database, {
+      agent_id: agentId(payload),
+      workspace_path: workspace(payload) ?? undefined,
+      artifact: artifact(payload) ?? undefined,
+      reason: hookReason(payload) || undefined,
     });
-    leaveHookAgent(database, payload);
-  } catch {
-    // fail-open
   }
+  // Mark the session ended so its still-held locks read as abandoned
+  // (holder_session_active:false) to any agent that later conflicts on them.
+  const sid = sessionId(payload);
+  if (sid) endSession(database, {
+    sessionId: sid,
+    agentId: agentId(payload),
+    workspacePath: workspace(payload) ?? process.cwd(),
+    artifact: artifact(payload),
+  });
+  leaveHookAgent(database, payload);
   return 0;
 }
 
@@ -199,26 +187,22 @@ export async function runSessionCompact(
   payload: Record<string, unknown>,
   features: AwarenessFeatureConfig = DEFAULT_AWARENESS_CONFIG.features,
 ): Promise<number> {
-  try {
-    const database = db(payload);
-    registerHookAgent(database, payload, 'hook:session-compact');
-    withHookDbRetry(() => finalizeActiveFallbackHookRuns(
-      database,
-      payload,
-      workspace(payload) ?? process.cwd(),
-    ));
-    if (features.sessionCapture && process.env.OCTOCODE_NO_SESSION_CAPTURE !== '1' && hookReason(payload) !== 'clear') {
-      sessionCapture(database, {
-        agent_id: agentId(payload),
-        workspace_path: workspace(payload) ?? undefined,
-        artifact: artifact(payload) ?? undefined,
-        reason: hookReason(payload) || 'compact',
-      });
-    }
-    // PreCompact is a turn boundary, not a session boundary. Keep the session
-    // reusable so the host can continue with the same correlation id.
-  } catch {
-    // fail-open
+  const database = db(payload);
+  registerHookAgent(database, payload, 'hook:session-compact');
+  withHookDbRetry(() => finalizeActiveFallbackHookRuns(
+    database,
+    payload,
+    workspace(payload) ?? process.cwd(),
+  ));
+  if (features.sessionCapture && process.env.OCTOCODE_NO_SESSION_CAPTURE !== '1' && hookReason(payload) !== 'clear') {
+    sessionCapture(database, {
+      agent_id: agentId(payload),
+      workspace_path: workspace(payload) ?? undefined,
+      artifact: artifact(payload) ?? undefined,
+      reason: hookReason(payload) || 'compact',
+    });
   }
+  // PreCompact is a turn boundary, not a session boundary. Keep the session
+  // reusable so the host can continue with the same correlation id.
   return 0;
 }

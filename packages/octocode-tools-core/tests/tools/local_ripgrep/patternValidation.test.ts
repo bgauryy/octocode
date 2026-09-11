@@ -19,34 +19,26 @@ describe('preflightValidateRipgrepPattern', () => {
     mocks.validateRipgrepPattern.mockReturnValue({ valid: true });
   });
 
-  it('delegates regex syntax validation to native Rust', () => {
-    preflightValidateRipgrepPattern({
+  it('does not compile regexes during warning-only preflight', () => {
+    const result = preflightValidateRipgrepPattern({
       pattern: '(?<=foo)bar',
       fixedString: false,
       perlRegex: true,
     });
 
-    expect(mocks.validateRipgrepPattern).toHaveBeenCalledWith(
-      '(?<=foo)bar',
-      false,
-      true
-    );
+    expect(result.isValid).toBe(true);
+    expect(mocks.validateRipgrepPattern).not.toHaveBeenCalled();
   });
 
-  it('surfaces native regex errors without JavaScript RegExp parsing', () => {
-    mocks.validateRipgrepPattern.mockReturnValue({
-      valid: false,
-      error: 'unclosed group',
-    });
-
+  it('leaves regex compilation to the native execution boundary', () => {
     const result = preflightValidateRipgrepPattern({
       pattern: '(',
       fixedString: false,
       perlRegex: false,
     });
 
-    expect(result.isValid).toBe(false);
-    expect(result.errors.join('\n')).toContain('unclosed group');
+    expect(result.isValid).toBe(true);
+    expect(mocks.validateRipgrepPattern).not.toHaveBeenCalled();
   });
 
   it('keeps literal and lookaround guidance warnings', () => {

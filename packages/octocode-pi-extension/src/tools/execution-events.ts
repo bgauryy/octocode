@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { retainRecent } from './execution-retention.js';
 import {
-  executionAgentMessageSchema,
-  executionAgentSchema,
-  executionAgentTransitionSchema,
+  executionAgentMessageSchema, executionAgentSchema, executionAgentTransitionSchema,
 } from './execution-agent-events.js';
+import {
+  executionMessageSchema, executionPermissionRequestedSchema,
+  executionPermissionResolutionSchema, executionQuestionRequestedSchema,
+  executionResolutionSchema,
+} from './execution-interaction-events.js';
 
 /** Semantic execution history. Schemas own transport validation and inferred types. */
 export const EXECUTION_ENTRY_TYPE = 'octocode-execution-event';
@@ -69,14 +72,6 @@ const skillSchema = z.strictObject({
   source: z.string().optional(),
   scope: z.string().optional(),
 });
-const resolutionSchema = z.strictObject({
-  id: z.string().min(1),
-  decision: z.string(),
-});
-const messageSchema = z.strictObject({
-  messageId: z.string().min(1),
-  outputRef: outputReferenceSchema.optional(),
-});
 const payloadSchemas = {
   'session.started': sessionSchema,
   'session.updated': sessionSchema,
@@ -86,9 +81,10 @@ const payloadSchemas = {
     status: z.enum(['completed', 'failed', 'cancelled']),
     usage: usageSchema.optional(),
   }),
-  'user.message': messageSchema,
+  'user.message': executionMessageSchema.extend({ outputRef: outputReferenceSchema.optional() }),
   'assistant.started': z.strictObject({ messageId: z.string().min(1) }),
-  'assistant.completed': messageSchema.extend({
+  'assistant.completed': executionMessageSchema.extend({
+    outputRef: outputReferenceSchema.optional(),
     status: z.enum(['completed', 'interrupted', 'failed']),
   }),
   'assistant.progress': z.strictObject({
@@ -107,20 +103,10 @@ const payloadSchemas = {
   'agent.updated': executionAgentSchema,
   'agent.message': executionAgentMessageSchema,
   'agent.transition': executionAgentTransitionSchema,
-  'permission.requested': z.strictObject({
-    id: z.string().min(1),
-    title: z.string(),
-    persistent: z.boolean().optional(),
-    expiresAt: nonnegative.optional(),
-  }),
-  'permission.resolved': resolutionSchema,
-  'question.requested': z.strictObject({
-    id: z.string().min(1),
-    title: z.string(),
-    persistent: z.boolean().optional(),
-    expiresAt: nonnegative.optional(),
-  }),
-  'question.resolved': resolutionSchema,
+  'permission.requested': executionPermissionRequestedSchema,
+  'permission.resolved': executionPermissionResolutionSchema,
+  'question.requested': executionQuestionRequestedSchema,
+  'question.resolved': executionResolutionSchema,
   'context.started': z.strictObject({}),
   'context.compacted': z.strictObject({
     tokensBefore: nonnegative.optional(),
@@ -180,6 +166,12 @@ export interface ExecutionInteraction {
   startedAt: number;
   persistent?: boolean;
   expiresAt?: number;
+  requester?: string;
+  operation?: string;
+  scope?: string;
+  matchedPolicy?: string;
+  decisionSource?: 'policy' | 'user' | 'host';
+  decidedAt?: number;
 }
 export interface ExecutionState {
   sequence: number;
@@ -518,7 +510,20 @@ export function reduceExecutionEvent(
             ...next,
             interactions: {
               ...state.interactions,
-              [previous.id]: { ...previous, status: event.payload.decision },
+              [previous.id]: {
+                ...previous,
+                status: event.payload.decision,
+                ...(event.type === 'permission.resolved'
+                  ? {
+                      requester: event.payload.requester ?? previous.requester,
+                      operation: event.payload.operation ?? previous.operation,
+                      scope: event.payload.scope ?? previous.scope,
+                      matchedPolicy: event.payload.matchedPolicy ?? previous.matchedPolicy,
+                      decisionSource: event.payload.decisionSource,
+                      decidedAt: event.payload.decidedAt,
+                    }
+                  : {}),
+              },
             },
           }
         : next;

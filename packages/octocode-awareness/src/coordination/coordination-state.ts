@@ -4,9 +4,10 @@ import { activeLockRecords } from '../intents-preflight.js';
 import { releaseFileLock } from '../intents-release.js';
 import { startWork, listWork, endWork, getRun, normalizeFiles } from '../work.js';
 import { markVerified } from '../verify-mark.js';
+import { insertNotification } from '../notifications-core.js';
 import type { CheckAudit,CheckStatus,HandoffNote,Lock,LockWaitResult,Task,WorkPresence } from '@octocodeai/agent-contracts/entities';
 import { CoordinationPlansTasks } from './coordination-plans-tasks.js';
-import { handoffFromRow,type HandoffRow,id,normalizeLeaseSeconds,now,required,sleepMs,splitFiles } from './coordination-shared.js';
+import { handoffFromRow,type HandoffRow,normalizeLeaseSeconds,now,required,sleepMs,splitFiles } from './coordination-shared.js';
 
 export abstract class CoordinationState extends CoordinationPlansTasks {
   acquireLock(params: { filePath: string; agentId: string; runId?: string; reason?: string | null; testPlan?: string; ttlSeconds?: number }): Lock {
@@ -91,22 +92,28 @@ export abstract class CoordinationState extends CoordinationPlansTasks {
   }
 
   addHandoff(params: { agentId: string; summary: string; files?: string | string[] | null }): HandoffNote {
-    const stamp = now();
-    const handoffId = id('handoff');
-    this.db.prepare('INSERT INTO handoffs(handoff_id, workspace_path, agent_id, summary, files_json, created_at, cleared_at) VALUES (?, ?, ?, ?, ?, ?, NULL)')
-      .run(handoffId, this.workspace, required(params.agentId, 'agent-id'), required(params.summary, 'summary'), JSON.stringify(splitFiles(params.files)), stamp);
-    return this.getHandoff(handoffId);
+    const result = insertNotification(this.db, {
+      agentId: required(params.agentId, 'agent-id'),
+      workspacePath: this.workspace,
+      kind: 'handoff',
+      subject: required(params.summary, 'summary'),
+      files: splitFiles(params.files),
+    });
+    return this.getHandoff(result.signal_id);
   }
 
   listHandoffs(params: { includeCleared?: boolean } = {}): HandoffNote[] {
-    const rows = params.includeCleared
-      ? this.db.prepare('SELECT * FROM handoffs WHERE workspace_path = ? ORDER BY created_at DESC').all(this.workspace)
-      : this.db.prepare('SELECT * FROM handoffs WHERE workspace_path = ? AND cleared_at IS NULL ORDER BY created_at DESC').all(this.workspace);
+    const rows = this.db.prepare(`SELECT signal_id AS handoff_id, from_agent AS agent_id,
+      subject AS summary, files_json, created_at, resolved_at AS cleared_at
+      FROM signals WHERE workspace_path = ? AND kind = 'handoff'
+        ${params.includeCleared ? '' : "AND status = 'open'"}
+      ORDER BY created_at DESC`).all(this.workspace);
     return (rows as unknown as HandoffRow[]).map(handoffFromRow);
   }
 
   clearHandoff(params: { handoffId: string }): { cleared: boolean } {
-    const result = this.db.prepare('UPDATE handoffs SET cleared_at = ? WHERE workspace_path = ? AND handoff_id = ? AND cleared_at IS NULL')
+    const result = this.db.prepare(`UPDATE signals SET status = 'resolved', resolved_at = ?
+      WHERE workspace_path = ? AND signal_id = ? AND kind = 'handoff' AND status = 'open'`)
       .run(now(), this.workspace, required(params.handoffId, 'handoff-id'));
     return { cleared: result.changes > 0 };
   }

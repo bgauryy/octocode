@@ -22,8 +22,11 @@ export function discardUncommittedHookFiles(db: DatabaseSync, params: {
     const discarded = db.prepare(`DELETE FROM run_files
       WHERE run_id = ? AND file_path IN (${placeholders})
         AND NOT EXISTS (
-          SELECT 1 FROM edit_log
-          WHERE edit_log.run_id = run_files.run_id AND edit_log.file_path = run_files.file_path
+          SELECT 1 FROM event_outbox
+          WHERE event_outbox.correlation_id = run_files.run_id
+            AND event_outbox.aggregate_kind = 'file'
+            AND event_outbox.aggregate_id = run_files.file_path
+            AND event_outbox.event_type LIKE 'workspace.edit.%'
         )`).run(params.runId, ...targets) as { changes: number };
     const remaining = db.prepare('SELECT 1 FROM run_files WHERE run_id = ? LIMIT 1').get(params.runId);
     if (!remaining) db.prepare("DELETE FROM task_runs WHERE run_id = ? AND origin = 'HOOK'").run(params.runId);

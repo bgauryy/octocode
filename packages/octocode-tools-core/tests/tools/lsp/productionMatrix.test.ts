@@ -105,6 +105,11 @@ beforeEach(async () => {
       kind: 'full',
       items: names().map(name => ({ message: name, severity: 1, range })),
     })),
+    getPushDiagnostics: vi.fn().mockImplementation(async () => ({
+      kind: 'full',
+      source: 'push',
+      items: names().map(name => ({ message: name, severity: 1, range })),
+    })),
   };
   mocks.available.mockResolvedValue(true);
   mocks.acquire.mockResolvedValue({ ok: true, client });
@@ -160,6 +165,14 @@ describe('production LSP operation matrix', () => {
       mocks.available.mockResolvedValue(true);
       client.hasCapability!.mockReturnValue(false);
       const unsupported = await execute(query(type));
+      if (type === 'diagnostic') {
+        expect(unsupported.status).not.toBe('error');
+        expect(unsupported.data.lsp.provider).toBe(
+          'textDocument/publishDiagnostics'
+        );
+        expect(client.getPushDiagnostics).toHaveBeenCalledWith(file);
+        return;
+      }
       expect(unsupported.status).toBe('empty');
       expect(mocks.warm).not.toHaveBeenCalled();
       expect(
@@ -250,5 +263,39 @@ describe('production LSP operation matrix', () => {
     expect(result.status).toBe('error');
     expect(result.data.error).toContain('request timed out');
     expect(result.data.payload).toBeUndefined();
+  });
+
+  it('marks a missing push-diagnostics notification as incomplete, not clean', async () => {
+    client.hasCapability!.mockReturnValue(false);
+    client.getPushDiagnostics!.mockResolvedValue(null);
+
+    const result = await execute(query('diagnostic'));
+
+    expect(result.status).not.toBe('error');
+    expect(result.data.lsp.provider).toBe(
+      'textDocument/publishDiagnostics'
+    );
+    expect(result.data.payload).toMatchObject({
+      category: 'possiblyIncomplete',
+    });
+    expect(result.data.payload.reason).toContain('not proof');
+  });
+
+  it('marks retention-capped push diagnostics as terminally partial', async () => {
+    client.hasCapability!.mockReturnValue(false);
+    client.getPushDiagnostics!.mockResolvedValue({
+      kind: 'full',
+      source: 'push',
+      truncated: true,
+      items: [{ message: 'retained', severity: 1, range }],
+    });
+
+    const result = await execute(query('diagnostic'));
+
+    expect(result.data).toMatchObject({
+      truncated: true,
+      terminalLimit: true,
+      partialReasons: ['pushDiagnosticsRetentionCap'],
+    });
   });
 });

@@ -1,5 +1,3 @@
-import { contextUtils } from '../../utils/contextUtils.js';
-
 interface RipgrepPatternInput {
   pattern: string;
   fixedString?: boolean;
@@ -24,16 +22,8 @@ export function preflightValidateRipgrepPattern(
     return { isValid: false, errors, warnings };
   }
 
-  const nativeValidation = contextUtils.validateRipgrepPattern(
-    pattern,
-    input.fixedString,
-    input.perlRegex
-  );
-  if (!nativeValidation.valid) {
-    errors.push(
-      `invalid regex: ${nativeValidation.error ?? 'unknown regex parse error'}`
-    );
-  }
+  // Matcher syntax is compiled once at the native execution boundary. Doing
+  // the same native compilation here doubled setup work for every valid query.
 
   if (!input.fixedString && looksLikeLiteralSearch(pattern)) {
     warnings.push(

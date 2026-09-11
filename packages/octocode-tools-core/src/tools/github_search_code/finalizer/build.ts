@@ -1,15 +1,16 @@
 import type { BulkFinalizer } from '../../../types/bulk.js';
-import type { ToolResultMeta } from '../../../types/toolResults.js';
 import {
   collectFlatErrors,
   formatFinalizedResponse,
   type QueryWithPagination,
 } from '../../../utils/response/groupedFinalizer.js';
 import type {
+  CodeSearchAgentRow,
+  EmptyCodeSearchQuery,
   GitHubCodeSearchData,
   GitHubCodeSearchOutputLocal,
+  RepoStateEntry,
 } from '../resultTypes.js';
-import type { RepoState } from '../execution.js';
 
 import { type CodeSearchPagination } from '../../providerMappers/codeSearch.js';
 import {
@@ -31,18 +32,10 @@ export function buildGhSearchCodeFinalizer<
     const perQueryGroups: PerQueryGroups[] = [];
     const paginationByQuery = new Map<number, CodeSearchPagination>();
 
-    const emptyQueries: Array<{
-      index: number;
-      nonExistentScope?: true;
-      incompleteResults?: true;
-    }> = [];
+    const emptyQueries: EmptyCodeSearchQuery[] = [];
     const incompleteQueryIndexes = new Set<number>();
 
-    const repoStates: Array<{
-      index: number;
-      state: RepoState;
-      query: QueryWithPagination | undefined;
-    }> = [];
+    const repoStates: RepoStateEntry[] = [];
     results.forEach(res => {
       if (res.status === 'error') return;
 
@@ -159,13 +152,8 @@ export function buildGhSearchCodeFinalizer<
       results: resultRecords,
     };
 
-    type AgentRow = {
-      index: number;
-      meta?: ToolResultMeta;
-      data: GitHubCodeSearchData | { error: string };
-    };
-    const agentRows = responseData.results as AgentRow[];
-    const rowAt = (index: number): AgentRow | undefined =>
+    const agentRows = responseData.results as CodeSearchAgentRow[];
+    const rowAt = (index: number): CodeSearchAgentRow | undefined =>
       agentRows.find(row => row.index === index);
     const addDiagnostic = (
       index: number,
@@ -213,7 +201,7 @@ export function buildGhSearchCodeFinalizer<
         ...retryQuery
       } = queries[index] as QueryWithPagination & Record<string, unknown>;
       addContinuation(index, 'retry', {
-        tool: 'github.code',
+        tool: 'ghSearch',
         query: retryQuery,
         why: 'Retry the same query because GitHub marked the result incomplete',
         confidence: 'exact',
@@ -238,8 +226,13 @@ export function buildGhSearchCodeFinalizer<
         'No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.'
       );
       addContinuation(empty.index, 'viewStructure', {
-        tool: 'github.tree',
-        query: { owner: query.owner, repo: query.repo, path: '' },
+        tool: 'ghSearch',
+        query: {
+          operation: 'tree',
+          owner: query.owner,
+          repo: query.repo,
+          path: '',
+        },
         why: 'Verify that the scoped repository and path exist before concluding absence',
         confidence: 'exact',
       });
@@ -281,8 +274,9 @@ export function buildGhSearchCodeFinalizer<
           `The query used more than ${COMPLEX_QUERY_KEYWORD_THRESHOLD} keywords; narrow it before treating zero matches as absence.`
         );
         addContinuation(index, 'retryNarrow', {
-          tool: 'github.code',
+          tool: 'ghSearch',
           query: {
+            operation: 'code',
             keywords,
             ...(typeof query.owner === 'string' ? { owner: query.owner } : {}),
             ...(typeof query.repo === 'string' ? { repo: query.repo } : {}),
@@ -317,8 +311,9 @@ export function buildGhSearchCodeFinalizer<
         );
         const kws = (query as { keywords?: unknown } | undefined)?.keywords;
         addContinuation(index, 'retryRenamed', {
-          tool: 'github.code',
+          tool: 'ghSearch',
           query: {
+            operation: 'code',
             owner: newOwner,
             repo: newRepo,
             ...(Array.isArray(kws) ? { keywords: kws } : {}),
@@ -340,8 +335,13 @@ export function buildGhSearchCodeFinalizer<
           typeof scoped.repo === 'string'
         ) {
           addContinuation(index, 'viewStructure', {
-            tool: 'github.tree',
-            query: { owner: scoped.owner, repo: scoped.repo, path: '' },
+            tool: 'ghSearch',
+            query: {
+              operation: 'tree',
+              owner: scoped.owner,
+              repo: scoped.repo,
+              path: '',
+            },
             why: 'Inspect the archived repository outside the code-search index',
             confidence: 'exact',
           });
@@ -356,8 +356,8 @@ export function buildGhSearchCodeFinalizer<
           (QueryWithPagination & { repo?: unknown }) | undefined;
         if (typeof scoped?.repo === 'string') {
           addContinuation(index, 'findRepository', {
-            tool: 'github.repositories',
-            query: { keywords: [scoped.repo] },
+            tool: 'ghSearch',
+            query: { operation: 'repositories', keywords: [scoped.repo] },
             why: 'Find the repository by name in case it moved or was renamed',
             confidence: 'low',
           });

@@ -14,7 +14,12 @@ import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects
 import builtOctocodeExtension, { readPiPhysiology } from '@octocodeai/pi-extension';
 import { COMPACTION_CHECKPOINT_TYPE } from '../src/tools/custom-messages.js';
 import type { PiContext } from '../src/types.js';
-import { execHistoryCli, type AwarenessEventStore, type OutboxEventV1 } from '@octocodeai/octocode-awareness';
+import {
+  execHistoryCli,
+  executeAwarenessCommand,
+  openAwarenessStore,
+  watchAwarenessEventHints,
+} from '@octocodeai/octocode-awareness';
 import { registerAwarenessEventConsumer } from '../src/tools/awareness-event-consumer.js';
 import type { PiInstance } from '../src/types.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
@@ -191,28 +196,40 @@ describe.sequential('real Pi runtime contract', () => {
       expect(contexts[1]).toContain('"isError":true');
     } finally { session.dispose(); await settings.flush(); }
   }, 30_000);
-  it('starts one real host turn for two durable actionable peer messages without copying their bodies', async () => {
+  it('wakes a real idle Pi session from native SQLite hints and persists one receipt batch', async () => {
     restoreProcesses = allowLocalFixtureProcesses();
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-real-pi-wake-')));
     temporaryRoots.push(root);
     const workspace = path.join(root, 'workspace');
     const agentDir = path.join(root, 'agent');
     fs.mkdirSync(workspace); fs.mkdirSync(agentDir);
-    let cursor = 0;
-    const events: OutboxEventV1[] = [1, 2].map(sequence => ({
-      version: 1, sequence, eventId: `wake-${sequence}`, type: 'peer.message', workspace,
-      actor: { kind: 'agent', id: 'peer' }, provenance: { source: 'peer', trust: 'attributed-data' },
-      createdAt: new Date().toISOString(),
-      payload: { messageId: `message-${sequence}`, fromAgentId: 'peer', toAgentId: 'native-recipient', signalKind: 'blocker', text: `exact-challenge-${sequence}` },
-    }));
-    const store: AwarenessEventStore = {
-      listEvents: ({ limit }) => events.filter(event => event.sequence > cursor).slice(0, limit),
-      getConsumerCursor: () => cursor, markMessageRead() {}, close() {},
-      acknowledgeEvent: ({ eventId, decision }) => { cursor = events.find(event => event.eventId === eventId)!.sequence; return { sequence: cursor, decision, duplicate: false }; },
-    };
+    const database = path.join(root, 'awareness.sqlite3');
+    const publisher = openAwarenessStore({ workspace, dbPath: database });
+    let hintCount = 0;
+    let watcherReady!: () => void;
+    const watcherStarted = new Promise<void>(resolve => {
+      watcherReady = resolve;
+    });
     const contexts: string[] = [];
+    const observations: unknown[] = [];
     const extension: ExtensionFactory = pi => {
-      registerAwarenessEventConsumer(pi as unknown as PiInstance, { openStore: () => store, resolveExpectedAgentId: () => 'native-recipient', canWake: () => true });
+      registerAwarenessEventConsumer(pi as unknown as PiInstance, {
+        openStore: () => openAwarenessStore({ workspace, dbPath: database }),
+        watchEvents: options => {
+          const watcher = watchAwarenessEventHints({
+            ...options,
+            onHint: () => {
+              hintCount += 1;
+              options.onHint();
+            },
+          });
+          watcherReady();
+          return watcher;
+        },
+        resolveExpectedAgentId: () => 'native-recipient',
+        canWake: () => true,
+        onObservability: stats => observations.push(stats),
+      });
       pi.registerProvider(PROVIDER, {
         name: 'Local wake audit', api: API, baseUrl: 'http://127.0.0.1:0', apiKey: 'local-fixture',
         models: [{ id: MODEL, name: 'Local wake audit', api: API, reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 1024 }],
@@ -227,17 +244,54 @@ describe.sequential('real Pi runtime contract', () => {
       await session.bindExtensions({ mode: 'json', shutdownHandler() {} });
       await session.setModel(session.modelRuntime.getModel(PROVIDER, MODEL)!);
       await session.prompt('Initial authorized task.', { expandPromptTemplates: false });
+      await session.waitForIdle();
+      await watcherStarted;
+      expect(contexts).toHaveLength(1);
+      for (const index of [1, 2]) {
+        const sent = await executeAwarenessCommand(
+          {
+            command: 'signal publish',
+            params: {
+              kind: 'blocker',
+              to_agent: ['native-recipient'],
+              subject: `wake ${index}`,
+              body: `exact-challenge-${index}`,
+            },
+          },
+          { workspace, database, agentId: 'peer' }
+        );
+        expect(sent.exitCode, JSON.stringify(sent.payload)).toBe(0);
+      }
+      await vi.waitFor(() => expect(hintCount).toBeGreaterThan(0), {
+        timeout: 5_000,
+        interval: 10,
+      });
+      const consumerId = `pi:${session.sessionManager.getSessionId()}`;
+      await vi.waitFor(
+        () =>
+          expect(
+            publisher.getConsumerCursor(consumerId),
+            JSON.stringify(observations)
+          ).toBe(2),
+        { timeout: 5_000, interval: 10 }
+      );
       await vi.waitFor(() => expect(contexts).toHaveLength(2), { timeout: 5_000, interval: 10 });
       await session.waitForIdle();
       expect(contexts).toHaveLength(2);
       expect(contexts[1]).toContain('exact-challenge-1');
       expect(contexts[1]).toContain('exact-challenge-2');
-      expect(cursor).toBe(2);
+      expect(
+        publisher.getConsumerCursor(consumerId)
+      ).toBe(2);
       const entries = session.sessionManager.getEntries();
       const wake = entries.filter(entry => JSON.stringify(entry).includes('octocode-peer-wake'));
       expect(wake).toHaveLength(1);
       expect(JSON.stringify(wake)).not.toContain('exact-challenge');
-    } finally { session.dispose(); await settings.flush(); }
+    } finally {
+      publisher.close();
+      session.dispose();
+      await settings.flush();
+    }
   }, 30_000);
   it('delivers Octocode skills, Awareness CLI bindings, context measurements and compaction receipts', async () => {
     restoreProcesses = allowLocalFixtureProcesses();

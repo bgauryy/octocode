@@ -161,13 +161,18 @@ grammar availability.
 
 The former per-extension matrix duplicated the grammar registry and referenced a
 retired benchmark generator. Use `getSupportedStructuralExtensions()`,
-`getSupportedSignatureExtensions()`, `getMINIFY_CONFIG()` and
-`getLanguageServerForFile(file, workspace)` for the current build's capabilities.
+`getSupportedSignatureExtensions()`, `getGrammarCapabilities()`, and
+`getLanguageServerForFile(file, workspace)` for the build's public capabilities.
+Minifier routing is internal; call `minifyContent()` or
+`applyContentViewMinification()` with the source path instead of inspecting its
+strategy table.
 
 ## Lifecycle — pool, cold start, indexing
 
-- **Pool** (`lspClientPool.ts`): one warm `LSPClient` per server, workspace, and effective configuration fingerprint, with a 60s idle timeout (`OCTOCODE_LSP_POOL_IDLE_MS`). A long-lived MCP session reuses warm servers across tool calls; one-shot CLI invocations don't share a pool.
+- **Pool** (`lspClientPool.ts`): one warm `LSPClient` per server, workspace, and effective configuration fingerprint. The pool retains up to four clients and evicts the client with the oldest successful use (`OCTOCODE_LSP_POOL_MAX_CLIENTS`, range 1–32). It also applies a 60-second idle timeout (`OCTOCODE_LSP_POOL_IDLE_MS`). A long-lived MCP session reuses warm servers across tool calls; one-shot CLI invocations don't share a pool.
 - **Native contract**: the TypeScript wrapper and native addon ship together. Lifecycle, capability, readiness, and health methods are required. Failed health checks evict the client so the next acquisition starts a replacement; missing methods on a stale addon are errors.
+- **Document synchronization** (`client.ts`): content hashes prevent redundant `didChange` notifications. Disk-backed warmup also caches a device, inode, size, modification-time, and change-time fingerprint, so unchanged candidates avoid another read and hash. A changed fingerprint triggers a bounded read; equal content still suppresses the native update.
+- **Diagnostics** (`json_rpc.rs`): pull-capable servers use `textDocument/diagnostic`. Other servers use a bounded cache of `textDocument/publishDiagnostics` notifications: at most 256 documents, 2,000 diagnostics per document, and 256 KiB of serialized diagnostic items per document. A content update clears the prior cached result, and versioned reads reject older publications. Waiters recheck their requested URI after every notification, so activity for another document cannot end the wait early. If no matching push notification arrives within the original bounded wait, the result is marked possibly incomplete rather than clean.
 - **Cleanup during startup**: clearing a key or the pool invalidates pending acquisitions immediately. A client created after its acquisition was invalidated is stopped and the acquisition returns `null`. Cleanup does not wait for a pending factory to finish. Stale startup and health-check completions cannot replace or remove a newer acquisition.
 - **Cold start / indexing**: a server reads the project and builds its model before answering correctly. Costs vary — typescript-language-server <1s, gopls 3–15s, rust-analyzer 5–60s (multiple `$/progress` waves), jdtls 30–120s.
 - **Readiness** (`manager.ts` + `json_rpc.rs`): for servers that emit `$/progress` (go, rust, java, csharp, swift) the pool factory calls `waitForReady` with a per-language cap before the first query. Bash also uses a bounded 2s settle because it loads client configuration asynchronously before enabling document analysis; this records `settledFallback`, not confirmed indexing. TS/JS, Python, clangd, and data-format servers skip the settle interval.
@@ -188,6 +193,8 @@ does not freeze the server's model or prove complete compiler coverage.
 Project-wide operations run a bounded lexical consumer warmup before the LSP
 request. The warmup follows search pages, opens up to 100 candidate files, and
 records capped searches, skipped files, failed reads, and broken continuations.
+Repeated warmups reuse the pooled client's disk fingerprints and do not reread
+or resend unchanged documents.
 `references`, `implementation`, `callers`, `callees`, and `callHierarchy`
 preserve this state in `payload.warmup` for structured and compact output. An
 incomplete warmup sets typed partial metadata and supplies

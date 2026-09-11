@@ -28,14 +28,6 @@ pub fn comment_groups(cfg: &FileTypeConfig) -> Vec<&'static str> {
     cfg.comments.map(|c| c.to_vec()).unwrap_or_default()
 }
 
-/// Synchronous full minification.
-pub fn minify_content_sync_inner(content: &str, file_path: &str) -> String {
-    if content.len() > MAX_SIZE {
-        return content.to_owned();
-    }
-    dispatch_inner(content, file_path).content
-}
-
 /// Full minification returning MinifyResult.
 pub fn minify_content_result_inner(content: &str, file_path: &str) -> MinifyResult {
     let content_size = content.len();
@@ -136,7 +128,7 @@ mod tests {
     #[test]
     fn full_minify_strips_import_type() {
         let src = "import type { Foo } from './foo';\nimport { bar } from './bar';\nexport function greet(name: string): void {\n  bar();\n}\n";
-        let out = minify_content_sync_inner(src, "greet.ts");
+        let out = minify_content_result_inner(src, "greet.ts").content;
         assert!(
             !out.contains("import type"),
             "must strip 'import type': {out}"
@@ -146,21 +138,21 @@ mod tests {
     #[test]
     fn full_minify_strips_interfaces() {
         let src = "interface User { name: string; age: number; }\nexport function getName(u: User): string { return u.name; }\n";
-        let out = minify_content_sync_inner(src, "user.ts");
+        let out = minify_content_result_inner(src, "user.ts").content;
         assert!(!out.contains("interface"), "must strip interfaces: {out}");
     }
 
     #[test]
     fn full_minify_strips_type_aliases() {
         let src = "type Id = string | number;\nexport function process(id: Id): string { return String(id); }\n";
-        let out = minify_content_sync_inner(src, "util.ts");
+        let out = minify_content_result_inner(src, "util.ts").content;
         assert!(!out.contains("type Id"), "must strip type aliases: {out}");
     }
 
     #[test]
     fn full_minify_preserves_runtime_code_after_type_stripping() {
         let src = "import type { Opts } from './opts';\ninterface Config { host: string; }\ntype Port = number;\nexport function connect(host: string, port: number): boolean {\n  return host.length > 0 && port > 0;\n}\n";
-        let out = minify_content_sync_inner(src, "connect.ts");
+        let out = minify_content_result_inner(src, "connect.ts").content;
         assert!(
             out.contains("connect"),
             "runtime function must survive: {out}"
@@ -170,25 +162,6 @@ mod tests {
     }
 
     // ── dispatch routing preserves UTF-8 on the aggressive path ───────────────
-
-    #[test]
-    fn sync_and_result_paths_share_dispatch_outputs() {
-        for (path, src) in [
-            ("data.json", "{\"a\": 1}"),
-            ("readme.md", "# Title\n\nBody text\n"),
-            ("style.css", "h1 { color: red; margin: 0px; }"),
-            (
-                "script.ts",
-                "export function add(a: number, b: number) { return a + b; }",
-            ),
-            ("notes.txt", "hello\n\n\nworld"),
-        ] {
-            let sync = minify_content_sync_inner(src, path);
-            let result = minify_content_result_inner(src, path);
-            assert!(!result.failed, "{path} should minify successfully");
-            assert_eq!(sync, result.content, "{path} dispatch diverged");
-        }
-    }
 
     #[test]
     fn rich_ast_aliases_have_explicit_minify_strategies() {
@@ -285,11 +258,5 @@ mod tests {
         let r = minify_content_result_inner(&big, "big.txt");
         assert!(r.failed);
         assert_eq!(r.content, big);
-    }
-
-    #[test]
-    fn oversized_input_returned_unchanged_by_sync_path() {
-        let big = "x".repeat(MAX_SIZE + 1);
-        assert_eq!(minify_content_sync_inner(&big, "big.txt"), big);
     }
 }

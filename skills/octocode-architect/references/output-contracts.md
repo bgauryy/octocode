@@ -2,9 +2,7 @@
 
 Load when a consequential plan or review needs an explicit decision record. Why: expose boundaries and impact without forcing ceremony on small work.
 
-## Minimal slice
-
-Use for low-risk, local work:
+For low-risk local work:
 
 ```text
 Slice: <change and reason>
@@ -18,18 +16,15 @@ Include only material fields; write `N/A — <reason>` only when omission surpri
 
 ```text
 Slice: <smallest useful outcome>
-Place/Wiring: <source → transform → boundary → sink>
+Place/Wiring: <external/internal source → transform → boundary → sink/egress>
 In / Out: <ships> / <excluded>
 Interface + invariants: <owned contract>
-Dependencies/Parallel: <ordering constraints; independent work worth running concurrently>
+Contract + data flow: <provider/consumer, runtime validation, trust/persistence/egress boundaries>
 Test + edges: <first failing surface case; absent/concurrent/replay/etc.>
 Blast/Impact: <callers, data, runtime, ops, records>
-Risks: <security, resilience, cost, observability>
 Rollout/Revert: <migration, flag, rollback>
 Rejected: <viable alternative and evidence-based reason>
 ```
-
-Pause only when the model, ownership, contract, or migration choice is unsettled. Otherwise implement the named slice. <!-- style-lint: ignore-line passive-voice -->
 
 ## Review
 
@@ -41,8 +36,15 @@ Verification: <checks and observed results>
 Verdict: block | merge-ok | approve
 ```
 
+For architecture findings, add only decision-changing fields:
+
+```text
+Model: <owners, allowed arrows, representative flow>
+Finding: <expected boundary → mechanism → impact → exact proof>
+Alternate/Confidence: <killed or unresolved> / confirmed | likely | candidate | dismissed
+Refactor: <quality attribute, seam, vertical slices, preserved contract, rollback>
+Hot path: <workload/budget, end-to-end baseline, attributed cost, comparable result>
+```
+
 For an interface or tool contract, review the complete path: input schema → actual adapter arguments → result shape and evidence → executable `next` continuation. Check one valid and one invalid example for each changed branch, distinguish static types from runtime validation, and separate measured reliability from an unmeasured expectation. For a multi-tool surface, compare shared field names and meanings across the set and run at least one held-out composition case.
-
-Lead with the major decision. Name the type, field, function, or interface. Avoid persona imitation, preambles, and checklist narration.
-
 Next: during implementation load `delivery-discipline.md`; after a completed review return to `SKILL.md`.

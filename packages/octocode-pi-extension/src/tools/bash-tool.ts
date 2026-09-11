@@ -1,35 +1,38 @@
-import { truncateToWidth } from '../tui/width.js';
-import { paint } from '../tui/palette.js';
 /**
  * Octocode `bash` — same-name override of Pi's built-in bash.
  * Keeps full shell power for git/builds/sed, but blocks redirects / tee /
  * cp|mv destinations that escape Octocode path-guard roots.
  */
-/** Output lines shown per-query under a collapsed bash result row (tail of output). */
-const BASH_COLLAPSED_LINES = 3;
-
 import fs, { constants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
 import { getShellConfig } from '@earendil-works/pi-coding-agent';
-import type { ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
+import type { ToolCallResult, ToolDefinition } from '../types.js';
 
-import { buildToolView, makeComponentRenderer } from './render-helpers.js';
 import { assertPathAllowed } from './path-guard.js';
 import { classifySensitiveCommand, requestApproval, type ApprovalRequest } from './approval.js';
 import type { PiContext } from '../types.js';
 import { DIRECT_TOOL_DESCRIPTIONS, type registerUniqueTool } from './octocode-tools.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
+import {
+  JobManager,
+  BASH_BG_DEFAULT_TIMEOUT_S,
+  BG_STATUS_ICON, formatBgElapsed,
+  projectBackgroundJobs,
+  type BgJob,
+} from './bash-bg-tool.js';
+import { runtimeStoreFor } from './runtime-renderer.js';
 import { chunkReadHint, writeEphemeralToolOutput } from './ephemeral-tool-output.js';
 import { buildAwarenessCliEnvironment } from './awareness-cli-context.js';
+import { BASH_CONTEXT_MAX_CHARS, renderBashCall, renderBashResult } from './bash-renderer.js';
+
+export { BASH_CONTEXT_MAX_CHARS } from './bash-renderer.js';
 
 import { z } from 'zod';
 type RegisterFn = typeof registerUniqueTool;
 
-/** Max chars injected into model context per bash call (single content block). */
-export const BASH_CONTEXT_MAX_CHARS = 4_000;
 /** Head chars preserved in head+tail split (command invocation / early output). */
 export const BASH_HEAD_CHARS = 1_000;
 /** Tail chars preserved in head+tail split (errors and final summaries appear at the end). */
@@ -42,8 +45,6 @@ export const BASH_OUTPUT_FILE_MAX_BYTES = 64 * 1024 * 1024;
  * indicates an agent mistake (e.g. passing milliseconds instead of seconds).
  * The value is clamped silently and the clamp is surfaced in the result text. */
 export const BASH_MAX_TIMEOUT_SEC = 3600;
-const BASH_TOOL_DISPLAY_NAME = 'bash (Octocode)';
-
 const PLAN_MODE_MUTATING_BASH_RE = /(^|[;|&(`\n])\s*(?:sudo\s+)?(?:touch|mkdir|rm|rmdir|mv|cp|install|ln|chmod|chown|truncate|dd|sed\s+[^;|&\n]*\s-i\b|perl\s+[^;|&\n]*\s-i\b|node\s+(?:--[^\s]+\s+)*-[ep]\b|python3?\s+-c\b|ruby\s+-e\b)\b|>>?|\btee\b/i;
 
 /** Catastrophic patterns we refuse even when paths look local. */
@@ -420,48 +421,6 @@ export async function formatBashOutput(raw: string, existingOutputPath?: string,
   return { text, truncated: true, totalChars: originalChars, tempFilePath };
 }
 
-function smartBashView(text: string, maxChars: number): { lines: string[]; omittedChars: number } {
-  if (text.length <= maxChars) return { lines: text.split('\n').filter((line) => line.length > 0), omittedChars: 0 };
-  const markerReserve = 96;
-  const retained = Math.max(2, maxChars - markerReserve);
-  const headChars = Math.ceil(retained / 2);
-  const tailChars = retained - headChars;
-  const omittedChars = text.length - headChars - tailChars;
-  const preview = [
-    text.slice(0, headChars),
-    `… ${omittedChars} chars hidden in UI only; complete bash output was delivered to the agent …`,
-    text.slice(text.length - tailChars),
-  ].join('\n');
-  return { lines: preview.split('\n').filter((line) => line.length > 0), omittedChars };
-}
-
-/** Read a bounded head+tail window for the TUI without loading the full log. */
-function readBashOutputForUi(file: string | undefined, maxChars: number): string {
-  if (!file) return '';
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(file, 'r');
-    const size = fs.fstatSync(fd).size;
-    const byteBudget = Math.max(512, maxChars);
-    if (size <= byteBudget) {
-      const bytes = Buffer.alloc(size);
-      fs.readSync(fd, bytes, 0, size, 0);
-      return bytes.toString('utf8');
-    }
-    const headBytes = Math.floor(byteBudget / 4);
-    const tailBytes = byteBudget - headBytes;
-    const head = Buffer.alloc(headBytes);
-    const tail = Buffer.alloc(tailBytes);
-    fs.readSync(fd, head, 0, headBytes, 0);
-    fs.readSync(fd, tail, 0, tailBytes, Math.max(0, size - tailBytes));
-    return `${head.toString('utf8')}\n… ${size - byteBudget} bytes hidden in UI; full output remains in ${file} …\n${tail.toString('utf8')}`;
-  } catch {
-    return '';
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
-  }
-}
-
 async function runBash(
   command: string,
   cwd: string,
@@ -637,13 +596,32 @@ export function registerBashTool(
   pi: { registerTool?(def: ToolDefinition): void },
   registeredToolNames: Set<string>,
   registerFn: RegisterFn,
-): void {
+): JobManager {
+  let bgRuntimeCtx: PiContext | undefined;
+  const manager = new JobManager(() => {
+    const store = runtimeStoreFor(bgRuntimeCtx);
+    if (!store) return;
+    store.getState().setBackgroundJobs(projectBackgroundJobs(manager.list()));
+  });
+
   const parameters = buildQueryEnvelopeSchema(
     z.looseObject({
-      command: z.string().describe('Bash command to execute'),
-      timeout: z.number().int().min(1).optional().describe(
-        `Seconds; omitted means no deadline. Set for blocking commands: 30 for fast checks, 120 for builds, 300 for installs. Values above ${BASH_MAX_TIMEOUT_SEC} are clamped.`,
+      command: z.string().optional().describe(
+        'Command; omit for job actions.',
       ),
+      timeout: z.number().int().min(1).optional().describe(
+        `Seconds; set for blocking commands. Values above ${BASH_MAX_TIMEOUT_SEC} are clamped.`,
+      ),
+      background: z.boolean().optional().describe(
+        `Run non-blocking; returns jobId and reports completion. Default timeout ${BASH_BG_DEFAULT_TIMEOUT_S}s.`,
+      ),
+      title: z.string().optional().describe('Background label.'),
+      action: z.enum(['status', 'output', 'kill', 'list']).optional().describe(
+        'Manage jobs; status/output/kill need jobId.',
+      ),
+      jobId: z.string().optional().describe('Job target.'),
+      outputOffset: z.number().optional().describe('Output line offset.'),
+      lines: z.number().optional().describe('Output line limit.'),
     }),
     { reasoningDescription: 'Concise reason this shell command is necessary.', allowParallel: false },
   );
@@ -677,13 +655,99 @@ export function registerBashTool(
         ctx,
         passthroughSingle: true,
         preflight(query) {
+          const action = query['action'] as string | undefined;
+          if (action) {
+            // Job management: no command needed
+            if (!['status', 'output', 'kill', 'list'].includes(action))
+              throw new Error(`Unknown action '${action}'. Valid: status | output | kill | list`);
+            if (action !== 'list' && !query['jobId'])
+              throw new Error(`jobId is required for action=${action}`);
+            return;
+          }
           if (typeof query['command'] !== 'string' || query['command'].trim().length === 0) {
             throw new Error('command must be a non-empty string.');
           }
           assertBashCommandAllowed(query['command'], cwd);
         },
         async execute(query, _index, itemCallId) {
+          bgRuntimeCtx = ctx;
+          const action = query['action'] as string | undefined;
+
+          // ── job management ────────────────────────────────────────────────
+          if (action) {
+            const jobId = query['jobId'] as string | undefined;
+
+            if (action === 'list') {
+              const all = manager.list();
+              if (all.length === 0)
+                return { content: [{ type: 'text' as const, text: 'No background jobs.' }], details: {} };
+              const now  = Date.now();
+              const rows = all.map(j =>
+                `${BG_STATUS_ICON[j.status]} [${j.id}]  ${j.status.padEnd(9)}  ${formatBgElapsed(now - j.startedAt).padStart(6)}  ${j.title}`,
+              );
+              return { content: [{ type: 'text' as const, text: rows.join('\n') }], details: { count: all.length } };
+            }
+
+            const job = manager.get(jobId!);
+            if (!job) return { content: [{ type: 'text' as const, text: `bash: job '${jobId}' not found — use action='list'` }], isError: true, details: { error: 'not found' } };
+
+            if (action === 'status') {
+              const now     = Date.now();
+              const runtime = job.endedAt ? formatBgElapsed(job.endedAt - job.startedAt) : formatBgElapsed(now - job.startedAt);
+              return {
+                content: [{ type: 'text' as const, text:
+                  `Job:     ${job.id}\nStatus:  ${BG_STATUS_ICON[job.status]} ${job.status}\nTitle:   ${job.title}\nRuntime: ${runtime}\nExit:    ${job.exitCode ?? '(still running)'}\nLog:     ${job.logPath}`,
+                }],
+                details: { jobId, status: job.status, exitCode: job.exitCode },
+              };
+            }
+            if (action === 'output') {
+              const { text, nextOffset } = manager.output(jobId!, query['outputOffset'] as number ?? 0, query['lines'] as number ?? 200);
+              return { content: [{ type: 'text' as const, text }], details: { jobId, nextOffset, logPath: job.logPath, status: job.status } };
+            }
+            if (action === 'kill') {
+              manager.kill(jobId!);
+              return { content: [{ type: 'text' as const, text: `Killed job ${jobId} (${job.title})` }], details: { jobId, status: 'killed' } };
+            }
+            return { content: [{ type: 'text' as const, text: `Unknown action: ${action}` }], isError: true, details: {} };
+          }
+
           const command = query['command'] as string;
+
+          // ── background (non-blocking) ───────────────────────────────────────
+          if (query['background']) {
+            const rawBgTimeout = typeof query['timeout'] === 'number' ? query['timeout'] : BASH_BG_DEFAULT_TIMEOUT_S;
+            const bgTimeout    = rawBgTimeout > 0 ? Math.max(1, rawBgTimeout) : 0;
+            const bgTitle      = typeof query['title'] === 'string' ? query['title'] : undefined;
+            const job: BgJob   = await manager.start(
+              command, cwd, bgTimeout, bgTitle,
+              (j) => {
+                try {
+                  const icon = BG_STATUS_ICON[j.status] ?? '?';
+                  const msg  =
+                    `${icon} bash (bg) job \`${j.id}\` ${j.status}\n` +
+                    `Title:   ${j.title}\nRuntime: ${formatBgElapsed((j.endedAt ?? Date.now()) - j.startedAt)}\n` +
+                    `Exit:    ${j.exitCode ?? 'n/a'}\nLog:     ${j.logPath}\n\n` +
+                    `  bash queries=[{action:'output',jobId:'${j.id}',reasoning:'tail output'}]   # read log`;
+                  (ctx as any)?.sendUserMessage?.(msg, { deliverAs: 'followUp' });
+                } catch {}
+              },
+            );
+            return {
+              content: [{ type: 'text' as const, text:
+                `✓ Background job \`${job.id}\` started\n` +
+                `Title:   ${job.title}\nCommand: ${job.command}\nLog:     ${job.logPath}\n` +
+                `Timeout: ${bgTimeout > 0 ? `${bgTimeout}s` : 'none'}\n\n` +
+                `Continue other work — follow-up arrives on completion.\n` +
+                `  bash queries=[{action:'output',jobId:'${job.id}',reasoning:'tail log'}]\n` +
+                `  bash queries=[{action:'status',jobId:'${job.id}',reasoning:'check exit code'}]\n` +
+                `  bash queries=[{action:'kill',  jobId:'${job.id}',reasoning:'stop it'}]`,
+              }],
+              details: { jobId: job.id, logPath: job.logPath, status: 'running' },
+            };
+          }
+
+          // ── synchronous (existing path) ──────────────────────────────────────
           const rawTimeout = typeof query['timeout'] === 'number' && Number.isFinite(query['timeout'])
             ? query['timeout']
             : undefined;
@@ -750,105 +814,8 @@ export function registerBashTool(
       });
       return batchResult;
     },
-    renderCall(args: unknown, theme?: PiTheme) {
-      const envelope = args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
-      const queries = Array.isArray(envelope['queries']) ? envelope['queries'] as Record<string, unknown>[] : [];
-      const input = queries[0] ?? {};
-      const command = typeof input['command'] === 'string' ? input['command'] : '(missing command)';
-      return buildToolView({ name: BASH_TOOL_DISPLAY_NAME, state: 'request', segments: [{ text: command, token: 'dim' }] }, theme);
-    },
-    renderResult: Object.assign(
-      function renderResult(result: ToolCallResult, opts: { expanded?: boolean; isPartial?: boolean }, theme?: PiTheme) {
-        if (opts.isPartial) {
-          return buildToolView(() => ({ name: BASH_TOOL_DISPLAY_NAME, state: 'running', status: 'running…' }), theme);
-        }
-        const ok = !result.isError;
-        const details = result.details as {
-          code?: number | null;
-          outputPath?: string;
-          totalChars?: number;
-          stdoutChars?: number;
-          stderrChars?: number;
-          queryRunType?: string;
-          results?: Array<{ index: number; status: string; result?: { code?: number | null; outputPath?: string; totalChars?: number } }>;
-        } | undefined;
-
-        // Multi-query: render each query's output separately.
-        // Full stdout/stderr lives in details.results[N].result (set by execute above).
-        const queryResults =
-          Array.isArray(details?.results) && details!.results.length > 1
-            ? details!.results
-            : null;
-
-        if (queryResults) {
-          const qCount = queryResults.length;
-          return makeComponentRenderer((_props, { width: width }) => {
-            const lines: string[] = buildToolView({
-              name: BASH_TOOL_DISPLAY_NAME,
-              state: ok ? 'success' : 'error',
-              segments: [
-                { text: `${qCount} quer${qCount === 1 ? 'y' : 'ies'}`, token: 'count' },
-                { text: details?.queryRunType ?? 'sequential', token: 'muted' },
-              ],
-            }, theme).render(width);
-            for (const qr of queryResults) {
-              const qOk = qr.status === 'success';
-              const qCode = qr.result?.code;
-              const combined = readBashOutputForUi(qr.result?.outputPath, Math.max(512, Math.floor(BASH_CONTEXT_MAX_CHARS / qCount)));
-              const allQLines = combined.split('\n').filter((l) => l.length > 0);
-              lines.push(...buildToolView({
-                name: `[${qr.index}]`,
-                state: qOk ? 'success' : 'error',
-                segments: [
-                  { text: `exit ${qCode ?? 'null'}`, token: qOk ? 'dim' : 'error' },
-                  { text: `${allQLines.length} line${allQLines.length === 1 ? '' : 's'}`, token: 'count' },
-                ],
-              }, theme).render(width));
-              const expandedView = smartBashView(
-                combined,
-                Math.max(512, Math.floor(BASH_CONTEXT_MAX_CHARS / qCount)),
-              );
-              const shown = opts.expanded ? expandedView.lines : allQLines.slice(-BASH_COLLAPSED_LINES);
-              const hidden = opts.expanded ? 0 : allQLines.length - shown.length;
-              if (hidden > 0) {
-                lines.push(truncateToWidth(paint(theme, 'muted', `    \u2026 ${hidden} more line${hidden === 1 ? '' : 's'}`), width));
-              }
-              for (const line of shown) {
-                lines.push(truncateToWidth(qOk ? paint(theme, 'dim', `    ${line}`) : paint(theme, 'error', `    ${line}`), width));
-              }
-            }
-            if (!opts.expanded) {
-              lines.push(truncateToWidth(paint(theme, 'muted', '  ctrl+o to expand full output'), width));
-            }
-            return lines;
-          }, undefined);
-        }
-
-        // Single query: status header + last N lines (tail is most useful for
-        // build/test \u2014 errors and final summary appear at the end).
-        const detailText = readBashOutputForUi(details?.outputPath, BASH_CONTEXT_MAX_CHARS);
-        const text = detailText || result.content
-          .filter((c) => c.type === 'text')
-          .map((c) => c.text)
-          .join('\n');
-        const allLines = text.split('\n').filter((l) => l.length > 0);
-        const code = details?.code;
-        const expandedView = smartBashView(text, BASH_CONTEXT_MAX_CHARS);
-        const shown = opts.expanded ? expandedView.lines : allLines.slice(-BASH_COLLAPSED_LINES);
-        const hidden = opts.expanded ? 0 : allLines.length - shown.length;
-        return buildToolView({
-          name: BASH_TOOL_DISPLAY_NAME,
-          state: ok ? 'success' : 'error',
-          segments: [
-            { text: `exit ${code ?? 'null'}`, token: ok ? 'dim' : 'error' },
-            { text: `${allLines.length} line${allLines.length === 1 ? '' : 's'}`, token: 'count' },
-          ],
-          body: shown.map((line) => ({ text: line, token: ok ? 'dim' : 'error' })),
-          hint: hidden > 0 ? `${hidden} more line${hidden === 1 ? '' : 's'} hidden · ctrl+o expands` : undefined,
-        }, theme);
-      },
-      // Signal to guardedRenderResult that this renderer handles multi-query itself.
-      { multiQueryAware: true },
-    ),
+    renderCall: renderBashCall,
+    renderResult: renderBashResult,
   });
+  return manager;
 }

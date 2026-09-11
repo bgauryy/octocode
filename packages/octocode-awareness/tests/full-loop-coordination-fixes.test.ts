@@ -99,7 +99,7 @@ describe('full-loop coordination correctness fixes', () => {
       addTaskDependency(db, { taskId: second.task_id, dependsOnTaskId: first.task_id, agentId: 'lead' });
       expect(db.prepare('SELECT COUNT(*) AS count FROM task_dependencies WHERE task_id = ?')
         .get(second.task_id)).toEqual({ count: 1 });
-      expect(db.prepare("SELECT COUNT(*) AS count FROM task_events WHERE task_id = ? AND event_type = 'DEPENDENCY_ADDED'")
+      expect(db.prepare("SELECT COUNT(*) AS count FROM event_outbox WHERE aggregate_id = ? AND event_type = 'task.dependency-added'")
         .get(second.task_id)).toEqual({ count: 1 });
       expect(() => addTaskDependency(db, {
         taskId: first.task_id, dependsOnTaskId: second.task_id, agentId: 'lead',

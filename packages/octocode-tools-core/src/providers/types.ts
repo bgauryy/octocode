@@ -88,9 +88,3 @@ export function isProviderSuccess<T>(
 ): response is ProviderResponse<T> & { data: T } {
   return response.data !== undefined && !response.error;
 }
-
-export function isProviderError<T>(
-  response: ProviderResponse<T>
-): response is ProviderResponse<T> & { error: string } {
-  return response.error !== undefined;
-}

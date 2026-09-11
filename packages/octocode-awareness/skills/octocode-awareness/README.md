@@ -53,8 +53,10 @@ npx @octocodeai/octocode-awareness skill install --platform shared --project-dir
 ```
 
 Run `npx @octocodeai/octocode-awareness skill install --help` for user-level and
-host-specific destinations. The CLI copies its packaged skill directly; do not
-reconstruct package paths in an agent prompt. `maintenance init` is safe to repeat.
+host-specific destinations. The CLI materializes its packaged skill under
+`$OCTOCODE_HOME/skills`, then links the host directory to that durable copy; it
+never links to an npm cache. Do not reconstruct package paths in an agent prompt.
+`maintenance init` is safe to repeat.
 
 Awareness is the package's only bundled skill. Use `octocode-subagent` when
 execution choices, delegation, or independent workstreams need orchestration.
@@ -77,7 +79,7 @@ npx @octocodeai/octocode-awareness docs list --compact
 | `scripts/hooks/*.sh` | Thin lifecycle wrappers. |
 | [scripts/install.mjs](scripts/install.mjs) | Installer implementation; prefer the public `skill install` command and its preview. |
 | [scripts/smoke-multi-agent.mjs](scripts/smoke-multi-agent.mjs) | Isolated coordination smoke check after a package build. |
-| [scripts/hooks/pre-edit.sh](scripts/hooks/pre-edit.sh), [scripts/hooks/stop-verify.sh](scripts/hooks/stop-verify.sh) | Opt-in guard/full profile wrappers for tracked edits and verification. |
+| [scripts/hooks/pre-edit.sh](scripts/hooks/pre-edit.sh), [scripts/hooks/post-edit.sh](scripts/hooks/post-edit.sh), [scripts/hooks/stop-verify.sh](scripts/hooks/stop-verify.sh) | Opt-in guard/full profile wrappers for tracked edits and verification. |
 | [scripts/hooks/session-compact.sh](scripts/hooks/session-compact.sh) | Opt-in full-profile continuity hook. |
 
 `agents/openai.yaml` supplies the OpenAI skill interface metadata.

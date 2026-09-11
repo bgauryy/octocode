@@ -1,41 +1,33 @@
 /**
  * docs.ts — Documentation staleness detection.
  *
- * Compares edit_log activity in a doc's source directories against the doc's
+ * Compares canonical edit-event activity in a doc's source directories against the doc's
  * own last recorded edit, to flag docs (e.g. ARCHITECTURE.md) that have
  * drifted from the code they describe — an "AutoWiki"-style freshness signal
- * built entirely on data the harness already collects (edit_log), with no
+ * built entirely on data the harness already collects, with no
  * new tables and no generation pipeline.
  *
  * mineDocStaleness():  pure read — never mutates the store.
- * proposeDocRefresh(): records a harness_log 'propose' event for one stale entry.
+ * proposeDocRefresh(): records a canonical harness 'propose' event for one stale entry.
  */
 
 import type { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
-import { insertHarnessLog } from './audit.js';
+import { insertHarnessLog, queryEditLog } from './audit.js';
 import { normalizeArtifact } from './helpers.js';
 import type { DocStalenessParams, DocStalenessResult, DocStalenessEntry, ProposeDocRefreshParams } from './types/plans-docs.js';
 
 const DEFAULT_MIN_EDITS_SINCE_SYNC = 5;
 const DEFAULT_MIN_LINES_SINCE_SYNC = 50;
 
-/** Most recent edit_log timestamp recorded for this exact file path, or null if never tracked. */
+/** Most recent canonical edit timestamp recorded for this exact file path, or null if never tracked. */
 function lastEditTimestamp(db: DatabaseSync, filePath: string, workspacePath: string | null, artifact: string | null): string | null {
-  const conditions = ['file_path = ?'];
-  const binds: string[] = [filePath];
-  if (workspacePath) {
-    conditions.push('(workspace_path = ? OR workspace_path IS NULL)');
-    binds.push(workspacePath);
-  }
-  if (artifact) {
-    conditions.push('(artifact = ? OR artifact IS NULL)');
-    binds.push(artifact);
-  }
-  const row = db.prepare(
-    `SELECT MAX(created_at) AS ts FROM edit_log WHERE ${conditions.join(' AND ')}`
-  ).get(...binds) as { ts: string | null } | undefined;
-  return row?.ts ?? null;
+  return queryEditLog(db, {
+    filePath,
+    ...(workspacePath ? { workspacePath } : {}),
+    ...(artifact ? { artifact } : {}),
+    limit: 1,
+  })[0]?.created_at ?? null;
 }
 
 interface SourceActivity {
@@ -58,31 +50,12 @@ function sourceActivitySince(
 ): SourceActivity {
   if (sourceDirs.length === 0) return { edits: 0, linesChanged: 0, files: [], latest: null };
 
-  const conditions: string[] = [];
-  const binds: string[] = [];
-
-  const dirClauses = sourceDirs.map(() => 'file_path LIKE ?');
-  conditions.push(`(${dirClauses.join(' OR ')})`);
-  binds.push(...sourceDirs.map((d) => `${d.replace(/\/+$/, '')}/%`));
-
-  if (since) {
-    conditions.push('created_at > ?');
-    binds.push(since);
-  }
-  if (workspacePath) {
-    conditions.push('(workspace_path = ? OR workspace_path IS NULL)');
-    binds.push(workspacePath);
-  }
-  if (artifact) {
-    conditions.push('(artifact = ? OR artifact IS NULL)');
-    binds.push(artifact);
-  }
-
-  type Row = { file_path: string; lines_added: number | null; lines_removed: number | null; created_at: string };
-  const rows = db.prepare(
-    `SELECT file_path, lines_added, lines_removed, created_at
-     FROM edit_log WHERE ${conditions.join(' AND ')}`
-  ).all(...binds) as unknown as Row[];
+  const prefixes = sourceDirs.map((directory) => `${directory.replace(/\/+$/, '')}/`);
+  const rows = queryEditLog(db, {
+    ...(workspacePath ? { workspacePath } : {}),
+    ...(artifact ? { artifact } : {}),
+  }).filter((row) => (!since || row.created_at > since)
+    && prefixes.some((prefix) => row.file_path.startsWith(prefix)));
 
   const files = [...new Set(rows.map((r) => r.file_path))];
   const linesChanged = rows.reduce((sum, r) => sum + (r.lines_added ?? 0) + (r.lines_removed ?? 0), 0);
@@ -142,7 +115,7 @@ export function mineDocStaleness(db: DatabaseSync, params: DocStalenessParams): 
 }
 
 /**
- * Records a harness_log 'propose' event for one stale entry — the same event
+ * Records a canonical harness 'propose' event for one stale entry — the same event
  * type failure-mined proposals use (see mineWeakness), so exportHarness and
  * harness-log queries surface doc-staleness proposals alongside skill fixes
  * without new plumbing. Returns the harness_id.

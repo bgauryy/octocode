@@ -4,11 +4,13 @@ export const ACTOR_KINDS = ['user', 'agent', 'hook', 'system', 'tool', 'memory',
 export const PROVENANCE_SOURCES = ['harness', 'session-operator', 'peer', 'hook', 'tool', 'memory', 'mcp'] as const;
 export const TRUST_CLASSES = ['authority', 'attributed-data'] as const;
 export const INBOUND_DECISIONS = ['accept', 'hold', 'refuse'] as const;
+export const EVENT_RETENTION_CLASSES = ['delivery', 'operational', 'audit'] as const;
 
 export type ActorKind = typeof ACTOR_KINDS[number];
 export type ProvenanceSource = typeof PROVENANCE_SOURCES[number];
 export type TrustClass = typeof TRUST_CLASSES[number];
 export type InboundDecision = typeof INBOUND_DECISIONS[number];
+export type EventRetentionClass = typeof EVENT_RETENTION_CLASSES[number];
 export type PeerMessageClass = 'informational' | 'blocking' | 'proposal' | 'handoff';
 
 export interface PeerInboundPolicyResultV1 {
@@ -30,6 +32,8 @@ export interface AgentEventEnvelopeV1<T = unknown> {
   sessionId?: string;
   correlationId?: string;
   type: string;
+  /** Omitted only by legacy delivery callers; parsed envelopes always materialize it. */
+  retentionClass?: EventRetentionClass;
   actor: ActorIdentityV1;
   provenance: EventProvenanceV1;
   aggregate?: { kind: string; id: string; revision?: string };
@@ -37,6 +41,10 @@ export interface AgentEventEnvelopeV1<T = unknown> {
   expiresAt?: string;
   payload: T;
 }
+
+export type ParsedAgentEventEnvelopeV1<T = unknown> = AgentEventEnvelopeV1<T> & {
+  retentionClass: EventRetentionClass;
+};
 
 export interface AuthorizationReceiptV1 {
   version: 1;
@@ -143,12 +151,16 @@ function parseProvenance(value: unknown, actor: ActorIdentityV1): EventProvenanc
   return { source, trust };
 }
 
-export function parseAgentEventEnvelopeV1<T = unknown>(value: unknown): AgentEventEnvelopeV1<T> {
+export function parseAgentEventEnvelopeV1<T = unknown>(value: unknown): ParsedAgentEventEnvelopeV1<T> {
   const input = record(value, 'event');
   if (input.version !== 1) throw new Error('event.version must be 1');
   const actor = parseActor(input.actor);
   const provenance = parseProvenance(input.provenance, actor);
   const aggregateInput = input.aggregate === undefined ? undefined : record(input.aggregate, 'aggregate');
+  const retentionClass = (input.retentionClass ?? 'delivery') as EventRetentionClass;
+  if (!(EVENT_RETENTION_CLASSES as readonly string[]).includes(retentionClass)) {
+    throw new Error('event.retentionClass is invalid');
+  }
   return {
     version: 1,
     eventId: text(input.eventId, 'eventId'),
@@ -156,6 +168,7 @@ export function parseAgentEventEnvelopeV1<T = unknown>(value: unknown): AgentEve
     ...(input.sessionId === undefined ? {} : { sessionId: text(input.sessionId, 'sessionId') }),
     ...(input.correlationId === undefined ? {} : { correlationId: text(input.correlationId, 'correlationId') }),
     type: text(input.type, 'type'),
+    retentionClass,
     actor,
     provenance,
     ...(aggregateInput ? { aggregate: {

@@ -32,11 +32,9 @@ const LOADER = join(root, 'loader', 'index.d.ts');
 // callables (e.g. consts synthesized by the CJS loader, not the Rust ABI).
 // Anything here is exempt from the "declared in loader but not in the ABI" check.
 // Keep this list tight — each entry is a hand-maintained exception.
-// These consts are SYNTHESIZED by loader/index.cjs (120-129) from native
-// getters (e.g. MINIFY_CONFIG = getMINIFY_CONFIG()), so they appear in the hand
-// loader but not as direct napi callables — the getters themselves ARE checked.
+// These consts are synthesized by loader/index.cjs from native getters, so they
+// appear in the hand loader but not as direct napi callables.
 const LOADER_ONLY_ALLOWLIST = new Set([
-  'MINIFY_CONFIG',
   'SUPPORTED_SIGNATURE_EXTENSIONS',
   'SUPPORTED_GRAPH_FACT_EXTENSIONS',
   'SUPPORTED_STRUCTURAL_EXTENSIONS',
@@ -106,7 +104,9 @@ function main() {
     if (!loader.has(key)) {
       missingFromLoader.push(key);
     } else if (ar !== null && loader.get(key) !== ar) {
-      arityMismatch.push(`${key} (abi ${ar} params, loader ${loader.get(key)})`);
+      arityMismatch.push(
+        `${key} (abi ${ar} params, loader ${loader.get(key)})`
+      );
     }
   }
 
@@ -127,7 +127,9 @@ function main() {
     process.exit(0);
   }
 
-  console.error('check-napi-abi: NAPI ABI ↔ loader/index.d.ts DRIFT detected.\n');
+  console.error(
+    'check-napi-abi: NAPI ABI ↔ loader/index.d.ts DRIFT detected.\n'
+  );
   if (missingFromLoader.length) {
     console.error(
       'Exported by the native ABI but MISSING from loader/index.d.ts (add them):'

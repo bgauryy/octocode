@@ -6,7 +6,7 @@ import {
 import { RESOURCE_LIMITS } from '../../../utils/core/constants.js';
 
 import type { RipgrepQuery } from '@octocodeai/octocode-core/schema';
-import type { LocalSearchEngine } from './buildResult.js';
+import type { LocalSearchEngine } from './types.js';
 
 const FETCH_CONTEXT_LINES = 8;
 const RESERVED_SYMBOL_WORDS = new Set([

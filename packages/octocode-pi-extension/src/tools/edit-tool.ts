@@ -11,9 +11,9 @@ import { collapsedEditRationales } from './edit-render-ux.js';
 import { withFileMutationQueue, checkReadState, type ReadStateCheck } from './file-state.js';
 import { assertFileContentSize, replaceNativeFile } from './native-files.js';
 import { peerWipNotice } from './peer-wip.js';
-import { finishFileMutation } from './file-mutation-receipt.js';
+import { countMutationLines, createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { normalizeToLF, restoreEditedText, assertWellFormedText } from './file-text.js';
-import { prepareFileMutationTarget, assertFileMutationTargetCurrent, type FileMutationTarget } from './file-mutation-target.js';
+import { prepareFileMutationTarget, assertFileMutationTargetCurrent, rethrowFileMutationConflict, type FileMutationTarget } from './file-mutation-target.js';
 
 
 type MatchMode = 'exact' | 'normalized' | 'lineRange';
@@ -608,13 +608,19 @@ export async function prepareEdit(query: EditQuery, cwd: string, inheritedRequir
 export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortSignal): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error('Operation aborted');
   const peerNotice = peerWipNotice(prepared.absolutePath, prepared.requestPath);
-  const { receipt, warnings } = await withFileMutationQueue(prepared.absolutePath, async () => {
-    if (signal?.aborted) throw new Error('Operation aborted');
-    assertFileMutationTargetCurrent(prepared.target);
-    const receipt = await replaceNativeFile(prepared.absolutePath, prepared.finalContent, prepared.target.snapshot.version, signal);
-    const warnings = [...receipt.warnings, ...await finishFileMutation(prepared.absolutePath, prepared.finalContent)];
-    return { receipt, warnings };
-  });
+  let committed: Awaited<ReturnType<typeof replaceNativeFile>>;
+  let warnings: string[];
+  try {
+    ({ receipt: committed, warnings } = await withFileMutationQueue(prepared.absolutePath, async () => {
+      if (signal?.aborted) throw new Error('Operation aborted');
+      assertFileMutationTargetCurrent(prepared.target);
+      const receipt = await replaceNativeFile(prepared.absolutePath, prepared.finalContent, prepared.target.snapshot.version, signal);
+      const nextWarnings = [...receipt.warnings, ...await finishFileMutation(prepared.absolutePath, prepared.finalContent)];
+      return { receipt, warnings: nextWarnings };
+    }));
+  } catch (error) {
+    rethrowFileMutationConflict(error, prepared.target);
+  }
   const replacements = prepared.result.replacements;
   const editCount = prepared.edits.length;
   const firstChangedLine = prepared.result.firstChangedLine;
@@ -622,6 +628,14 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
   const readStates = prepared.readState.state;
   const reasoning = reasoningSuffix([{ path: prepared.requestPath, edits: prepared.edits }]);
   const changes = changesSuffix([prepared]);
+  const mutationMetrics = prepared.result.changes.reduce((total, change) => {
+    const removed = prepared.result.baseContent.slice(change.start, change.end);
+    return {
+      bytesChanged: total.bytesChanged + Buffer.byteLength(removed, 'utf8') + Buffer.byteLength(change.newText, 'utf8'),
+      linesAdded: total.linesAdded + countMutationLines(change.newText),
+      linesDeleted: total.linesDeleted + countMutationLines(removed),
+    };
+  }, { bytesChanged: 0, linesAdded: 0, linesDeleted: 0 });
   return {
     content: [{
       type: 'text',
@@ -630,7 +644,7 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
     details: {
       operation: 'edit',
       committed: true,
-      durable: receipt.durable,
+      durable: committed.durable,
       ...(warnings.length ? { warnings } : {}),
       path: prepared.requestPath,
       replacements,
@@ -649,6 +663,11 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
       }],
       diff: `# ${prepared.requestPath}\n${prepared.diff}`,
       patch: prepared.patch,
+      mutation: createCommittedMutationReceipt({
+        snapshot: prepared.target.snapshot,
+        nextContent: prepared.finalContent,
+        ...mutationMetrics,
+      }),
     },
   };
 }

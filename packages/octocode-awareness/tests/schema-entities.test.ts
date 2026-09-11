@@ -9,7 +9,6 @@ import { initDb } from '../src/db-init.js';
 import { connectDb } from '../src/db-runtime.js';
 import { openAwarenessStore } from '../src/coordination/open.js';
 import { awarenessEntityCatalog } from '../src/schema/entities.js';
-import { appendWorkerLifecycleEvent } from '../src/worker-lifecycle-ledger.js';
 import { tsxCli } from './helpers/tsx-cli.js';
 
 const SOURCE_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/awareness.ts');
@@ -36,9 +35,10 @@ describe('schema entities', () => {
     const entities = result.parsed?.['entities'] as Array<Record<string, unknown>>;
     expect(result.parsed?.['kind']).toBe('awareness.entities');
     expect(entities).toHaveLength(36);
+    expect(entities.find((entity) => entity['name'] === 'awareness_meta')).toMatchObject({ owner: 'awareness', family: 'storage' });
     expect(entities.find((entity) => entity['name'] === 'awareness_plans')).toMatchObject({ owner: 'awareness', family: 'planning' });
     expect(entities.find((entity) => entity['name'] === 'plans')).toBeUndefined();
-    expect(entities.find((entity) => entity['name'] === 'worker_lifecycle_events')).toMatchObject({ owner: 'awareness', family: 'workers' });
+    expect(entities.find((entity) => entity['name'] === 'worker_lifecycle_events')).toBeUndefined();
     expect(entities.find((entity) => entity['name'] === 'memories_fts')).toMatchObject({ kind: 'virtual_table', family: 'search' });
     expect(entities.filter((entity) => entity['family'] === 'history').map((entity) => entity['name'])).toEqual([
       'local_history_durability', 'local_history_operations', 'local_history_restores', 'local_history_versions',
@@ -49,7 +49,6 @@ describe('schema entities', () => {
     expect(compact.status, compact.stderr || compact.stdout).toBe(0);
     expect(compact.parsed?.['families']).toEqual(expect.arrayContaining([
       expect.objectContaining({ family: 'planning', entities: expect.arrayContaining(['awareness_plans']) }),
-      expect.objectContaining({ family: 'workers', entities: ['worker_lifecycle_events'] }),
     ]));
     expect(compact.parsed?.['entities']).toBeUndefined();
   });
@@ -63,11 +62,6 @@ describe('schema entities', () => {
       const db = connectDb(dbPath);
       try {
         initDb(db);
-        appendWorkerLifecycleEvent(db, {
-          packetId: 'catalog-completeness-probe', workspace: dir, sessionId: 'catalog-session',
-          workerId: 'catalog-worker', correlationId: 'catalog-correlation', type: 'schema.probe',
-          redaction: 'public', createdAt: '2026-01-01T00:00:00.000Z', payload: {},
-        });
       } finally { db.close(); }
 
       const actual = new DatabaseSync(dbPath);

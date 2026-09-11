@@ -39,7 +39,7 @@ test('all registered core tools accept representative queries through the real P
     plan: { action: 'show' },
     localServer: { action: 'status' },
     askUser: { question: 'Choose a color', options: [{ value: 'blue', label: 'Blue' }, { value: 'green', label: 'Green' }] },
-    awareness: { action: 'list' },
+    awareness: { operation: 'context.orient' },
     MCPTool: { action: 'status' },
   };
   assert.deepEqual([...tools.keys()].sort(), [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash'].sort());

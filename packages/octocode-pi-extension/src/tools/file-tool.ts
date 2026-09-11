@@ -1,5 +1,9 @@
 import path from 'node:path';
-import type { FileSnapshot } from '@octocodeai/octocode-extension-rust';
+import {
+  NativeErrorCodes,
+  nativeErrorCode,
+  type FileSnapshot,
+} from '@octocodeai/octocode-extension-rust';
 import type { ToolCallResult, ToolDefinition, PiTheme } from '../types.js';
 import { CLI_STATUS_TEXT } from '../tui/cli-design.js';
 import { buildQueryCallBlocks, buildToolView } from './render-helpers.js';
@@ -9,9 +13,10 @@ import {
   withFileMutationQueue,
 } from './file-state.js';
 import { peerWipNotice } from './peer-wip.js';
-import { finishFileMutation } from './file-mutation-receipt.js';
+import { countMutationLines, createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { deleteNativeFile, snapshotNativeFile } from './native-files.js';
 import { assertWellFormedText } from './file-text.js';
+import { FileMutationConflictError, rethrowFileMutationConflict } from './file-mutation-target.js';
 import {
   commitPreparedEdit,
   prepareEdit,
@@ -33,6 +38,7 @@ interface PreparedDelete {
   absolutePath: string;
   canonicalPath: string;
   snapshot: FileSnapshot;
+  previousLines: number;
 }
 
 interface PreparedEditOperation {
@@ -93,14 +99,16 @@ async function prepareOperation(query: QueryRecord, index: number, cwd: string):
   const absolutePath = resolveFilePath(path, cwd);
   assertPathAllowed(absolutePath, cwd, 'file delete');
   const canonicalPath = canonicalDeletePath(absolutePath);
-  const snapshot = await snapshotNativeFile(canonicalPath, false, true).catch((error: unknown) => {
-    if (error instanceof Error && error.message.startsWith('NOT_REGULAR_FILE:')) {
+  const snapshot = await snapshotNativeFile(canonicalPath, true, true).catch((error: unknown) => {
+    if (nativeErrorCode(error) === NativeErrorCodes.NOT_REGULAR_FILE) {
       throw new Error(`delete supports files and symbolic links, not directories or other nonregular entries: ${path}`);
     }
     throw error;
   });
   if (!snapshot.exists) throw new Error(`File does not exist: ${path}`);
-  return { operation, path, absolutePath, canonicalPath, snapshot };
+  const previousLines = snapshot.content ? countMutationLines(snapshot.content.toString('utf8')) : 0;
+  delete snapshot.content;
+  return { operation, path, absolutePath, canonicalPath, snapshot, previousLines };
 }
 
 /** Canonicalize the parent only: delete removes the link itself. */
@@ -111,19 +119,36 @@ function canonicalDeletePath(absolutePath: string): string {
 async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: AbortSignal): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error('Operation aborted');
   const peerNotice = peerWipNotice(prepared.absolutePath, prepared.path);
-  const { receipt, warnings } = await withFileMutationQueue(prepared.absolutePath, async () => {
-    if (signal?.aborted) throw new Error('Operation aborted');
-    assertPathAllowed(prepared.absolutePath, cwd, 'file delete');
-    if (canonicalDeletePath(prepared.absolutePath) !== prepared.canonicalPath) {
-      throw new Error(`${prepared.path} changed after delete preflight. Re-inspect it and retry.`);
-    }
-    const receipt = await deleteNativeFile(prepared.canonicalPath, prepared.snapshot.version, signal);
-    const warnings = [...receipt.warnings, ...await finishFileMutation(prepared.absolutePath)];
-    return { receipt, warnings };
-  });
+  let committed: Awaited<ReturnType<typeof deleteNativeFile>>;
+  let warnings: string[];
+  try {
+    ({ receipt: committed, warnings } = await withFileMutationQueue(prepared.absolutePath, async () => {
+      if (signal?.aborted) throw new Error('Operation aborted');
+      assertPathAllowed(prepared.absolutePath, cwd, 'file delete');
+      if (canonicalDeletePath(prepared.absolutePath) !== prepared.canonicalPath) {
+        throw new FileMutationConflictError(
+          `${prepared.path} changed after delete preflight. Re-inspect it and retry.`,
+          prepared.canonicalPath,
+        );
+      }
+      const receipt = await deleteNativeFile(prepared.canonicalPath, prepared.snapshot.version, signal);
+      const nextWarnings = [...receipt.warnings, ...await finishFileMutation(prepared.absolutePath)];
+      return { receipt, warnings: nextWarnings };
+    }));
+  } catch (error) {
+    rethrowFileMutationConflict(error, { requestPath: prepared.path, canonicalPath: prepared.canonicalPath });
+  }
   return {
     content: [{ type: 'text', text: `Deleted ${prepared.path}.${peerNotice}${warnings.length ? `\n${warnings.join('\n')}` : ''}` }],
-    details: { operation: 'delete', committed: true, durable: receipt.durable, path: prepared.path, absolutePath: prepared.absolutePath, ...(warnings.length ? { warnings } : {}) },
+    details: {
+      operation: 'delete',
+      committed: true,
+      durable: committed.durable,
+      path: prepared.path,
+      absolutePath: prepared.absolutePath,
+      mutation: createCommittedMutationReceipt({ snapshot: prepared.snapshot, previousLines: prepared.previousLines }),
+      ...(warnings.length ? { warnings } : {}),
+    },
   };
 }
 

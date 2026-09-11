@@ -1,6 +1,3 @@
-mod comment_groups;
-pub(crate) mod config;
-pub(crate) mod extension;
 pub(crate) mod filesystem;
 pub(crate) mod graph;
 pub(crate) mod lsp;

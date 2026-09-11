@@ -7,15 +7,10 @@
  * No imports from agent-tools (that file is being eliminated; all concrete
  * dependencies are drawn directly from the agents/ sub-modules).
  */
-
 import type { PiContext, ToolCallResult } from '../../types.js';
 import { SUBAGENT_WORKER_CONTRACT } from '@octocodeai/agent-contracts/prompts';
 import { setManagedStatus } from '../runtime-renderer.js';
-import {
-  type AgentRecord,
-  type SpawnAgentParams,
-  type WaitOutcome,
-} from './types.js';
+import type { AgentRecord, SpawnAgentParams, WaitOutcome } from './types.js';
 import {
   agents,
   isTerminal,
@@ -45,6 +40,7 @@ import {
   type AgentProfile,
   PROFILE_TO_SUBAGENT,
   resolvePlanAssignment,
+  resolveOptionalPlanAssignment,
 } from './plan-integration.js';
 import {
   SUBAGENT_REGISTRY,
@@ -318,9 +314,10 @@ export async function executeSpawnQuery(
   const cwd = query['cwd'] as string | undefined;
   const isolation = query['isolation'] as SpawnAgentParams['isolation'];
   const includeUncommitted = query['includeUncommitted'] as boolean | undefined;
-  const planStep = (query['planStep'] as string | undefined)?.trim() || undefined;
+  const requestedPlanStep = (query['planStep'] as string | undefined)?.trim() || undefined;
+  const cohortId = (query['cohortId'] as string | undefined)?.trim() || undefined;
 
-  const assignment = planStep ? resolvePlanAssignment(planStep, ctx) : undefined;
+  const { planStep, assignment, ignoredPlanStep } = resolveOptionalPlanAssignment(requestedPlanStep, ctx);
   const fullTask = task;
 
   let spawnParams: SpawnAgentParams;
@@ -470,6 +467,7 @@ export async function executeSpawnQuery(
   }
 
   spawnParams.planStep = planStep;
+  spawnParams.cohortId = cohortId;
   spawnParams.capabilityProfile = profile;
   spawnParams.capabilities = query['capabilities'] === undefined ? undefined : WorkerCapabilitySelectionSchema.parse(query['capabilities']);
   spawnParams.capabilitySnapshotRevision = typeof query['snapshotRevision'] === 'string' ? query['snapshotRevision'] : undefined;
@@ -502,6 +500,7 @@ export async function executeSpawnQuery(
     `[SPAWNED] model: ${ledgerEntry?.provider ? `${ledgerEntry.provider}/` : ''}${ledgerEntry?.model ?? 'inherited'}`,
     `[SPAWNED] task: ${ledgerEntry?.task ?? task}`,
     ...(ledgerEntry?.planStep ? [`[SPAWNED] plan: ${ledgerEntry.planStep}`] : []),
+    ...(ignoredPlanStep ? ['[SPAWNED] note: ignored unbound planStep because no parent plan exists; standalone subagents do not require a plan.'] : []),
     ...policyLines,
     '',
     `[USAGE] agent({queries:[{reasoning:"\u2026", type:"wait", agentId:"${agentId}"}]})`,
@@ -509,6 +508,6 @@ export async function executeSpawnQuery(
 
   return {
     content: [{ type: 'text', text: output }],
-    details: { agentId, profile, name: record.name, model: ledgerEntry?.model, provider: ledgerEntry?.provider, task: ledgerEntry?.task ?? task, planStep: ledgerEntry?.planStep, capabilityGrant: record.capabilityGrant },
+    details: { agentId, profile, name: record.name, model: ledgerEntry?.model, provider: ledgerEntry?.provider, task: ledgerEntry?.task ?? task, planStep: ledgerEntry?.planStep, ignoredPlanStep, cohortId: record.cohortId, capabilityGrant: record.capabilityGrant },
   } as unknown as ToolCallResult;
 }

@@ -8,8 +8,10 @@ import {
   createExecutionState,
   type ExecutionState,
 } from './execution-events.js';
-import type { AgentFooterEntry } from '../ui-extras.js';
-import { effectiveAgentStatus } from './agents/display-state.js';
+import { classifyEvidenceAuthority } from './evidence-authority.js';
+import { projectUxAgents, type UxAgentV1 } from './ux-agent-projection.js';
+
+export type { UxAgentV1 } from './ux-agent-projection.js';
 
 export type UxPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4';
 export type UxSeverity = 'info' | 'warning' | 'error';
@@ -61,16 +63,13 @@ export interface UxTaskV1 {
   updatedAt: number;
 }
 
-export interface UxAgentV1 {
+export interface UxBackgroundJobV1 {
   id: string;
-  label: string;
-  state: string;
-  assignment?: string;
-  planStep?: string;
-  activeOperation?: string;
-  pendingMessages: number;
-  elapsedMs?: number;
+  title: string;
+  status: RuntimeState['backgroundJobs'][number]['status'];
+  elapsedMs: number;
   updatedAt: number;
+  exitCode?: number | null;
 }
 
 export interface UxAttentionV1 {
@@ -82,6 +81,7 @@ export interface UxAttentionV1 {
     | 'plan_blocked'
     | 'agent_blocked'
     | 'agent_failed'
+    | 'background_failed'
     | 'messages'
     | 'context_pressure'
     | 'stale_source';
@@ -110,6 +110,7 @@ export interface UxSnapshotV1 {
   plan?: UxPlanV1;
   tasks: UxTaskV1[];
   agents: UxAgentV1[];
+  backgroundJobs: UxBackgroundJobV1[];
   attention: UxAttentionV1[];
   messages: {
     unread: number;
@@ -126,9 +127,9 @@ export interface UxSnapshotInput {
   runtime: Pick<
     RuntimeState,
     'generation' | 'phase' | 'activity' | 'context' | 'footer'
-  > & { execution?: ExecutionState };
+  > & { execution?: ExecutionState; backgroundJobs?: RuntimeState['backgroundJobs'] };
   plan?: PlanReadModelV1;
-  agents?: readonly AgentFooterEntry[];
+  agents?: Parameters<typeof projectUxAgents>[0];
   goal?: UxSnapshotV1['goal'];
   dynamicPlan?: boolean;
   awareness?: {
@@ -141,14 +142,6 @@ export interface UxSnapshotInput {
   };
 }
 
-const TERMINAL_AGENT_STATES = new Set([
-  'done',
-  'failed',
-  'killed',
-  'completed',
-  'exited',
-  'error',
-]);
 const PRIORITY_ORDER: Record<UxPriority, number> = {
   P0: 0,
   P1: 1,
@@ -156,11 +149,6 @@ const PRIORITY_ORDER: Record<UxPriority, number> = {
   P3: 3,
   P4: 4,
 };
-
-function parsedTime(value: string, fallback: number): number {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
 
 function taskVerification(
   task: PlanReadModelTaskV1,
@@ -216,38 +204,15 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
     verification: taskVerification(task, plan!.phase),
     updatedAt: now,
   }));
-  const agents: UxAgentV1[] = (input.agents ?? [])
-    .map(agent => {
-      const updatedAt = parsedTime(agent.updatedAt, now);
-      const startedAt = parsedTime(agent.startedAt, updatedAt);
-      const state = effectiveAgentStatus(agent);
-      const terminal = TERMINAL_AGENT_STATES.has(state) || state === 'blocked';
-      // Raw handback markers ([DONE]/[BLOCKED]/…) belong to the inbox detail;
-      // the ambient surface shows only the bounded reason text.
-      const stripMarker = (text: string): string => text.replace(/^\[[A-Z]+\]\s*/, '');
-      const messageUpdate = agent.lastMessage
-        ? `msg${agent.lastMessage.direction === 'to-agent' ? '→' : '←'} ${agent.lastMessage.action}: ${stripMarker(agent.lastMessage.preview)}`
-        : undefined;
-      const latestMessage = agent.lastMessage && agent.lastMessage.timestamp >= updatedAt;
-      const ambientDelta = agent.deltaSummary ? stripMarker(agent.deltaSummary) : undefined;
-      const activeOperation = state === 'running' && agent.activeTool
-        ? `tool ${agent.activeTool}`
-        : (state === 'queued' || latestMessage) && messageUpdate
-          ? messageUpdate
-          : ambientDelta || messageUpdate;
-      return {
-        id: agent.agentId,
-        label: agent.name,
-        state,
-        ...(agent.task ? { assignment: agent.task } : {}),
-        ...(agent.planStep ? { planStep: agent.planStep } : {}),
-        ...(activeOperation ? { activeOperation } : {}),
-        pendingMessages: agent.pendingMessages ?? 0,
-        elapsedMs: Math.max(0, (terminal ? updatedAt : now) - startedAt),
-        updatedAt,
-      };
-    })
-    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+  const agents = projectUxAgents(input.agents, now);
+  const backgroundJobs: UxBackgroundJobV1[] = (input.runtime.backgroundJobs ?? []).map((job) => ({
+    id: job.id,
+    title: job.title,
+    status: job.status,
+    elapsedMs: Math.max(0, (job.endedAt ?? now) - job.startedAt),
+    updatedAt: job.updatedAt,
+    ...(job.exitCode !== undefined ? { exitCode: job.exitCode } : {}),
+  }));
 
   const contextUsage = input.runtime.footer.usage;
   const contextPressure =
@@ -359,6 +324,20 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
       createdAt: agent.updatedAt,
     });
   }
+  for (const job of backgroundJobs) {
+    if (job.status !== 'failed' && job.status !== 'timed_out') continue;
+    addAttention({
+      id: `background:${job.id}:${job.status}`,
+      kind: 'background_failed',
+      priority: 'P1',
+      severity: job.status === 'failed' ? 'error' : 'warning',
+      actor: 'Background job',
+      reason: `${job.title} ${job.status === 'failed' ? `failed${job.exitCode === undefined ? '' : ` with exit ${job.exitCode}`}` : 'timed out'}`,
+      requiredAction: 'Inspect background output',
+      detailRoute: '/octocode-status',
+      createdAt: job.updatedAt,
+    });
+  }
   const queued = agents.reduce((sum, agent) => sum + agent.pendingMessages, 0);
   const unread = Math.max(0, input.awareness?.unread ?? 0);
   if (queued + unread > 0) {
@@ -399,9 +378,14 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
       createdAt: now,
     });
 
-  const awarenessStale = input.awareness
-    ? now - input.awareness.observedAt > input.awareness.staleAfterMs
-    : false;
+  const awarenessAuthority = input.awareness
+    ? classifyEvidenceAuthority({
+        observedAt: input.awareness.observedAt,
+        now,
+        staleAfterMs: input.awareness.staleAfterMs,
+      })
+    : undefined;
+  const awarenessStale = awarenessAuthority !== undefined && awarenessAuthority.authority !== 'live';
   if (awarenessStale)
     addAttention({
       id: 'awareness:stale',
@@ -470,6 +454,7 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
       : {}),
     tasks,
     agents,
+    backgroundJobs,
     attention,
     messages: {
       unread,

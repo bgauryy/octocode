@@ -15,7 +15,8 @@ exact catalog projection in provider context.
 ## Ownership
 
 `runtime-store.ts` owns initialization phase, task receipts, MCP loading projection,
-managed status slots, foreground activity, footer metrics, and user notices.
+managed status slots, foreground activity, redacted background-job observations, footer
+metrics, and user notices.
 `runtime-renderer.ts` subscribes once per session context, diffs rendered values, and is
 the only implementation that mutates Pi status or working APIs. Foreground activity text
 is projected only by the footer; the renderer derives Pi's motion visibility from activity
@@ -32,6 +33,11 @@ is the sole focus owner.
 Resource lifetime stays local to the owning manager. MCP clients, Chrome connections,
 worker processes, file queues, timers, schema validators, and filesystem watchers do not
 belong in Zustand. Their observable state may be projected into the runtime store.
+`SessionRuntime` owns the session abort signal and a last-in, first-out cleanup stack.
+Cleanup is idempotent, continues after individual failures, and immediately disposes a
+resource registered after shutdown starts. Background Bash publishes only its stable ID,
+sanitized title, state, timing, and exit code; commands, cwd values, process handles, and
+log paths remain private to its manager.
 
 The footer keeps one register-once Pi component factory because Pi requires `setFooter`
 once followed by `requestRender`. It subscribes to runtime changes and disposes branch and
@@ -72,6 +78,6 @@ use managed status and the unified footer instead of notification spam.
 ## Disposal
 
 `session_shutdown` marks the runtime disposing, suppresses late footer/inbox callbacks,
-stops resource managers, then disposes the renderer and store. Replacement-session
+drains registered managers in reverse acquisition order, then disposes the renderer and store. Replacement-session
 shutdown skips UI clears because Pi may already have invalidated that context; quit clears
 the live UI. Generation checks prevent late GitHub/MCP results from changing a new session.

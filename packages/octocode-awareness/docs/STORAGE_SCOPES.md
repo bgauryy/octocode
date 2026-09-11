@@ -42,9 +42,9 @@ $OCTOCODE_HOME/
 | Other CLI/MCP owners | Their documented paths, including other files under `<workspace>/.octocode/` | Research indexes, caches, exports, and service-specific state. These aren't Agent or Awareness databases. |
 
 Authoritative worker lifecycle and runtime durability are Agent-owned.
-Awareness can own a bounded, redacted `worker_lifecycle_events` projection for
-coordination and restart observation, but it doesn't own worker processes,
-mailboxes, worktrees, handoff state, effects, fencing, or Agent sessions.
+Awareness preserves recognized predecessor projections only long enough for an
+explicit copy-on-write migration. It does not advertise or create a worker
+lifecycle entity.
 
 ## Scope and overrides
 

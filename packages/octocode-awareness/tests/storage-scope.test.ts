@@ -6,7 +6,7 @@ import { defaultDbPath } from '../src/coordination/coordination-shared.js';
 import { runCli } from '../src/coordination/cli.js';
 import { resolveDbPath } from '../src/db-runtime.js';
 import { parseStorageScope, repoDatabasePath } from '../src/storage-scope.js';
-import { extractGlobalDb } from '../bin/cli-routing.js';
+import { extractGlobalDb } from '../src/cli-adapter/cli-routing.js';
 
 const originalMemoryHome = process.env.OCTOCODE_AGENT_DIR;
 const originalOctocodeHome = process.env.OCTOCODE_HOME;

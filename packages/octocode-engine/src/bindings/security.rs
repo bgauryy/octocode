@@ -31,9 +31,3 @@ pub fn sanitize_content(
 pub fn mask_sensitive_data(text: String) -> String {
     crate::security::detector::mask_text(text)
 }
-
-/// Number of loaded secret-detection patterns (testing / benchmarking).
-#[napi(js_name = "patternCount")]
-pub fn pattern_count() -> u32 {
-    crate::security::patterns::PATTERNS.len() as u32
-}

@@ -100,19 +100,17 @@ function details(value: ToolCallResult): Record<string, unknown> {
   return (value.details ?? {}) as Record<string, unknown>;
 }
 
-test('guidance routes to the shared policy and teaches an executable discovery envelope', async () => {
+test('guidance teaches a direct canonical operation envelope', async () => {
   const tool = makeTool();
   const guidance = [tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join(
     '\n'
   );
-  assert.match(guidance, /<awareness> policy owns the workflow/);
+  assert.match(guidance, /operation.*context\.orient/i);
   assert.doesNotMatch(
     guidance,
     /recall before any edit|Session start:|Long operations/
   );
-  const example = tool.promptGuidelines
-    ?.find(line => line.startsWith('Example: '))
-    ?.match(/Example: (\{.*\})\. Execute/)?.[1];
+  const example = guidance.match(/Example: (\{.*\})\./)?.[1];
   assert.ok(example, 'native guidance provides a real queries envelope');
   const input = JSON.parse(example);
   assert.equal(
@@ -128,25 +126,21 @@ test('guidance routes to the shared policy and teaches an executable discovery e
   );
   assert.equal(value.isError, false);
   assert.equal(
-    (details(value).descriptor as Record<string, unknown>).command,
-    'attend'
+    details(value).operation,
+    'context.orient'
   );
 });
 
-test('lists the routine Awareness catalog through one direct tool', async () => {
+test('keeps legacy discovery bounded to operator and recovery commands', async () => {
   const tool = makeTool();
-  const value = await run(tool, { action: 'list', pageSize: 25 });
-  const canonical = listAwarenessCommandDescriptors({ routine: true });
-  const canonicalNames = canonical.map(entry => entry.command);
-  assert.equal(new Set(canonicalNames).size, canonicalNames.length, 'canonical catalog commands must be unique');
+  const value = await run(tool, { operation: 'legacy', action: 'list' });
+  const routine = new Set(listAwarenessCommandDescriptors({ routine: true }).map(entry => entry.command));
+  const legacy = listAwarenessCommandDescriptors().filter(entry => !routine.has(entry.command));
   assert.equal(value.isError, false);
   assert.equal(details(value).status, 'listed');
-  assert.equal(details(value).count, canonical.length);
-  const routineEntries = details(value).entries as Array<{ command: string }>;
-  assert.ok(!routineEntries.some(entry => /^(refinement|session) /.test(entry.command)));
-  assert.ok(!routineEntries.some(entry => /^(memory forget|memory evaluate|memory prune)$/.test(entry.command)));
-  const handoff = await run(tool, { action: 'list', noun: 'handoff', pageSize: 25 });
-  assert.deepEqual((details(handoff).entries as Array<{ command: string }>).map(entry => entry.command), ['handoff add', 'handoff list', 'handoff clear']);
+  assert.equal(details(value).count, legacy.length);
+  const legacyEntries = details(value).entries as Array<{ command: string }>;
+  assert.ok(legacyEntries.every(entry => !routine.has(entry.command)));
   assert.equal(
     (details(value).next as Record<string, unknown> | undefined)?.tool,
     'awareness'
@@ -171,34 +165,36 @@ test('lists the routine Awareness catalog through one direct tool', async () => 
   const modelPayload = JSON.parse(modelText) as {
     entries: Array<Record<string, unknown>>;
   };
-  assert.equal(modelPayload.entries.length, Math.min(25, canonical.length));
+  assert.equal(modelPayload.entries.length, Math.min(10, legacy.length));
   assert.deepEqual(
     modelPayload.entries.map(entry => entry.command).sort(),
-    canonicalNames.slice(0, 25).sort(),
-    'direct list page must expose canonical commands',
+    legacy.slice(0, 10).map(entry => entry.command).sort(),
+    'legacy list page must expose only operator/recovery commands',
   );
   assert.equal(modelPayload.entries[0]?.injected, undefined);
-  assert.equal(modelPayload.entries[0]?.approvalClass, undefined);
+  assert.ok(
+    modelPayload.entries.every(entry => entry.approvalClass === undefined || typeof entry.approvalClass === 'string')
+  );
 });
 
 test('keeps specialist routes available through explicit all discovery', async () => {
   const tool = makeTool();
-  const value = await run(tool, { action: 'list', all: true, pageSize: 25 });
+  const value = await run(tool, { operation: 'legacy', action: 'list', all: true });
   const all = listAwarenessCommandDescriptors();
   assert.equal(details(value).count, all.length);
   const entries = details(value).entries as Array<{ command: string }>;
   assert.ok(entries.length > 0);
   assert.ok(all.some(entry => entry.command === 'refinement set'));
   assert.ok(all.some(entry => entry.command === 'session capture'));
-  const refinement = await run(tool, { action: 'list', noun: 'refinement', pageSize: 25 });
+  const refinement = await run(tool, { operation: 'legacy', action: 'list', command: 'refinement' });
   assert.equal(details(refinement).count, all.filter(entry => entry.command.startsWith('refinement ')).length);
 });
 
-test('paginates every canonical command exactly once and describes every native schema', async () => {
+test('paginates every explicit legacy command exactly once and describes every native schema', async () => {
   const tool = makeTool();
   const expected = listAwarenessCommandDescriptors();
   const listed = new Set<string>();
-  let request: Record<string, unknown> = { queries: [{ reasoning: 'Discover Awareness commands', action: 'list', all: true, pageSize: 25 }] };
+  let request: Record<string, unknown> = { queries: [{ reasoning: 'Discover legacy Awareness commands', operation: 'legacy', action: 'list', all: true }] };
   for (let page = 0; page <= expected.length; page += 1) {
     assert.equal(compileMcpSchemaValidator(tool.parameters).validate(request).valid, true);
     const value = await tool.execute('catalog-page', request, undefined, undefined, { cwd: root } as PiContext);
@@ -217,6 +213,7 @@ test('paginates every canonical command exactly once and describes every native 
 
   for (const expectedDescriptor of expected) {
     const value = await run(tool, {
+      operation: 'legacy',
       action: 'describe',
       command: expectedDescriptor.command,
     });
@@ -345,6 +342,7 @@ test('projects every history capture branch without requesting host-owned fields
 test('exports the canonical agent prompt through the native API and exposes setup with approvals', async () => {
   const tool = makeTool();
   const value = await run(tool, {
+    operation: 'legacy',
     action: 'call',
     command: 'instructions export',
     params: { format: 'json' },
@@ -352,7 +350,7 @@ test('exports the canonical agent prompt through the native API and exposes setu
   assert.equal(value.isError, false);
   assert.match(
     String((details(value).output as { instructions: string }).instructions),
-    /Attend once per workspace\/session/
+    /Start with context\.orient once/
   );
   for (const command of ['skill install', 'hooks install', 'hooks remove']) {
     const described = await run(tool, { action: 'describe', command });
@@ -732,6 +730,23 @@ test('preflights the full batch before executing an earlier valid command', asyn
   assert.match(
     String((value.content[0] as { text?: string }).text),
     /queries\[1\] failed preflight/
+  );
+  assert.equal(exec.mock.calls.length, 0);
+});
+
+test('rejects multiple state-changing commands before any batch item executes', async () => {
+  const exec = vi.fn(async (): Promise<AwarenessCommandResult> => ({
+    payload: {},
+    exitCode: 0,
+  }));
+  const value = await runQueries(makeTool(exec), [
+    { action: 'call', command: 'work start', params: { file: ['src/a.ts'] } },
+    { action: 'call', command: 'work start', params: { file: ['src/b.ts'] } },
+  ]);
+  assert.equal(value.isError, true);
+  assert.match(
+    String((value.content[0] as { text?: string }).text),
+    /at most one state-changing Awareness command/i
   );
   assert.equal(exec.mock.calls.length, 0);
 });

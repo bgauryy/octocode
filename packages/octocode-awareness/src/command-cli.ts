@@ -5,8 +5,8 @@ import { commandIndex } from './schema/command-catalog.js';
 import { commandSchemaProperties } from './schema/command-properties.js';
 import { parseStorageScope } from './storage-scope.js';
 import { parseArgs } from './command-parser.js';
-import { extractGlobalDb, validateFlagValues } from '../bin/cli-routing.js';
-import { commandFromHelpArgv, helpFor } from '../bin/cli-help.js';
+import { extractGlobalDb, validateFlagValues } from './cli-adapter/cli-routing.js';
+import { commandFromHelpArgv, helpFor } from './cli-adapter/cli-help.js';
 import { AwarenessInputError, commandOutput } from './command-output.js';
 
 function coerce(value: unknown, schema: Record<string, unknown>): unknown {

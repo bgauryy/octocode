@@ -3,6 +3,7 @@ import type {
   ToolContinuation,
 } from '../../scheme/pagination.js';
 import type { BulkToolOutput } from '../../types/toolOutput.js';
+import type { ToolResultMeta } from '../../types/toolResults.js';
 
 // ---------------------------------------------------------------------------
 // Output TYPES — describes what the GitHub code operation returns. No zod: the MCP server
@@ -40,6 +41,29 @@ export interface GitHubCodeSearchData {
   incompleteResults?: true;
   next?: Record<string, ToolContinuation>;
 }
+
+export type RepoState =
+  | { kind: 'notFound' }
+  | { kind: 'archived' }
+  | { kind: 'renamed'; fullName: string };
+
+export type EmptyCodeSearchQuery = {
+  index: number;
+  nonExistentScope?: true;
+  incompleteResults?: true;
+};
+
+export type RepoStateEntry = {
+  index: number;
+  state: RepoState;
+  query: object | undefined;
+};
+
+export type CodeSearchAgentRow = {
+  index: number;
+  meta?: ToolResultMeta;
+  data: GitHubCodeSearchData | { error: string };
+};
 
 export type GitHubCodeSearchOutputLocal = BulkToolOutput<
   GitHubCodeSearchData | { error: string }

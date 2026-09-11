@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 // ── CSS ──────────────────────────────────────────────────────────────────────
 
 /// Regex baseline — always available, fast.
-pub fn minify_css_core(content: &str) -> String {
+fn minify_css_core(content: &str) -> String {
     let s = remove_comments(content, &["c-style"]);
     let rules = crate::minify::comment_remover::rules_for("c-style");
     let s = super::collapse_whitespace(&s, rules.as_ref());
@@ -19,8 +19,8 @@ pub fn minify_css_core(content: &str) -> String {
 ///
 /// Gated on the opt-in `css-quality` feature. With the feature off, lightningcss
 /// is not compiled in and this degrades to the `minify_css_core` regex baseline
-/// — every caller (`minify_css_quality` binding, `minify_html_quality`,
-/// `minify_embedded_web`/`minify_style_blocks`) transparently gets the fallback.
+/// — every caller (`minify_html_quality`, `minify_embedded_web`, and
+/// `minify_style_blocks`) transparently gets the fallback.
 #[cfg(feature = "css-quality")]
 pub fn minify_css_quality(content: &str) -> String {
     std::panic::catch_unwind(|| {

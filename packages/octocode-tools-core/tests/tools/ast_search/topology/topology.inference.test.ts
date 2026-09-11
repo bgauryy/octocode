@@ -111,12 +111,11 @@ describe('GraphAnalysisQuerySchema — optional path', () => {
     expect(r.success).toBe(false);
   });
 
-  it('accepts deadCode with neither path nor file (path is schema-optional; runtime will infer or fail)', () => {
+  it('rejects deadCode when no absolute root source can be inferred', () => {
     const r = GraphAnalysisQuerySchema.safeParse({
       operation: 'deadCode',
     });
-    // Zod accepts it; validateToolPath will fail at runtime if path can't be inferred
-    expect(r.success).toBe(true);
+    expect(r.success).toBe(false);
   });
 });
 
@@ -165,6 +164,19 @@ describe('analyzeTopology() — path inference from absolute file', () => {
     });
 
     expect(result.status).not.toBe('error');
+  });
+
+  it('infers root from an absolute target when the source file is relative', async () => {
+    const { aFile } = await createInferenceFixture();
+
+    const result = await analyzeTopology({
+      operation: 'path',
+      file: 'src/index.js',
+      target: aFile,
+    });
+
+    expect(result.status).not.toBe('error');
+    expect(result.results?.[0]?.files).toEqual(['src/index.js', 'src/a.js']);
   });
 
   it('still works: explicit path + relative file (existing contract)', async () => {
@@ -255,13 +267,12 @@ describe('runPublicTopology() — public topology path inference', () => {
     );
   });
 
-  it('fails with error when relative file is given with no path', async () => {
-    const result = await runPublicTopology({
-      queries: [{ operation: 'dependencies', file: 'src/relative.ts' }],
-    });
-
-    // validateToolPath (or impl-level) must return an error result
-    expect(result.isError).toBe(true);
+  it('rejects a relative file with no inferable public root', async () => {
+    await expect(
+      runPublicTopology({
+        queries: [{ operation: 'dependencies', file: 'src/relative.ts' }],
+      })
+    ).rejects.toThrow(/path is required/i);
   });
 
   it('explicit path + relative file still works (no regression)', async () => {

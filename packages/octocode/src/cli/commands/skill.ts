@@ -27,8 +27,8 @@ ${bold('Usage')}
 
 ${bold('Commands')}
   list                    List bundled skills with install/env status
-  install <name>...       Install one or more bundled skills  ${dim('(override by default)')}
-  install --add <source> Add to canonical home + link into ~/.agents/skills
+  install <name>...       Install one or more bundled skills
+  install --add <source> Add a local skill to the canonical home
   remove  <name>...       Remove a skill — home copy + platform links
   check  [<name>...]      Verify installs, platform links, and env readiness
   info   <name>           Show full SKILL.md content
@@ -36,10 +36,11 @@ ${bold('Commands')}
 ${bold('Install options')}
   --all                   Install all bundled skills
   --platform <p>          Link into platform dir  ${dim('(comma-sep: pi | cursor | claude | claude-desktop | codex | codex-native | opencode | copilot | gemini | common | all)')}
-  --workspace             Also link into <cwd>/.agents/skills/
+  --global                Install links in the selected platform's global scope
+  --project-dir <dir>     Install links in the selected platform's project scope
   --path <dir>            Install bundled skill directly to a custom destination
-  --mode copy|symlink|hybrid  ${dim('[default: symlink · hybrid = copy for claude]')}
-  --keep                  Preserve existing  ${dim('[default: override]')}
+  --mode copy|symlink|auto  ${dim('[default: symlink · auto = copy where required]')}
+  --force                 Replace an existing installation that differs
   --dry-run               Preview without writing
 
 ${bold('Remove options')}
@@ -59,9 +60,9 @@ ${bold('Global flags')}
 
 ${bold('Examples')}
   octocode skill list --json
-  octocode skill install --all --platform pi,cursor
-  octocode skill install --add ./skills/my-skill --platform claude,cursor,codex-native
-  octocode skill install octocode-research --workspace --keep
+  octocode skill install --all --platform pi,cursor --global
+  octocode skill install --add ./skills/my-skill --platform claude,cursor --global
+  octocode skill install octocode-research --platform codex --project-dir .
   octocode skill remove octocode-research --platform pi
   octocode skill check --fix
   octocode skill info octocode-research
@@ -85,7 +86,7 @@ function platformOption(args: ParsedArgs): string | null {
 
 function installMode(args: ParsedArgs): InstallMode {
   const rawMode = getString(args.options, 'mode');
-  return rawMode === 'copy' || rawMode === 'hybrid' ? rawMode : 'symlink';
+  return rawMode === 'copy' || rawMode === 'auto' ? rawMode : 'symlink';
 }
 
 function installNames(args: ParsedArgs): string[] {
@@ -99,7 +100,9 @@ export const skillCommand: CLICommand = {
     { name: 'platform', hasValue: true },
     { name: 'all' },
     { name: 'mode', hasValue: true, default: 'symlink' },
-    { name: 'keep' },
+    { name: 'force' },
+    { name: 'global' },
+    { name: 'project-dir', hasValue: true },
     { name: 'workspace' },
     { name: 'path', hasValue: true },
     { name: 'dry-run' },
@@ -146,15 +149,17 @@ export const skillCommand: CLICommand = {
         const addSource = getString(args.options, 'add');
         const addLocal = Boolean(addSource);
         const installAll = getBool(args.options, 'all');
-        const rawPath = getString(args.options, 'path');
+        const rawPath = getString(args.options, 'path') || null;
         const opts: InstallOptions = {
           all: installAll,
           sourcePath: addLocal ? addSource || rawPath : null,
           platform: platformOption(args),
           workspace: getBool(args.options, 'workspace'),
+          global: getBool(args.options, 'global'),
+          projectDir: getString(args.options, 'project-dir') || null,
           customPath: addLocal ? null : rawPath,
           mode: installMode(args),
-          keep: getBool(args.options, 'keep'),
+          force: getBool(args.options, 'force'),
           dryRun: getBool(args.options, 'dry-run'),
           json,
         };

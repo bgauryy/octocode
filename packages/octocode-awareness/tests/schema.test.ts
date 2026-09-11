@@ -29,6 +29,7 @@ describe('initDb creates all required tables', () => {
 
   const requiredTables = [
     'authorization_receipts', 'capability_receipts', 'event_outbox', 'event_consumers', 'event_acknowledgements', 'pending_interactions', 'handoffs',
+    'awareness_meta',
     'awareness_memories',
     'memories_fts',
     'memory_refs',
@@ -73,6 +74,7 @@ describe('initDb table set', () => {
   it('creates only known application tables plus FTS internals', () => {
     const allowed = new Set([
       'authorization_receipts', 'capability_receipts', 'event_outbox', 'event_consumers', 'event_acknowledgements', 'pending_interactions', 'handoffs',
+      'awareness_meta',
       'sessions',
       'awareness_memories',
       'awareness_plans',

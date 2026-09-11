@@ -54,30 +54,11 @@ export const contextUtils = {
     return loadNative().applyContentViewMinification(content, filePath);
   },
 
-  applyMinification(content: string, filePath: string): string {
-    return loadNative().applyMinification(content, filePath);
-  },
-
   minifyContent(
     content: string,
     filePath: string
   ): Promise<NativeContextUtils.MinifyResult> {
     return loadNative().minifyContent(content, filePath);
-  },
-
-  minifyContentSync(content: string, filePath: string): string {
-    return loadNative().minifyContentSync(content, filePath);
-  },
-
-  minifyContentResult(
-    content: string,
-    filePath: string
-  ): NativeContextUtils.MinifyResult {
-    return loadNative().minifyContentResult(content, filePath);
-  },
-
-  minifyMarkdownCore(content: string): string {
-    return loadNative().minifyMarkdownCore(content);
   },
 
   extractSignatures(content: string, filePath: string): string | null {
@@ -91,25 +72,6 @@ export const contextUtils = {
    */
   extractJsSymbols(content: string, filePath: string): string | null {
     return loadNative().extractJsSymbols(content, filePath);
-  },
-
-  /**
-   * Native in-file references as a JSON `Range[]` (declaration first), or null
-   * when oxc declines the input or the cursor is not on a resolvable binding.
-   * Same-file only, syntax-only — no type inference, no cross-file resolution.
-   */
-  findInFileReferences(
-    content: string,
-    filePath: string,
-    line: number,
-    character: number
-  ): string | null {
-    return loadNative().findInFileReferences(
-      content,
-      filePath,
-      line,
-      character
-    );
   },
 
   /**
@@ -135,21 +97,6 @@ export const contextUtils = {
     return loadNative().getSupportedJsTsExtensions();
   },
 
-  /**
-   * Canonical lowercase extensions (no leading dot) that can emit native
-   * GraphFacts. JS/TS use OXC; other entries use tree-sitter syntax inventory.
-   */
-  getSupportedGraphFactExtensions(): string[] {
-    return loadNative().getSupportedGraphFactExtensions();
-  },
-
-  /**
-   * Native graph-fact capability matrix as a JSON `GraphFactCapability[]`.
-   */
-  getGraphFactCapabilities(): string {
-    return loadNative().getGraphFactCapabilities();
-  },
-
   getGrammarCapabilities(): NativeContextUtils.GrammarCapability[] {
     return loadNative().getGrammarCapabilities();
   },
@@ -169,27 +116,12 @@ export const contextUtils = {
     return loadNative().structuralSearchFiles(options);
   },
 
-  /**
-   * Detailed structural search: same matching as structuralSearchFiles plus a
-   * query explanation (kind, literal anchor, pre-filter mode) and staged
-   * diagnostics with recovery hints — the payload zero-match guidance needs.
-   */
-  structuralSearchFilesDetailed(
-    options: NativeContextUtils.StructuralSearchFilesOptions
-  ): NativeContextUtils.StructuralSearchFilesDetailedResult {
-    return loadNative().structuralSearchFilesDetailed(options);
-  },
-
   inspectSyntaxTree(
     content: string,
     filePath: string,
     options?: NativeContextUtils.SyntaxTreeInspectOptions
   ): Promise<NativeContextUtils.SyntaxTreeInspectResult> {
     return loadNative().inspectSyntaxTree(content, filePath, options);
-  },
-
-  getSupportedStructuralExtensions(): string[] {
-    return loadNative().getSupportedStructuralExtensions();
   },
 
   validateRipgrepPattern(
@@ -212,13 +144,6 @@ export const contextUtils = {
     config?: NativeContextUtils.YamlConversionConfig | null
   ): string {
     return loadNative().jsonToYamlString(jsonObject, config);
-  },
-
-  parseRipgrepJson(
-    stdout: string,
-    options?: NativeContextUtils.RipgrepParseOptions | null
-  ): NativeContextUtils.RipgrepParseResult {
-    return loadNative().parseRipgrepJson(stdout, options);
   },
 
   searchRipgrep(
@@ -271,9 +196,5 @@ export const contextUtils = {
     options?: NativeContextUtils.SliceContentOptions | null
   ): NativeContextUtils.SliceContentResult {
     return loadNative().sliceContent(content, charOffset, charLength, options);
-  },
-
-  get SIGNATURES_ONLY_HINT(): string {
-    return loadNative().SIGNATURES_ONLY_HINT;
   },
 };

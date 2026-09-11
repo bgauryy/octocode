@@ -7,6 +7,7 @@ Load when Code or Review is shipping a slice. Why: implementation is incomplete 
 - Start with a failing assertion on the owned interface; verify that it fails for the intended reason.
 - Exercise the production path. Do not stub the dependency whose integration or behavior the test claims to prove.
 - Run the narrowest relevant checks, then expand according to affected scope. Compare results with the recorded baseline, and inspect the final diff.
+- The command exit status controls green; passing assertion text inside a non-zero process is failed verification.
 - Fail reachable unfinished paths explicitly; clean up acquired resources; preserve generated-code ownership.
 - For optimization, record the metric, and baseline, change one variable, rerun comparably, and keep only measured improvement.
 

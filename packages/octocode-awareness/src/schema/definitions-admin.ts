@@ -16,9 +16,10 @@ const hookOptions = {
 /** Explicit contracts for administrative and schema-meta routes. */
 export const adminSchemas = {
   skill_install: z.object({
-    platform: z.enum(['shared', 'codex', 'codex-native', 'claude', 'claude-desktop', 'cursor', 'opencode', 'pi', 'copilot', 'gemini']),
+    platform: text.describe('One or more comma-separated platforms, an alias, or all.'),
     global: z.boolean().optional(),
     project_dir: path.optional(),
+    mode: z.enum(['symlink', 'copy', 'auto']).optional(),
     dry_run: z.boolean().optional(),
     force: z.boolean().optional(),
   }),
@@ -41,7 +42,7 @@ export const adminSchemas = {
 };
 
 export const adminExamples = {
-  skill_install: { platform: 'shared', project_dir: '.', dry_run: true },
+  skill_install: { platform: 'codex', project_dir: '.', mode: 'symlink', dry_run: true },
   maintenance_init: {},
   maintenance_self_test: {},
   hooks_install: { host: 'codex', project_dir: '.', dry_run: true },

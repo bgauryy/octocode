@@ -28,6 +28,11 @@ import { handleGitHubAPIError } from '../../github/errors.js';
 import { resolveDefaultBranch as resolveGitHubDefaultBranch } from '../../github/client.js';
 import { PROVIDER_CAPABILITIES } from '../capabilities.js';
 import { createGitHubProviderError, parseGitHubProjectId } from './utils.js';
+import { fetchIssues } from '../../github/issues/orchestrator.js';
+import { searchCommits } from '../../github/commitSearch.js';
+import { fetchHistory } from '../../github/history.js';
+import { compareRefs } from '../../github/compare.js';
+import { fetchCommit } from '../../github/commit.js';
 
 export class GitHubProvider implements ICodeHostProvider {
   readonly type = 'github' as const;
@@ -116,6 +121,26 @@ export class GitHubProvider implements ICodeHostProvider {
       );
     }
     return resolveGitHubDefaultBranch(owner, repo, this.authInfo);
+  }
+
+  fetchIssues(query: Parameters<typeof fetchIssues>[0]) {
+    return fetchIssues(query, this.authInfo);
+  }
+
+  searchCommits(query: Parameters<typeof searchCommits>[0]) {
+    return searchCommits(query, this.authInfo);
+  }
+
+  fetchHistory(query: Parameters<typeof fetchHistory>[0]) {
+    return fetchHistory(query, this.authInfo);
+  }
+
+  compareRefs(query: Parameters<typeof compareRefs>[0]) {
+    return compareRefs(query, this.authInfo);
+  }
+
+  fetchCommit(query: Parameters<typeof fetchCommit>[0]) {
+    return fetchCommit(query, this.authInfo);
   }
 
   private handleError(error: unknown): ProviderResponse<never> {

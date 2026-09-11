@@ -3,14 +3,19 @@ name: octocode-eval-benchmark
 description: "Use when measuring whether a change helped: define KPIs, baselines, held-out cases, benchmarks, and keep/discard gates. Not for ordinary ship checks where tests passing is enough."
 ---
 # Octocode eval benchmark
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-research`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Design trustworthy evals and benchmarks, then run evidence-backed improvement loops for one agent or a multi-agent workflow.
 Flow: `ERROR-ANALYZE → FRAME(goal→KPI) → BASELINE → LOOP → JUDGE → CAPTURE → VERIFY → SUITE-EVOLVE`.
 Modes: **ErrorAnalyze** · **Define** · **Run** · **Suite** · **Benchmark** · **Audit**.
 
-Workspace output contract: chat-only results stay in chat. New eval reports, frozen harness snapshots, and benchmark artifacts default to `<workspace>/.octocode/octocode-eval-benchmark/`; scratch runs use `<workspace>/.octocode/tmp/octocode-eval-benchmark/`. User-approved subject or suite edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+Reports and frozen harnesses: `<output>/octocode-eval-benchmark/`; scratch: `<output>/tmp/octocode-eval-benchmark/`. Chat-only results stay in chat; approved subject/suite edits keep their paths.
 
 ## Rules
-- Link you goal to one measurable primary KPI, a runnable sensor, a fixed budget, guardrails, and a decision rule before iterating.
+- Link your goal to one measurable primary KPI, a runnable sensor, a fixed budget, guardrails, and a decision rule before iterating.
 - Establish a failing case or below-target baseline before changing the subject. Keep the harness frozen during an experiment; grow the suite between experiments only.
 - Accept only when comparable held-out results improve and guardrails hold. Never edit cases or graders to make a candidate pass.
 - Prefer deterministic outcome graders; use calibrated model or human judgment where deterministic checks cannot capture quality.

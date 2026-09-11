@@ -23,14 +23,17 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
 - `src/minify/` owns content minification: dispatch, comment removal, file-type
   config, and strategy implementations.
 - `src/search/` owns local search: filesystem queries, matching-line extraction,
-  ripgrep parsing, pattern validation, and in-process ripgrep search.
+  ripgrep parsing, pattern validation, and in-process ripgrep search. Native
+  collection is mode-aware: file and count views retain paths/counts without
+  constructing discarded snippets, and normal matches enumerate a line once.
 - `src/text/` owns small text utilities: diff filtering, extensions, UTF-8/UTF-16
   offsets, and YAML serialization.
 - `src/structural/` owns Octocode AST search: language adapter, query
   validation, matcher compilation, file traversal, ripgrep-backed prefiltering,
   and result types.
 - `src/lsp/` owns LSP support across two tiers: Rust (`*.rs`) — the NAPI
-  `NativeLspClient` (JSON-RPC, lifecycle, symbol-kind, grammar/config tables);
+  `NativeLspClient` (JSON-RPC, lifecycle, symbol-kind, grammar/config tables,
+  and bounded transport notifications such as `publishDiagnostics`);
   TypeScript (`*.ts`) — the client pool (`lspClientPool.ts`), manager
   (`manager.ts`), symbol resolver, URI/path validation, and workspace-root
   detection. tools-core consumes the TS tier through the `./lsp/*` subpath
@@ -61,9 +64,12 @@ regex logic:
   fact extraction, and conservative same-file reference counts behind the
   async `scanGraphFacts` batch binding; tools-core connects the returned facts
   into file/symbol/dependency graph nodes and edges;
-- `src/graph/reachability.ts` runs BFS reachability and iterative
-  Tarjan's SCC (`dead-cluster` verdicts for mutually-referencing-but-unreachable
-  file clusters); `deadCodeScan.ts` performs transitive-dead pruning.
+- tools-core owns graph-policy algorithms over those facts:
+  `../octocode-tools-core/src/graph/reachability.ts` runs BFS reachability and
+  iterative Tarjan's SCC, while
+  `../octocode-tools-core/src/tools/ast_search/topology/deadCodeScan.ts`
+  performs transitive-dead pruning. The engine does not assign dead-code
+  verdicts.
 
 LSP remains the semantic proof layer for cross-file identity, references,
 definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
@@ -114,7 +120,8 @@ TypeScript implementation; see that doc's status before reviving the idea.
 - Keep domain modules pure Rust where possible. NAPI types belong at the edge.
 - Stateful orchestration that must persist across NAPI calls (LSP client pool,
   security registry) belongs in the TS tier (`src/lsp/*.ts`, `src/security/*.ts`),
-  not Rust.
+  not Rust. Protocol state received only by the native JSON-RPC reader remains
+  at that transport boundary and must be bounded before TypeScript can query it.
 - Declare the public NAPI and Rust benchmark exports explicitly in `lib.rs`.
   Internal callers import from the owning module; avoid wildcard relay exports.
 - Avoid duplicate helpers across domains. Shared LSP command/path checks live in

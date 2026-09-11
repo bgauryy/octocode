@@ -391,20 +391,30 @@ describe('tool-command coverage', () => {
     });
 
     const parsed = JSON.parse(consoleSpy.mock.calls.flat().join('\n')) as {
-      variants?: Array<{ name: string; requires?: string[] }>;
+      fieldGroups?: Array<{ variants: string[]; fields: string[] }>;
+      variants?: Array<{ name: string; fields?: string[] }>;
     };
     expect(parsed.variants?.map(variant => variant.name)).toEqual([
       'anchored',
       'position',
       'document',
-      'workspace',
+      'workspace:uri',
+      'workspace:root',
     ]);
-    expect(parsed.variants?.[0]?.requires).toEqual([
-      'uri',
-      'operation',
-      'symbolName',
-      'lineHint',
+    expect(parsed.variants?.[0]?.fields).toEqual([
+      'lineHint*:integer 1-1000000000',
     ]);
+    expect(
+      parsed.fieldGroups?.find(group => group.variants.includes('anchored'))
+        ?.fields
+    ).toContain('uri*:string');
+    expect(
+      parsed.fieldGroups?.find(
+        group =>
+          group.variants.includes('anchored') &&
+          group.fields.includes('symbolName*:string')
+      )?.fields
+    ).toContain('symbolName*:string');
   });
 
   it('ghCloneRepo: executes with owner and repo fields', async () => {

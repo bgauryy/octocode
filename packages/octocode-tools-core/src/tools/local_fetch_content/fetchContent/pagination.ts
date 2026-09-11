@@ -9,7 +9,7 @@ import type { LocalFetchToolResult } from '@octocodeai/octocode-core/extra-types
 import type { FetchContentQuery } from '@octocodeai/octocode-core/schema';
 import { buildNextPageContinuation } from '../../../scheme/pagination.js';
 import { sourceSizeFields, type FileStats } from './validation.js';
-import type { ExtractionState } from './extraction.js';
+import type { ExtractionState } from './types.js';
 
 export type ContentView = 'none' | 'standard' | 'symbols';
 

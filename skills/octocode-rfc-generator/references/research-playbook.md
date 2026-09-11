@@ -2,7 +2,7 @@
 
 Load when the RFC needs evidence. This file describes what evidence the RFC needs; `octocode-research` owns how Octocode research is run. <!-- style-lint: ignore-line passive-voice -->
 
-Follow `references/octocode.md` to load or install `octocode-research`. Ask it for the needed surfaces, citations, confidence, source inventory, and unresolved gaps; this file owns only the RFC evidence plan.
+Use the research/tool route in `SKILL.md`. Ask `octocode-research` for the needed surfaces, citations, confidence, source inventory, and unresolved gaps; this file owns only the RFC evidence plan.
 
 ## Research plan — run only the tracks that matter
 

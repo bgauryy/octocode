@@ -51,38 +51,54 @@ export function assertNoHistoryRowsForConsolidation(source: DatabaseSync): void 
     }
   }
 }
-export function copyCommonTables(source: DatabaseSync, destination: DatabaseSync): Record<string, number> {
+export function copyMappedTables(
+  source: DatabaseSync,
+  destination: DatabaseSync,
+  sourceToDestination: Readonly<Record<string, string>> = {},
+  options: { omittedSourceTables?: ReadonlySet<string> } = {},
+): Record<string, number> {
   const sourceNames = new Set(tableNames(source));
+  const sourceByDestination = new Map(Object.entries(sourceToDestination).map(([sourceName, destinationName]) => [destinationName, sourceName]));
   const result: Record<string, number> = {};
-  for (const table of tableNames(destination)) {
-    if (!sourceNames.has(table) || SQLITE_AUXILIARY.test(table)) continue;
-    const destinationColumns = columns(destination, table);
-    const sourceColumns = columns(source, table);
+  for (const destinationTable of tableNames(destination)) {
+    const sourceTable = sourceByDestination.get(destinationTable) ?? destinationTable;
+    if (!sourceNames.has(sourceTable) || SQLITE_AUXILIARY.test(sourceTable) || options.omittedSourceTables?.has(sourceTable)) continue;
+    const destinationColumns = columns(destination, destinationTable);
+    const sourceInfo = source.prepare(`PRAGMA table_info(${JSON.stringify(sourceTable)})`).all() as Array<{
+      name: string; pk: number;
+    }>;
+    const sourceColumns = sourceInfo.map(({ name }) => name);
     if (destinationColumns.length === 0) continue;
-    const destinationInfo = destination.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all() as Array<{ name: string; notnull: number; dflt_value: string | null }>;
+    const destinationInfo = destination.prepare(`PRAGMA table_info(${JSON.stringify(destinationTable)})`).all() as Array<{ name: string; notnull: number; dflt_value: string | null }>;
     const extra = sourceColumns.filter((column) => !destinationColumns.includes(column));
-    if (extra.length > 0) throw new Error(`unsupported source schema: ${table} has unmappable columns ${extra.join(', ')}`);
+    if (extra.length > 0) throw new Error(`unsupported source schema: ${sourceTable} has unmappable columns ${extra.join(', ')}`);
     for (const column of destinationInfo) {
       if (!sourceColumns.includes(column.name) && column.notnull !== 0 && column.dflt_value === null) {
-        throw new Error(`unsupported source schema: ${table} lacks required column ${column.name}`);
+        throw new Error(`unsupported source schema: ${sourceTable} lacks required column ${column.name}`);
       }
     }
     const selectedColumns = destinationColumns.filter((column) => sourceColumns.includes(column));
-    if (selectedColumns.length === 0) throw new Error(`unsupported source schema: ${table} has no mappable columns`);
+    if (selectedColumns.length === 0) throw new Error(`unsupported source schema: ${sourceTable} has no mappable columns`);
     const quoted = selectedColumns.map((column) => JSON.stringify(column)).join(', ');
-    const rows = source.prepare(`SELECT ${quoted} FROM ${JSON.stringify(table)}`).all() as Array<Record<string, unknown>>;
-    if (rows.length === 0) { result[table] = 0; continue; }
-    const insert = destination.prepare(`INSERT INTO ${JSON.stringify(table)} (${quoted}) VALUES (${selectedColumns.map((column) => `@${column}`).join(', ')})`);
+    const primaryKey = sourceInfo.filter(({ pk }) => pk > 0).sort((a, b) => a.pk - b.pk).map(({ name }) => JSON.stringify(name));
+    const orderBy = primaryKey.length > 0 ? ` ORDER BY ${primaryKey.join(', ')}` : ' ORDER BY rowid';
+    const rows = source.prepare(`SELECT ${quoted} FROM ${JSON.stringify(sourceTable)}${orderBy}`).all() as Array<Record<string, unknown>>;
+    if (rows.length === 0) { result[sourceTable] = 0; continue; }
+    const insert = destination.prepare(`INSERT INTO ${JSON.stringify(destinationTable)} (${quoted}) VALUES (${selectedColumns.map((column) => `@${column}`).join(', ')})`);
     for (const row of rows) {
       const values: Record<string, SQLInputValue> = {};
       for (const column of selectedColumns) {
-        values[column] = scalar(row[column], table, column);
+        values[column] = scalar(row[column], sourceTable, column);
       }
       insert.run(values);
     }
-    result[table] = rows.length;
+    result[sourceTable] = rows.length;
   }
   return result;
+}
+
+export function copyCommonTables(source: DatabaseSync, destination: DatabaseSync): Record<string, number> {
+  return copyMappedTables(source, destination);
 }
 
 /** Checks coordination invariants that SQLite foreign keys cannot express. */

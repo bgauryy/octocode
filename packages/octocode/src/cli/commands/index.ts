@@ -1,19 +1,6 @@
 import type { CLICommand } from '../types.js';
-import { installCommand } from './install.js';
-import { authCommand } from './auth/auth-command.js';
-import { loginCommand } from './auth/login-command.js';
-import { logoutCommand } from './auth/logout-command.js';
-import { statusCommand } from './status.js';
 
 type CommandLoader = () => Promise<CLICommand>;
-
-const lightweightCommands: readonly CLICommand[] = [
-  installCommand,
-  authCommand,
-  loginCommand,
-  logoutCommand,
-  statusCommand,
-];
 
 const commandLoaders: Record<string, CommandLoader> = {
   cache: async () => (await import('./cache.js')).cacheCommand,
@@ -31,30 +18,16 @@ const commandLoaders: Record<string, CommandLoader> = {
 // enforced by tests/cli/command-spec-coverage.test.ts so help never silently
 // falls back to a non-core source.
 export const REGISTERED_COMMAND_NAMES: readonly string[] = [
-  ...lightweightCommands.map(command => command.name),
   ...Object.keys(commandLoaders),
-].filter((name, i, all) => all.indexOf(name) === i);
+];
 
-export function findCommand(name: string): CLICommand | undefined {
-  return lightweightCommands.find(command => command.name === name);
+export function isRegisteredCommand(name: string): boolean {
+  return Object.hasOwn(commandLoaders, name);
 }
 
 export async function loadCommand(
   name: string
 ): Promise<CLICommand | undefined> {
-  const lightweightCommand = findCommand(name);
-  if (lightweightCommand) {
-    return lightweightCommand;
-  }
-
   const loader = commandLoaders[name];
   return loader ? loader() : undefined;
 }
-
-export {
-  installCommand,
-  authCommand,
-  loginCommand,
-  logoutCommand,
-  statusCommand,
-};

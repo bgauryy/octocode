@@ -36,4 +36,4 @@ Load `redemption-flow.md` only when you selects a repair path.
 
 Output: top roast, important findings, autopsy, repair paths, and fix checkpoint. Include redundant/low-value findings only when useful.
 
-Next: rank the inventory with `references/sin-catalog.md` (ecosystem leads: `references/language-sins.md`); delegate evidence with `references/octocode.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.
+Next: rank the inventory with `references/sin-catalog.md` (ecosystem leads: `references/language-sins.md`); use the research/tool route in `SKILL.md`; split a monorepo pass with `references/parallel-roasting.md`; on a selected repair load `references/redemption-flow.md`.

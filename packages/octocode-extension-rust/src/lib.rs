@@ -1,3 +1,4 @@
+mod diff;
 pub mod evidence;
 pub mod filesystem;
 pub mod git_object;
@@ -5,7 +6,6 @@ pub mod git_object;
 use napi::bindgen_prelude::{AsyncTask, Buffer};
 use napi::{Env, Error, Result, Task};
 use napi_derive::napi;
-use std::fmt::Write;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -27,6 +27,12 @@ impl NativeCancellation {
     #[napi]
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn shared_flag(cancellation: Option<&Self>) -> Arc<AtomicBool> {
+        cancellation
+            .map(|value| Arc::clone(&value.flag))
+            .unwrap_or_default()
     }
 }
 impl Default for NativeCancellation {
@@ -100,9 +106,7 @@ pub fn snapshot_file(
         maximum: max_bytes as usize,
         content: include_content,
         symlink: allow_leaf_symlink.unwrap_or(false),
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
 
@@ -160,9 +164,7 @@ pub fn replace_file(
         maximum: max_bytes as usize,
         mode: create_mode,
         parent_mode,
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
 
@@ -180,9 +182,7 @@ pub fn delete_file(
         maximum: max_bytes as usize,
         mode: None,
         parent_mode: None,
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
 
@@ -192,26 +192,9 @@ pub struct DiffOperation {
     pub line: String,
 }
 
-fn line_diff(old: &str, new: &str) -> Vec<DiffOperation> {
-    let old_lines: Vec<_> = old.split('\n').collect();
-    let new_lines: Vec<_> = new.split('\n').collect();
-    let diff = similar::TextDiff::from_slices(&old_lines, &new_lines);
-    diff.iter_all_changes()
-        .map(|change| DiffOperation {
-            op_type: match change.tag() {
-                similar::ChangeTag::Equal => "same",
-                similar::ChangeTag::Delete => "remove",
-                similar::ChangeTag::Insert => "add",
-            }
-            .into(),
-            line: change.value().to_owned(),
-        })
-        .collect()
-}
-
 #[napi]
 pub fn compute_line_diff(old_text: String, new_text: String) -> Vec<DiffOperation> {
-    line_diff(&old_text, &new_text)
+    diff::line_diff(&old_text, &new_text)
 }
 
 pub struct DiffTask {
@@ -222,7 +205,7 @@ impl Task for DiffTask {
     type Output = Vec<DiffOperation>;
     type JsValue = Vec<DiffOperation>;
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(line_diff(&self.old, &self.new))
+        Ok(diff::line_diff(&self.old, &self.new))
     }
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(output)
@@ -243,61 +226,6 @@ pub struct DiffArtifacts {
     pub patch: String,
 }
 
-fn diff_artifacts(path: &str, old: &str, new: &str) -> DiffArtifacts {
-    let old_lines: Vec<_> = old.split('\n').collect();
-    let new_lines: Vec<_> = new.split('\n').collect();
-    let text_diff = similar::TextDiff::from_slices(&old_lines, &new_lines);
-    let changes: Vec<_> = text_diff.iter_all_changes().collect();
-    let Some(first) = changes
-        .iter()
-        .position(|change| change.tag() != similar::ChangeTag::Equal)
-    else {
-        return DiffArtifacts {
-            diff: String::new(),
-            patch: format!(
-                "--- {path}\n+++ {path}\n@@ -{},0 +{},0 @@\n",
-                old_lines.len() + 1,
-                new_lines.len() + 1
-            ),
-        };
-    };
-    let last = changes
-        .iter()
-        .rposition(|change| change.tag() != similar::ChangeTag::Equal)
-        .expect("first change exists");
-    let hunk = &changes[first..=last];
-    let old_count = hunk
-        .iter()
-        .filter(|change| change.tag() != similar::ChangeTag::Insert)
-        .count();
-    let new_count = hunk
-        .iter()
-        .filter(|change| change.tag() != similar::ChangeTag::Delete)
-        .count();
-    let start = first + 1;
-    let mut patch =
-        format!("--- {path}\n+++ {path}\n@@ -{start},{old_count} +{start},{new_count} @@\n");
-    let mut diff = String::new();
-    for change in hunk {
-        let prefix = match change.tag() {
-            similar::ChangeTag::Equal => ' ',
-            similar::ChangeTag::Insert => '+',
-            similar::ChangeTag::Delete => '-',
-        };
-        // Formatting into String cannot fail.
-        writeln!(&mut patch, "{prefix}{}", change.value())
-            .expect("String formatting is infallible");
-        if prefix != ' ' {
-            if !diff.is_empty() {
-                diff.push('\n');
-            }
-            write!(&mut diff, "{prefix} {}", change.value())
-                .expect("String formatting is infallible");
-        }
-    }
-    DiffArtifacts { diff, patch }
-}
-
 pub struct DiffArtifactsTask {
     path: String,
     old: String,
@@ -307,7 +235,7 @@ impl Task for DiffArtifactsTask {
     type Output = DiffArtifacts;
     type JsValue = DiffArtifacts;
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(diff_artifacts(&self.path, &self.old, &self.new))
+        Ok(diff::diff_artifacts(&self.path, &self.old, &self.new))
     }
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(output)
@@ -320,7 +248,7 @@ pub fn generate_diff_artifacts(
     old_text: String,
     new_text: String,
 ) -> DiffArtifacts {
-    diff_artifacts(&file_path, &old_text, &new_text)
+    diff::diff_artifacts(&file_path, &old_text, &new_text)
 }
 
 #[napi]

@@ -103,30 +103,40 @@ const response = (
 it.each(['package-lock.json', 'dist/index.min.js', 'vendor/fixture.ts'])(
   'preserves provider results for the explicitly requested file %s',
   async path => {
-    mocks.code.mockResolvedValue(response([{
-      name: path.split('/').at(-1), path,
-      html_url: `https://github.com/fixture/repo/blob/main/${path}`,
-      repository: repository('repo'),
-      text_matches: [{ fragment: 'needle', matches: [{ text: 'needle', indices: [0, 6] }] }],
-    }]));
-    const data = await run({ operation: 'code', keywords: ['needle'], filename: path.split('/').at(-1) });
-    expect(data.files.map((file: { path: string }) => file.path)).toEqual([path]);
+    mocks.code.mockResolvedValue(
+      response([
+        {
+          name: path.split('/').at(-1),
+          path,
+          html_url: `https://github.com/fixture/repo/blob/main/${path}`,
+          repository: repository('repo'),
+          text_matches: [
+            {
+              fragment: 'needle',
+              matches: [{ text: 'needle', indices: [0, 6] }],
+            },
+          ],
+        },
+      ])
+    );
+    const data = await run({
+      operation: 'code',
+      keywords: ['needle'],
+      filename: path.split('/').at(-1),
+    });
+    expect(data.files.map((file: { path: string }) => file.path)).toEqual([
+      path,
+    ]);
     expect(data.next?.nextPage).toBeUndefined();
   }
 );
 
 async function run(query: Record<string, unknown>) {
   const parsed = GitHubSearchQuerySchema.parse(query);
-  const { operation, pageSize, ...rest } = parsed;
-  const runner = operation === 'code' ? searchGitHubCode : searchGitHubRepos;
+  const runner =
+    parsed.operation === 'code' ? searchGitHubCode : searchGitHubRepos;
   const data = await runner(
-    {
-      ...rest,
-      limit: pageSize,
-      ...(operation === 'repositories'
-        ? { topicsToSearch: parsed.topics }
-        : {}),
-    } as never,
+    parsed as never,
     {} as never,
     () => ({ provider: { searchCode, searchRepos } }) as never
   );

@@ -28,7 +28,7 @@ import type { QueryRecord } from '../query-envelope.js';
 // ─── Profile & operation constants ────────────────────────────────────────────
 
 /** Typed profiles backed by SUBAGENT_REGISTRY. */
-const TYPED_REGISTRY_PROFILES = ['researcher', 'planner', 'architect', 'implementer'] as const;
+const TYPED_REGISTRY_PROFILES = ['researcher', 'planner', 'architect', 'implementer', 'reviewer'] as const;
 
 /** All public profiles exposed on the `agent` tool. */
 export const AGENT_PROFILES = [
@@ -61,6 +61,7 @@ export const PROFILE_TO_SUBAGENT: Record<
   planner: 'planner',
   architect: 'architect',
   implementer: 'implementer',
+  reviewer: 'reviewer',
 };
 
 const DYNAMIC_CHILD_TOOLS = new Set([
@@ -154,11 +155,14 @@ export function rejectCrossBatchReference(queries: QueryRecord[]): void {
 
 // ─── Plan assignment dispatch ────────────────────────────────────────────────
 
-export function resolvePlanAssignment(planStep: string, ctx?: PiContext, expectedPlanId?: string) {
-  const scope = activePlanScope(ctx);
-  const plan = getCurrentPlanReadModel(ctx, scope);
+function validatePlanAssignment(
+  planStep: string,
+  scope: string,
+  plan: ReturnType<typeof getCurrentPlanReadModel>,
+  expectedPlanId?: string,
+) {
   if (expectedPlanId && plan.planId !== expectedPlanId) throw new Error('Parent plan changed during worker preparation; inspect the current plan before delegating.');
-  if (plan.phase !== 'executing') throw new Error('A plan assignment requires the parent plan to be executing. Start the accepted plan before delegating its tasks.');
+  if (plan.phase !== 'executing') throw new Error('planStep was provided, which explicitly requests a plan assignment, but the parent plan is not executing. Standalone subagents need no plan: omit planStep.');
   if (plan.pendingInteractionIds.length > 0) throw new Error('Resolve pending plan interactions before delegating a task.');
   const task = plan.tasks.find((candidate) => candidate.id === planStep);
   if (!task) throw new Error(`planStep must be an existing stable task id in the current plan: ${planStep}`);
@@ -169,4 +173,27 @@ export function resolvePlanAssignment(planStep: string, ctx?: PiContext, expecte
   const owner = findLivePlanWorker(scope, plan.planId, task.id);
   if (owner) throw new Error(`Plan task ${planStep} already has live worker ${owner}; collect or continue that worker before assigning another.`);
   return { scope, planId: plan.planId, task };
+}
+
+export function resolvePlanAssignment(planStep: string, ctx?: PiContext, expectedPlanId?: string) {
+  const scope = activePlanScope(ctx);
+  return validatePlanAssignment(planStep, scope, getCurrentPlanReadModel(ctx, scope), expectedPlanId);
+}
+
+/**
+ * Treat planStep as an optional-model-field mistake only when no parent plan
+ * task exists for it to name. Any existing plan keeps the strict assignment path.
+ */
+export function resolveOptionalPlanAssignment(planStep: string | undefined, ctx?: PiContext) {
+  if (!planStep) return { planStep: undefined, assignment: undefined, ignoredPlanStep: false };
+  const scope = activePlanScope(ctx);
+  const plan = getCurrentPlanReadModel(ctx, scope);
+  if (plan.phase !== 'executing' && plan.tasks.length === 0) {
+    return { planStep: undefined, assignment: undefined, ignoredPlanStep: true };
+  }
+  return {
+    planStep,
+    assignment: validatePlanAssignment(planStep, scope, plan),
+    ignoredPlanStep: false,
+  };
 }

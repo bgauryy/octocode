@@ -68,6 +68,21 @@ test('writes, edits, and deletes through one tool', async () => {
 
   const deleted = await call({ type: 'delete', reasoning: 'remove fixture', path: 'note.txt' });
   assert.equal(deleted.isError, undefined);
+  const deleteDetails = deleted.details as { mutation?: Record<string, unknown> };
+  assert.deepEqual(deleteDetails.mutation, {
+    version: 1,
+    classification: 'applied',
+    preFingerprint: 'sha256:8ef67e7cf7addbb1946c13778f51f8bfa3ee261b1016f6828796dd9fca632fc4',
+    postFingerprint: 'missing',
+    bytesBefore: 14,
+    bytesAfter: 0,
+    bytesChanged: 14,
+    linesAdded: 0,
+    linesDeleted: 1,
+    diffTruncated: false,
+    patchTruncated: false,
+  });
+  assert.doesNotMatch(JSON.stringify(deleteDetails.mutation), /goodbye world/);
   assert.equal(existsSync(join(cwd, 'note.txt')), false);
 });
 

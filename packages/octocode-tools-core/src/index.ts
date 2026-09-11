@@ -95,10 +95,8 @@ export * from './tools/github_search/execution.js';
 
 export * from './tools/github_search_pull_requests/contentRequest.js';
 export * from './tools/github_search_pull_requests/contentResponse.js';
-export * from './tools/github_search_pull_requests/execution.js';
 export * from './tools/github_search_pull_requests/resultTypes.js';
 
-export * from './tools/github_search_pull_requests/splitExecutions.js';
 export * from './tools/github_search_pull_requests/types.js';
 export * from './utils/file/contentExtractor.js';
 export * from './tools/local_fetch_content/execution.js';
@@ -190,7 +188,6 @@ export * from './utils/pagination/core.js';
 export * from './utils/pagination/hints.js';
 export * from './utils/pagination/types.js';
 export * from './utils/parsers/diff.js';
-export * from './utils/parsers/schemas.js';
 export { computeQueryTimeout } from './utils/response/bulk/queries.js';
 export { executeBulkOperation } from './utils/response/bulk/response.js';
 export * from './utils/response/callToolResult.js';
@@ -223,7 +220,7 @@ export type {
   PullRequestSearchResult,
   RepoStructureResult,
 } from './providers/providerResults.js';
-export { isProviderSuccess, isProviderError } from './providers/types.js';
+export { isProviderSuccess } from './providers/types.js';
 
 export type {
   GitHubAPIError,

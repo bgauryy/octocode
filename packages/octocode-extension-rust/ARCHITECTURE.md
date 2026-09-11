@@ -10,14 +10,20 @@ single native pass, returning only the two output strings across N-API.
 | Layer | Responsibility |
 | --- | --- |
 | Extension TypeScript | Permission roots, allowed symlinks, canonical paths, query validation, edit semantics, multi-query preparation, read receipts, presentation |
-| `index.cjs` | Native loading, numeric/Buffer boundary validation, explicit unsupported/unavailable failure |
-| `src/lib.rs` | N-API tasks, owned input buffers, atomic cancellation handle, native line diff |
+| `index.cjs` | Native loading, boundary validation, and stable JavaScript error classification |
+| `src/lib.rs` | N-API tasks, owned input buffers, atomic cancellation handle, public diff boundary |
+| `src/diff.rs` | Pure native line-diff computation and compact patch formatting |
 | `src/filesystem.rs` | Process-local per-path mutation serialization and portable result types |
 | `src/evidence.rs` | Async Awareness v1 fingerprints, streaming aggregate budgets, deadlines and final source rechecks |
 | `src/git_object.rs` | Async bounded loose Git object decoding, SHA-1 integrity, private directory creation and flush barriers |
 | `platforms.cjs` | Single supported-target catalog for loading, builds and package metadata |
 | `src/windows.rs` | Handle-relative NT opens, reparse rejection, bounded snapshots, ACL-preserving replacement and deletion |
 | `src/unix.rs` | Component-by-component no-follow traversal, bounded snapshots, replacement/deletion, durability receipts |
+
+The JavaScript boundary converts recognized native failure prefixes into
+`NativeOperationError` values. Consumers branch on `NativeErrorCodes` through
+`nativeErrorCode`; message text remains diagnostic and is not a control-flow
+contract. This keeps N-API transport details inside this package.
 
 Snapshots bind the canonical path, every existing ancestor's device/inode, target
 metadata, and SHA-256 digest. Missing targets are bound to their existing ancestor
@@ -61,7 +67,7 @@ warnings with `committed: true` and `durable: false`. Cancellation is checked
 before commit and never rewrites a committed outcome into an abort.
 An optional parent mode of 0700 creates missing history directories privately;
 existing parent permissions are unchanged. On Windows this requests a protected
-caller/SYSTEM DACL for each newly created directory.
+caller/SYSTEM DACL for each directory that the operation creates.
 
 Delete snapshots can explicitly inspect a leaf symlink with `readlinkat`; unlink
 removes that link itself. Replacement never accepts a leaf symlink. TypeScript
@@ -86,7 +92,7 @@ a protected owner/SYSTEM DACL; other explicit POSIX modes are rejected. New
 Windows files inherit the parent DACL by default. Windows uses its conventional
 case-insensitive namespace and rejects alternate streams, device names and
 trailing-dot/space aliases. It flushes file data but reports `durable: false`
-because directory-entry persistence has no portable Windows guarantee. Successful `fsync` provides the filesystem's durability contract,
+because Windows has no portable directory-entry persistence contract. Successful `fsync` provides the filesystem's durability contract,
 not proof against hardware power loss. There is no multi-file transaction.
 
 Package tests exercise real addon calls, digest/content equality, metadata and

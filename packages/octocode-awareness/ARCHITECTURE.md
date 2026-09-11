@@ -19,8 +19,11 @@ The default CLI `attend` route uses `src/attend-presence.ts`: one bounded regist
 - `src/attend-*`, signals, refinements, sessions, query, digest, reflection, and
   maintenance modules own the advanced operating and learning workflows.
 - `src/command-api.ts` exposes the command catalog as structured requests. `command-dispatch.ts` routes to `src/commands/` handlers and `src/hooks/` owns reusable host callback behavior. Request-local output keeps simultaneous callers isolated; handlers throw errors and never terminate the process. `command-cli.ts` owns shell parsing and environment defaults; `bin/awareness.ts` renders the result and owns process exit. The hook entry adapter similarly owns argv/stdin. The native executor imports neither entrypoint. Native hosts never launch or parse the Awareness CLI.
-- The package-local `skills/octocode-awareness/` directory is the canonical
-  skill source. Generated helpers, `out/skills/`, and `.agents/skills/` are build output.
+- The package-local `skills/octocode-awareness/` directory is the bundled skill
+  source. `@octocodeai/octocode-skill-installer` owns platform paths, atomic
+  materialization under `$OCTOCODE_HOME/skills`, conflict handling, and links from
+  host directories to that durable copy. Generated helpers, `out/skills/`, and
+  `.agents/skills/` are build output.
 - `@octocodeai/agent-contracts` owns Agent control-database paths and tables,
   low-level SQLite utilities, shared entity types, and cross-host protocol
   fragments. Shared types and utilities don't imply shared physical storage.
@@ -49,8 +52,8 @@ bindings, not another copy of the shared policy.
 memory references and fingerprints asynchronously, outside write transactions.
 `memory-write.ts` separates async capture from synchronous insertion and the
 atomic similarity gate; synchronous internal queries cannot request fingerprints.
-`getMemory`, `insertMemory`, `recallMemory`, and `runAwarenessToolOperation` return
-promises. Evidence checks share one 100 ms filesystem budget across returned rows,
+`getMemory`, `insertMemory`, `recallMemory`, and canonical client operations that
+capture or validate evidence return promises. Evidence checks share one 100 ms filesystem budget across returned rows,
 including canonicalization and native worker queue time. First-use native module
 initialization precedes that budget and still contributes to total request latency. Neither observation
 creates authorization or successful verification. See [navigation](docs/MEMORY_NAVIGATION.md)
@@ -147,8 +150,9 @@ worktrees. Synchronous callers retain the uncached discovery path.
 
 `watchAwarenessEventHints` watches the selected database directory, database file
 and WAL. Its coalesced, read-only maximum-outbox-sequence check ignores receipt
-and reader churn. Directory events reattach file watches after WAL recreation;
-watch/read failures get three delayed recovery attempts, with no idle polling.
+and reader churn. Directory events reattach file watches after WAL recreation.
+Watch/read failures retry after 100 ms, 500 ms, and 2 seconds, then remain armed
+on a 30-second recovery interval until success; healthy idle sessions do not poll.
 Hints contain no message bodies and never substitute for an authoritative drain.
 
 | Boundary | Retry owner and bound |

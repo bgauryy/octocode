@@ -1,4 +1,4 @@
-import { stableSchemaDigest, type McpCatalogSnapshotV1 } from './catalog.js';
+import { stableSchemaDigest, type McpCatalogSnapshotV1 } from './catalog-model.js';
 import { escapePromptMetadata } from '../prompt-safety.js';
 
 export interface McpCatalogPageQuery { offset?: number; textOffset?: number; limit?: number; catalogRevision?: string }

@@ -6,8 +6,6 @@ export const nativeSanitizeContent = (content: string) => ({
   hasSecrets: false,
   secretsDetected: [],
 });
-export const nativePatternCount = () => 0;
-
 const _sanitizeContentNoop = (content: string) => ({
   content,
   warnings: [],

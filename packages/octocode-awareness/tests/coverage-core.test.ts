@@ -3,7 +3,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as awarenessApi from '../src/index.js';
 import { connectCachedDb, getDb, resolveDbPath } from '../src/db-runtime.js';
 import { initDb } from '../src/db-init.js';
 import { tableColumns } from '../src/db-introspection.js';
@@ -29,7 +28,6 @@ function freshDb(): DatabaseSync {
 
 describe('core branch coverage helpers', () => {
   it('exercises public barrel and DB utility branches', async () => {
-    expect(typeof awarenessApi.runAwarenessToolOperation).toBe('function');
     expect(() => getDb()).toThrow('Database not connected');
 
     const dir = mkdtempSync(join(tmpdir(), 'oc-db-utils-'));

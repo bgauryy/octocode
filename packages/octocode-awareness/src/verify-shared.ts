@@ -10,9 +10,9 @@
  *                  transitions to prevent orphaning ACTIVE locks as SUCCESS.
  *                  A linked plan task moves VERIFY → DONE | FAILED with it.
  */
-import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { RunStatus } from './types/identity-memory.js';
+import { appendTaskEvent } from './event-outbox.js';
 
 // ─── Public shapes ────────────────────────────────────────────────────────────
 
@@ -162,10 +162,14 @@ export function finishLinkedTask(
     WHERE task_id = ? AND status = 'VERIFY'`)
     .run(taskStatus, now, now, linked.task_id);
   if (updated.changes === 0) return;
-  db.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(`tevt_${randomUUID().replace(/-/g, '')}`, linked.task_id, runId, agentId,
-      status === 'SUCCESS' ? 'VERIFIED' : 'VERIFICATION_FAILED', message ?? taskStatus, now);
+  appendTaskEvent(db, {
+    taskId: linked.task_id,
+    runId,
+    agentId,
+    eventType: status === 'SUCCESS' ? 'VERIFIED' : 'VERIFICATION_FAILED',
+    message: message ?? taskStatus,
+    createdAt: now,
+  });
 }
 
 export function failStaleLinkedTask(
@@ -183,7 +187,12 @@ export function failStaleLinkedTask(
     .run(now, now, linked.task_id);
   if (updated.changes === 0) return;
   db.prepare('DELETE FROM task_claims WHERE task_id = ?').run(linked.task_id);
-  db.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, 'VERIFICATION_FAILED', ?, ?)`)
-    .run(`tevt_${randomUUID().replace(/-/g, '')}`, linked.task_id, runId, agentId, message, now);
+  appendTaskEvent(db, {
+    taskId: linked.task_id,
+    runId,
+    agentId,
+    eventType: 'VERIFICATION_FAILED',
+    message,
+    createdAt: now,
+  });
 }

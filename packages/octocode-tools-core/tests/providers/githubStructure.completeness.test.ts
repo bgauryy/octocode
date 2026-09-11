@@ -35,9 +35,8 @@ vi.mock('../../src/utils/http/cache/diskStore.js', () => ({
 }));
 
 async function execute(query: Record<string, unknown>) {
-  const { operation: _operation, pageSize, ...internal } = query;
   return exploreRepositoryStructure(
-    { ...internal, itemsPerPage: pageSize } as never,
+    query as never,
     {} as never,
     () => ({ provider: { getRepoStructure } }) as never
   );

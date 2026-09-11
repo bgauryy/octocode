@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
 import { searchContentRipgrep } from '../../local_ripgrep/searchContentRipgrep.js';
 import { acquirePooledClient } from '@octocodeai/octocode-engine/lsp/manager';
 import type { SymbolAnchor } from '../shared/resolveSymbolAnchor.js';
@@ -103,15 +102,15 @@ export async function warmLikelyConsumers(
         stats.candidates = Math.max(stats.candidates, seen.size);
         if (abs === path.resolve(anchor.absolutePath)) continue;
         try {
-          const content = await readFile(abs, 'utf-8');
-          if (Buffer.byteLength(content, 'utf8') > WARM_MAX_BYTES) {
-            stats.skippedLarge += 1;
-            incomplete.add('fileRead');
-            continue;
-          }
-          await client.openDocument(abs, content);
+          await client.openDocumentFromDisk(abs, WARM_MAX_BYTES);
           stats.warmedFiles += 1;
-        } catch {
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.includes('too large for LSP document open')
+          ) {
+            stats.skippedLarge += 1;
+          }
           incomplete.add('fileRead');
         }
       }

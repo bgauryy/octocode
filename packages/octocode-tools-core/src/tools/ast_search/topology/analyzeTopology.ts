@@ -75,9 +75,12 @@ export async function analyzeTopology(
   // Resolve path: when omitted, infer from the first absolute file-like field.
   let resolvedPath = rawQuery.path;
   if (!resolvedPath) {
-    const candidate =
-      rawQuery.file ?? rawQuery.target ?? rawQuery.entrypoints?.[0];
-    if (candidate && isAbsolute(candidate)) {
+    const candidate = [
+      rawQuery.file,
+      rawQuery.target,
+      ...(rawQuery.entrypoints ?? []),
+    ].find(value => value !== undefined && isAbsolute(value));
+    if (candidate) {
       resolvedPath = inferRootFromAbsoluteFile(
         candidate,
         rawQuery.rustWorkspace

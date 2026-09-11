@@ -12,6 +12,7 @@ Discover, evaluate, create, improve, install, synchronize, and verify standalone
 
 - `SKILL.md` owns the workflow, hard rules, stop conditions, and route table.
 - References own one concept each and remain inside the skill folder.
+- `scheme/<contract-name>.json` optionally holds one machine-readable contract as a top-level JSON object.
 - Keep every shipped file reachable and useful; remove duplicate, development-only metadata, probe, and scratch files.
 - Use scripts for deterministic work, and route them from the lobby or import them from a used script.
 
@@ -33,7 +34,7 @@ npx -y octocode skill install octocode-skills
 node scripts/skill-review.mjs <skill-or-collection>
 ```
 
-The review checks triggers, routes, internal-only references, whole-folder usage, portability, and navigation. Errors block completion; warnings require correction or explanation.
+The review checks triggers, routes, JSON schemes, internal-only references, whole-folder usage, portability, and navigation. Errors block completion; warnings require correction or explanation.
 
 ## Maintainer verification
 

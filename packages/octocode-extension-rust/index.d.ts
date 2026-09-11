@@ -1,5 +1,30 @@
 /// <reference types="node" />
 
+export const NativeErrorCodes: {
+  readonly CANCELLED: 'CANCELLED';
+  readonly HISTORY_OBJECT_HASH_MISMATCH: 'HISTORY_OBJECT_HASH_MISMATCH';
+  readonly HISTORY_OBJECT_INVALID: 'HISTORY_OBJECT_INVALID';
+  readonly HISTORY_OBJECT_LIMIT: 'HISTORY_OBJECT_LIMIT';
+  readonly HISTORY_OBJECT_TIME_LIMIT: 'HISTORY_OBJECT_TIME_LIMIT';
+  readonly HISTORY_OBJECT_UNAVAILABLE: 'HISTORY_OBJECT_UNAVAILABLE';
+  readonly INVALID_MODE: 'INVALID_MODE';
+  readonly INVALID_PATH: 'INVALID_PATH';
+  readonly INVALID_TEXT: 'INVALID_TEXT';
+  readonly IO_FAILURE: 'IO_FAILURE';
+  readonly NOT_REGULAR_FILE: 'NOT_REGULAR_FILE';
+  readonly PRECONDITION_FAILED: 'PRECONDITION_FAILED';
+  readonly TOO_LARGE: 'TOO_LARGE';
+  readonly UNSAFE_PATH: 'UNSAFE_PATH';
+  readonly UNSUPPORTED_PLATFORM: 'UNSUPPORTED_PLATFORM';
+};
+export type NativeErrorCode = typeof NativeErrorCodes[keyof typeof NativeErrorCodes];
+export class NativeOperationError extends Error {
+  constructor(code: NativeErrorCode, message: string, cause?: unknown);
+  readonly code: NativeErrorCode;
+}
+/** Classify native and validation errors without consumers parsing message text. */
+export function nativeErrorCode(error: unknown): NativeErrorCode | undefined;
+
 export interface FileSnapshot {
   exists: boolean;
   kind: 'file' | 'symlink' | 'missing';

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db-init.js';
-import { insertRefinement, getRefinements, updateRefinement } from '../src/refinements.js';
+import { insertRefinement, getRefinements, updateRefinement, triageRefinementDestination } from '../src/refinements.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -9,6 +9,21 @@ function freshDb(): DatabaseSync {
   initDb(db);
   return db;
 }
+
+describe('refinement convergence triage', () => {
+  it('names deterministic destinations and blocks ambiguous legacy rows', () => {
+    expect(triageRefinementDestination({ quality: 'handoff', state: 'open', files: [], remember: '' }))
+      .toEqual({ destination: 'message', reason: 'HANDOFF_CONTINUATION' });
+    expect(triageRefinementDestination({ quality: 'bad', state: 'open', files: ['src/a.ts'], remember: '' }))
+      .toEqual({ destination: 'work', reason: 'ACTIONABLE_FILE_WORK' });
+    expect(triageRefinementDestination({ quality: 'good', state: 'done', files: [], remember: 'reuse this' }))
+      .toEqual({ destination: 'memory', reason: 'VERIFIED_REUSABLE_LESSON' });
+    expect(triageRefinementDestination({ quality: 'bad', state: 'open', files: ['src/a.ts'], remember: 'also remember' }))
+      .toEqual({ destination: 'blocked', reason: 'MIXED_ACTION_AND_MEMORY_PAYLOAD' });
+    expect(triageRefinementDestination({ quality: 'instructions', state: 'done', files: [], remember: 'change instructions' }))
+      .toEqual({ destination: 'blocked', reason: 'INSTRUCTIONS_REQUIRE_AUTHORITY_DESTINATION' });
+  });
+});
 
 describe('insertRefinement', () => {
   it('returns a refinementId prefixed ref_', () => {

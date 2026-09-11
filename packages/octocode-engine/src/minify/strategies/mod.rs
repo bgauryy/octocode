@@ -8,9 +8,7 @@ pub use code::{minify_javascript_core, minify_js_oxc};
 pub use core::{minify_aggressive, minify_code_core, minify_conservative, minify_general_core};
 pub use json::{minify_json_core_inner, minify_json_readable_inner};
 pub use markdown::minify_markdown_core;
-pub use web::{
-    minify_css_core, minify_css_quality, minify_embedded_web, minify_html_core, minify_html_quality,
-};
+pub use web::{minify_css_quality, minify_embedded_web, minify_html_core, minify_html_quality};
 
 // ── Shared byte-level helpers (used across submodules) ────────────────────────
 

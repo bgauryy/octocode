@@ -1,40 +1,22 @@
-import {
-  cpSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-} from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import {
+  SKILL_PLATFORMS,
+  VALID_SKILL_PLATFORM_VALUES,
+  getCanonicalSkillsDir,
+  installBundledSkills,
+  parseSkillPlatforms,
+  type SkillInstallMode,
+} from '@octocodeai/octocode-skill-installer';
 
 const SKILL_NAME = 'octocode-awareness';
-
-const PLATFORM_DIRS = {
-  shared: { global: '.agents/skills', project: '.agents/skills' },
-  codex: { global: '.agents/skills', project: '.agents/skills' },
-  'codex-native': { global: '.codex/skills' },
-  claude: { global: '.claude/skills', project: '.claude/skills' },
-  'claude-desktop': { global: '.claude-desktop/skills' },
-  cursor: { global: '.cursor/skills', project: '.cursor/skills' },
-  opencode: { global: '.config/opencode/skills', project: '.opencode/skills' },
-  pi: { global: '.pi/agent/skills', project: '.pi/skills' },
-  copilot: { global: '.copilot/skills', project: '.github/skills' },
-  gemini: { global: '.gemini/skills', project: '.gemini/skills' },
-} as const;
-
-type Platform = keyof typeof PLATFORM_DIRS;
-type Scope = 'global' | 'project';
 
 export interface SkillInstallOptions {
   skillsDir: string;
   cwd?: string;
   homeDir?: string;
+  canonicalSkillsDir?: string;
 }
 
 export interface SkillInstallResult {
@@ -42,17 +24,23 @@ export interface SkillInstallResult {
   payload: Record<string, unknown>;
 }
 
-function fail(error: string, details: Record<string, unknown> = {}): SkillInstallResult {
+function fail(
+  error: string,
+  details: Record<string, unknown> = {}
+): SkillInstallResult {
   return { exitCode: 1, payload: { ok: false, error, ...details } };
 }
 
-function option(argv: string[] | Record<string, unknown>, name: string): string | undefined {
+function option(
+  argv: string[] | Record<string, unknown>,
+  name: string
+): string | undefined {
   if (!Array.isArray(argv)) {
     const value = argv[name.slice(2).replaceAll('-', '_')];
     return value === undefined ? undefined : String(value);
   }
   const prefix = `${name}=`;
-  const inline = argv.find((arg) => arg.startsWith(prefix));
+  const inline = argv.find(arg => arg.startsWith(prefix));
   if (inline) return inline.slice(prefix.length);
   const index = argv.indexOf(name);
   if (index < 0) return undefined;
@@ -61,145 +49,90 @@ function option(argv: string[] | Record<string, unknown>, name: string): string 
 }
 
 function flag(argv: string[] | Record<string, unknown>, name: string): boolean {
-  return Array.isArray(argv) ? argv.includes(name) : argv[name.slice(2).replaceAll('-', '_')] === true;
+  return Array.isArray(argv)
+    ? argv.includes(name)
+    : argv[name.slice(2).replaceAll('-', '_')] === true;
 }
 
-function sameTree(left: string, right: string): boolean {
-  if (!existsSync(left) || !existsSync(right)) return false;
-  const leftStat = lstatSync(left);
-  const rightStat = lstatSync(right);
-  if (leftStat.isSymbolicLink() || rightStat.isSymbolicLink()) {
-    return leftStat.isSymbolicLink() && rightStat.isSymbolicLink()
-      && readlinkSync(left) === readlinkSync(right);
-  }
-  if (leftStat.isFile() || rightStat.isFile()) {
-    return leftStat.isFile() && rightStat.isFile()
-      && readFileSync(left).equals(readFileSync(right));
-  }
-  if (!leftStat.isDirectory() || !rightStat.isDirectory()) return false;
-  const leftEntries = readdirSync(left).sort();
-  const rightEntries = readdirSync(right).sort();
-  return leftEntries.length === rightEntries.length
-    && leftEntries.every((name, index) => name === rightEntries[index]
-      && sameTree(join(left, name), join(right, name)));
+function installMode(
+  argv: string[] | Record<string, unknown>
+): SkillInstallMode | undefined {
+  const value = option(argv, '--mode') ?? 'symlink';
+  return value === 'symlink' || value === 'copy' || value === 'auto'
+    ? value
+    : undefined;
 }
 
-function replaceDirectory(source: string, destination: string): void {
-  const parent = dirname(destination);
-  mkdirSync(parent, { recursive: true });
-  const stagingRoot = mkdtempSync(join(parent, '.octocode-awareness-install-'));
-  const staged = join(stagingRoot, SKILL_NAME);
-  const backup = join(parent, `.octocode-awareness-backup-${process.pid}-${Date.now()}`);
-  let backedUp = false;
-  try {
-    cpSync(source, staged, { recursive: true });
-    if (existsSync(destination)) {
-      renameSync(destination, backup);
-      backedUp = true;
-    }
-    renameSync(staged, destination);
-    if (backedUp) rmSync(backup, { recursive: true, force: true });
-  } catch (error) {
-    if (backedUp && !existsSync(destination) && existsSync(backup)) renameSync(backup, destination);
-    throw error;
-  } finally {
-    rmSync(stagingRoot, { recursive: true, force: true });
-  }
-}
-
-export function runSkillInstall(argv: string[] | Record<string, unknown>, options: SkillInstallOptions): SkillInstallResult {
+export function runSkillInstall(
+  argv: string[] | Record<string, unknown>,
+  options: SkillInstallOptions
+): SkillInstallResult {
   const platformValue = option(argv, '--platform');
   if (!platformValue) {
-    return fail(`--platform is required (${Object.keys(PLATFORM_DIRS).join('|')})`);
+    return fail(
+      `--platform is required (${VALID_SKILL_PLATFORM_VALUES.join('|')})`
+    );
   }
-  if (!(platformValue in PLATFORM_DIRS)) {
-    return fail(`unsupported platform "${platformValue}"`, { supported_platforms: Object.keys(PLATFORM_DIRS) });
+  const parsedPlatforms = parseSkillPlatforms(platformValue);
+  if (parsedPlatforms.error) {
+    return fail(parsedPlatforms.error, {
+      supported_platforms: VALID_SKILL_PLATFORM_VALUES,
+    });
   }
-  const platform = platformValue as Platform;
+
   const global = flag(argv, '--global');
   const projectDirValue = option(argv, '--project-dir');
-  if (global && projectDirValue) return fail('use either --global or --project-dir, not both');
-  if (!global && !projectDirValue) return fail('choose an explicit scope with --global or --project-dir <path>');
+  if (global && projectDirValue)
+    return fail('use either --global or --project-dir, not both');
+  if (!global && !projectDirValue)
+    return fail(
+      'choose an explicit scope with --global or --project-dir <path>'
+    );
 
-  const scope: Scope = global ? 'global' : 'project';
-  const relativeDir = PLATFORM_DIRS[platform][scope as keyof (typeof PLATFORM_DIRS)[Platform]];
-  if (!relativeDir) return fail(`${platform} does not support ${scope} skill installation`);
+  const mode = installMode(argv);
+  if (!mode) return fail('--mode must be symlink, copy, or auto');
 
-  const root = global
-    ? (options.homeDir ?? homedir())
-    : resolve(options.cwd ?? process.cwd(), projectDirValue!);
-  if (!global && !existsSync(root)) return fail(`project directory does not exist: ${root}`);
+  const cwd = options.cwd ?? process.cwd();
+  const projectDir = projectDirValue
+    ? resolve(cwd, projectDirValue)
+    : undefined;
+  if (projectDir) {
+    const unsupported = parsedPlatforms.platforms.filter(
+      platform =>
+        !SKILL_PLATFORMS.find(candidate => candidate.platform === platform)
+          ?.supportsProject
+    );
+    if (unsupported.length > 0) {
+      return fail(
+        `project skill installation is unsupported for: ${unsupported.join(', ')}`
+      );
+    }
+  }
+  if (
+    projectDir &&
+    (!existsSync(projectDir) || !statSync(projectDir).isDirectory())
+  ) {
+    return fail(`project directory does not exist: ${projectDir}`);
+  }
 
   const source = join(resolve(options.skillsDir), SKILL_NAME);
-  if (!existsSync(join(source, 'SKILL.md'))) {
-    return fail(`bundled skill is missing: ${join(source, 'SKILL.md')}`);
-  }
-  const destination = join(root, relativeDir, SKILL_NAME);
-  const next = `Read ${join(destination, 'SKILL.md')}; restart or reload the agent host if needed. Run npx @octocodeai/octocode-awareness guide for agent instructions and npx @octocodeai/octocode-awareness schema commands --all --compact for every command.`;
-  const identical = sameTree(source, destination);
-  const exists = existsSync(destination);
-  const dryRun = flag(argv, '--dry-run');
-  const force = flag(argv, '--force');
-
-  if (dryRun) {
-    return {
-      exitCode: 0,
-      payload: {
-        ok: true,
-        action: 'dry-run',
-        skill: SKILL_NAME,
-        platform,
-        scope,
-        source,
-        destination,
-        changed: !identical,
-        conflict: exists && !identical,
-        requires_force: exists && !identical,
-        next: exists && !identical
-          ? 'Review the destination, then rerun with --force to replace it.'
-          : `Rerun without --dry-run to install ${SKILL_NAME}.`,
-      },
-    };
-  }
-
-  if (identical) {
-    return {
-      exitCode: 0,
-      payload: { ok: true, action: 'install', skill: SKILL_NAME, platform, scope, source, destination, changed: false, next },
-    };
-  }
-  if (exists && !force) {
-    return fail(`destination already exists and differs; inspect it, then rerun with --force to replace it`, {
-      skill: SKILL_NAME,
+  const scope = global ? ('global' as const) : ('project' as const);
+  const homeDir = options.homeDir ?? homedir();
+  const result = installBundledSkills({
+    skills: [{ name: SKILL_NAME, sourcePath: source }],
+    canonicalSkillsDir: options.canonicalSkillsDir ?? getCanonicalSkillsDir(),
+    targets: parsedPlatforms.platforms.map(platform => ({
       platform,
       scope,
-      source,
-      destination,
-    });
-  }
-
-  try {
-    replaceDirectory(source, destination);
-    return {
-      exitCode: 0,
-      payload: {
-        ok: true,
-        action: 'install',
-        skill: SKILL_NAME,
-        platform,
-        scope,
-        source,
-        destination,
-        changed: true,
-        next,
-      },
-    };
-  } catch (error) {
-    return fail(`cannot install ${SKILL_NAME}: ${error instanceof Error ? error.message : String(error)}`, {
-      platform,
-      scope,
-      source,
-      destination,
-    });
-  }
+      homeDir,
+      ...(projectDir ? { projectDir } : {}),
+    })),
+    mode,
+    force: flag(argv, '--force'),
+    dryRun: flag(argv, '--dry-run'),
+  });
+  return {
+    exitCode: result.ok ? 0 : 1,
+    payload: { ...result },
+  };
 }

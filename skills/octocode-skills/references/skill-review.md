@@ -8,10 +8,10 @@ Review combines mechanical findings with judgment about density, ownership, navi
 
 1. **Best practices** — lobby owns workflows; progressive disclosure; one owner per concept; scripts over mechanical prose (`references/skill-improve.md`, `references/skill-anatomy.md`).
 2. **Quality rubric** — trigger, workflow, gates, evidence, UX, risk (`references/quality-rubric.md`).
-3. **Mechanical rules** — frontmatter, missing refs/scripts, length, routing, hooks, prose, description trigger quality (`description-concise` / `description-rigid` / `description-redundant`) (`references/skill-review-rules.md`).
-4. **Navigation** — agents can reach the relevant references and scripts, understand when to use them, and continue dependent procedures (`references/skill-anatomy.md`). Do not duplicate an index merely to satisfy a lobby-listing warning.
+3. **Mechanical rules** — frontmatter, missing refs/scripts/schemes, JSON contract shape, length, routing, hooks, prose, and description trigger quality (`description-concise` / `description-rigid` / `description-redundant`) (`references/skill-review-rules.md`).
+4. **Navigation** — agents can reach the relevant references, scripts, and schemes, understand when to use them, and continue dependent procedures (`references/skill-anatomy.md`). Do not duplicate an index merely to satisfy a lobby-listing warning.
 5. **Standalone** — static path checks (`link-outside-skill`) find literal references; constructed paths and optional integrations need isolated runtime checks.
-6. **Cleanup** — every shipped file is reachable and useful; no duplicate, development-only metadata, probe, or scratch artifacts (`unused-file`, `references/skill-cleanup.md`).
+6. **Cleanup** — every shipped reference, doc, script, and scheme is reachable, coherent, effective, and worth its context/execution cost; no routing wrappers, fallback stubs, duplicates, development-only metadata, probes, or scratch artifacts (`unused-file`, `references/skill-cleanup.md`).
 
 ## Run
 

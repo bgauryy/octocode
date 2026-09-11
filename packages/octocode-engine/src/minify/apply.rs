@@ -1,21 +1,10 @@
 use crate::minify::comment_remover::remove_comments;
-use crate::minify::minifier::{get_file_config, minify_content_sync_inner, MAX_SIZE};
+use crate::minify::minifier::{get_file_config, MAX_SIZE};
 use crate::minify::strategies::{
     minify_code_core, minify_css_quality, minify_embedded_web, minify_general_core, minify_js_oxc,
     minify_json_readable_inner, minify_markdown_core,
 };
 use crate::text::file_extension::get_extension_internal;
-
-/// Full minification — return minified if shorter, else original.
-pub fn apply_minification_inner(content: &str, file_path: &str) -> String {
-    let minified = std::panic::catch_unwind(|| minify_content_sync_inner(content, file_path))
-        .unwrap_or_else(|_| content.to_owned());
-    if minified.len() < content.len() {
-        minified
-    } else {
-        content.to_owned()
-    }
-}
 
 /// Content-view minification — agent-readable, preserves indentation.
 /// Agent-readable content view minification pipeline.

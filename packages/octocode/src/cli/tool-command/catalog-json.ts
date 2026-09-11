@@ -71,7 +71,7 @@ type CompactSchemaShape = {
     fields: CompactField[];
   }>;
 };
-function scopeCompactSchema(
+export function scopeCompactSchema(
   fields: ReturnType<typeof formatToolFieldsJson>,
   variants: ReturnType<typeof getDirectToolSchemaVariants>,
   variantFields: ReturnType<typeof getDirectToolVariantDisplayFields>
@@ -171,9 +171,16 @@ function scopeCompactSchema(
   }
 
   return {
-    fields: fields.filter(
-      field => !isScoped(field.name) || common.has(field.name)
-    ),
+    fields: fields
+      .filter(field => !isScoped(field.name) || common.has(field.name))
+      .map(field => {
+        if (!common.has(field.name)) return field;
+        return (
+          typedByVariant
+            .get(variants[0]!.name)
+            ?.find(typed => typed.name === field.name) ?? field
+        );
+      }),
     fieldGroups: [...fieldGroupsByVariants.values()],
     variants: variants.map(variant => ({
       name: variant.name,

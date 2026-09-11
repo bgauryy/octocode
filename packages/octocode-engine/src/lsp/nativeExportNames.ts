@@ -1,25 +1,7 @@
 export const PUBLIC_NATIVE_EXPORT_NAMES = [
   'SIGNATURES_ONLY_HINT',
-  'getExtension',
-  'minifyContentSync',
-  'minifyContentResult',
   'minifyContent',
-  'applyMinification',
   'applyContentViewMinification',
-  'removeComments',
-  'minifyConservativeCore',
-  'minifyAggressiveCore',
-  'minifyJsonCore',
-  'minifyJsonReadable',
-  'minifyCodeCore',
-  'minifyGeneralCore',
-  'minifyMarkdownCore',
-  'minifyCSSCore',
-  'minifyHTMLCore',
-  'minifyJavaScriptCore',
-  'minifyCSSQuality',
-  'minifyHTMLQuality',
-  'stripPythonDocstrings',
   'extractSignatures',
   'extractJsSymbols',
   'findInFileReferences',
@@ -37,8 +19,6 @@ export const PUBLIC_NATIVE_EXPORT_NAMES = [
   'getSemanticBoundaryOffsets',
   'getSupportedSignatureExtensions',
   'jsonToYamlString',
-  'getMINIFY_CONFIG',
-  'MINIFY_CONFIG',
   'SUPPORTED_SIGNATURE_EXTENSIONS',
   'SUPPORTED_GRAPH_FACT_EXTENSIONS',
   'SUPPORTED_STRUCTURAL_EXTENSIONS',
@@ -69,5 +49,18 @@ export const PUBLIC_NATIVE_EXPORT_NAMES = [
   'toLspSymbolKind',
   'sanitizeContent',
   'maskSensitiveData',
-  'patternCount',
 ] as const;
+
+const NON_FUNCTION_NATIVE_EXPORT_NAMES = new Set<string>([
+  'SIGNATURES_ONLY_HINT',
+  'SUPPORTED_SIGNATURE_EXTENSIONS',
+  'SUPPORTED_GRAPH_FACT_EXTENSIONS',
+  'SUPPORTED_STRUCTURAL_EXTENSIONS',
+  'PatchLineType',
+]);
+
+/** Callable subset derived from the canonical public native export manifest. */
+export const PUBLIC_NATIVE_FUNCTION_EXPORT_NAMES =
+  PUBLIC_NATIVE_EXPORT_NAMES.filter(
+    name => !NON_FUNCTION_NATIVE_EXPORT_NAMES.has(name)
+  );

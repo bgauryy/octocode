@@ -138,14 +138,24 @@ const MAX_CACHED_CWDS = 32;
 /** Return the last cached Awareness status for command dashboards. */
 export type CachedAwarenessStatus = ExternalAwarenessStatus & { observedAt: number };
 
+export type AwarenessStatusHealth =
+  | { state: 'idle' | 'fresh' | 'disabled' }
+  | { state: 'unavailable'; message: string };
+
 export function getCachedAwarenessStatus(
   cwd: string
 ): CachedAwarenessStatus | null {
   return cache.get(cwd)?.status ?? null;
 }
 
+/** Distinguish a disabled source from a failed read without discarding known data. */
+export function getAwarenessStatusHealth(cwd: string): AwarenessStatusHealth {
+  return cache.get(cwd)?.health ?? { state: 'idle' };
+}
+
 interface CacheEntry {
   status: CachedAwarenessStatus | null;
+  health: AwarenessStatusHealth;
   lastRunAt: number;
   running: boolean;
   generation: number;
@@ -160,11 +170,7 @@ export type StatusRunner = (
 ) => Promise<ExternalAwarenessStatus | null>;
 const defaultRunner: StatusRunner = async (cwd, agentId) => {
   if (!isPersistentStorageEnabled()) return null;
-  try {
-    return readExternalAwarenessStatus({ workspace: cwd, agentId });
-  } catch {
-    return null;
-  }
+  return readExternalAwarenessStatus({ workspace: cwd, agentId });
 };
 let runner: StatusRunner = defaultRunner;
 
@@ -229,6 +235,7 @@ export function refreshAwarenessPanel(ctx?: PiContext): void {
   const generation = generations.get(cwd) ?? 0;
   const entry = cache.get(cwd) ?? {
     status: null,
+    health: { state: 'idle' } as AwarenessStatusHealth,
     lastRunAt: 0,
     running: false,
     generation,
@@ -257,13 +264,15 @@ export function refreshAwarenessPanel(ctx?: PiContext): void {
       entry.running = false;
       if (status === null) {
         entry.status = null;
+        entry.health = { state: 'disabled' };
         repaintFooter(ctx);
         return;
       }
       entry.status = { ...status, observedAt: Date.now() };
+      entry.health = { state: 'fresh' };
       repaintFooter(ctx);
     })
-    .catch(() => {
+    .catch(error => {
       if (
         panelSuppressed ||
         cache.get(cwd) !== entry ||
@@ -271,7 +280,10 @@ export function refreshAwarenessPanel(ctx?: PiContext): void {
       )
         return;
       entry.running = false;
-      entry.status = null;
+      entry.health = {
+        state: 'unavailable',
+        message: error instanceof Error ? error.message : String(error),
+      };
       repaintFooter(ctx);
     });
 }

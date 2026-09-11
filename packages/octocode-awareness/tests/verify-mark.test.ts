@@ -5,6 +5,7 @@ import { preFlightIntent } from '../src/intents-preflight.js';
 import { releaseFileLock } from '../src/intents-release.js';
 import { auditUnverified } from '../src/verify-audit.js';
 import { markVerified } from '../src/verify-mark.js';
+import { latestRunVerification } from '../src/event-outbox.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -168,7 +169,7 @@ describe('markVerified', () => {
     });
     expect(result).toMatchObject({ ok: true, run_id: runId, status: 'SUCCESS' });
     expect(auditUnverified(db, { workspacePath: '/tmp/ws-a' }).count).toBe(0);
-    const log = db.prepare('SELECT agent_id, message FROM run_log WHERE run_id = ?').get(runId) as { agent_id: string; message: string };
+    const log = latestRunVerification(db, runId)!;
     expect(log.agent_id).toBe('agent-b');
     expect(log.message).toContain('verification adopted by agent-b from agent-a');
   });
@@ -250,7 +251,7 @@ describe('markVerified', () => {
     const db = freshDb();
     const a = makePending(db, 'agent-a', '/tmp/ws-a');
     const b = makePending(db, 'agent-a', '/tmp/ws-a');
-    // Link both runs to VERIFY tasks so finishLinkedTask inserts task_events.
+    // Link both runs to VERIFY tasks so finishLinkedTask appends task events.
     for (const runId of [a, b]) {
       const taskId = `task_${runId.slice(4)}`;
       db.prepare(`INSERT INTO awareness_plans(plan_id, name, objective, lead_agent_id, status, workspace_path, doc_dir, created_at, updated_at)
@@ -261,9 +262,10 @@ describe('markVerified', () => {
         .run(taskId, `plan_${runId}`);
       db.prepare('UPDATE task_runs SET task_id = ? WHERE run_id = ?').run(taskId, runId);
     }
-    // Abort on the second task_events insert so the batch must roll back.
-    db.exec(`CREATE TRIGGER reject_second_task_event BEFORE INSERT ON task_events
-      WHEN (SELECT COUNT(*) FROM task_events) >= 1
+    // Abort on the second task event so the batch must roll back.
+    db.exec(`CREATE TRIGGER reject_second_task_event BEFORE INSERT ON event_outbox
+      WHEN NEW.event_type LIKE 'task.%'
+        AND (SELECT COUNT(*) FROM event_outbox WHERE event_type LIKE 'task.%') >= 1
       BEGIN SELECT RAISE(ABORT, 'forced finishLinkedTask failure'); END`);
 
     expect(() => markVerified(db, {

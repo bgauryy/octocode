@@ -68,9 +68,7 @@ describe('insertHarnessLog — basic insert', () => {
 
     expect(harnessId).toMatch(/^harness_/);
 
-    const row = db.prepare(
-      'SELECT * FROM harness_log WHERE harness_id = ?'
-    ).get(harnessId) as HarnessLogRow | undefined;
+    const row = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId) as HarnessLogRow | undefined;
 
     expect(row).toBeDefined();
     expect(row!.event_type).toBe('mine');
@@ -91,9 +89,7 @@ describe('insertHarnessLog — basic insert', () => {
       eventType: 'capture',
     });
 
-    const row = db.prepare(
-      'SELECT payload_json FROM harness_log WHERE harness_id = ?'
-    ).get(harnessId) as { payload_json: string | null } | undefined;
+    const row = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
 
     expect(row).toBeDefined();
     expect(row!.payload_json).toBeNull();
@@ -113,9 +109,7 @@ describe('insertHarnessLog — memory_id FK', () => {
       memoryId,
     });
 
-    const row = db.prepare(
-      'SELECT h.harness_id, m.memory_id FROM harness_log h JOIN awareness_memories m ON h.memory_id = m.memory_id WHERE h.harness_id = ?'
-    ).get(harnessId) as { harness_id: string; memory_id: string } | undefined;
+    const row = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
 
     expect(row).toBeDefined();
     expect(row!.memory_id).toBe(memoryId);
@@ -147,9 +141,7 @@ describe('insertHarnessLog — run_id FK', () => {
       runId,
     });
 
-    const row = db.prepare(
-      'SELECT h.harness_id, t.run_id FROM harness_log h JOIN task_runs t ON h.run_id = t.run_id WHERE h.harness_id = ?'
-    ).get(harnessId) as { harness_id: string; run_id: string } | undefined;
+    const row = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
 
     expect(row).toBeDefined();
     expect(row!.run_id).toBe(runId);
@@ -247,10 +239,10 @@ describe('queryHarnessLog — filter by agent_id', () => {
   });
 });
 
-// ─── 7. harness_log.session_id SET NULL on session delete ─────────────────────
+// ─── 7. immutable event identity survives session deletion ────────────────────
 
-describe('harness_log.session_id SET NULL on session delete', () => {
-  it('sets session_id to NULL when the referenced session is deleted', () => {
+describe('harness event session identity', () => {
+  it('preserves session identity when mutable session state is deleted', () => {
     const db = freshDb();
     const sessionId = insertSession(db, 'agent-g');
 
@@ -261,27 +253,22 @@ describe('harness_log.session_id SET NULL on session delete', () => {
     });
 
     // Confirm the FK is set before deletion
-    const before = db.prepare(
-      'SELECT session_id FROM harness_log WHERE harness_id = ?'
-    ).get(harnessId) as { session_id: string | null } | undefined;
+    const before = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
     expect(before!.session_id).toBe(sessionId);
 
     // Delete the session
     db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
 
-    // harness_log row must remain but session_id must be NULL
-    const after = db.prepare(
-      'SELECT session_id FROM harness_log WHERE harness_id = ?'
-    ).get(harnessId) as { session_id: string | null } | undefined;
+    const after = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
     expect(after).toBeDefined();
-    expect(after!.session_id).toBeNull();
+    expect(after!.session_id).toBe(sessionId);
   });
 });
 
-// ─── 8. harness_log.memory_id SET NULL on memory delete ──────────────────────
+// ─── 8. immutable event identity survives memory deletion ────────────────────
 
-describe('harness_log.memory_id SET NULL on memory delete', () => {
-  it('sets memory_id to NULL when the referenced memory is deleted', () => {
+describe('harness event memory identity', () => {
+  it('preserves memory identity when mutable memory state is deleted', () => {
     const db = freshDb();
     const memoryId = insertMemoryRow(db, 'agent-h');
 
@@ -292,19 +279,14 @@ describe('harness_log.memory_id SET NULL on memory delete', () => {
     });
 
     // Confirm the FK is set before deletion
-    const before = db.prepare(
-      'SELECT memory_id FROM harness_log WHERE harness_id = ?'
-    ).get(harnessId) as { memory_id: string | null } | undefined;
+    const before = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
     expect(before!.memory_id).toBe(memoryId);
 
     // Delete the memory
     db.prepare('DELETE FROM awareness_memories WHERE memory_id = ?').run(memoryId);
 
-    // harness_log row must remain but memory_id must be NULL
-    const after = db.prepare(
-      'SELECT memory_id FROM harness_log WHERE harness_id = ?'
-    ).get(harnessId) as { memory_id: string | null } | undefined;
+    const after = queryHarnessLog(db, {}).find(({ harness_id }) => harness_id === harnessId);
     expect(after).toBeDefined();
-    expect(after!.memory_id).toBeNull();
+    expect(after!.memory_id).toBe(memoryId);
   });
 });

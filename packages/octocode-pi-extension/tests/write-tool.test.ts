@@ -115,6 +115,26 @@ test('result.details contains path, absolutePath, and bytes', async () => {
   assert.equal(details.bytes, 3);
 });
 
+test('result.details includes a versioned mutation receipt without retained file content', async () => {
+  const result = await run({ path: 'receipt.txt', content: 'abc' });
+  const mutation = (result.details as { mutation?: Record<string, unknown> }).mutation;
+
+  assert.deepEqual(mutation, {
+    version: 1,
+    classification: 'applied',
+    preFingerprint: 'missing',
+    postFingerprint: 'sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    bytesBefore: 0,
+    bytesAfter: 3,
+    bytesChanged: 3,
+    linesAdded: 1,
+    linesDeleted: 0,
+    diffTruncated: false,
+    patchTruncated: false,
+  });
+  assert.doesNotMatch(JSON.stringify(mutation), /content|abc/);
+});
+
 // ─── Read-state recording ─────────────────────────────────────────────────────
 
 test('records read state after writing so a subsequent edit does not see the file as stale', async () => {

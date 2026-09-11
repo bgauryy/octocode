@@ -209,6 +209,30 @@ fn count_lines_counts_matched_lines_per_file() {
 }
 
 #[test]
+fn match_work_avoids_discarded_snippets_and_redundant_scans() {
+    let count_lines = match_work(Mode::CountLines, false);
+    assert!(!count_lines.materialize_line);
+    assert!(!count_lines.enumerate_submatches);
+
+    for mode in [Mode::FilesOnly, Mode::FilesWithoutMatch, Mode::CountMatches] {
+        let work = match_work(mode, false);
+        assert!(!work.materialize_line);
+        assert!(work.enumerate_submatches);
+        assert!(!work.collect_spans);
+    }
+
+    let normal = match_work(Mode::Normal, false);
+    assert!(normal.materialize_line);
+    assert!(normal.enumerate_submatches);
+    assert!(!normal.collect_spans);
+
+    let only_matching = match_work(Mode::Normal, true);
+    assert!(only_matching.materialize_line);
+    assert!(only_matching.enumerate_submatches);
+    assert!(only_matching.collect_spans);
+}
+
+#[test]
 fn context_lines_are_assembled_into_snippet() {
     let t = TmpDir::new();
     t.write("a.txt", "before\nmatch\nafter\n");

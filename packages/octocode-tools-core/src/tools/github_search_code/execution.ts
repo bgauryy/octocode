@@ -1,11 +1,8 @@
-import type { CallToolResult } from '@modelcontextprotocol/server';
-import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import {
+  GITHUB_SEARCH_TOOL_NAME,
+  type GitHubSearchQuery,
+} from '@octocodeai/octocode-core/schema';
 import type { GitHubSearchCodeData } from '@octocodeai/octocode-core/types';
-
-type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
-import { TOOL_NAMES } from '../toolMetadata/names.js';
-import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { getOctokit } from '../../github/client.js';
 import type {
   ToolExecutionArgs,
@@ -25,9 +22,11 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
-import { buildGhSearchCodeFinalizer } from './finalizer/build.js';
+import type { RepoState } from './resultTypes.js';
 
-type PartialCodeSearchQuery = WithOptionalMeta<GitHubCodeSearchQuery>;
+type PartialCodeSearchQuery = WithOptionalMeta<
+  Extract<GitHubSearchQuery, { operation: 'code' }>
+>;
 
 export function hasValidCodeSearchParams(
   query: PartialCodeSearchQuery
@@ -55,11 +54,6 @@ function validateCodeSearchScope(
   return undefined;
 }
 
-export type RepoState =
-  | { kind: 'notFound' }
-  | { kind: 'archived' }
-  | { kind: 'renamed'; fullName: string };
-
 async function probeRepoState(
   owner: string,
   repo: string,
@@ -85,7 +79,7 @@ async function probeRepoState(
 
 export async function searchGitHubCode(
   query: PartialCodeSearchQuery,
-  args: ToolExecutionArgs<PartialCodeSearchQuery>,
+  args: ToolExecutionArgs<GitHubSearchQuery>,
   getProviderContext = createLazyProviderContext(args.authInfo)
 ): Promise<ProcessedBulkResult> {
   try {
@@ -130,31 +124,10 @@ export async function searchGitHubCode(
       query,
       flat as GitHubSearchCodeData,
       flat.results.length > 0,
-      TOOL_NAMES.GITHUB_SEARCH_CODE,
+      GITHUB_SEARCH_TOOL_NAME,
       { rawResponse: providerResult.response.rawResponseChars }
     );
   } catch (error) {
-    return handleCatchError(
-      error,
-      query,
-      undefined,
-      TOOL_NAMES.GITHUB_SEARCH_CODE
-    );
+    return handleCatchError(error, query, undefined, GITHUB_SEARCH_TOOL_NAME);
   }
-}
-
-export async function searchMultipleGitHubCode(
-  args: ToolExecutionArgs<PartialCodeSearchQuery>
-): Promise<CallToolResult> {
-  const getProviderContext = createLazyProviderContext(args.authInfo);
-
-  return executeBulkOperation(
-    args.queries,
-    query => searchGitHubCode(query, args, getProviderContext),
-    {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_CODE,
-      finalize: buildGhSearchCodeFinalizer<PartialCodeSearchQuery>(),
-    },
-    args
-  );
 }

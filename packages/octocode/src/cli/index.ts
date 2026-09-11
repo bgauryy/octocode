@@ -1,15 +1,13 @@
-import { existsSync, statSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
 import { EXIT } from './exit-codes.js';
-import type { CLICommand, CLICommandSpec, ParsedArgs } from './types.js';
+import type { CLICommand, CLICommandSpec } from './types.js';
 import { setRuntimeSurface } from '@octocodeai/config';
 
 declare const __APP_VERSION__: string;
 
 async function loadCommandsModule(): Promise<{
   loadCommand(name: string): Promise<CLICommand | undefined>;
+  isRegisteredCommand(name: string): boolean;
 }> {
   return import('./commands/index.js');
 }
@@ -21,7 +19,7 @@ async function loadStaticCommandHelpModule(): Promise<{
 }
 
 async function loadToolCommandModule(): Promise<{
-  executeToolCommand(args: ParsedArgs): Promise<boolean>;
+  toolCommand: CLICommand;
   getToolsContextString(options?: {
     full?: boolean;
     minimal?: boolean;
@@ -34,14 +32,14 @@ async function loadToolCommandModule(): Promise<{
   showAvailableTools(): Promise<void>;
   showMultipleToolSchemas(toolNames: string[]): Promise<void>;
 }> {
-  const [execution, context, help, list] = await Promise.all([
-    import('./tool-command/execute.js'),
+  const [command, context, help, list] = await Promise.all([
+    import('./tool-command/command.js'),
     import('./tool-command/context.js'),
     import('./tool-command/help.js'),
     import('./tool-command/list-view.js'),
   ]);
   return {
-    executeToolCommand: execution.executeToolCommand,
+    toolCommand: command.toolCommand,
     getToolsContextString: context.getToolsContextString,
     printToolsContext: context.printToolsContext,
     showToolHelp: help.showToolHelp,
@@ -95,36 +93,6 @@ const KNOWN_TOP_LEVEL_OPTIONS = new Set([
   'raw',
 ]);
 
-let staleBuildWarningShown = false;
-
-function maybeWarnAboutStaleBuild(): void {
-  if (staleBuildWarningShown || process.env.OCTOCODE_NO_STALE_BUILD_WARNING) {
-    return;
-  }
-  staleBuildWarningShown = true;
-
-  const currentFile = fileURLToPath(import.meta.url);
-  if (!currentFile.includes(`${path.sep}out${path.sep}`)) return;
-
-  const sourceFile = path.resolve(
-    path.dirname(currentFile),
-    '..',
-    '..',
-    'src',
-    'cli',
-    'index.ts'
-  );
-  if (!existsSync(sourceFile)) return;
-
-  const builtMtime = statSync(currentFile).mtimeMs;
-  const sourceMtime = statSync(sourceFile).mtimeMs;
-  if (sourceMtime <= builtMtime + 1000) return;
-
-  console.error(
-    '  Warning: built CLI output looks older than src/cli/index.ts. Run `yarn build` before dogfooding source edits.'
-  );
-}
-
 function showVersion(): void {
   const version =
     typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown';
@@ -132,6 +100,7 @@ function showVersion(): void {
 }
 
 export async function runCLI(argv?: string[]): Promise<boolean> {
+  const { maybeWarnAboutStaleBuild } = await import('./stale-build.js');
   maybeWarnAboutStaleBuild();
 
   // Declare the CLI surface before any config is read: local and clone support
@@ -165,23 +134,22 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     }
 
     if (args.command) {
-      const { loadCommand } = await loadCommandsModule();
-      const liveCommand = await loadCommand(args.command);
-      if (liveCommand || args.command === 'context') {
-        const [{ findStaticCommandHelp }, { showCommandHelp }] =
-          await Promise.all([loadStaticCommandHelpModule(), loadHelpModule()]);
+      const [{ isRegisteredCommand }, { findStaticCommandHelp }] =
+        await Promise.all([
+          loadCommandsModule(),
+          loadStaticCommandHelpModule(),
+        ]);
+      const registered =
+        isRegisteredCommand(args.command) || args.command === 'context';
+      if (registered) {
+        const helpModule = await loadHelpModule();
         const staticCommand = findStaticCommandHelp(args.command);
         if (staticCommand) {
-          showCommandHelp(staticCommand);
+          helpModule.showCommandHelp(staticCommand);
           return true;
         }
-      }
-
-      if (liveCommand) {
         console.log();
-        console.log(
-          `  Missing octocode-core command spec for: ${liveCommand.name}`
-        );
+        console.log(`  Missing command help spec for: ${args.command}`);
         console.log();
         process.exitCode = EXIT.TOOL;
         return true;
@@ -243,10 +211,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
 
-    const success = await toolModule.executeToolCommand(args);
-    if (!success && !process.exitCode) {
-      process.exitCode = EXIT.GENERAL;
-    }
+    await toolModule.toolCommand.handler(args);
     return true;
   }
 

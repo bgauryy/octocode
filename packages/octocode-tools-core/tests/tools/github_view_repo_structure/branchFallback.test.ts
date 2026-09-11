@@ -13,7 +13,7 @@ vi.mock('../../../src/providers/factory.js', () => ({
   getProvider: () => fakeProvider,
 }));
 
-import { exploreMultipleRepositoryStructures } from '../../../src/tools/github_view_repo_structure/execution.js';
+import { executeGitHubSearch } from '../../../src/tools/github_search/execution.js';
 
 function ok(branch: string) {
   return {
@@ -44,9 +44,10 @@ describe('github.tree — explicit invalid branch falls back to default (regress
       .mockResolvedValueOnce(notFound())
       .mockResolvedValueOnce(ok('main'));
 
-    const result = await exploreMultipleRepositoryStructures({
+    const result = await executeGitHubSearch({
       queries: [
         {
+          operation: 'tree',
           owner: 'facebook',
           repo: 'react',
           branch: 'no-such-branch-zzz',
@@ -68,9 +69,10 @@ describe('github.tree — explicit invalid branch falls back to default (regress
       .mockResolvedValueOnce(notFound())
       .mockResolvedValueOnce(ok('main'));
 
-    const result = await exploreMultipleRepositoryStructures({
+    const result = await executeGitHubSearch({
       queries: [
         {
+          operation: 'tree',
           owner: 'facebook',
           repo: 'react',
           branch: 'no-such-branch-zzz',
@@ -89,9 +91,10 @@ describe('github.tree — explicit invalid branch falls back to default (regress
     resolveDefaultBranch.mockResolvedValue('main');
     getRepoStructure.mockResolvedValue(notFound());
 
-    const result = await exploreMultipleRepositoryStructures({
+    const result = await executeGitHubSearch({
       queries: [
         {
+          operation: 'tree',
           owner: 'no',
           repo: 'such-repo',
           branch: 'no-such-branch-zzz',
@@ -109,8 +112,10 @@ describe('github.tree — explicit invalid branch falls back to default (regress
     resolveDefaultBranch.mockResolvedValue('main');
     getRepoStructure.mockResolvedValue(ok('main'));
 
-    await exploreMultipleRepositoryStructures({
-      queries: [{ owner: 'facebook', repo: 'react', path: '' }],
+    await executeGitHubSearch({
+      queries: [
+        { operation: 'tree', owner: 'facebook', repo: 'react', path: '' },
+      ],
     } as never);
 
     expect(getRepoStructure).toHaveBeenCalledTimes(1);

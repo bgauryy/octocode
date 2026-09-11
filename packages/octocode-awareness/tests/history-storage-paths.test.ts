@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 import { connectDb } from '../src/db-runtime.js';
+import { readAwarenessMeta } from '../src/db-introspection.js';
 import { createHistoryContext, historyHash } from '../src/history-store.js';
 import { runAwarenessHistoryOperation } from '../src/history.js';
 
@@ -24,7 +25,7 @@ describe('workspace-local private history storage', () => {
     writeFileSync(join(workspace, 'a.ts'), 'original bytes');
   });
   afterEach(() => { restoreProcesses?.(); restoreProcesses = undefined; db.close(); rmSync(root, { recursive: true, force: true }); });
-  const destination = () => join(workspace, '.octocode', '.localGit', historyHash(realpathSync(dbPath)), 'awareness-v1', historyHash(workspace));
+  const destination = () => join(workspace, '.octocode', '.localGit', readAwarenessMeta(db).storeId, 'awareness-v2', historyHash(workspace));
   const legacy = () => join(`${dbPath}.history`, 'awareness-v1', historyHash(workspace));
   const capture = (operation_id: string) => runAwarenessHistoryOperation(db, 'capture', {
     workspace, agent_id: 'localgit-test', phase: 'before', file: ['a.ts'], operation_id,
@@ -96,8 +97,8 @@ describe('workspace-local private history storage', () => {
       git(unsafeWorkspace, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'seed');
       const marker = join(unsafeWorkspace, '.octocode', '.localGit', '.gitignore');
       mkdirSync(dirname(marker), { recursive: true });
-      const databaseHash = historyHash(realpathSync(unsafeDbPath));
-      writeFileSync(marker, `*\n!${databaseHash}/\n!${databaseHash}/**\n`);
+      const storeId = readAwarenessMeta(unsafeDb).storeId;
+      writeFileSync(marker, `*\n!${storeId}/\n!${storeId}/**\n`);
       await expect(runAwarenessHistoryOperation(unsafeDb, 'capture', {
         workspace: unsafeWorkspace, agent_id: 'localgit-test', phase: 'before', file: ['a.ts'], operation_id: 'negated-marker',
       })).rejects.toThrow(/catch-all/);
@@ -165,7 +166,7 @@ describe('workspace-local private history storage', () => {
     if (part === '.localGit') mkdirSync(join(workspace, '.octocode'));
     symlinkSync(outside, part === '.octocode' ? join(workspace, part) : join(workspace, '.octocode', part));
     await expect(capture('unsafe')).rejects.toMatchObject({ code: 'HISTORY_UNSAFE_STORAGE' });
-    expect(existsSync(join(outside, historyHash(realpathSync(dbPath))))).toBe(false);
+    expect(existsSync(join(outside, readAwarenessMeta(db).storeId))).toBe(false);
     expect(db.prepare('SELECT COUNT(*) AS n FROM local_history_operations').get()).toEqual({ n: 0 });
   });
 

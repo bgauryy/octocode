@@ -24,7 +24,7 @@ export async function initializePackageWorkerCapabilities(nativeTools: string[])
 
 export function assertFocusedWorkerSkills(skillArgs: string[]): void {
   const names = skillArgs.map(skillPath => path.basename(path.dirname(skillPath)));
-  assert.ok(names.every(name => ['octocode-research', 'octocode-awareness', 'octocode-rfc-generator', 'octocode-code-graph'].includes(name)), 'workers receive only focused enabled role skills');
+  assert.ok(names.every(name => ['octocode-research', 'octocode-awareness', 'octocode-rfc-generator', 'octocode-architect'].includes(name)), 'workers receive only focused enabled role skills');
   assert.ok(!names.includes('octocode-brainstorming'), 'unrelated enabled skills stay outside the worker grant');
 }
 

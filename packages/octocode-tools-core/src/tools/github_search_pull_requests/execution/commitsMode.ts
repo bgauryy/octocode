@@ -1,9 +1,5 @@
-import type { AuthInfo } from '@modelcontextprotocol/server';
 import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '@octocodeai/octocode-core/schema';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
-import { fetchHistory } from '../../../github/history.js';
-import { searchCommits } from '../../../github/commitSearch.js';
-import { compareRefs } from '../../../github/compare.js';
 import { withDiffContinuations } from '../historyDiffContinuations.js';
 import { isGitHubAPIError } from '../../../github/githubAPI.js';
 import type { ProcessedBulkResult } from '../../../types/toolResults.js';
@@ -11,12 +7,16 @@ import type {
   GitHubPullRequestSearchInput,
   GitHubPullRequestSearchQuery,
 } from './types.js';
+import type { GitHubHistoryProvider } from '../../../providers/github/historyProvider.js';
 
 // --- commits mode: route to commit history API ---
 export async function handleCommitsMode(
   query: GitHubPullRequestSearchInput,
   parsedData: GitHubPullRequestSearchQuery | undefined,
-  authInfo: AuthInfo | undefined,
+  provider: Pick<
+    GitHubHistoryProvider,
+    'searchCommits' | 'compareRefs' | 'fetchHistory'
+  >,
   toolName = GITHUB_SEARCH_HISTORY_TOOL_NAME
 ): Promise<ProcessedBulkResult> {
   const q = parsedData as {
@@ -60,20 +60,17 @@ export async function handleCommitsMode(
         query
       );
     }
-    const result = await searchCommits(
-      {
-        owner: q.owner,
-        repo: q.repo,
-        keywords: q.keywords,
-        author: q.author,
-        committer: q.committer,
-        since: q.since,
-        until: q.until,
-        page: q.page ?? 1,
-        perPage: q.pageSize ?? 30,
-      },
-      authInfo
-    );
+    const result = await provider.searchCommits({
+      owner: q.owner,
+      repo: q.repo,
+      keywords: q.keywords,
+      author: q.author,
+      committer: q.committer,
+      since: q.since,
+      until: q.until,
+      page: q.page ?? 1,
+      perPage: q.pageSize ?? 30,
+    });
     if (isGitHubAPIError(result))
       return createErrorResult(result, query, { toolName });
     return createSuccessResult(
@@ -87,24 +84,21 @@ export async function handleCommitsMode(
 
   // Compare mode: base+head diffs two refs instead of walking history.
   if (q.base && q.head) {
-    const compare = await compareRefs(
-      {
-        owner: q.owner,
-        repo: q.repo,
-        base: q.base,
-        head: q.head,
-        page: q.page,
-        includeDiff: Boolean(q.includeDiff),
-        // Scope + paginate the diff exactly like the history-walk path so a
-        // large commit is searchable-by-path and windowed, not one big dump.
-        path: q.path,
-        filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
-        itemsPerPage: q.pageSize,
-        charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
-        charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
-      },
-      authInfo
-    );
+    const compare = await provider.compareRefs({
+      owner: q.owner,
+      repo: q.repo,
+      base: q.base,
+      head: q.head,
+      page: q.page,
+      includeDiff: Boolean(q.includeDiff),
+      // Scope + paginate the diff exactly like the history-walk path so a
+      // large commit is searchable-by-path and windowed, not one big dump.
+      path: q.path,
+      filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
+      itemsPerPage: q.pageSize,
+      charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
+      charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
+    });
     if (isGitHubAPIError(compare)) {
       return createErrorResult(compare, query, {
         toolName,
@@ -144,27 +138,24 @@ export async function handleCommitsMode(
     );
   }
 
-  const result = await fetchHistory(
-    {
-      type: historyType,
-      owner: q.owner,
-      repo: q.repo,
-      path,
-      branch: q.branch,
-      since: q.since,
-      until: q.until,
-      author: q.author,
-      committer: q.committer,
-      page: Number(q.page) || 1,
-      perPage: Number(q.pageSize) || 30,
-      filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
-      itemsPerPage: typeof q.pageSize === 'number' ? q.pageSize : undefined,
-      includeDiff: Boolean(q.includeDiff),
-      charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
-      charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
-    },
-    authInfo
-  );
+  const result = await provider.fetchHistory({
+    type: historyType,
+    owner: q.owner,
+    repo: q.repo,
+    path,
+    branch: q.branch,
+    since: q.since,
+    until: q.until,
+    author: q.author,
+    committer: q.committer,
+    page: Number(q.page) || 1,
+    perPage: Number(q.pageSize) || 30,
+    filePage: typeof q.filePage === 'number' ? q.filePage : undefined,
+    itemsPerPage: typeof q.pageSize === 'number' ? q.pageSize : undefined,
+    includeDiff: Boolean(q.includeDiff),
+    charOffset: typeof q.charOffset === 'number' ? q.charOffset : undefined,
+    charLength: typeof q.charLength === 'number' ? q.charLength : undefined,
+  });
 
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {

@@ -33,6 +33,11 @@ export interface SearchStats {
    * only the scanned subset and may understate the true count; raise maxFiles
    * to count exhaustively. (Typed signal: responses carry no warnings.) */
   capReached?: boolean;
+  /** The native lexical collector hit its fixed safety ceiling. Unlike
+   * capReached, this bound cannot be expanded through the public query. */
+  capped?: boolean;
+  /** Native diagnostic naming the fixed safety ceiling that was reached. */
+  capReason?: string;
 }
 
 export interface CacheStats {

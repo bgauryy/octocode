@@ -1,13 +1,13 @@
 import type { RepoStructureResult as ProviderRepoStructureResult } from '../../providers/providerResults.js';
-import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schema';
+import type { GitHubSearchQuery } from '@octocodeai/octocode-core/schema';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 import { GITHUB_STRUCTURE_DEFAULTS } from '../github_view_repo_structure/constants.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
 
-type GitHubViewRepoStructureQuery = z.infer<
-  typeof GitHubViewRepoStructureQuerySchema
+type GitHubViewRepoStructureQuery = Extract<
+  GitHubSearchQuery,
+  { operation: 'tree' }
 >;
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
 
@@ -24,9 +24,7 @@ export function mapRepoStructureToolQuery(
     ref: resolvedBranch,
     path: query.path ? String(query.path) : undefined,
     depth: typeof query.maxDepth === 'number' ? query.maxDepth : undefined,
-    itemsPerPage:
-      (query as { itemsPerPage?: number }).itemsPerPage ??
-      GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
+    itemsPerPage: query.pageSize ?? GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
     page: (() => {
       const page = (query as { page?: number }).page;
       return typeof page === 'number' ? page : undefined;
@@ -162,7 +160,7 @@ export function mapRepoStructureProviderResult(
           ...(query.maxDepth !== undefined ? { maxDepth: query.maxDepth } : {}),
           page: query.page ?? 1,
           pageSize:
-            query.itemsPerPage ?? GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
+            query.pageSize ?? GITHUB_STRUCTURE_DEFAULTS.ENTRIES_PER_PAGE,
           include: [kind],
           metadataPage: metadata.currentPage + (metadata.failed ? 0 : 1),
         },

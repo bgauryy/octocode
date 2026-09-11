@@ -10,6 +10,7 @@ const OPTIONS_WITH_VALUES = new Set([
   'branch',
   'add',
   'platform',
+  'project-dir',
   'local',
   'limit',
   'depth',
@@ -76,6 +77,7 @@ const BOOLEAN_OPTIONS = new Set([
   'keep',
   'fix',
   'no-env',
+  'global',
 ]);
 
 function shouldConsumeNextValue(args: ParsedArgs, key: string): boolean {

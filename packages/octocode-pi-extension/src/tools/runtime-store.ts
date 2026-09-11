@@ -5,6 +5,17 @@ import { createExecutionState, reduceExecutionEvent, type ExecutionEvent, type E
 export type RuntimePhase = 'idle' | 'initializing' | 'ready' | 'degraded' | 'failed' | 'disposing' | 'disposed';
 export type RuntimeTaskStatus = 'idle' | 'running' | 'ready' | 'degraded' | 'failed';
 export type RuntimeNoticeLevel = 'info' | 'warning' | 'error';
+export type RuntimeBackgroundJobStatus = 'running' | 'succeeded' | 'failed' | 'timed_out' | 'killed';
+
+export interface RuntimeBackgroundJobState {
+  id: string;
+  title: string;
+  status: RuntimeBackgroundJobStatus;
+  startedAt: number;
+  endedAt?: number;
+  updatedAt: number;
+  exitCode?: number | null;
+}
 
 export type ForegroundActivity =
   | { kind: 'idle' }
@@ -99,6 +110,7 @@ export interface RuntimeState {
   mcp: RuntimeMcpState;
   context: RuntimeContextState;
   footer: RuntimeFooterState;
+  backgroundJobs: RuntimeBackgroundJobState[];
   activity: ForegroundActivity;
   execution: ExecutionState;
   recordExecution(event: ExecutionEvent): void;
@@ -113,6 +125,7 @@ export interface RuntimeState {
   setMcp(patch: Partial<RuntimeMcpState>): void;
   setContext(patch: Partial<RuntimeContextState>): void;
   setFooter(patch: Partial<RuntimeFooterState>): void;
+  setBackgroundJobs(jobs: readonly RuntimeBackgroundJobState[], generation?: number): void;
   setActivity(activity: ForegroundActivityInput): void;
   setStatus(name: string, text: string | undefined): void;
   announce(message: string, level?: RuntimeNoticeLevel): void;
@@ -129,7 +142,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | 'tasks' | 'statuses' | 'mcp' | 'context' | 'footer' | 'activity' | 'execution'> {
+function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | 'tasks' | 'statuses' | 'mcp' | 'context' | 'footer' | 'backgroundJobs' | 'activity' | 'execution'> {
   return {
     generation: 0,
     phase: 'idle',
@@ -162,9 +175,27 @@ function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | '
       completedTurns: 0,
       githubAuth: { status: 'checking' },
     },
+    backgroundJobs: [],
     activity: { kind: 'idle' },
     execution: createExecutionState(),
   };
+}
+
+function sameBackgroundJobs(
+  left: readonly RuntimeBackgroundJobState[],
+  right: readonly RuntimeBackgroundJobState[],
+): boolean {
+  return left.length === right.length && left.every((job, index) => {
+    const other = right[index];
+    return other !== undefined
+      && job.id === other.id
+      && job.title === other.title
+      && job.status === other.status
+      && job.startedAt === other.startedAt
+      && job.endedAt === other.endedAt
+      && job.updatedAt === other.updatedAt
+      && job.exitCode === other.exitCode;
+  });
 }
 
 export function createRuntimeStore(now: () => number = Date.now): RuntimeStore {
@@ -262,6 +293,10 @@ export function createRuntimeStore(now: () => number = Date.now): RuntimeStore {
     setMcp: (patch) => set((state) => ({ mcp: { ...state.mcp, ...patch } })),
     setContext: (patch) => set((state) => ({ context: { ...state.context, ...patch } })),
     setFooter: (patch) => set((state) => ({ footer: { ...state.footer, ...patch } })),
+    setBackgroundJobs: (jobs, generation = get().generation) => set((state) => {
+      if (state.generation !== generation || sameBackgroundJobs(state.backgroundJobs, jobs)) return state;
+      return { backgroundJobs: jobs.map((job) => ({ ...job })) };
+    }),
     setActivity: (activity) => set({
       activity: activity.kind === 'idle'
         ? activity

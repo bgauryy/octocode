@@ -10,20 +10,20 @@ Load when improving, refactoring, or rewriting an Agent Skill. Why: preserve its
 
 ## Preserve ownership
 
-- Keep entry decisions and shared constraints in `SKILL.md`; place conditional procedures in their owning references.
+- Keep entry decisions, shared constraints, the tools/related-skill convention, and short reusable rules in `SKILL.md`; place only substantive conditional procedures in their owning references.
 - References add detail without redefining shared rules.
 - Reuse references already read. Batch independent reads when useful; follow a `Next:` route only when it resolves the current question.
 
 - Keep one owner per concept. Cross-link instead of restating workflows or paragraphs.
-- Prefer fewer, sharper references over parallel near-duplicates.
+- Prefer fewer, sharper references over parallel near-duplicates. Remove routing wrappers and fallback stubs whose effective instruction fits coherently in the lobby.
 
 ## Target shape
 
 - Description: strong `Use when …` triggers (≤1024 chars; lead with the when-clause).
 - Every capability: same-line **when** + **why** to a ref or script.
-- Refs: one concept with a clear entry condition. Aim for short files; review the 50-line advisory in context instead of splitting a coherent procedure just to meet a count. Skill→ref and ref→ref are valid routes.
-- Scripts: deterministic work; list each with when/why.
-- Outputs: chat stays in chat; generated artifacts stay under `<workspace>/.octocode/`; source/install/config mutations keep their approved targets; no user-level artifact fallback.
+- Refs/docs: one complete conditional job with a clear entry condition. Aim for short files; review the 50-line advisory in context instead of splitting a coherent procedure just to meet a count. Skill→ref and ref→ref are valid routes only when the hop changes the next action.
+- Scripts: deterministic work; list each with when/why, and retain it only when execution is more reliable or efficient than the equivalent lobby instruction.
+- Outputs: chat stays in chat; repository/workspace artifacts stay under `<workspace>/.octocode/`, projectless or explicitly user-scoped artifacts stay under `<home>/.octocode/`, and source/install/config mutations keep their approved targets.
 
 ## Improve loop
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 describe('CLI command registry', () => {
   it('does not expose removed commands', async () => {
-    const { findCommand, loadCommand } =
+    const { isRegisteredCommand, loadCommand } =
       await import('../../src/cli/commands/index.js');
 
     const removed = [
@@ -21,15 +21,17 @@ describe('CLI command registry', () => {
       'lsp',
     ];
     for (const name of removed) {
-      expect(findCommand(name)).toBeUndefined();
+      expect(isRegisteredCommand(name)).toBe(false);
       expect(await loadCommand(name)).toBeUndefined();
     }
   });
 
   it('keeps status as the read-only token/auth command', async () => {
-    const { findCommand } = await import('../../src/cli/commands/index.js');
-    const cmd = findCommand('status');
+    const { isRegisteredCommand, loadCommand } =
+      await import('../../src/cli/commands/index.js');
+    const cmd = await loadCommand('status');
 
+    expect(isRegisteredCommand('status')).toBe(true);
     expect(cmd).toBeDefined();
     expect(cmd!.name).toBe('status');
   });

@@ -10,6 +10,7 @@ import type { ToolDefinition } from '../src/types.js';
 import { registerFileTool } from '../src/tools/file-tool.js';
 import { atomicWriteUtf8, checkReadState, clearReadStatesForTests, withFileMutationQueue } from '../src/tools/file-state.js';
 import { assertPathAllowed } from '../src/tools/path-guard.js';
+import { QueryBatchError } from '../src/tools/query-envelope.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -142,9 +143,29 @@ test('a native operation failure does not fall back to a Node filesystem mutatio
 test('write refuses a target changed after batch preflight', async () => {
   const target = path.join(cwd, 'target');
   fs.writeFileSync(target, 'original');
-  await assert.rejects(tool.execute('changed', { queries: [write(target)] }, undefined, () => {
-    fs.writeFileSync(target, 'external replacement');
-  }, { cwd }), /changed after preflight/);
+  let failure: QueryBatchError | undefined;
+  try {
+    await tool.execute('changed', { queries: [write(target)] }, undefined, () => {
+      fs.writeFileSync(target, 'external replacement');
+    }, { cwd });
+  } catch (error) {
+    failure = error as QueryBatchError;
+  }
+  assert.ok(failure instanceof QueryBatchError);
+  assert.match(failure.message, /changed after preflight/);
+  assert.deepEqual(failure.rows[0]?.recovery, {
+    tool: 'MCPTool',
+    query: {
+      queries: [{
+        reasoning: 'Refresh the changed file before retrying the mutation.',
+        action: 'call',
+        server: 'octocode',
+        tool: 'localFetch',
+        arguments: { queries: [{ path: target }] },
+      }],
+    },
+    why: 'The file changed after preflight; inspect current bytes before preparing a new mutation.',
+  });
   assert.equal(fs.readFileSync(target, 'utf8'), 'external replacement');
 });
 

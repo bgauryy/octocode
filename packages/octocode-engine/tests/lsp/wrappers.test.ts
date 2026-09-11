@@ -27,6 +27,10 @@ function nativeMock() {
     typeHierarchySupertypes: vi.fn().mockResolvedValue([{ name: 'supertype' }]),
     typeHierarchySubtypes: vi.fn().mockResolvedValue([{ name: 'subtype' }]),
     getDiagnostics: vi.fn().mockResolvedValue([{ message: 'diagnostic' }]),
+    getPushDiagnostics: vi.fn().mockResolvedValue({
+      kind: 'full',
+      items: [{ message: 'push diagnostic' }],
+    }),
     isAlive: vi.fn().mockResolvedValue(true),
   };
   const NativeLspClient = vi.fn(function NativeLspClient(_config: unknown) {
@@ -257,6 +261,11 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       await expect(client.getDiagnostics(filePath)).resolves.toEqual([
         { message: 'diagnostic' },
       ]);
+      await expect(client.getPushDiagnostics(filePath, 25)).resolves.toEqual({
+        kind: 'full',
+        items: [{ message: 'push diagnostic' }],
+      });
+      expect(mock.client.getPushDiagnostics).toHaveBeenCalledWith(filePath, 25);
       await expect(client.isAlive()).resolves.toBe(true);
       await client.openDocument(filePath, 'content');
       await expect(client.closeDocument(filePath)).resolves.toBeUndefined();
@@ -294,9 +303,43 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       await client.documentSymbols(filePath, cachedContent);
       await client.prepareCallHierarchy(filePath, position, cachedContent);
 
-      expect(mock.client.openDocument.mock.calls).toEqual(
-        Array.from({ length: 7 }, () => [filePath, cachedContent])
+      expect(mock.client.openDocument.mock.calls).toEqual([
+        [filePath, cachedContent],
+      ]);
+
+      await client.openDocument(filePath, 'changed content\n');
+      await client.closeDocument(filePath);
+      await client.openDocument(filePath, cachedContent);
+      expect(mock.client.openDocument.mock.calls).toEqual([
+        [filePath, cachedContent],
+        [filePath, 'changed content\n'],
+        [filePath, cachedContent],
+      ]);
+      await rm(root, { recursive: true, force: true });
+    });
+  });
+
+  it('reuses an unchanged on-disk document without another native update', async () => {
+    await withMockedNative(async mock => {
+      const { LSPClient } = await import('../../src/lsp/client.js');
+      const root = await mkdtemp(
+        path.join(os.tmpdir(), 'octocode-engine-wrapper-')
       );
+      const filePath = path.join(root, 'disk-cached.ts');
+      await writeFile(filePath, 'export const cached = true;\n');
+      const client = new LSPClient({
+        command: 'server',
+        workspaceRoot: root,
+        languageId: 'typescript',
+      });
+
+      await expect(client.openDocumentFromDisk(filePath, 512 * 1024)).resolves.toBe(
+        'opened'
+      );
+      await expect(client.openDocumentFromDisk(filePath, 512 * 1024)).resolves.toBe(
+        'unchanged'
+      );
+      expect(mock.client.openDocument).toHaveBeenCalledTimes(1);
       await rm(root, { recursive: true, force: true });
     });
   });

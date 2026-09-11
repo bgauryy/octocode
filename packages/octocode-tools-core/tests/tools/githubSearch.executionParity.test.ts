@@ -74,12 +74,6 @@ import { cleanup, initialize } from '../../src/serverConfig.js';
 import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
 import { executeGitHubSearch } from '../../src/tools/github_search/execution.js';
 import { GitHubSearchQuerySchema } from '@octocodeai/octocode-core/schema';
-import { searchMultipleGitHubCode } from '../../src/tools/github_search_code/execution.js';
-import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { searchMultipleGitHubRepos } from '../../src/tools/github_search_repos/execution.js';
-import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/octocode-core/schema';
-import { exploreMultipleRepositoryStructures } from '../../src/tools/github_view_repo_structure/execution.js';
-import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/octocode-core/schema';
 
 const pagination = {
   currentPage: 1,
@@ -104,44 +98,6 @@ function rows(result: { structuredContent?: unknown }): Record<string, any>[] {
     (result.structuredContent as { results?: Record<string, any>[] }).results ??
     []
   );
-}
-
-function normalizeInternalContinuations(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeInternalContinuations);
-  if (!value || typeof value !== 'object') return value;
-  const record = Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      normalizeInternalContinuations(item),
-    ])
-  );
-  const operation = {
-    'github.code': 'code',
-    'github.repositories': 'repositories',
-    'github.tree': 'tree',
-  }[record.tool as string];
-  if (operation) {
-    record.tool = 'ghSearch';
-    record.query = { operation, ...(record.query as object) };
-  }
-  return record;
-}
-
-function withoutOperation(data: Record<string, unknown>) {
-  const { operation: _operation, ...rest } = data;
-  return rest;
-}
-
-function withoutPublicPageContinuation(data: Record<string, any>) {
-  const next = data.next as Record<string, unknown> | undefined;
-  if (!next?.nextPage) return data;
-  const { nextPage: _nextPage, ...otherNext } = next;
-  return {
-    ...data,
-    ...(Object.keys(otherNext).length > 0
-      ? { next: otherNext }
-      : { next: undefined }),
-  };
 }
 
 beforeAll(async () => {
@@ -268,7 +224,7 @@ describe('ghSearch recorded-response execution parity', () => {
     );
   });
 
-  it('matches legacy rows field-for-field after continuation normalization', async () => {
+  it('executes every public branch without a legacy translation layer', async () => {
     const code = {
       owner: 'recorded',
       repo: 'fixture',
@@ -306,50 +262,26 @@ describe('ghSearch recorded-response execution parity', () => {
         GitHubSearchQuerySchema.parse({ operation: 'tree', ...tree }),
       ],
     });
-    const { pageSize: codePageSize, ...legacyCode } = code;
-    const { pageSize: repoPageSize, ...legacyRepositories } = repositories;
-    const { pageSize: treePageSize, ...legacyTree } = tree;
-    const legacy = await Promise.all([
-      searchMultipleGitHubCode({
-        queries: [
-          GitHubCodeSearchQueryLocalSchema.parse({
-            ...legacyCode,
-            limit: codePageSize,
-          }),
-        ],
-      }),
-      searchMultipleGitHubRepos({
-        queries: [
-          GitHubReposSearchSingleQueryLocalSchema.parse({
-            ...legacyRepositories,
-            limit: repoPageSize,
-          }),
-        ],
-      }),
-      exploreMultipleRepositoryStructures({
-        queries: [
-          GitHubViewRepoStructureQueryLocalSchema.parse({
-            ...legacyTree,
-            itemsPerPage: treePageSize,
-          }),
-        ],
-      }),
-    ]);
-
     const unifiedRows = rows(unified);
-    const legacyRows = legacy.map(result => rows(result)[0]);
     expect(unifiedRows.map(row => row.index)).toEqual([0, 1, 2]);
     expect(unifiedRows.map(row => row.data.operation)).toEqual([
       'code',
       'repositories',
       'tree',
     ]);
-    for (const [index, unifiedRow] of unifiedRows.entries()) {
-      expect(unifiedRow.status).toBe(legacyRows[index]?.status);
-      expect(
-        withoutPublicPageContinuation(withoutOperation(unifiedRow.data))
-      ).toEqual(normalizeInternalContinuations(legacyRows[index]?.data));
-    }
+    expect(unifiedRows[0]?.data.files[0]).toMatchObject({
+      owner: 'recorded',
+      repo: 'fixture',
+      path: 'src/index.ts',
+    });
+    expect(unifiedRows[1]?.data.repositories[0]).toMatchObject({
+      owner: 'recorded',
+      repo: 'fixture',
+    });
+    expect(unifiedRows[2]?.data.structure[0]).toMatchObject({
+      dir: 'src',
+      files: ['index.ts'],
+    });
     const serialized = JSON.stringify(unifiedRows);
     expect(serialized).toContain('"tool":"ghSearch"');
     expect(serialized).not.toMatch(

@@ -92,3 +92,28 @@ test('foreground activity is timestamped independently from runtime initializati
   });
   assert.equal(store.getState().phase, 'idle');
 });
+
+test('background work is generation-scoped, deduplicated, and reset with the session', () => {
+  let now = 1_000;
+  const store = createRuntimeStore(() => ++now);
+  const generation = store.getState().begin();
+  let publications = 0;
+  const unsubscribe = store.subscribe(() => { publications += 1; });
+  const jobs = [{
+    id: 'job-1',
+    title: 'Run tests',
+    status: 'running' as const,
+    startedAt: 900,
+    updatedAt: 1_001,
+  }];
+
+  store.getState().setBackgroundJobs(jobs, generation);
+  store.getState().setBackgroundJobs(jobs, generation);
+  store.getState().setBackgroundJobs([{ ...jobs[0], status: 'failed' }], generation - 1);
+
+  assert.equal(publications, 1);
+  assert.deepEqual(store.getState().backgroundJobs, jobs);
+  store.getState().begin();
+  assert.deepEqual(store.getState().backgroundJobs, []);
+  unsubscribe();
+});

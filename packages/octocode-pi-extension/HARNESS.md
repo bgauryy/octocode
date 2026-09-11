@@ -48,7 +48,7 @@ Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `f
 | `file` | File | Create, edit, or delete files through one guarded and fully preflighted mutation boundary |
 | `web` | Web | Fetch an absolute URL or run a web search |
 | `chromeDebug` | Chrome DevTools | Run direct, stateful CDP operations for DOM, network, console, evaluation, navigation, and screenshots |
-| `agent` | Agent | Spawn and manage researcher, planner, architect, implementer, browser, and explicit custom worker profiles |
+| `agent` | Agent | Spawn and manage researcher, planner, architect, implementer, read-only reviewer, browser, and explicit custom worker profiles |
 | `callTool` | Call Tool | Invoke a registered dynamic-capability tool from the live `<dynamic_capabilities>` registry |
 | `skill` | Skill | Load installed skills or manage dynamic skill workflows with `type:"call"` |
 | `plan` | Plan | Own session/shared plans, stable task projection, and observed check receipts |
@@ -150,6 +150,7 @@ Spawn workers with an `agent` query whose `type` is `spawn` and whose `profile` 
 | `architect` | Root-cause analysis and code archaeology | `web` · `MCPTool` · `file` · `skill` · `awareness` · `bash` (bounded test/build/debug checks) |
 | `planner` | Dependency-ordered implementation plans and test strategy | `web` · `MCPTool` · `file` · `skill` · `awareness` · `bash` (role-scoped) |
 | `implementer` | One bounded implementation unit with exclusive ownership and an observed check | `MCPTool` · `file` · `skill` · `awareness` · `bash` |
+| `reviewer` | Independent, read-only acceptance review with a typed PASS/WARN/FAIL verdict | `MCPTool` · `skill` · `awareness` |
 | `browser` | Multi-turn browser analysis and lifecycle management | `chromeDebug` · `MCPTool` · `skill` · `awareness` · `bash` |
 | `custom` | Caller-defined bounded role | Explicit caller-provided `tools` allowlist and non-empty `systemPrompt` |
 
@@ -342,7 +343,7 @@ Resolved by `getAssetPaths()` in `src/assets.ts`.
     lifecycle hooks          (hookComposer plus reviewed declarative event adapters)
     direct pi.on handlers    (metrics, UI, worker inbox, Awareness, and Pi-owned compaction observation)
 15  bundled skills           (including the canonical octocode-awareness skill)
- 6  worker profiles          (researcher, architect, planner, implementer, browser, custom)
+ 7  worker profiles          (researcher, architect, planner, implementer, reviewer, browser, custom)
  1  built-in MCP server      (octocode — cache-first npx, pre-warmed at session start)
  1  composed system prompt     (host facts + canonical coder kernel + Awareness guide + runtime bindings)
 ```

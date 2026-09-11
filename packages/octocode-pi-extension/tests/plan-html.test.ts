@@ -209,10 +209,12 @@ test('buildPlanPageHtmlFromModel uses the persisted review phase and revision fo
   };
   const html = renderPage(STEPS, undefined, [], review);
   assert.match(html, /class="ph now"><span class="ph-g">▸<\/span>Review/);
-  assert.match(html, /data-plan-action="start" data-revision="abcdef1234567890"/);
-  assert.match(html, /Start implementation/);
-  assert.match(html, /data-plan-action="changes"/);
-  assert.doesNotMatch(html, /Approve revision/);
+  assert.match(html, /data-plan-action="approve" data-revision="abcdef1234567890"/);
+  assert.match(html, /Approve &amp; start/);
+  assert.match(html, /data-plan-action="revise"/);
+  assert.match(html, /data-plan-action="reject"/);
+  assert.match(html, /data-reply-action="comment"/);
+  assert.match(html, /data-task-id="schema"/);
 });
 
 test('accepted recovery state still offers Start without a second approval action', () => {
@@ -277,14 +279,14 @@ test('plan HTML includes a direct, acceptance-aware browser reply widget', () =>
   const html = renderPage(STEPS);
   assert.match(html, /Reply to the agent/);
   assert.match(html, /__octocode\/message/);
-  assert.match(html, /Send feedback/);
+  assert.match(html, /Send comment only/);
   assert.match(html, /role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(html, /Connecting to the running agent/);
   assert.match(html, /messageBridge/);
   assert.match(html, /run \/configuration and choose Review plan to reopen the live page/);
   assert.match(html, /Your feedback remains saved/);
-  assert.match(html, /const consumesNotes = !action \|\| action === 'changes'/,
-    'Start never clears feedback text it did not send');
+  assert.match(html, /const consumesNotes = !action \|\| action === 'revise' \|\| action === 'reject'/,
+    'Approve never clears feedback text it did not send');
   assert.match(html, /white-space:normal; overflow:visible/,
     'handler errors wrap in full instead of being visually truncated');
   assert.doesNotMatch(html, /data-plan-action=/, 'no state-changing action is shown without persisted review state');

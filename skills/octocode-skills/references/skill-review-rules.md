@@ -10,9 +10,11 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | `name-mismatch` | frontmatter `name` equals the folder name |
 | `description-missing` | non-empty `description` |
 | `description-too-long` | `description` ≤1024 chars |
-| `missing-route` | every routed `references/*` and `scripts/*` path exists |
+| `missing-route` | every routed `references/*`, `scripts/*`, and `scheme/*` path exists |
 | `link-outside-skill` | no dependency on a file outside the folder — no `../dir/file`, `~/`, `file://`, or absolute path (a bare `../dir` argument is fine, as is a path carrying a `<placeholder>`) |
 | `octocode-contract-stale` | use current public Octocode tool names and `octocode skill install/list/info` command forms |
+| `lobby-*-convention` | declare the required `tools`, `related-skill`, `output`, and actionable `routes` lines below the H1 |
+| `scheme-contract` | every `scheme/` entry is a flat `.json` file containing one valid top-level object |
 | `unused-file` | every shipped file is reachable from `SKILL.md`, `README.md`, or another used file; remove development-only metadata, probes, duplicates, and dead weight |
 
 ## WARN codes → assess
@@ -33,18 +35,16 @@ Load when interpreting or fixing review findings — after running `scripts/skil
 | `reference-entry-cue` | open the chunk with `Load when …` and `Why:` |
 | `reference-dead-end` | add a next hop when execution depends on it; a complete reference needs no ceremonial closing line |
 | `flow-phase-unrouted` | name each flow phase in a route or gate, or drop it from the flow |
-
 Navigation warnings are review candidates, not mandatory formatting. Check reachability and use conditions; retain clear nested routes and complete references. Audit trails, templates, and fixtures skip entry/exit cues. A concrete directory route includes its files; write schematic paths with a placeholder such as `scripts/<hook-directory>/` so the reviewer does not require that example to ship.
-
 ## Judgment checks the script cannot make
 
 | Check | Fix |
 |-------|-----|
 | Duplicate or weak prose | one owner per concept; cross-link instead of restating; use direct verbs and named objects; cut filler without losing data |
+| Lobby and routed-file convention | declare tools, one related-skill, and the workspace-versus-home output decision without implying install authority; each reference/doc/script/scheme owns a coherent conditional job that changes the next action; move short shared rules to the lobby and delete wrappers/stubs |
 | Output and gates | real markdown table for tabular data; complete gate sections |
 | `description` quality | one `Use when`; intents, not internals; no MUST/NEVER/ONLY-skill, second `Triggers:`, or quote spam |
-| Scripts and hooks | `--help` and flags; extract deterministic prose; route hook + `timeout`; a declared scheme is really exposed |
+| Scripts and hooks | `--help` and flags; extract deterministic prose; route hook + `timeout`; a declared host scheme is really exposed |
 | Portability | core commands run in a single-folder copy; optional integrations declare their dependency and setup, and pass documented tests with it absent/present |
-| Workspace artifacts | lobby routes generated files under `<workspace>/.octocode/`, distinguishes requested source mutations, and forbids user-level fallback |
-
+| Artifact roots | lobby routes workspace artifacts under `<workspace>/.octocode/`, no-workspace or explicitly user-scoped artifacts under `<home>/.octocode/`, and distinguishes requested source mutations; write failures never silently switch roots |
 Required: internal dependencies resolve and shipped files have a purpose. Length and lobby-listing warnings need judgment; explain retained warnings rather than expanding or fragmenting instructions mechanically. Next: use `references/skill-review.md` to rerun checks and `references/skill-anatomy.md` for design guidance.

@@ -1,0 +1,56 @@
+{
+  "name": "@octocodeai/octocode-skill-installer",
+  "version": "0.1.0",
+  "description": "Shared cross-platform installer for package-bundled Agent Skills.",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-skill-installer"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "ARCHITECTURE.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "rm -rf dist/",
+    "lint": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
+    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
+    "typecheck": "yarn lint",
+    "verify": "yarn lint && yarn test && yarn build"
+  },
+  "dependencies": {
+    "@octocodeai/config": "20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
+  }
+}

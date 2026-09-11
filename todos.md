@@ -167,7 +167,7 @@ Suite average: **8.9/10** after the graph, response, recording, and strict-safe 
 | Skill | Score | Main finding |
 |---|---:|---|
 | `octocode-research` | 9.5 | Best evidence ladder and routing backbone; precise proof grades and local/external handoffs. |
-| `octocode-code-graph` | 9.4 | Focused graph-to-code proof ladder with strong false-positive controls; the six-case suite is intentionally narrow. |
+| `octocode-architect` | 9.4 | Unified architecture, algorithm, graph, and refactoring workflow with progressive disclosure and false-positive controls. |
 | `octocode-brainstorming` | 9.1 | Disciplined divergence, cross-surface research, and decision gates; broad validation can be heavy for small asks. |
 | `octocode-rfc-generator` | 9.2 | Strong decision and traceability contract; multi-artifact mode is intentionally expensive. |
 | `octocode-eval-benchmark` | 9.6 | Strongest measurable accept/revert discipline, smart grader selection, held-out checks, benchmark hygiene, and Goodhart guards. |

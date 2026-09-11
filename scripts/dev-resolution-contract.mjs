@@ -17,6 +17,7 @@ export function enginePlatformPackages(enginePackage) {
 export function workspaceResolutionPackages(enginePackage) {
   return [
     '@octocodeai/octocode-awareness',
+    '@octocodeai/octocode-skill-installer',
     '@octocodeai/octocode-tools-core',
     '@octocodeai/config',
     '@octocodeai/agent-contracts',

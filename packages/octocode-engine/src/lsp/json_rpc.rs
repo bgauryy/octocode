@@ -1,14 +1,139 @@
 use napi::{Error, Result, Status};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{oneshot, watch, Mutex};
-use tokio::time::{Duration, Instant};
+use tokio::sync::{oneshot, watch, Mutex, Notify};
+use tokio::time::{timeout, Duration, Instant};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
 const MAX_JSON_RPC_CONTENT_LENGTH: usize = 64 * 1024 * 1024;
+const MAX_PUSH_DIAGNOSTIC_DOCUMENTS: usize = 256;
+const MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT: usize = 2_000;
+const MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 256 * 1024;
+
+#[derive(Clone)]
+struct PushDiagnosticsRecord {
+    params: Value,
+    truncated: bool,
+}
+
+#[derive(Default)]
+struct PushDiagnosticsState {
+    records: HashMap<String, PushDiagnosticsRecord>,
+    order: VecDeque<String>,
+}
+
+#[derive(Default)]
+struct PushDiagnosticsStore {
+    state: StdMutex<PushDiagnosticsState>,
+    changed: Notify,
+}
+
+impl PushDiagnosticsStore {
+    fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    fn record(&self, params: &Value) {
+        let Some(uri) = params.get("uri").and_then(Value::as_str) else {
+            return;
+        };
+        let mut params = params.clone();
+        let mut truncated = false;
+        if let Some(items) = params.get_mut("diagnostics").and_then(Value::as_array_mut) {
+            if items.len() > MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT {
+                items.truncate(MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT);
+                truncated = true;
+            }
+            let mut retained_bytes = 2usize; // JSON array brackets
+            let mut retained_len = items.len();
+            for (index, item) in items.iter().enumerate() {
+                let item_bytes = serde_json::to_vec(item)
+                    .map(|encoded| encoded.len())
+                    .unwrap_or(MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT + 1);
+                let next_bytes = retained_bytes
+                    .saturating_add(usize::from(index > 0))
+                    .saturating_add(item_bytes);
+                if next_bytes > MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT {
+                    retained_len = index;
+                    truncated = true;
+                    break;
+                }
+                retained_bytes = next_bytes;
+            }
+            items.truncate(retained_len);
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        state.order.retain(|existing| existing != uri);
+        if !state.records.contains_key(uri) && state.records.len() >= MAX_PUSH_DIAGNOSTIC_DOCUMENTS
+        {
+            if let Some(oldest) = state.order.pop_front() {
+                state.records.remove(&oldest);
+            }
+        }
+        state.order.push_back(uri.to_owned());
+        state
+            .records
+            .insert(uri.to_owned(), PushDiagnosticsRecord { params, truncated });
+        drop(state);
+        self.changed.notify_waiters();
+    }
+
+    fn clear(&self, uri: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.records.remove(uri);
+            state.order.retain(|existing| existing != uri);
+        }
+    }
+
+    fn report(&self, uri: &str, min_version: Option<i64>) -> Option<Value> {
+        let state = self.state.lock().ok()?;
+        let record = state.records.get(uri)?;
+        if let (Some(min_version), Some(version)) = (
+            min_version,
+            record.params.get("version").and_then(Value::as_i64),
+        ) {
+            if version < min_version {
+                return None;
+            }
+        }
+        Some(json!({
+            "kind": "full",
+            "items": record.params.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+            "version": record.params.get("version").cloned().unwrap_or(Value::Null),
+            "source": "push",
+            "truncated": record.truncated,
+        }))
+    }
+
+    async fn wait_for(
+        &self,
+        uri: &str,
+        timeout_ms: u32,
+        min_version: Option<i64>,
+    ) -> Option<Value> {
+        let deadline = Instant::now() + Duration::from_millis(u64::from(timeout_ms));
+        loop {
+            if let Some(report) = self.report(uri, min_version) {
+                return Some(report);
+            }
+            let notified = self.changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if let Some(report) = self.report(uri, min_version) {
+                return Some(report);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() || timeout(remaining, notified).await.is_err() {
+                return None;
+            }
+        }
+    }
+}
 
 /// How `wait_until_idle` concluded — a readiness signal the JS layer uses to
 /// tell "server confirmed indexing is done" apart from "server never told us,
@@ -178,6 +303,7 @@ where
     /// pending request. Lets the JS client pool tell a live connection from a
     /// crashed one at `acquire()` time instead of only via the idle timer.
     failed: Arc<AtomicBool>,
+    push_diagnostics: Arc<PushDiagnosticsStore>,
 }
 
 impl<W> JsonRpcConnection<W>
@@ -196,6 +322,7 @@ where
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
         let writer = Arc::new(Mutex::new(writer));
         let failed = Arc::new(AtomicBool::new(false));
+        let push_diagnostics = PushDiagnosticsStore::new();
         tokio::spawn(read_loop(
             reader,
             Arc::clone(&pending),
@@ -203,12 +330,14 @@ where
             context,
             Arc::clone(&progress),
             Arc::clone(&failed),
+            Arc::clone(&push_diagnostics),
         ));
         Self {
             writer,
             next_id: AtomicU64::new(1),
             pending,
             failed,
+            push_diagnostics,
         }
     }
 
@@ -216,6 +345,21 @@ where
     /// crashed or exited) and failed all pending requests.
     pub fn is_alive(&self) -> bool {
         !self.failed.load(Ordering::Acquire)
+    }
+
+    pub fn clear_push_diagnostics(&self, uri: &str) {
+        self.push_diagnostics.clear(uri);
+    }
+
+    pub async fn wait_for_push_diagnostics(
+        &self,
+        uri: &str,
+        timeout_ms: u32,
+        min_version: Option<i64>,
+    ) -> Option<Value> {
+        self.push_diagnostics
+            .wait_for(uri, timeout_ms, min_version)
+            .await
     }
 
     pub async fn request(&self, method: &str, params: Value, timeout_ms: u32) -> Result<Value> {
@@ -299,6 +443,7 @@ async fn read_loop<R, W>(
     context: ClientRequestContext,
     progress: Arc<ProgressTracker>,
     failed: Arc<AtomicBool>,
+    push_diagnostics: Arc<PushDiagnosticsStore>,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -334,6 +479,11 @@ async fn read_loop<R, W>(
             // Track $/progress begin/end so wait_for_ready can gate on indexing completion.
             if method == "$/progress" {
                 handle_progress_notification(&value, &progress).await;
+            }
+            if method == "textDocument/publishDiagnostics" {
+                if let Some(params) = value.get("params") {
+                    push_diagnostics.record(params);
+                }
             }
             if let Some(id) = value.get("id").cloned() {
                 let response = json!({
@@ -591,6 +741,124 @@ mod tests {
     }
 
     #[test]
+    fn connection_caches_push_diagnostics_for_bounded_on_demand_reads() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (client_w, _server_r) = duplex(4096);
+            let (mut server_w, client_r) = duplex(4096);
+            let conn = JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            );
+            let body = serde_json::to_vec(&json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/publishDiagnostics",
+                "params": {
+                    "uri": "file:///workspace/a.ts",
+                    "version": 3,
+                    "diagnostics": [{ "message": "broken" }]
+                }
+            }))
+            .expect("serialize notification");
+            server_w
+                .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+                .await
+                .expect("write header");
+            server_w.write_all(&body).await.expect("write body");
+            server_w.flush().await.expect("flush");
+
+            let report = conn
+                .wait_for_push_diagnostics("file:///workspace/a.ts", 1_000, Some(3))
+                .await
+                .expect("push diagnostics report");
+            assert_eq!(report["kind"], "full");
+            assert_eq!(report["version"], 3);
+            assert_eq!(report["items"][0]["message"], "broken");
+
+            conn.clear_push_diagnostics("file:///workspace/a.ts");
+            assert!(conn
+                .wait_for_push_diagnostics("file:///workspace/a.ts", 1, Some(3))
+                .await
+                .is_none());
+        });
+    }
+
+    #[test]
+    fn push_diagnostics_rejects_an_older_document_version() {
+        let store = PushDiagnosticsStore::new();
+        store.record(&json!({
+            "uri": "file:///workspace/a.ts",
+            "version": 2,
+            "diagnostics": [{ "message": "stale" }]
+        }));
+
+        assert!(store.report("file:///workspace/a.ts", Some(3)).is_none());
+        assert_eq!(
+            store
+                .report("file:///workspace/a.ts", Some(2))
+                .expect("matching version")["items"][0]["message"],
+            "stale"
+        );
+    }
+
+    #[test]
+    fn push_diagnostics_bounds_retained_bytes() {
+        let store = PushDiagnosticsStore::new();
+        store.record(&json!({
+            "uri": "file:///workspace/a.ts",
+            "version": 3,
+            "diagnostics": [{
+                "message": "x".repeat(MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT + 1)
+            }]
+        }));
+
+        let report = store
+            .report("file:///workspace/a.ts", Some(3))
+            .expect("bounded report");
+        assert_eq!(report["truncated"], true);
+        assert_eq!(report["items"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn push_diagnostics_ignores_notifications_for_other_documents() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let store = PushDiagnosticsStore::new();
+            let waiter_store = Arc::clone(&store);
+            let waiter = tokio::spawn(async move {
+                waiter_store
+                    .wait_for("file:///workspace/a.ts", 1_000, Some(3))
+                    .await
+            });
+            tokio::task::yield_now().await;
+
+            store.record(&json!({
+                "uri": "file:///workspace/b.ts",
+                "version": 3,
+                "diagnostics": [{ "message": "other" }]
+            }));
+            tokio::task::yield_now().await;
+            assert!(!waiter.is_finished());
+
+            store.record(&json!({
+                "uri": "file:///workspace/a.ts",
+                "version": 3,
+                "diagnostics": [{ "message": "target" }]
+            }));
+            let report = waiter
+                .await
+                .expect("wait task")
+                .expect("target diagnostics report");
+            assert_eq!(report["items"][0]["message"], "target");
+        });
+    }
+
+    #[test]
     fn read_loop_survives_lengthless_frame_then_routes_next_response() {
         // A blank-line / length-less frame must NOT tear down the connection;
         // a subsequent well-formed response with a string id should still route.
@@ -622,6 +890,7 @@ mod tests {
                 },
                 ProgressTracker::new(),
                 Arc::new(AtomicBool::new(false)),
+                PushDiagnosticsStore::new(),
             )
             .await;
 
@@ -834,6 +1103,7 @@ mod tests {
                 },
                 ProgressTracker::new(),
                 Arc::new(AtomicBool::new(false)),
+                PushDiagnosticsStore::new(),
             )
             .await;
 
@@ -874,6 +1144,7 @@ mod tests {
                 },
                 ProgressTracker::new(),
                 Arc::new(AtomicBool::new(false)),
+                PushDiagnosticsStore::new(),
             )
             .await;
 

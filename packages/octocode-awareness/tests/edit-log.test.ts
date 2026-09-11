@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { initDb } from '../src/db-init.js';
 import { insertEditLog, queryEditLog } from '../src/audit.js';
+import { appendDomainEvent } from '../src/event-outbox.js';
 import type { EditLogRow } from '../src/types/plans-docs.js';
 // ─── Test helpers ──────────────────────────────────────────────────────────────
 function freshDb(): DatabaseSync {
@@ -46,7 +47,7 @@ describe('insertEditLog — creates a row with correct fields', () => {
 
     expect(result.editId).toBeTruthy();
 
-    const row = db.prepare('SELECT * FROM edit_log WHERE edit_id = ?').get(result.editId) as unknown as EditLogRow;
+    const row = queryEditLog(db, {}).find(({ edit_id }) => edit_id === result.editId) as EditLogRow;
     expect(row).toBeDefined();
     expect(row.agent_id).toBe('agent-a');
     expect(row.file_path).toBe('/workspace/src/index.ts');
@@ -70,12 +71,12 @@ describe('insertEditLog — creates a row with correct fields', () => {
       workspacePath: '/workspace',
     });
 
-    const row = db.prepare('SELECT * FROM edit_log WHERE edit_id = ?').get(result.editId) as unknown as EditLogRow;
+    const row = queryEditLog(db, {}).find(({ edit_id }) => edit_id === result.editId) as EditLogRow;
     expect(row.session_id).toBe('sess-1');
     expect(row.run_id).toBe('task-1');
     expect(row.lines_added).toBe(42);
     expect(row.lines_removed).toBe(10);
-    expect(row.content_hash).toBe('abc123def456');
+    expect(row.content_hash).toBeNull();
     expect(row.workspace_path).toBe('/workspace');
     expect(row.old_file_path).toBeNull();
   });
@@ -87,14 +88,14 @@ describe('insertEditLog — creates a row with correct fields', () => {
       operation: 'delete',
     });
 
-    const row = db.prepare('SELECT * FROM edit_log WHERE edit_id = ?').get(result.editId) as unknown as EditLogRow;
+    const row = queryEditLog(db, {}).find(({ edit_id }) => edit_id === result.editId) as EditLogRow;
     expect(row.session_id).toBeNull();
     expect(row.run_id).toBeNull();
     expect(row.old_file_path).toBeNull();
     expect(row.lines_added).toBeNull();
     expect(row.lines_removed).toBeNull();
     expect(row.content_hash).toBeNull();
-    expect(row.workspace_path).toBeNull();
+    expect(row.workspace_path).toBe(process.cwd());
   });
 });
 
@@ -111,7 +112,7 @@ describe('insertEditLog — operation move stores old_file_path', () => {
       oldFilePath: '/workspace/src/helpers.ts',
     });
 
-    const row = db.prepare('SELECT * FROM edit_log WHERE edit_id = ?').get(result.editId) as unknown as EditLogRow;
+    const row = queryEditLog(db, {}).find(({ edit_id }) => edit_id === result.editId) as EditLogRow;
     expect(row.operation).toBe('move');
     expect(row.old_file_path).toBe('/workspace/src/helpers.ts');
     expect(row.file_path).toBe('/workspace/src/utils/helpers.ts');
@@ -127,7 +128,7 @@ describe('insertEditLog — operation move stores old_file_path', () => {
       oldFilePath: '/workspace/src/old-name.ts',
     });
 
-    const row = db.prepare('SELECT * FROM edit_log WHERE edit_id = ?').get(result.editId) as unknown as EditLogRow;
+    const row = queryEditLog(db, {}).find(({ edit_id }) => edit_id === result.editId) as EditLogRow;
     expect(row.operation).toBe('rename');
     expect(row.old_file_path).toBe('/workspace/src/old-name.ts');
   });
@@ -283,23 +284,16 @@ describe('queryEditLog — filter by since (created_at)', () => {
   it('returns only rows with created_at >= since', () => {
     const db = freshDb();
 
-    // Insert rows with explicit timestamps by bypassing the DEFAULT
-    db.prepare(`
-      INSERT INTO edit_log(edit_id, agent_id, file_path, operation, created_at)
-      VALUES ('edit-old-1', 'agent-x', '/old1.ts', 'create', '2026-01-01T00:00:00Z')
-    `).run();
-    db.prepare(`
-      INSERT INTO edit_log(edit_id, agent_id, file_path, operation, created_at)
-      VALUES ('edit-old-2', 'agent-x', '/old2.ts', 'update', '2026-03-01T00:00:00Z')
-    `).run();
-    db.prepare(`
-      INSERT INTO edit_log(edit_id, agent_id, file_path, operation, created_at)
-      VALUES ('edit-new-1', 'agent-x', '/new1.ts', 'create', '2026-06-01T00:00:00Z')
-    `).run();
-    db.prepare(`
-      INSERT INTO edit_log(edit_id, agent_id, file_path, operation, created_at)
-      VALUES ('edit-new-2', 'agent-x', '/new2.ts', 'delete', '2026-07-01T00:00:00Z')
-    `).run();
+    for (const [eventId, operation, file, createdAt] of [
+      ['edit-old-1', 'create', '/old1.ts', '2026-01-01T00:00:00Z'],
+      ['edit-old-2', 'update', '/old2.ts', '2026-03-01T00:00:00Z'],
+      ['edit-new-1', 'create', '/new1.ts', '2026-06-01T00:00:00Z'],
+      ['edit-new-2', 'delete', '/new2.ts', '2026-07-01T00:00:00Z'],
+    ] as const) appendDomainEvent(db, {
+      eventId, workspace: process.cwd(), eventType: `workspace.edit.${operation}`,
+      retentionClass: 'audit', actorId: 'agent-x', aggregateKind: 'file', aggregateId: file,
+      createdAt, payload: { old_file_path: null, lines_added: null, lines_removed: null, artifact: null },
+    });
 
     const rows = queryEditLog(db, { since: '2026-06-01T00:00:00Z' });
     expect(rows).toHaveLength(2);

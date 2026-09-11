@@ -31,29 +31,6 @@ export class ProviderInitializationError extends Error {
   }
 }
 
-interface ProviderOperationSpec<TMeta, TData> {
-  meta: TMeta;
-  operation: () => Promise<ProviderResponse<TData>>;
-}
-
-interface ProviderOperationSuccess<TMeta, TData> {
-  meta: TMeta;
-  response: ProviderResponse<TData> & { data: TData };
-}
-
-interface ProviderOperationFailure<TMeta, TData> {
-  meta: TMeta;
-  response: ProviderResponse<TData>;
-}
-
-export type ProviderOperationResult<TMeta, TData> =
-  | ProviderOperationSuccess<TMeta, TData>
-  | ProviderOperationFailure<TMeta, TData>;
-
-function getCurrentProviderType(): ProviderType {
-  return getActiveProviderConfig().provider ?? getActiveProvider();
-}
-
 export function createProviderExecutionContext(
   authInfo?: AuthInfo
 ): ProviderExecutionContext {
@@ -128,56 +105,4 @@ export async function executeProviderOperation<
     ok: true,
     response,
   };
-}
-
-export async function executeProviderOperations<TMeta, TData>(
-  operations: Array<ProviderOperationSpec<TMeta, TData>>,
-  providerType?: ProviderType
-): Promise<{
-  successes: Array<ProviderOperationSuccess<TMeta, TData>>;
-  failures: Array<ProviderOperationFailure<TMeta, TData>>;
-}> {
-  const resolvedProviderType = providerType ?? getCurrentProviderType();
-
-  const responses: Array<ProviderOperationResult<TMeta, TData>> =
-    await Promise.all(
-      operations.map(async operation => {
-        try {
-          return {
-            meta: operation.meta,
-            response: await operation.operation(),
-          };
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          return {
-            meta: operation.meta,
-            response: {
-              error: maskSensitiveData(errorMessage),
-              status: 500,
-              provider: resolvedProviderType,
-            } as ProviderResponse<TData>,
-          };
-        }
-      })
-    );
-
-  const successes: Array<ProviderOperationSuccess<TMeta, TData>> = [];
-  const failures: Array<ProviderOperationFailure<TMeta, TData>> = [];
-
-  for (const response of responses) {
-    if (isProviderSuccess(response.response)) {
-      successes.push({
-        meta: response.meta,
-        response: response.response,
-      });
-    } else {
-      failures.push({
-        meta: response.meta,
-        response: response.response,
-      });
-    }
-  }
-
-  return { successes, failures };
 }

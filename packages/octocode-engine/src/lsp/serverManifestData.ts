@@ -2,7 +2,7 @@
 // src/lsp/serverManifest.json — DO NOT EDIT BY HAND.
 // Edit the .json then run `yarn manifest:gen` (or let the `verify:manifest`
 // gate regenerate it). This file is imported at runtime by serverManifest.ts.
-import type { ManifestFile } from './serverManifest.js';
+import type { ManifestFile } from './serverManifestTypes.js';
 
 export const MANIFEST: ManifestFile = {
   "$comment": "Auto-download manifest for portable, toolchain-free language servers. Verified 2026-06-28 against live GitHub Releases. SHA-256 pinned per asset — download is refused if the checksum mismatches. Scope: Rust (rust-analyzer, gz, auto-download ready), C/C++ (clangd, zip, auto-download ready). Toolchain-coupled servers (gopls/go, jdtls/jre) are detect-and-instruct; pure-JS servers (typescript-language-server, pyright, yaml/json/html/css) are bundled npm deps. Markdown/MDX handled by the MINIFIER, NOT LSP. This JSON is the source of truth; src/lsp/serverManifestData.ts is generated from it by scripts/gen-server-manifest.mjs (run via `yarn manifest:gen` / the `verify:manifest` gate).",

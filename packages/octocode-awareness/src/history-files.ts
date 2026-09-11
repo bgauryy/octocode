@@ -133,10 +133,10 @@ async function captureOne(
     versions.set(result, snapshot.version);
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.startsWith('TOO_LARGE:')) return { path: normalized.path, status: 'omitted', reason: remainingBatchBytes < maxFileBytes ? 'batch_too_large' : 'file_too_large' };
-    if (message.startsWith('PRECONDITION_FAILED:')) return { path: normalized.path, status: 'unstable', reason: 'unstable' };
-    if (message.startsWith('NOT_REGULAR_FILE:') || message.startsWith('UNSAFE_PATH:')) return { path: normalized.path, status: 'unstable', reason: 'unstable' };
+    const code = native.nativeErrorCode(error);
+    if (code === native.NativeErrorCodes.TOO_LARGE) return { path: normalized.path, status: 'omitted', reason: remainingBatchBytes < maxFileBytes ? 'batch_too_large' : 'file_too_large' };
+    if (code === native.NativeErrorCodes.PRECONDITION_FAILED) return { path: normalized.path, status: 'unstable', reason: 'unstable' };
+    if (code === native.NativeErrorCodes.NOT_REGULAR_FILE || code === native.NativeErrorCodes.UNSAFE_PATH) return { path: normalized.path, status: 'unstable', reason: 'unstable' };
     throw error;
   }
 }
@@ -226,7 +226,7 @@ export async function restoreWorkspaceFile(options: RestoreWorkspaceFileOptions)
       const mode = process.platform === 'win32' ? undefined : options.target.mode === '100755' ? 0o755 : 0o644;
       return await native.replaceFile(targetPath.absolute, bytes, version, DEFAULT_MAX_FILE_BYTES, mode, cancellation, 0o700);
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith('PRECONDITION_FAILED:')) throw new Error(`stale restore preview for ${targetPath.path}`, { cause: error });
+      if (native.nativeErrorCode(error) === native.NativeErrorCodes.PRECONDITION_FAILED) throw new Error(`stale restore preview for ${targetPath.path}`, { cause: error });
       throw error;
     }
   });

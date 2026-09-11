@@ -1,6 +1,6 @@
 # Architecture Lenses
 
-Load when Think reaches a consequential design or unfamiliar path. Why: one view hides dependencies that another exposes.
+Load when modeling a consequential design, boundary, interface, flow, or unfamiliar path. Why: one view hides dependencies and ownership that another exposes.
 
 ## Start with wiring
 
@@ -10,16 +10,21 @@ Trace the behavior as:
 
 At each hop, name the data shape, owner, invariant, failure mode, and interface. Static types document and constrain checked code; runtime schemas and validation are the executable boundary contracts. Make invalid states difficult or impossible to represent, then verify the runtime path. Keep core decisions separate from UI, storage, and transport edges.
 
+Record `module/layer → responsibility → owned data/invariants → public interface → allowed dependencies`. Mark rules `declared`, `observed`, or `inferred`; only a declared rule can directly prove a violation.
+
 ## Cross-check four views
 
 | View | Question |
 |---|---|
-| Graph | Who depends on this, and what does it depend on? |
-| Code | What does the exact implementation establish? |
-| Stream | How do data and control move, branch, retry, or terminate? |
-| Runtime | What configuration, process, package, service, or generated artifact wires it together? |
+| Static | Which exact symbols and files depend on each other? |
+| Control | Who initiates, branches, retries, cancels, handles errors, and owns effects? |
+| Data | Where is data created, validated, authorized, transformed, persisted, and exposed? |
+| Ownership | Who owns each invariant, lifecycle, contract, and exception? |
+| Runtime | What configuration, registry, process, service, generated artifact, or dynamic dispatch completes the wiring? |
 
-Search beyond the first match. Similar names can hide different contracts; verify before reuse. Prefer one source of truth, caller-shaped interfaces, high cohesion, and dependencies pointing toward stable policy.
+For 1–3 representative scenarios, rejoin the lanes as `trigger → decision → transformation → side effect → result/error`. Record unresolved reflection, queues, framework registration, external systems, and trust or transaction boundaries.
+
+Judge design by a named quality attribute: correctness, security, changeability, performance, testability, operability, or delivery speed. Similar syntax is not shared policy; a small API is not automatically safe; folder count is not modularity; high degree is not slowness.
 
 ## Decompose and compose
 

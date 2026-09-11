@@ -9,6 +9,7 @@ import {
   loadCommand,
 } from '../../src/cli/commands/index.js';
 import { findStaticCommandHelp } from '../../src/cli/command-help-specs.js';
+import { COMMAND_SPECS } from '../../src/cli/commands/specs.js';
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -26,6 +27,13 @@ describe('CLI command content is sourced from its canonical registry', () => {
     expect(missing).toEqual([]);
   });
 
+  it('does not expose orphaned command specs in top-level help', () => {
+    const registered = new Set([...REGISTERED_COMMAND_NAMES, 'context']);
+    expect(COMMAND_SPECS.filter(spec => !registered.has(spec.name))).toEqual(
+      []
+    );
+  });
+
   it('each resolved spec carries the required help content', () => {
     for (const name of REGISTERED_COMMAND_NAMES) {
       const spec = findStaticCommandHelp(name);
@@ -37,6 +45,15 @@ describe('CLI command content is sourced from its canonical registry', () => {
 
   it('does not register the removed clone command', () => {
     expect(REGISTERED_COMMAND_NAMES).not.toContain('clone');
+  });
+
+  it('keeps top-level help independent from the runtime command registry', () => {
+    const source = readFileSync(
+      join(packageRoot, 'src/cli/main-help.ts'),
+      'utf8'
+    );
+    expect(source).not.toContain('./commands/index.js');
+    expect(source).not.toContain("../features/github-oauth.js';");
   });
 
   it('command files no longer hardcode description/usage (only core has them)', async () => {
@@ -66,7 +83,9 @@ describe('CLI command content is sourced from its canonical registry', () => {
       // Bundled octocode-skills subcommands merged into `octocode skill`; remove
       // these once octocode-core's skill command spec documents the local
       // list/install/check/info/remove surface.
-      'skill:keep',
+      'skill:global',
+      'skill:project-dir',
+      'skill:force',
       'skill:workspace',
       'skill:repo',
       'skill:path',

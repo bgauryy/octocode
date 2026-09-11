@@ -1,4 +1,7 @@
-import type { CollectionStates } from '../../github/prContentFetcher/collectionPaging.js';
+import type {
+  CollectionState,
+  CollectionStates,
+} from '../../types/collectionPaging.js';
 import type { PaginationInfo } from '../../types/toolResults.js';
 import type { PRProviderLimit } from '../../github/githubAPI.js';
 
@@ -82,7 +85,7 @@ export interface GitHubPullRequestApiItem {
     commitId?: string;
   }>;
   commitDetails?: Array<{
-    filesCollectionState?: import('../../github/prContentFetcher/collectionPaging.js').CollectionState;
+    filesCollectionState?: CollectionState;
     sha: string;
     message: string;
     author: string;

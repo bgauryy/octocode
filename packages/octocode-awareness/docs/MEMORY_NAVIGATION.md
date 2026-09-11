@@ -103,9 +103,12 @@ refinements, or verification. Unsupported response channels do not consume the
 fingerprint needed by a later supported boundary.
 
 Delivery is event-driven. Pi drains at session start and agent completion after
-session persistence is available; it has no message-arrival watcher. Native
-delivery receipts, `signal ack` for handling, and `signal resolve` for completion
-are separate. See [peer event delivery](HOW_IT_WORKS.md#peer-event-delivery).
+session persistence is available, and a native database/WAL watcher schedules an
+authoritative drain when an idle message arrives. Watch/read failures retry with
+bounded fast delays followed by a sparse 30-second recovery interval; lifecycle
+drains remain the fallback. Native delivery receipts, `signal ack` for handling,
+and `signal resolve` for completion are separate. See
+[peer event delivery](HOW_IT_WORKS.md#peer-event-delivery).
 
 ## Evidence Rules
 

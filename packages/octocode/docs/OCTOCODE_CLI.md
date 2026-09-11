@@ -42,7 +42,7 @@ npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/sr
 npx octocode tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"createServer"}'
 npx octocode tools localFetch --queries '{"path":"./src/index.ts","fullContent":true}'
 npx octocode skill list
-npx octocode skill install octocode-research --platform pi
+npx octocode skill install octocode-research --platform pi --global
 ```
 
 Replace `npx octocode` with `octocode` when the package is installed globally.
@@ -215,16 +215,18 @@ entry.
 
 ## `skill` — agent skills
 
-The `octocode` package bundles the canonical Octocode skills from this repo's
-`skills/` directory at build/publish time. Install can use a bundled skill or
-`--add <local-or-GitHub-source>`, copies it into the canonical Octocode home,
-then optionally links it into agent-specific skill directories.
+The `octocode` package bundles the complete canonical Octocode skill suite from
+this repo's `skills/` directory at build/publish time. Install can use a bundled
+skill or `--add <local-or-GitHub-source>`. It atomically materializes a durable
+copy under `$OCTOCODE_HOME/skills/<name>`, then optionally links agent-specific
+skill directories to that copy. Links never target an npm or `npx` cache.
 
 ```bash
 npx octocode skill list
 npx octocode skill info octocode-research
-npx octocode skill install octocode-research --platform pi
-npx octocode skill install --all --platform pi,cursor
+npx octocode skill install octocode-research --platform pi --global
+npx octocode skill install --all --platform pi,cursor --global
+npx octocode skill install octocode-research --platform codex --project-dir "$PWD"
 npx octocode skill install --add octocodeai/octocode/skills/octocode-research
 npx octocode skill check --json
 npx octocode skill remove octocode-research --platform pi
@@ -234,12 +236,13 @@ Useful flags:
 
 | Flag | Meaning |
 |---|---|
-| `--platform pi,cursor,claude,claude-desktop,codex,codex-native,opencode,copilot,gemini,common,all` | Link installed skills into one or more agent skill directories. |
-| `--workspace` | Link into `<cwd>/.agents/skills/`. |
+| `--platform pi,cursor,claude,claude-desktop,codex,codex-native,opencode,copilot,gemini,shared,common,agents,all` | Select one or more agent skill directories. The three aliases normalize to `codex`. |
+| `--global` | Install selected platform links in user scope. Use exactly one scope with `--platform`. |
+| `--project-dir <dir>` | Install selected platform links in project scope. Claude Desktop is global-only. |
 | `--add <source>` | Install a skill from a local path or GitHub source. |
-| `--path <dir>` | Install directly into a custom directory instead of Octocode home. |
-| `--mode symlink\|copy\|hybrid` | Link strategy; `hybrid` copies Claude targets and symlinks the rest. |
-| `--keep` | Preserve existing installs; default behavior overwrites with the bundled copy. |
+| `--path <dir>` | Use a custom canonical skill root instead of `$OCTOCODE_HOME/skills`. |
+| `--mode symlink\|copy\|auto` | Install strategy. `symlink` is the default; `auto` copies only for platforms declared link-incompatible. |
+| `--force` | Replace existing canonical or destination content that differs. Existing content is preserved by default. |
 | `--dry-run` | Preview actions without writing. |
 | `--fix` | `check` only: repair missing/broken installed locations. |
 | `--no-env` | `check` only: skip skill environment-readiness checks. |

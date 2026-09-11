@@ -6,6 +6,14 @@ import { getOctocodeHome } from '@octocodeai/config';
 
 import { detectPlatformId, type PlatformId } from './platform.js';
 import { MANIFEST } from './serverManifestData.js';
+import type { ManifestFile, ManifestServer } from './serverManifestTypes.js';
+
+export type {
+  ArchiveKind,
+  ManifestAsset,
+  ManifestFile,
+  ManifestServer,
+} from './serverManifestTypes.js';
 
 /**
  * Download manifest for portable, toolchain-free language servers (the
@@ -21,34 +29,6 @@ import { MANIFEST } from './serverManifestData.js';
  * guidance and (b) reuse of a server a user/CI has pre-populated into the
  * managed cache `<octocode-home>/lsp/<server>/<releaseTag>/<binName>`.
  */
-export type ArchiveKind = 'none' | 'gz' | 'zip' | 'tar.gz' | 'tar.xz';
-
-export interface ManifestAsset {
-  url: string;
-  archive: ArchiveKind;
-  binName: string;
-  /** Path of the executable inside the archive (zip/tar); absent for gz/none. */
-  binPath?: string;
-  /** SHA-256 of the downloaded asset; download is refused while this is null. */
-  sha256: string | null;
-}
-
-export interface ManifestServer {
-  languageId: string;
-  repo: string;
-  releaseTag: string;
-  launchArgs?: string[];
-  downloadHost?: string;
-  platforms: Partial<Record<PlatformId, ManifestAsset>>;
-  unsupportedPlatforms?: Partial<Record<PlatformId, string>>;
-}
-
-export interface ManifestFile {
-  $comment?: string;
-  version: number;
-  servers: Record<string, ManifestServer>;
-}
-
 export type ProvisionMode = 'off' | 'prompt' | 'auto';
 
 interface CacheMarker {
@@ -70,7 +50,9 @@ function sha256File(filePath: string): string | null {
 
 function readCacheMarker(markerPath: string): CacheMarker | null {
   try {
-    const parsed = JSON.parse(readFileSync(markerPath, 'utf8')) as Partial<CacheMarker>;
+    const parsed = JSON.parse(
+      readFileSync(markerPath, 'utf8')
+    ) as Partial<CacheMarker>;
     if (
       typeof parsed.binarySha256 !== 'string' ||
       !/^[0-9a-f]{64}$/u.test(parsed.binarySha256) ||
@@ -123,9 +105,7 @@ export function isAutoDownloadable(serverName: string): boolean {
  * @octocodeai/config, overridable via `OCTOCODE_LSP_CACHE_DIR` for
  * read-only/ephemeral sandbox HOMEs or to point at a pre-baked image path.
  */
-export function managedCacheRoot(
-  env: NodeJS.ProcessEnv = process.env
-): string {
+export function managedCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   const override = env.OCTOCODE_LSP_CACHE_DIR?.trim();
   if (override) return path.resolve(override);
   return path.join(getOctocodeHome(env), 'lsp');

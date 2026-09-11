@@ -36,9 +36,12 @@ import {
   APPROVAL_TITLES,
 } from '../tui/content.js';
 import { throwIfAborted } from './cancellation.js';
-import { randomUUID } from 'node:crypto';
-import { emitExecution } from './execution-runtime.js';
-import { executionLabel } from './execution-presentation.js';
+import {
+  createApprovalReceiptEmitter,
+  type ApprovalDecisionReceipt,
+} from './approval-receipt.js';
+
+export type { ApprovalDecisionReceipt, ApprovalResolution } from './approval-receipt.js';
 
 /**
  * Classes auto-approved under `relaxed` — routine local-dev actions only.
@@ -65,6 +68,7 @@ export interface ApprovalOutcome {
   always: boolean;
   /** False when the host could not prompt (non-interactive). */
   interactive: boolean;
+  receipt: ApprovalDecisionReceipt;
 }
 
 export class ApprovalPolicy {
@@ -308,27 +312,41 @@ export async function requestApproval(
   throwIfAborted(signal);
   const policy = approvalPolicyFor(ctx);
   const level = policy.getPermissionLevel();
+  const { requested, resolved } = createApprovalReceiptEmitter(ctx, request);
   if (level === 'relaxed' && RELAXED_AUTO_CLASSES.has(request.actionClass)) {
-    return { approved: true, remembered: true, always: false, interactive: true };
+    requested('relaxed');
+    return resolved(
+      { approved: true, remembered: true, always: false, interactive: true },
+      'allow-policy', 'policy', 'relaxed',
+    );
   }
   if (level !== 'strict' && policy.isAlwaysAllowed(request.actionClass)) {
-    return { approved: true, remembered: true, always: false, interactive: true };
+    requested('remembered');
+    return resolved(
+      { approved: true, remembered: true, always: false, interactive: true },
+      'allow-policy', 'policy', 'remembered',
+    );
   }
   if (!canPrompt(ctx)) {
-    return { approved: false, remembered: false, always: false, interactive: false };
+    requested(level);
+    return resolved(
+      { approved: false, remembered: false, always: false, interactive: false },
+      'deny-unavailable', 'host', level,
+    );
   }
 
   const prompt = request.detail ? `${request.title}\n${request.detail}` : request.title;
   const choices = level === 'strict' ? [YES, NO] : [YES, NO, ALWAYS];
-  const permissionId = randomUUID();
-  emitExecution(ctx, 'permission.requested', { id: permissionId, title: executionLabel(request.title) });
+  requested(level);
   let choice: string | undefined;
   try {
     choice = await ctx!.ui!.select!(prompt, choices, { signal });
     throwIfAborted(signal);
-    emitExecution(ctx, 'permission.resolved', { id: permissionId, decision: choice === ALWAYS ? 'allow-session' : choice === YES ? 'allow-once' : choice === NO ? 'denied' : 'cancelled' }, 'transcript');
   } catch (error) {
-    emitExecution(ctx, 'permission.resolved', { id: permissionId, decision: 'cancelled' }, 'transcript');
+    resolved(
+      { approved: false, remembered: false, always: false, interactive: true },
+      'cancelled', 'user', level,
+    );
     throw error;
   }
   // Some host or test implementations may ignore the dialog signal. Recheck
@@ -343,11 +361,20 @@ export async function requestApproval(
       `Allowed "${request.actionClass}" for this session. Manage grants in /configuration → Permissions.`,
       'info',
     );
-    return { approved: true, remembered: false, always: true, interactive: true };
+    return resolved(
+      { approved: true, remembered: false, always: true, interactive: true },
+      'allow-session', 'user', level,
+    );
   }
   if (choice === YES) {
-    return { approved: true, remembered: false, always: false, interactive: true };
+    return resolved(
+      { approved: true, remembered: false, always: false, interactive: true },
+      'allow-once', 'user', level,
+    );
   }
   // No, or dismissed (undefined) → decline.
-  return { approved: false, remembered: false, always: false, interactive: true };
+  return resolved(
+    { approved: false, remembered: false, always: false, interactive: true },
+    choice === NO ? 'deny-user' : 'cancelled', 'user', level,
+  );
 }

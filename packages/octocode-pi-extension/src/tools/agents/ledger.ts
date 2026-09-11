@@ -163,6 +163,7 @@ export function toWorkerLedgerEntry(record: AgentRecord): WorkerLedgerEntry {
     provider: getArgValue(record.args, '--provider'),
     task: record.task,
     planStep: record.planStep,
+    cohortId: record.cohortId,
     thinking: getArgValue(record.args, '--thinking'),
     tools: getArgCsv(record.args, '--tools'),
     normalizedStatus: normalized?.status,

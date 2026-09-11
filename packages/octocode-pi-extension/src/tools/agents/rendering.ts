@@ -1,4 +1,5 @@
 import { effectiveAgentStatus, isRecentAgentOutcome } from './display-state.js';
+import { summarizeAgentCohorts } from './cohorts.js';
 /**
  * rendering.ts — TUI rendering layer for the agent ledger.
  *
@@ -43,6 +44,7 @@ import {
 
 interface AgentDetails {
   agents: Array<ReturnType<typeof summarizeAgent>>;
+  cohorts: ReturnType<typeof summarizeAgentCohorts>;
 }
 
 // ─── TUI rendering helpers ────────────────────────────────────────────────────
@@ -158,6 +160,7 @@ export function summarizeAgent(record: AgentRecord, opts: { full?: boolean } = {
     provider: getArgValue(record.args, '--provider'),
     task: record.task,
     planStep: record.planStep,
+    cohortId: record.cohortId,
     thinking: getArgValue(record.args, '--thinking'),
     tools: record.capabilityGrant?.nativeTools ?? getArgCsv(record.args, '--tools'),
     capabilityGrant: record.capabilityGrant,
@@ -196,6 +199,7 @@ export function renderAgentResult(records: AgentRecord[], header: string): ToolC
     if (isTerminal(record)) record.awarenessInspection = inspectWorkerAwarenessAutomatically(record);
   }
   const summaries = records.map((record) => summarizeAgent(record));
+  const cohorts = summarizeAgentCohorts(records);
   const lines: string[] = [`${header} (${records.length}):`];
   for (const s of summaries) {
     const exit = s.exitCode !== undefined ? ` (exit ${s.exitCode})` : '';
@@ -222,7 +226,7 @@ export function renderAgentResult(records: AgentRecord[], header: string): ToolC
   }
   return {
     content: [{ type: 'text', text: lines.join('\n') }],
-    details: { agents: summaries } satisfies AgentDetails,
+    details: { agents: summaries, cohorts } satisfies AgentDetails,
   };
 }
 

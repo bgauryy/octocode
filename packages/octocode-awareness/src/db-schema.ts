@@ -1,31 +1,15 @@
 import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from '@octocodeai/agent-contracts/entities';
 import { sqlEnum } from '@octocodeai/agent-contracts/schema';
-import { CONTINUITY_SCHEMA_DDL } from './db-continuity-schema.js';
+import { CONTINUITY_SCHEMA_DDL, EVENT_OUTBOX_TYPED_INDEX_DDL } from './db-continuity-schema.js';
 import { LOCAL_HISTORY_INDEX_DDL, LOCAL_HISTORY_SCHEMA_DDL } from './db-history-schema.js';
+import { AWARENESS_META_DDL, HOOK_RECEIPTS_DDL } from './db-meta-schema.js';
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-/**
- * Canonical table DDL. This block is the single source of truth for the
- * schema: fresh stores are created from it directly and existing stores must
- * match its fingerprint exactly.
- *
- * Timestamps: always INSERT explicit second-precision values (helpers.utcNow).
- * The strftime('%f') DEFAULTs below emit millisecond precision, which breaks
- * TEXT-comparison ordering against utcNow values; they cannot be edited to %S
- * because any change to this DDL alters the canonical schema fingerprint.
- */
-export const HOOK_RECEIPTS_DDL = `
-    CREATE TABLE IF NOT EXISTS hook_receipts (
-      workspace_path TEXT NOT NULL,
-      host           TEXT NOT NULL CHECK(host IN ('claude','codex','copilot','cursor','gemini','opencode')),
-      event          TEXT NOT NULL,
-      status         TEXT NOT NULL CHECK(status IN ('success','failure')),
-      last_seen_at   TEXT NOT NULL,
-      PRIMARY KEY(workspace_path, host, event)
-    );
-`;
+export const AWARENESS_SCHEMA_VERSION = 3;
 
 export const SCHEMA_DDL = `
+    ${AWARENESS_META_DDL}
+
     ${CONTINUITY_SCHEMA_DDL}
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -328,6 +312,7 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_handoffs_open ON handoffs(workspace_path, cleared_at, created_at);
   CREATE INDEX IF NOT EXISTS idx_event_outbox_workspace_sequence ON event_outbox(workspace_path, sequence);
   CREATE INDEX IF NOT EXISTS idx_event_outbox_aggregate ON event_outbox(workspace_path, aggregate_kind, aggregate_id, sequence);
+  ${EVENT_OUTBOX_TYPED_INDEX_DDL}
   CREATE INDEX IF NOT EXISTS idx_interactions_session_status ON pending_interactions(workspace_path, session_id, status, created_at);
   CREATE INDEX IF NOT EXISTS idx_authorization_plan_revision ON authorization_receipts(workspace_path, plan_id, revision, consumed_at);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_awareness_plans_source ON awareness_plans(workspace_path, source_kind, source_key) WHERE source_kind IS NOT NULL AND source_key IS NOT NULL;

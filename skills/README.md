@@ -7,7 +7,7 @@ Canonical Agent Skills for this monorepo. Each skill is a standalone folder whos
 | Need | Skill |
 |---|---|
 | Investigate code, packages, history, or a failure | [octocode-research](octocode-research/) |
-| Analyze dependency topology, cycles, impact, or dead-code candidates | [octocode-code-graph](octocode-code-graph/) |
+| Review or refactor architecture, algorithms, dependencies, flows, interfaces, or maintainability | [octocode-architect](octocode-architect/) |
 | Explore whether an idea is worth building | [octocode-brainstorming](octocode-brainstorming/) |
 | Make a consequential design or migration decision | [octocode-rfc-generator](octocode-rfc-generator/) |
 | Measure whether a change improved behavior | [octocode-eval-benchmark](octocode-eval-benchmark/) |
@@ -18,7 +18,6 @@ Canonical Agent Skills for this monorepo. Each skill is a standalone folder whos
 | Discover, create, review, install, or synchronize skills | [octocode-skills](octocode-skills/) |
 | Debug a live page with Chrome DevTools evidence | [octocode-chrome-devtools](octocode-chrome-devtools/) |
 | Turn public pages into a local cited corpus | [octocode-scraping](octocode-scraping/) |
-| Apply architect-level rigor to consequential code work | [octocode-architect](octocode-architect/) |
 
 ## Install
 

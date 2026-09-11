@@ -421,7 +421,7 @@ and minify capability lives in the
 
 ```bash
 npx octocode skill list
-npx octocode skill install octocode-research --platform pi
+npx octocode skill install octocode-research --platform pi --global
 npx octocode skill check --json
 npx octocode skill help
 ```
@@ -430,7 +430,7 @@ npx octocode skill help
 | Skill | Use when |
 |-------|----------|
 | ⭐ [**octocode-research**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) | Evidence-first research, review, debugging, refactors, prior-art validation. |
-| [**octocode-code-graph**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-code-graph) | Repository dependency topology: cycles, paths, layering, reachability, impact analysis, and verified dead-code candidates. |
+| [**octocode-architect**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-architect) | Architecture and algorithm review, dependency/flow analysis, verified flaw detection, and evidence-gated refactoring. |
 | [**octocode-scraping**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-scraping) | Public page extraction and crawl triage: static corpus + graph v2 (pages/data/actions/risks/evidence), then CDP handoff for dynamic actions and blocked pages. |
 | [**octocode-chrome-devtools**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-chrome-devtools) | Browser/CDP evidence: network, console, performance, cookies/storage, screenshots, auth-gated pages, and live validation of scrape-graph actions. |
 
@@ -546,7 +546,7 @@ npx node-doctor
 - **Skill route — recommended, leanest.** Drop the [`octocode-research`](https://www.skills.sh/bgauryy/octocode-mcp/octocode-research) skill into Pi's global skills dir. It drives the Octocode **CLI** directly — no MCP transport, minimal token overhead — and Pi auto-discovers it:
 
   ```bash
-  npx octocode skill install octocode-research --platform pi
+  npx octocode skill install octocode-research --platform pi --global
   ```
 
 - **Adapter route — full tool surface.** Install [`pi-mcp-adapter`](https://github.com/nicobailon/pi-mcp-adapter) to expose Octocode MCP tools behind a single ~200-token proxy tool, so servers stay disconnected until a tool is called. Cloning requires explicit enablement.

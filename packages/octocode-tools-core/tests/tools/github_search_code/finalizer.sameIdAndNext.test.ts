@@ -7,7 +7,7 @@ type AnyRec = Record<string, unknown>;
 function runFinalizer(queries: AnyRec[], results: AnyRec[]) {
   const finalize = buildGhSearchCodeFinalizer();
   const out = finalize({
-    queries: queries as never,
+    queries: queries.map(query => ({ operation: 'code', ...query })) as never,
     results: results as never,
     config: {} as never,
   });
@@ -181,13 +181,13 @@ describe('github.code finalizer — row-local data.next continuation', () => {
         index: 0,
         status: 'empty',
         meta: { diagnostics: { codes: ['ghRepoArchived'] } },
-        data: { next: { viewStructure: { tool: 'github.tree' } } },
+        data: { next: { viewStructure: { tool: 'ghSearch' } } },
       },
       {
         index: 1,
         status: 'empty',
         meta: { diagnostics: { codes: ['ghRepoNotFound'] } },
-        data: { next: { findRepository: { tool: 'github.repositories' } } },
+        data: { next: { findRepository: { tool: 'ghSearch' } } },
       },
     ]);
     expect(sc.emptyQueries).toBeUndefined();

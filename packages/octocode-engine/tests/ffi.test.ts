@@ -6,7 +6,10 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { PUBLIC_NATIVE_EXPORT_NAMES } from '../src/lsp/nativeExportNames.js';
+import {
+  PUBLIC_NATIVE_EXPORT_NAMES,
+  PUBLIC_NATIVE_FUNCTION_EXPORT_NAMES,
+} from '../src/lsp/nativeExportNames.js';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -52,55 +55,8 @@ async function importEsmLoader(): Promise<typeof import('../index.js')> {
   return (await import(esmLoaderPath)) as typeof import('../index.js');
 }
 
-const MINIFIER_FUNCTION_EXPORTS = [
-  'getExtension',
-  'minifyContentSync',
-  'minifyContentResult',
-  'minifyContent',
-  'applyMinification',
-  'applyContentViewMinification',
-  'removeComments',
-  'minifyConservativeCore',
-  'minifyAggressiveCore',
-  'minifyJsonCore',
-  'minifyJsonReadable',
-  'minifyCodeCore',
-  'minifyGeneralCore',
-  'minifyMarkdownCore',
-  'minifyCSSCore',
-  'minifyHTMLCore',
-  'minifyJavaScriptCore',
-  'minifyCSSQuality',
-  'minifyHTMLQuality',
-  'stripPythonDocstrings',
-  'extractSignatures',
-  'extractJsSymbols',
-  'findInFileReferences',
-  'extractGraphFacts',
-  'scanGraphFacts',
-  'getSupportedJsTsExtensions',
-  'getSupportedGraphFactExtensions',
-  'getGraphFactCapabilities',
-  'getGrammarCapabilities',
-  'structuralSearchDetailed',
-  'structuralSearchFiles',
-  'structuralSearchFilesDetailed',
-  'getSupportedStructuralExtensions',
-  'getSemanticBoundaryOffsets',
-  'getSupportedSignatureExtensions',
-  'jsonToYamlString',
-  'getMINIFY_CONFIG',
-  'parseRipgrepJson',
-  'searchRipgrep',
-  'validateRipgrepPattern',
-  'queryFileSystem',
-  'charToByteOffset',
-  'byteToCharOffset',
-  'byteSliceContent',
-  'sliceContent',
-  'extractMatchingLines',
-  'filterPatch',
-] as const satisfies readonly (keyof typeof import('../index.js'))[];
+const PUBLIC_NATIVE_FUNCTION_EXPORTS =
+  PUBLIC_NATIVE_FUNCTION_EXPORT_NAMES satisfies readonly (keyof typeof import('../index.js'))[];
 
 const PUBLIC_NATIVE_EXPORTS =
   PUBLIC_NATIVE_EXPORT_NAMES satisfies readonly (keyof typeof import('../index.js'))[];
@@ -131,7 +87,6 @@ describe('removed language capabilities', () => {
       );
       expect(addon!.getSupportedSignatureExtensions()).not.toContain(extension);
       expect(addon!.getSupportedGraphFactExtensions()).not.toContain(extension);
-      expect(addon!.getMINIFY_CONFIG().fileTypes).not.toHaveProperty(extension);
       const path = `fixture.${extension}`;
       const source = 'target(value);';
       expect(addon!.extractSignatures(source, path)).toBeNull();
@@ -149,7 +104,9 @@ describe('removed language capabilities', () => {
 describe('canonical grammar capabilities', () => {
   it('exposes every structural extension once with family metadata', () => {
     const capabilities = addon!.getGrammarCapabilities();
-    const extensions = capabilities.flatMap(capability => capability.extensions);
+    const extensions = capabilities.flatMap(
+      capability => capability.extensions
+    );
     expect(extensions.sort()).toEqual(
       addon!.getSupportedStructuralExtensions().sort()
     );
@@ -171,24 +128,6 @@ describe('canonical grammar capabilities', () => {
         }),
       ])
     );
-  });
-});
-
-describe('getExtension', () => {
-  it('returns extension from normal file', () => {
-    expect(addon!.getExtension('foo.ts', { lowercase: true })).toBe('ts');
-  });
-
-  it('handles dotfile (.gitignore)', () => {
-    expect(addon!.getExtension('.gitignore', { lowercase: true })).toBe(
-      'gitignore'
-    );
-  });
-
-  it('returns configured default for no-extension name', () => {
-    expect(
-      addon!.getExtension('Makefile', { lowercase: true, fallback: 'txt' })
-    ).toBe('txt');
   });
 });
 
@@ -293,158 +232,6 @@ describe('scanGraphFacts', () => {
   });
 });
 
-describe('removeComments', () => {
-  it('strips c-style line comments', () => {
-    const out = addon!.removeComments(
-      'int x = 1; // comment\nint y;',
-      'c-style'
-    );
-    expect(out).not.toContain('comment');
-    expect(out).toContain('int x');
-  });
-
-  it('strips hash comments', () => {
-    const out = addon!.removeComments(
-      'x = 1 # inline\n# whole line\ny = 2',
-      'hash'
-    );
-    expect(out).toContain('x = 1');
-    expect(out).not.toContain('inline');
-    expect(out).not.toContain('whole line');
-  });
-
-  it('accepts array of comment types', () => {
-    const out = addon!.removeComments('x = 1 # hash\n/* block */', [
-      'hash',
-      'c-style',
-    ]);
-    expect(out).not.toContain('hash');
-    expect(out).not.toContain('block');
-  });
-
-  it('returns original on unknown type (no panic)', () => {
-    const out = addon!.removeComments(
-      'hello',
-      'nonexistent-type' as unknown as import('../index.js').CommentPatternGroup
-    );
-    expect(out).toBe('hello');
-  });
-});
-
-describe('minifyJsonCore', () => {
-  it('compacts valid JSON', () => {
-    const r = addon!.minifyJsonCore('{"a": 1, "b": 2 }');
-    expect(r.failed).toBe(false);
-    expect(r.content).toBe('{"a":1,"b":2}');
-  });
-
-  it('strips JSONC comments and trailing commas', () => {
-    const src = '{\n  // comment\n  "key": "value",\n}';
-    const r = addon!.minifyJsonCore(src);
-    expect(r.failed).toBe(false);
-    expect(r.content).toContain('key');
-  });
-
-  it('marks invalid JSON as failed', () => {
-    const r = addon!.minifyJsonCore('{ invalid json');
-    expect(r.failed).toBe(true);
-    expect(r.content).toBe('{ invalid json');
-  });
-});
-
-describe('minifyCodeCore', () => {
-  it('collapses 3+ blank lines to max 1', () => {
-    const out = addon!.minifyCodeCore('a\n\n\n\nb');
-    expect(out).toBe('a\n\nb');
-    expect(out).not.toContain('\n\n\n');
-  });
-
-  it('preserves indentation', () => {
-    const src = 'function f() {\n  return 1;\n}';
-    const out = addon!.minifyCodeCore(src);
-    expect(out).toContain('  return');
-  });
-});
-
-describe('minifyMarkdownCore', () => {
-  it('removes markdown emoji/noise and compacts paragraph newlines', () => {
-    const src = `# Guide 🚀
-
-This is a soft
-wrapped paragraph 😊 with :sparkles: punctuation .
-
-<a id="top"></a>
-<br />
-![Screenshot](./screen.png)
-
-\`\`\`js
-console.log("😀 keep literal");
-\`\`\`
-`;
-    const out = addon!.minifyMarkdownCore(src);
-    expect(out).toContain('# Guide');
-    expect(out).toContain('This is a soft wrapped paragraph with punctuation.');
-    expect(out).toContain('console.log("😀 keep literal");');
-    expect(out).not.toContain('🚀');
-    expect(out).not.toContain('😊');
-    expect(out).not.toContain(':sparkles:');
-    expect(out).not.toContain('Screenshot');
-    expect(out).not.toContain('<a id');
-    expect(out).not.toContain('<br');
-    expect(out).not.toContain('\n\n');
-  });
-});
-
-describe('minifyContentSync', () => {
-  it('strips JS comments for .js file', () => {
-    const out = addon!.minifyContentSync(
-      'const x = 1; // comment\n',
-      'file.js'
-    );
-    expect(out).not.toContain('comment');
-  });
-
-  it('minifies JSON for .json file', () => {
-    const out = addon!.minifyContentSync('{ "a": 1 }', 'data.json');
-    expect(out).toBe('{"a":1}');
-  });
-
-  it('has explicit minify strategies for rich AST aliases', () => {
-    for (const ext of ['mts', 'cts', 'pyi', 'hh', 'hxx']) {
-      expect(addon!.MINIFY_CONFIG.fileTypes[ext]).toBeTruthy();
-      expect(addon!.MINIFY_CONFIG.fileTypes[ext].strategy).toBe('conservative');
-    }
-
-    const mts = addon!.minifyContentResult(
-      "import type { Foo } from './foo';\nexport function f(x: Foo): string { return String(x); }\n",
-      'module.mts'
-    );
-    expect(mts.failed).toBe(false);
-    expect(mts.type).toBe('conservative');
-    expect(mts.content).not.toContain('import type');
-  });
-
-  it('is deterministic across repeated public minify calls', () => {
-    const cases = [
-      [
-        'script.ts',
-        'export function add(a: number, b: number) { return a + b; }\n',
-      ],
-      ['data.jsonc', '{\n  // comment\n  "a": 1,\n}\n'],
-      ['style.css', '.card { color: red; margin: 0px; }\n'],
-      ['readme.md', '# Title\n\nBody text\n\n'],
-      ['query.sql', '-- comment\nSELECT * FROM users;\n'],
-    ] as const;
-
-    for (const [filePath, content] of cases) {
-      const first = addon!.minifyContentResult(content, filePath);
-      for (let i = 0; i < 4; i += 1) {
-        expect(addon!.minifyContentResult(content, filePath)).toEqual(first);
-      }
-    }
-  });
-});
-
 describe('minifyContent (async wrapper)', () => {
   it('returns a Promise', async () => {
     const result = addon!.minifyContent('const x = 1;', 'file.js');
@@ -459,6 +246,14 @@ describe('minifyContent (async wrapper)', () => {
     const r = await addon!.minifyContent('{ "k": 1 }', 'data.json');
     expect(r.failed).toBe(false);
     expect(r.content).toBe('{"k":1}');
+  });
+
+  it('is deterministic across repeated calls', async () => {
+    const source = '{\n  // comment\n  "a": 1,\n}\n';
+    const first = await addon!.minifyContent(source, 'data.jsonc');
+    await expect(addon!.minifyContent(source, 'data.jsonc')).resolves.toEqual(
+      first
+    );
   });
 });
 
@@ -1051,24 +846,6 @@ describe('jsonToYamlString', () => {
   });
 });
 
-describe('minifyCSSQuality', () => {
-  it('strips comments and compacts CSS', () => {
-    const src = 'h1 { color: red; } /* comment */ p { margin: 0px 0px; }';
-    const out = addon!.minifyCSSQuality(src);
-    expect(out).not.toContain('comment');
-    expect(out.length).toBeLessThan(src.length);
-  });
-});
-
-describe('minifyHTMLQuality', () => {
-  it('strips HTML comments', () => {
-    const src = '<html><body><!-- comment --><h1>Hi</h1></body></html>';
-    const out = addon!.minifyHTMLQuality(src);
-    expect(out).not.toContain('comment');
-    expect(out).toContain('Hi');
-  });
-});
-
 describe('SIGNATURES_ONLY_HINT', () => {
   it('is a non-empty string', () => {
     expect(typeof addon!.SIGNATURES_ONLY_HINT).toBe('string');
@@ -1120,20 +897,13 @@ describe('getSupportedSignatureExtensions', () => {
 // ── UTF-8 safety across the FFI boundary ──────────────────────────────────────
 
 describe('UTF-8 preservation', () => {
-  it('aggressive strategy preserves non-ASCII (R)', () => {
-    const out = addon!.minifyContentSync(
+  it('full minification preserves non-ASCII', async () => {
+    const out = await addon!.minifyContent(
       'local s = "café → naïve" { x = 1 }',
       'a.r'
     );
-    expect(out).toContain('café → naïve');
-    expect(out).not.toContain('Ã');
-  });
-
-  it('JSONC strip preserves non-ASCII', () => {
-    const r = addon!.minifyJsonCore('{\n  // comment\n  "k": "café",\n}');
-    expect(r.failed).toBe(false);
-    expect(r.content).toContain('café');
-    expect(r.content).not.toContain('Ã');
+    expect(out.content).toContain('café → naïve');
+    expect(out.content).not.toContain('Ã');
   });
 
   it('content view preserves non-ASCII markdown', () => {
@@ -1149,9 +919,9 @@ describe('UTF-8 preservation', () => {
 // ── size-cap contract ─────────────────────────────────────────────────────────
 
 describe('oversized input contract', () => {
-  it('minifyContentResult flags >1MB as failed', () => {
+  it('minifyContent flags >1MB as failed', async () => {
     const big = 'x'.repeat(1024 * 1024 + 1);
-    const r = addon!.minifyContentResult(big, 'big.txt');
+    const r = await addon!.minifyContent(big, 'big.txt');
     expect(r.failed).toBe(true);
     expect(r.content).toBe(big);
   });
@@ -1196,9 +966,7 @@ describe('public wrapper additions', () => {
     expect(typeof r.content).toBe('string');
   });
 
-  it('MINIFY_CONFIG and SUPPORTED_SIGNATURE_EXTENSIONS are exported', () => {
-    expect(addon!.MINIFY_CONFIG).toBeTruthy();
-    expect(addon!.MINIFY_CONFIG.fileTypes).toBeTruthy();
+  it('exports the derived capability inventories', () => {
     expect(Array.isArray(addon!.SUPPORTED_SIGNATURE_EXTENSIONS)).toBe(true);
     expect(addon!.SUPPORTED_SIGNATURE_EXTENSIONS).toContain('ts');
   });
@@ -1537,18 +1305,18 @@ describe('ESM/CJS loader parity', () => {
     expect(missing).toEqual([]);
   });
 
-  it('exposes the same minifier function exports from both loaders', async () => {
+  it('exposes the same callable native exports from both loaders', async () => {
     const esm = await importEsmLoader();
 
-    for (const name of MINIFIER_FUNCTION_EXPORTS) {
+    for (const name of PUBLIC_NATIVE_FUNCTION_EXPORTS) {
       expect(typeof addon![name]).toBe('function');
       expect(typeof esm[name]).toBe('function');
     }
 
-    const cjsFunctions = MINIFIER_FUNCTION_EXPORTS.filter(
+    const cjsFunctions = PUBLIC_NATIVE_FUNCTION_EXPORTS.filter(
       name => typeof addon![name] === 'function'
     );
-    const esmFunctions = MINIFIER_FUNCTION_EXPORTS.filter(
+    const esmFunctions = PUBLIC_NATIVE_FUNCTION_EXPORTS.filter(
       name => typeof esm[name] === 'function'
     );
     expect(esmFunctions).toEqual(cjsFunctions);

@@ -9,6 +9,7 @@ import {
   shouldIgnoreDiscoveryFile,
 } from '../../src/security/discoveryFilter.js';
 import { shouldIgnore } from '../../src/security/ignoredPathFilter.js';
+import { SENSITIVE_DIRECTORY_NAMES } from '../../src/security/sensitiveDirectories.js';
 
 describe('discoveryFilter', () => {
   it('filters discovery-noise directories without using security path blocking', () => {
@@ -31,9 +32,8 @@ describe('discoveryFilter', () => {
   // legitimately read from them). This test locks the security-sensitive subset
   // so that adding a sensitive path to one layer requires adding it to the other.
   it('security-sensitive discovery folders are also blocked by ignoredPathFilter', () => {
-    const sensitiveNames = ['.aws', '.ssh', '.kube', '.docker'];
     const home = os.homedir();
-    for (const name of sensitiveNames) {
+    for (const name of SENSITIVE_DIRECTORY_NAMES) {
       const fullPath = path.join(home, name);
       expect(
         shouldIgnore(fullPath),
@@ -49,8 +49,7 @@ describe('discoveryFilter', () => {
   it('security-sensitive folders are present in DISCOVERY_IGNORED_FOLDER_NAMES', () => {
     // node_modules is intentionally excluded: access-blocking it would break
     // legitimate tool reads; it belongs only in the discovery-pruning list.
-    const securityCritical = ['.aws', '.ssh', '.kube', '.docker', '.git'];
-    for (const name of securityCritical) {
+    for (const name of SENSITIVE_DIRECTORY_NAMES) {
       expect(
         DISCOVERY_IGNORED_FOLDER_NAMES,
         `'${name}' must be in DISCOVERY_IGNORED_FOLDER_NAMES`

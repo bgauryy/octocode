@@ -64,12 +64,36 @@ function snapshot(overrides: Partial<UxSnapshotV1> = {}): UxSnapshotV1 {
       },
     ],
     agents: [],
+    backgroundJobs: [],
     attention: [],
     messages: { unread: 0, queued: 0, detailRoute: '/octocode-inbox' },
     provenance: [],
     ...overrides,
   };
 }
+
+test('background work uses one bounded ambient row and failures outrank running jobs', () => {
+  const source = snapshot({
+    plan: undefined,
+    tasks: [],
+    session: { ...snapshot().session, activity: { kind: 'idle', label: 'Idle' } },
+    backgroundJobs: [
+      { id: 'running', title: 'Watch server', status: 'running', elapsedMs: 4_000, updatedAt: 10_000 },
+      { id: 'failed', title: 'Typecheck', status: 'failed', elapsedMs: 2_000, updatedAt: 9_500, exitCode: 1 },
+    ],
+    attention: [{
+      id: 'background:failed', kind: 'background_failed', priority: 'P1', severity: 'error',
+      actor: 'Background job', reason: 'Typecheck failed with exit 1', requiredAction: 'Inspect background output',
+      detailRoute: '/octocode-status', createdAt: 9_500,
+    }],
+  });
+  const selected = selectStatusRows(source, { width: 80, height: 24 });
+  const text = renderFooterView({ rows: selected.rows }, { width: 80 }).join('\n');
+
+  assert.match(text, /Typecheck failed/);
+  assert.match(text, /1 background job.*Watch server/);
+  assert.equal(selected.rowIds.filter((id) => id.startsWith('background:')).length, 2);
+});
 
 function agent(index: number, state = 'running') {
   return {

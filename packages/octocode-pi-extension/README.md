@@ -29,7 +29,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
 | Slash command entries | 5 |
-| Bundled main-agent skills | 15 |
+| Bundled main-agent skills | 14 |
 
 ### Support tools
 
@@ -38,7 +38,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | `file` | Create, edit, or delete files through one guarded mutation boundary. |
 | `web` | Fetch an absolute URL or search the web. |
 | `chromeDebug` | Inspect and control Chrome through CDP. |
-| `agent` | Spawn and manage researcher, architect, planner, implementer, browser, and explicit custom workers. |
+| `agent` | Spawn and manage researcher, architect, planner, implementer, read-only reviewer, browser, and explicit custom workers. |
 | `callTool` | Invoke a capability from the live dynamic-tool registry. |
 | `skill` | Load and manage installed skills. |
 | `plan` | Manage session and shared plans with verification receipts. |
@@ -109,7 +109,7 @@ skill sources, command hooks, permissions, theme, effort, and footer density. It
 for review. Host-provided and user-installed commands remain in the live inventory.
 The recovery command remains preview-first and does not rewrite input through regex triggers.
 
-## Bundled skills (15)
+## Bundled skills (14)
 
 The build copies these main-agent skills into `dist/skills/`:
 
@@ -118,7 +118,6 @@ The build copies these main-agent skills into `dist/skills/`:
 - `octocode-brainstorming`
 - `octocode-chrome-devtools`
 - `octocode-clean-agentic-code`
-- `octocode-code-graph`
 - `octocode-documentation`
 - `octocode-eval-benchmark`
 - `octocode-prompt-optimizer`

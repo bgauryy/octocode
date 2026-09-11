@@ -32,6 +32,28 @@ describe('hook runtime receipts', () => {
       .toMatchObject({ status: 'failed', coverage: '1/2' });
   });
 
+  it('samples repeated successful observations but records recovery after failure immediately', () => {
+    const db = freshDb();
+    const receipt = {
+      workspacePath: '/tmp/sampled-receipt-workspace', host: 'codex' as const, event: 'UserPromptSubmit',
+      status: 'success' as const, minimumIntervalMs: 5 * 60_000,
+    };
+    upsertHookReceipt(db, { ...receipt, observedAt: '2026-07-12T08:00:00Z' });
+    upsertHookReceipt(db, { ...receipt, observedAt: '2026-07-12T08:01:00Z' });
+    expect(hookReceipts(db, receipt.workspacePath, receipt.host)[0]?.last_seen_at)
+      .toBe('2026-07-12T08:00:00Z');
+
+    upsertHookReceipt(db, { ...receipt, status: 'failure', observedAt: '2026-07-12T08:02:00Z' });
+    expect(hookReceipts(db, receipt.workspacePath, receipt.host)[0]).toMatchObject({
+      status: 'failure', last_seen_at: '2026-07-12T08:02:00Z',
+    });
+    upsertHookReceipt(db, { ...receipt, observedAt: '2026-07-12T08:03:00Z' });
+    expect(hookReceipts(db, receipt.workspacePath, receipt.host)[0]).toMatchObject({
+      status: 'success', last_seen_at: '2026-07-12T08:03:00Z',
+    });
+    db.close();
+  });
+
   it('distinguishes observed, stale, and unverified runtime evidence', () => {
     const now = Date.parse('2026-07-12T12:00:00Z');
     expect(hookRuntimeReceiptHealth([], ['PreToolUse'], now)).toEqual({

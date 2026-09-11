@@ -1,29 +1,11 @@
-// Path-access block list: prevents reading from sensitive directories.
-// SYNC NOTE: discoveryFilter.ts:DISCOVERY_IGNORED_FOLDER_NAMES overlaps this
-// list (e.g. .git, .aws, .ssh, .docker, .kube). Both lists must be kept in
-// sync — changes here that protect against directory traversal attacks should
-// be reflected there, and vice versa.
+import { SENSITIVE_DIRECTORY_PATTERNS } from './sensitiveDirectories.js';
+
+// Path-access block list. Shared directory-segment policy is derived from one
+// source; the remaining expressions cover platform-specific nested paths.
 export const IGNORED_PATH_PATTERNS: RegExp[] = [
-  /(?:^|\/)\.git(?:\/|$)/,
-
-  /(?:^|\/)\.ssh(?:\/|$)/,
-
-  /(?:^|\/)\.aws(?:\/|$)/,
-
-  /(?:^|\/)\.docker(?:\/|$)/,
+  ...SENSITIVE_DIRECTORY_PATTERNS,
 
   /(?:^|\/)\.config\/gcloud(?:\/|$)/,
-
-  /(?:^|\/)\.azure(?:\/|$)/,
-
-  /(?:^|\/)\.kube(?:\/|$)/,
-
-  /(?:^|\/)\.terraform(?:\/|$)/,
-
-  /(?:^|\/)secrets(?:\/|$)/,
-  /(?:^|\/)private(?:\/|$)/,
-
-  /(?:^|\/)\.password-store(?:\/|$)/,
 
   /\.mozilla\/firefox\//,
   /\.config\/chromium\//,
@@ -33,13 +15,4 @@ export const IGNORED_PATH_PATTERNS: RegExp[] = [
 
   /Library\/Keychains\//,
 
-  /(?:^|\/)\.thunderbird(?:\/|$)/,
-  /(?:^|\/)\.evolution(?:\/|$)/,
-
-  /(?:^|\/)\.vagrant(?:\/|$)/,
-  /(?:^|\/)\.minikube(?:\/|$)/,
-
-  /(?:^|\/)\.bitcoin(?:\/|$)/,
-  /(?:^|\/)\.ethereum(?:\/|$)/,
-  /(?:^|\/)\.electrum(?:\/|$)/,
 ];

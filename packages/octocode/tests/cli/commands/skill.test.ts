@@ -58,7 +58,9 @@ describe('skill command', () => {
       'platform',
       'all',
       'mode',
-      'keep',
+      'force',
+      'global',
+      'project-dir',
       'workspace',
       'path',
       'dry-run',
@@ -76,7 +78,7 @@ describe('skill command', () => {
       'name',
       'list',
       'target',
-      'force',
+      'keep',
       'update',
       'verbose',
       'branch',
@@ -128,18 +130,66 @@ describe('skill command', () => {
   it('dry-runs install from bundled skills without writing', () => {
     run(['install', 'octocode-research'], { 'dry-run': true, json: true });
     const parsed = loggedJson<{
-      success: boolean;
+      ok: boolean;
       dryRun: boolean;
-      skills: Array<{ name: string; home: string | null }>;
+      skills: Array<{ name: string; canonical: string }>;
       summary: { installed: number; failed: number };
     }>();
-    expect(parsed.success).toBe(true);
+    expect(parsed.ok).toBe(true);
     expect(parsed.dryRun).toBe(true);
     expect(parsed.skills[0]?.name).toBe('octocode-research');
-    expect(parsed.skills[0]?.home).toBe(
+    expect(parsed.skills[0]?.canonical).toBe(
       '/mock-home/.octocode/skills/octocode-research'
     );
     expect(parsed.summary.failed).toBe(0);
+  });
+
+  it('requires exactly one explicit scope when a platform is selected', () => {
+    run(['install', 'octocode-research'], {
+      platform: 'pi',
+      'dry-run': true,
+      json: true,
+    });
+    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('--global or --project-dir'),
+    });
+
+    vi.mocked(console.log).mockClear();
+    run(['install', 'octocode-research'], {
+      platform: 'pi',
+      global: true,
+      'project-dir': '.',
+      'dry-run': true,
+      json: true,
+    });
+    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('--global or --project-dir'),
+    });
+
+    vi.mocked(console.log).mockClear();
+    run(['install', 'octocode-research'], {
+      workspace: true,
+      'dry-run': true,
+      json: true,
+    });
+    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('--platform codex --project-dir'),
+    });
+
+    vi.mocked(console.log).mockClear();
+    run(['install', 'octocode-research'], {
+      platform: 'all',
+      'project-dir': '.',
+      'dry-run': true,
+      json: true,
+    });
+    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('claude-desktop'),
+    });
   });
 
   it('dry-runs adding a local skill through canonical home and vendor links', () => {
@@ -163,43 +213,69 @@ describe('skill command', () => {
       run(['install'], {
         add: sourceDir,
         platform: 'claude,cursor,codex-native',
+        global: true,
+        force: true,
         'dry-run': true,
         json: true,
       });
 
       const parsed = loggedJson<{
-        success: boolean;
+        ok: boolean;
         skills: Array<{
           name: string;
-          home: string | null;
-          links: Array<{ target: string; destPath: string }>;
+          canonical: string;
+          destinations: Array<{
+            platform: string;
+            scope: string;
+            destination: string;
+            status: string;
+          }>;
         }>;
       }>();
-      expect(parsed.success).toBe(true);
+      expect(parsed.ok).toBe(true);
       expect(parsed.skills[0]?.name).toBe('fixture-skill');
-      expect(parsed.skills[0]?.home).toBe(
+      expect(parsed.skills[0]?.canonical).toBe(
         '/mock-home/.octocode/skills/fixture-skill'
       );
-      expect(parsed.skills[0]?.links).toEqual([
+      expect(parsed.skills[0]?.destinations).toEqual([
         {
-          target: 'agents',
-          destPath: path.join(homedir(), '.agents', 'skills', 'fixture-skill'),
+          platform: 'claude',
+          scope: 'global',
+          destination: path.join(
+            homedir(),
+            '.claude',
+            'skills',
+            'fixture-skill'
+          ),
+          mode: 'symlink',
           status: 'linked',
+          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
         },
         {
-          target: 'claude',
-          destPath: path.join(homedir(), '.claude', 'skills', 'fixture-skill'),
+          platform: 'cursor',
+          scope: 'global',
+          destination: path.join(
+            homedir(),
+            '.cursor',
+            'skills',
+            'fixture-skill'
+          ),
+          mode: 'symlink',
           status: 'linked',
+          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
         },
         {
-          target: 'cursor',
-          destPath: path.join(homedir(), '.cursor', 'skills', 'fixture-skill'),
+          platform: 'codex-native',
+          scope: 'global',
+          destination: path.join(
+            homedir(),
+            '.codex',
+            'skills',
+            'fixture-skill'
+          ),
+          mode: 'symlink',
           status: 'linked',
-        },
-        {
-          target: 'codex-native',
-          destPath: path.join(homedir(), '.codex', 'skills', 'fixture-skill'),
-          status: 'linked',
+          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
         },
       ]);
 
@@ -207,19 +283,33 @@ describe('skill command', () => {
       run(['install'], {
         add: sourceDir,
         platform: 'codex',
+        global: true,
+        force: true,
         'dry-run': true,
         json: true,
       });
       const deduped = loggedJson<{
         skills: Array<{
-          links: Array<{ target: string; destPath: string; status: string }>;
+          destinations: Array<{
+            platform: string;
+            destination: string;
+            status: string;
+          }>;
         }>;
       }>();
-      expect(deduped.skills[0]?.links).toEqual([
+      expect(deduped.skills[0]?.destinations).toEqual([
         {
-          target: 'codex',
-          destPath: path.join(homedir(), '.agents', 'skills', 'fixture-skill'),
+          platform: 'codex',
+          scope: 'global',
+          destination: path.join(
+            homedir(),
+            '.agents',
+            'skills',
+            'fixture-skill'
+          ),
+          mode: 'symlink',
           status: 'linked',
+          linkTarget: '/mock-home/.octocode/skills/fixture-skill',
         },
       ]);
     } finally {
@@ -242,7 +332,13 @@ describe('skill command', () => {
     });
   });
 
-  it('rejects non-canonical platform spellings', () => {
+  it('normalizes shared skill-directory aliases', () => {
+    expect(parsePlatforms('shared,common,agents,codex')).toEqual({
+      platforms: ['codex'],
+    });
+  });
+
+  it('rejects unsupported platform spellings', () => {
     for (const removed of [
       'pi-agent',
       'claude-code',
@@ -250,7 +346,6 @@ describe('skill command', () => {
       'github-copilot',
       'vscode-copilot',
       'gemini-cli',
-      'agents',
       'agent',
     ]) {
       expect(parsePlatforms(removed).error).toContain('Unknown platform');
@@ -260,8 +355,48 @@ describe('skill command', () => {
   it('rejects unknown skill names on install', () => {
     run(['install', 'not-a-real-skill'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);
+    const parsed = loggedJson<{ ok: boolean; error: string }>();
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('not-a-real-skill');
+  });
+
+  it('checks a bundled skill without requiring environment variables', () => {
+    run(['check', 'octocode-research'], { 'no-env': true, json: true });
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{ name: string; installStatus: string }>;
+      summary: { install: { total: number }; env: { needsConfig: number } };
+    }>();
+    expect(parsed.success).toBe(true);
+    expect(parsed.skills[0]?.name).toBe('octocode-research');
+    expect(parsed.summary.install.total).toBe(1);
+    expect(parsed.summary.env.needsConfig).toBe(0);
+  });
+
+  it('rejects unknown skill names on check', () => {
+    run(['check', 'not-a-real-skill'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
     const parsed = loggedJson<{ success: boolean; error: string }>();
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('not-a-real-skill');
+  });
+
+  it('requires a target for remove', () => {
+    run(['remove'], { json: true });
+    expect(process.exitCode).toBe(EXIT.GENERAL);
+    expect(loggedJson<{ success: boolean }>().success).toBe(false);
+  });
+
+  it('dry-runs remove without deleting installed locations', () => {
+    run(['remove', 'octocode-research'], { 'dry-run': true, json: true });
+    const parsed = loggedJson<{
+      success: boolean;
+      skills: Array<{ name: string; nothingFound: boolean }>;
+      summary: { removed: number; failed: number };
+    }>();
+    expect(parsed.success).toBe(true);
+    expect(parsed.skills[0]?.name).toBe('octocode-research');
+    expect(typeof parsed.skills[0]?.nothingFound).toBe('boolean');
+    expect(parsed.summary.failed).toBe(0);
   });
 });

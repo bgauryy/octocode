@@ -21,7 +21,6 @@ interface NativeModule {
     filePath: string | null
   ): NativeSanitizationResult;
   maskSensitiveData(text: string): string;
-  patternCount(): number;
 }
 
 type NativeLoadState =
@@ -224,6 +223,3 @@ export const nativeSanitizeContent = (
 
 export const nativeMaskSensitiveData = (text: string): string =>
   getNativeModule()?.maskSensitiveData(text) ?? maskWithJsFallback(text);
-
-export const nativePatternCount = (): number =>
-  getNativeModule()?.patternCount() ?? allRegexPatterns.length;

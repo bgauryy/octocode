@@ -11,12 +11,15 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 | Main-agent policy | `@octocodeai/agent-contracts/prompts` owns the canonical coder kernel; [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts) adds Pi host facts and canonical Awareness guidance |
 | Awareness host bindings | [`src/tools/awareness-cli-context.ts`](src/tools/awareness-cli-context.ts): native-facade prompt context; foreign tool sets can receive a bound CLI fallback. [`src/tools/awareness-context.ts`](src/tools/awareness-context.ts) owns native database/workspace/identity bindings |
 | Runtime physiology | [`src/adapters/pi-physiology.ts`](src/adapters/pi-physiology.ts): headless native measurements and session fences; [`src/adapters/pi-physiology-regulation.ts`](src/adapters/pi-physiology-regulation.ts): bounded projection of canonical Awareness advice |
-| Context assembly and lifecycle | [`src/index.ts`](src/index.ts), [`src/tools/session-prompt-context.ts`](src/tools/session-prompt-context.ts), and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) |
+| Context assembly and lifecycle | [`src/index.ts`](src/index.ts) composes the host; [`src/tools/session-prompt-context.ts`](src/tools/session-prompt-context.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) own prompt context |
+| Awareness mutation integration | [`src/adapters/pi-awareness-mutation.ts`](src/adapters/pi-awareness-mutation.ts) owns mutation presence, registry updates, and host-gate adaptation |
+| Internal error logging | [`src/internal-error-log.ts`](src/internal-error-log.ts) owns private paths, redaction, formatting, and best-effort append behavior |
 | Direct tool names | [`src/constants.ts`](src/constants.ts); registration in `registerSupportToolPhase` |
 | Query execution and partial receipts | [`src/tools/query-envelope.ts`](src/tools/query-envelope.ts) owns ordering, preflight, concurrency, and cancellation. [`src/tools/query-batch-error.ts`](src/tools/query-batch-error.ts) preserves completed evidence in bounded thrown errors, with artifact references for oversized text and images. Registration preserves Pi's thrown-error failure contract. Operation-specific validation stays with each tool. |
 | Host tool failure adaptation | [`src/tools/tool-result-error.ts`](src/tools/tool-result-error.ts) converts internal error results into bounded thrown errors at registration. Success result shapes remain unchanged; original error diagnostics stay available on the exception. |
 | File mutations | [`docs/FILE_MUTATIONS.md`](docs/FILE_MUTATIONS.md) defines the dedicated `@octocodeai/octocode-extension-rust` boundary: native snapshots, mutations, sync and diff; TypeScript owns text semantics, path policy, batches and receipts. |
-| MCP discovery and execution | [`src/tools/mcp-tool.ts`](src/tools/mcp-tool.ts) and [`src/tools/mcp/config.ts`](src/tools/mcp/config.ts) |
+| Synchronous state publication | [`src/tools/atomic-state-file.ts`](src/tools/atomic-state-file.ts) owns atomic private-state and rebuildable-workspace publication; registries, MCP configuration, and discovery use that boundary |
+| MCP discovery and execution | [`src/tools/mcp-tool.ts`](src/tools/mcp-tool.ts) and [`src/tools/mcp/config.ts`](src/tools/mcp/config.ts). [`src/tools/mcp/catalog-model.ts`](src/tools/mcp/catalog-model.ts) owns snapshot types and stable identity; [`src/tools/mcp/catalog-execution.ts`](src/tools/mcp/catalog-execution.ts) owns exact-schema freshness, single-flight discovery, and invalidation fencing; [`src/tools/mcp/presentation.ts`](src/tools/mcp/presentation.ts) owns Pi rendering and schema diagnostics. Persistence and paging depend on the neutral catalog model without a runtime cycle. |
 | Skill discovery | [`src/tools/skill-discovery.ts`](src/tools/skill-discovery.ts); the `skill` tool consumes that inventory from [`src/tools/skill-tool.ts`](src/tools/skill-tool.ts) |
 | Worker spawning and waits | [`src/tools/agents/tool.ts`](src/tools/agents/tool.ts), [`src/tools/agents/lifecycle.ts`](src/tools/agents/lifecycle.ts), and [`src/tools/agents/wait.ts`](src/tools/agents/wait.ts) |
 | Capability sources and review | `@octocodeai/agent-contracts/capability-sources`, `agent-skills`, and `capability-state`; Pi applies host trust and enablement through the skill/MCP adapters |
@@ -391,6 +394,11 @@ $OCTOCODE_HOME/extension/
 
 Local file history belongs to the shared Awareness store, outside the session artifact tree. With the full Awareness workspace profile, the native `file` boundary captures explicit targets before and after mutation. The default coordination profile provides registry presence and peer delivery; automatic work records and worker audits require guard/full. Active peer-lock checks remain enforced. Awareness packages its private Git object implementation and exposes bounded timeline, read, preview, and apply operations through the imported API also used by the CLI adapter. Pi's `/octocode-rewind` command previews file changes and applies only the reviewed preview; session input and conversation navigation do not create or restore file history.
 
+Persistent synchronous JSON writers use `writePrivateFileAtomicSync`. The
+rebuildable workspace discovery snapshot uses `writeEphemeralFileAtomicSync`.
+Session artifacts retain their separate contained writer because they also
+enforce session-root and producer-registration invariants.
+
 ### 5.2 Identity and authority
 
 `sessionKey` remains the filesystem-safe directory name. A real Pi `sessionId` is stored
@@ -435,7 +443,12 @@ researching → needs_answers → draft → in_review ── Start ─→ execut
 
 `Start` is the single user decision: it binds the displayed RFC revision and begins the first runnable step in one transaction. `accepted` remains an internal/recovery phase if projection cannot finish after revision acceptance; it is not a second normal UI gate. `Request changes` returns review to `draft`.
 
-The native `plan` schema publishes two separate `action:"start"` variants because they are different transitions: an executing plan may start one runnable step with optional `index`, while a reviewed proposal supplies the exact `revision` and answered `authorizationInteractionId` and must omit `index` (`accepted` recovery may reuse its persisted receipt). Keep these fields in separate schema branches; aggregating them advertises a call the preflight contract must reject.
+The native `plan` schema publishes two separate `action:"start"` variants because
+they represent different transitions. An executing plan can start one runnable
+step with an optional `index`. A reviewed proposal supplies the exact `revision`
+and answered `authorizationInteractionId`, and it must omit `index`. Recovery from
+`accepted` can reuse its persisted receipt. Keep these fields in separate schema
+branches; aggregating them advertises a call that preflight must reject.
 
 ### 6.3 Storage
 

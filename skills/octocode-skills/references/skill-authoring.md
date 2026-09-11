@@ -21,9 +21,17 @@ Start from real expertise: completed task sequences, user corrections, I/O examp
 - Validation loop: do → validate → fix → repeat → proceed only after pass.
 - Plan-validate-execute for batch/stateful/destructive work.
 
+## Lobby convention
+
+Below the H1, declare `tools: npx octocode / octocode-mcp`, one `related-skill: <skill-name>`, and `output: <workspace>/.octocode/ for workspace work | <home>/.octocode/ when no workspace applies`. Keep short shared decisions in the lobby. Add a reference, doc, script, or scheme only for a coherent conditional job that changes the next action more effectively than inline guidance.
+
 ## Workspace outputs
 
-Every lobby states where generated artifacts go. Default durable artifacts to `<workspace>/.octocode/<skill-name>/` and scratch/run data to `<workspace>/.octocode/tmp/<skill-name>/`; a stable specialized namespace under the same root is fine. Keep chat-only results in chat. User-approved source edits, installs, symlinks, and configuration use their named targets. If the workspace root is unwritable, fail clearly—never redirect artifacts to a user-level Octocode home.
+Every lobby states where generated artifacts go. Use `<workspace>/.octocode/` for repository or workspace-scoped work and `<home>/.octocode/` only when no workspace applies or the artifact is explicitly user-scoped. Default durable artifacts to `<root>/<skill-name>/` and scratch/run data to `<root>/tmp/<skill-name>/`; a stable specialized namespace under the selected root is fine. Keep chat-only results in chat. User-approved source edits, installs, symlinks, and configuration use their named targets. If the selected root is unwritable, fail clearly rather than silently switching roots.
+
+## Machine-readable contracts
+
+Add `scheme/` only when a tool, host, script, or evaluator needs a contract it can parse. Store one contract per `scheme/<contract-name>.json`; each file is valid JSON with one top-level object. Keep explanatory prose in the lobby or references, route the scheme from its consumer, and delete schemes that merely restate prose.
 
 ## Optimize and rank handoffs
 

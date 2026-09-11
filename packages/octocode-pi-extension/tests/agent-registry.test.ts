@@ -7,7 +7,7 @@ describe('withPeerCoordination', () => {
     expect(out).toContain('do work');
     expect(out).toContain('your agent id: me');
     expect(out).toContain('peers: peer-a, peer-b');
-    expect(out).toContain('octocode-awareness guide');
+    expect(out).toContain('context.orient');
     expect(out).not.toContain('message send');
   });
 

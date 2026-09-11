@@ -71,7 +71,6 @@ test('every Octocode-owned bundled skill keeps its complete trigger description 
     'octocode-architect',
     'octocode-brainstorming',
     'octocode-chrome-devtools',
-    'octocode-code-graph',
     'octocode-documentation',
     'octocode-eval-benchmark',
     'octocode-prompt-optimizer',

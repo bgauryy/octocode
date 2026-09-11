@@ -19,12 +19,14 @@ describe('complete entity fingerprint', () => {
     } finally { db.close(); }
   });
 
-  it('accepts the exact optional worker projection and indexes', () => {
+  it('leaves the exact optional worker projection untouched for explicit migration', () => {
     const db = new DatabaseSync(':memory:');
     try {
       initDb(db);
       db.exec(WORKER_LIFECYCLE_DDL);
-      expect(() => initDb(db)).not.toThrow();
+      expect(() => initDb(db)).toThrow(/copy-on-write.*source has not been changed/i);
+      expect(db.prepare("SELECT 1 AS present FROM sqlite_schema WHERE name='worker_lifecycle_events'").get())
+        .toEqual({ present: 1 });
     } finally { db.close(); }
   });
 });

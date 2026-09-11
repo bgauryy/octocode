@@ -1,12 +1,5 @@
 use napi_derive::napi;
 
-#[napi(object)]
-#[derive(Debug, Clone, Default)]
-pub struct GetExtensionOptions {
-    pub lowercase: Option<bool>,
-    pub fallback: Option<String>,
-}
-
 /// One parser entry from the canonical grammar registry. Consumers use this
 /// runtime inventory for language selection and agent guidance instead of
 /// maintaining extension/name tables outside the engine.
@@ -412,14 +405,6 @@ impl MinifyResult {
             reason: Some(reason.into()),
         }
     }
-}
-
-#[napi(object)]
-#[derive(Debug, Clone)]
-pub struct FileTypeMinifyConfig {
-    pub strategy: String,
-    /// CommentPatternGroup | CommentPatternGroup[]
-    pub comments: Option<serde_json::Value>,
 }
 
 #[napi(object)]

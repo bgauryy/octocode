@@ -121,6 +121,21 @@ enum Mode {
     Normal,
 }
 
+#[derive(Clone, Copy)]
+struct MatchWork {
+    materialize_line: bool,
+    enumerate_submatches: bool,
+    collect_spans: bool,
+}
+
+fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
+    MatchWork {
+        materialize_line: mode == Mode::Normal,
+        enumerate_submatches: mode != Mode::CountLines,
+        collect_spans: mode == Mode::Normal && only_matching,
+    }
+}
+
 fn resolve_mode(opts: &RipgrepSearchOptions) -> Mode {
     if opts.files_only.unwrap_or(false) {
         Mode::FilesOnly
@@ -165,8 +180,7 @@ struct CollectSink<'a, M: Matcher> {
     entry: &'a mut FileEntry,
     submatches: u32,
     matched_lines: u32,
-    /// When set, collect one span per submatch (rg -o) instead of the line.
-    only_matching: bool,
+    work: MatchWork,
     /// Chars of context around each span in only-matching mode.
     match_window: usize,
     /// Accumulated only-matching spans for this file.
@@ -179,14 +193,11 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> std::io::Result<bool> {
         let line_number = mat.line_number().unwrap_or(0) as u32;
         let bytes = mat.bytes();
-        let line_cow = String::from_utf8_lossy(bytes);
-        let line_text = strip_trailing_newline(line_cow.into_owned());
-
-        // Count submatches on this line for --count-matches. A matched line has
-        // at least one match even if find_iter is conservative.
         let mut count: u32 = 0;
 
-        if self.only_matching {
+        if self.work.collect_spans {
+            let line_cow = String::from_utf8_lossy(bytes);
+            let line_text = strip_trailing_newline(line_cow.into_owned());
             // Emit one span per submatch with its own UTF-16 column, rather than
             // one whole-line match. find_iter yields non-overlapping matches L→R.
             let matcher = self.matcher;
@@ -223,27 +234,28 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     score_hint: None,
                 });
             }
-        } else {
-            // rg reports the submatch start as a BYTE offset within the line;
-            // convert to a 0-based UTF-16 char column so multibyte lines line up
-            // with JS string indices (mirrors the --json parser's convention).
-            let byte_col = self
-                .matcher
-                .find(bytes)
-                .ok()
-                .flatten()
-                .map(|m| m.start())
-                .unwrap_or(0);
-            let column = byte_to_char_offset_inner(&line_text, byte_col) as u32;
-            let _ = self.matcher.find_iter(bytes, |_m| {
+        } else if self.work.enumerate_submatches {
+            let mut first_byte_col = None;
+            let _ = self.matcher.find_iter(bytes, |matched| {
                 count = count.saturating_add(1);
+                if first_byte_col.is_none() {
+                    first_byte_col = Some(matched.start());
+                }
                 true
             });
-            self.entry.raw_matches.push(RawMatch {
-                line_text,
-                line_number,
-                column,
-            });
+            if self.work.materialize_line {
+                let line_cow = String::from_utf8_lossy(bytes);
+                let line_text = strip_trailing_newline(line_cow.into_owned());
+                let column = byte_to_char_offset_inner(
+                    &line_text,
+                    first_byte_col.unwrap_or(0).min(line_text.len()),
+                ) as u32;
+                self.entry.raw_matches.push(RawMatch {
+                    line_text,
+                    line_number,
+                    column,
+                });
+            }
         }
 
         self.submatches = self.submatches.saturating_add(count.max(1));
@@ -417,7 +429,7 @@ fn collect<M: Matcher + Sync>(
                     entry: &mut entry,
                     submatches: 0,
                     matched_lines: 0,
-                    only_matching,
+                    work: match_work(mode, only_matching),
                     match_window,
                     om_matches: Vec::new(),
                 };

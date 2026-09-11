@@ -151,6 +151,7 @@ export type SemanticEmptyCategory =
   | 'anchorFailed'
   | 'paginationChanged'
   | 'paginationSnapshotRequired'
+  | 'possiblyIncomplete'
   | 'noLocations'
   | 'noReferences'
   | 'noHover'
@@ -273,6 +274,7 @@ export type LspSemanticEnvelope = {
     | 'depth'
     | 'budget'
     | 'readinessUnconfirmed'
+    | 'pushDiagnosticsRetentionCap'
   >;
   next?: Record<
     string,

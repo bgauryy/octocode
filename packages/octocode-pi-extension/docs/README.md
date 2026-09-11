@@ -50,6 +50,7 @@ use `node $OCTOCODE_CLI tools <name> --scheme`.
 
 | Document | Owns |
 |---|---|
+| [BEST_PRACTICES.adoc](BEST_PRACTICES.adoc) | Researched guidance and a prioritized implementation backlog for tools, subagents, widgets, lifecycle, and Pi compatibility. |
 | [AGENT_TOOL_AUDIT.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/AGENT_TOOL_AUDIT.md) | Dated decision snapshot for palette ratings, Awareness signal value, and contract-size evidence. Current registries remain source-owned. |
 
 ---

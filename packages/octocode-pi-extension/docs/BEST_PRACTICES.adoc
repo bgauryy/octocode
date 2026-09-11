@@ -1,0 +1,619 @@
+= Recommended practices for the Octocode Pi extension
+:toc:
+:toclevels: 3
+:sectnums:
+
+Status:: Research and implementation guidance
+Research date:: 2026-09-10
+Baseline:: Current Octocode working tree and the supported Pi host version, `0.84.4`
+
+== Purpose
+
+This document turns local implementation evidence, Pi's extension contracts, and useful patterns from other Pi extensions into recommendations for Octocode's tools, subagents, and terminal UI.
+
+It is not another tool reference. Use link:TOOLS.md[Tools] for current behavior, link:SUBAGENTS.md[Subagents] for worker operations, and link:UI.md[UI] for the existing rendering contract.
+
+The central recommendation is to preserve Octocode's explicit capability, recovery, and verification model while improving its interoperability and ergonomics. Community extensions are useful prior art, but they are not a reason to copy features that weaken bounded execution or duplicate existing surfaces.
+
+== Executive recommendation
+
+Keep these foundations:
+
+* one direct tool facade per capability with strict schemas and explicit error channels;
+* one gateway for the larger Octocode research catalog instead of registering every research tool directly;
+* lossless result recovery when model-visible output is truncated;
+* self-contained worker packets, least-capability profiles, no recursive worker spawning, and parent verification of handbacks;
+* one immutable UI snapshot feeding transcript, footer, inspector, and semantic event output;
+* bounded, cell-width-safe terminal rendering with text carrying meaning independently of color.
+
+Improve these areas first:
+
+. Prove file-mutation interoperability with Pi and other extensions, then use Pi's shared mutation queue if the current private queue can overlap it.
+. Measure and introduce progressive activation for infrequent direct tools to reduce prompt cost without harming tool selection.
+. Evaluate predicate monitors for background jobs and workers against the existing heartbeat wait path.
+. Expose a bounded, versioned status projection for integrations rather than encouraging terminal scraping.
+
+Avoid detached cross-session agents, invisible full-context clones, a second always-on status surface, or recursive subagents until a separate architecture decision demonstrates that their value exceeds their security and lifecycle costs.
+
+== Implementation status
+
+The first architecture increment is implemented under
+link:../../../.octocode/rfc/pi-extension-runtime-ux/RFC.md[the Pi runtime and UX RFC].
+
+[cols="2,1,4",options="header"]
+|===
+|Practice |Status |Implementation
+
+|One runtime resource owner
+|Implemented
+|`SessionRuntime` has idempotent last-in, first-out cleanup, late-registration handling, and aggregated cleanup diagnostics.
+
+|One serializable UI store
+|Implemented
+|`zustand/vanilla` remains the only session store. Background jobs publish redacted observations through `UxSnapshotV1`; process handles, commands, paths, timers, and logs stay in their manager.
+
+|Evidence freshness policy
+|Implemented
+|A pure live/demoted/retired authority classifier now gates stale Awareness observations and is reusable by other cached evidence.
+
+|Attributable decisions and mutations
+|Implemented
+|Approval events carry correlated decision receipts. File edit, write, and delete results carry content-redacted mutation receipts, and stale commits expose a runnable refetch continuation.
+
+|Bounded worker completion
+|Implemented
+|Workers receive a soft wrap-up signal at 80% of the step budget and a hard partial-handback signal at the limit. Optional `cohortId` values produce attention-first aggregate inspection without copying task text or output.
+
+|Independent verification
+|Implemented
+|The `reviewer` profile is read-only, returns one PASS/WARN/FAIL verdict, and can't complete the parent plan.
+
+|Plan review outcomes
+|Implemented
+|The existing loopback review page uses stable task IDs and separate approve-and-start, request-revision, reject, and comment-only controls. Offline copies remain non-authorizing.
+
+|Progressive activation, predicate monitors, packaged-surface manifest, and shared Pi mutation queue
+|Evaluation pending
+|These remain measured or interoperability gates. They are not enabled by default without evidence that they improve completion or prevent a reproduced conflict.
+|===
+
+== Decision model
+
+[cols="1,2,3",options="header"]
+|===
+|Decision |Meaning |Examples
+
+|Keep
+|The current implementation already follows Pi guidance or expresses a deliberate Octocode advantage.
+|Strict query envelopes, thrown execution errors, result spill and recovery, capability grants, verified handbacks, the shared UI snapshot, and idempotent shutdown.
+
+|Improve
+|The architecture is sound, but an interoperability, prompt-cost, lifecycle, or interaction gap is measurable.
+|Shared mutation serialization, progressive tool activation, background UI ownership, worker completion grouping, graceful wrap-up, and renderer reuse.
+
+|Avoid
+|The feature duplicates an existing owner, hides authority, or adds durable state without a proven requirement.
+|A second permanent worker roster, automatic raw-handback memory, recursive workers, silent transcript cloning, and fake progress percentages.
+|===
+
+== Extension landscape
+
+The https://pi.dev/packages[Pi package catalog] is useful for discovery and activity signals, but package counts and downloads do not establish quality or fit. This survey ranks repositories by exact code or documentation evidence, maintenance signals observed on the research date, reuse cost, and compatibility with Octocode's architecture.
+
+[cols="2,2,3,2",options="header"]
+|===
+|Extension or repository |Strongest reusable idea |Octocode verdict |Confidence
+
+|https://github.com/apmantza/pi-lens[pi-lens]
+|Gate cached diagnostics by freshness, demote uncertain findings instead of presenting them at full authority, and record bounded degradation telemetry.
+|Adapt the freshness contract for cached evidence, worker handbacks, and long-lived UI facts. Do not duplicate Octocode Engine's LSP and structural-search capabilities.
+|Strong: architecture, source, tests, and an active package are visible.
+
+|https://github.com/nicobailon/pi-mcp-adapter[Pi MCP Adapter]
+|Use one discovery facade, lazy server startup, cached metadata, explicit configuration provenance, and an abortable runtime owner with a cleanup stack.
+|Keep `MCPTool`; borrow the runtime-owner and provenance patterns. Octocode already implements the main token-efficiency idea.
+|Strong: exact runtime source, broad tests, and package-catalog activity.
+
+|https://github.com/nicobailon/pi-subagents[nicobailon/pi-subagents] and https://github.com/tintinweb/pi-subagents[tintinweb/pi-subagents]
+|Use a bounded fleet surface, stable worker handles, typed inspection, mid-run steering, graceful limits, and grouped completion behavior.
+|Adopt handles, graceful wrap-up, cohort notifications, and a versioned status projection. Keep Octocode's explicit packets, capability grants, and no-recursion rule.
+|Moderate to strong: source and documentation agree, but several policy constants require Octocode-specific evaluation.
+
+|https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system[pi-permission-system]
+|Represent allow, ask, and deny outcomes as attributable decisions; apply canonical-path policy across tools; forward subagent prompts to the owning UI; publish stable decision events.
+|Add request and decision provenance to Octocode approval receipts. Keep Octocode's existing policy owner instead of embedding a second permission engine.
+|Strong: public event contract, implementation, tests, and threat-model documentation are available.
+
+|https://github.com/backnotprop/plannotator[Plannotator]
+|Attach review comments to specific plan, document, or diff regions and return an explicit approve, revise, or reject outcome to the agent.
+|Extend Octocode's existing `plan.html` review bridge with anchored annotations and an optional code-diff review mode. Do not add a second browser server or approval loop.
+|Moderate: the review workflow and Pi adapter are implemented; adoption value must be tested in Octocode workflows.
+
+|https://github.com/nicobailon/pi-interactive-shell[Pi Interactive Shell]
+|Give long-running processes stable IDs, bounded event histories, explicit takeover, and predicate-driven monitor notifications instead of repeated model polling.
+|Borrow monitor predicates and event retrieval for background jobs. Do not make arbitrary cross-harness spawning part of the default Octocode tool surface.
+|Moderate: exact coordinator source and tests support the mechanism; its broader authority model differs from Octocode's.
+
+|https://github.com/YuGiMob/pi-hashline-edit-pro[pi-hashline-edit-pro]
+|Return typed mutation metadata, reject stale served state, group same-file changes atomically, and return fresh retry context after a conflict.
+|Keep Octocode's exact-text and line-range edit model. Add versioned mutation receipts and executable recovery data instead of adopting a second anchor registry.
+|Moderate: detailed source-backed contracts exist, but the persistent anchor model adds storage and security cost.
+
+|https://github.com/tmonk/pi-goal-x[pi-goal-x] and https://github.com/gotgenes/pi-packages/blob/main/.pi/agents/pre-completion-reviewer.md[the gotgenes pre-completion reviewer]
+|Use a fresh, read-only agent to check acceptance criteria and observed evidence before accepting completion.
+|Add an optional `reviewer` profile and a parent-owned verification phase. Do not couple it to an unbounded autonomous goal loop.
+|Moderate: two implementations converge on independent review; effectiveness still needs a held-out Octocode evaluation.
+
+|https://github.com/nicobailon/pi-powerline-footer[Pi Powerline Footer] and https://github.com/narumiruna/pi-extensions[narumiruna/pi-extensions]
+|Compose responsive status segments, bound overflow, deduplicate updates, and tie widget cleanup to the session that owns it.
+|Reuse the testing and composition ideas inside `UxSnapshotV1`. Do not replace Octocode's footer or render duplicate extension facts.
+|Moderate: implementation and tests are visible; Octocode already owns a more integrated status model.
+|===
+
+=== Promising ideas to watch
+
+The catalog also contains task sidebars, durable background runners, dynamic workflow engines, context-pruning tools, and generative UI extensions. These projects are useful discovery leads, but several are new, materially expand authority, or overlap Octocode's existing plan, Awareness, browser, and result-budget systems. Keep them on a watchlist until exact source, lifecycle tests, and a concrete Octocode workflow justify deeper integration.
+
+The https://github.com/earendil-works/pi/discussions/7474[Pi extension-hardening discussion] identifies two ecosystem-wide needs that fit Octocode: testing the packaged extension through Pi's real loader and declaring host compatibility before runtime. Octocode already rejects unsupported host versions and exercises the real Pi SDK. Add a packaged-loader smoke test alongside those checks rather than relying on unit imports alone.
+
+== Ideas selected from the landscape
+
+=== Create one runtime owner
+
+Introduce one session-scoped runtime owner with:
+
+* one abort signal combined with per-operation signals;
+* a last-in, first-out cleanup stack;
+* idempotent stop behavior and aggregated cleanup failures;
+* late-cleanup handling for resources registered after shutdown starts;
+* an owned UI wrapper that ignores callbacks after the owner stops.
+
+Route browser sessions, local servers, background Bash jobs, watchers, overlays, and worker completion callbacks through this owner. This consolidates lifecycle behavior that is distributed across `index.ts`, the runtime renderer, and individual tools. It also gives the overlay cancellation work one documented boundary even while Pi lacks a complete dismissal contract.
+
+=== Add a freshness contract for evidence
+
+Apply one delivery policy to cached facts that can outlive their evidence:
+
+Live:: The source generation, file version, or worker state still matches. Present the fact at full authority.
+Demoted:: The source changed or cannot be revalidated cheaply. Preserve the finding, remove stale coordinates or blocking language, and label the required recheck.
+Retired:: The evidence target disappeared or the fact can no longer be verified. Remove it from ambient UI and record the retirement in bounded diagnostics.
+
+Attach `observedAt`, source generation, and an appropriate file or task fingerprint to cached findings and handbacks. Apply the policy once before data reaches the footer, inspector, plan verifier, or model. This extends Octocode's stale-event rejection into an explicit evidence-authority contract.
+
+=== Make approval decisions attributable
+
+Return a structured decision receipt whenever Octocode allows, asks about, or denies a sensitive operation. A minimal receipt contains:
+
+* a unique request ID;
+* the requesting session or worker ID;
+* the normalized operation and scope;
+* the matched policy or approval reason;
+* the resolution, such as policy allow, policy deny, user approve once, user approve for session, or user deny;
+* the decision source and timestamp.
+
+Use the same receipt in the transcript, Awareness events, diagnostics, and worker forwarding. Do not expose raw secrets or complete tool arguments. This makes a human decision distinguishable from automatic policy and lets tests correlate one prompt with one terminal outcome.
+
+=== Add a fresh reviewer profile
+
+Add an optional read-only `reviewer` profile that receives the immutable objective, acceptance criteria, modified scope, and claimed evidence. The reviewer returns `PASS`, `WARN`, or `FAIL` per criterion and cannot edit files or mark the plan complete.
+
+The parent remains responsible for selecting checks, resolving findings, and completing the plan. Run this phase for consequential changes or explicit user requests, not every trivial edit. Measure false-positive rate, missed regressions, additional tokens, and time to verified completion.
+
+=== Extend the existing review page with annotations
+
+Octocode already writes `plan.html`, serves a live loopback bridge, preserves unsent feedback, and returns explicit Start or Request changes actions. Extend that owner instead of creating another review service.
+
+Useful additions are:
+
+* comments anchored to stable plan-step IDs;
+* optional annotations on diff hunks or file paths;
+* typed approve, revise, reject, and comment-only outcomes;
+* orphan handling when a new revision removes an annotated target;
+* a portable read-only artifact with interactive actions disabled when the live bridge is absent.
+
+Start with plan-step annotations. Add code-diff review only after the plan workflow shows lower clarification latency or fewer misunderstood revisions.
+
+=== Replace polling with monitor predicates
+
+Allow a background job or worker wait to register a bounded condition such as process exit, quiet period, output pattern, file change, or explicit attention event. Record a small ordered event history and wake the parent only when the condition fires or the monitor stops.
+
+Keep polling available for manual inspection, but do not spend model turns repeatedly checking unchanged work. Every monitor must have a stable ID, stop reason, owner, result cursor, and shutdown cleanup.
+
+=== Enrich file mutation receipts
+
+Octocode already preflights every query, rejects duplicate target paths, supports multiple edits in one same-file operation, serializes canonical paths, checks native file versions, and returns diffs and patches. Preserve those contracts.
+
+Add machine-readable fields that make conflicts and truncation recoverable:
+
+* pre-mutation and post-mutation version fingerprints;
+* `applied`, `noop`, `conflict`, or `aborted` classification;
+* `diffTruncated` and `patchTruncated` flags;
+* changed-line and byte counts;
+* a bounded current-range or refetch continuation after a stale-state rejection.
+
+Do not persist full pre-edit content merely to offer general undo. That expands the sensitive-data footprint; prefer versioned receipts and the repository's normal history unless a separate encrypted undo design is approved.
+
+=== Publish and test the extension surface manifest
+
+Generate one manifest of tools, commands, shortcuts, status keys, widgets, footer ownership, event channels, and required Pi APIs. Use it to:
+
+* detect duplicate names inside Octocode;
+* identify likely collisions with an installed extension set;
+* calculate direct prompt-contract cost;
+* drive documentation inventory checks;
+* load the packaged build through Pi's real extension loader in CI;
+* compare the declared and observed surfaces before a Pi version bump.
+
+`registerUniqueTool` already protects direct tool names. Extend the same evidence model to the other public surfaces rather than adding unrelated registration wrappers one at a time.
+
+== Tools
+
+=== Keep the direct palette small and explicit
+
+Octocode registers a compact direct palette and routes the larger research catalog through `MCPTool`. This is the correct boundary: common actions remain discoverable while the full research catalog does not inflate every prompt.
+
+Continue to require:
+
+* a strict `queries` envelope and bounded per-query reasoning;
+* preflight validation before side effects;
+* explicit sequential or bounded-parallel execution;
+* receipts that distinguish success, failure, and not-run work;
+* thrown errors for failed execution so Pi receives the correct error channel;
+* complete output recovery through a private artifact when the model-visible result is shortened.
+
+Do not register each Octocode research tool as a separate direct Pi tool. That would duplicate discovery logic and increase the stable prompt prefix without improving capability.
+
+=== Prove cross-extension file serialization
+
+Pi's extension guide requires custom file-mutating tools to use its exported `withFileMutationQueue` across the complete read-modify-write window. Octocode has strong canonical-path queues and stale-snapshot checks, but its queue is owned inside the extension. That does not prove serialization with another extension that uses Pi's shared queue.
+
+Recommended implementation:
+
+. Add an adversarial integration test that runs an Octocode edit concurrently with a Pi or test-extension edit against the same canonical path.
+. Assert that both operations cannot enter their mutation windows together and that no accepted write loses another accepted update.
+. If the test exposes overlap, wrap the Octocode mutation window in Pi's shared queue while retaining Octocode's canonical-path and stale-snapshot protections.
+. Exercise edit, write, delete, symlink aliases, and failure cleanup.
+
+This is a high-confidence risk based on the two queue ownership models, not evidence that a lost update has occurred in production.
+
+=== Activate infrequent tools progressively
+
+Pi `0.84.4` supports registering tools once and changing the active set with `setActiveTools`. Octocode uses active-tool control for disabling weak built-ins and enforcing worker grants, but the main session exposes the full direct palette.
+
+Run an experiment before choosing a permanent core set:
+
+* record the current direct-tool contract characters using the existing contract metrics;
+* classify tools by invocation frequency, selection ambiguity, and setup cost;
+* keep the loader and common recovery path active;
+* activate a requested tool additively instead of replacing the current set;
+* avoid prompt snippets and guidelines on lazily activated tools unless they are necessary;
+* compare prompt size, prefix-cache behavior, tool-selection accuracy, validation failures, and task completion.
+
+Media conversion, browser diagnostics, and local-server management are likely candidates for deferred activation. The exact tier should come from usage evidence; `file`, `bash`, `MCPTool`, and the recovery path should not be deferred without a separate usability test.
+
+=== Reuse renderer components where it pays
+
+Pi recommends reusing `context.lastComponent` when a renderer can safely update an existing component. Octocode already centralizes renderer construction and supplies width-aware cached components for fixed content, but many result renderers construct a new component on each call.
+
+Benchmark high-frequency and streaming paths first, especially `bash`, `agent`, and `MCPTool`. Adopt component reuse only when it reduces allocation or repaint cost without retaining stale theme, width, expansion, or partial-result state. Live spinners and the footer should remain uncached where their content changes with time.
+
+=== Keep contracts and documentation generated from one baseline
+
+The source pins the fallback MCP package to a semver range, while link:TOOLS.md[Tools] still describes an `@latest` fallback. Correct that drift and add a documentation assertion or generated value so the runtime fallback, architecture guide, and tool reference cannot silently diverge.
+
+Treat link:AGENT_TOOL_AUDIT.md[Agent tool audit] as its dated snapshot, not as the current tool count or prompt baseline. Prefer live contract metrics for future activation decisions.
+
+== Subagents
+
+=== Preserve explicit authority and verified handbacks
+
+The current worker model is a strength:
+
+* every spawn packet carries goal, context, scope, ownership, acceptance criteria, and return shape;
+* named profiles receive bounded capability grants;
+* custom workers must declare both instructions and tools;
+* workers cannot receive the `agent` tool and therefore cannot recursively spawn;
+* results are pulled into the parent, normalized, and verified before plan completion;
+* session shutdown terminates owned workers and releases their capabilities.
+
+Do not replace this with implicit transcript inheritance. If an optional clone mode is ever considered, it should be separately named, visibly disclose inherited context, remain capability-bounded, and exclude unrelated secrets and tool output.
+
+=== Add graceful wrap-up before hard termination
+
+Silence-window waits and explicit abort or kill operations handle liveness, but there is no general soft turn budget that asks a worker to summarize before termination.
+
+Add a versioned policy with three states:
+
+. At the soft limit, steer the worker with a concise wrap-up request that names the required handback format.
+. Allow a small, fixed grace budget for evidence and cleanup.
+. At the hard limit, abort and return a typed partial handback that distinguishes incomplete work from failure.
+
+The parent must still verify files, tests, or cited evidence. Never convert a budget expiry into `[DONE]`.
+
+=== Group completion signals by spawn cohort
+
+Parallel workers can finish close together. Emitting one ambient notification per success adds noise without changing the parent's next action.
+
+Associate workers spawned by one query or plan step with a cohort identifier. Batch ordinary success notices for the cohort, but surface failures and requests for attention immediately. Keep the complete per-worker record in the inbox and preserve pull-based retrieval.
+
+Choose batching windows from replay tests and interactive measurements rather than copying another extension's timing constants.
+
+=== Add stable human-facing worker handles
+
+The agent ID should remain the authority, but users benefit from a stable short name in commands, completion, steering, and inspection. Resolve a handle to exactly one session-owned agent ID and reject ambiguous or stale handles.
+
+A leading-mention syntax can be explored, but it must not consume ordinary file mentions or silently start a new worker. Command completion is the safer initial implementation.
+
+=== Publish one bounded machine-readable status projection
+
+Octocode already has a normalized worker ledger, UI snapshot, inspector, and semantic events. Expose a versioned, redacted projection from that same state for integrations and tests. It should contain stable IDs, lifecycle state, parent or cohort relationship, attention state, and bounded summaries; it should not expose private artifact paths or raw transcripts.
+
+Snapshots should be authoritative. Events are delivery hints and may be coalesced or missed. This avoids terminal scraping and prevents a second source of worker truth.
+
+=== Do not expand autonomy by default
+
+These patterns require an RFC and threat-model review before implementation:
+
+* recursive subagents;
+* detached workers that survive the owning session;
+* separate persistent worker stores;
+* automatic insertion of raw handbacks into durable memory;
+* shared background and foreground capacity that can deadlock or starve interactive work.
+
+Octocode's differentiator should remain evidence-backed delegation with recoverable state, not the largest possible worker fleet.
+
+== Widgets and terminal UI
+
+=== Keep one owner for each fact
+
+The `UxSnapshotV1` and pure status policy are the right foundation. Transcript entries, footer rows, inspector detail, and semantic output should continue to derive from shared state rather than interrogating processes during render.
+
+Maintain these rules:
+
+* register a footer or widget once, then request a render when its state changes;
+* do no I/O, session scans, or tool polling in the render closure;
+* reject stale events and coalesce low-value heartbeat updates;
+* reserve ambient space for active work and attention, with full history in the inbox or inspector;
+* truncate by terminal cell width and sanitize untrusted terminal text;
+* never use color as the only signal;
+* show percentages or ETAs only when progress has a defensible denominator.
+
+=== Offer one ambient worker surface, not two
+
+A richer fleet view can help when several workers are active, but a permanent fleet widget next to the existing footer would violate the one-owner rule and consume scarce rows.
+
+If implemented, make the presentation a mode:
+
+* compact footer roster for ordinary work; or
+* interactive fleet view for navigation and steering.
+
+Do not render both simultaneously. Bound visible worker rows by viewport, prioritize failures and blocked work, and route omitted detail to the inbox. Foreground work should not be repeated in a background-only widget.
+
+=== Centralize remaining background UI ownership
+
+Most extension UI state is owned by the runtime renderer and shared store. The background `bash` path still directly owns a widget, status entry, controller, and timer.
+
+Move that state behind the same session-generation and disposal boundary used by other runtime UI. The migration should prove:
+
+* no timer or callback survives `session_shutdown`;
+* a stale session cannot update a new session's UI;
+* clearing one job cannot erase another owner's status;
+* repaint requests are deduplicated;
+* `NO_COLOR`, narrow widths, and non-TUI hosts remain correct.
+
+=== Treat cancellable overlays as a host dependency
+
+The ask-user and plan overlays can remain awaited after a tool turn is aborted. The supported Pi `custom()` surface exposes an overlay handle callback but no documented `AbortSignal` or guaranteed programmatic-dismiss contract. The same limitation is visible in the newer `0.85.1` type surface examined during this research.
+
+Do not invent an untyped dismissal call. Keep the local lifecycle guard, create a minimal upstream reproduction, and request or adopt a documented cancellation handle. Any local workaround should be version-gated and covered by abort, session-switch, and shutdown tests.
+
+== Extension lifecycle and compatibility
+
+Pi extension factories may be awaited before interactive startup. Continue to avoid starting timers, watchers, or child processes in the factory. Acquire long-lived resources from lifecycle events or an explicit tool action, and make shutdown safe to call more than once.
+
+Octocode intentionally accepts one exact Pi host version. Preserve that guard, but add a compatibility suite before a version bump:
+
+* compile against the candidate Pi types;
+* replay direct-tool rendering for partial, final, expanded, and error results;
+* verify mutation-queue behavior;
+* abort overlays and workers during session switches;
+* exercise footer and widget cleanup;
+* confirm dynamic activation and capability grants;
+* load the packaged build through Pi's real extension loader;
+* compare the documented host APIs with the adapters actually used.
+
+The exact-version policy makes compatibility failures explicit; the suite makes upgrades cheaper and less dependent on manual discovery.
+
+== Prioritized implementation backlog
+
+[cols="1,3,3,3",options="header"]
+|===
+|Priority |Change |Acceptance signal |Evidence confidence
+
+|P0
+|Add cross-extension mutation contention tests and bridge to Pi's shared queue if overlap is possible.
+|No concurrent mutation windows or lost accepted updates across aliases, failures, and mixed extension tools.
+|High: verified local queue ownership and official Pi requirement; runtime collision still needs reproduction.
+
+|P0
+|Correct fallback-version documentation drift and bind documentation to the runtime constant or a generated check.
+|Source, architecture, and tool reference report the same fallback policy.
+|High: direct source and documentation mismatch.
+
+|P0
+|Generate the public surface manifest and add a packaged-loader compatibility smoke test.
+|The installed artifact loads through the supported Pi loader; declared and observed tools, commands, statuses, widgets, events, and host APIs agree.
+|High: Octocode has real SDK tests and an exact-version guard, but no `jiti`-loader path was found in the package.
+
+|P1
+|Run a progressive direct-tool activation experiment.
+|Lower prompt contract cost with no material regression in selection accuracy, recovery, or completion.
+|High for Pi capability; medium for the optimal Octocode tool tiers.
+
+|P1
+|Create one abortable runtime owner and move background-job widget and status state into it.
+|No leaked timers, stale-session updates, duplicate owners, late UI calls, or repaint storms in lifecycle tests.
+|High: direct local evidence, existing UI contracts, and an exact external implementation.
+
+|P1
+|Introduce one freshness and authority gate for cached evidence.
+|Replays prove live facts retain authority, changed facts are demoted with a recheck route, and unverifiable facts retire without disappearing silently.
+|High for the mechanism; medium for which Octocode evidence classes need it first.
+
+|P1
+|Add attributable approval receipts and correlate forwarded worker prompts with terminal decisions.
+|Every sensitive request has one request ID, decision source, resolution, scope, and redacted audit record.
+|High: Octocode already owns approvals; external public event contracts demonstrate a compatible shape.
+
+|P1
+|Add an optional read-only reviewer profile.
+|Held-out consequential changes show fewer unverified completions without unacceptable latency, cost, or false-positive rate.
+|Medium: two implementations converge on the pattern; the benefit needs measurement.
+
+|P1
+|Add graceful worker wrap-up and typed partial handbacks.
+|Budgeted workers return useful, correctly classified evidence before hard abort.
+|Medium: strong ecosystem prior art; limits require Octocode-specific tuning.
+
+|P1
+|Batch ordinary worker completion signals by cohort.
+|Fewer notifications without delaying failures, attention requests, or result retrieval.
+|Medium: useful prior art; batching windows need measurement.
+
+|P2
+|Benchmark component reuse on high-frequency renderers.
+|Lower render allocation or latency with no stale visual state.
+|Medium: official recommendation; benefit is workload-dependent.
+
+|P2
+|Add stable worker handles and a versioned status projection.
+|Unambiguous session-scoped routing and bounded integration data without terminal scraping.
+|Medium: supported by current state model and community experience.
+
+|P2
+|Add versioned file-mutation receipts and executable stale-state recovery.
+|Results expose version fingerprints, classification, truncation state, and bounded retry data without persisting general undo content.
+|High for the local metadata gap; medium for user-visible impact.
+
+|P2
+|Add plan-step annotations to the existing browser review bridge.
+|Users can attach feedback to stable steps across revisions, and orphaned annotations remain visible and recoverable.
+|Medium: Octocode already owns the bridge; workflow value needs an interaction test.
+
+|P2
+|Add predicate-driven monitors for background jobs and worker waits.
+|The parent wakes on meaningful state changes without repeated model polling; event history remains bounded and resumable.
+|Medium: exact prior art exists; authority and notification policy require Octocode-specific design.
+
+|P2
+|Prototype an optional fleet-view mode.
+|One ambient surface at a time, bounded rows, attention-first ordering, and keyboard access.
+|Medium: prior art is good; Octocode already has a capable footer and inbox.
+
+|P3
+|Propose cancellable custom overlays upstream or adopt a documented host capability.
+|Abort and session shutdown deterministically settle every pending overlay.
+|High for the current API gap; timing depends on upstream support.
+
+|Defer
+|Detached workers, recursive delegation, implicit full-context clones, or durable raw handbacks.
+|Requires an RFC, threat model, storage policy, and evidence that simpler session-scoped workflows are insufficient.
+|High that these materially expand authority and lifecycle complexity.
+|===
+
+== Evaluation plan
+
+Measure changes against explicit sensors rather than preference.
+
+[cols="2,3",options="header"]
+|===
+|Area |Measures
+
+|Tool surface
+|Contract characters and estimated tokens; prefix-cache reuse; correct first-tool selection; schema failures; recovery-path success; total task completion.
+
+|File safety
+|Concurrent mutation-window overlap; lost-update count; alias handling; queue cleanup after thrown errors and aborts; stale-conflict recovery rate; receipt completeness.
+
+|Workers
+|Time from completion to parent verification; reviewer precision and recall; notification count per cohort; partial-handback usefulness; leaked processes; unresolved capabilities after shutdown.
+
+|UI
+|Render duration and allocation; repaint count; footer rows at widths 20 through 160; duplicate facts; stale-session update attempts; `NO_COLOR`, CJK, and emoji behavior.
+
+|Evidence and approvals
+|Live, demoted, and retired classification accuracy; stale blocking claims; request-to-decision correlation; missing or overexposed receipt fields.
+
+|Compatibility
+|Supported-host contract tests; packaged-loader success; manifest drift; adapter/type drift; overlay and worker abort settlement; session-switch cleanup.
+|===
+
+Use held-out workflows that include ordinary coding, parallel research, browser work, media tools, large output recovery, and simultaneous file edits. A prompt-size improvement should be reverted if it causes a meaningful fall in correct tool selection or task completion.
+
+== Implementation sequence
+
+. Reconcile the documentation, capture live contract metrics, and generate the public surface manifest.
+. Add the packaged-loader smoke test and the mutation-contention test before changing runtime or queue code.
+. Introduce the runtime owner and consolidate background UI ownership.
+. Run the tool-activation experiment behind a local setting or test harness.
+. Add evidence freshness and attributable decision receipts.
+. Add the reviewer profile, worker wrap-up, and cohort notifications, then measure verification quality and noise.
+. Prototype plan-step annotations, mutation recovery receipts, and monitor predicates as separate experiments.
+. Add handles and the status projection before considering a fleet view.
+. Require an RFC for detached, recursive, or cross-session execution.
+
+== Anti-patterns
+
+Do not:
+
+* render the same worker state in both a permanent footer and a permanent widget;
+* poll tools, workers, or files from a render function;
+* use a mutable rendered string as the source of truth;
+* equate worker success with verified task completion;
+* expose artifact paths or complete transcripts through a status API;
+* hide context inheritance or capability escalation;
+* invent progress percentages for dynamic plans;
+* retain timers, watchers, or child processes beyond their owning session;
+* copy community timing, concurrency, or storage constants without an Octocode evaluation.
+
+== Evidence and sources
+
+=== Octocode implementation and contracts
+
+* link:../ARCHITECTURE.md[Pi extension architecture]
+* link:TOOLS.md[Direct tool palette and execution contract]
+* link:SUBAGENTS.md[Subagent model]
+* link:AGENT_ORCHESTRATOR.md[Agent orchestration architecture]
+* link:UI.md[Terminal UI contract]
+* link:STATUS_PROGRESS_UX.md[Adaptive status and progress UX]
+* link:AGENT_TOOL_AUDIT.md[Dated agent tool audit]
+* link:../src/tools/file-state.ts[File mutation queue]
+* link:../src/tools/tool-result-budget.ts[Tool result budget and recovery]
+* link:../src/tools/runtime-renderer.ts[Runtime renderer ownership]
+* link:../src/extension-ui.ts[Snapshot-driven extension UI]
+* link:../src/adapters/pi-host-compatibility.ts[Pi host compatibility guard]
+
+=== Pi primary sources
+
+* https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/docs/extensions.md[Pi extension guide at the supported tag]
+* https://github.com/earendil-works/pi/blob/v0.84.4/packages/coding-agent/docs/tui.md[Pi TUI guide at the supported tag]
+* https://github.com/earendil-works/pi/tree/v0.84.4/packages/coding-agent/examples/extensions/subagent[Official subagent example at the supported tag]
+
+=== Community prior art
+
+* https://pi.dev/packages[Pi package catalog]
+* https://github.com/apmantza/pi-lens[pi-lens]
+* https://github.com/nicobailon/pi-mcp-adapter[Pi MCP Adapter]
+* https://github.com/nicobailon/pi-subagents/blob/main/README.md[nicobailon/pi-subagents overview]
+* https://github.com/nicobailon/pi-subagents/blob/main/docs/observability.md[nicobailon/pi-subagents observability model]
+* https://github.com/tintinweb/pi-subagents/blob/master/README.md[tintinweb/pi-subagents orchestration and UI patterns]
+* https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system[gotgenes Pi permission system]
+* https://github.com/backnotprop/plannotator[Plannotator]
+* https://github.com/nicobailon/pi-interactive-shell[Pi Interactive Shell]
+* https://github.com/YuGiMob/pi-hashline-edit-pro[pi-hashline-edit-pro]
+* https://github.com/tmonk/pi-goal-x[pi-goal-x]
+* https://github.com/nicobailon/pi-powerline-footer[Pi Powerline Footer]
+* https://github.com/narumiruna/pi-extensions/blob/main/packages/pi-subagents/src/widget.ts[narumiruna/pi-extensions session-owned widget]
+* https://github.com/earendil-works/pi/discussions/7474[Pi extension-hardening discussion]
+
+Official Pi documentation and Octocode source provide the strongest evidence. Community implementations support option discovery; their design choices remain hypotheses until they pass Octocode's security, usability, and lifecycle tests.

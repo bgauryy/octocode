@@ -32,7 +32,8 @@ attaches runtime behavior to core's canonical catalog.
 - **Package**: `artifactSearch`.
 - **Local** (`security: 'basic'`): `localSearch`, `astSearch`, and
   `localFetch`.
-- **LSP**: `lspSearch` (needs server runtime).
+- **LSP**: `lspSearch`; its engine-managed local client pool does not initialize
+  GitHub providers or the server runtime.
 
 Each tool lives in `src/tools/<tool_name>/` with `execution.ts` (the bulk-loop
 `executionFn`), plus `finalizer.ts` / `types.ts` and helper modules as needed.

@@ -903,12 +903,14 @@ test('public MCP list continuations cover a real server catalog without losing d
 function createCallGateMcpFixture(): {
   ctx: import("../src/types.js").PiContext;
   callMarker: string;
+  listMarker: string;
   cleanup: () => void;
 } {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), ".tmp-mcp-call-gate-"));
   process.env["OCTOCODE_HOME"] = path.join(cwd, ".octocode-home");
   const serverPath = path.join(cwd, "server.mjs");
   const callMarker = path.join(cwd, "called.ndjson");
+  const listMarker = path.join(cwd, "listed.ndjson");
   fs.writeFileSync(
     serverPath,
     `
@@ -922,13 +924,16 @@ function createCallGateMcpFixture(): {
       properties: { value: { type: 'string', minLength: 2 } },
     };
     const server = new Server({ name: 'mock-call-gate', version: '1.0.0' }, { capabilities: { tools: {} } });
-    server.setRequestHandler('tools/list', async () => ({
-      tools: [
-        { name: 'echo', description: 'Echo validated text.', inputSchema },
-        { name: 'upper', description: 'Uppercase validated text.', inputSchema },
-        { name: 'unsupported', description: 'Expose an unsupported schema dialect.', inputSchema: { '$schema': 'urn:unsupported', type: 'object' } },
-      ],
-    }));
+    server.setRequestHandler('tools/list', async () => {
+      fs.appendFileSync(${JSON.stringify(listMarker)}, 'list\\n');
+      return {
+        tools: [
+          { name: 'echo', description: 'Echo validated text.', inputSchema },
+          { name: 'upper', description: 'Uppercase validated text.', inputSchema },
+          { name: 'unsupported', description: 'Expose an unsupported schema dialect.', inputSchema: { '$schema': 'urn:unsupported', type: 'object' } },
+        ],
+      };
+    });
     server.setRequestHandler('tools/call', async (request) => {
       fs.appendFileSync(${JSON.stringify(callMarker)}, JSON.stringify(request.params) + '\\n');
       const value = request.params.arguments?.value;
@@ -958,6 +963,7 @@ function createCallGateMcpFixture(): {
       isProjectTrusted: () => true,
     } as unknown as import("../src/types.js").PiContext,
     callMarker,
+    listMarker,
     cleanup: () => fs.rmSync(cwd, { recursive: true, force: true }),
   };
 }
@@ -2129,12 +2135,27 @@ test("parallel MCP calls may target the same server and report each result indep
     assert.match((res.content[0] as { text: string }).text, /2 queries succeeded · parallel/i);
     assert.match((res.content[1] as { text: string }).text, /first/i);
     assert.match((res.content[2] as { text: string }).text, /second/i);
+    assert.equal(fs.readFileSync(fixture.listMarker, "utf8").trim().split("\n").length, 1,
+      "same-server parallel calls must share one schema discovery request");
   } finally {
     stopAllMcpServers();
     fixture.cleanup();
   }
 });
-
+test("describe and call reuse the same live schema discovery", async () => {
+  const fixture = createCallGateMcpFixture();
+  try {
+    assert.equal((await handleMcpAction({ action: "describe", server: "octocode", tool: "echo" }, undefined, fixture.ctx)).isError ?? false, false);
+    assert.equal((await handleMcpAction({
+      action: "call", server: "octocode", tool: "echo", arguments: { value: "after describe" },
+    }, undefined, fixture.ctx)).isError ?? false, false);
+    assert.equal(fs.readFileSync(fixture.listMarker, "utf8").trim().split("\n").length, 1,
+      "describe should establish the live schema used by the following call");
+  } finally {
+    stopAllMcpServers();
+    fixture.cleanup();
+  }
+});
 test("single-query passthrough: result is returned directly (not aggregate)", async () => {
   const ctx = {
     cwd: fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-sq-")),

@@ -5,21 +5,9 @@ import { createErrorResult } from '../../utils/file/toolHelpers.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../errors/localToolErrors.js';
 import { TOOL_NAMES } from '../toolMetadata/names.js';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
+import { applyWorkflowMode } from './queryWorkflow.js';
 import { executeRipgrepSearchInternal } from './ripgrepExecutor.js';
 import { searchContentStructural } from './structuralSearch.js';
-
-function applyWorkflowMode(query: RipgrepQuery): RipgrepQuery {
-  const mode = query.mode;
-  if (!mode) return query;
-
-  const next: RipgrepQuery = { ...query };
-  if (mode === 'discovery' && next.output === 'content') {
-    next.output = 'files';
-  } else if (mode === 'detailed' && next.contextLines === undefined) {
-    next.contextLines = 3;
-  }
-  return next;
-}
 
 export async function searchContentRipgrep(
   query: RipgrepQuery

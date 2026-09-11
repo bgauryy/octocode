@@ -15,7 +15,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { listSkills, getSkill } from '../registry.js';
 import { getSkillsHome } from '../home.js';
-import { getPlatformSkillsDir, parsePlatforms } from '../platforms.js';
+import {
+  ALL_PLATFORMS,
+  getPlatformSkillsDir,
+  parsePlatforms,
+} from '../platforms.js';
 import type { Platform } from '../platforms.js';
 import { bold, dim, c } from '../../../../utils/colors.js';
 import { shortPath } from '../utils/paths.js';
@@ -65,17 +69,7 @@ function existsOnDisk(p: string): boolean {
 
 /** Find all platform locations where a skill is currently installed. */
 function detectPlatformLocations(skillName: string): RemoveTarget[] {
-  const all: Platform[] = [
-    'pi',
-    'cursor',
-    'claude',
-    'claude-desktop',
-    'codex',
-    'opencode',
-    'copilot',
-    'gemini',
-    'common',
-  ];
+  const all: Platform[] = [...ALL_PLATFORMS];
   const found: RemoveTarget[] = [];
   const seen = new Set<string>();
 

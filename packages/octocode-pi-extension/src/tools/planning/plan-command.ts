@@ -265,16 +265,22 @@ async function servePlanPage(ctx: PiContext | undefined, scope: string): Promise
     onAction: async (raw) => {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid plan action');
       const value = raw as Record<string, unknown>;
-      if (value['action'] === 'start' && typeof value['revision'] === 'string') {
+      if ((value['action'] === 'start' || value['action'] === 'approve') && typeof value['revision'] === 'string') {
         const state = getPlanReviewState(scope);
         if (state.acceptedRevision === value['revision'] && getCurrentPlanReadModel(ctx, scope).authorization.startReceiptId && ['executing', 'verifying', 'complete'].includes(state.phase)) return { updated: false };
         const started = startReviewedPlan(scope, value['revision'], ctx);
         if (!started.ok) throw new Error(started.message);
         writeCurrentPlanArtifacts(ctx, scope, 'active');
-      } else if (value['action'] === 'changes') {
+      } else if (value['action'] === 'changes' || value['action'] === 'revise' || value['action'] === 'reject') {
         const changed = requestPlanChanges(scope);
         if (!changed.ok) throw new Error(changed.message);
-        if (typeof value['notes'] === 'string' && value['notes'].trim()) addPlanDecision(scope, 'Requested plan changes', value['notes']);
+        if (typeof value['notes'] === 'string' && value['notes'].trim()) {
+          addPlanDecision(
+            scope,
+            value['action'] === 'reject' ? 'Rejected plan' : 'Requested plan changes',
+            value['notes'],
+          );
+        }
         writeCurrentPlanArtifacts(ctx, scope, 'draft');
       } else throw new Error('Invalid plan action');
       refreshPlanUi(ctx);

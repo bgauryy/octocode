@@ -69,7 +69,7 @@ describe('ghSearch unified public contract', () => {
     }
   });
 
-  it('rewrites legacy search continuations to the unified strict branch', () => {
+  it('preserves native public continuations without a compatibility rewrite', () => {
     const output = buildGitHubSearchFinalizer()({
       queries: [{ operation: 'repositories', keywords: ['needle'] }],
       results: [
@@ -86,8 +86,12 @@ describe('ghSearch unified public contract', () => {
             },
             next: {
               more: {
-                tool: 'github.repositories',
-                query: { keywords: ['needle'], page: 2 },
+                tool: 'ghSearch',
+                query: {
+                  operation: 'repositories',
+                  keywords: ['needle'],
+                  page: 2,
+                },
               },
             },
           },
@@ -98,7 +102,7 @@ describe('ghSearch unified public contract', () => {
     const serialized = JSON.stringify(output.structuredContent);
     expect(serialized).toContain('"tool":"ghSearch"');
     expect(serialized).toContain('"operation":"repositories"');
-    expect(serialized).not.toContain('"tool":"github.repositories"');
+    expect(serialized).not.toMatch(/"tool":"github\./);
   });
 
   it('declares GitHub search-window loss and suppresses a continuation beyond the provider cap', () => {

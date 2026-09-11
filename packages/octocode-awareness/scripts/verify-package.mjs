@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -198,10 +198,20 @@ try {
   const skillDestination = join(skillProject, '.agents/skills/octocode-awareness');
   const preview = JSON.parse(run(process.execPath, [cli, 'skill', 'install', '--platform', 'shared', '--project-dir', skillProject, '--dry-run', '--compact'], installedOptions));
   assert(preview.ok === true && preview.action === 'dry-run', 'published CLI skill install preview failed');
-  assert(preview.destination === skillDestination, 'published CLI skill install preview resolved the wrong destination');
+  assert(preview.skills?.[0]?.destinations?.[0]?.destination === skillDestination, 'published CLI skill install preview resolved the wrong destination');
   assert(!existsSync(skillDestination), 'published CLI skill install preview wrote files');
   const skillInstall = JSON.parse(run(process.execPath, [cli, 'skill', 'install', '--platform', 'shared', '--project-dir', skillProject, '--compact'], installedOptions));
-  assert(skillInstall.ok === true && skillInstall.changed === true, 'published CLI did not install its bundled skill');
+  assert(
+    skillInstall.ok === true
+      && skillInstall.skills?.[0]?.canonicalStatus === 'installed'
+      && skillInstall.skills?.[0]?.destinations?.[0]?.status === 'linked',
+    'published CLI did not install and link its bundled skill',
+  );
+  assert(lstatSync(skillDestination).isSymbolicLink(), 'published CLI destination must be a directory symlink');
+  assert(
+    realpathSync(skillDestination) === realpathSync(skillInstall.skills[0].canonical),
+    'published CLI destination must link to the durable canonical copy',
+  );
   assert(readFileSync(join(skillDestination, 'SKILL.md')).equals(readFileSync(join(installed, 'out/skills/octocode-awareness/SKILL.md'))), 'installed skill differs from the CLI bundle');
   const evidenceWorkspace = join(isolated, 'evidence-workspace');
   mkdirSync(evidenceWorkspace);

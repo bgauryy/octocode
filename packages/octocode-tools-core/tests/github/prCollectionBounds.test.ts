@@ -43,6 +43,11 @@ vi.mock('../../src/providers/factory.js', () => ({
       (
         await import('../../src/providers/github/githubPullRequests.js')
       ).searchPullRequests(query, options.authInfo),
+    fetchCommit: async (query: never) =>
+      (await import('../../src/github/commit.js')).fetchCommit(
+        query,
+        options.authInfo
+      ),
   }),
 }));
 import { clearAllCache } from '../../src/utils/http/cache/management.js';

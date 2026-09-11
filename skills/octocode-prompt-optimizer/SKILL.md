@@ -5,13 +5,18 @@ description: "Use when a prompt, agent or MCP instruction, tool/schema descripti
 
 # Octocode prompt optimizer
 
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-eval-benchmark`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Optimize instruction behavior, not prose aesthetics. A rule that states a preference changes nothing — "be efficient with tools" leaves every call open; "reuse a schema you already fetched; fetch only for an unfamiliar tool" decides the next call.
 
 Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`.
 
 Make each rule decide an observable action. Use the questions in `references/behavior.md` to resolve ambiguity; a rule does not need five labeled parts. When the input is a goal rather than an existing prompt, skip RATE.
 
-Workspace output contract: chat-only deltas stay in chat. New saved reviews or unnamed optimized drafts default to `<workspace>/.octocode/octocode-prompt-optimizer/`; scratch data uses `<workspace>/.octocode/tmp/octocode-prompt-optimizer/`. User-approved prompt, schema, policy, and source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+Reviews/drafts: `<output>/octocode-prompt-optimizer/`; scratch: `<output>/tmp/octocode-prompt-optimizer/`. Chat-only deltas stay in chat; approved prompt/schema/policy/source edits keep their paths.
 
 ## Rules
 - Read the complete input and map its intent before judging it. Rate evidenced issues before drafting fixes.
@@ -44,7 +49,7 @@ Load references that resolve the current decision. Reuse material already read a
 | A token saving, compression ratio, or context-cost claim needs proof | `references/token-measurement.md` | tokens per fact, task-specific comparison, and verification |
 | A reliability claim needs proof | `references/evaluation-data.md` | held-out scenarios, verifiers, metrics, failure ledger |
 | Instructions consume retrieved or user-supplied content | `references/untrusted-content.md` | the boundary between data and authority |
-| Improving this skill | `octocode-eval-benchmark`, else `references/improve-loop.md` | measurable acceptance instead of intuition |
+| Improving this skill | `octocode-eval-benchmark`; if unavailable, freeze goal/KPI/baseline and use comparable accept/revert evidence | measurable acceptance instead of intuition |
 
 ## Related routes
 - Use `octocode-skills` for skill-folder architecture/review and `octocode-eval-benchmark` for held-out behavior. To verify technical contracts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.

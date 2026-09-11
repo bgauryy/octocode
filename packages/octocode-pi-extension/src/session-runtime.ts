@@ -30,7 +30,9 @@ export class SessionRuntime {
   readonly signal: AbortSignal;
   private readonly controller = new AbortController();
   private readonly rendererDisposer: RuntimeRendererDisposer;
-  private readonly onDispose?: SessionRuntimeDisposer;
+  private readonly cleanups: Array<{ active: boolean; dispose: SessionRuntimeDisposer }> = [];
+  private readonly cleanupFailures: string[] = [];
+  private cleanupClosed = false;
   private disposePromise?: Promise<void>;
 
   constructor(options: SessionRuntimeOptions = {}) {
@@ -38,7 +40,21 @@ export class SessionRuntime {
     this.generation = this.store.getState().begin('loading configuration');
     this.signal = this.controller.signal;
     this.rendererDisposer = (options.bindRenderer ?? bindRuntimeRenderer)(options.ctx, this.store);
-    this.onDispose = options.onDispose;
+    if (options.onDispose) this.addCleanup(options.onDispose);
+  }
+
+  addCleanup(dispose: SessionRuntimeDisposer): () => void {
+    if (this.cleanupClosed) {
+      void this.runCleanup(dispose, 'late-registration');
+      return () => undefined;
+    }
+    const entry = { active: true, dispose };
+    this.cleanups.push(entry);
+    return () => { entry.active = false; };
+  }
+
+  getCleanupFailures(): readonly string[] {
+    return [...this.cleanupFailures];
   }
 
   isCurrent(): boolean {
@@ -89,11 +105,25 @@ export class SessionRuntime {
       // the retiring generation must never paint through a replaced Pi context.
       this.rendererDisposer({ clearUi: reason === 'quit' });
       try {
-        await this.onDispose?.(reason);
+        while (this.cleanups.length > 0) {
+          const cleanup = this.cleanups.pop();
+          if (cleanup?.active) await this.runCleanup(cleanup.dispose, reason);
+        }
       } finally {
+        this.cleanupClosed = true;
         this.store.getState().disposed();
       }
     })();
     return this.disposePromise;
+  }
+
+  private async runCleanup(dispose: SessionRuntimeDisposer, reason: string): Promise<void> {
+    try {
+      await dispose(reason);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.cleanupFailures.push(message);
+      this.store.getState().announce(`Octocode cleanup warning: ${message}`, 'warning');
+    }
   }
 }

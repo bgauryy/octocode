@@ -6,9 +6,12 @@ Reference, not a tutorial. Regenerate the extension lists from the engine itself
 node -e "const n=require('./packages/octocode-engine/index.js');
 console.log('structural', n.getSupportedStructuralExtensions().sort());
 console.log('signatures', n.getSupportedSignatureExtensions().sort());
-console.log('jsts', n.getSupportedJsTsExtensions().sort());
-console.log('minify', Object.keys(n.getMINIFY_CONFIG().fileTypes).sort());"
+console.log('jsts', n.getSupportedJsTsExtensions().sort());"
 ```
+
+Minifier routing is internal. Test `minifyContent()` or
+`applyContentViewMinification()` with representative file paths instead of
+depending on the strategy table.
 
 ## Structural (AST) search — `astSearch operation:"match"`
 

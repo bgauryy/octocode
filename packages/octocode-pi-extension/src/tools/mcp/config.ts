@@ -7,13 +7,13 @@ import { readMcpConfigText } from '@octocodeai/agent-contracts/agent-skills';
 import { capabilitySourcePaths, type CapabilityPathOptions } from '@octocodeai/agent-contracts/capability-sources';
 import type { CapabilitySourceStatus } from '@octocodeai/agent-contracts/capability-state';
 import type { ReadableSqlite } from '@octocodeai/agent-contracts/schema';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
 import type { PiContext } from '../../types.js';
 import { extensionCacheRoot, extensionStateDbPath } from '../../extension-paths.js';
 import { discoverMcpConfigSources, globalMcpPath, projectMcpPath, globalMcpConfigPaths, projectMcpConfigPaths } from './config-sources.js';
 export { reviewMcpSource, globalMcpPath, projectMcpPath, globalMcpConfigPaths, projectMcpConfigPaths } from './config-sources.js';
 
 import { openOctocodeDb } from '../storage-policy.js';
+import { writePrivateFileAtomicSync } from '../atomic-state-file.js';
 
 export interface McpServerConfig {
   transport?: 'stdio' | 'http';
@@ -314,12 +314,7 @@ function serverContainer(raw: Record<string, unknown>): Record<string, unknown> 
 }
 
 function writeMcpJsonAtomic(filePath: string, raw: unknown): void {
-  ensurePrivateDirectory(path.dirname(filePath));
-  hardenPrivateFile(filePath);
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(raw, null, 2) + '\n', { encoding: 'utf8', mode: PRIVATE_FILE_MODE, flag: 'wx' });
-  fs.renameSync(tmp, filePath);
-  hardenPrivateFile(filePath);
+  writePrivateFileAtomicSync(filePath, JSON.stringify(raw, null, 2) + '\n');
 }
 
 /** Insert or update a server in an mcp.json file. Validates via parseServerConfig. */

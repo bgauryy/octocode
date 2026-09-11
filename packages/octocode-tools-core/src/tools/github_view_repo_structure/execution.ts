@@ -1,19 +1,16 @@
-import type { CallToolResult } from '@modelcontextprotocol/server';
-import type { z } from 'zod';
-import type { GitHubViewRepoStructureQuerySchema } from '@octocodeai/octocode-core/schema';
-import type {
-  GitHubViewRepoStructureToolResult,
-  GitHubRepoStructureDirectoryEntry,
-} from '@octocodeai/octocode-core/extra-types';
+import {
+  GITHUB_SEARCH_TOOL_NAME,
+  type GitHubSearchQuery,
+} from '@octocodeai/octocode-core/schema';
+import type { GitHubRepoStructureDirectoryEntry } from '@octocodeai/octocode-core/extra-types';
 
-type GitHubViewRepoStructureQuery = z.infer<
-  typeof GitHubViewRepoStructureQuerySchema
+type GitHubViewRepoStructureQuery = Extract<
+  GitHubSearchQuery,
+  { operation: 'tree' }
 >;
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 type PartialRepoStructureQuery = WithOptionalMeta<GitHubViewRepoStructureQuery>;
-import { TOOL_NAMES } from '../toolMetadata/names.js';
-import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import {
   shouldIgnoreDiscoveryFile,
@@ -56,8 +53,9 @@ function normalizeStructureErrorResult(
     status === 404
       ? {
           retryParent: {
-            tool: 'github.tree',
+            tool: 'ghSearch',
             query: {
+              operation: 'tree',
               owner: query.owner,
               repo: query.repo,
               ...(parent ? { path: parent } : {}),
@@ -67,8 +65,9 @@ function normalizeStructureErrorResult(
             confidence: 'low',
           },
           searchPath: {
-            tool: 'github.code',
+            tool: 'ghSearch',
             query: {
+              operation: 'code',
               owner: query.owner,
               repo: query.repo,
               match: 'path',
@@ -136,7 +135,7 @@ export function filterStructure(
 
 export async function exploreRepositoryStructure(
   query: PartialRepoStructureQuery,
-  args: ToolExecutionArgs<PartialRepoStructureQuery>,
+  args: ToolExecutionArgs<GitHubSearchQuery>,
   getProviderContext = createLazyProviderContext(args.authInfo)
 ): Promise<ProcessedBulkResult> {
   try {
@@ -218,7 +217,7 @@ export async function exploreRepositoryStructure(
       query,
       resultData as unknown as Record<string, unknown>,
       hasContent,
-      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
+      GITHUB_SEARCH_TOOL_NAME,
       {
         rawResponse: providerResult.response.rawResponseChars,
       }
@@ -228,29 +227,7 @@ export async function exploreRepositoryStructure(
       error,
       query,
       'Failed to explore repository structure',
-      TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE
+      GITHUB_SEARCH_TOOL_NAME
     );
   }
-}
-
-export async function exploreMultipleRepositoryStructures(
-  args: ToolExecutionArgs<PartialRepoStructureQuery>
-): Promise<CallToolResult> {
-  const getProviderContext = createLazyProviderContext(args.authInfo);
-  return executeBulkOperation(
-    args.queries,
-    query => exploreRepositoryStructure(query, args, getProviderContext),
-    {
-      toolName: TOOL_NAMES.GITHUB_VIEW_REPO_STRUCTURE,
-      keysPriority: [
-        'resolvedBranch',
-        'branchFallback',
-        'summary',
-        'pagination',
-        'structure',
-        'error',
-      ] satisfies Array<keyof GitHubViewRepoStructureToolResult>,
-    },
-    args
-  );
 }

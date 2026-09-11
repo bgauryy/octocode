@@ -1,11 +1,11 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { z } from 'zod';
 
-import { fetchCommit } from '../../github/commit.js';
 import { isGitHubAPIError } from '../../github/githubAPI.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { createLazyProviderContext } from '../providerExecution.js';
+import { requireGitHubHistoryProvider } from '../../providers/github/historyProvider.js';
 import {
   GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
   GITHUB_SEARCH_HISTORY_TOOL_NAME,
@@ -28,7 +28,6 @@ import {
   GitHubGetHistoryItemQueryLocalSchema,
   GitHubSearchHistoryQueryLocalSchema,
 } from '@octocodeai/octocode-core/schema';
-import { GitHubPullRequestSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
 import { withDiffContinuations } from './historyDiffContinuations.js';
 import { withContentContinuations } from './historyPartialContinuations.js';
 import {
@@ -40,10 +39,6 @@ type PublicArgs = ToolExecutionArgs<Record<string, unknown>>;
 type SearchHistoryQuery = z.infer<typeof GitHubSearchHistoryQueryLocalSchema>;
 type HistoryItemQuery = z.infer<typeof GitHubGetHistoryItemQueryLocalSchema>;
 
-function parseInternalQuery(query: Record<string, unknown>) {
-  return safeParseOrError(GitHubPullRequestSearchQueryLocalSchema, query);
-}
-
 function withoutOperation(query: Record<string, unknown>) {
   const { operation: _operation, ...rest } = query;
   return rest;
@@ -51,7 +46,7 @@ function withoutOperation(query: Record<string, unknown>) {
 
 async function executeSearchQuery(
   query: Record<string, unknown>,
-  args: PublicArgs,
+  _args: PublicArgs,
   getProviderContext: ReturnType<typeof createLazyProviderContext>
 ): Promise<ProcessedBulkResult> {
   const parsedPublic = safeParseOrError(
@@ -70,14 +65,13 @@ async function executeSearchQuery(
           ? 'issues'
           : 'commits',
   } as GitHubPullRequestSearchInput;
-  const parsedInternal = parseInternalQuery(internalQuery);
-  if (parsedInternal.ok === false) return parsedInternal.error;
+  const parsedInternal = internalQuery as GitHubPullRequestSearchQuery;
 
   if (operation === 'pullRequests') {
     return withSearchPageContinuation(
       await handlePullRequestsMode(
         internalQuery,
-        parsedInternal.data,
+        parsedInternal,
         getProviderContext,
         GITHUB_SEARCH_HISTORY_TOOL_NAME
       ),
@@ -89,8 +83,10 @@ async function executeSearchQuery(
     return withSearchPageContinuation(
       await handleIssuesMode(
         internalQuery,
-        parsedInternal.data,
-        args.authInfo,
+        parsedInternal,
+        requireGitHubHistoryProvider(getProviderContext().provider, [
+          'fetchIssues',
+        ]),
         GITHUB_SEARCH_HISTORY_TOOL_NAME
       ),
       query,
@@ -100,8 +96,12 @@ async function executeSearchQuery(
   return withSearchPageContinuation(
     await handleCommitsMode(
       internalQuery,
-      parsedInternal.data,
-      args.authInfo,
+      parsedInternal,
+      requireGitHubHistoryProvider(getProviderContext().provider, [
+        'searchCommits',
+        'compareRefs',
+        'fetchHistory',
+      ]),
       GITHUB_SEARCH_HISTORY_TOOL_NAME
     ),
     query,
@@ -111,7 +111,7 @@ async function executeSearchQuery(
 
 async function executeItemQuery(
   query: Record<string, unknown>,
-  args: PublicArgs,
+  _args: PublicArgs,
   getProviderContext: ReturnType<typeof createLazyProviderContext>
 ): Promise<ProcessedBulkResult> {
   const parsedPublic = safeParseOrError(
@@ -122,33 +122,31 @@ async function executeItemQuery(
   const item = parsedPublic.data as HistoryItemQuery;
 
   if (item.operation === 'commit') {
-    const result = await fetchCommit(
-      {
-        owner: String(item.owner),
-        repo: String(item.repo),
-        ref: String(item.ref),
-        ...(typeof item.fileBatch === 'number'
-          ? { fileBatch: item.fileBatch }
-          : {}),
-        ...(typeof item.includeDiff !== 'boolean'
-          ? {}
-          : { includeDiff: item.includeDiff }),
-        ...(typeof item.path !== 'string' ? {} : { path: item.path }),
-        ...(typeof item.filePage !== 'number'
-          ? {}
-          : { filePage: item.filePage }),
-        ...(typeof item.pageSize !== 'number'
-          ? {}
-          : { itemsPerPage: item.pageSize }),
-        ...(typeof item.charOffset !== 'number'
-          ? {}
-          : { charOffset: item.charOffset }),
-        ...(typeof item.charLength !== 'number'
-          ? {}
-          : { charLength: item.charLength }),
-      },
-      args.authInfo
-    );
+    const result = await requireGitHubHistoryProvider(
+      getProviderContext().provider,
+      ['fetchCommit']
+    ).fetchCommit({
+      owner: String(item.owner),
+      repo: String(item.repo),
+      ref: String(item.ref),
+      ...(typeof item.fileBatch === 'number'
+        ? { fileBatch: item.fileBatch }
+        : {}),
+      ...(typeof item.includeDiff !== 'boolean'
+        ? {}
+        : { includeDiff: item.includeDiff }),
+      ...(typeof item.path !== 'string' ? {} : { path: item.path }),
+      ...(typeof item.filePage !== 'number' ? {} : { filePage: item.filePage }),
+      ...(typeof item.pageSize !== 'number'
+        ? {}
+        : { itemsPerPage: item.pageSize }),
+      ...(typeof item.charOffset !== 'number'
+        ? {}
+        : { charOffset: item.charOffset }),
+      ...(typeof item.charLength !== 'number'
+        ? {}
+        : { charLength: item.charLength }),
+    });
     if (isGitHubAPIError(result)) {
       return createErrorResult(result, query, {
         toolName: GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
@@ -175,14 +173,13 @@ async function executeItemQuery(
         : { type: 'commits' }),
   } as GitHubPullRequestSearchInput;
   delete (internalQuery as Record<string, unknown>).number;
-  const parsedInternal = parseInternalQuery(internalQuery);
-  if (parsedInternal.ok === false) return parsedInternal.error;
+  const parsedInternal = internalQuery as GitHubPullRequestSearchQuery;
 
   if (item.operation === 'pullRequest') {
     return withContentContinuations(
       await handlePullRequestsMode(
         internalQuery,
-        parsedInternal.data,
+        parsedInternal,
         getProviderContext,
         GITHUB_GET_HISTORY_ITEM_TOOL_NAME
       ),
@@ -193,8 +190,10 @@ async function executeItemQuery(
     return withContentContinuations(
       await handleIssuesMode(
         internalQuery,
-        parsedInternal.data,
-        args.authInfo,
+        parsedInternal,
+        requireGitHubHistoryProvider(getProviderContext().provider, [
+          'fetchIssues',
+        ]),
         GITHUB_GET_HISTORY_ITEM_TOOL_NAME
       ),
       item.operation
@@ -202,8 +201,12 @@ async function executeItemQuery(
   }
   return handleCommitsMode(
     internalQuery,
-    parsedInternal.data as GitHubPullRequestSearchQuery,
-    args.authInfo,
+    parsedInternal,
+    requireGitHubHistoryProvider(getProviderContext().provider, [
+      'searchCommits',
+      'compareRefs',
+      'fetchHistory',
+    ]),
     GITHUB_GET_HISTORY_ITEM_TOOL_NAME
   );
 }

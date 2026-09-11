@@ -1,5 +1,5 @@
-import { FTS_SCHEMA_DDL, HOOK_RECEIPTS_DDL, SCHEMA_DDL } from '../db-schema.js';
-import { WORKER_LIFECYCLE_DDL } from '../db-worker-schema.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL } from '../db-schema.js';
+import { HOOK_RECEIPTS_DDL } from '../db-meta-schema.js';
 import { DEFAULT_AWARENESS_STORAGE_SCOPE, globalAwarenessDatabasePath } from '../storage-scope.js';
 
 export type AwarenessEntityKind = 'table' | 'virtual_table';
@@ -36,6 +36,7 @@ function ddlRelations(ddl: string): Array<{ name: string; kind: AwarenessEntityK
 }
 
 const FAMILY_BY_NAME: Record<string, string> = {
+  awareness_meta: 'storage',
   hook_receipts: 'hooks',
   sessions: 'presence',
   awareness_memories: 'memory',
@@ -67,7 +68,6 @@ const FAMILY_BY_NAME: Record<string, string> = {
   pending_interactions: 'interactions',
   authorization_receipts: 'authorization',
   capability_receipts: 'authorization',
-  worker_lifecycle_events: 'workers',
   local_history_operations: 'history',
   local_history_versions: 'history',
   local_history_restores: 'history',
@@ -75,11 +75,12 @@ const FAMILY_BY_NAME: Record<string, string> = {
 };
 
 /**
- * Read-only entity catalog derived from the executable Awareness DDL and
- * optional worker audit relation. It never opens a database or reads rows.
+ * Read-only entity catalog derived from the executable canonical Awareness DDL.
+ * It never opens a database or reads rows. Predecessor-only relations are not
+ * advertised as current entities.
  */
 export function awarenessEntityCatalog(env: NodeJS.ProcessEnv = process.env): AwarenessEntityCatalog {
-  const canonical = ddlRelations(`${HOOK_RECEIPTS_DDL}\n${SCHEMA_DDL}\n${WORKER_LIFECYCLE_DDL}`);
+  const canonical = ddlRelations(`${HOOK_RECEIPTS_DDL}\n${SCHEMA_DDL}`);
   const search = ddlRelations(FTS_SCHEMA_DDL);
   const names = new Map<string, { name: string; kind: AwarenessEntityKind }>();
   for (const relation of [...canonical, ...search]) names.set(relation.name, relation);

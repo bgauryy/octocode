@@ -31,6 +31,22 @@ export interface SessionMemoryUpdate {
   signature: string;
 }
 
+export type SessionMemoryIssueCode =
+  | 'file-too-large'
+  | 'too-many-entries'
+  | 'entry-too-long';
+
+export interface SessionMemoryIssue {
+  code: SessionMemoryIssueCode;
+  message: string;
+}
+
+export type SessionMemoryReadState =
+  | { state: 'empty'; content?: undefined }
+  | { state: 'ready'; content: string }
+  | { state: 'invalid'; content?: undefined; issues: SessionMemoryIssue[] }
+  | { state: 'unavailable'; content?: undefined; message: string };
+
 /** Deliver current session memory only when its bounded bytes changed. */
 export function projectSessionMemoryUpdate(
   current: string,
@@ -46,12 +62,36 @@ export function projectSessionMemoryUpdate(
   return { content: current, signature: current };
 }
 
-function truncateUtf8(text: string, maxBytes: number): string {
-  const bytes = Buffer.from(text, 'utf8');
-  if (bytes.length <= maxBytes) return text;
-  let end = maxBytes;
-  while (end > 0 && (bytes[end]! & 0b1100_0000) === 0b1000_0000) end -= 1;
-  return bytes.subarray(0, end).toString('utf8');
+function validateSessionMemory(text: string): SessionMemoryIssue[] {
+  const issues: SessionMemoryIssue[] = [];
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > SESSION_MEMORY_MAX_BYTES) {
+    issues.push({
+      code: 'file-too-large',
+      message: `memory.md is ${bytes} bytes; maximum ${SESSION_MEMORY_MAX_BYTES}`,
+    });
+  }
+  const lines = text.split(/\r?\n/);
+  const firstSection = lines.findIndex(line => /^##\s+/.test(line));
+  const entries = (firstSection < 0 ? [] : lines.slice(firstSection + 1)).filter(
+    line => line.trim() && !/^##\s+/.test(line)
+  );
+  if (entries.length > 10) {
+    issues.push({
+      code: 'too-many-entries',
+      message: `memory.md has ${entries.length} entries; maximum 10`,
+    });
+  }
+  entries.forEach((entry, index) => {
+    const length = Array.from(entry).length;
+    if (length > 200) {
+      issues.push({
+        code: 'entry-too-long',
+        message: `memory.md entry ${index + 1} has ${length} characters; maximum 200`,
+      });
+    }
+  });
+  return issues;
 }
 
 export function initializeSessionMemory(ctx: SessionArtifactContext): string {
@@ -61,17 +101,28 @@ export function initializeSessionMemory(ctx: SessionArtifactContext): string {
   return memoryPath;
 }
 
-/** Read only meaningful, bounded current bytes for prompt/rehydration projection. */
-export function readSessionMemory(ctx: SessionArtifactContext): string | undefined {
+/** Read meaningful memory with explicit empty, invalid, and unavailable states. */
+export function readSessionMemoryState(ctx: SessionArtifactContext): SessionMemoryReadState {
   try {
     const memoryPath = ctx.resolve(SESSION_MEMORY_RELATIVE_PATH);
-    if (!fs.existsSync(memoryPath)) return undefined;
+    if (!fs.existsSync(memoryPath)) return { state: 'empty' };
     const text = fs.readFileSync(memoryPath, 'utf8');
-    if (!text.trim() || text.trim() === SESSION_MEMORY_TEMPLATE.trim()) return undefined;
-    return truncateUtf8(text, SESSION_MEMORY_MAX_BYTES);
-  } catch {
-    return undefined;
+    if (!text.trim() || text.trim() === SESSION_MEMORY_TEMPLATE.trim())
+      return { state: 'empty' };
+    const issues = validateSessionMemory(text);
+    if (issues.length > 0) return { state: 'invalid', issues };
+    return { state: 'ready', content: text };
+  } catch (error) {
+    return {
+      state: 'unavailable',
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
+}
+
+/** Compatibility projection for context sources that only accept text. */
+export function readSessionMemory(ctx: SessionArtifactContext): string | undefined {
+  return readSessionMemoryState(ctx).content;
 }
 
 export function renderSessionArtifactPaths(paths: SessionArtifactPaths): string {

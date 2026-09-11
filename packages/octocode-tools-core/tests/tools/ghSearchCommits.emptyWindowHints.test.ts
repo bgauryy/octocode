@@ -12,6 +12,7 @@ const { handleCommitsMode } =
   await import('../../src/tools/github_search_pull_requests/execution/commitsMode.js');
 
 const query = {} as never;
+const provider = { fetchHistory: mocks.fetchHistory } as never;
 
 /**
  * Benchmark finding (compare-run-20260802-b): an empty date-windowed history
@@ -49,7 +50,7 @@ describe('ghSearchCommits commits mode: empty result under a date window', () =>
         path: 'src/flask/sansio/scaffold.py',
         until: '2023-06-15',
       } as never,
-      undefined
+      provider
     )) as Record<string, unknown>;
     expect(result.status).toBe('empty');
     const hints = result.hints as string[] | undefined;
@@ -61,7 +62,7 @@ describe('ghSearchCommits commits mode: empty result under a date window', () =>
     const result = (await handleCommitsMode(
       query,
       { owner: 'o', repo: 'r', path: 'p' } as never,
-      undefined
+      provider
     )) as Record<string, unknown>;
     expect(result.status).toBe('empty');
     expect(result.hints).toBeUndefined();
@@ -81,7 +82,7 @@ describe('ghSearchCommits commits mode: empty result under a date window', () =>
     const result = (await handleCommitsMode(
       query,
       { owner: 'o', repo: 'r', path: 'p', since: '2023-08-01' } as never,
-      undefined
+      provider
     )) as Record<string, unknown>;
     expect(result.status).toBeUndefined();
     expect(result.hints).toBeUndefined();

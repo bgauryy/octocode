@@ -19,7 +19,7 @@ Pi lifecycle / permission / plan / worker observations
 | [Lifecycle adapter](../src/tools/lifecycle-ui.ts) | Host execution, outcome, cancellation, usage, and message observations in interactive and headless sessions |
 | [Question observer](../src/tools/question-execution.ts) | Each actual prompt and its answer, cancellation, timeout, failure, or durable continuation |
 | [Activity presentation](../src/tools/activity-presentation.ts) | One activity priority rule for the footer and motion indicator |
-| [Runtime store](../src/tools/runtime-store.ts) | Execution projection plus initialization, MCP, provider-context, and UI state |
+| [Runtime store](../src/tools/runtime-store.ts) | One `zustand/vanilla` store for serializable execution, initialization, MCP, provider-context, background-job, and UI observations |
 | [UX snapshot](../src/tools/ux-snapshot.ts) | Immutable projection of runtime, plan, worker, and Awareness facts |
 | [Status policy](../src/tui/status-policy.ts) | Attention priority, grouping, density, and viewport budgets |
 | [Footer view](../src/tui/footer-view.ts) | Width-bounded semantic rows |
@@ -46,11 +46,16 @@ consequential risk, or substantial work spanning sessions, or when you explicitl
 request planning. Routine fixes, a few straightforward steps, and isolated
 delegation need no plan or task records.
 
-The plan tool presents its own progress, overview, and review once. **Start** binds the displayed revision and begins implementation. **Request changes** returns feedback to the agent. Reopen a review through **/configuration → Review plan**. The agent consumes the returned decision; it does not open a second approval prompt.
+The plan tool presents its own progress, overview, and review once. **Approve & start** binds the displayed revision and begins implementation. **Request revision** and **Reject plan** require explanatory feedback; **Send comment only** is non-authorizing. Reopen a review through **/configuration → Review plan**. The agent consumes the returned decision; it does not open a second approval prompt. Every checklist row carries its stable task ID so comments and later revisions have a durable anchor.
 
 Linear plans can show completed/total steps. Graph and changing plans show state counts and the current task. Plan/task state comes from the canonical plan read model; presentation never marks a task complete or creates an approval.
 
-The footer lists live workers by name and state with their current tool or latest update. Rows keep a stable order while updates arrive. Blocked or failed workers take priority; completed and killed workers remain in the inbox. The viewport bounds the list and exposes overflow through `/octocode-inbox`. The picker offers output, steer, and stop actions according to process liveness. Execution events retain the parent run relationship. The inspector does not create, restart, or stop workers.
+The footer lists live workers by name and state with their current tool or latest update. Rows keep a stable order while updates arrive. Blocked or failed workers take priority; completed and killed workers remain in the inbox. Explicit `cohortId` values produce bounded, redacted fleet summaries in agent inspection. The viewport bounds the list and exposes overflow through `/octocode-inbox`. The picker offers output, steer, and stop actions according to process liveness. Execution events retain the parent run relationship. The inspector does not create, restart, or stop workers.
+
+Background Bash jobs use the same snapshot and footer pipeline. The ambient row shows
+sanitized titles and elapsed time; failures become attention items linked to
+`/octocode-status`. The manager retains commands, paths, process handles, and logs and
+registers one cleanup with `SessionRuntime`, so no second widget or timer owns the UI.
 
 Compact layouts retain plan progress and the running task beside the current tool.
 On short terminals, the combined row leaves room for named workers. Task labels

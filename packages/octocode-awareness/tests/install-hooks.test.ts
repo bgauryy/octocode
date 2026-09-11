@@ -74,7 +74,9 @@ it('serializes concurrent installers and never exposes partial JSON', { timeout:
         hooks?: Record<string, Array<Record<string, unknown>>>;
       };
       expect(finalSettings.unrelated).toHaveLength(8 * 1024 * 1024);
-      expect(finalSettings.hooks?.PostToolUse).toHaveLength(1); expect(finalSettings.hooks?.PreToolUse).toBeUndefined();
+      expect(finalSettings.hooks?.UserPromptSubmit).toHaveLength(1);
+      expect(finalSettings.hooks?.PostToolUse).toBeUndefined();
+      expect(finalSettings.hooks?.PreToolUse).toBeUndefined();
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }
@@ -327,7 +329,6 @@ it('defaults Codex installation to the coordination profile', () => {
       expect(result.profile).toBe('coordination');
       expect(Object.keys(result.resultingSettings.hooks ?? {})).toEqual([
         'SessionStart',
-        'PostToolUse',
         'SubagentStart', 'SessionEnd', 'UserPromptSubmit',
       ]);
     } finally {
@@ -382,7 +383,6 @@ it('removes misplaced legacy Awareness hooks while preserving unrelated hooks', 
           ],
         },
       }));
-
       const installed = runInstallHooks(['hooks', 'install', '--host', 'codex', '--profile', 'full', '--project-dir', projectDir, '--dry-run']);
       const serializedInstall = JSON.stringify(installed.resultingSettings);
       expect(JSON.stringify(installed.resultingSettings.hooks?.PreCompact)).not.toContain('session-end');

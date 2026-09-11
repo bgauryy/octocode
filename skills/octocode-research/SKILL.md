@@ -5,11 +5,16 @@ description: "Use when a code claim needs evidence before assertion: trace calle
 
 # Octocode Research
 
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-architect`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Evidence before assertion: find an anchor, read exact bytes, prove the claim, then answer, or patch.
 
 Flow: `FRAME → CLASSIFY → MODEL → SEARCH/READ → PROVE → DECIDE/PATCH → VERIFY`. These are decisions, not mandatory tool calls: a known anchor skips discovery; use AST for syntax, LSP for symbol identity, and graph for file topology only when the question needs them.
 
-Scale depth to risk. A lookup needs one exact read and honest confidence; deletion, merge verdicts, and root cause need the full proof ladder. Workspace reports default to `<workspace>/.octocode/octocode-research/`, scratch to `<workspace>/.octocode/tmp/octocode-research/`; chat findings stay in chat, approved source edits keep their paths, and artifacts never fall back to user-level Octocode home.
+Scale depth to risk: a lookup needs one exact read and honest confidence; deletion, merge verdicts, and root cause need the full proof ladder. Reports: `<output>/octocode-research/`; scratch: `<output>/tmp/octocode-research/`. Chat findings stay in chat; approved source edits keep their paths.
 
 ## Gates
 

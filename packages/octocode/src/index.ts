@@ -1,4 +1,5 @@
 import { dim } from './utils/colors.js';
+import { terminateForSignal } from './cli/process-lifecycle.js';
 
 async function showTopLevelHelp(): Promise<void> {
   const { showHelp } = await import('./cli/main-help.js');
@@ -16,16 +17,8 @@ async function main(): Promise<void> {
   await showTopLevelHelp();
 }
 
-function handleTermination(): void {
-  process.stdout.write('\x1B[?25h');
-  console.log();
-  console.log(dim('  Goodbye! 👋'));
-  process.exit(0);
-}
-
-process.on('SIGINT', handleTermination);
-
-process.on('SIGTERM', handleTermination);
+process.on('SIGINT', () => terminateForSignal('SIGINT'));
+process.on('SIGTERM', () => terminateForSignal('SIGTERM'));
 
 function isExitPromptError(error: unknown): boolean {
   return (

@@ -32,4 +32,15 @@ describe('Awareness no-legacy contract', () => {
     expect('wirePiAwarenessHooks' in api).toBe(false);
     expect('createPiAwarenessBridge' in api).toBe(false);
   });
+
+  it('does not export superseded dispatcher or worker-ledger APIs', async () => {
+    const api = await import('../../src/index.js');
+    expect('execCli' in api).toBe(false);
+    expect('runCli' in api).toBe(false);
+    expect('dispatchAwarenessCommand' in api).toBe(false);
+    expect('runAwarenessToolOperation' in api).toBe(false);
+    expect('ROUTABLE_OPERATIONS' in api).toBe(false);
+    expect('appendWorkerLifecycleEvent' in api).toBe(false);
+    expect('listWorkerLifecycleEvents' in api).toBe(false);
+  });
 });

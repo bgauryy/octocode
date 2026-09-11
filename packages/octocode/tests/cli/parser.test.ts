@@ -41,6 +41,23 @@ describe('CLI Parser', () => {
       expect(result.options).toEqual({ ide: 'cursor', force: true });
     });
 
+    it('parses skill installation scope options', () => {
+      expect(
+        parseArgs(['skill', 'install', '--platform', 'codex', '--global'])
+          .options
+      ).toEqual({ platform: 'codex', global: true });
+      expect(
+        parseArgs([
+          'skill',
+          'install',
+          '--platform',
+          'codex',
+          '--project-dir',
+          '/tmp/project',
+        ]).options
+      ).toEqual({ platform: 'codex', 'project-dir': '/tmp/project' });
+    });
+
     it('should handle empty argv', () => {
       const result = parseArgs([]);
       expect(result.command).toBeNull();

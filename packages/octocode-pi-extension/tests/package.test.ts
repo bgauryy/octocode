@@ -620,10 +620,10 @@ test('workers project granted research tools and skills with one Awareness guide
 
     assert.ok(result?.systemPrompt?.startsWith('typed specialist prompt from --append-system-prompt'));
     assert.match(result!.systemPrompt!, /<awareness>/);
-    assert.match(result!.systemPrompt!, /Attend once per workspace\/session/);
-    assert.match(result!.systemPrompt!, /Recall memory only when prior learning could change the approach/);
-    assert.match(result!.systemPrompt!, /routine solo work needs no record/);
-    assert.match(result!.systemPrompt!, /bound CLI when the facade is unavailable/);
+    assert.match(result!.systemPrompt!, /Start with context\.orient once/);
+    assert.match(result!.systemPrompt!, /Use Memory only when prior learning can change the decision/);
+    assert.match(result!.systemPrompt!, /solo work needs no record/);
+    assert.match(result!.systemPrompt!, /lacks the native facade[\s\S]*bound CLI/);
     assert.doesNotMatch(result!.systemPrompt!, /highest-ROI command|Essential loop/);
     assert.match(result!.systemPrompt!, /<awareness_cli_runtime>/);
     assert.match(result!.systemPrompt!, /<mcp_catalog_index>[\s\S]*localSearch/);
@@ -3848,7 +3848,7 @@ test('agent spawn starts a lean RPC Pi process and agent lifecycle can list/stat
     assert.ok(messageTool, 'agent lifecycle registered');
     const itemSchema = querySchemaBranches(spawnTool).find((branch) => Boolean(branch.properties?.['model']))!.properties!;
     assert.match(String(itemSchema['model']!.description), /pi -ne --list-models/);
-    assert.match(String(itemSchema['planStep']!.description), /Stable task ID/);
+    assert.match(String(itemSchema['planStep']!.description), /plan task ID.*omit for standalone/i);
     assert.equal(
       tools.has('handoff_context'),
       false,
@@ -4281,7 +4281,7 @@ test('agentSpecialist starts researcher, planner, and architect with focused ena
     const { tools } = await captureExtensions();
     const agentSpecialist = tools.get('agent')!;
     const profileValues = queryPropertySchemas(agentSpecialist, 'profile').flatMap((schema) => schema['enum'] as string[]);
-    assert.deepEqual(profileValues, ['researcher', 'planner', 'architect', 'implementer', 'browser', 'custom']);
+    assert.deepEqual(profileValues, ['researcher', 'planner', 'architect', 'implementer', 'reviewer', 'browser', 'custom']);
     assert.match(String(queryPropertySchemas(agentSpecialist, 'model')[0]!.description), /pi -ne --list-models/);
 
     for (const agent of ['researcher', 'planner', 'architect']) {
@@ -4445,7 +4445,7 @@ test('unified agent keeps non-browser profiles available when Chrome debug is di
     assert.equal(tools.has('agent'), true, 'typed and custom profiles are not Chrome-gated');
     const agent = tools.get('agent')!;
     assert.deepEqual(queryPropertySchemas(agent, 'profile').flatMap((schema) => schema['enum'] as string[]), [
-      'researcher', 'planner', 'architect', 'implementer', 'browser', 'custom',
+      'researcher', 'planner', 'architect', 'implementer', 'reviewer', 'browser', 'custom',
     ]);
     assert.match(agent.description!, /researcher/);
     assert.match(agent.description!, /architect/);

@@ -236,9 +236,7 @@ pub fn read_git_object(
         compressed_maximum: max_compressed_bytes as usize,
         include_content,
         deadline: Instant::now() + Duration::from_millis(timeout_ms as u64),
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
 
@@ -274,9 +272,7 @@ pub fn ensure_private_directory(
 ) -> AsyncTask<PrivateDirectoryTask> {
     AsyncTask::new(PrivateDirectoryTask {
         path,
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
 impl Task for FlushFileTask {
@@ -309,8 +305,6 @@ pub fn flush_file(
 ) -> AsyncTask<FlushFileTask> {
     AsyncTask::new(FlushFileTask {
         path,
-        cancelled: cancellation
-            .map(|value| Arc::clone(&value.flag))
-            .unwrap_or_default(),
+        cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }

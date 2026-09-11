@@ -11,10 +11,13 @@ formats it for a terminal.
 ## Boundary
 
 - `src/index.ts` is the binary entry (`bin: out/octocode.js`). It calls
-  `runCLI()`, falls back to top-level help, and owns process signals/exit.
+  `runCLI()`, falls back to top-level help, and delegates signal termination to
+  `src/cli/process-lifecycle.ts` so structured stdout stays clean.
 - `src/cli/index.ts` (`runCLI`) is the dispatcher: parse args → handle global
   flags (`--help`, `--version`, `--no-color`) → route to a command,
-  the `tools`/`context` surface, or interactive install.
+  the `tools`/`context` surface, or interactive install. It also invokes
+  `stale-build.ts`, which compares the running bundle with every TypeScript
+  input under `src/` when dogfooding `out/`.
 - Keep dispatch thin. New behavior belongs in a command or feature module, not
   in `runCLI`.
 
@@ -24,26 +27,28 @@ formats it for a terminal.
   local-vs-GitHub ref resolver), validation, help rendering, and exit codes
   (`exit-codes.ts`).
 - `src/cli/commands/` — one file per command. Two groups:
-  - **Quick commands** (`clone`, `cache`) — thin
-    shortcuts that resolve a target ref and materialize it locally.
+  - **Quick commands** (`cache`) — a thin shortcut that resolves a target ref
+    and materializes it locally.
     Legacy research shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`,
     `pkg`, `lsp`, `binary`, `unzip`, `diff`, `pr`) and the unified `search`
     command are intentionally removed; use `tools <name>` for research.
   - **Management commands** (`install`, `auth`/`login`/`logout`, `status`) —
-    eagerly loaded; manage setup, credentials, and environment state.
+    lazy-loaded from the command registry; manage setup, credentials, and
+    environment state. `skill` and `lsp-server` own their respective local
+    management flows.
 - `src/cli/tool-command/` — the raw `tools <name>` / `context` surface. Bridges
   to `octocode-tools-core/direct` for execution and `octocode-core/schema` for
   schemas, display fields, examples, and input preparation. `octocode-core/mcp`
   owns CLI context and shared MCP guidance; the CLI supplies runtime availability.
-- `src/ui/` — interactive TUI: the menu loop (`menu.ts`), install flow
-  (`install/`), config inspector (`config/`), and skills marketplace
-  (`skills-menu/`). Reached via `octocode install` → `runInteractiveMode`.
+- `src/ui/` — interactive TUI: the menu loop (`menu/main-menu.ts`), install flow
+  (`install/`), and MCP configuration editor (`config/`). Reached via
+  `octocode install` → `runInteractiveMode`.
 - `src/features/` — stateful operations behind commands/UI: MCP `install`,
-  GitHub `github-oauth` / `gh-auth`, `skills` install, registry `sync`, and
-  `node-check`.
-- `src/configs/` — static, Zod-validated catalogs: `mcp-registry.ts` (installable
-  MCP servers) and `skills-marketplace.ts` (skill sources). Validated by
-  `scripts/validate-*.ts`.
+  GitHub `github-oauth` / `gh-auth`, registry `sync`, and `node-check`.
+- `src/cli/commands/skills/` — bundled-skill registry, checks, removal,
+  environment readiness, and CLI rendering. Cross-platform destination mapping,
+  durable canonical materialization, conflict handling, and linking come from
+  `@octocodeai/octocode-skill-installer`.
 - `src/utils/` — terminal primitives (colors, spinner, prompts), MCP config I/O,
   token storage, platform/shell/fs helpers, and frontmatter parsing.
   MCP client discovery and paths come from `mcp-paths.ts`; config reads and
@@ -55,7 +60,8 @@ formats it for a terminal.
 - `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
   (ESM, minified, code-split, with a `#!/usr/bin/env node` shebang).
 - Published runtime dependencies, including
-  `@octocodeai/octocode-tools-core` and `@octocodeai/octocode-engine`, stay
+  `@octocodeai/octocode-tools-core`, `@octocodeai/octocode-engine`, and
+  `@octocodeai/octocode-skill-installer`, stay
   external so each package owns and resolves its own dependency graph. The
   native `.node` binary comes from the engine package's platform
   `optionalDependencies`.
@@ -66,8 +72,9 @@ formats it for a terminal.
 ## Publish Boundary
 
 Publish runtime prerequisites before the CLI: engine platform packages, the
-engine root, config/core/tools-core, and then `octocode`. The CLI declares only
-the packages it imports directly, including core contracts and tools-core execution.
+engine root, config/core/tools-core, the skill installer, and then `octocode`.
+The CLI declares only the packages it imports directly, including core contracts
+and tools-core execution.
 
 ## Rules
 
@@ -75,5 +82,5 @@ the packages it imports directly, including core contracts and tools-core execut
   `octocode-tools-core`.
 - Lazy-load command and tool modules (dynamic `import`) to keep startup fast and
   tolerate a missing tool runtime gracefully.
-- Keep `mcp-registry` / `skills-marketplace` schema-valid; run `yarn verify`
-  (lint + typecheck + test + registry/skills validation) before publishing.
+- Run `yarn verify` (lint + typecheck + test + package validations) before
+  publishing, then exercise the built `out/octocode.js` path.

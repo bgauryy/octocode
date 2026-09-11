@@ -32,6 +32,41 @@ function deferred<T>(): {
 }
 
 describe('LspClientPool', () => {
+  it('evicts the least-recently-used live client when capacity is exceeded', async () => {
+    let nextId = 0;
+    const clients: FakeClient[] = [];
+    const pool = new LspClientPool<FakeClient>({
+      idleTimeoutMs: 10_000,
+      maxEntries: 2,
+      factory: vi.fn(async () => {
+        const client = {
+          id: ++nextId,
+          stop: vi.fn().mockResolvedValue(undefined),
+          isAlive: vi.fn().mockResolvedValue(true),
+        };
+        clients.push(client);
+        return client;
+      }),
+    });
+    const keyA = key('/repo-a');
+    const keyB = key('/repo-b');
+    const keyC = key('/repo-c');
+
+    await pool.acquire(keyA);
+    await pool.acquire(keyB);
+    await pool.acquire(keyA);
+    await pool.acquire(keyC);
+    await vi.waitFor(() => expect(clients[1]?.stop).toHaveBeenCalledTimes(1));
+
+    expect(pool.size()).toBe(2);
+    expect(pool.has(keyA)).toBe(true);
+    expect(pool.has(keyB)).toBe(false);
+    expect(pool.has(keyC)).toBe(true);
+    expect(clients[0]?.stop).not.toHaveBeenCalled();
+    expect(clients[2]?.stop).not.toHaveBeenCalled();
+    await pool.clearAll();
+  });
+
   it('invalidates startup on clear and stops its late client', async () => {
     const pending = deferred<FakeClient>();
     const client = {

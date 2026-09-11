@@ -107,7 +107,7 @@ describe('shared prompts', () => {
     expect(prompt).not.toContain('signal ack');
     expect(prompt).not.toContain('You are auto-registered');
     expect(prompt).toContain('Never run any Git command unless the current user request explicitly asks');
-    expect(expandSubagentPrompt('{{OCTOCODE_COORDINATION}}')).toContain('signal ack');
+    expect(expandSubagentPrompt('{{OCTOCODE_COORDINATION}}')).toContain('context.orient');
   });
 
   it('prefers native Awareness and limits CLI fallback without widening worker shell or Git authority', () => {
@@ -121,16 +121,11 @@ describe('shared prompts', () => {
     expect(prompt).toContain('including read-only inspection');
   });
 
-  it('routes worker messages through canonical signal fields and acknowledges after acting', () => {
+  it('routes worker coordination through the five-concept client vocabulary', () => {
     const prompt = expandSubagentPrompt('{{OCTOCODE_COORDINATION}}');
-    expect(prompt).toContain('signal publish');
-    expect(prompt).toContain('signal reply with in_reply_to');
-    expect(prompt).toContain('signal_id');
-    expect(prompt).toContain('kind blocker');
-    expect(prompt).toContain('subject');
-    expect(prompt).toContain('to_agent');
-    expect(prompt).toContain('signal ack');
-    expect(prompt).toContain('after acting');
-    expect(prompt).not.toContain('Use the topic field');
+    for (const text of ['context.orient', 'Work', 'Message.send', 'Message.reply', 'exact message ID', 'Memory', 'History']) {
+      expect(prompt).toContain(text);
+    }
+    expect(prompt).not.toMatch(/signal publish|signal reply|signal ack|attend/i);
   });
 });

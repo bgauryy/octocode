@@ -191,6 +191,7 @@ export interface AgentFooterEntry {
   model?: string;
   task?: string;
   planStep?: string;
+  cohortId?: string;
   /** Structured worker result status; overrides an idle RPC process when the turn is done/blocked/failed. */
   normalizedStatus?: string;
   startedAt: string;

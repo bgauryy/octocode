@@ -61,6 +61,9 @@ export function connectDb(dbPath: string): DatabaseSync {
     // Fail closed before journal mode, foreign-key state, or DDL can touch a
     // foreign store. Canonical OCT1 stores take a strict read-only fast path.
     const schemaState = inspectSchemaState(db);
+    if (schemaState === 'legacy-renamed-predecessor') {
+      throw new Error('recognized legacy-renamed-v1 Awareness store; run database migration preview against a new destination. The source has not been changed.');
+    }
     const versionRow = db.prepare('SELECT sqlite_version() AS version').get() as { version: string };
     const journalMode = journalModeForSqliteVersion(versionRow.version);
     // Unsafe embedded SQLite versions use rollback journaling instead of the

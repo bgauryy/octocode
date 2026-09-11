@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS, EXTERNAL_AGENT_AWARENESS_PROMPT } from '../src/coordination/external-policy.js';
 import { commandIndex } from '../src/schema/command-catalog.js';
-import { HELP, HELP_COMPACT, ROUTE_EXAMPLE } from '../bin/cli-help-data.js';
+import { HELP, HELP_COMPACT, ROUTE_EXAMPLE } from '../src/cli-adapter/cli-help-data.js';
 
 const skillRoot = resolve(import.meta.dirname, '../skills/octocode-awareness');
 const read = (path: string) => readFileSync(resolve(skillRoot, path), 'utf8');
@@ -26,12 +26,12 @@ describe('Awareness operating guidance', () => {
   });
 
   it('separates stable routing identity from self-reported vendor and host labels', () => {
-    for (const prompt of [EXTERNAL_AGENT_AWARENESS_PROMPT, EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS]) {
-      expect(prompt).toContain('agent register');
-      expect(prompt).toContain('agent list');
-      expect(prompt).toMatch(/self-reported[^.]*not authentication/i);
-      expect(prompt).toMatch(/route[^.]*agent ID[^.]*not name or vendor/i);
-    }
+    expect(EXTERNAL_AGENT_AWARENESS_PROMPT).not.toContain('agent register');
+    expect(EXTERNAL_AGENT_AWARENESS_PROMPT).not.toContain('agent list');
+    expect(EXTERNAL_AGENT_AWARENESS_PROMPT).toMatch(/self-reported[^.]*not authentication/i);
+    expect(EXTERNAL_AGENT_AWARENESS_PROMPT).toMatch(/exact actor ID[^.]*not name or vendor/i);
+    expect(EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS).toContain('agent register');
+    expect(EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS).toContain('agent list');
     for (const text of [read('references/configuration.md'), read('references/coordination-protocol.md')]) {
       for (const flag of ['--agent-id', '--agent-name', '--agent-vendor', '--agent-host']) expect(text).toContain(flag);
       expect(text).toContain('OCTOCODE_AGENT_ID');
@@ -51,9 +51,9 @@ describe('Awareness operating guidance', () => {
       expect(policy).toMatch(/(?:same|one) physical SQLite file/);
       expect(policy).toContain('linked Git worktrees');
       expect(policy).toContain('own checkout');
-      expect(policy).toMatch(/Without (?:native delivery or installed hooks|either|delivery), [^.]*signal list/);
       expect(policy).toContain('expected reply');
     }
+    expect(EXTERNAL_AGENT_AWARENESS_PROMPT).toMatch(/Without host delivery[^.]*Message\.list/);
     expect(EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS).toContain('locks, recovery and verification tied to the physical checkout');
     expect(EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS).toContain('separate clones and separate databases do not connect automatically');
     expect(EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS).toContain('Existing authorization for that target remains valid');

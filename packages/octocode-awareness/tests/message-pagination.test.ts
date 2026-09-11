@@ -5,11 +5,9 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openAwarenessStore } from '../src/coordination/open.js';
 import { readExternalAwarenessStatus } from '../src/coordination/external-status.js';
+import { executeAwarenessCommand } from '../src/command-api.js';
 import { connectDb } from '../src/db-runtime.js';
 import { agentSignal } from '../src/notifications-signals.js';
-import { operationSchemas } from '../src/schema/definitions-operations.js';
-import { runAwarenessToolOperation } from '../src/tool-operations.js';
-import type { AgentSignalResult } from '../src/types/notifications-agents.js';
 
 let root: string;
 let previousHome: string | undefined;
@@ -51,25 +49,29 @@ describe('lossless recipient inbox pagination', () => {
 
   it.each([false, true])('executes API continuations with markRead=%s across tied timestamps', async (markRead) => {
     const { store, ids } = fixture(231);
-    const db = connectDb(store.dbPath);
     try {
-      let request: Record<string, unknown> = { action: 'list', agent_id: 'reader', workspace_path: root, limit: 50, mark_read: markRead };
+      let command = 'signal list';
+      let params: Record<string, unknown> = { limit: 50, mark_read: markRead };
       const seen: string[] = [];
       for (let page = 0; page < 10; page++) {
-        expect(operationSchemas.agent_signal.safeParse(request).success).toBe(true);
-        const result = (await runAwarenessToolOperation(db, 'agent_signal', request, { cwd: root })).payload as AgentSignalResult;
-        expect(result.action).toBe('list');
-        if (result.action !== 'list') throw new Error('wrong result');
+        const execution = await executeAwarenessCommand(
+          { command, params },
+          { database: store.dbPath, workspace: root, agentId: 'reader', continuations: 'api' },
+        );
+        expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
+        const result = execution.payload as {
+          signals: Array<{ signal_id: string }>; partial?: boolean; partialReasons?: string[];
+          next?: { list: { command: { command: string; params: Record<string, unknown> } } };
+        };
         seen.push(...result.signals.map(signal => signal.signal_id));
         if (!result.partial) break;
         expect(result.partialReasons).toEqual(['limit']);
-        expect(result.next?.list.operation).toBe('agent_signal');
-        request = result.next!.list.request;
+        ({ command, params } = result.next!.list.command);
       }
       expect(new Set(seen).size).toBe(seen.length);
       expect([...seen].sort()).toEqual([...ids].sort());
       expect(readExternalAwarenessStatus({ workspace: root, agentId: 'reader' }).unreadInbox).toBe(markRead ? 0 : ids.length);
-    } finally { db.close(); store.close(); }
+    } finally { store.close(); }
   });
 
   it('preserves targeted filters through the public operation continuation and rejects malformed cursors', async () => {
@@ -77,17 +79,22 @@ describe('lossless recipient inbox pagination', () => {
     const db = connectDb(store.dbPath);
     try {
       const selected = ids.slice(0, 111);
-      let request: Record<string, unknown> = {
-        action: 'list', agent_id: 'reader', workspace_path: root, signal_id: selected, limit: 50,
-      };
+      let command = 'signal list';
+      let params: Record<string, unknown> = { signal_id: selected, limit: 50 };
       const seen: string[] = [];
       for (let page = 0; page < 5; page++) {
-        expect(operationSchemas.agent_signal.safeParse(request).success).toBe(true);
-        const result = (await runAwarenessToolOperation(db, 'agent_signal', request, { cwd: root })).payload as AgentSignalResult;
-        if (result.action !== 'list') throw new Error('wrong result');
+        const execution = await executeAwarenessCommand(
+          { command, params },
+          { database: store.dbPath, workspace: root, agentId: 'reader', continuations: 'api' },
+        );
+        expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
+        const result = execution.payload as {
+          signals: Array<{ signal_id: string }>; partial?: boolean;
+          next?: { list: { command: { command: string; params: Record<string, unknown> } } };
+        };
         seen.push(...result.signals.map(signal => signal.signal_id));
         if (!result.partial) break;
-        request = result.next!.list.request;
+        ({ command, params } = result.next!.list.command);
       }
       expect([...seen].sort()).toEqual([...selected].sort());
       expect(() => store.listMessagesPage({ agentId: 'reader', cursor: 'malformed' })).toThrow(/cursor/i);

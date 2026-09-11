@@ -1,5 +1,4 @@
 import { c, bold, dim, underline } from '../utils/colors.js';
-import { getAuthStatus } from '../features/github-oauth.js';
 import {
   DIRECT_TOOL_CATEGORIES,
   getDirectToolCategory,
@@ -7,7 +6,6 @@ import {
   sortDirectToolNames,
 } from '@octocodeai/octocode-core/schema';
 import { COMMAND_SPECS } from './commands/specs.js';
-import { REGISTERED_COMMAND_NAMES } from './commands/index.js';
 import {
   AGENT_TOOL_COMMANDS,
   CLI_HELP_USAGE_GUIDANCE,
@@ -17,7 +15,6 @@ import { TOOL_DEFINITIONS } from './tool-command/registry.js';
 // Quick (read-first) commands get a rich arg hint; every other command is
 // derived from COMMAND_SPECS below so the list never drifts or misses one.
 const QUICK_COMMAND_NAMES = new Set(['cache']);
-const REGISTERED_COMMAND_NAME_SET = new Set(REGISTERED_COMMAND_NAMES);
 
 /**
  * Agent instructions block: explains how to drive the CLI (list tools, read a
@@ -95,6 +92,7 @@ export async function showHelp(): Promise<void> {
 
   let isAuthenticated = false;
   try {
+    const { getAuthStatus } = await import('../features/github-oauth.js');
     isAuthenticated = getAuthStatus().authenticated;
   } catch {
     // ignore — treat as unauthenticated
@@ -133,13 +131,9 @@ export async function showHelp(): Promise<void> {
 
     // ── Every other command — an INDEX (short summary), full usage in --help ─
     `  ${bold('MORE COMMANDS')}  ${dim('· full usage:')} ${c('cyan', '<command> --help')}`,
-    // `context` is dispatched in cli/index.ts (not a command loader) but must
-    // appear in MORE COMMANDS — cli:check asserts the context usage label.
-    ...COMMAND_SPECS.filter(
-      s =>
-        !QUICK_COMMAND_NAMES.has(s.name) &&
-        (REGISTERED_COMMAND_NAME_SET.has(s.name) || s.name === 'context')
-    ).map(s => commandIndexLine(s.name)),
+    ...COMMAND_SPECS.filter(s => !QUICK_COMMAND_NAMES.has(s.name)).map(s =>
+      commandIndexLine(s.name)
+    ),
     '',
 
     // ── Flags · exit codes · docs (compact, no repetition) ─────────────────

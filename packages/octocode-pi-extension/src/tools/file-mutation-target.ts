@@ -1,5 +1,9 @@
 import path from 'node:path';
-import type { FileSnapshot } from '@octocodeai/octocode-extension-rust';
+import {
+  NativeErrorCodes,
+  nativeErrorCode,
+  type FileSnapshot,
+} from '@octocodeai/octocode-extension-rust';
 import { assertPathAllowed, resolveCanonicalPath } from './path-guard.js';
 import { snapshotNativeFile } from './native-files.js';
 import { assertWellFormedText } from './file-text.js';
@@ -11,6 +15,56 @@ export interface FileMutationTarget {
   canonicalPath: string;
   cwd: string;
   snapshot: FileSnapshot;
+}
+
+export interface FileMutationRecoveryV1 {
+  tool: 'MCPTool';
+  query: {
+    queries: Array<{
+      reasoning: string;
+      action: 'call';
+      server: 'octocode';
+      tool: 'localFetch';
+      arguments: { queries: Array<{ path: string }> };
+    }>;
+  };
+  why: string;
+}
+
+export class FileMutationConflictError extends Error {
+  readonly code = 'file-mutation-conflict';
+  readonly recovery: FileMutationRecoveryV1;
+
+  constructor(message: string, absolutePath: string) {
+    super(message);
+    this.name = 'FileMutationConflictError';
+    this.recovery = {
+      tool: 'MCPTool',
+      query: {
+        queries: [{
+          reasoning: 'Refresh the changed file before retrying the mutation.',
+          action: 'call',
+          server: 'octocode',
+          tool: 'localFetch',
+          arguments: { queries: [{ path: absolutePath }] },
+        }],
+      },
+      why: 'The file changed after preflight; inspect current bytes before preparing a new mutation.',
+    };
+  }
+}
+
+export function rethrowFileMutationConflict(
+  error: unknown,
+  target: Pick<FileMutationTarget, 'requestPath' | 'canonicalPath'>,
+): never {
+  if (error instanceof FileMutationConflictError) throw error;
+  const detail = error instanceof Error ? error.message : String(error);
+  const nodeCode = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  if (nativeErrorCode(error) === NativeErrorCodes.PRECONDITION_FAILED || nodeCode === 'EEXIST') {
+    throw new FileMutationConflictError(detail, target.canonicalPath);
+  }
+  throw error;
 }
 
 export async function prepareFileMutationTarget(
@@ -29,6 +83,9 @@ export async function prepareFileMutationTarget(
 export function assertFileMutationTargetCurrent(target: FileMutationTarget): void {
   assertPathAllowed(target.absolutePath, target.cwd, 'file mutation');
   if (resolveCanonicalPath(target.absolutePath) !== target.canonicalPath) {
-    throw new Error(`${target.requestPath} changed after preflight. Re-read the file and retry.`);
+    throw new FileMutationConflictError(
+      `${target.requestPath} changed after preflight. Re-read the file and retry.`,
+      target.canonicalPath,
+    );
   }
 }

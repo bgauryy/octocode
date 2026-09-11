@@ -150,6 +150,7 @@ describe('cli/commands/auth', () => {
       await import('../../../src/cli/commands/auth/login-command.js');
     const { logoutCommand } =
       await import('../../../src/cli/commands/auth/logout-command.js');
+    const ghFlow = await import('../../../src/cli/commands/auth/gh-flow.js');
     const { hasEnvToken, getEnvTokenSource } =
       await import('@octocodeai/config');
     return {
@@ -160,10 +161,62 @@ describe('cli/commands/auth', () => {
       authCommand,
       loginCommand,
       logoutCommand,
+      ...ghFlow,
       hasEnvToken,
       getEnvTokenSource,
     };
   }
+
+  describe('gh CLI flow', () => {
+    it('rejects login when the gh CLI is unavailable', async () => {
+      const { runGhLogin, checkGitHubAuth, runGitHubAuthLogin } =
+        await loadAuthModule();
+      vi.mocked(checkGitHubAuth).mockReturnValue({
+        installed: false,
+        authenticated: false,
+      });
+
+      await runGhLogin('github.com', 'https');
+
+      expect(runGitHubAuthLogin).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(EXIT.USAGE);
+    });
+
+    it('runs gh login with the selected host and protocol', async () => {
+      const { runGhLogin, checkGitHubAuth, runGitHubAuthLogin } =
+        await loadAuthModule();
+      vi.mocked(checkGitHubAuth).mockReturnValue({
+        installed: true,
+        authenticated: false,
+      });
+      vi.mocked(runGitHubAuthLogin).mockReturnValue({
+        success: true,
+        exitCode: 0,
+      });
+
+      await runGhLogin('ghe.example.com', 'ssh');
+
+      expect(runGitHubAuthLogin).toHaveBeenCalledWith({
+        web: true,
+        hostname: 'ghe.example.com',
+        gitProtocol: 'ssh',
+      });
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it('sets auth exit status when gh logout fails', async () => {
+      const { runGhLogout, runGitHubAuthLogout } = await loadAuthModule();
+      vi.mocked(runGitHubAuthLogout).mockReturnValue({
+        success: false,
+        exitCode: 1,
+      });
+
+      await runGhLogout('ghe.example.com');
+
+      expect(runGitHubAuthLogout).toHaveBeenCalledWith('ghe.example.com');
+      expect(process.exitCode).toBe(EXIT.AUTH);
+    });
+  });
 
   function jsonLines(): Array<Record<string, unknown>> {
     const out: Array<Record<string, unknown>> = [];

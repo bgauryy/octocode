@@ -30,13 +30,16 @@ export abstract class AwarenessSchemaHelpers extends CoordinationMemoryAgents {
   }
 
   protected getHandoff(handoffId: string): HandoffNote {
-    const row = this.db.prepare('SELECT * FROM handoffs WHERE workspace_path = ? AND handoff_id = ?').get(this.workspace, handoffId) as unknown as HandoffRow | undefined;
+    const row = this.db.prepare(`SELECT signal_id AS handoff_id, from_agent AS agent_id,
+      subject AS summary, files_json, created_at, resolved_at AS cleared_at
+      FROM signals WHERE workspace_path = ? AND signal_id = ? AND kind = 'handoff'`)
+      .get(this.workspace, handoffId) as unknown as HandoffRow | undefined;
     if (!row) throw new Error(`handoff not found: ${handoffId}`);
     return handoffFromRow(row);
   }
 
   protected countOpenHandoffs(): number {
-    return (this.db.prepare('SELECT COUNT(*) AS count FROM handoffs WHERE workspace_path = ? AND cleared_at IS NULL').get(this.workspace) as { count: number }).count;
+    return (this.db.prepare("SELECT COUNT(*) AS count FROM signals WHERE workspace_path = ? AND kind = 'handoff' AND status = 'open'").get(this.workspace) as { count: number }).count;
   }
 
   protected countMemories(): number {

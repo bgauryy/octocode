@@ -101,8 +101,9 @@ export async function dispatchWorkerMcpAction(params: Record<string, unknown>, s
 const ROLE_SKILLS: Record<string, string[]> = {
   researcher: ['octocode-research'],
   planner: ['octocode-research', 'octocode-rfc-generator'],
-  architect: ['octocode-research', 'octocode-code-graph'],
+  architect: ['octocode-research', 'octocode-architect'],
   implementer: ['octocode-research'],
+  reviewer: ['octocode-research'],
   browser: ['octocode-chrome-devtools', 'browser-agent'],
 };
 const LOCAL_MCP_TOOLS = ['localSearch', 'localFetch', 'astSearch', 'lspSearch'];
@@ -111,6 +112,7 @@ const ROLE_MCP_TOOLS: Record<string, string[]> = {
   planner: [...LOCAL_MCP_TOOLS, 'ghSearch', 'ghGetFileContent', 'artifactSearch'],
   architect: [...LOCAL_MCP_TOOLS, 'ghSearchHistory', 'ghGetHistoryItem'],
   implementer: LOCAL_MCP_TOOLS,
+  reviewer: [...LOCAL_MCP_TOOLS, 'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem'],
   browser: LOCAL_MCP_TOOLS,
 };
 

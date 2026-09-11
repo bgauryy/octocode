@@ -1,6 +1,6 @@
 import type { FlatQueryResult } from '../../../types/toolResults.js';
 import { type QueryWithPagination } from '../../../utils/response/groupedFinalizer.js';
-import type { RepoState } from '../execution.js';
+import type { RepoState } from '../resultTypes.js';
 import {
   type CodeSearchFlatResult,
   type CodeSearchGroupedMatch,

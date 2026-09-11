@@ -2,15 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   searchContentRipgrep: vi.fn(),
-  readFile: vi.fn(),
 }));
 
 vi.mock('../../../src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
   searchContentRipgrep: mocks.searchContentRipgrep,
-}));
-
-vi.mock('node:fs/promises', () => ({
-  readFile: mocks.readFile,
 }));
 
 const { warmLikelyConsumers } =
@@ -19,7 +14,6 @@ const { warmLikelyConsumers } =
 describe('warmLikelyConsumers', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.readFile.mockResolvedValue('export const use = 1;');
   });
 
   it('warms beyond the old 12-file cap and reports a possible truncation signal', async () => {
@@ -28,10 +22,10 @@ describe('warmLikelyConsumers', () => {
       path: `/repo/src/consumer-${index}.ts`,
     }));
     mocks.searchContentRipgrep.mockResolvedValue({ files });
-    const openDocument = vi.fn();
+    const openDocumentFromDisk = vi.fn().mockResolvedValue('opened');
 
     const result = await warmLikelyConsumers(
-      { openDocument } as never,
+      { openDocumentFromDisk } as never,
       {
         absolutePath: '/repo/src/source.ts',
         uri: 'file:///repo/src/source.ts',
@@ -50,7 +44,7 @@ describe('warmLikelyConsumers', () => {
       workspaceRoot
     );
 
-    expect(openDocument).toHaveBeenCalledTimes(100);
+    expect(openDocumentFromDisk).toHaveBeenCalledTimes(100);
     expect(result.warmedFiles).toBe(100);
     expect(result.possiblyTruncated).toBe(true);
   });
@@ -59,11 +53,14 @@ describe('warmLikelyConsumers', () => {
     mocks.searchContentRipgrep.mockResolvedValue({
       files: [{ path: '/repo/src/consumer.ts' }],
     });
-    mocks.readFile.mockResolvedValue('€'.repeat(174_763));
-    const openDocument = vi.fn();
+    const openDocumentFromDisk = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('File is too large for LSP document open: consumer.ts')
+      );
 
     const result = await warmLikelyConsumers(
-      { openDocument } as never,
+      { openDocumentFromDisk } as never,
       {
         absolutePath: '/repo/src/source.ts',
         resolvedSymbol: { name: 'executeBulkOperation' },
@@ -71,7 +68,7 @@ describe('warmLikelyConsumers', () => {
       '/repo'
     );
 
-    expect(openDocument).not.toHaveBeenCalled();
+    expect(openDocumentFromDisk).toHaveBeenCalledTimes(1);
     expect(result.skippedLarge).toBe(1);
     expect(result.warmedFiles).toBe(0);
     expect(result.possiblyTruncated).toBe(true);
@@ -90,9 +87,9 @@ describe('warmLikelyConsumers', () => {
         files: files.slice(20),
         pagination: { totalFiles: 34, hasMore: false },
       });
-    const openDocument = vi.fn();
+    const openDocumentFromDisk = vi.fn().mockResolvedValue('opened');
     const result = await warmLikelyConsumers(
-      { openDocument } as never,
+      { openDocumentFromDisk } as never,
       {
         absolutePath: '/repo/source.ts',
         resolvedSymbol: { name: 'target' },
@@ -111,7 +108,7 @@ describe('warmLikelyConsumers', () => {
       2,
       expect.objectContaining({ itemsPerPage: 100, page: 2 })
     );
-    expect(openDocument).toHaveBeenCalledTimes(34);
+    expect(openDocumentFromDisk).toHaveBeenCalledTimes(34);
     expect(result).toMatchObject({
       candidates: 34,
       warmedFiles: 34,
@@ -124,9 +121,9 @@ describe('warmLikelyConsumers', () => {
       files: Array.from({ length: 100 }, (_, i) => ({ path: `/repo/${i}.ts` })),
       pagination: { totalFiles: 134, hasMore: true, nextPage: 2 },
     });
-    const openDocument = vi.fn();
+    const openDocumentFromDisk = vi.fn().mockResolvedValue('opened');
     const result = await warmLikelyConsumers(
-      { openDocument } as never,
+      { openDocumentFromDisk } as never,
       {
         absolutePath: '/repo/source.ts',
         resolvedSymbol: { name: 'target' },
@@ -134,7 +131,7 @@ describe('warmLikelyConsumers', () => {
       '/repo'
     );
     expect(mocks.searchContentRipgrep).toHaveBeenCalledTimes(1);
-    expect(openDocument).toHaveBeenCalledTimes(100);
+    expect(openDocumentFromDisk).toHaveBeenCalledTimes(100);
     expect(result).toMatchObject({
       candidates: 134,
       warmedFiles: 100,
@@ -144,7 +141,7 @@ describe('warmLikelyConsumers', () => {
 
   it('does not report a complete warmup after search or open failures', async () => {
     const client = {
-      openDocument: vi.fn().mockRejectedValue(new Error('open failed')),
+      openDocumentFromDisk: vi.fn().mockRejectedValue(new Error('open failed')),
     };
     const anchor = {
       absolutePath: '/repo/source.ts',
@@ -173,7 +170,7 @@ describe('warmLikelyConsumers', () => {
       pagination: { totalFiles: 2, hasMore: true, nextPage: 1 },
     });
     const result = await warmLikelyConsumers(
-      { openDocument: vi.fn() } as never,
+      { openDocumentFromDisk: vi.fn().mockResolvedValue('opened') } as never,
       {
         absolutePath: '/repo/source.ts',
         resolvedSymbol: { name: 'target' },
@@ -190,7 +187,7 @@ describe('warmLikelyConsumers', () => {
       pagination: { totalFiles: 100, hasMore: false },
     });
     const result = await warmLikelyConsumers(
-      { openDocument: vi.fn() } as never,
+      { openDocumentFromDisk: vi.fn().mockResolvedValue('opened') } as never,
       {
         absolutePath: '/repo/source.ts',
         resolvedSymbol: { name: 'target' },
@@ -210,7 +207,7 @@ describe('warmLikelyConsumers', () => {
       error: 'failed',
     });
     const result = await warmLikelyConsumers(
-      { openDocument: vi.fn() } as never,
+      { openDocumentFromDisk: vi.fn().mockResolvedValue('opened') } as never,
       {
         absolutePath: '/repo/source.ts',
         resolvedSymbol: { name: 'target' },
@@ -221,5 +218,32 @@ describe('warmLikelyConsumers', () => {
       possiblyTruncated: true,
       incompleteReasons: ['search'],
     });
+  });
+
+  it('delegates bounded disk reuse to the pooled LSP client', async () => {
+    mocks.searchContentRipgrep.mockResolvedValue({
+      files: [{ path: '/repo/consumer.ts' }],
+      pagination: { totalFiles: 1, hasMore: false },
+    });
+    const openDocumentFromDisk = vi.fn().mockResolvedValue('unchanged');
+    const openDocument = vi.fn(() => {
+      throw new Error('warmup must not reread and resend through openDocument');
+    });
+
+    const result = await warmLikelyConsumers(
+      { openDocument, openDocumentFromDisk } as never,
+      {
+        absolutePath: '/repo/source.ts',
+        resolvedSymbol: { name: 'target' },
+      } as never,
+      '/repo'
+    );
+
+    expect(openDocumentFromDisk).toHaveBeenCalledWith(
+      '/repo/consumer.ts',
+      512 * 1024
+    );
+    expect(openDocument).not.toHaveBeenCalled();
+    expect(result.warmedFiles).toBe(1);
   });
 });

@@ -12,12 +12,9 @@ import type { AwarenessStorageScope } from './storage-scope.js';
 import { COMMAND_ROUTES } from './commands/routes.js';
 import { BUNDLED_SKILLS_DIR, packageSkillScriptPath } from './skill-paths.js';
 import type { ParsedArgs } from './commands/args.js';
+import type { AwarenessCommandCall as AwarenessCommandCallContract } from './command-contracts.js';
 
-export interface AwarenessCommandCall {
-  command: string;
-  /** Exact snake_case fields returned by getAwarenessCommandDescriptor. */
-  params?: Record<string, unknown>;
-}
+export type AwarenessCommandCall = AwarenessCommandCallContract;
 export interface AwarenessCommandContext {
   database?: string;
   workspace?: string;

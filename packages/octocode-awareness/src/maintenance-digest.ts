@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -10,7 +9,8 @@ import { pruneStale } from './maintenance-stale.js';
 import type { DigestResult, MaintenancePressure } from './maintenance-digest-types.js';
 import { auditUnverified } from './verify-audit.js';
 import { closeRunFiles, failStaleLinkedTask } from './verify-shared.js';
-import { RUN_LOG_INSERT_VERIFIED, RUNS_UPDATE_ACTIVE_TO_FAILED } from './sql/runs.js';
+import { RUNS_UPDATE_ACTIVE_TO_FAILED } from './sql/runs.js';
+import { appendRunVerificationEvent } from './event-outbox.js';
 
 // ─── Explicit maintenance digest ─────────────────────────────────────────
 
@@ -338,17 +338,18 @@ export function digest(
         closeRunFiles(db, run.run_id, now);
         const message = `maintenance digest: stale ACTIVE run had no live file presence after ${pressure.pressure_age_days}d`;
         failStaleLinkedTask(db, run.run_id, run.agent_id, now, message);
-        try {
-          db.prepare(RUN_LOG_INSERT_VERIFIED).run(
-            'evt_' + randomUUID().replace(/-/g, ''), run.run_id, run.agent_id, message, now,
-          );
-        } catch { /* non-critical audit log */ }
+        appendRunVerificationEvent(db, {
+          runId: run.run_id,
+          agentId: run.agent_id,
+          message,
+          createdAt: now,
+        });
         failedStaleActiveRuns += 1;
       }
     }
 
     // 5. Compact terminal standalone execution rows. Run-file presence cascades;
-    // verification receipts remain in run_log with run_id set null by the FK.
+    // verification receipts remain in the canonical audit event stream.
     pruneRunsRes = db.prepare(`DELETE FROM task_runs
       WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
         AND status IN ('SUCCESS','FAILED') AND updated_at < ?${memoryScopeSql}`)

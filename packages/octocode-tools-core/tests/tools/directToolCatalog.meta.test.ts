@@ -309,12 +309,17 @@ describe('prepareDirectToolInput', () => {
     ]);
   });
 
-  it('keeps workspaceSymbol root optional in compact introspection', () => {
-    const workspace = getDirectToolSchemaVariants('lspSearch').find(
-      variant => variant.name === 'workspace'
+  it('publishes both workspaceSymbol root choices in compact introspection', () => {
+    const variants = getDirectToolSchemaVariants('lspSearch');
+    const workspaceUri = variants.find(
+      variant => variant.name === 'workspace:uri'
+    );
+    const workspaceRoot = variants.find(
+      variant => variant.name === 'workspace:root'
     );
 
-    expect(workspace?.requires).toEqual([
+    expect(workspaceUri?.requires).toEqual(['operation', 'symbolName', 'uri']);
+    expect(workspaceRoot?.requires).toEqual([
       'operation',
       'symbolName',
       'workspaceRoot',

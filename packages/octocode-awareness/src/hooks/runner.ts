@@ -4,7 +4,7 @@ import { runPostEdit, runPreEdit } from './edit-events.js';
 import { canDeliverHookCommunication, isDigestPreviewDue, runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify, runToolCommunication } from './lifecycle.js';
 import { normalizeToolHookPayload } from './tool-protocol.js';
 import { captureHookHistory } from './history-capture.js';
-import { recordHookReceiptBestEffort } from '../hook-receipts.js';
+import { HOOK_RECEIPT_SUCCESS_SAMPLE_MS, recordHookReceiptBestEffort } from '../hook-receipts.js';
 import { AwarenessFeatureConfig, DEFAULT_AWARENESS_CONFIG, loadAwarenessConfig } from '../awareness-config.js';
 import {
   hookCommandEnabled,
@@ -101,6 +101,7 @@ export async function runHookCommand(
     host: shellHookHost(payload),
     event: hookEventName(payload) ?? command,
     status,
+    ...(status === 'success' ? { minimumIntervalMs: HOOK_RECEIPT_SUCCESS_SAMPLE_MS } : {}),
   });
   const communicationOnly = command === 'notify-deliver' || (profile === 'coordination' && command === 'post-edit');
   // Unsupported context channels must not consume a message fingerprint or the
@@ -150,6 +151,7 @@ export async function runHookCommand(
     return exitCode;
   } catch (error) {
     receipt('failure');
-    throw error;
+    writeCommandDiagnostic(`octocode-awareness ${command} warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    return 0;
   }
 }

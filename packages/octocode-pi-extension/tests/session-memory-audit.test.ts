@@ -2,17 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, test } from 'vitest';
+import { afterEach, beforeEach, test, vi } from 'vitest';
 import { createSessionArtifactContext } from '../src/tools/session-artifacts.js';
 import {
   initializeSessionMemory,
   projectSessionMemoryUpdate,
   readSessionMemory,
+  readSessionMemoryState,
   renderSessionArtifactPaths,
   SESSION_MEMORY_MAX_BYTES,
   SESSION_MEMORY_RELATIVE_PATH,
   SESSION_MEMORY_TEMPLATE,
 } from '../src/tools/session-memory.js';
+import { sessionMemoryStatusText } from '../src/tools/session-memory-runtime.js';
 import {
   appendSessionAuditEntry,
   initializeSessionAudit,
@@ -33,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   if (priorHome === undefined) delete process.env['OCTOCODE_HOME'];
   else process.env['OCTOCODE_HOME'] = priorHome;
   fs.rmSync(root, { recursive: true, force: true });
@@ -77,7 +80,7 @@ test('session memory delivery emits first, changed, and cleared content exactly 
   assert.deepEqual(projectSessionMemoryUpdate('', undefined), { content: '', signature: '' });
 });
 
-test('session memory projection is byte-bounded and keeps valid UTF-8', () => {
+test('session memory rejects oversized entries instead of silently injecting partial notes', () => {
   const artifact = artifactContext();
   initializeSessionMemory(artifact);
   artifact.writeText(
@@ -85,10 +88,36 @@ test('session memory projection is byte-bounded and keeps valid UTF-8', () => {
     `${SESSION_MEMORY_TEMPLATE}\n## Handoff\n- ${'🙂'.repeat(SESSION_MEMORY_MAX_BYTES)}\n`,
   );
 
-  const projected = readSessionMemory(artifact);
-  assert.ok(projected);
-  assert.ok(Buffer.byteLength(projected, 'utf8') <= SESSION_MEMORY_MAX_BYTES);
-  assert.equal(projected.includes('\uFFFD'), false, 'truncation must not split a UTF-8 sequence');
+  const projected = readSessionMemoryState(artifact);
+  assert.equal(projected.state, 'invalid');
+  assert.equal(projected.content, undefined);
+  assert.ok(projected.issues?.some(issue => issue.code === 'entry-too-long'));
+  assert.equal(readSessionMemory(artifact), undefined);
+});
+
+test('session memory enforces the ten-entry policy and distinguishes read failures', () => {
+  const artifact = artifactContext();
+  initializeSessionMemory(artifact);
+  artifact.writeText(
+    SESSION_MEMORY_RELATIVE_PATH,
+    `${SESSION_MEMORY_TEMPLATE}\n${Array.from({ length: 11 }, (_, index) => `- note ${index}`).join('\n')}\n`,
+  );
+  const invalid = readSessionMemoryState(artifact);
+  assert.equal(invalid.state, 'invalid');
+  assert.ok(invalid.issues?.some(issue => issue.code === 'too-many-entries'));
+
+  vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+    throw new Error('permission denied');
+  });
+  assert.deepEqual(readSessionMemoryState(artifact), {
+    state: 'unavailable',
+    message: 'permission denied',
+  });
+  assert.equal(
+    sessionMemoryStatusText({ state: 'unavailable', message: 'secret path' }),
+    'Session memory unavailable'
+  );
+  assert.equal(sessionMemoryStatusText({ state: 'empty' }), undefined);
 });
 
 test('session artifact path context names both files and their ownership', () => {

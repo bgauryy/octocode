@@ -1,13 +1,13 @@
 import type { RepoSearchResult as ProviderRepoSearchResult } from '../../providers/providerResults.js';
-import type { z } from 'zod';
-import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schema';
+import type { GitHubSearchQuery } from '@octocodeai/octocode-core/schema';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 import { splitRepositoryPath } from './shared.js';
 
-type GitHubReposSearchSingleQuery = z.infer<
-  typeof GitHubReposSearchSingleQuerySchema
+type GitHubReposSearchSingleQuery = Extract<
+  GitHubSearchQuery,
+  { operation: 'repositories' }
 >;
 
 export function mapRepoSearchToolQuery(
@@ -16,7 +16,7 @@ export function mapRepoSearchToolQuery(
   const extra = query as Record<string, unknown>;
   return {
     keywords: query.keywords,
-    topics: query.topicsToSearch,
+    topics: query.topics,
     owner: query.owner,
     stars: query.stars,
     size: extra.size as string | undefined,
@@ -30,7 +30,7 @@ export function mapRepoSearchToolQuery(
     goodFirstIssues: extra.goodFirstIssues as string | undefined,
     match: query.match,
     sort: query.sort,
-    limit: (query as Record<string, unknown>).limit as number | undefined,
+    limit: query.pageSize,
     page: query.page,
     goal: query.goal,
     reasoning: query.reasoning,

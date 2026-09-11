@@ -1,6 +1,6 @@
 import { parseArgs } from './command-parser.js';
 import { getAwarenessCommandDescriptor } from './schema/cli.js';
-import type { AwarenessCommandCall } from './command-api.js';
+import type { AwarenessCommandCall } from './command-contracts.js';
 
 /** Decode CLI continuation metadata at the package boundary. */
 export function awarenessContinuationCall(command: string, args: string[]): AwarenessCommandCall {

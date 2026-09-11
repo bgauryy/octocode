@@ -16,11 +16,10 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     BindingPattern, Class, ClassElement, Declaration, ExportAllDeclaration, ExportDeclaration,
     ExportDefaultDeclarationKind, ExportSpecifier, Expression, Function, ImportDeclaration,
-    ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind, ModuleExportName,
-    Program, PropertyKey, Statement, TSEnumDeclaration, TSEnumMemberName,
-    TSExternalModuleDeclaration, TSGlobalDeclaration, TSInterfaceDeclaration,
-    TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature, TSTypeAliasDeclaration,
-    VariableDeclaration, VariableDeclarationKind,
+    ImportDeclarationSpecifier, ImportOrExportKind, MethodDefinitionKind, Program, Statement,
+    TSEnumDeclaration, TSEnumMemberName, TSExternalModuleDeclaration, TSGlobalDeclaration,
+    TSInterfaceDeclaration, TSNamespaceDeclaration, TSNamespaceDeclarationBody, TSSignature,
+    TSTypeAliasDeclaration, VariableDeclaration, VariableDeclarationKind,
 };
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -29,7 +28,15 @@ use serde::Serialize;
 
 use crate::text::file_extension::is_js_ts_extension;
 
-use super::run_on_deep_stack;
+use super::{
+    deep_stack::run_on_deep_stack,
+    js_oxc_calls::collect_program_calls,
+    js_oxc_commonjs as commonjs,
+    js_oxc_shared::{
+        module_export_name, property_key_name, GraphCall, GraphCommonJsLoad, LineIndex, Position,
+        Range,
+    },
+};
 
 // LSP SymbolKind numeric codes (subset we emit). The TS side maps these back to
 // names via `symbolKindName`; keep them in sync with the LSP spec.
@@ -45,18 +52,6 @@ mod kind {
     pub const VARIABLE: u8 = 13;
     pub const CONSTANT: u8 = 14;
     pub const ENUM_MEMBER: u8 = 22;
-}
-
-#[derive(Serialize)]
-struct Position {
-    line: u32,
-    character: u32,
-}
-
-#[derive(Serialize)]
-struct Range {
-    start: Position,
-    end: Position,
 }
 
 #[derive(Serialize)]
@@ -128,29 +123,6 @@ struct GraphExport {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GraphCall {
-    id: String,
-    caller: String,
-    callee: String,
-    line: u32,
-    range: Range,
-    kind: &'static str,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphCommonJsLoad {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    specifier: Option<String>,
-    line: u32,
-    kind: &'static str,
-    binding: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<&'static str>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct GraphEdge {
     id: String,
     from: String,
@@ -159,36 +131,6 @@ struct GraphEdge {
     source: &'static str,
     line: u32,
     resolution: &'static str,
-}
-
-/// Maps byte offsets to LSP `(line, character)` positions, where `character`
-/// counts UTF-16 code units from the line start (the LSP wire convention).
-/// Thin wrapper over the shared `text::utf8_offsets::LineIndex` — see that
-/// type for the actual line-start/UTF-16 counting logic.
-struct LineIndex<'a>(crate::text::utf8_offsets::LineIndex<'a>);
-
-impl<'a> LineIndex<'a> {
-    fn new(content: &'a str) -> Self {
-        Self(crate::text::utf8_offsets::LineIndex::new(content))
-    }
-
-    fn position(&self, byte_offset: u32) -> Position {
-        let (line, character) = self.0.byte_to_position(byte_offset);
-        Position { line, character }
-    }
-
-    fn range(&self, span: Span) -> Range {
-        Range {
-            start: self.position(span.start),
-            end: self.position(span.end),
-        }
-    }
-
-    /// Inverse of [`position`]: an LSP `(line, character)` (0-based, UTF-16) to a
-    /// byte offset into `content`. Clamps out-of-range input to a valid offset.
-    fn byte_offset(&self, line: u32, character: u32) -> u32 {
-        self.0.position_to_byte(line, character)
-    }
 }
 
 fn span_contains(span: Span, offset: u32) -> bool {
@@ -968,24 +910,9 @@ mod graph_occurrence_tests {
     }
 }
 
-#[path = "js_oxc_calls.rs"]
-mod calls;
-use calls::collect_program_calls;
-
-#[path = "js_oxc_commonjs.rs"]
-mod commonjs;
-
 #[cfg(test)]
 #[path = "js_oxc_commonjs_bench.rs"]
 mod commonjs_bench;
-
-fn module_export_name(name: &ModuleExportName) -> Option<String> {
-    match name {
-        ModuleExportName::IdentifierName(id) => Some(id.name.as_str().to_string()),
-        ModuleExportName::IdentifierReference(id) => Some(id.name.as_str().to_string()),
-        ModuleExportName::StringLiteral(s) => Some(s.value.as_str().to_string()),
-    }
-}
 
 fn import_export_kind(kind: ImportOrExportKind) -> &'static str {
     match kind {
@@ -1270,15 +1197,6 @@ fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<Do
             id.span,
             li,
         ));
-    }
-}
-
-fn property_key_name(key: &PropertyKey) -> Option<(String, Span)> {
-    match key {
-        PropertyKey::StaticIdentifier(id) => Some((id.name.as_str().to_string(), id.span)),
-        PropertyKey::PrivateIdentifier(p) => Some((format!("#{}", p.name.as_str()), p.span)),
-        PropertyKey::StringLiteral(s) => Some((s.value.as_str().to_string(), s.span)),
-        _ => None, // computed / numeric / template keys
     }
 }
 

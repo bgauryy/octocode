@@ -1,9 +1,9 @@
-import type { z } from 'zod';
-import type { GitHubReposSearchSingleQuerySchema } from '@octocodeai/octocode-core/schema';
+import type { GitHubSearchQuery } from '@octocodeai/octocode-core/schema';
 import type { WithOptionalMeta } from '../../../types/execution.js';
 
-type GitHubReposSearchSingleQuery = z.infer<
-  typeof GitHubReposSearchSingleQuerySchema
+type GitHubReposSearchSingleQuery = Extract<
+  GitHubSearchQuery,
+  { operation: 'repositories' }
 >;
 
 export type RepositorySearchExtraFields = {
@@ -21,10 +21,8 @@ export type PartialReposSearchQuery =
 
 export function hasValidTopics(query: PartialReposSearchQuery): boolean {
   return Boolean(
-    query.topicsToSearch &&
-    (Array.isArray(query.topicsToSearch)
-      ? query.topicsToSearch.length > 0
-      : query.topicsToSearch)
+    query.topics &&
+    (Array.isArray(query.topics) ? query.topics.length > 0 : query.topics)
   );
 }
 

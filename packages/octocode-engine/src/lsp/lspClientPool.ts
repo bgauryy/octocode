@@ -16,6 +16,8 @@ interface PooledClient {
 
 interface LspClientPoolOptions<T extends PooledClient> {
   idleTimeoutMs: number;
+  /** Maximum live clients retained; oldest successful use is evicted first. */
+  maxEntries?: number;
 
   factory: (key: PoolKey) => Promise<T | null>;
 }
@@ -28,11 +30,18 @@ interface PoolEntry<T extends PooledClient> {
 
 export class LspClientPool<T extends PooledClient> {
   private readonly options: LspClientPoolOptions<T>;
+  private readonly maxEntries: number;
   private readonly entries = new Map<string, PoolEntry<T>>();
   private readonly inflight = new Map<string, Promise<T | null>>();
 
   constructor(options: LspClientPoolOptions<T>) {
     this.options = options;
+    this.maxEntries =
+      options.maxEntries !== undefined &&
+      Number.isInteger(options.maxEntries) &&
+      options.maxEntries > 0
+        ? options.maxEntries
+        : Number.POSITIVE_INFINITY;
   }
 
   async acquire(key: PoolKey): Promise<T | null> {
@@ -70,6 +79,7 @@ export class LspClientPool<T extends PooledClient> {
         }
         const timer = this.startIdleTimer(k);
         this.entries.set(k, { client, timer, key });
+        this.evictOverflow();
         return client;
       } finally {
         if (this.inflight.get(k) === promise) this.inflight.delete(k);
@@ -115,6 +125,22 @@ export class LspClientPool<T extends PooledClient> {
     if (!entry) return;
     clearTimeout(entry.timer);
     entry.timer = this.startIdleTimer(k);
+    // Map insertion order is the LRU order. A successful health check counts
+    // as use and moves the entry to the newest position.
+    this.entries.delete(k);
+    this.entries.set(k, entry);
+  }
+
+  private evictOverflow(): void {
+    while (this.entries.size > this.maxEntries) {
+      const oldestKey = this.entries.keys().next().value as string | undefined;
+      if (oldestKey === undefined) return;
+      const oldest = this.entries.get(oldestKey);
+      if (!oldest) return;
+      clearTimeout(oldest.timer);
+      this.entries.delete(oldestKey);
+      void safeStop(oldest.client);
+    }
   }
 
   private startIdleTimer(k: string): ReturnType<typeof setTimeout> {

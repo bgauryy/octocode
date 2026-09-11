@@ -36,14 +36,18 @@ Access: `packages/*/src/`, `tests/`, `docs/` ✅ · `*.json`, `*.config.*`, `Car
 
 Tool execution lives in tools-core; public schemas, descriptions, and shared server instructions live in core; native primitives live in engine. Interface packages only register, render, and configure. Never duplicate `getOctocodeHome` or `.env` parsing — use `@octocodeai/config`.
 
+Octocode and Awareness skill commands share filesystem/platform behavior through
+`@octocodeai/octocode-skill-installer`; each CLI still owns its bundled-skill catalog.
+
 ## Packages
 
-Top-level workspace packages (11). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
+Top-level workspace packages (12). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
 
 | Package | npm name | What it is | Dig deeper |
 |---|---|---|---|
 | [`packages/octocode-agent-contracts`](packages/octocode-agent-contracts) | `@octocodeai/agent-contracts` | Local canonical owner of shared worker/system/plan prompt fragments, host protocols, entity types, paths, permissions, and Agent control SQLite helpers. Awareness owns its separate ledger and operating guide. | [ARCHITECTURE](packages/octocode-agent-contracts/ARCHITECTURE.md) |
 | [`packages/octocode-config`](packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader — single source for `getOctocodeHome`, `parseEnv`, `loadOctocodeEnv`, `propagateOctocodeEnv`, `loadOctocoderc`, `PROTECTED_KEYS`. Used by every package (`workspace:*`) and injected into skill scripts as `octocode-config.mjs`. CLI: `npx @octocodeai/config [--keys\|--check KEY]`. | package `src/` |
+| [`packages/octocode-skill-installer`](packages/octocode-skill-installer) | `@octocodeai/octocode-skill-installer` | Shared durable skill materialization, platform path registry, link/junction creation, conflict policy, and install result schema. | [ARCHITECTURE](packages/octocode-skill-installer/ARCHITECTURE.md) |
 | [`packages/octocode-tools-core`](packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | Brain. All tool runners, GitHub/Octokit client, security, providers, credentials, session, config. Registry: `src/tools/toolConfig.ts`. Delegates home/env to `@octocodeai/config`; native work to engine. | [ARCHITECTURE](packages/octocode-tools-core/ARCHITECTURE.md) |
 | [`packages/octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | Research tools' Rust primitives (napi-rs) + TS LSP/security wrappers. Minify, ripgrep, AST structural search, secret detection, LSP pool. | [ARCHITECTURE](packages/octocode-engine/ARCHITECTURE.md) · [LSP lifecycle](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
 | [`packages/octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Dedicated extension native filesystem snapshots, mutations, durability and line diff. Separate from the research engine. | [ARCHITECTURE](packages/octocode-extension-rust/ARCHITECTURE.md) |
@@ -136,6 +140,7 @@ Adds the internal packages and octocode-engine platform packages to the `resolut
 |---|---|
 | `@octocodeai/octocode-tools-core` | Brain / all tool runners |
 | `@octocodeai/config` | Zero-dep env + config loader |
+| `@octocodeai/octocode-skill-installer` | Shared durable skill installation and platform links |
 | `@octocodeai/octocode-core` | Public tool contracts and reusable output types (sibling repo, local `file:` resolution) |
 | `@octocodeai/octocode-engine` | Rust/napi engine |
 | `@octocodeai/octocode-engine-*` | Platform-native engine packages from `packages/octocode-engine/npm/*` |

@@ -1,13 +1,18 @@
 ---
 name: octocode-scraping
-description: "Use when scraping public URLs/docs into a cited corpus, extracting tables/pricing, or diagnosing blocked/thin pages."
+description: "Use when scraping public URLs/docs into a cited corpus, extracting tables/pricing, or diagnosing blocked/thin pages. Not for live interaction → octocode-chrome-devtools."
 ---
 
 # Octocode Scraping
 
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-chrome-devtools`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Flow: `FRAME → POLICY → ROUTE → FETCH → CORPUS → SEARCH → CITE → RECOVER`.
 
-Chat answers stay in chat; corpora/runs use `<workspace>/.octocode/tmp/scrape/`, durable reports `<workspace>/.octocode/octocode-scraping/`, and approved source/config edits keep their paths. Never use user-level Octocode home for artifacts.
+Corpora/runs: `<output>/tmp/scrape/`; reports: `<output>/octocode-scraping/`. Chat answers stay in chat; approved source/config edits keep their paths.
 
 Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; process its HAR into the same session.
 

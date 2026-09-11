@@ -183,7 +183,12 @@ export async function executeRipgrepSearchInternal(
     return createErrorResult(
       error instanceof Error ? error : new Error(String(error)),
       query,
-      { toolName: TOOL_NAMES.LOCAL_RIPGREP }
+      {
+        toolName: TOOL_NAMES.LOCAL_RIPGREP,
+        extra: {
+          warnings: [...validationWarnings, ...chunkingWarnings],
+        },
+      }
     ) as LocalSearchCodeToolResult;
   }
 
@@ -217,7 +222,7 @@ export async function executeRipgrepSearchInternal(
 
   if (parsed.stats.capped) {
     chunkingWarnings.push(
-      `Search hit native collection cap (${parsed.stats.capReason ?? 'resource limit'}); narrow path/include/keywords for exhaustive results.`
+      `Search hit native collection cap (${parsed.stats.capReason ?? 'resource limit'}); narrow path/include or use a more selective searchText for exhaustive results.`
     );
   }
 
@@ -238,6 +243,13 @@ export async function executeRipgrepSearchInternal(
         status: 'empty',
         searchEngine: 'rg',
         stats,
+        ...(parsed.stats.capped
+          ? {
+              terminalLimit: true,
+              truncated: true,
+              partialReasons: ['nativeResultCap'],
+            }
+          : {}),
         hints: broadenHints,
         warnings: [...validationWarnings, ...chunkingWarnings],
       } as LocalSearchCodeToolResult,

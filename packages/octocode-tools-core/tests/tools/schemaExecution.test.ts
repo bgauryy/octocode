@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { searchMultipleGitHubPullRequests } from '../../src/tools/github_search_pull_requests/execution.js';
+import { getMultipleGitHubHistoryItems } from '../../src/tools/github_search_pull_requests/historyExecutions.js';
 import { executeAstSearch } from '../../src/tools/ast_search/execution.js';
-import { executeRipgrepSearch } from '../../src/tools/local_ripgrep/execution.js';
+import { executeLocalSearch } from '../../src/tools/local_search/execution.js';
 
 type ResultRow = {
   readonly status: unknown;
@@ -38,8 +38,8 @@ function getError(row: ResultRow | undefined): string {
 }
 
 describe('tool execution schema validation', () => {
-  it('returns a per-query error for a mis-gated local.text query', async () => {
-    const result = await executeRipgrepSearch({
+  it('returns a per-query error for a mis-gated localSearch query', async () => {
+    const result = await executeLocalSearch({
       queries: [
         {
           searchText: 'token',
@@ -52,7 +52,7 @@ describe('tool execution schema validation', () => {
     const rows = getRows(result);
     expect(result.isError).toBe(true);
     expect(rows[0]?.status).toBe('error');
-    expect(getError(rows[0])).toContain('unique requires output:"matchOnly"');
+    expect(getError(rows[0])).toContain('require resultView:\\"matchOnly\\"');
   });
 
   it('returns a per-query error for inverted AST files depth', async () => {
@@ -76,12 +76,13 @@ describe('tool execution schema validation', () => {
   });
 
   it('returns a per-query error for unusable selected PR patch requests', async () => {
-    const result = await searchMultipleGitHubPullRequests({
+    const result = await getMultipleGitHubHistoryItems({
       queries: [
         {
+          operation: 'pullRequest',
           owner: 'octo',
           repo: 'repo',
-          prNumber: 1,
+          number: 1,
           content: { patches: { mode: 'selected' } },
         },
       ],
@@ -90,8 +91,6 @@ describe('tool execution schema validation', () => {
     const rows = getRows(result);
     expect(result.isError).toBe(true);
     expect(rows[0]?.status).toBe('error');
-    expect(getError(rows[0])).toContain(
-      'content.patches.mode="selected" requires non-empty files or ranges'
-    );
+    expect(getError(rows[0])).toContain('Invalid input');
   });
 });

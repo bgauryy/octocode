@@ -241,27 +241,39 @@ export async function getFileDiagnostics(
   }
   const client = clientResult.client;
 
-  if (!client.hasCapability('diagnosticProvider')) {
-    return {
-      type: 'diagnostic',
-      uri,
-      lsp: { serverAvailable: true, provider: 'diagnosticProvider' },
-      payload: {
-        kind: 'empty',
-        category: 'unsupportedOperation',
-        reason:
-          'diagnosticProvider (pull) unsupported — server uses push (publishDiagnostics) instead',
-      },
-      warnings: [
-        'This server pushes diagnostics via textDocument/publishDiagnostics. ' +
-          'Pull diagnostics (type: "diagnostic") require LSP 3.17 pull support. ' +
-          'Check server docs to enable it.',
-      ],
-    } satisfies LspSemanticEnvelope;
+  const supportsPull = client.hasCapability('diagnosticProvider');
+  const provider = supportsPull
+    ? 'diagnosticProvider'
+    : 'textDocument/publishDiagnostics';
+  let raw: unknown;
+  if (supportsPull) {
+    raw = await client.getDiagnostics(uri, anchor.value.content);
+  } else {
+    await client.openDocument(uri, anchor.value.content);
+    raw = await client.getPushDiagnostics(uri);
+    if (!raw) {
+      return {
+        type: 'diagnostic',
+        uri,
+        lsp: { serverAvailable: true, provider },
+        payload: {
+          kind: 'empty',
+          category: 'possiblyIncomplete',
+          reason:
+            'The server supports push diagnostics but did not publish a result within the bounded wait; this is not proof that the file has no diagnostics.',
+        },
+        warnings: [
+          'No textDocument/publishDiagnostics notification arrived; this is not proof that the file has no diagnostics.',
+        ],
+      } satisfies LspSemanticEnvelope;
+    }
   }
-
-  const raw = await client.getDiagnostics(uri);
   const diags = extractDiagnostics(raw);
+  const pushTruncated =
+    !supportsPull &&
+    raw !== null &&
+    typeof raw === 'object' &&
+    (raw as Record<string, unknown>)['truncated'] === true;
   const errorCount = diags.filter(d => d.severity === 1).length;
   const warningCount = diags.filter(d => d.severity === 2).length;
 
@@ -275,7 +287,7 @@ export async function getFileDiagnostics(
   return {
     type: 'diagnostic',
     uri,
-    lsp: { serverAvailable: true, provider: 'diagnosticProvider' },
+    lsp: { serverAvailable: true, provider },
     summary: {
       totalDiagnostics: diags.length,
       errorCount,
@@ -296,6 +308,16 @@ export async function getFileDiagnostics(
             reason: 'No diagnostics — file has no errors or warnings',
           },
     pagination,
+    ...(pushTruncated
+      ? {
+          truncated: true,
+          terminalLimit: true,
+          partialReasons: ['pushDiagnosticsRetentionCap'],
+          warnings: [
+            'Push diagnostics exceeded the native per-document retention cap; returned diagnostics are partial.',
+          ],
+        }
+      : {}),
   } satisfies LspSemanticEnvelope;
 }
 

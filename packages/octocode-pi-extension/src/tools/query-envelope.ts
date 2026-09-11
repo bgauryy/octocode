@@ -61,6 +61,7 @@ export interface QueryBatchResultRow {
   summary: string;
   result?: unknown;
   content?: ToolCallResult['content'];
+  recovery?: unknown;
 }
 
 export interface ExecuteQueryBatchOptions extends PreparedQueryBatchOptions {
@@ -91,6 +92,11 @@ class QueryResultError extends Error {
   constructor(readonly result: ToolCallResult) { super(defaultSummary(result)); }
 }
 class QueryNotRunError extends Error {}
+
+function errorRecovery(error: unknown): unknown {
+  if (!error || typeof error !== 'object' || !('recovery' in error)) return undefined;
+  return (error as { recovery?: unknown }).recovery;
+}
 
 /**
  * Build the standard query-envelope JSON Schema from a Zod item schema.
@@ -360,6 +366,7 @@ export async function executeQueryBatch(
               entry.reason instanceof Error
                 ? entry.reason.message
                 : String(entry.reason),
+            ...(errorRecovery(entry.reason) === undefined ? {} : { recovery: errorRecovery(entry.reason) }),
             ...(entry.reason instanceof QueryResultError ? { result: entry.reason.result.details, content: entry.reason.result.content } : {}),
           },
     );
@@ -398,6 +405,7 @@ export async function executeQueryBatch(
               reasoning: query.reasoning,
               status: error instanceof QueryNotRunError ? 'not-run' : 'failed',
               summary: detail,
+              ...(errorRecovery(error) === undefined ? {} : { recovery: errorRecovery(error) }),
               ...(error instanceof QueryResultError ? { result: error.result.details, content: error.result.content } : {}),
             },
             ...queries

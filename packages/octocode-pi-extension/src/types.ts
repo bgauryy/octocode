@@ -4,7 +4,6 @@
  * Pi's published types define host contracts; local interfaces describe
  * Octocode's tool results, runtime state, and UI projections.
  */
-
 import type { PromptMode } from '@octocodeai/agent-contracts/protocols';
 
 import type {
@@ -85,6 +84,8 @@ export interface WorkerLedgerEntry {
   task?: string;
   /** Optional parent-plan step this worker was spawned to execute. */
   planStep?: string;
+  /** Optional parent-assigned group for attention-first worker aggregation. */
+  cohortId?: string;
   thinking?: string;
   tools?: string[];
   normalizedStatus?: string;

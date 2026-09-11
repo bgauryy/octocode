@@ -1,14 +1,20 @@
 //! Exhaustive routing checks complement language-specific syntax fixtures.
 //! These cover configured strategies and comment groups, not every construct
 //! in each language. Adding a configured extension automatically adds cases.
-use super::apply::{apply_content_view_minification_inner, apply_minification_inner};
+use super::apply::apply_content_view_minification_inner;
 use super::comment_remover::rules_for;
 use super::config::{indentation_sensitive_names, minify_config, FileTypeConfig};
-use super::minifier::get_file_config;
+use super::minifier::{get_file_config, minify_content_result_inner};
 
 const MARKER: &str = "octocodeKeepMarker";
 const LITERAL: &str = "https://example.com/a//literal";
 const COMMENT: &str = "octocode removable comment";
+
+fn full_minification(content: &str, file_path: &str) -> String {
+    let result = minify_content_result_inner(content, file_path);
+    assert!(!result.failed, "{file_path}: full minification failed");
+    result.content
+}
 
 #[test]
 fn research_views_preserve_multiline_literal_payloads() {
@@ -20,7 +26,7 @@ fn research_views_preserve_multiline_literal_payloads() {
     ] {
         for output in [
             apply_content_view_minification_inner(&source, &format!("literal.{extension}")),
-            apply_minification_inner(&source, &format!("literal.{extension}")),
+            full_minification(&source, &format!("literal.{extension}")),
         ] {
             assert!(
                 output.contains(payload),
@@ -155,7 +161,7 @@ fn every_configured_extension_preserves_evidence_and_removes_its_comments() {
                     "standard",
                     apply_content_view_minification_inner(&source, &path),
                 ),
-                ("full", apply_minification_inner(&source, &path)),
+                ("full", full_minification(&source, &path)),
             ] {
                 assert!(
                     output.contains(MARKER),
@@ -176,7 +182,7 @@ fn every_configured_extension_preserves_evidence_and_removes_its_comments() {
                 let repeat = if mode == "standard" {
                     apply_content_view_minification_inner(&source, &path)
                 } else {
-                    apply_minification_inner(&source, &path)
+                    full_minification(&source, &path)
                 };
                 assert_eq!(
                     output, repeat,
@@ -201,7 +207,7 @@ fn every_basename_override_preserves_recipe_indentation_and_literals() {
             assert_eq!(get_file_config(&path).unwrap().strategy, "conservative");
             for output in [
                 apply_content_view_minification_inner(source, &path),
-                apply_minification_inner(source, &path),
+                full_minification(source, &path),
             ] {
                 assert!(
                     output.contains("\techo"),

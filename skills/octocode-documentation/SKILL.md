@@ -5,13 +5,18 @@ description: "Use when creating, repairing, or reviewing READMEs, API docs, guid
 
 # Octocode Documentation
 
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-research`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Write evidence-backed documentation for humans and agents. Classify the deliverable, verify repository facts, and prefer durable links over copied implementation detail.
 
 ## Flow
 
 Flow: `UNDERSTAND → RESEARCH → CLASSIFY → OUTLINE GATE → WRITE → STYLE → VERIFY`
 
-Chat-only reviews stay in chat. Put unnamed drafts in `<workspace>/.octocode/octocode-documentation/` and scratch data in `<workspace>/.octocode/tmp/octocode-documentation/`. Named or approved edits keep their requested repository paths. Do not fall back to a user-level Octocode home for artifacts.
+Drafts: `<output>/octocode-documentation/`; scratch: `<output>/tmp/octocode-documentation/`. Chat-only reviews stay in chat; named or approved edits keep their requested paths.
 
 UNDERSTAND identifies the deliverable, audience, approved paths, and facts that still need evidence.
 

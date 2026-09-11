@@ -1,464 +1,258 @@
-/**
- * `octocode skill install [<name>...] [options]`
- *
- * Install one or more bundled skills.
- *
- * ─── DEFAULT BEHAVIOUR ────────────────────────────────────────────────────────
- *   Override is ON by default — installs always overwrite the existing copy
- *   so you always get the latest bundled version.
- *   Pass --keep to preserve an existing installation and skip the overwrite.
- *
- * ─── INSTALLATION MODEL ───────────────────────────────────────────────────────
- *   1. Copy skill to ~/.octocode/skills/<name>/  (canonical home, always fresh)
- *   2. Symlink from platform dirs → home          (--platform)
- *   3. Symlink from workspace    → home           (--workspace / --repo)
- *   4. Custom path               → direct copy/symlink (--path, skips home)
- */
+/** `octocode skill install [<name>...] [options]` */
 
+import { existsSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  SKILL_PLATFORMS,
+  installBundledSkills,
+  type InstallBundledSkillsResult,
+  type SkillInstallTarget,
+} from '@octocodeai/octocode-skill-installer';
 import {
   listSkills,
   getSkill,
   getSkillFromPath,
   type SkillInfo,
 } from '../registry.js';
-import {
-  getPlatformSkillsDir,
-  parsePlatforms,
-  type Platform,
-} from '../platforms.js';
-import {
-  installSkill,
-  type InstallMode,
-  type SkillInstallOutcome,
-} from '../installer.js';
-import { getSkillsHome } from '../home.js';
-import {
-  getSkillsEnvStatus,
-  groupLabel,
-  isGroupSatisfied,
-} from '../env-params.js';
-import { Spinner } from '../utils/spinner.js';
+import { parsePlatforms } from '../platforms.js';
+import type { InstallMode } from '../installer.js';
+import { getSkillsEnvStatus } from '../env-params.js';
 import { bold, dim, c } from '../../../../utils/colors.js';
 import { shortPath } from '../utils/paths.js';
 
-// ─── Options ──────────────────────────────────────────────────────────────────
-
 export interface InstallOptions {
   all: boolean;
-  /** Local standalone skill source used by `skill --add <source>`. */
+  /** Local standalone skill source used by `skill install --add <source>`. */
   sourcePath: string | null;
   platform: string | null;
+  /** Legacy check-only flag; install rejects it with the canonical replacement. */
   workspace: boolean;
+  global: boolean;
+  projectDir: string | null;
   customPath: string | null;
   mode: InstallMode;
-  /**
-   * Keep existing installations (skip overwrite).
-   * Default: false — override is on by default.
-   */
-  keep: boolean;
+  /** Replace existing canonical copies or destinations that differ. */
+  force: boolean;
   dryRun: boolean;
   json: boolean;
 }
 
-// ─── JSON result shape ────────────────────────────────────────────────────────
+function fail(message: string, json: boolean): void {
+  if (json) console.log(JSON.stringify({ ok: false, error: message }));
+  else console.error(`\n  ${c('red', '✗')}  ${message}\n`);
+  process.exitCode = 1;
+}
 
-export interface InstallJsonResult {
-  success: boolean;
-  dryRun: boolean;
-  override: boolean;
-  skills: Array<{
-    name: string;
-    home: string | null;
-    homeStatus: string;
-    homeError?: string;
-    links: Array<{
-      target: string;
-      destPath: string;
-      status: string;
-      error?: string;
-    }>;
-  }>;
-  summary: { installed: number; skipped: number; failed: number };
+function resolveSkills(
+  skillNames: string[],
+  opts: InstallOptions
+): SkillInfo[] | null {
+  if (opts.sourcePath) {
+    if (opts.all || skillNames.length > 1) {
+      fail(
+        opts.all
+          ? '--add cannot be combined with --all.'
+          : '--add accepts at most one name override.',
+        opts.json
+      );
+      return null;
+    }
+    const resolved = getSkillFromPath(opts.sourcePath, skillNames[0]);
+    if (!resolved.skill) {
+      fail(resolved.error ?? 'Unable to load local skill.', opts.json);
+      return null;
+    }
+    return [resolved.skill];
+  }
+
+  if (opts.all) {
+    const skills = listSkills();
+    if (skills.length === 0) {
+      fail('No bundled skills found.', opts.json);
+      return null;
+    }
+    return skills;
+  }
+
+  if (skillNames.length === 0) {
+    fail('Specify a skill name or use --all.', opts.json);
+    return null;
+  }
+
+  const skills: SkillInfo[] = [];
+  const missing: string[] = [];
+  for (const name of skillNames) {
+    const skill = getSkill(name);
+    if (skill) skills.push(skill);
+    else missing.push(name);
+  }
+  if (missing.length > 0) {
+    fail(
+      `Skill(s) not found: ${missing.map(name => `"${name}"`).join(', ')}`,
+      opts.json
+    );
+    return null;
+  }
+  return skills;
+}
+
+function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
+  if (!opts.platform) {
+    if (opts.global || opts.projectDir) {
+      fail('--global and --project-dir require --platform.', opts.json);
+      return null;
+    }
+    return [];
+  }
+  if (opts.global === Boolean(opts.projectDir)) {
+    fail(
+      'Choose exactly one scope for --platform: --global or --project-dir <dir>.',
+      opts.json
+    );
+    return null;
+  }
+
+  const parsed = parsePlatforms(opts.platform);
+  if (parsed.error) {
+    fail(parsed.error, opts.json);
+    return null;
+  }
+
+  if (opts.projectDir) {
+    const unsupported = parsed.platforms.filter(
+      platform =>
+        !SKILL_PLATFORMS.find(candidate => candidate.platform === platform)
+          ?.supportsProject
+    );
+    if (unsupported.length > 0) {
+      fail(
+        `Project skill installation is unsupported for: ${unsupported.join(', ')}`,
+        opts.json
+      );
+      return null;
+    }
+    const projectDir = resolve(opts.projectDir);
+    if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
+      fail(`Project directory does not exist: ${projectDir}`, opts.json);
+      return null;
+    }
+    return parsed.platforms.map(platform => ({
+      platform,
+      scope: 'project',
+      projectDir,
+    }));
+  }
+  return parsed.platforms.map(platform => ({ platform, scope: 'global' }));
 }
 
 function statusIcon(status: string): string {
-  if (status === 'installed' || status === 'linked') return c('green', '✓');
-  if (status === 'skipped') return c('yellow', '~');
-  if (status === 'bypassed') return dim('–');
+  if (status === 'installed' || status === 'linked' || status === 'copied')
+    return c('green', '✓');
+  if (status === 'unchanged') return c('yellow', '~');
   return c('red', '✗');
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
-export function runInstall(skillNames: string[], opts: InstallOptions): void {
-  const force = !opts.keep; // override by default
-
-  // ── Resolve skill list ────────────────────────────────────────────────────
-
-  let skills: SkillInfo[];
-
-  if (opts.sourcePath) {
-    if (opts.all || skillNames.length > 1) {
-      const error = opts.all
-        ? '--add cannot be combined with --all.'
-        : '--add accepts at most one --name override.';
-      if (opts.json) console.log(JSON.stringify({ success: false, error }));
-      else console.error(`\n  ${c('red', '✗')}  ${error}\n`);
-      process.exitCode = 1;
-      return;
-    }
-
-    const resolved = getSkillFromPath(opts.sourcePath, skillNames[0]);
-    if (!resolved.skill) {
-      const error = resolved.error ?? 'Unable to load local skill.';
-      if (opts.json) console.log(JSON.stringify({ success: false, error }));
-      else console.error(`\n  ${c('red', '✗')}  ${error}\n`);
-      process.exitCode = 1;
-      return;
-    }
-    skills = [resolved.skill];
-  } else if (opts.all) {
-    skills = listSkills();
-    if (skills.length === 0) {
-      if (opts.json) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            error: 'No bundled skills found.',
-            skills: [],
-            summary: { installed: 0, skipped: 0, failed: 0 },
-          })
-        );
-      } else {
-        console.log(`\n  ${c('red', '\u2717')}  No bundled skills found.\n`);
-      }
-      process.exitCode = 1;
-      return;
-    }
-  } else {
-    if (skillNames.length === 0) {
-      if (opts.json) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            error: 'Specify a skill name or use --all.',
-            skills: [],
-            summary: { installed: 0, skipped: 0, failed: 0 },
-          })
-        );
-      } else {
-        console.log();
-        console.log(`  ${c('red', '✗')}  No skill specified.`);
-        console.log();
-        console.log(`  ${dim('Usage:')}  octocode skill install <name>`);
-        console.log(`           octocode skill install --all`);
-        console.log(`  ${dim('Browse:')} octocode skill list`);
-        console.log();
-      }
-      process.exitCode = 1;
-      return;
-    }
-
-    skills = [];
-    const notFound: string[] = [];
-
-    for (const name of skillNames) {
-      const skill = getSkill(name);
-      if (skill) {
-        skills.push(skill);
-      } else {
-        notFound.push(name);
-      }
-    }
-
-    if (notFound.length > 0) {
-      const msg = `Skill(s) not found: ${notFound.map(n => `"${n}"`).join(', ')}`;
-      if (opts.json) {
-        console.log(
-          JSON.stringify({
-            success: false,
-            error: msg,
-            skills: [],
-            summary: { installed: 0, skipped: 0, failed: 0 },
-          })
-        );
-      } else {
-        console.log();
-        console.log(`  ${c('red', '✗')}  ${msg}`);
-        console.log(
-          `  ${dim('Run')} ${c('cyan', 'octocode skill list')} ${dim('to browse available skills.')}`
-        );
-        console.log();
-      }
-      process.exitCode = 1;
-      return;
-    }
-  }
-
-  // ── Resolve platforms ─────────────────────────────────────────────────────
-
-  let platforms: Platform[] = [];
-
-  if (opts.platform) {
-    const parsed = parsePlatforms(opts.platform);
-    if (parsed.error) {
-      if (opts.json) {
-        console.log(JSON.stringify({ success: false, error: parsed.error }));
-      } else {
-        console.log(`\n  ${c('red', '✗')}  ${parsed.error}\n`);
-      }
-      process.exitCode = 1;
-      return;
-    }
-    platforms = parsed.platforms;
-  }
-
-  if (opts.sourcePath) {
-    const agentsDir = getPlatformSkillsDir('agents');
-    const alreadyTargetsAgents = platforms.some(
-      platform => getPlatformSkillsDir(platform) === agentsDir
-    );
-    if (!alreadyTargetsAgents) platforms.unshift('agents');
-  }
-
-  // ── Header (human) ────────────────────────────────────────────────────────
-
-  if (!opts.json) {
-    console.log();
-    const modeLabel = opts.dryRun
-      ? c('cyan', 'Dry-run preview') + dim(' — no files written')
-      : force
-        ? dim('mode: override')
-        : dim('mode: keep existing (--keep)');
-    console.log(
-      `  ${bold('Installing')} ${dim(`${skills.length} skill(s)  ·  ${modeLabel}`)}`
-    );
-    console.log();
-  }
-
-  // ── Run installs ──────────────────────────────────────────────────────────
-
-  const outcomes: SkillInstallOutcome[] = [];
-  const spinner = opts.json ? null : new Spinner('').start();
-
-  for (const skill of skills) {
-    spinner?.update(`Installing ${skill.name}…`);
-
-    const outcome = installSkill({
-      sourcePath: skill.dir,
-      skillName: skill.folder,
-      platforms,
-      workspace: opts.workspace,
-      customPath: opts.customPath,
-      mode: opts.mode,
-      force,
-      dryRun: opts.dryRun,
-    });
-    outcomes.push(outcome);
-  }
-
-  spinner?.stop();
-
-  // ── Totals ────────────────────────────────────────────────────────────────
-
-  let installed = 0,
-    skipped = 0,
-    failed = 0;
-
-  for (const o of outcomes) {
-    if (o.homeStatus === 'installed') installed++;
-    else if (o.homeStatus === 'skipped') skipped++;
-    else if (o.homeStatus === 'failed') failed++;
-
-    for (const link of o.links) {
-      if (link.status === 'linked') installed++;
-      else if (link.status === 'skipped') skipped++;
-      else if (link.status === 'failed') failed++;
-    }
-  }
-
-  const success = failed === 0;
-
-  // ── JSON output ───────────────────────────────────────────────────────────
-
-  if (opts.json) {
-    const result: InstallJsonResult = {
-      success,
-      dryRun: opts.dryRun,
-      override: force,
-      skills: outcomes.map(o => ({
-        name: o.skillName,
-        home: o.homePath,
-        homeStatus: o.homeStatus,
-        ...(o.homeError ? { homeError: o.homeError } : {}),
-        links: o.links.map(l => ({
-          target: l.target,
-          destPath: l.destPath,
-          status: l.status,
-          ...(l.error ? { error: l.error } : {}),
-        })),
-      })),
-      summary: { installed, skipped, failed },
-    };
-    console.log(JSON.stringify(result, null, 2));
-    if (!success) process.exitCode = 1;
-    return;
-  }
-
-  // ── Human output ──────────────────────────────────────────────────────────
-
-  for (const o of outcomes) {
-    const skillOk =
-      o.homeStatus === 'installed' ||
-      o.homeStatus === 'skipped' ||
-      o.homeStatus === 'bypassed';
-    const overallIcon =
-      skillOk && o.links.every(l => l.status !== 'failed')
-        ? c('green', '✓')
-        : c('red', '✗');
-
-    console.log(`  ${overallIcon}  ${bold(o.skillName)}`);
-
-    // Home row
-    if (o.homeStatus !== 'bypassed') {
-      const icon = statusIcon(o.homeStatus);
-      const dest = o.homePath ? dim(shortPath(o.homePath)) : dim('—');
-
-      let note = '';
-      if (o.homeStatus === 'skipped') {
-        note = dim('  (kept existing  ·  remove --keep to override)');
-      } else if (o.homeStatus === 'installed' && force && !opts.dryRun) {
-        note = dim('  (overwritten)');
-      } else if (o.homeError) {
-        note = c('red', `  ${o.homeError}`);
-      }
-
-      console.log(`     ${icon}  ${'home'.padEnd(14)} ${dest}${note}`);
-    }
-
-    // Link rows
-    for (const link of o.links) {
-      const icon = statusIcon(link.status);
-      const dest = dim(shortPath(link.destPath));
-
-      let note = '';
-      if (link.status === 'skipped') {
-        note = dim('  (kept existing)');
-      } else if (link.status === 'linked') {
-        note = dim('  → ' + shortPath(o.homePath ?? link.destPath));
-      } else if (link.error) {
-        note = c('red', `  ${link.error}`);
-      }
-
-      console.log(`     ${icon}  ${link.target.padEnd(14)} ${dest}${note}`);
-    }
-
-    console.log();
-  }
-
-  // Summary
-  const homeDir = opts.customPath
-    ? shortPath(opts.customPath)
-    : shortPath(getSkillsHome());
-  const summaryParts = [
-    installed > 0 ? c('green', `${installed} installed`) : null,
-    skipped > 0 ? c('yellow', `${skipped} kept`) : null,
-    failed > 0 ? c('red', `${failed} failed`) : null,
-  ]
-    .filter(Boolean)
-    .join('  ·  ');
-
-  console.log(`  ${dim('─'.repeat(60))}`);
-  console.log(`  ${summaryParts}`);
-  console.log(`  ${dim('Home:')} ${homeDir}`);
-  if (platforms.length > 0) {
-    console.log(`  ${dim('Platforms:')} ${platforms.join(', ')}`);
-  }
+function renderHuman(
+  result: InstallBundledSkillsResult,
+  skills: SkillInfo[]
+): void {
+  console.log();
+  console.log(
+    `  ${bold(result.dryRun ? 'Skill install preview' : 'Skill installation')}`
+  );
+  console.log(`  ${dim(`canonical: ${shortPath(result.canonicalSkillsDir)}`)}`);
   console.log();
 
-  // Failure notice
-  if (!success) {
+  for (const skill of result.skills) {
+    console.log(`  ${statusIcon(skill.canonicalStatus)}  ${bold(skill.name)}`);
+    const canonicalNote = skill.canonicalError
+      ? c('red', `  ${skill.canonicalError}`)
+      : skill.canonicalStatus === 'conflict'
+        ? dim('  (differs; use --force to replace)')
+        : '';
     console.log(
-      `  ${c('red', 'Some installations failed.')} Check the errors above.`
+      `     ${statusIcon(skill.canonicalStatus)}  ${'canonical'.padEnd(18)} ${dim(shortPath(skill.canonical))}${canonicalNote}`
+    );
+    for (const destination of skill.destinations) {
+      const label = `${destination.platform}:${destination.scope}`;
+      const note = destination.error
+        ? c('red', `  ${destination.error}`)
+        : destination.status === 'conflict'
+          ? dim('  (differs; use --force to replace)')
+          : destination.mode === 'symlink'
+            ? dim(`  → ${shortPath(destination.linkTarget ?? skill.canonical)}`)
+            : dim('  (copy)');
+      console.log(
+        `     ${statusIcon(destination.status)}  ${label.padEnd(18)} ${dim(shortPath(destination.destination || '—'))}${note}`
+      );
+    }
+    console.log();
+  }
+
+  const summary = result.summary;
+  console.log(`  ${dim('─'.repeat(60))}`);
+  console.log(
+    `  ${summary.installed} materialized · ${summary.linked} linked · ${summary.copied} copied · ${summary.unchanged} unchanged · ${summary.conflicts} conflicts · ${summary.failed} failed`
+  );
+  console.log();
+
+  if (!result.ok) {
+    console.log(
+      `  ${c('red', 'Installation did not complete cleanly.')} Resolve conflicts or rerun with --force.`
     );
     console.log();
-    process.exitCode = 1;
     return;
   }
-
-  // Post-install tips (only when something was actually installed)
-  if (installed > 0 && !opts.dryRun) {
-    if (!opts.platform) {
-      console.log(
-        `  ${dim('Tip:')} Link to an agent dir with ${c('cyan', '--platform')}:`
-      );
-      const eg = skills[0]?.name ?? '<name>';
-      console.log(
-        `  ${dim('  e.g.')} ${c('cyan', `octocode skill install ${eg} --platform pi`)}`
-      );
-      console.log(
-        `  ${dim('  or')}  ${c('cyan', `octocode skill install --all --platform pi,cursor`)}`
-      );
-      console.log();
-    }
+  if (!result.dryRun) {
     console.log(`  ${dim('Verify:')} ${c('cyan', 'octocode skill check')}`);
-    console.log();
-
-    // Env param warnings
-    const envStatuses = getSkillsEnvStatus(skills.map(s => s.folder));
-    const needsEnv = envStatuses.filter(
-      e => e.readiness === 'needs-config' || e.readiness === 'partial'
+    const needsEnv = getSkillsEnvStatus(
+      skills.map(skill => skill.folder)
+    ).filter(
+      status =>
+        status.readiness === 'needs-config' || status.readiness === 'partial'
     );
-
     if (needsEnv.length > 0) {
-      const verb = needsEnv.some(e => e.readiness === 'needs-config')
-        ? c('red', '⚠ Env required')
-        : c('yellow', '⚠ Env recommended');
-      console.log(`  ${verb} — some skills need env configuration:`);
-      console.log();
-
-      const shownGroups = new Set<string>();
-      const shownKeys = new Set<string>();
-
-      for (const env of needsEnv) {
-        for (const ps of env.params) {
-          if (ps.status === 'set') continue;
-          if (isGroupSatisfied(ps, env.params)) continue;
-          const { group, key, required, link } = ps.param;
-
-          if (group) {
-            if (shownGroups.has(group)) continue;
-            shownGroups.add(group);
-            const groupKeys = env.params.filter(p => p.param.group === group);
-            const affectedSkills = needsEnv
-              .filter(e2 =>
-                e2.params.some(
-                  p =>
-                    p.param.group === group && !isGroupSatisfied(p, e2.params)
-                )
-              )
-              .map(e2 => e2.skillName);
-            console.log(
-              `  ${dim(groupLabel(group))}  ${dim(`[${required}]`)}  ${dim(`→ ${[...new Set(affectedSkills)].join(', ')}`)}`
-            );
-            for (const gp of groupKeys) {
-              const linkStr = gp.param.link ? `  ${dim(gp.param.link)}` : '';
-              console.log(`    ${gp.param.key}=...${linkStr}`);
-            }
-            console.log();
-          } else {
-            if (shownKeys.has(key)) continue;
-            shownKeys.add(key);
-            const linkStr = link ? `  ${dim(link)}` : '';
-            console.log(`  ${key}=...  ${dim(`[${required}]`)}${linkStr}`);
-          }
-        }
-      }
-
       console.log(
-        `  ${dim('Add to')} ~/.octocode/.env  ${dim('then')} ${c('cyan', 'octocode skill check')}`
+        `  ${c('yellow', '⚠')} ${needsEnv.map(status => status.skillName).join(', ')} need environment configuration.`
       );
-      console.log();
+      console.log(
+        `  ${dim('Configure ~/.octocode/.env, then run octocode skill check.')}`
+      );
     }
+    console.log();
   }
+}
+
+export function runInstall(skillNames: string[], opts: InstallOptions): void {
+  if (opts.workspace) {
+    fail(
+      '--workspace is only valid for skill check; use --platform codex --project-dir <dir> for installation.',
+      opts.json
+    );
+    return;
+  }
+  if (opts.customPath && opts.platform) {
+    fail('--path cannot be combined with --platform.', opts.json);
+    return;
+  }
+  const skills = resolveSkills(skillNames, opts);
+  if (!skills) return;
+  const targets = resolveTargets(opts);
+  if (!targets) return;
+
+  const result = installBundledSkills({
+    skills: skills.map(skill => ({
+      name: skill.folder,
+      sourcePath: skill.dir,
+    })),
+    targets,
+    canonicalSkillsDir: opts.customPath || undefined,
+    mode: opts.mode,
+    force: opts.force,
+    dryRun: opts.dryRun,
+  });
+
+  if (opts.json) console.log(JSON.stringify(result, null, 2));
+  else renderHuman(result, skills);
+  if (!result.ok) process.exitCode = 1;
 }

@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import {
   assertCanonicalRelationContract,
   assertCanonicalSchemaFingerprint,
+  readAwarenessMeta,
 } from './db-introspection.js';
 import {
   assertDatabaseIntegrity,
@@ -10,16 +12,31 @@ import {
 import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { withSqliteBusyRetry } from '@octocodeai/agent-contracts/sqlite';
 import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
-import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
+import { AWARENESS_SCHEMA_VERSION, FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { hasFts, rebuildFts } from './db-maintenance.js';
 import { HISTORY_CAPTURE_DURABILITY_DDL } from './db-history-schema.js';
+import { utcNow } from './helpers.js';
+
+function insertAwarenessMeta(db: DatabaseSync): void {
+  const now = utcNow();
+  db.prepare(`INSERT INTO awareness_meta
+      (application_id, schema_version, store_id, created_at, last_migrated_at)
+    VALUES (?, ?, ?, ?, ?)`)
+    .run(AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION, randomUUID(), now, null);
+}
 
 export function initDb(db: DatabaseSync, knownState?: SchemaState): void {
   const state = knownState ?? inspectSchemaState(db);
-  if (state === 'canonical') {
+  if (state === 'canonical' || state === 'canonical-path-identity') {
     if (!db.isTransaction) db.exec('PRAGMA foreign_keys = ON');
     assertDatabaseIntegrity(db);
     return;
+  }
+  if (state.startsWith('event-envelope-') || state.startsWith('worker-lifecycle-')) {
+    throw new Error(`recognized ${state} Awareness store; use database migration preview/apply to create a copy-on-write v${AWARENESS_SCHEMA_VERSION} destination. The source has not been changed.`);
+  }
+  if (state === 'legacy-renamed-predecessor') {
+    throw new Error('recognized legacy-renamed-v1 Awareness store; run a read-only database migration preview. The source has not been changed.');
   }
   if (db.isTransaction) {
     throw new Error('cannot initialize canonical Awareness inside a caller-owned transaction');
@@ -37,6 +54,13 @@ export function initDb(db: DatabaseSync, knownState?: SchemaState): void {
       db.exec(HISTORY_CAPTURE_DURABILITY_DDL);
       assertCanonicalSchemaFingerprint(db);
       assertDatabaseIntegrity(db);
+      readAwarenessMeta(db);
+    } else if (lockedState === 'history-durability-path-identity-upgrade') {
+      // Preserve the path-bound identity. Explicit copy-on-write migration owns metadata.
+      db.exec(HISTORY_CAPTURE_DURABILITY_DDL);
+      const upgradedState = inspectSchemaState(db);
+      if (upgradedState !== 'canonical-path-identity') throw new Error(`unexpected upgraded schema state ${upgradedState}`);
+      assertDatabaseIntegrity(db);
     }
     db.exec('COMMIT');
     began = false;
@@ -53,6 +77,7 @@ export function initDb(db: DatabaseSync, knownState?: SchemaState): void {
 export function initializeFreshDb(db: DatabaseSync): void {
   db.exec(SCHEMA_DDL);
   db.exec(SCHEMA_INDEX_DDL);
+  insertAwarenessMeta(db);
 
   try {
     db.exec(FTS_SCHEMA_DDL);
@@ -65,4 +90,5 @@ export function initializeFreshDb(db: DatabaseSync): void {
   assertCanonicalSchemaFingerprint(db);
   assertDatabaseIntegrity(db);
   db.exec(`PRAGMA application_id = ${AWARENESS_APPLICATION_ID}`);
+  readAwarenessMeta(db);
 }

@@ -48,16 +48,20 @@ it('wakes for committed outbox changes, ignores read receipts, and closes withou
   } finally { watcher.close(); store.close(); }
 });
 
-it('bounds failed-watch recovery instead of polling indefinitely', async () => {
+it('keeps sparse failed-watch recovery armed until the watcher is closed', async () => {
   vi.useFakeTimers();
   const root = mkdtempSync(join(tmpdir(), 'awareness-watch-failure-'));
   roots.push(root);
   const onError = vi.fn();
   const onHint = vi.fn();
   const watcher = watchAwarenessEventHints({ database: join(root, 'missing-directory', 'missing.sqlite3'), onError, onHint });
-  await vi.runAllTimersAsync();
+  await vi.advanceTimersByTimeAsync(2_600);
   expect(onError).toHaveBeenCalledTimes(4);
   expect(onHint).not.toHaveBeenCalled();
-  expect(vi.getTimerCount()).toBe(0);
+  expect(vi.getTimerCount()).toBe(1);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(onError).toHaveBeenCalledTimes(5);
+  expect(vi.getTimerCount()).toBe(1);
   watcher.close();
+  expect(vi.getTimerCount()).toBe(0);
 });

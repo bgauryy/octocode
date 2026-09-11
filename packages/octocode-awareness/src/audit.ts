@@ -1,16 +1,13 @@
 /**
- * audit.ts — edit_log and harness_log operations.
- * Records file edits and harness lifecycle events into the SQLite store.
+ * Audit event projections for workspace edits and harness lifecycle events.
  */
 
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
 import { normalizeArtifact, utcNow } from './helpers.js';
-import {
-  EDIT_LOG_INSERT,
-  HARNESS_LOG_INSERT,
-} from './sql/audit.js';
+import { appendDomainEvent } from './event-outbox.js';
 import type { InsertEditLogParams, EditLogRow, QueryEditLogParams, InsertHarnessLogParams, HarnessLogRow, HarnessEventType } from './types/plans-docs.js';
 
 // ─── sha256 helper ────────────────────────────────────────────────────────────
@@ -20,35 +17,64 @@ export function sha256Hex(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-// ─── edit_log ─────────────────────────────────────────────────────────────────
+function eventWorkspace(db: DatabaseSync, params: {
+  workspacePath?: string | null;
+  runId?: string | null;
+  sessionId?: string | null;
+}): string {
+  if (params.workspacePath?.trim()) return resolve(params.workspacePath);
+  if (params.runId) {
+    const run = db.prepare('SELECT workspace_path FROM task_runs WHERE run_id = ?')
+      .get(params.runId) as { workspace_path: string | null } | undefined;
+    if (run?.workspace_path) return run.workspace_path;
+  }
+  if (params.sessionId) {
+    const session = db.prepare('SELECT workspace_path FROM sessions WHERE session_id = ?')
+      .get(params.sessionId) as { workspace_path: string | null } | undefined;
+    if (session?.workspace_path) return session.workspace_path;
+  }
+  return resolve(process.cwd());
+}
+
+function boundedLimit(limit: number | undefined): number {
+  if (limit === undefined) return 1000;
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error('limit must be a positive integer');
+  return Math.min(limit, 1000);
+}
+
+// ─── edit event projection ────────────────────────────────────────────────────
 
 /** Record a single file edit. Returns an object with the generated editId. */
 export function insertEditLog(db: DatabaseSync, params: InsertEditLogParams): { editId: string } {
   const editId = 'edit_' + randomUUID();
   const now = utcNow();
-
-  db.prepare(EDIT_LOG_INSERT).run(
-    editId,
-    params.sessionId ?? null,
-    params.runId ?? null,
-    params.agentId,
-    params.filePath,
-    params.operation,
-    params.oldFilePath ?? null,
-    params.linesAdded ?? null,
-    params.linesRemoved ?? null,
-    params.contentHash ?? null,
-    params.workspacePath ?? null,
-    normalizeArtifact(params.artifact),
-    now,
-  );
+  appendDomainEvent(db, {
+    workspace: eventWorkspace(db, params),
+    eventType: `workspace.edit.${params.operation}`,
+    retentionClass: 'audit',
+    actorId: params.agentId,
+    actorKind: 'hook',
+    source: 'hook',
+    aggregateKind: 'file',
+    aggregateId: params.filePath,
+    sessionId: params.sessionId,
+    correlationId: params.runId,
+    createdAt: now,
+    payload: {
+      old_file_path: params.oldFilePath ?? null,
+      lines_added: params.linesAdded ?? null,
+      lines_removed: params.linesRemoved ?? null,
+      artifact: normalizeArtifact(params.artifact),
+    },
+    eventId: editId,
+  });
 
   return { editId };
 }
 
 /** Query the edit log with optional filters. */
 export function queryEditLog(db: DatabaseSync, params: QueryEditLogParams): EditLogRow[] {
-  const conditions: string[] = [];
+  const conditions: string[] = ["event_type LIKE 'workspace.edit.%'"];
   const bindings: (string | number)[] = [];
 
   if (params.sessionId !== undefined) {
@@ -56,15 +82,15 @@ export function queryEditLog(db: DatabaseSync, params: QueryEditLogParams): Edit
     bindings.push(params.sessionId);
   }
   if (params.runId !== undefined) {
-    conditions.push('run_id = ?');
+    conditions.push('correlation_id = ?');
     bindings.push(params.runId);
   }
   if (params.agentId !== undefined) {
-    conditions.push('agent_id = ?');
+    conditions.push("json_extract(actor_json, '$.id') = ?");
     bindings.push(params.agentId);
   }
   if (params.filePath !== undefined) {
-    conditions.push('file_path = ?');
+    conditions.push('aggregate_id = ?');
     bindings.push(params.filePath);
   }
   if (params.workspacePath !== undefined) {
@@ -73,45 +99,64 @@ export function queryEditLog(db: DatabaseSync, params: QueryEditLogParams): Edit
   }
   const artifact = normalizeArtifact(params.artifact);
   if (artifact !== null) {
-    conditions.push('artifact = ?');
+    conditions.push("json_extract(payload_json, '$.artifact') = ?");
     bindings.push(artifact);
   }
   if (params.operation !== undefined) {
-    conditions.push('operation = ?');
-    bindings.push(params.operation);
+    conditions.push('event_type = ?');
+    bindings.push(`workspace.edit.${params.operation}`);
   }
   if (params.since !== undefined) {
     conditions.push('created_at >= ?');
     bindings.push(params.since);
   }
 
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const limit = params.limit !== undefined ? `LIMIT ${params.limit}` : '';
-
-  const sql = `SELECT * FROM edit_log ${where} ORDER BY created_at DESC ${limit}`.trim();
-  return db.prepare(sql).all(...bindings) as unknown as EditLogRow[];
+  const sql = `SELECT event_id AS edit_id, session_id, correlation_id AS run_id,
+      json_extract(actor_json, '$.id') AS agent_id, aggregate_id AS file_path,
+      substr(event_type, 16) AS operation,
+      json_extract(payload_json, '$.old_file_path') AS old_file_path,
+      json_extract(payload_json, '$.lines_added') AS lines_added,
+      json_extract(payload_json, '$.lines_removed') AS lines_removed,
+      NULL AS content_hash, workspace_path,
+      json_extract(payload_json, '$.artifact') AS artifact, created_at
+    FROM event_outbox WHERE ${conditions.join(' AND ')}
+    ORDER BY sequence DESC LIMIT ?`;
+  return db.prepare(sql).all(...bindings, boundedLimit(params.limit)) as unknown as EditLogRow[];
 }
 
-// ─── harness_log ──────────────────────────────────────────────────────────────
+// ─── harness event projection ─────────────────────────────────────────────────
 
 /** Record a harness lifecycle event. Returns the harness_id. */
 export function insertHarnessLog(db: DatabaseSync, params: InsertHarnessLogParams): string {
   const harnessId = 'harness_' + randomUUID();
   const now = utcNow();
-  const payloadJson = params.payload !== undefined ? JSON.stringify(params.payload) : null;
-
-  db.prepare(HARNESS_LOG_INSERT).run(
-    harnessId,
-    params.sessionId ?? null,
-    params.agentId,
-    params.workspacePath ?? null,
-    normalizeArtifact(params.artifact),
-    params.eventType,
-    payloadJson,
-    params.memoryId ?? null,
-    params.runId ?? null,
-    now,
-  );
+  if (params.sessionId && !db.prepare('SELECT 1 FROM sessions WHERE session_id = ?').get(params.sessionId)) {
+    throw new Error(`unknown session ${params.sessionId}`);
+  }
+  if (params.memoryId && !db.prepare('SELECT 1 FROM awareness_memories WHERE memory_id = ?').get(params.memoryId)) {
+    throw new Error(`unknown memory ${params.memoryId}`);
+  }
+  if (params.runId && !db.prepare('SELECT 1 FROM task_runs WHERE run_id = ?').get(params.runId)) {
+    throw new Error(`unknown run ${params.runId}`);
+  }
+  appendDomainEvent(db, {
+    workspace: eventWorkspace(db, params),
+    eventType: `harness.${params.eventType}`,
+    retentionClass: 'audit',
+    actorId: params.agentId,
+    source: 'harness',
+    aggregateKind: 'harness',
+    aggregateId: harnessId,
+    sessionId: params.sessionId,
+    correlationId: params.runId,
+    createdAt: now,
+    payload: {
+      data: params.payload ?? null,
+      artifact: normalizeArtifact(params.artifact),
+      memory_id: params.memoryId ?? null,
+    },
+    eventId: harnessId,
+  });
 
   return harnessId;
 }
@@ -121,7 +166,7 @@ export function queryHarnessLog(
   db: DatabaseSync,
   params: { sessionId?: string; agentId?: string; workspacePath?: string; artifact?: string | null; eventType?: HarnessEventType; limit?: number },
 ): HarnessLogRow[] {
-  const conditions: string[] = [];
+  const conditions: string[] = ["event_type LIKE 'harness.%'"];
   const bindings: (string | number)[] = [];
 
   if (params.sessionId !== undefined) {
@@ -129,7 +174,7 @@ export function queryHarnessLog(
     bindings.push(params.sessionId);
   }
   if (params.agentId !== undefined) {
-    conditions.push('agent_id = ?');
+    conditions.push("json_extract(actor_json, '$.id') = ?");
     bindings.push(params.agentId);
   }
   if (params.workspacePath !== undefined) {
@@ -138,17 +183,29 @@ export function queryHarnessLog(
   }
   const artifact = normalizeArtifact(params.artifact);
   if (artifact !== null) {
-    conditions.push('artifact = ?');
+    conditions.push("json_extract(payload_json, '$.artifact') = ?");
     bindings.push(artifact);
   }
   if (params.eventType !== undefined) {
     conditions.push('event_type = ?');
-    bindings.push(params.eventType);
+    bindings.push(`harness.${params.eventType}`);
   }
 
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const limit = params.limit !== undefined ? `LIMIT ${params.limit}` : '';
-
-  const sql = `SELECT * FROM harness_log ${where} ORDER BY created_at DESC ${limit}`.trim();
-  return db.prepare(sql).all(...bindings) as unknown as HarnessLogRow[];
+  const sql = `SELECT aggregate_id AS harness_id, session_id,
+      json_extract(actor_json, '$.id') AS agent_id, workspace_path,
+      json_extract(payload_json, '$.artifact') AS artifact,
+      substr(event_type, 9) AS event_type,
+      CASE WHEN json_type(payload_json, '$.data') = 'null' THEN NULL
+        ELSE json_extract(payload_json, '$.data') END AS payload_json,
+      json_extract(payload_json, '$.memory_id') AS memory_id,
+      correlation_id AS run_id, created_at
+    FROM event_outbox WHERE ${conditions.join(' AND ')}
+    ORDER BY sequence DESC LIMIT ?`;
+  const rows = db.prepare(sql).all(...bindings, boundedLimit(params.limit)) as unknown as HarnessLogRow[];
+  return rows.map((row) => ({
+    ...row,
+    payload_json: row.payload_json === null
+      ? null
+      : typeof row.payload_json === 'string' ? row.payload_json : JSON.stringify(row.payload_json),
+  }));
 }

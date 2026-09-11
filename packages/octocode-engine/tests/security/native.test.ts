@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   nativeSanitizeContent,
   nativeMaskSensitiveData,
-  nativePatternCount,
   getSecurityBackendStatus,
 } from '../../src/security/native.js';
 
@@ -85,12 +84,6 @@ describe('native security wrappers (JS fallback path)', () => {
     expect(nativeMaskSensitiveData('')).toBe('');
   });
 
-  it('patternCount falls back to the JS pattern list length (a positive number)', () => {
-    const count = nativePatternCount();
-    expect(typeof count).toBe('number');
-    expect(count).toBeGreaterThan(0);
-  });
-
   it('reports fallback backend status when JS fallback is forced', () => {
     expect(getSecurityBackendStatus()).toEqual({ backend: 'fallback' });
   });
@@ -116,6 +109,8 @@ describe('native module env-flag conflict', () => {
   it('throws when FORCE_JS and REQUIRE_NATIVE are both set (contradictory config)', () => {
     process.env.OCTOCODE_SECURITY_FORCE_JS = '1';
     process.env.OCTOCODE_SECURITY_REQUIRE_NATIVE = 'true';
-    expect(() => nativePatternCount()).toThrow(/conflicts with/i);
+    expect(() => nativeSanitizeContent('clean', null)).toThrow(
+      /conflicts with/i
+    );
   });
 });

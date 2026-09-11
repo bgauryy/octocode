@@ -47,6 +47,8 @@ export interface SpawnAgentParams {
   /** Internal canonical assignment identity, scoped to the parent session. */
   planId?: string;
   planScope?: string;
+  /** Optional parent-assigned grouping for bounded fleet summaries. */
+  cohortId?: string;
   provider?: string;
   thinking?: string;
   tools?: string[];
@@ -123,6 +125,7 @@ export interface AgentRecord {
   planStep?: string;
   planId?: string;
   planScope?: string;
+  cohortId?: string;
   process: AgentProcess;
   status: AgentStatus;
   awarenessInspection?: WorkerAwarenessInspection;

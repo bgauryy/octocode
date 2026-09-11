@@ -13,7 +13,6 @@ import type { PlanPhase } from './plan-domain.js';
  * on the shared html-page shell; diff previews and worker timelines are designed
  * to reuse the same base.
  */
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -257,13 +256,14 @@ ${progress}
 function browserReplySectionHtml(model: PlanReadModelV1): string {
   const revision = model.revision ?? model.acceptedRevision;
   const contextualActions = model.phase === 'in_review' && revision
-    ? `<button type="button" data-plan-action="start" data-revision="${escapeHtml(revision)}" class="primary">Start implementation · ${escapeHtml(revision.slice(0, 8))}</button>
-    <button type="button" data-plan-action="changes">Request changes</button>`
+    ? `<button type="button" data-plan-action="approve" data-revision="${escapeHtml(revision)}" class="primary">Approve &amp; start · ${escapeHtml(revision.slice(0, 8))}</button>
+    <button type="button" data-plan-action="revise">Request revision</button>
+    <button type="button" data-plan-action="reject">Reject plan</button>`
     : model.phase === 'accepted' && revision
       ? `<button type="button" data-plan-action="start" data-revision="${escapeHtml(revision)}" class="primary">Start implementation</button>\n    <button type="button" data-plan-action="changes">Reopen review</button>`
       : '';
   const help = model.phase === 'in_review'
-    ? 'Start approves the exact displayed revision and begins implementation in one action. You can also request changes or send a note.'
+    ? 'Approve the exact displayed revision, request a revision, reject it, or send a non-authorizing comment.'
     : model.phase === 'accepted'
       ? 'A previous Start attempt did not complete. Start the already accepted revision again or reopen review.'
       : 'Send a note directly to the running agent task.';
@@ -273,7 +273,7 @@ function browserReplySectionHtml(model: PlanReadModelV1): string {
   <label for="octocode-reply">Feedback</label>
   <textarea id="octocode-reply" maxlength="8000" rows="4" placeholder="What should change, or what should the agent know?"></textarea>
   <div class="reply-actions">
-    <button type="button" data-reply-action="send">Send feedback</button>
+    <button type="button" data-reply-action="comment">Send comment only</button>
     ${contextualActions}
   </div>
   <p class="reply-status" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -323,8 +323,9 @@ function browserReplySectionHtml(model: PlanReadModelV1): string {
   const send = async (button) => {
     const notes = input.value.trim();
     const action = button.dataset.planAction;
-    const consumesNotes = !action || action === 'changes';
+    const consumesNotes = !action || action === 'revise' || action === 'reject';
     if (!action && !notes) { setStatus('Write feedback before sending.', 'error'); input.focus(); return; }
+    if ((action === 'revise' || action === 'reject') && !notes) { setStatus('Explain the requested revision or rejection before sending.', 'error'); input.focus(); return; }
     setButtonsDisabled(true);
     setStatus(action ? 'Sending the selected plan action…' : 'Sending feedback…', 'pending');
     try {

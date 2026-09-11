@@ -7,7 +7,7 @@ type AnyRec = Record<string, unknown>;
 function runFinalizer(results: AnyRec[]) {
   const finalize = buildGhSearchCodeFinalizer();
   const out = finalize({
-    queries: results.map(() => ({})) as never,
+    queries: results.map(() => ({ operation: 'code' })) as never,
     results: results as never,
     config: {} as never,
   });
@@ -17,7 +17,7 @@ function runFinalizer(results: AnyRec[]) {
 function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
   const finalize = buildGhSearchCodeFinalizer();
   const out = finalize({
-    queries: queries as never,
+    queries: queries.map(query => ({ operation: 'code', ...query })) as never,
     results: results as never,
     config: {} as never,
   });
@@ -48,7 +48,7 @@ describe('github.code finalizer — incomplete_results (GitHub index degradation
       data: {
         next: {
           retry: {
-            tool: 'github.code',
+            tool: 'ghSearch',
             query: { keywords: ['react'] },
           },
         },
@@ -92,8 +92,13 @@ describe('github.code finalizer — incomplete_results (GitHub index degradation
       data: {
         next: {
           viewStructure: {
-            tool: 'github.tree',
-            query: { owner: 'facebook', repo: 'react', path: '' },
+            tool: 'ghSearch',
+            query: {
+              operation: 'tree',
+              owner: 'facebook',
+              repo: 'react',
+              path: '',
+            },
           },
         },
       },

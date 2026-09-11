@@ -47,7 +47,7 @@ describe('coordination defaults', () => {
   it.each(['claude', 'codex', 'cursor', 'copilot', 'gemini'] as const)('installs only communication and departure hooks for %s', host => {
     const specs = specsFor(host, { globalMode: false, projectDir: '/repo', hookDir: '/repo/skills/octocode-awareness/scripts/hooks' });
     const commands = new Set(specs.map(spec => awarenessHookName(spec.command)));
-    expect(commands).toEqual(new Set(['notify-deliver.sh', 'post-edit.sh', 'session-end.sh']));
+    expect(commands).toEqual(new Set(['notify-deliver.sh', 'session-end.sh']));
     expect(specs.every(spec => spec.matcher === undefined)).toBe(true);
   });
 
@@ -68,9 +68,11 @@ describe('coordination defaults', () => {
       const prepare = vi.spyOn(db, 'prepare');
       await runHookCommand('pre-edit', JSON.stringify({ ...payload, hook_event_name: 'PreToolUse' }), { host: 'codex' });
       await runHookCommand('post-edit', JSON.stringify({ ...payload, hook_event_name: 'PostToolUse' }), { host: 'codex' });
+      expect(out).not.toHaveBeenCalled();
+      await runHookCommand('notify-deliver', JSON.stringify({ ...payload, hook_event_name: 'UserPromptSubmit' }), { host: 'codex' });
       expect(out.mock.calls.map(([s]) => String(s)).join('')).toContain('Are you editing the parser?');
       const deliveries = out.mock.calls.length;
-      await runHookCommand('post-edit', JSON.stringify({ ...payload, hook_event_name: 'PostToolUse' }), { host: 'codex' });
+      await runHookCommand('notify-deliver', JSON.stringify({ ...payload, hook_event_name: 'UserPromptSubmit' }), { host: 'codex' });
       expect(out).toHaveBeenCalledTimes(deliveries);
       await runHookCommand('stop-verify', JSON.stringify(payload), { host: 'codex' });
       await runHookCommand('session-compact', JSON.stringify(payload), { host: 'codex' });

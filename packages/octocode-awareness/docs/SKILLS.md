@@ -16,9 +16,11 @@ npx @octocodeai/octocode-awareness skill install --platform shared --project-dir
 npx @octocodeai/octocode-awareness maintenance init --compact
 ```
 
-The CLI resolves and copies its own bundled skill. Use `skill install --help` for
-host-specific user/project destinations; do not derive package paths in a prompt.
-Initialization is deterministic and safe to repeat.
+The CLI bundles only `octocode-awareness`. It atomically materializes a durable
+copy under `$OCTOCODE_HOME/skills/octocode-awareness`, then links the selected
+host directory to that copy. The link never targets an npm or `npx` cache. Use
+`skill install --help` for host-specific user/project destinations; do not derive
+package paths in a prompt. Initialization and identical installs are safe to repeat.
 
 The package bundles only the Awareness skill for the collaboration lifecycle. The
 separately owned `octocode-orchestrator` skill remains in the sibling

@@ -3,15 +3,18 @@ import { resolveCacheAuthFingerprint } from '../client.js';
 import { generateCacheKey } from '../../utils/http/cache/key.js';
 import { withDataCache } from '../../utils/http/cache/dataCache.js';
 import { countSerializedChars } from '../../utils/response/charSavings.js';
+import type {
+  CollectionState,
+  CollectionSurface,
+} from '../../types/collectionPaging.js';
 
-export type CollectionSurface =
-  'changedFiles' | 'discussion' | 'inline' | 'reviews' | 'commits';
-export type CollectionPages = Partial<Record<CollectionSurface, number>>;
-export type CollectionState = { page: number; hasMore: boolean };
-export type CollectionStates = Partial<
-  Record<CollectionSurface, CollectionState>
->;
-export type CollectionArray<T> = T[] & { collectionState?: CollectionState };
+export type {
+  CollectionArray,
+  CollectionPages,
+  CollectionState,
+  CollectionStates,
+  CollectionSurface,
+} from '../../types/collectionPaging.js';
 
 /** One cached provider page per requested surface. Zero marks an exhausted source. */
 export async function fetchCollectionPage<T>(

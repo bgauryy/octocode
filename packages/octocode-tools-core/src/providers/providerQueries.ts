@@ -1,4 +1,4 @@
-import type { CollectionPages } from '../github/prContentFetcher/collectionPaging.js';
+import type { CollectionPages } from '../types/collectionPaging.js';
 type ProviderType = 'github';
 
 interface BaseProviderQuery {

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { selectCommand, UNKNOWN_COMMAND } from '../bin/cli-routing.js';
+import { selectCommand, UNKNOWN_COMMAND } from '../src/cli-adapter/cli-routing.js';
 import {
   DEFAULT_WORKSPACE_POLICY,
   hookCommandEnabled,
@@ -58,7 +58,7 @@ describe('workspace Awareness policy', () => {
     expect(hookCommandEnabled('guard', 'stop-verify')).toBe(true);
     expect(hookCommandEnabled('guard', 'notify-deliver')).toBe(false);
     expect(hookCommandEnabled('coordination', 'notify-deliver')).toBe(true);
-    expect(hookCommandEnabled('coordination', 'post-edit')).toBe(true);
+    expect(hookCommandEnabled('coordination', 'post-edit')).toBe(false);
     expect(hookCommandEnabled('coordination', 'session-end')).toBe(true);
     expect(hookCommandEnabled('coordination', 'pre-edit')).toBe(false);
     expect(hookCommandEnabled('coordination', 'stop-verify')).toBe(false);

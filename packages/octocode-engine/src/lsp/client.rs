@@ -345,6 +345,9 @@ impl NativeLspClient {
         // without mutating `open_docs`, so a doc is never marked open when its
         // didOpen/didChange was never actually sent.
         let connection = self.connection_handle().await?;
+        // A content sync invalidates any push diagnostics for the prior
+        // document version. The next diagnostic read waits for a fresh publish.
+        connection.clear_push_diagnostics(&uri);
 
         // Decide didOpen-vs-didChange and reserve the version under the lock,
         // then release it before awaiting the notify (never hold a std mutex
@@ -397,6 +400,7 @@ impl NativeLspClient {
             return Ok(());
         }
         let connection = self.connection_handle().await?;
+        connection.clear_push_diagnostics(&uri);
         connection
             .notify(
                 "textDocument/didClose",
@@ -566,6 +570,28 @@ impl NativeLspClient {
             json!({ "textDocument": { "uri": uri } }),
         )
         .await
+    }
+
+    /// Return the latest bounded `textDocument/publishDiagnostics` payload for
+    /// a file, waiting briefly when the server has not published one yet.
+    #[napi]
+    pub async fn get_push_diagnostics(
+        &self,
+        file_path: String,
+        timeout_ms: Option<u32>,
+    ) -> Result<Option<Value>> {
+        let uri = path_to_uri(&file_path)?;
+        let connection = self.connection_handle().await?;
+        let min_version = self
+            .open_docs
+            .lock()
+            .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?
+            .get(&uri)
+            .copied()
+            .map(i64::from);
+        Ok(connection
+            .wait_for_push_diagnostics(&uri, timeout_ms.unwrap_or(1_500).min(10_000), min_version)
+            .await)
     }
 }
 

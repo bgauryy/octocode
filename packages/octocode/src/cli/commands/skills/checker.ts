@@ -13,7 +13,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getSkillsHome } from './home.js';
-import { getPlatformSkillsDir, type Platform } from './platforms.js';
+import {
+  ALL_PLATFORMS,
+  getPlatformSkillsDir,
+  type Platform,
+} from './platforms.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,16 +40,7 @@ export interface SkillCheckResult {
 
 // ─── All platforms to scan by default ────────────────────────────────────────
 
-export const SCAN_PLATFORMS: Platform[] = [
-  'pi',
-  'cursor',
-  'claude',
-  'codex',
-  'opencode',
-  'copilot',
-  'gemini',
-  'agents',
-];
+export const SCAN_PLATFORMS: Platform[] = [...ALL_PLATFORMS];
 
 // ─── Internals ────────────────────────────────────────────────────────────────
 

@@ -20,12 +20,10 @@ Awareness owns collaboration entities such as:
 - advisory file work, exclusive locks, and verification receipts;
 - agents, messages, delivery state, signals, and coordination handoffs;
 - memories and references, refinements, reflection, and maintenance records;
-- Awareness hook receipts, Awareness-specific session captures, and the
-  redacted `worker_lifecycle_events` coordination projection.
+- Awareness hook receipts and Awareness-specific session captures.
 
-These records describe coordination. The worker projection is not the Agent's
-authoritative worker mailbox, worktree/handoff ledger, process state, or
-dependency ledger. Agent runtime sessions, effects, lifecycle records,
+These records describe coordination. Worker lifecycle is not an Awareness
+entity. Agent runtime sessions, effects, lifecycle records,
 automation leases, and fencing state belong in
 `$OCTOCODE_HOME/agent/core.sqlite3`; Agent control/index data belongs in
 `$OCTOCODE_HOME/agent/agent.sqlite3`.

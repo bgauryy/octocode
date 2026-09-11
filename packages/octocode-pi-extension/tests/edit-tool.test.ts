@@ -112,10 +112,41 @@ test('single query returns file and replacement details', async () => {
   });
   assert.equal(result.isError, undefined);
   assert.match((result.content[0] as { text: string }).text, /Successfully replaced/);
-  const details = result.details as { files?: unknown[]; replacements?: number; diff?: string };
+  const details = result.details as {
+    files?: unknown[];
+    replacements?: number;
+    diff?: string;
+    mutation?: {
+      version: number;
+      classification: string;
+      preFingerprint: string;
+      postFingerprint: string;
+      bytesBefore: number;
+      bytesAfter: number;
+      bytesChanged: number;
+      linesAdded: number;
+      linesDeleted: number;
+      diffTruncated: boolean;
+      patchTruncated: boolean;
+    };
+  };
   assert.ok(Array.isArray(details.files), 'result.details.files must be an array');
   assert.equal(details.replacements, 1);
   assert.ok(typeof details.diff === 'string', 'result.details.diff must be a string');
+  assert.deepEqual(details.mutation, {
+    version: 1,
+    classification: 'applied',
+    preFingerprint: 'sha256:a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447',
+    postFingerprint: 'sha256:8ef67e7cf7addbb1946c13778f51f8bfa3ee261b1016f6828796dd9fca632fc4',
+    bytesBefore: 12,
+    bytesAfter: 14,
+    bytesChanged: 12,
+    linesAdded: 1,
+    linesDeleted: 1,
+    diffTruncated: false,
+    patchTruncated: false,
+  });
+  assert.doesNotMatch(JSON.stringify(details.mutation), /hello|goodbye/);
   assert.equal(fs.readFileSync(path.join(tmpDir, 'a.txt'), 'utf8'), 'goodbye world\n');
 });
 

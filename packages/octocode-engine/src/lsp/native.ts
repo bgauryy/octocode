@@ -53,6 +53,7 @@ export type NativeLspClientBinding = {
   typeHierarchySupertypes(item: unknown): Promise<unknown>;
   typeHierarchySubtypes(item: unknown): Promise<unknown>;
   getDiagnostics(filePath: string): Promise<unknown>;
+  getPushDiagnostics(filePath: string, timeoutMs?: number): Promise<unknown>;
 };
 
 interface ResolvedSymbol {

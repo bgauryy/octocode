@@ -48,7 +48,6 @@ import {
 import {
   FORBIDDEN_WORKER_TOOLS,
   resolveSpawnPolicy,
-  evaluateStepBudget,
   getWorkerTools,
   shouldForceThinkingOffForToolCallingWorker,
   buildInitialPrompt,
@@ -56,6 +55,7 @@ import {
   validateWorkerModelParams,
   evaluateSpawnPolicy,
 } from './policy.js';
+import { evaluateWorkerCompletionPolicy } from './completion-policy.js';
 import {
   agents,
   getProcessFactory,
@@ -397,21 +397,21 @@ export function refreshNormalizedResult(record: AgentRecord): void {
   const output = record.lastOutput || record.stderr || record.error || '';
   record.normalizedResult = normalizeWorkerOutput(output);
   record.recoveryRisk = evaluateWorkerRecoveryRisk(output);
-  // Step-budget circuit-breaker: surface a warning when a worker's completed tool calls
-  // reach the budget, so the parent can abort/steer a runaway worker.
+  // Surface a soft wrap-up before the hard budget, then require an honest
+  // partial handback instead of letting an over-budget worker imply completion.
   const steps = record.toolCalls.filter(
     call => call.status !== 'running'
   ).length;
-  const budget = evaluateStepBudget(
-    steps,
-    resolveSpawnPolicy(DEFAULT_SPAWN_POLICY).maxStepsPerWorker
-  );
+  const completion = evaluateWorkerCompletionPolicy({
+    completedSteps: steps,
+    maxSteps: resolveSpawnPolicy(DEFAULT_SPAWN_POLICY).maxStepsPerWorker,
+    hasTerminalHandback: record.normalizedResult.status !== 'unknown',
+  });
   if (
-    budget.exceeded &&
-    budget.warning &&
-    !record.recoveryRisk.warnings.includes(budget.warning)
+    completion.message &&
+    !record.recoveryRisk.warnings.includes(completion.message)
   ) {
-    record.recoveryRisk.warnings.push(budget.warning);
+    record.recoveryRisk.warnings.push(completion.message);
   }
   if (
     record.normalizedResult.status !== 'unknown' &&
@@ -810,6 +810,7 @@ export function spawnRpcAgent(
     planStep: effectiveParams.planStep?.trim() || undefined,
     planId: effectiveParams.planId,
     planScope: effectiveParams.planScope,
+    cohortId: effectiveParams.cohortId,
     process: proc,
     status: 'starting',
     startedAt: Date.now(),

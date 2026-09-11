@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 import { nativeBinding, type NativeLspClientBinding } from './native.js';
 import { validateLSPServerPath } from './validation.js';
@@ -15,11 +16,19 @@ import type {
 
 const MAX_LSP_DOCUMENT_BYTES = 1_000_000;
 
+type OpenDocumentState = {
+  contentHash: string;
+  diskFingerprint?: string;
+};
+
+export type OpenDocumentDiskResult = 'opened' | 'unchanged';
+
 export class LSPClient {
   private readonly nativeClient: NativeLspClientBinding;
   private readonly command: string;
   private initialized = false;
   private lastReadiness: LspReadiness | undefined;
+  private readonly openDocuments = new Map<string, OpenDocumentState>();
 
   constructor(config: LanguageServerConfig) {
     this.command = config.command;
@@ -61,8 +70,12 @@ export class LSPClient {
   }
 
   async stop(): Promise<void> {
-    await this.nativeClient.stop();
-    this.initialized = false;
+    try {
+      await this.nativeClient.stop();
+    } finally {
+      this.initialized = false;
+      this.openDocuments.clear();
+    }
   }
 
   /**
@@ -214,6 +227,13 @@ export class LSPClient {
     return this.nativeClient.getDiagnostics(filePath);
   }
 
+  async getPushDiagnostics(
+    filePath: string,
+    timeoutMs = 1_500
+  ): Promise<unknown> {
+    return this.nativeClient.getPushDiagnostics(filePath, timeoutMs);
+  }
+
   hasCapability(capability: string): boolean {
     return this.initialized && this.nativeClient.hasCapability(capability);
   }
@@ -235,7 +255,46 @@ export class LSPClient {
   async openDocument(filePath: string, content?: string): Promise<void> {
     const documentContent =
       content ?? (await this.readDocumentForOpen(filePath));
-    await this.nativeClient.openDocument(filePath, documentContent);
+    await this.syncDocument(filePath, documentContent);
+  }
+
+  async openDocumentFromDisk(
+    filePath: string,
+    maxBytes = MAX_LSP_DOCUMENT_BYTES
+  ): Promise<OpenDocumentDiskResult> {
+    const stats = await fs.stat(filePath, { bigint: true });
+    if (stats.size > BigInt(maxBytes)) {
+      throw new Error(
+        `File is too large for LSP document open: ${filePath} (${stats.size} bytes > ${maxBytes} bytes)`
+      );
+    }
+    const diskFingerprint = [
+      stats.dev,
+      stats.ino,
+      stats.size,
+      stats.mtimeNs,
+      stats.ctimeNs,
+    ].join(':');
+    if (this.openDocuments.get(filePath)?.diskFingerprint === diskFingerprint) {
+      return 'unchanged';
+    }
+    const content = await fs.readFile(filePath, 'utf8');
+    return this.syncDocument(filePath, content, diskFingerprint);
+  }
+
+  private async syncDocument(
+    filePath: string,
+    content: string,
+    diskFingerprint?: string
+  ): Promise<OpenDocumentDiskResult> {
+    const contentHash = createHash('sha256').update(content).digest('hex');
+    if (this.openDocuments.get(filePath)?.contentHash === contentHash) {
+      this.openDocuments.set(filePath, { contentHash, diskFingerprint });
+      return 'unchanged';
+    }
+    await this.nativeClient.openDocument(filePath, content);
+    this.openDocuments.set(filePath, { contentHash, diskFingerprint });
+    return 'opened';
   }
 
   private async readDocumentForOpen(filePath: string): Promise<string> {
@@ -253,5 +312,6 @@ export class LSPClient {
     // version state, so a later openDocument starts a fresh didOpen. A no-op
     // here leaves the server holding stale in-memory documents forever.
     await this.nativeClient.closeDocument(filePath);
+    this.openDocuments.delete(filePath);
   }
 }

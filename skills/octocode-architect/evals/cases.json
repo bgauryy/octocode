@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "type-only-cycle",
+      "required": [{ "name": "type-only is not runtime proof", "pattern": "cycle[\\s\\S]{0,180}type-only|type-only[\\s\\S]{0,180}cycle" }],
+      "referenceSolution": "A cycle can close through a type-only edge, so exact-read the edge before claiming a runtime cycle."
+    },
+    {
+      "id": "root-scope-consumers",
+      "required": [{ "name": "check outside roots", "pattern": "(?:outside|broader)[\\s\\S]{0,80}(?:root|consumer)|consumers outside the root" }],
+      "referenceSolution": "Search broader consumers outside the root before a dead-code verdict."
+    },
+    {
+      "id": "file-vs-symbol-liveness",
+      "required": [{ "name": "separate file and symbol proof", "pattern": "symbol identity|verify symbols separately|semantic references" }],
+      "referenceSolution": "File reachability is not symbol identity; verify symbols separately with semantic references."
+    },
+    {
+      "id": "algorithm-termination",
+      "required": [{ "name": "bound progress", "pattern": "termination[\\s\\S]{0,180}(?:bound|decreasing|timeout|cancellation)|unbounded retry" }],
+      "referenceSolution": "For termination, show a decreasing measure or bound and test timeout or cancellation for an unbounded retry risk."
+    },
+    {
+      "id": "algorithm-complexity",
+      "required": [{ "name": "derive and measure cost", "pattern": "derive time/space|complexity[\\s\\S]{0,180}(?:benchmark|measure)" }],
+      "referenceSolution": "Derive time/space complexity, then benchmark the named workload before changing it."
+    },
+    {
+      "id": "algorithm-numeric",
+      "required": [{ "name": "numeric ranges", "pattern": "overflow/underflow|precision loss|range analysis" }],
+      "referenceSolution": "Check overflow/underflow, precision loss, and range analysis at numeric extremes."
+    },
+    {
+      "id": "refactor-sensor",
+      "required": [{ "name": "refactor requires evidence and sensor", "pattern": "proven problem[\\s\\S]{0,220}(?:sensor|acceptance check)|refactor a candidate" }],
+      "referenceSolution": "Do not refactor a candidate: require a proven problem and a sensor or acceptance check."
+    },
+    {
+      "id": "verification-exit-status",
+      "required": [{ "name": "process status controls green", "pattern": "exit (?:status|code)|non-zero[\\s\\S]{0,100}(?:fail|green)" }],
+      "referenceSolution": "The process exit status controls green; a non-zero command is failed verification."
+    }
+  ]
+}

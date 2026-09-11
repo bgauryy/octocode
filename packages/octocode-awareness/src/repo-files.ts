@@ -6,6 +6,7 @@ import { addExactScope, addNullableScope, addTextFilter, localPathFromReference,
 import { memoryRows, runRows, taskRows } from './repo-plans.js';
 import { addSignalVisibility, agentRows, developerReviewRows, lockRows, refinementRows, signalRows } from './repo-coordination.js';
 import { summarize } from './repo-formats.js';
+import { queryEditLog } from './audit.js';
 
 export function trackFile(
   map: Map<string, AwarenessQueryRow>,
@@ -81,18 +82,14 @@ export function fileRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
     for (const file of row['files'] as string[]) trackFile(files, file, 'signals', String(row['created_at']), scope.workspacePath);
   }
 
-  const editWhere: string[] = [];
-  const editBinds: BindValue[] = [];
-  addExactScope(editWhere, editBinds, workspaceArtifactScope(scope));
-  addTextFilter(editWhere, editBinds, params.query, ['file_path', 'old_file_path', 'operation', 'agent_id']);
-  const editSqlWhere = editWhere.length > 0 ? `WHERE ${editWhere.join(' AND ')}` : '';
-  const edits = db.prepare(
-    `SELECT file_path, old_file_path, operation, agent_id, created_at
-       FROM edit_log
-       ${editSqlWhere}
-      ORDER BY datetime(created_at) DESC
-      LIMIT ?`
-  ).all(...editBinds, 1000) as unknown as Array<{ file_path: string; old_file_path: string | null; created_at: string }>;
+  const editScope = workspaceArtifactScope(scope);
+  const editQuery = params.query?.trim().toLowerCase() ?? '';
+  const edits = queryEditLog(db, { limit: 1000 }).filter((edit) => (
+    (editScope.workspacePaths.length === 0 || editScope.workspacePaths.includes(edit.workspace_path ?? ''))
+    && (!editScope.artifact || edit.artifact === editScope.artifact)
+    && (!editQuery || [edit.file_path, edit.old_file_path, edit.operation, edit.agent_id]
+      .some((value) => value?.toLowerCase().includes(editQuery)))
+  ));
   for (const edit of edits) {
     trackFile(files, edit.file_path, 'edits', edit.created_at, scope.workspacePath);
     if (edit.old_file_path) trackFile(files, edit.old_file_path, 'edits', edit.created_at, scope.workspacePath);

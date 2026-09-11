@@ -1,6 +1,6 @@
 import { shapeCommitDirFiles } from '../../../github/history/commitFiles.js';
 import { withDiffContinuations } from '../historyDiffContinuations.js';
-import type { CollectionState } from '../../../github/prContentFetcher/collectionPaging.js';
+import type { CollectionState } from '../../../types/collectionPaging.js';
 import type { NormalizedPrContentRequest } from '../contentRequest.js';
 import { historyBodyView } from './contentView.js';
 import {

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::{ast::*, AstKind};
 use oxc_semantic::SemanticBuilder;
 
-use super::{module_export_name, GraphCommonJsLoad, LineIndex};
+use super::js_oxc_shared::{module_export_name, GraphCommonJsLoad, LineIndex};
 
 /// Skip scope construction only when OXC's tokens rule out every supported
 /// loader spelling. Comments, regexes, and ordinary prose strings cannot create

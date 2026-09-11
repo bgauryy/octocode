@@ -1,7 +1,7 @@
 import type {
   CollectionPages,
   CollectionStates,
-} from '../../../github/prContentFetcher/collectionPaging.js';
+} from '../../../types/collectionPaging.js';
 import {
   MAX_PAGE_NUMBER,
   PR_CONTENT_DEFAULT_ITEMS_PER_PAGE,

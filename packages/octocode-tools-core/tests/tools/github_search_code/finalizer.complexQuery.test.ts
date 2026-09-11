@@ -7,7 +7,7 @@ type AnyRec = Record<string, unknown>;
 function runFinalizerWithQueries(queries: AnyRec[], results: AnyRec[]) {
   const finalize = buildGhSearchCodeFinalizer();
   const out = finalize({
-    queries: queries as never,
+    queries: queries.map(query => ({ operation: 'code', ...query })) as never,
     results: results as never,
     config: {} as never,
   });
@@ -37,7 +37,7 @@ describe('github.code finalizer — overly-long query zero-result honesty', () =
         data: {
           next: {
             retryNarrow: {
-              tool: 'github.code',
+              tool: 'ghSearch',
               query: { keywords: MANY_KEYWORDS.slice(0, 8) },
             },
           },

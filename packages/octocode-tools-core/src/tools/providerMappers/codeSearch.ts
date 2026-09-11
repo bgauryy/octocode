@@ -1,6 +1,5 @@
 import type { CodeSearchResult } from '../../providers/providerResults.js';
-import type { z } from 'zod';
-import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import type { GitHubSearchQuery } from '@octocodeai/octocode-core/schema';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
 import {
@@ -9,7 +8,7 @@ import {
   toProviderProjectId,
 } from './shared.js';
 
-type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
+type GitHubCodeSearchQuery = Extract<GitHubSearchQuery, { operation: 'code' }>;
 
 export function mapCodeSearchToolQuery(
   query: WithOptionalMeta<GitHubCodeSearchQuery>
@@ -23,7 +22,7 @@ export function mapCodeSearchToolQuery(
     extension: query.extension,
     language: (query as Record<string, unknown>).language as string | undefined,
     match: query.match,
-    limit: (query as Record<string, unknown>).limit as number | undefined,
+    limit: query.pageSize,
     page: query.page,
     goal: query.goal,
     reasoning: query.reasoning,

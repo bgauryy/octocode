@@ -161,7 +161,6 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
           input
         ),
       security: 'basic',
-      requiresServerRuntime: true,
     },
   },
 };

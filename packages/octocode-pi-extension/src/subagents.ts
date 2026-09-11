@@ -72,7 +72,7 @@ export interface SubagentConfig {
 
 /** Union of all registered subagent names (extend when adding new subagents). */
 export type SubagentName =
-  'browser-agent' | 'researcher' | 'planner' | 'architect' | 'implementer';
+  'browser-agent' | 'researcher' | 'planner' | 'architect' | 'implementer' | 'reviewer';
 
 // ─── Runtime path resolution ──────────────────────────────────────────────────
 
@@ -223,7 +223,7 @@ export const SUBAGENT_REGISTRY = {
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',
     systemPromptPath: subagentPromptPath('architect'),
-    skillNames: ['octocode-research', 'octocode-code-graph', 'octocode-awareness'],
+    skillNames: ['octocode-research', 'octocode-architect', 'octocode-awareness'],
   },
   implementer: {
     name: 'implementer' as SubagentName,
@@ -240,6 +240,21 @@ export const SUBAGENT_REGISTRY = {
     resourceMode: 'octocode' as ResourceMode,
     thinking: 'medium',
     systemPromptPath: subagentPromptPath('implementer'),
+    skillNames: ['octocode-research', 'octocode-awareness'],
+  },
+  reviewer: {
+    name: 'reviewer' as SubagentName,
+    label: 'Reviewer',
+    description:
+      'Read-only acceptance reviewer. Rechecks the assigned claim against exact evidence and returns a typed PASS, WARN, or FAIL verdict; the parent keeps completion authority.',
+    tools: [
+      'MCPTool',
+      'skill',
+      'awareness',
+    ],
+    resourceMode: 'octocode' as ResourceMode,
+    thinking: 'medium',
+    systemPromptPath: subagentPromptPath('reviewer'),
     skillNames: ['octocode-research', 'octocode-awareness'],
   },
 } satisfies Record<SubagentName, SubagentConfig>;

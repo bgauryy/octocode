@@ -52,7 +52,6 @@ These are delivery, interaction, and audit records, not additional work lifecycl
 | `pending_interactions` | `interaction_id` | — | Unique `correlation_id`; host session and structured request/answer. |
 | `authorization_receipts` | `receipt_id` | — | API checks the answered interaction and session; plan/revision/scope bind authorization rather than implying a local plan FK. |
 | `capability_receipts` | `receipt_id` | — | Structured capability decision with host provenance. |
-| `worker_lifecycle_events` | `sequence` | — | Unique `packet_id`; host-owned worker/session/correlation handles, indexed together with workspace. |
 
 ## Lease and completion fencing
 

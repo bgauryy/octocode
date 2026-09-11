@@ -1,7 +1,8 @@
-import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { GitHubRepositoryOutput } from '@octocodeai/octocode-core/extra-types';
-import { TOOL_NAMES } from '../toolMetadata/names.js';
-import { executeBulkOperation } from '../../utils/response/bulk/response.js';
+import {
+  GITHUB_SEARCH_TOOL_NAME,
+  type GitHubSearchQuery,
+} from '@octocodeai/octocode-core/schema';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import { getOctokit } from '../../github/client.js';
@@ -103,14 +104,19 @@ function buildReposSearchOutput(
     top?.owner && top?.repo
       ? {
           viewStructure: {
-            tool: 'github.tree',
-            query: { owner: top.owner, repo: top.repo, path: '' },
+            tool: 'ghSearch',
+            query: {
+              operation: 'tree',
+              owner: top.owner,
+              repo: top.repo,
+              path: '',
+            },
             why: 'Orient in the top-ranked repository before reading code',
             confidence: 'low',
           },
           searchCode: {
-            tool: 'github.code',
-            query: { owner: top.owner, repo: top.repo },
+            tool: 'ghSearch',
+            query: { operation: 'code', owner: top.owner, repo: top.repo },
             why: 'Scope a code search to the top-ranked repository',
             confidence: 'low',
           },
@@ -129,7 +135,7 @@ function buildReposSearchOutput(
 
 export async function searchGitHubRepos(
   query: PartialReposSearchQuery,
-  args: ToolExecutionArgs<PartialReposSearchQuery>,
+  args: ToolExecutionArgs<GitHubSearchQuery>,
   getProviderContext = createLazyProviderContext(args.authInfo)
 ): Promise<ProcessedBulkResult> {
   const { authInfo } = args;
@@ -204,9 +210,10 @@ export async function searchGitHubRepos(
                 warning: `Repository "${query.owner}/${candidate}" now resolves to "${resolved.owner}/${resolved.repo}" — the repository may have been transferred. Retry scoped to owner:"${resolved.owner}" (see next.retryUnderCanonicalOwner).`,
                 next: {
                   retryUnderCanonicalOwner: {
-                    tool: 'github.repositories',
+                    tool: 'ghSearch',
                     query: {
                       ...query,
+                      operation: 'repositories',
                       owner: resolved.owner,
                       keywords: [resolved.repo],
                     },
@@ -247,33 +254,13 @@ export async function searchGitHubRepos(
       query,
       resultData,
       hasContent,
-      TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
+      GITHUB_SEARCH_TOOL_NAME,
       {
         rawResponse:
           response.rawResponseChars ?? countSerializedChars(response.data),
       }
     );
   } catch (error) {
-    return handleCatchError(
-      error,
-      query,
-      undefined,
-      TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES
-    );
+    return handleCatchError(error, query, undefined, GITHUB_SEARCH_TOOL_NAME);
   }
-}
-
-export async function searchMultipleGitHubRepos(
-  args: ToolExecutionArgs<PartialReposSearchQuery>
-): Promise<CallToolResult> {
-  const getProviderContext = createLazyProviderContext(args.authInfo);
-  return executeBulkOperation(
-    args.queries,
-    query => searchGitHubRepos(query, args, getProviderContext),
-    {
-      toolName: TOOL_NAMES.GITHUB_SEARCH_REPOSITORIES,
-      keysPriority: ['repositories', 'pagination', 'error'] satisfies string[],
-    },
-    args
-  );
 }

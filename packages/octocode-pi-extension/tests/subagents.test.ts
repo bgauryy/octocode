@@ -49,6 +49,12 @@ describe('canonical subagent skill discovery', () => {
 // ─── SUBAGENT_REGISTRY — no eager skills field ────────────────────────────────
 
 describe('SUBAGENT_REGISTRY', () => {
+  it('ships a read-only reviewer with no shell or file mutation tool', () => {
+    const reviewer = SUBAGENT_REGISTRY['reviewer'];
+    expect(reviewer.tools).toEqual(['MCPTool', 'skill', 'awareness']);
+    expect(reviewer.systemPromptPath).toMatch(/reviewer[/\\]SYSTEM_PROMPT\.md$/);
+  });
+
   it('does not have an eagerly-computed skills field on researcher', () => {
     // After fix: skills is removed from the registry; extraSkillPaths is used instead.
     expect(SUBAGENT_REGISTRY['researcher']).not.toHaveProperty('skills');
@@ -69,9 +75,10 @@ describe('SUBAGENT_REGISTRY', () => {
     expect(Array.isArray(ba.extraSkillPaths)).toBe(true);
   });
 
-  it('every typed profile can load skills and use the Awareness CLI and assigned artifact tool', () => {
-    for (const profile of Object.values(SUBAGENT_REGISTRY)) {
-      expect(profile.tools).toEqual(expect.arrayContaining(['file', 'skill', 'bash']));
+  it('every typed profile can load skills and use Awareness; mutating profiles get artifact and shell tools', () => {
+    for (const [name, profile] of Object.entries(SUBAGENT_REGISTRY)) {
+      expect(profile.tools).toEqual(expect.arrayContaining(['skill', 'awareness']));
+      if (name !== 'reviewer') expect(profile.tools).toEqual(expect.arrayContaining(['file', 'bash']));
       expect(profile.tools).not.toContain('write');
       expect(profile.tools).not.toContain('memory');
       for (const recursiveTool of ['spawnAgent', 'spawnSubagent', 'AgentMessage']) {
@@ -82,8 +89,10 @@ describe('SUBAGENT_REGISTRY', () => {
 
   it('preserves specialist research tools without exposing browser control to other profiles', () => {
     for (const [name, profile] of Object.entries(SUBAGENT_REGISTRY)) {
-      const expected = ['MCPTool', 'file', 'skill', 'awareness', 'bash'];
-      if (name !== 'implementer') expected.push('web');
+      const expected = name === 'reviewer'
+        ? ['MCPTool', 'skill', 'awareness']
+        : ['MCPTool', 'file', 'skill', 'awareness', 'bash'];
+      if (name !== 'implementer' && name !== 'reviewer') expected.push('web');
       if (name === 'browser-agent') expected.push('chromeDebug');
       expect([...profile.tools].sort()).toEqual(expected.sort());
     }

@@ -8,13 +8,24 @@ const mocks = vi.hoisted(() => ({
   showAvailableTools: vi.fn().mockResolvedValue(undefined),
   showMultipleToolSchemas: vi.fn().mockResolvedValue(undefined),
   findStaticCommandHelp: vi.fn(),
-  executeToolCommand: vi.fn().mockResolvedValue(true),
+  toolCommandHandler: vi.fn().mockResolvedValue(undefined),
   getToolsContextString: vi.fn().mockResolvedValue('agent context'),
   printToolsContext: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../src/cli/commands/index.js', () => ({
   loadCommand: mocks.loadCommand,
+  isRegisteredCommand: (name: string) =>
+    [
+      'cache',
+      'install',
+      'auth',
+      'login',
+      'logout',
+      'status',
+      'lsp-server',
+      'skill',
+    ].includes(name),
 }));
 
 vi.mock('../../src/cli/help.js', () => ({
@@ -36,8 +47,8 @@ vi.mock('../../src/cli/tool-command/help.js', () => ({
 vi.mock('../../src/cli/tool-command/list-view.js', () => ({
   showAvailableTools: mocks.showAvailableTools,
 }));
-vi.mock('../../src/cli/tool-command/execute.js', () => ({
-  executeToolCommand: mocks.executeToolCommand,
+vi.mock('../../src/cli/tool-command/command.js', () => ({
+  toolCommand: { name: 'tools', handler: mocks.toolCommandHandler },
 }));
 vi.mock('../../src/cli/tool-command/context.js', () => ({
   getToolsContextString: mocks.getToolsContextString,
@@ -140,8 +151,8 @@ describe('runCLI', () => {
     ]);
 
     expect(handled).toBe(true);
-    expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.executeToolCommand).toHaveBeenCalledWith({
+    expect(mocks.toolCommandHandler).toHaveBeenCalledTimes(1);
+    expect(mocks.toolCommandHandler).toHaveBeenCalledWith({
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -170,8 +181,8 @@ describe('runCLI', () => {
     ]);
 
     expect(handled).toBe(true);
-    expect(mocks.executeToolCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.executeToolCommand).toHaveBeenCalledWith({
+    expect(mocks.toolCommandHandler).toHaveBeenCalledTimes(1);
+    expect(mocks.toolCommandHandler).toHaveBeenCalledWith({
       command: 'tools',
       args: ['github.code'],
       options: {
@@ -200,7 +211,7 @@ describe('runCLI', () => {
     expect(handled).toBe(true);
     expect(mocks.showToolHelp).toHaveBeenCalledTimes(1);
     expect(mocks.showToolHelp).toHaveBeenCalledWith('localSearch');
-    expect(mocks.executeToolCommand).not.toHaveBeenCalled();
+    expect(mocks.toolCommandHandler).not.toHaveBeenCalled();
     expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
@@ -216,7 +227,7 @@ describe('runCLI', () => {
     ]);
 
     expect(handled).toBe(true);
-    expect(mocks.executeToolCommand).not.toHaveBeenCalled();
+    expect(mocks.toolCommandHandler).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Unknown command: tool')
     );
@@ -269,7 +280,6 @@ describe('runCLI', () => {
   it('shows static command help for "install --help" using shared renderer', async () => {
     const fakeCmd = { name: 'install', description: 'Configure octocode-mcp' };
     mocks.findStaticCommandHelp.mockReturnValue(fakeCmd);
-    mocks.loadCommand.mockResolvedValue({ name: 'install' });
 
     const { runCLI } = await import('../../src/cli/index.js');
 
@@ -278,7 +288,7 @@ describe('runCLI', () => {
     expect(handled).toBe(true);
     expect(mocks.findStaticCommandHelp).toHaveBeenCalledWith('install');
     expect(mocks.showCommandHelp).toHaveBeenCalledWith(fakeCmd);
-    expect(mocks.loadCommand).toHaveBeenCalledWith('install');
+    expect(mocks.loadCommand).not.toHaveBeenCalled();
   });
 
   it('prints version for --version flag', async () => {
@@ -389,7 +399,9 @@ describe('runCLI', () => {
   });
 
   it('sets exitCode 1 when tool execution fails without a specific code', async () => {
-    mocks.executeToolCommand.mockResolvedValueOnce(false);
+    mocks.toolCommandHandler.mockImplementationOnce(async () => {
+      process.exitCode = 1;
+    });
 
     const { runCLI } = await import('../../src/cli/index.js');
 

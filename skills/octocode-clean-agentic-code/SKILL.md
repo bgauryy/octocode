@@ -1,15 +1,20 @@
 ---
 name: octocode-clean-agentic-code
-description: "Use when a codebase needs dead weight cut: shims, legacy stubs, re-exports, aliases, duplicate logic, patch regexes, verbose comments, junk docs, bloated config, god files, god folders, misplaced files, redundant schemas, stale protocol stubs, unused dependencies, version misalignment, rigid mocks, skipped tests, or agent-introduced junk such as reinvented helpers, parallel subsystems, scope-creep leftovers, error-masking catch blocks, and special-cased tests. Also use it to strip decision residue from code, comments, skills, and docs: pasted probe output, provenance and research trails, process metadata, counts nobody re-derives, and restated facts. Trigger phrases include clean up, remove legacy, dead code audit, god file, unused deps, test hygiene, clean up after the agent, remove AI slop, remove metadata, or drop stale numbers. Not for feature work or behavioral refactors."
+description: "Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, or agent residue such as reinvention, scope creep, narration, error masking, and special-cased tests. Triggers include clean up, remove legacy, dead code audit, god file, unused deps, test hygiene, remove AI slop/metadata, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast."
 ---
 
 # Octocode clean agentic code
+
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-research`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
 Cut dead weight — shims, re-exports, duplicates, patch kludges, junk prose, redundant schemas, dependency junk, oversized config, god files, misplaced files, and agent residue — without changing observable behavior.
 
 Flow: `SCOPE → AUDIT → INVENTORY → TRIAGE → CONSENT → EXCISE → VERIFY`.
 
-Workspace output contract: chat-only findings stay in chat. Saved inventory reports default to `<workspace>/.octocode/octocode-clean-agentic-code/`; scratch evidence uses `<workspace>/.octocode/tmp/octocode-clean-agentic-code/`. Source mutations keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocode-clean-agentic-code/`. Chat-only findings stay in chat; source edits keep their named paths.
 
 ## Lobby rules
 - Before deleting an export or adapter, inspect its exact source, applicable references, entrypoints, and configuration. Use LSP references for symbols and callers for callable relationships; AST topology supplies candidate file edges. Empty results do not exclude dynamic or external consumers.
@@ -44,7 +49,7 @@ Workspace output contract: chat-only findings stay in chat. Saved inventory repo
 - When code, comments, skills, or docs record how a decision was made — probe output, provenance, process metadata, or counts nobody re-derives — load `references/decision-residue.md` — residue types, the number test, and what to keep.
 - When the task involves removing numbered/dated iteration test files, skipped tests, rigid mocks, redundant stubs, or unused test setup, load `references/test-hygiene.md` — the test smell classes, the evidence each delete requires, and the excision protocol.
 - When writing replacement tests after removing legacy or rigid ones (to recover lost coverage), load `references/test-quality.md` — isolation patterns, naming conventions, and the coverage replacement rule.
-- When symbol proof, caller lists, import graphs, or structural search are needed, load `references/octocode.md` — tool routing for LSP, graph, and structural queries.
+- When symbol proof, caller lists, import graphs, or structural search are needed, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, and follow executable continuations.
 
 ## Related routes
 - Use `octocode-research` for blast-radius evidence before deletions; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-roast` for a blunt smell inventory, `octocode-eval-benchmark` for before/after metrics, and `octocode-skills` when changing this folder.

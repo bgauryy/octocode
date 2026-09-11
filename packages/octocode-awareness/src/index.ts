@@ -1,3 +1,32 @@
+// Canonical host-bound surface. Operator/recovery adapters remain internal;
+// public consumers use the typed client and operation catalog.
+export {
+  createAwarenessClient,
+} from './client.js';
+export {
+  AWARENESS_CONCEPTS,
+  ROUTINE_AWARENESS_OPERATIONS,
+  getAwarenessOperationDescriptor,
+  listAwarenessOperationDescriptors,
+} from './schema/operation-catalog.js';
+export type {
+  AwarenessClient,
+  AwarenessClientContext,
+  AwarenessExecutableCall,
+  AwarenessItemSummary,
+  AwarenessOrientation,
+  AwarenessOrientationResult,
+  AwarenessOrientationUnchanged,
+  AwarenessPeerSummary,
+} from './client.js';
+export type {
+  AwarenessConcept,
+  AwarenessOperation,
+  AwarenessOperationCall,
+  AwarenessOperationDescriptor,
+  AwarenessOperationParams,
+} from './schema/operation-catalog.js';
+
 export { executeAwarenessCommand } from './command-api.js';
 export { watchAwarenessEventHints, type AwarenessEventHintOptions } from './event-wake-hints.js';
 export type { AwarenessCommandCall, AwarenessCommandContext, AwarenessCommandResult } from './command-api.js';
@@ -96,21 +125,6 @@ export type {
   MemoryEvaluationResultV1,
   MemoryRecallModeV1,
 } from './memory-hardening.js';
-export {
-  appendWorkerLifecycleEvent,
-  listWorkerLifecycleEvents,
-  MAX_WORKER_LIFECYCLE_PAYLOAD_BYTES,
-  MAX_WORKER_LIFECYCLE_REPLAY_LIMIT,
-} from './worker-lifecycle-ledger.js';
-export type {
-  AppendWorkerLifecycleEventResult,
-  ListWorkerLifecycleEventsOptions,
-  StoredWorkerLifecycleEvent,
-  WorkerLifecycleEventInput,
-  WorkerLifecycleJsonValue,
-  WorkerLifecycleRedaction,
-} from './worker-lifecycle-ledger.js';
-
 // Memory operations
 export { insertMemory, insertMemoryWithSimilarityGate, bumpAccess } from './memory-write.js';
 export { getMemory } from './memory-recall.js';
@@ -188,14 +202,6 @@ export {
   REFLECTION_OUTCOME_VALUES, REFLECTION_IMPORTANCE,
 } from './helpers.js';
 
-// Shared agent-tool operation runner
-export { ROUTABLE_OPERATIONS, runAwarenessToolOperation } from './tool-operations.js';
-export type {
-  AwarenessToolOperation,
-  AwarenessToolOperationContext,
-  AwarenessToolOperationResult,
-} from './tool-operations.js';
-
 // Git scope
 export { detectGit, fillScope, canonicalizePath, normalizeWorkspacePath, withRepositoryWorkspaceScope } from './git.js';
 
@@ -225,8 +231,6 @@ export type { DocStalenessTarget, DocStalenessParams, DocStalenessEntry, DocStal
 // root; the implementation directory is not a separate product or API tier.
 export { openAwarenessStore } from './coordination/open.js';
 export { AwarenessStore } from './coordination/coordination-continuity.js';
-export { execCli, runCli } from './coordination/cli.js';
-export { dispatchAwarenessCommand } from './coordination/dispatch.js';
 export { AWARENESS_COMMANDS, getCommandGroup } from './coordination/commands-spec.js';
 export { defaultDbPath } from './coordination/coordination-shared.js';
 export { runPreEditLockGate, checkLockConflicts, extractHookTargetPaths } from './coordination/hooks.js';

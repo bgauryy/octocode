@@ -6,7 +6,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { NativeCancellation, snapshotFile, replaceFile, deleteFile, computeLineDiff, computeLineDiffAsync, generateDiffArtifactsAsync } from '../index.js';
+import {
+  NativeCancellation, NativeErrorCodes, NativeOperationError, nativeErrorCode,
+  snapshotFile, replaceFile, deleteFile, computeLineDiff, computeLineDiffAsync, generateDiffArtifactsAsync,
+} from '../index.js';
 
 const windows = process.platform === 'win32';
 const roots = [];
@@ -53,7 +56,13 @@ test('preconditions detect changed bytes, recreated inode, missing ancestor repl
   await writeFile(path, 'before');
   let prior = await snapshotFile(path, maximum, false);
   await writeFile(path, 'after');
-  await assert.rejects(replaceFile(path, Buffer.from('wrong'), prior.version, maximum), /PRECONDITION_FAILED/);
+  await assert.rejects(replaceFile(path, Buffer.from('wrong'), prior.version, maximum), error => {
+    assert.ok(error instanceof NativeOperationError);
+    assert.equal(error.code, NativeErrorCodes.PRECONDITION_FAILED);
+    assert.equal(nativeErrorCode(error), NativeErrorCodes.PRECONDITION_FAILED);
+    assert.match(error.message, /PRECONDITION_FAILED/);
+    return true;
+  });
   prior = await snapshotFile(path, maximum, false);
   await rename(path, join(root, 'old'));
   await writeFile(path, 'after');
@@ -154,7 +163,10 @@ test('bounded reads/writes include empty files and reject invalid limits without
   await writeFile(path, '12345');
   const before = await snapshotFile(path, 5, true);
   await assert.rejects(snapshotFile(path, 4, true), /TOO_LARGE/);
-  await assert.rejects(replaceFile(path, Buffer.from('123456'), before.version, 5), /TOO_LARGE/);
+  await assert.rejects(replaceFile(path, Buffer.from('123456'), before.version, 5), error => {
+    assert.equal(nativeErrorCode(error), NativeErrorCodes.TOO_LARGE);
+    return true;
+  });
   for (const limit of [-1, 1.5, NaN, Infinity, 0x100000000]) {
     await assert.rejects(snapshotFile(path, limit, false), /maxBytes/);
   }

@@ -44,59 +44,13 @@ async function runOperation(
   args: ToolExecutionArgs<GitHubSearchQuery>,
   getProviderContext: ReturnType<typeof createLazyProviderContext>
 ): Promise<ProcessedBulkResult> {
-  const { operation, ...input } = query;
-  switch (operation) {
-    case 'code': {
-      const { pageSize, ...codeInput } = input as Record<string, unknown> & {
-        pageSize?: number;
-      };
-      const legacyInput = { ...codeInput, limit: pageSize };
-      return searchGitHubCode(
-        legacyInput as Parameters<typeof searchGitHubCode>[0],
-        { ...args, queries: [legacyInput] } as Parameters<
-          typeof searchGitHubCode
-        >[1],
-        getProviderContext
-      );
-    }
-    case 'repositories': {
-      const { topics, pageSize, ...repositoryInput } = input as Record<
-        string,
-        unknown
-      > & {
-        topics?: string[];
-        pageSize?: number;
-      };
-      const legacyInput = {
-        ...repositoryInput,
-        topicsToSearch: topics,
-        limit: pageSize,
-      };
-      return searchGitHubRepos(
-        legacyInput as Parameters<typeof searchGitHubRepos>[0],
-        {
-          ...args,
-          queries: [legacyInput],
-        } as Parameters<typeof searchGitHubRepos>[1],
-        getProviderContext
-      );
-    }
-    case 'tree': {
-      const { pageSize, ...treeInput } = input as Record<string, unknown> & {
-        pageSize?: number;
-      };
-      return exploreRepositoryStructure(
-        {
-          ...treeInput,
-          itemsPerPage: pageSize,
-        } as Parameters<typeof exploreRepositoryStructure>[0],
-        {
-          ...args,
-          queries: [{ ...treeInput, itemsPerPage: pageSize }],
-        } as Parameters<typeof exploreRepositoryStructure>[1],
-        getProviderContext
-      );
-    }
+  switch (query.operation) {
+    case 'code':
+      return searchGitHubCode(query, args, getProviderContext);
+    case 'repositories':
+      return searchGitHubRepos(query, args, getProviderContext);
+    case 'tree':
+      return exploreRepositoryStructure(query, args, getProviderContext);
     default:
       throw new Error('Unsupported ghSearch operation');
   }

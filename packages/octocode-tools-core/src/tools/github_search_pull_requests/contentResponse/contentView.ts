@@ -6,7 +6,7 @@ import type { QueryLike } from './pagination.js';
 // before calculating offsets; matching reads preserve their source anchors.
 export function historyBodyView(body: string, query: QueryLike): string {
   if (query.minify !== 'standard' || query.matchString) return body;
-  return contextUtils.minifyMarkdownCore(body);
+  return contextUtils.applyContentViewMinification(body, 'history.md');
 }
 
 export function historyPatchView(patch: string, query: QueryLike): string {

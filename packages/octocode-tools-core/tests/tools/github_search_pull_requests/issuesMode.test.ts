@@ -5,7 +5,10 @@ vi.mock('../../../src/github/issues/orchestrator.js', () => ({
   fetchIssues: (...args: unknown[]) => fetchIssues(...args),
 }));
 
-import { searchMultipleGitHubPullRequests } from '../../../src/tools/github_search_pull_requests/execution.js';
+import {
+  getMultipleGitHubHistoryItems,
+  searchMultipleGitHubHistory,
+} from '../../../src/tools/github_search_pull_requests/historyExecutions.js';
 
 function issuesData() {
   return {
@@ -39,10 +42,10 @@ describe('ghSearchIssues type:"issues"', () => {
 
   it('routes to fetchIssues and returns issue rows', async () => {
     fetchIssues.mockResolvedValue(issuesData());
-    const result = await searchMultipleGitHubPullRequests({
+    const result = await searchMultipleGitHubHistory({
       queries: [
         {
-          type: 'issues',
+          operation: 'issues',
           owner: 'microsoft',
           repo: 'TypeScript',
           keywords: ['crash'],
@@ -95,13 +98,13 @@ describe('ghSearchIssues type:"issues"', () => {
       status: 200,
     });
 
-    const result = await searchMultipleGitHubPullRequests({
+    const result = await searchMultipleGitHubHistory({
       queries: [
         {
-          type: 'issues',
+          operation: 'issues',
           owner: 'microsoft',
           repo: 'TypeScript',
-          limit: 1,
+          pageSize: 1,
         },
       ],
     } as never);
@@ -143,13 +146,13 @@ describe('ghSearchIssues type:"issues"', () => {
       status: 200,
     });
 
-    const result = await searchMultipleGitHubPullRequests({
+    const result = await getMultipleGitHubHistoryItems({
       queries: [
         {
-          type: 'issues',
+          operation: 'issue',
           owner: 'microsoft',
           repo: 'TypeScript',
-          issueNumber: 42,
+          number: 42,
           content: { body: true },
         },
       ],
@@ -185,13 +188,13 @@ describe('ghSearchIssues type:"issues"', () => {
       status: 200,
     });
 
-    await searchMultipleGitHubPullRequests({
+    await getMultipleGitHubHistoryItems({
       queries: [
         {
-          type: 'issues',
+          operation: 'issue',
           owner: 'microsoft',
           repo: 'TypeScript',
-          issueNumber: 42,
+          number: 42,
           content: { body: true, comments: { discussion: true } },
         },
       ],
@@ -210,22 +213,22 @@ describe('ghSearchIssues type:"issues"', () => {
   });
 
   it('requires owner and repo', async () => {
-    const result = await searchMultipleGitHubPullRequests({
-      queries: [{ type: 'issues' }],
+    const result = await searchMultipleGitHubHistory({
+      queries: [{ operation: 'issues' }],
     } as never);
     expect(fetchIssues).not.toHaveBeenCalled();
     const text = JSON.stringify(result.structuredContent ?? result);
-    expect(text).toContain('owner and repo are required for issues mode');
+    expect(text).toContain('Invalid input');
   });
 
-  it('the local query schema accepts type:"issues" and issueNumber', async () => {
-    const { GitHubPullRequestSearchQueryLocalSchema } =
+  it('the public item schema accepts operation:"issue" and number', async () => {
+    const { GitHubGetHistoryItemQueryLocalSchema } =
       await import('@octocodeai/octocode-core/schema');
-    const parsed = GitHubPullRequestSearchQueryLocalSchema.safeParse({
-      type: 'issues',
+    const parsed = GitHubGetHistoryItemQueryLocalSchema.safeParse({
+      operation: 'issue',
       owner: 'o',
       repo: 'r',
-      issueNumber: 7,
+      number: 7,
     });
     expect(parsed.success).toBe(true);
   });

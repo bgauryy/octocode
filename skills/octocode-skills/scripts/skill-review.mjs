@@ -12,7 +12,7 @@ const json = args.includes('--json');
 const targets = args.filter((a) => !a.startsWith('--'));
 
 if (args.includes('--help')) {
-  console.log(`skill-review — structure, reference, and navigation gates for Agent Skill folders
+  console.log(`skill-review — structure, contract, reference, and navigation gates for Agent Skill folders
 
   node scripts/skill-review.mjs [skill-or-collection-folders...] [--json]
 
@@ -69,7 +69,7 @@ function frontmatter(text) {
 
 function linkedPaths(text) {
   const hits = [];
-  const rx = /`((?:references|scripts|assets)\/[^`]+?)`|\((?:(\.\/)?((?:references|scripts|assets)\/[^)]+))\)/g;
+  const rx = /`((?:references|scripts|assets|scheme)\/[^`]+?)`|\((?:(\.\/)?((?:references|scripts|assets|scheme)\/[^)]+))\)/g;
   let m;
   while ((m = rx.exec(text))) {
     const raw = (m[1] || m[3]).split('#')[0].trim();
@@ -84,10 +84,10 @@ function bodyWithoutFrontmatter(text) {
   return text.replace(/^---\n[\s\S]*?\n---\n/, '');
 }
 
-/** Lines of SKILL.md that name a reference or script, so a route can be judged in isolation. */
+/** Lines of SKILL.md that name a reference, script, or scheme, so a route can be judged in isolation. */
 function routeLines(text) {
   return bodyWithoutFrontmatter(text).split(/\r?\n/)
-    .filter((line) => /(?:references|scripts)\//.test(line) && !/^\s*(?:```|#)/.test(line));
+    .filter((line) => /(?:references|scripts|scheme)\//.test(line) && !/^\s*(?:```|#)/.test(line));
 }
 
 /** A route earns its place by saying when or why to load the target. */
@@ -98,7 +98,7 @@ const ENTRY_CUE = /\b(load when|use when|read when|apply when|when you|before |a
 
 /** A named directory (`assets/hooks/`) stands in for the files under it. */
 function mentionedDirs(text) {
-  return [...new Set((text.match(/(?:references|scripts|assets)\/[A-Za-z0-9._-]*\//g) || []))];
+  return [...new Set((text.match(/(?:references|scripts|assets|scheme)\/[A-Za-z0-9._-]*\//g) || []))];
 }
 
 /** Every runnable file under scripts/, so the lobby can be checked for completeness. */
@@ -221,6 +221,21 @@ function checkSkill(dir) {
   if (fm?.description && fm.description.length > 1024) error('description-too-long', 'description must be <=1024 chars.');
   if (lines > 220) warn('lobby-long', `SKILL.md is ${lines} lines; keep the lobby lean when possible.`);
 
+  const lobby = bodyWithoutFrontmatter(skill);
+  const conventions = [
+    ['lobby-tools-convention', /^tools:\s*`npx octocode`\s*\/\s*`octocode-mcp`\s*$/m,
+      'declare `tools: npx octocode / octocode-mcp` below the H1.'],
+    ['lobby-related-skill-convention', /^related-skill:\s*`[a-z0-9][a-z0-9-]*`\s*$/m,
+      'declare one `related-skill: <skill-name>` below the H1.'],
+    ['lobby-output-convention', /^output:\s*`<workspace>\/\.octocode\/`\s+for workspace work\s*\|\s*`<home>\/\.octocode\/`\s+when no workspace applies\s*$/m,
+      'declare the workspace-versus-home `output:` decision below the H1.'],
+    ['lobby-routes-convention', /^routes:\s*.*\breference\b.*\bdoc\b.*\bscript\b.*\bnext action\b.*$/mi,
+      'declare when a reference, doc, or script earns a route below the H1.'],
+  ];
+  for (const [code, pattern, message] of conventions) {
+    if (!pattern.test(lobby)) error(code, message);
+  }
+
   if (!existsSync(join(dir, 'README.md'))) warn('readme-missing', 'README.md is recommended for standalone skills.');
 
   const refsDir = join(dir, 'references');
@@ -239,6 +254,26 @@ function checkSkill(dir) {
     }
   }
 
+  const schemeDir = join(dir, 'scheme');
+  if (existsSync(schemeDir)) {
+    for (const file of readdirSync(schemeDir)) {
+      const rel = `scheme/${file}`;
+      const full = join(schemeDir, file);
+      if (statSync(full).isDirectory() || !file.endsWith('.json')) {
+        error('scheme-contract', `${rel} must be a flat JSON file, one per contract.`);
+        continue;
+      }
+      try {
+        const contract = JSON.parse(readFileSync(full, 'utf8'));
+        if (contract === null || Array.isArray(contract) || typeof contract !== 'object') {
+          error('scheme-contract', `${rel} must contain one top-level JSON object.`);
+        }
+      } catch {
+        error('scheme-contract', `${rel} must contain valid JSON.`);
+      }
+    }
+  }
+
   for (const rel of referenced) {
     if (rel.includes('://')) continue;
     if (!existsSync(join(dir, rel))) error('missing-route', `${rel} is referenced but missing.`);
@@ -253,7 +288,7 @@ function checkSkill(dir) {
     }
   }
 
-  // Navigation gates: the lobby is the map. It lists every reference and script with when/how, plus the workflow.
+  // Navigation gates: the lobby is the map. It lists routed references, scripts, and schemes with when/how, plus the workflow.
   const dirs = mentionedDirs(skill);
   const listedInLobby = (rel) => fromLobby.has(rel) || skill.includes(rel) || dirs.some((d) => rel.startsWith(d));
 
@@ -363,6 +398,10 @@ hooks:
   SessionEnd: [{ hooks: [{ type: command, command: "\${CLAUDE_SKILL_DIR}/scripts/hook.sh" }] }]
 ---
 # Hook skill
+tools: \`npx octocode\` / \`octocode-mcp\`
+related-skill: \`octocode-research\`
+output: \`<workspace>/.octocode/\` for workspace work | \`<home>/.octocode/\` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 Flow: RUN
 ## Run
 Run the hook test and stop.
@@ -372,6 +411,14 @@ Run the hook test and stop.
     if (expanded.length !== 1 || expanded[0] !== skillDir) throw new Error('collection discovery regression');
     const findings = checkSkill(skillDir).findings;
     if (findings.length) throw new Error(`frontmatter route regression: ${JSON.stringify(findings)}`);
+
+    const validLobby = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^output:.*\n/m, ''));
+    const missingOutputFindings = checkSkill(skillDir).findings;
+    if (!missingOutputFindings.some((finding) => finding.code === 'lobby-output-convention')) {
+      throw new Error(`lobby-output-convention regression: ${JSON.stringify(missingOutputFindings)}`);
+    }
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 
     writeFileSync(
       join(skillDir, 'README.md'),
@@ -412,6 +459,34 @@ Run the hook test and stop.
     }
     rmSync(templateRef);
     writeFileSync(join(skillDir, 'SKILL.md'), lobby);
+
+    const schemeDir = join(skillDir, 'scheme');
+    const contractPath = join(schemeDir, 'hook-event.json');
+    mkdirSync(schemeDir);
+    writeFileSync(join(skillDir, 'SKILL.md'), lobby + '\nWhen exposing the hook contract, load `scheme/hook-event.json`.\n');
+    writeFileSync(contractPath, '{ invalid json');
+    const invalidJsonFindings = checkSkill(skillDir).findings;
+    if (!invalidJsonFindings.some((finding) => finding.code === 'scheme-contract')) {
+      throw new Error(`scheme invalid-json regression: ${JSON.stringify(invalidJsonFindings)}`);
+    }
+    writeFileSync(contractPath, '[]\n');
+    const arrayContractFindings = checkSkill(skillDir).findings;
+    if (!arrayContractFindings.some((finding) => finding.code === 'scheme-contract')) {
+      throw new Error(`scheme one-contract regression: ${JSON.stringify(arrayContractFindings)}`);
+    }
+    writeFileSync(contractPath, '{"type":"object"}\n');
+    const validContractFindings = checkSkill(skillDir).findings;
+    if (validContractFindings.some((finding) => finding.code === 'scheme-contract')) {
+      throw new Error(`scheme valid-contract regression: ${JSON.stringify(validContractFindings)}`);
+    }
+    writeFileSync(join(schemeDir, 'notes.md'), '# Not a contract\n');
+    const nonJsonFindings = checkSkill(skillDir).findings;
+    if (!nonJsonFindings.some((finding) => finding.code === 'scheme-contract')) {
+      throw new Error(`scheme extension regression: ${JSON.stringify(nonJsonFindings)}`);
+    }
+    rmSync(schemeDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), lobby);
+
     const outsidePath = '../' + '../shared.md';
     const slash = String.fromCharCode(47);
     const outsideAbsolute = slash + ['Users', 'example', 'outside.md'].join(slash);

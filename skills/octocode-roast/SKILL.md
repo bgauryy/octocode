@@ -5,10 +5,15 @@ description: "Use when a blunt evidence-backed code roast is wanted: rank smells
 
 # Octocode Roast
 
+tools: `npx octocode` / `octocode-mcp`
+related-skill: `octocode-clean-agentic-code`
+output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
+
 Sharp code critique with proof and a repair path.
 Flow: `TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM`.
 
-Workspace output contract: chat-only critiques stay in chat. New saved reports default to `<workspace>/.octocode/octocode-roast/`; scratch evidence uses `<workspace>/.octocode/tmp/octocode-roast/`. User-approved source edits keep their named paths. Never fall back to a user-level Octocode home for artifacts.
+Reports: `<output>/octocode-roast/`; scratch: `<output>/tmp/octocode-roast/`. Chat-only critiques stay in chat; approved source edits keep their named paths.
 
 ## Lobby rules
 - Target patterns, never people; obey the requested scope and widen only with approval.
@@ -26,10 +31,10 @@ Use the memorable labels in `references/sin-catalog.md`, but rank by demonstrate
 ## Smart routes — load only what the current step needs
 - When you have the target and are ready to inspect it, load `references/roast-playbook.md` — the phase-by-phase run through inspection, inventory, autopsy, and the pre-fix checkpoint.
 - When building the inventory and ranking generic smells, load `references/sin-catalog.md`; for language-specific patterns or structural queries load `references/language-sins.md` — choose evidence appropriate to the code.
-- When you picks repairs at the checkpoint, load `references/redemption-flow.md` — redeem findings through consent-gated fixes and verification.
+- When you pick repairs at the checkpoint, load `references/redemption-flow.md` — redeem findings through consent-gated fixes and verification.
 - When scope spans a monorepo or many categories, load `references/parallel-roasting.md` — split the inspection and inventory across workers without duplicating findings.
-- When research tooling is needed, load `references/octocode.md`, and use `octocode-research` if available — verify before joking; mark reduced coverage otherwise. <!-- style-lint: ignore-line passive-voice -->
-- When improving this skill, prefer `octocode-eval-benchmark`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
+- When research tooling is needed, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, follow executable continuations, and mark reduced coverage — verify before joking. <!-- style-lint: ignore-line passive-voice -->
+- When improving this skill, use `octocode-eval-benchmark`; if unavailable, record goal, KPI, baseline, smallest change, comparable result, and accept/revert.
 
 ## Related routes
 - Use `octocode-research` for evidence gathering; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-eval-benchmark` to measure roast usefulness and `octocode-prompt-optimizer` only for tone/instruction wording.

@@ -1,9 +1,9 @@
 /** Durable plan tasks, dependencies, leases, and execution runs. */
-import { randomUUID } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { utcNow } from './helpers.js';
 import { normalizeWorkspacePath } from './git.js';
+import { appendTaskEvent, latestRunVerification } from './event-outbox.js';
 import type { PlanTaskRecord, TaskClaimRecord, TaskRunRecord } from '@octocodeai/agent-contracts/entities';
 
 export const DEFAULT_CLAIM_LEASE_MS = 30 * 60_000;
@@ -39,9 +39,7 @@ export function event(
   message: string,
   now = utcNow(),
 ): void {
-  db.prepare(`INSERT INTO task_events(event_id, task_id, run_id, agent_id, event_type, message, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(`tevt_${randomUUID().replace(/-/g, '')}`, taskId, runId, agentId, eventType, message, now);
+  appendTaskEvent(db, { taskId, runId, agentId, eventType, message, createdAt: now });
 }
 
 export function evictExpiredTaskClaims(db: DatabaseSync, now = utcNow()): void {
@@ -83,9 +81,7 @@ export function hydrateTask(db: DatabaseSync, row: Record<string, unknown>, obse
   const latestRun = db.prepare(`SELECT run_id, status, updated_at FROM task_runs WHERE task_id = ?
     ORDER BY updated_at DESC, run_id DESC LIMIT 1`).get(taskId) as { run_id: string; status: TaskRunRecord['status']; updated_at: string } | undefined;
   const verification = latestRun && (latestRun.status === 'SUCCESS' || latestRun.status === 'FAILED')
-    ? db.prepare(`SELECT agent_id, message, created_at FROM run_log
-        WHERE run_id = ? AND event_type = 'VERIFIED' ORDER BY created_at DESC, event_id DESC LIMIT 1`)
-      .get(latestRun.run_id) as PlanTaskRecord['verification'] | undefined
+    ? latestRunVerification(db, latestRun.run_id) as PlanTaskRecord['verification'] | null
     : null;
   const expired = claim?.expires_at != null && claim.expires_at <= observedAt;
   const projected = expired && row['status'] === 'IN_PROGRESS'

@@ -117,6 +117,16 @@ export function parsePoolIdleTimeoutMs(
 
 const POOL_IDLE_TIMEOUT_MS = parsePoolIdleTimeoutMs();
 
+export function parsePoolMaxEntries(
+  raw: string | undefined = process.env.OCTOCODE_LSP_POOL_MAX_CLIENTS
+): number {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 4;
+  return Math.min(parsed, 32);
+}
+
+const POOL_MAX_ENTRIES = parsePoolMaxEntries();
+
 // Servers that need post-initialize readiness before semantic requests.
 // Bash awaits workspace configuration before enabling document analysis without
 // emitting progress; its bounded settle remains explicitly unconfirmed.
@@ -162,6 +172,7 @@ const _pendingConfigs = new Map<string, LanguageServerConfig>();
 
 const sharedPool = new LspClientPool<LSPClient>({
   idleTimeoutMs: POOL_IDLE_TIMEOUT_MS,
+  maxEntries: POOL_MAX_ENTRIES,
   factory: async key => {
     const cacheKey = serializeKey(key);
     const serverConfig =

@@ -9,6 +9,7 @@
     "@inquirer/prompts": "^8.7.1",
     "@octocodeai/config": "20.0.0",
     "@octocodeai/octocode-engine": "19.1.0",
+    "@octocodeai/octocode-skill-installer": "0.1.0",
     "@octocodeai/octocode-tools-core": "19.1.0",
     "@octokit/auth-oauth-device": "^8.0.5",
     "@octokit/oauth-methods": "^6.0.5",

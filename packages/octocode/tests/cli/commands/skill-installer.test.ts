@@ -1,21 +1,7 @@
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('@octocodeai/config', () => ({
-  getOctocodeHome: () => process.env['OCTOCODE_SKILL_TEST_HOME'],
-}));
-
-vi.mock('../../../src/cli/commands/skills/platforms.js', () => ({
-  getPlatformSkillsDir: (platform: string) =>
-    path.join(
-      process.env['OCTOCODE_SKILL_TEST_ROOT']!,
-      'vendors',
-      platform,
-      'skills'
-    ),
-}));
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { installSkill } from '../../../src/cli/commands/skills/installer.js';
 
@@ -28,13 +14,9 @@ describe('skill installer canonical home', () => {
     sourceDir = path.join(root, 'source', 'fixture-skill');
     fs.mkdirSync(sourceDir, { recursive: true });
     fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '# Fixture\n');
-    process.env['OCTOCODE_SKILL_TEST_ROOT'] = root;
-    process.env['OCTOCODE_SKILL_TEST_HOME'] = path.join(root, '.octocode');
   });
 
   afterEach(() => {
-    delete process.env['OCTOCODE_SKILL_TEST_ROOT'];
-    delete process.env['OCTOCODE_SKILL_TEST_HOME'];
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -48,6 +30,8 @@ describe('skill installer canonical home', () => {
       mode: 'symlink',
       force: true,
       dryRun: false,
+      homeDir: path.join(root, 'home'),
+      canonicalSkillsDir: path.join(root, '.octocode', 'skills'),
     });
 
     const expectedHome = path.join(
@@ -62,10 +46,12 @@ describe('skill installer canonical home', () => {
     expect(fs.lstatSync(expectedHome).isSymbolicLink()).toBe(false);
 
     for (const platform of ['claude', 'cursor', 'codex-native']) {
+      const platformDir =
+        platform === 'codex-native' ? '.codex' : `.${platform}`;
       const linkPath = path.join(
         root,
-        'vendors',
-        platform,
+        'home',
+        platformDir,
         'skills',
         'fixture-skill'
       );

@@ -17,9 +17,9 @@ function rolePrompt(role: (typeof roleNames)[number]): string {
   return fs.readFileSync(path.join(packageRoot, 'subagents', role, 'SYSTEM_PROMPT.md'), 'utf8');
 }
 
-test('standing Awareness policy loads optional tracking detail only when needed', () => {
-  assert.match(AWARENESS_PI_HOST_PROMPT, /Tracking and locks are optional/);
-  assert.match(AWARENESS_PI_HOST_PROMPT, /load its recipe only when needed/);
+test('standing Awareness policy keeps optional work and administration on demand', () => {
+  assert.match(AWARENESS_PI_HOST_PROMPT, /Work is optional/);
+  assert.match(AWARENESS_PI_HOST_PROMPT, /Load operator guidance only/);
   assert.doesNotMatch(AWARENESS_PI_HOST_PROMPT, /work end|task submit|verify mark/);
   const guide = getExternalAgentAwarenessGuide().prompt;
   assert.match(guide, /run that declared check.*work end.*task submit.*PENDING.*verify mark/is);
@@ -92,7 +92,7 @@ test('all typed role prompts expand the same shared protocol and preserve parser
     assert.equal(composed.split(AWARENESS_PI_HOST_PROMPT).length, 2, `${role} has one canonical operating guide`);
     assert.equal((composed.match(/<awareness>/g) ?? []).length, 1);
     assert.doesNotMatch(composed, /Send new signals with signal publish/);
-    assert.match(composed, /audit after final writes/);
+    assert.match(composed, /Work\.verify only after observing the declared check/);
     assert.match(expanded, /native Awareness for coordination/i, `${role} uses native coordination`);
     assert.match(expanded, /only when unavailable.*bound CLI/, `${role} limits CLI fallback to hosts without the native tool`);
     assert.doesNotMatch(source, /harness-provided Awareness CLI/, `${role} does not override native routing with a CLI recipe`);

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getMINIFY_CONFIG } from '@octocodeai/octocode-engine';
 
 const mocks = vi.hoisted(() => ({
   issueGet: vi.fn(),
@@ -32,6 +31,10 @@ vi.mock('../../src/providers/factory.js', () => ({
       (
         await import('../../src/providers/github/githubPullRequests.js')
       ).searchPullRequests(query),
+    fetchIssues: async (query: never) =>
+      (await import('../../src/github/issues/orchestrator.js')).fetchIssues(
+        query
+      ),
   }),
 }));
 import { clearAllCache } from '../../src/utils/http/cache/management.js';
@@ -192,36 +195,31 @@ it.each(['body', 'comments'] as const)(
 );
 
 describe('public PR history minification precedes lossless view pagination', () => {
-  it.each([
-    ...new Set([...Object.keys(getMINIFY_CONFIG().fileTypes), 'sc', 'sbt']),
-  ])(
-    'treats .%s patches as diffs rather than language-minifying changed source',
-    async extension => {
-      const changedSource = patch.replace(
-        '+after',
-        '+// keep added comment\n+\n+/* keep block */\n+after'
-      );
-      mocks.files.mockResolvedValue({
-        data: [
-          {
-            filename: 'fixture.' + extension,
-            patch: changedSource,
-            status: 'modified',
-          },
-        ],
-        headers: {},
-      });
-      const content = { patches: { mode: 'all' } };
-      const exact = await execute({ ...base, minify: 'none', content });
-      expect(exact.pullRequests[0].changedFiles[0].patch).toBe(changedSource);
-      const compact = await execute({ ...base, minify: 'standard', content });
-      const returned = compact.pullRequests[0].changedFiles[0].patch;
-      expect(returned).toContain(
-        '+// keep added comment\n+\n+/* keep block */\n+after'
-      );
-      expect(returned).toContain('-before');
-    }
-  );
+  it('treats patches as diffs rather than language-minifying changed source', async () => {
+    const changedSource = patch.replace(
+      '+after',
+      '+// keep added comment\n+\n+/* keep block */\n+after'
+    );
+    mocks.files.mockResolvedValue({
+      data: [
+        {
+          filename: 'fixture.ts',
+          patch: changedSource,
+          status: 'modified',
+        },
+      ],
+      headers: {},
+    });
+    const content = { patches: { mode: 'all' } };
+    const exact = await execute({ ...base, minify: 'none', content });
+    expect(exact.pullRequests[0].changedFiles[0].patch).toBe(changedSource);
+    const compact = await execute({ ...base, minify: 'standard', content });
+    const returned = compact.pullRequests[0].changedFiles[0].patch;
+    expect(returned).toContain(
+      '+// keep added comment\n+\n+/* keep block */\n+after'
+    );
+    expect(returned).toContain('-before');
+  });
   it.each(['body', 'comments', 'reviews', 'patches'] as const)(
     'reconstructs exact %s with minify:none',
     async surface => {

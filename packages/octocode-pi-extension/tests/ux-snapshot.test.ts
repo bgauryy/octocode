@@ -44,7 +44,7 @@ function plan(overrides: Partial<PlanReadModelV1> = {}): PlanReadModelV1 {
   };
 }
 
-function runtime(overrides: Partial<Pick<RuntimeState, 'generation' | 'phase' | 'activity' | 'context' | 'footer'>> = {}) {
+function runtime(overrides: Partial<Pick<RuntimeState, 'generation' | 'phase' | 'activity' | 'context' | 'footer' | 'backgroundJobs'>> = {}) {
   return {
     generation: 2,
     phase: 'ready' as const,
@@ -58,6 +58,7 @@ function runtime(overrides: Partial<Pick<RuntimeState, 'generation' | 'phase' | 
       sessionStartedAt: 1_000, activeTurnStartedAt: 8_000, completedTurns: 2,
       usage: { tokens: 60, contextWindow: 100 }, githubAuth: { status: 'authenticated' as const },
     },
+    backgroundJobs: [],
     ...overrides,
   };
 }
@@ -153,4 +154,24 @@ test('dynamic plans never expose a fixed denominator', () => {
   });
   assert.equal(snapshot.plan?.progressMode, 'dynamic');
   assert.equal(snapshot.plan?.displayTotal, undefined);
+});
+
+test('projects background work and promotes failed jobs without exposing process resources', () => {
+  const snapshot = deriveUxSnapshot({
+    now: 10_000,
+    runtime: runtime({
+      backgroundJobs: [
+        { id: 'running', title: 'Typecheck', status: 'running', startedAt: 8_000, updatedAt: 9_000 },
+        { id: 'failed', title: 'Build', status: 'failed', startedAt: 7_000, endedAt: 9_500, updatedAt: 9_500, exitCode: 1 },
+      ],
+    }),
+  });
+
+  assert.deepEqual(snapshot.backgroundJobs.map((job) => ({ id: job.id, elapsedMs: job.elapsedMs })), [
+    { id: 'running', elapsedMs: 2_000 },
+    { id: 'failed', elapsedMs: 2_500 },
+  ]);
+  assert.ok(snapshot.attention.some((item) => item.kind === 'background_failed' && item.reason.includes('Build')));
+  assert.equal('pid' in snapshot.backgroundJobs[0]!, false);
+  assert.equal('logPath' in snapshot.backgroundJobs[0]!, false);
 });

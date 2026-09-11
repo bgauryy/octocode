@@ -61,6 +61,7 @@
   },
   "devDependencies": {
     "@octocodeai/agent-contracts": "0.1.0",
+    "@octocodeai/octocode-skill-installer": "0.1.0",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",

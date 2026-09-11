@@ -5,6 +5,7 @@ import {
   forceAwarenessStatusRefreshForTests,
   formatAwarenessPanel,
   getCachedAwarenessStatus,
+  getAwarenessStatusHealth,
   hasAwarenessSignal,
   refreshAwarenessPanel,
   resetAwarenessStatusStateForTests,
@@ -159,19 +160,35 @@ test('refresh repaints the unified footer for cached and newly loaded Awareness 
   );
 });
 
-test('refresh clears stale cached status when the package reader fails', async () => {
+test('refresh preserves last known status and reports a failed source read', async () => {
   let calls = 0;
-  setAwarenessStatusRunnerForTests(async () => (calls++ === 0 ? FULL : null));
+  setAwarenessStatusRunnerForTests(async () => {
+    if (calls++ === 0) return FULL;
+    throw new Error('database temporarily unavailable');
+  });
   const { ctx, widget } = uiCtx();
   refreshAwarenessPanel(ctx);
   await new Promise(resolve => setTimeout(resolve, 5));
   forceAwarenessStatusRefreshForTests(ctx.cwd!);
   refreshAwarenessPanel(ctx);
   await new Promise(resolve => setTimeout(resolve, 5));
-  assert.equal(getCachedAwarenessStatus(ctx.cwd!), null);
+  assert.equal(getCachedAwarenessStatus(ctx.cwd!)?.unreadInbox, 1);
+  assert.deepEqual(getAwarenessStatusHealth(ctx.cwd!), {
+    state: 'unavailable',
+    message: 'database temporarily unavailable',
+  });
   assert.equal(
     widget.length,
     0,
     'an unregistered empty panel is not redundantly cleared'
   );
+});
+
+test('a disabled status source remains distinct from an unavailable source', async () => {
+  setAwarenessStatusRunnerForTests(async () => null);
+  const { ctx } = uiCtx();
+  refreshAwarenessPanel(ctx);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(getCachedAwarenessStatus(ctx.cwd!), null);
+  assert.deepEqual(getAwarenessStatusHealth(ctx.cwd!), { state: 'disabled' });
 });

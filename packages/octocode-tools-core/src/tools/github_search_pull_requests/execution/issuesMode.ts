@@ -1,7 +1,5 @@
-import type { AuthInfo } from '@modelcontextprotocol/server';
 import { GITHUB_SEARCH_HISTORY_TOOL_NAME } from '@octocodeai/octocode-core/schema';
 import { createSuccessResult, createErrorResult } from '../../utils.js';
-import { fetchIssues } from '../../../github/issues/orchestrator.js';
 import { isGitHubAPIError } from '../../../github/githubAPI.js';
 import { sanitizePullRequestContent } from '../historyContinuations.js';
 import type { ProcessedBulkResult } from '../../../types/toolResults.js';
@@ -9,12 +7,13 @@ import type {
   GitHubPullRequestSearchInput,
   GitHubPullRequestSearchQuery,
 } from './types.js';
+import type { GitHubHistoryProvider } from '../../../providers/github/historyProvider.js';
 
 // --- issues mode: search/list/read GitHub issues (not PRs) ---
 export async function handleIssuesMode(
   query: GitHubPullRequestSearchInput,
   parsedData: GitHubPullRequestSearchQuery | undefined,
-  authInfo: AuthInfo | undefined,
+  provider: Pick<GitHubHistoryProvider, 'fetchIssues'>,
   toolName = GITHUB_SEARCH_HISTORY_TOOL_NAME
 ): Promise<ProcessedBulkResult> {
   const q = parsedData as {
@@ -60,42 +59,39 @@ export async function handleIssuesMode(
     );
   }
   const issueNumber = q.issueNumber ?? q.prNumber;
-  const result = await fetchIssues(
-    {
-      owner: q.owner,
-      repo: q.repo,
-      ...(issueNumber != null ? { issueNumber } : {}),
-      keywordsToSearch: q.keywords,
-      query: q.query,
-      state: q.state,
-      author: q.author,
-      assignee: q.assignee,
-      mentions: q.mentions,
-      commenter: q.commenter,
-      label: q.label,
-      milestone: q.milestone,
-      created: q.created,
-      updated: q.updated,
-      closed: q.closed,
-      comments: q.comments,
-      reactions: q.reactions,
-      locked: q.locked,
-      visibility: q.visibility,
-      match: q.match,
-      archived: q.archived,
-      sort: q.sort,
-      order: q.order,
-      limit: q.pageSize,
-      page: Number(q.page) || 1,
-      concise: q.concise,
-      content: q.content,
-      charOffset: q.charOffset,
-      charLength: q.charLength,
-      commentPage: q.commentPage,
-      itemsPerPage: q.pageSize,
-    },
-    authInfo
-  );
+  const result = await provider.fetchIssues({
+    owner: q.owner,
+    repo: q.repo,
+    ...(issueNumber != null ? { issueNumber } : {}),
+    keywordsToSearch: q.keywords,
+    query: q.query,
+    state: q.state,
+    author: q.author,
+    assignee: q.assignee,
+    mentions: q.mentions,
+    commenter: q.commenter,
+    label: q.label,
+    milestone: q.milestone,
+    created: q.created,
+    updated: q.updated,
+    closed: q.closed,
+    comments: q.comments,
+    reactions: q.reactions,
+    locked: q.locked,
+    visibility: q.visibility,
+    match: q.match,
+    archived: q.archived,
+    sort: q.sort,
+    order: q.order,
+    limit: q.pageSize,
+    page: Number(q.page) || 1,
+    concise: q.concise,
+    content: q.content,
+    charOffset: q.charOffset,
+    charLength: q.charLength,
+    commentPage: q.commentPage,
+    itemsPerPage: q.pageSize,
+  });
   if (isGitHubAPIError(result)) {
     return createErrorResult(result, query, {
       toolName,

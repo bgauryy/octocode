@@ -34,6 +34,9 @@ type ResultShape = {
   files: Array<{ path: string }>;
   pagination: Pagination;
   next?: { nextPage?: { query?: Record<string, unknown> } };
+  terminalLimit?: boolean;
+  truncated?: boolean;
+  partialReasons?: string[];
 };
 
 const baseQuery = (page: number): RipgrepQuery =>
@@ -123,5 +126,30 @@ describe('local.text maxFiles is a per-page ceiling (lossless)', () => {
     expect(result.files).toHaveLength(20);
     expect(result.pagination.totalFiles).toBe(25);
     expect(result.pagination.hasMore).toBe(true);
+  });
+
+  it('reports the fixed native lexical collection cap as terminal partial data', async () => {
+    const result = (await buildSearchResult(
+      makeFiles(2),
+      baseQuery(1),
+      'rg',
+      [],
+      {
+        totalOccurrences: 2,
+        filesMatched: 2,
+        filesSearched: 10_001,
+        capped: true,
+        capReason: 'maxCollectedFiles',
+      }
+    )) as unknown as ResultShape;
+
+    expect(result).toMatchObject({
+      terminalLimit: true,
+      truncated: true,
+      partialReasons: ['nativeResultCap'],
+    });
+    expect(
+      (result.next as Record<string, unknown> | undefined)?.expandScan
+    ).toBeUndefined();
   });
 });

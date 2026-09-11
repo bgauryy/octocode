@@ -133,6 +133,28 @@ test('non-interactive host cannot prompt and denies', async () => {
   assert.equal(out.interactive, false);
 });
 
+test('every approval outcome includes an attributable redacted decision receipt', async () => {
+  const ctx = {
+    hasUI: false,
+    sessionManager: { getSessionId: () => 'session-1' },
+  } as unknown as PiContext;
+  const out = await requestApproval(ctx, {
+    actionClass: 'install',
+    title: 'Install package',
+    detail: 'npm install secret-package --token hidden',
+  });
+
+  assert.equal(out.receipt.requester, 'session-1');
+  assert.equal(out.receipt.operation, 'Install package');
+  assert.equal(out.receipt.scope, 'install');
+  assert.equal(out.receipt.matchedPolicy, 'default');
+  assert.equal(out.receipt.resolution, 'deny-unavailable');
+  assert.equal(out.receipt.decisionSource, 'host');
+  assert.match(out.receipt.requestId, /^[0-9a-f-]+$/);
+  assert.equal(typeof out.receipt.decidedAt, 'number');
+  assert.doesNotMatch(JSON.stringify(out.receipt), /secret-package|hidden/);
+});
+
 test('resetApprovalStore clears remembered approvals', async () => {
   const ctx = { hasUI: true, ui: { async select() { return 'Always allow this session'; } } } as unknown as PiContext;
   await requestApproval(ctx, { actionClass: 'git-write', title: 't', detail: 'git push' });

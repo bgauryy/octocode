@@ -9,10 +9,14 @@ vi.mock('../../src/cacheMaintenance.js', () => ({
 }));
 
 import {
+  _overrideInitialize,
   _resetInitialize,
   executeDirectTool,
 } from '../../src/tools/directToolCatalog.exec.js';
-import { AST_SEARCH_TOOL_NAME } from '@octocodeai/octocode-core/schema';
+import {
+  AST_SEARCH_TOOL_NAME,
+  LSP_SEARCH_TOOL_NAME,
+} from '@octocodeai/octocode-core/schema';
 
 describe('direct CLI cache bootstrap', () => {
   beforeEach(() => {
@@ -29,5 +33,24 @@ describe('direct CLI cache bootstrap', () => {
 
     expect(runCacheMaintenanceIfDue).toHaveBeenCalledOnce();
     expect(runCacheMaintenanceIfDue).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('runs lspSearch without initializing provider/server runtime', async () => {
+    let initializeCalls = 0;
+    _overrideInitialize(async () => {
+      initializeCalls += 1;
+    });
+
+    await executeDirectTool(LSP_SEARCH_TOOL_NAME, {
+      queries: [
+        {
+          uri: '/definitely/missing/octocode-lsp-maintenance-test.ts',
+          operation: 'diagnostic',
+        },
+      ],
+    });
+
+    expect(initializeCalls).toBe(0);
+    expect(runCacheMaintenanceIfDue).toHaveBeenCalledOnce();
   });
 });

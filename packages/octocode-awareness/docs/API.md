@@ -160,8 +160,8 @@ and inserts no memory. Checked recall remains available and reports evidence as
 `unknown` when native validation cannot run. No JavaScript filesystem fallback
 creates a fingerprint or applies a restore.
 
-The lower-level `insertMemory`, `insertMemoryWithSimilarityGate`, `getMemory`,
-`recallMemory`, and `runAwarenessToolOperation` APIs return promises; await their
+The lower-level `insertMemory`, `insertMemoryWithSimilarityGate`, `getMemory`, and
+`recallMemory` APIs return promises; await their
 results before using or closing the database. Capture completes before a SQLite
 write transaction. Internal synchronous write/query phases reject requests for
 unprepared capture or filesystem checking.

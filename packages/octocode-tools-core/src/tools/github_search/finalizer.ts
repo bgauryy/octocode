@@ -7,12 +7,6 @@ import type { GitHubSearchQuery } from '@octocodeai/octocode-core/schema';
 
 const GITHUB_SEARCH_RESULT_WINDOW = 1000;
 
-const OPERATION_BY_INTERNAL_RUNNER = {
-  'github.code': 'code',
-  'github.repositories': 'repositories',
-  'github.tree': 'tree',
-} as const;
-
 export function buildGitHubSearchFinalizer(): BulkFinalizer<GitHubSearchQuery> {
   return ({ queries, results }) => {
     const codeEntries = queries.flatMap((query, originalIndex) =>
@@ -22,10 +16,7 @@ export function buildGitHubSearchFinalizer(): BulkFinalizer<GitHubSearchQuery> {
       codeEntries.map((entry, codeIndex) => [entry.originalIndex, codeIndex])
     );
     const originalIndexByCode = codeEntries.map(entry => entry.originalIndex);
-    const codeQueries = codeEntries.map(({ query }) => {
-      const { operation: _operation, ...input } = query;
-      return input;
-    });
+    const codeQueries = codeEntries.map(({ query }) => query);
     const codeResults = results
       .filter(row => codeIndexByOriginal.has(row.index))
       .map(row => ({ ...row, index: codeIndexByOriginal.get(row.index)! }));
@@ -74,7 +65,7 @@ function finalizeCodeRows(
   const finalized = buildGhSearchCodeFinalizer<Record<string, unknown>>()({
     queries,
     results,
-    config: { toolName: 'github.code' },
+    config: { toolName: 'ghSearch' },
   });
   const output = finalized.structuredContent as {
     results?: FlatQueryResult[];
@@ -88,8 +79,7 @@ function addOperationAndNormalize(
 ): FlatQueryResult {
   const operation = query?.operation;
   if (!operation || !query) return row;
-  const normalized = normalizeContinuations({ operation, ...row.data });
-  const capped = addProviderCapState(normalized);
+  const capped = addProviderCapState({ operation, ...row.data });
   const paginated = addPageContinuation(capped, operation, query);
   return {
     ...row,
@@ -263,49 +253,4 @@ function addProviderPartialState(
           }),
     },
   };
-}
-
-function normalizeContinuations<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map(normalizeContinuations) as T;
-  }
-  if (!value || typeof value !== 'object') return value;
-
-  const record = Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      normalizeContinuations(item),
-    ])
-  ) as Record<string, unknown>;
-  const operation =
-    typeof record.tool === 'string'
-      ? OPERATION_BY_INTERNAL_RUNNER[
-          record.tool as keyof typeof OPERATION_BY_INTERNAL_RUNNER
-        ]
-      : undefined;
-  if (operation) {
-    record.tool = 'ghSearch';
-    if (record.query && typeof record.query === 'object') {
-      const query = { ...(record.query as Record<string, unknown>) };
-      if (operation === 'tree') {
-        if (query.itemsPerPage !== undefined)
-          query.pageSize = query.itemsPerPage;
-        delete query.itemsPerPage;
-      } else if (operation === 'repositories') {
-        if (query.limit !== undefined) query.pageSize = query.limit;
-        delete query.limit;
-        if (query.topicsToSearch !== undefined)
-          query.topics = query.topicsToSearch;
-        delete query.topicsToSearch;
-      } else if (operation === 'code') {
-        if (query.limit !== undefined) query.pageSize = query.limit;
-        delete query.limit;
-      }
-      record.query = {
-        operation,
-        ...query,
-      };
-    }
-  }
-  return record as T;
 }

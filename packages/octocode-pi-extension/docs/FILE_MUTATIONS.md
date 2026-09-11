@@ -21,6 +21,8 @@ or a database service. Filesystem algorithms are adapted from the local
 
 The Pi package retains an engine dependency for its bundled research CLI. Direct
 extension filesystem and diff calls use the dedicated extension native package.
+The package exposes `NativeErrorCodes` and `nativeErrorCode`; Pi branches on those
+stable values instead of parsing diagnostic messages.
 
 ## Mutation flow
 
@@ -116,8 +118,8 @@ filesystem, power-loss, or hardware failure. Replacement changes the file identi
 extended attributes, ownership and hard-link relationships are not preserved.
 Unix preserves ordinary mode bits. Windows copies and protects the effective DACL
 of an existing file, freezing subsequent inheritance. Explicit private mode 0600
-creates a protected caller/SYSTEM DACL before writing bytes. Windows cannot
-provide a portable directory-entry durability guarantee, so successful operations
+creates a protected caller/SYSTEM DACL before writing bytes. Windows has no
+portable directory-entry persistence contract, so successful operations
 include a warning with `committed: true, durable: false`.
 
 Line diff now belongs to the dedicated native package, with exact empty/final-line
