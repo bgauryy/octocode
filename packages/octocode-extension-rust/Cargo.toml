@@ -12,16 +12,11 @@ crate-type = ["cdylib", "rlib"]
 napi = { version = "3", default-features = false, features = ["napi4"] }
 napi-derive = "3"
 libc = "0.2"
-sha2 = "0.10"
-sha1 = "0.10"
+sha2 = "0.11"
+sha1 = "0.11"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 serde_json = "1"
 similar = "3"
-
-# sha2 0.10 gates its runtime-detected ARM SHA instructions behind this feature.
-# x86 already detects acceleration without requiring the assembly dependency.
-[target.'cfg(target_arch = "aarch64")'.dependencies]
-sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Threading", "Win32_Security", "Win32_Security_Authorization"] }

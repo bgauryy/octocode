@@ -1,7 +1,8 @@
 # @octocodeai/agent-contracts
 
-Shared host contracts for paths, local SQLite control data, entities,
-permissions, discovery, Agent Skills, protocols, and prompt fragments.
+The shared contract layer of the Octocode agentic toolkit. It owns paths, local
+SQLite control data, entities, permissions, discovery, Agent Skills, host
+protocols, and prompt fragments used across agent integrations.
 
 Import the narrow published subpath that owns a contract. Production packages
 must not use the aggregate root as an internal convenience barrel.

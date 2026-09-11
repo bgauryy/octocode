@@ -1,6 +1,6 @@
 # Tool quality and agent workflow acceptance
 
-This contributor reference defines how to evaluate Octocode's ten public tools.
+This contributor reference defines how to evaluate the ten public research tools in the Octocode agentic toolkit.
 It separates implemented contracts from the tests needed to establish quality.
 For routing decisions, read the [research manifest](OCTOCODE_RESEARCH_MANIFEST.md).
 For parameters and defaults, use the [tool reference](OCTOCODE_TOOLS.md) and live
@@ -22,7 +22,7 @@ node packages/octocode/out/octocode.js tools localFetch --scheme --json --compac
 node packages/octocode/out/octocode.js tools ghGetHistoryItem --scheme --json
 ```
 
-The discovery catalog contains 10 tools, with 9 enabled by default. Enabled tools depend on local-tool,
+The discovery catalog contains 11 tools, with 10 enabled by default. Enabled tools depend on local-tool,
 clone, storage, and allowlist settings. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.

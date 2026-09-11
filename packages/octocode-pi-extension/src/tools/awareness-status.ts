@@ -19,7 +19,7 @@ import { truncateToWidth } from '../tui/width.js';
 import {
   readExternalAwarenessStatus,
   type ExternalAwarenessStatus,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
 import type { PiContext, PiTheme } from '../types.js';
 

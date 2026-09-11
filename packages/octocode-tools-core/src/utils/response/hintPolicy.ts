@@ -1,5 +1,6 @@
 import {
   AST_SEARCH_TOOL_NAME,
+  AST_REWRITE_TOOL_NAME,
   GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
   GITHUB_SEARCH_HISTORY_TOOL_NAME,
   GITHUB_SEARCH_TOOL_NAME,
@@ -126,6 +127,10 @@ function fallbackHint(
       if (query.operation === 'topology')
         return 'Inspect diagnostics, then broaden the graph scope if needed.';
       return 'Broaden the syntax/name query, path, or filters.';
+    case AST_REWRITE_TOOL_NAME:
+      return query.apply
+        ? 'Preview again and copy every current beforeHash before applying.'
+        : 'Broaden the structural pattern, path, or file filters.';
     case STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT:
       return 'Verify path/range, or remove matchString.';
     case LSP_SEARCH_TOOL_NAME:

@@ -1,7 +1,3 @@
-import type {
-  AwarenessCommandContext,
-  AwarenessCommandResult,
-} from './command-api.js';
 import {
   getAwarenessOperationDescriptor,
   listAwarenessOperationDescriptors,
@@ -11,13 +7,16 @@ import {
 } from './schema/operation-catalog.js';
 import { appendDomainEvent, listOutboxEvents, type DomainEventInput, type OutboxEventPage } from './event-outbox.js';
 import { connectDb, resolveDbPath } from './db-runtime.js';
-import type { AwarenessInsightCandidate, AwarenessInsightProvider } from './operation-contracts.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import type { AwarenessInsightCandidate, AwarenessInsightProvider, AwarenessOperationResult } from './operation-contracts.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
-export interface AwarenessClientContext extends Omit<AwarenessCommandContext, 'compact' | 'continuations'> {
+export interface AwarenessClientContext {
+  database?: string;
   workspace: string;
   agentId: string;
   sessionId?: string;
+  scope?: import('./storage-scope.js').AwarenessStorageScope;
+  signal?: AbortSignal;
   insightProvider?: AwarenessInsightProvider;
 }
 
@@ -80,7 +79,7 @@ export type AwarenessOrientationResult = AwarenessOrientation | AwarenessOrienta
 export interface AwarenessClient {
   readonly context: Readonly<AwarenessClientContext>;
   orient(params?: AwarenessOperationParams['context.orient']): Promise<AwarenessOrientationResult>;
-  execute<K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessCommandResult>;
+  execute<K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessOperationResult>;
   operations(): readonly AwarenessOperationDescriptor[];
   recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }>;
   consumeEvents(params?: AwarenessEventCursor): Promise<OutboxEventPage>;
@@ -119,14 +118,11 @@ function schemaSupportsLimit(schema: Readonly<Record<string, unknown>>): boolean
     Array.isArray(schema[key]) && (schema[key] as unknown[]).some(child => Boolean(record(child)) && schemaSupportsLimit(record(child)!)));
 }
 
-interface AwarenessClientAdapterOptions { continuationFormat?: 'canonical' | 'legacy' }
-
 export function createAwarenessClient(
   context: AwarenessClientContext,
-  adapter: AwarenessClientAdapterOptions = {},
 ): AwarenessClient {
   const bound = Object.freeze({ ...context });
-  const execute = async <K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessCommandResult> => {
+  const execute = async <K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessOperationResult> => {
     const descriptor = getAwarenessOperationDescriptor(call.operation) as AwarenessOperationDescriptor<K> | undefined;
     if (!descriptor) {
       return { exitCode: 1, payload: { ok: false, operation: call.operation, error: `Unknown Awareness operation: ${call.operation}` } };
@@ -134,11 +130,9 @@ export function createAwarenessClient(
     try {
       const params = descriptor.validate(call.params);
       const executed = await descriptor.handler(bound, params);
-      const payload = adapter.continuationFormat === 'legacy'
-        ? executed.payload
-        : descriptor.continuations(executed.payload);
+      const payload = descriptor.continuations(executed.payload);
       const actualBytes = Buffer.byteLength(JSON.stringify(payload));
-      if (adapter.continuationFormat !== 'legacy' && actualBytes > descriptor.outputBudget) {
+      if (actualBytes > descriptor.outputBudget) {
         const inputParams = record(params) ?? {};
         const currentLimit = typeof inputParams['limit'] === 'number' ? inputParams['limit'] : undefined;
         const retry = schemaSupportsLimit(descriptor.inputSchema) && (currentLimit === undefined || currentLimit > 1)
@@ -147,12 +141,11 @@ export function createAwarenessClient(
               params: {
                 ...inputParams,
                 ...(call.operation === 'context.orient' ? { if_revision: undefined } : {}),
-                limit: currentLimit === undefined
-                  ? 1
-                  : Math.max(1, Math.min(
-                      currentLimit - 1,
-                      Math.floor(currentLimit * descriptor.outputBudget / actualBytes * 0.8),
-                    )),
+                // A proportional estimate is unsafe for heterogeneous rows: a
+                // retry can still exceed the budget and strand the caller.
+                // One row is the only monotonic bounded retry; list handlers
+                // then expose their stable cursor/offset for lossless paging.
+                limit: 1,
               },
             } as AwarenessExecutableCall
           : findExecutableCall(payload);
@@ -190,7 +183,7 @@ export function createAwarenessClient(
     context: bound,
     operations: listAwarenessOperationDescriptors,
     async recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }> {
-      const scope = storageScopeForCommand('event-outbox', bound.workspace, bound.scope);
+      const scope = storageScopeForOperation('host.events.record', bound.workspace, bound.scope);
       const db = connectDb(resolveDbPath(bound.database, { scope, workspace: bound.workspace }));
       db.exec('BEGIN IMMEDIATE');
       try {
@@ -209,7 +202,7 @@ export function createAwarenessClient(
       } finally { db.close(); }
     },
     async consumeEvents(params: AwarenessEventCursor = {}): Promise<OutboxEventPage> {
-      const scope = storageScopeForCommand('event-outbox', bound.workspace, bound.scope);
+      const scope = storageScopeForOperation('host.events.consume', bound.workspace, bound.scope);
       const db = connectDb(resolveDbPath(bound.database, { scope, workspace: bound.workspace }));
       try { return listOutboxEvents(db, { workspace: bound.workspace, ...params }); }
       finally { db.close(); }

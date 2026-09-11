@@ -2,57 +2,28 @@ import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
 import { z } from 'zod';
 import type {
   AwarenessOperationEffect,
+  AwarenessOperationResult,
   CanonicalDomainHandler,
-  CanonicalOperationResult,
   CanonicalRouteBinding,
 } from '../operation-contracts.js';
 import type { AwarenessStorageScope } from '../storage-scope.js';
 import { projectCommandInput } from './command-input.js';
 import { schemas, type SchemaName } from './registry.js';
-
-export const AWARENESS_CONCEPTS = Object.freeze(['context', 'work', 'message', 'memory', 'history'] as const);
-export type AwarenessConcept = typeof AWARENESS_CONCEPTS[number];
-
-export const ROUTINE_AWARENESS_OPERATIONS = Object.freeze([
-  'context.orient',
-  'work.create', 'work.list', 'work.show', 'work.claim', 'work.update', 'work.depend', 'work.protect', 'work.verify',
-  'message.list', 'message.send', 'message.reply', 'message.resolve',
-  'memory.recall', 'memory.record',
-  'history.status', 'history.timeline', 'history.read', 'history.restore',
-] as const);
-export type AwarenessOperation = typeof ROUTINE_AWARENESS_OPERATIONS[number];
-export type AwarenessOperationVisibility = 'routine' | 'operator' | 'recovery';
+import type {
+  AwarenessConcept,
+  AwarenessOperation,
+  AwarenessOperationParams,
+} from './operation-types.js';
+export {
+  AWARENESS_CONCEPTS,
+  ROUTINE_AWARENESS_OPERATIONS,
+  type AwarenessConcept,
+  type AwarenessOperation,
+  type AwarenessOperationCall,
+  type AwarenessOperationParams,
+} from './operation-types.js';
 
 type Params = Record<string, unknown>;
-type KindParams<K extends string> = Params & { kind: K };
-type ActionParams<A extends string> = Params & { action: A };
-type TransitionParams<T extends string> = Params & { transition: T };
-
-export interface AwarenessOperationParams {
-  'context.orient': { if_revision?: string; limit?: number; offset?: number; file?: string | string[]; query?: string };
-  'work.create': KindParams<'plan' | 'task' | 'standalone'>;
-  'work.list': Params & { kind?: 'plan' | 'task' | 'ready' | 'presence' | 'workboard' };
-  'work.show': KindParams<'plan' | 'task' | 'presence'>;
-  'work.claim': Params;
-  'work.update': TransitionParams<'heartbeat' | 'submit' | 'release' | 'retry' | 'touch' | 'end' | 'join' | 'document' | 'status'>;
-  'work.depend': Params;
-  'work.protect': ActionParams<'acquire' | 'wait' | 'release'>;
-  'work.verify': ActionParams<'audit' | 'mark'>;
-  'message.list': Params;
-  'message.send': Params;
-  'message.reply': Params;
-  'message.resolve': Params;
-  'memory.recall': Params;
-  'memory.record': Params;
-  'history.status': Params;
-  'history.timeline': Params;
-  'history.read': Params;
-  'history.restore': Params & { action?: 'preview' | 'apply' };
-}
-
-export type AwarenessOperationCall<K extends AwarenessOperation = AwarenessOperation> = K extends AwarenessOperation
-  ? { operation: K; params?: AwarenessOperationParams[K] }
-  : never;
 
 export interface AwarenessOperationExecutionContext {
   database?: string;
@@ -69,14 +40,13 @@ export interface AwarenessOperationDescriptor<K extends AwarenessOperation = Awa
   use: string;
   visibility: 'routine';
   effects: readonly AwarenessOperationEffect[];
-  legacyCommands: readonly string[];
   inputSchema: Readonly<Record<string, unknown>>;
   validate(params?: unknown): AwarenessOperationParams[K];
   effect(params?: AwarenessOperationParams[K]): AwarenessOperationEffect;
   approval(params?: AwarenessOperationParams[K]): ApprovalClass | undefined;
   outputBudget: number;
   continuations(payload: unknown): unknown;
-  handler(context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]): Promise<CanonicalOperationResult>;
+  handler(context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]): Promise<AwarenessOperationResult>;
 }
 
 interface Route extends Omit<CanonicalRouteBinding, 'schema'> {
@@ -159,10 +129,7 @@ interface DescriptorInput<K extends AwarenessOperation> {
   inputSchema?: Record<string, unknown>;
   outputBudget?: number;
 }
-const routeSets = new Map<AwarenessOperation, readonly Route[]>();
-
 function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): AwarenessOperationDescriptor<K> {
-  routeSets.set(input.operation, input.routes);
   const routeSchemas = input.routes.map(routeSchema);
   const inputSchema = input.inputSchema ?? (routeSchemas.length === 1
     ? routeSchemas[0]!
@@ -191,7 +158,6 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     use: input.use,
     visibility: 'routine' as const,
     effects: Object.freeze(effects),
-    legacyCommands: Object.freeze(input.routes.map(route => route.command)),
     inputSchema: Object.freeze(inputSchema),
     validate: (params?: unknown) => resolve(params).params as AwarenessOperationParams[K],
     effect: (params?: AwarenessOperationParams[K]) => resolve(params).route.effect,
@@ -203,7 +169,7 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
       const executor = await import('../operation-executor.js');
       return input.operation === 'context.orient'
         ? executor.executeContextOrient(context, selected.params as AwarenessOperationParams['context.orient'])
-        : executor.executeCanonicalRoute({
+        : executor.executeCanonicalRoute(input.operation, {
           command: selected.route.command,
           schema: projectCommandInput(selected.route.command, schemas[selected.route.schemaName]),
           handler: selected.route.handler,
@@ -302,27 +268,3 @@ if (operationDescriptors.length > 19) throw new Error('Routine Awareness surface
 const byOperation = new Map<AwarenessOperation, AwarenessOperationDescriptor>(operationDescriptors.map(row => [row.operation, row]));
 export function listAwarenessOperationDescriptors(): readonly AwarenessOperationDescriptor[] { return operationDescriptors; }
 export function getAwarenessOperationDescriptor(operation: string): AwarenessOperationDescriptor | undefined { return byOperation.get(operation as AwarenessOperation); }
-
-/** Explicit compatibility boundary from a legacy CLI route to the routine surface. */
-export function operationCallForLegacyCommand(
-  command: string,
-  input: Record<string, unknown>,
-): AwarenessOperationCall | undefined {
-  const route = reverseRoutes.get(command);
-  // Legacy `attend` has a wider projection/pagination contract than bounded context.orient.
-  if (!route || route.operation === 'context.orient') return undefined;
-  const params = { ...input };
-  for (const field of HOST_FIELDS) delete params[field];
-  delete params['action'];
-  if (route.selector) params[route.selector[0]] = route.selector[1];
-  return { operation: route.operation, ...(Object.keys(params).length ? { params } : {}) } as AwarenessOperationCall;
-}
-
-export function resolveAwarenessOperation(call: Exclude<AwarenessOperationCall, { operation: 'context.orient' }>): { command: string; params: Params } {
-  const descriptor = byOperation.get(call.operation);
-  const routes = routeSets.get(call.operation);
-  if (!descriptor || !routes) throw new Error(`Unknown Awareness operation: ${call.operation}`);
-  const params = descriptor.validate(call.params) as Params;
-  const route = selectRoute(call.operation, routes, params);
-  return { command: route.command, params: paramsForRoute(route, params) };
-}

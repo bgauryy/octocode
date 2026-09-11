@@ -1,14 +1,13 @@
 {
   "name": "@octocodeai/octocode-awareness",
   "version": "2.1.0",
-  "description": "Octocode Awareness: always-on workspace coordination — awareness, collaboration, learning, memory/wiki, bookkeeping, housekeeping, reflection.",
+  "description": "Canonical local coordination, memory, and LocalGit history for coding agents.",
   "keywords": [
     "octocode",
     "awareness",
     "collaboration",
     "memory",
-    "bookkeeping",
-    "housekeeping",
+    "localgit",
     "sqlite",
     "agent"
   ],
@@ -32,7 +31,21 @@
     },
     "./bin/awareness": "./out/octocode-awareness.js",
     "./bin/extract-hook-files": "./out/extract-hook-files.js",
-    "./schema": "./out/schema-api.js"
+    "./schema": {
+      "types": "./out/types/src/schema-api.d.ts",
+      "import": "./out/schema-api.js",
+      "default": "./out/schema-api.js"
+    },
+    "./host": {
+      "types": "./out/types/src/host-api.d.ts",
+      "import": "./out/host-api.js",
+      "default": "./out/host-api.js"
+    },
+    "./admin": {
+      "types": "./out/types/src/admin-api.d.ts",
+      "import": "./out/admin-api.js",
+      "default": "./out/admin-api.js"
+    }
   },
   "bin": "./out/octocode-awareness.js",
   "files": [
@@ -52,10 +65,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "yarn build && vitest run --coverage",
     "test:quiet": "yarn build && vitest run --reporter=dot --silent",
-    "test:smoke": "node skills/octocode-awareness/scripts/smoke-multi-agent.mjs",
     "pack:check": "node scripts/verify-package.mjs",
     "prepack": "yarn build && node scripts/verify-package.mjs",
-    "self-test": "node out/octocode-awareness.js maintenance self-test",
     "start": "node out/octocode-awareness.js",
     "verify": "yarn lint && yarn test"
   },

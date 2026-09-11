@@ -10,7 +10,7 @@ related-skill: `octocode-eval-benchmark`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Optimize instruction behavior, not prose aesthetics. A rule that states a preference changes nothing — "be efficient with tools" leaves every call open; "reuse a schema you already fetched; fetch only for an unfamiliar tool" decides the next call.
+Optimize behavior through clear intent and precise language, not prose aesthetics. A rule that states a preference changes nothing — "be efficient with tools" leaves every call open; "reuse a schema you already fetched; fetch only for an unfamiliar tool" decides the next call.
 
 Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`.
 
@@ -22,12 +22,15 @@ Reviews/drafts: `<output>/octocode-prompt-optimizer/`; scratch: `<output>/tmp/oc
 - Read the complete input and map its intent before judging it. Rate evidenced issues before drafting fixes.
 - For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
 - Keep a sentence only when it defines a distinction, sets a boundary, explains a consequence, or directs an action. Cut repeated rules, motivational language, role-play, uninformative headings, and decorative terminology.
-- Prefer the smallest wrong/right example pair over more explanation when the pair fixes the boundary more precisely. Use literal language wherever literal language suffices.
-- Optimize behavioral information per token, not minimum length. Justify growth by the boundary it adds.
+- Prefer the smallest wrong/right example pair when it defines the boundary better than more prose. Use literal language when it suffices.
+- State intent before constraints or steps. Use grammatical sentences, concrete nouns, explicit referents, and direct verbs that name the action.
+- Use standard short terms (`repo`, `config`, `env`) when meaning stays exact. Keep one noun per concept; replace noun phrases with direct verbs (`decide`, `verify`).
+- Use an available small, fast model (for example, Luna or Haiku) for bounded repetition, term-drift, format, and checklist scans. Give it exact input and a fixed output shape; verify each finding before editing. Keep intent mapping, conflict resolution, risky rules, and final validation on the main model.
+- Maximize behavior per token, not brevity. Justify growth by the boundary it adds.
 - Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before rewriting them.
 - Reserve mandatory language for real requirements. Keep preferences flexible and mutate files only when authorized.
 - When the request is for prompt text, output only that text.
-- Ask one focused question only when an unresolved choice materially changes intent, scope, or risk. Without write authority, return a delta. Report unmeasured reliability claims as unmeasured.
+- Ask one focused question only when an unresolved choice changes intent, scope, or risk. Without write authority, return a delta. Report unmeasured reliability claims as unmeasured.
 
 ## Smart routes — load only what the current step needs
 

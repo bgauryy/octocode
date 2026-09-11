@@ -27,8 +27,9 @@ $OCTOCODE_HOME/extension/state/extension.sqlite3
 This extension-owned database is separate from shared Awareness coordination and
 memory state. Plans, tasks, interactions, and memories continue to use the canonical
 Awareness database opened by `openAwarenessStore`, which defaults to
-`$OCTOCODE_HOME/awareness/awareness.sqlite3`. An explicit repository scope selects
-`<workspace>/.octocode/awareness.sqlite3`. These records stay outside extension-private
+`$OCTOCODE_HOME/awareness/awareness-v4.sqlite3`. An explicit repository scope selects
+`<workspace>/.octocode/awareness-v4.sqlite3`. The suffix is the Awareness schema
+generation; Pi consumes the package-owned path resolver rather than constructing it. These records stay outside extension-private
 storage and are not copied or forked with sessions. Agent-control database settings
 do not redirect Awareness storage.
 With `storage.mode=memory`, the extension-private SQLite database is not opened; the
@@ -78,7 +79,7 @@ combined with a SHA-256 fingerprint of the session + workspace, so:
 
 `memory.md` is bounded continuity for the current Pi session, not the durable Awareness `memory` tool. Its template has `Gotchas`, `Improvements`, `Findings`, `Decisions`, `Handoff`, and `Reflections` sections. Keep at most 10 non-empty one-line entries total, each no longer than 200 characters, and keep the file within 4,000 UTF-8 bytes. Invalid memory is excluded from prompt and compaction projection and shown as an attention state; an unavailable read is distinct from empty memory.
 
-When research or a subagent returns a key result, the parent first verifies it, then records a concise session-relevant fact under `Findings`. The next turn compares the bounded current bytes with the last delivered version, so changed or cleared notes are surfaced once without repeating unchanged memory. Successful compaction independently validates and rehydrates the current memory owner. The parent also updates the user when a fact changes the hypothesis, plan, risk, or next action. Routine progress stays out of both channels. Raw handbacks and unverified claims are never copied into `memory.md`.
+When research or a subagent returns a key result, the parent first verifies it, then records a concise session-relevant fact under `Findings`. The next turn compares the bounded current bytes with the last delivered version, so changed or cleared notes are surfaced once without repeating unchanged memory. Successful compaction independently validates and rehydrates the current memory owner. The parent also updates you when a fact changes the hypothesis, plan, risk, or next action. Routine progress stays out of both channels. Raw handbacks and unverified claims are never copied into `memory.md`.
 
 Plan state writes use V4. Unlike V3, V4 preserves lifecycle and review metadata when no
 execution steps exist and records an explicit `cleared` tombstone. V3 snapshots remain

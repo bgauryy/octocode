@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db-init.js';
@@ -9,8 +9,6 @@ import { digest } from '../src/maintenance-digest.js';
 import { getMemory } from '../src/memory-recall.js';
 import { insertMemory } from '../src/memory-write.js';
 import { agentSignal } from '../src/notifications-signals.js';
-import { insertRefinement, updateRefinement } from '../src/refinements.js';
-import { reflect } from '../src/reflect.js';
 import { formatAwarenessQueryResult, queryAwareness } from '../src/repo-query.js';
 
 function freshDb(): DatabaseSync {
@@ -55,33 +53,6 @@ describe('READ -> DO -> LEARN closure fixes', () => {
     }
   });
 
-  it('requires an actor and a check receipt before terminal refinement closure', () => {
-    const db = freshDb();
-    expect(() => insertRefinement(db, {
-      reasoning: 'bypass', remember: 'must not exist', state: 'done', workspacePath: '/repo',
-    })).toThrow(/terminal refinement creation is not allowed/);
-    const { refinementId } = insertRefinement(db, {
-      agentId: 'owner-agent',
-      reasoning: 'Fix the recall contract',
-      remember: 'Apply and test the smart recall change',
-      quality: 'instructions',
-      state: 'open',
-      workspacePath: '/repo',
-    });
-
-    expect(() => updateRefinement(db, { refinementId, state: 'done' }))
-      .toThrow(/actor.*check receipt/i);
-    const closed = updateRefinement(db, {
-      refinementId,
-      state: 'done',
-      actorAgentId: 'instruction-author',
-      checkReceipt: 'full-loop-learning-fixes.test.ts passed',
-    });
-    expect(closed.refinement?.state).toBe('done');
-    expect(closed.refinement?.reasoning).toContain('Closure receipt');
-    expect(closed.refinement?.reasoning).toContain('instruction-author');
-  });
-
   it('keeps foreign maintenance pressure informational instead of hijacking next work', () => {
     const db = freshDb();
     db.prepare(`INSERT INTO task_runs
@@ -92,42 +63,8 @@ describe('READ -> DO -> LEARN closure fixes', () => {
       agentId: 'worker', workspacePath: '/repo', query: 'implement current feature', compact: true,
     });
     expect(packet.counts?.Maintenance).toBeGreaterThan(0);
-    expect(packet.next.command).toBeUndefined();
+    expect(packet.next.operation).toBeUndefined();
     expect(packet.next.action).toBe('continue');
-  });
-
-  it('deduplicates repeated reflection summaries instead of growing ACTIVE memory', () => {
-    const db = freshDb();
-    const params = {
-      agentId: 'learning-agent', task: 'stable workflow', outcome: 'worked' as const,
-      lesson: 'Run the focused check before the broad suite.', workspacePath: '/repo',
-    };
-    const first = reflect(db, params);
-    const second = reflect(db, params);
-    expect(second.learning_memory_id).toBe(first.learning_memory_id);
-    expect(second.learning_memory_skipped).toBe(true);
-    expect(db.prepare("SELECT COUNT(*) AS count FROM awareness_memories WHERE state = 'ACTIVE'").get())
-      .toEqual({ count: 1 });
-  });
-
-  it('resolves relative reflection files against the supplied workspace', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'awareness-reflect-scope-'));
-    try {
-      const db = freshDb();
-      const result = reflect(db, {
-        agentId: 'learning-agent',
-        task: 'fix instructions',
-        outcome: 'partial',
-        fixInstructions: 'Clarify the recall contract.',
-        files: ['docs/guide.md'],
-        workspacePath: dir,
-      });
-      const row = db.prepare('SELECT files_json FROM refinements WHERE refinement_id = ?')
-        .get(result.developer_review_refinement_id!) as { files_json: string };
-      expect(JSON.parse(row.files_json)).toEqual([`file:${join(realpathSync(dir), 'docs', 'guide.md')}`]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   it('marks bounded explicit exports partial and escapes CSV formula injection', async () => {
@@ -210,18 +147,8 @@ describe('READ -> DO -> LEARN closure fixes', () => {
     const board = queryAwareness(db, { view: 'workboard', workspacePath: workspace, limit: 10 });
     const maintenance = board.rows.filter(row => row.column === 'Maintenance');
     expect(maintenance.length).toBeGreaterThan(0);
-    expect(maintenance.every(row => String(row.action).includes('--'))).toBe(true);
-    expect(maintenance.every(row => !String(row.action).includes(';'))).toBe(true);
-    expect(maintenance.some(row => String(row.action).includes('--memory-id'))).toBe(true);
+    expect(maintenance.find(row => row.id === 'stale-open-signals')?.action).toBe('message list --all --limit 5 --compact');
+    expect(maintenance.find(row => row.id === 'stale-missing-memory-refs')?.raw_ids).toEqual([memory.memoryId]);
   });
 
-  it('keeps terminal refinement creation behind the receipt-bearing update path', () => {
-    const cliSource = readFileSync(new URL('../src/commands/memory.ts', import.meta.url), 'utf8');
-    const terminalCreateGuard = cliSource.indexOf("if (stateVal === 'done')");
-    const createCall = cliSource.indexOf('const { refinement } = insertRefinement', terminalCreateGuard);
-    expect(terminalCreateGuard).toBeGreaterThan(0);
-    expect(createCall).toBeGreaterThan(terminalCreateGuard);
-    expect(cliSource.slice(terminalCreateGuard, createCall)).toContain('terminal refinement creation is not allowed');
-    expect(cliSource).toContain("'check_receipt'");
-  });
 });

@@ -1,167 +1,45 @@
 # Awareness database
 
-Awareness owns coordination state in an Awareness-only SQLite database. The
-default is `$OCTOCODE_HOME/awareness/awareness.sqlite3`; an explicit workspace
-policy or `--db-scope repo` selects `<workspace>/.octocode/awareness.sqlite3`,
-while `--db` has highest precedence. [STORAGE_SCOPES.md](STORAGE_SCOPES.md) defines placement,
-overrides and artifacts.
+SQLite is the canonical Awareness coordination store. The schema is versioned, fingerprinted, and validated when opened. An unrecognized or changed schema fails without mutation.
 
-The normal Awareness store opener never opens
-`$OCTOCODE_HOME/agent/agent.sqlite3` or
-`$OCTOCODE_HOME/agent/core.sqlite3`. Those files belong to the Agent. The
-Awareness runtime rejects mixed `agent.sqlite3` files. A database owned by the Octocode CLI, an MCP server, or another
-`.octocode/` consumer is also outside this package's authority.
+## Ownership
 
-## Entity ownership
+The database owns coordination identity and state:
 
-Awareness owns collaboration entities such as:
+- Agents and sessions.
+- Plans, tasks, dependencies, attempts, files, and claims.
+- Exceptional path protection and verification receipts.
+- Message threads, reads, delivery cursors, events, and acknowledgements.
+- Memories and evidence references.
+- Host hook receipts and continuity records.
+- LocalGit operation, version, restore, and durability metadata.
 
-- plans, plan membership, tasks, dependencies, claims, and task runs;
-- advisory file work, exclusive locks, and verification receipts;
-- agents, messages, delivery state, signals, and coordination handoffs;
-- memories and references, refinements, reflection, and maintenance records;
-- Awareness hook receipts and Awareness-specific session captures.
+LocalGit file objects are not SQLite rows. Back up the database and its matching LocalGit namespace together when History is in use.
 
-These records describe coordination. Worker lifecycle is not an Awareness
-entity. Agent runtime sessions, effects, lifecycle records,
-automation leases, and fencing state belong in
-`$OCTOCODE_HOME/agent/core.sqlite3`; Agent control/index data belongs in
-`$OCTOCODE_HOME/agent/agent.sqlite3`.
+Run `npx @octocodeai/octocode-awareness schema entities --compact` for the canonical entity inventory. See [Entity links](ENTITY_LINKS.md) for relationships.
 
-Don't copy table totals into prose. The executable relation contract changes as
-entities evolve:
+## Store identity
 
-- `src/db-schema.ts` owns the canonical tables, indexes, and optional FTS.
-- `src/db-continuity-schema.ts` defines the unique delivery and interaction tables.
-- `src/db-introspection.ts` derives the expected relation set and schema
-  fingerprint.
-- `tests/database-shared-contract.test.ts` and
-  `tests/database-advanced-contract.test.ts` assert the executable schema.
+Each canonical store has an application ID, schema version, and stable store ID. The schema generation owns both the metadata version and default filename (`awareness-v4.sqlite3` for the current generation). A breaking DDL change must bump that generation. Default resolution then creates or opens the new generation without mutating the prior file; package releases that do not change DDL continue to share the same generation.
 
-Use `schema commands --compact`, `schema entities --compact`, and
-`schema json-schema <name>` for public CLI and entity contracts. Pass `--all` to
-`schema entities` for owner and relation kind. Treat those schemas and the
-executable DDL as authoritative when this page and implementation diverge.
+The store ID namespaces LocalGit evidence independently of the database filename. A fresh generation receives a fresh store ID and therefore a separate LocalGit namespace. Previous database and LocalGit pairs remain available for explicit migration or cleanup; they are never merged automatically. Callers must use paths returned by `history.status` instead of deriving a namespace.
 
-## Query ownership
+The physical database and normalized workspace identity form the coordination boundary. Separate databases never coordinate implicitly. Explicit database paths remain strict: a generation or fingerprint mismatch fails without changing the selected file.
 
-For primary keys, foreign keys, logical references, and host-owned identifiers,
-see [entity identities and connections](ENTITY_LINKS.md).
+## Database migration
 
-`AWARENESS_QUERY_VIEWS` in `src/repo-model.ts` enumerates live views.
-`src/repo-query.ts` dispatches them to focused row builders:
+Migration lives only under `@octocodeai/octocode-awareness/admin`. The current migration contract recognizes an exact `v3` schema-generation predecessor and writes a separate `v4` destination; altered `v3` fingerprints still fail without mutation. Migration is a three-stage copy-on-write process:
 
-| Views | Owner |
-|---|---|
-| `repo-profile`, `files`, `activity` | `src/repo-files.ts` |
-| `memories`, `gotchas`, `lessons`, `plans`, `tasks`, `runs` | `src/repo-plans.ts` |
-| `locks`, `agents`, `signals`, `refinements`, `developer-review` | `src/repo-coordination.ts` |
-| `workboard` | `src/repo-workboard.ts` |
-| `all` | `src/repo-query.ts` bounded fan-out |
+1. Call `previewDatabaseMigration(sourcePath, destinationPath, options)` with different paths. Preview opens the source read-only, recognizes an exact predecessor schema, validates row classification, and reports every transformation or omission.
+2. Call `applyDatabaseMigration` only after reviewing the preview. Apply copies from a read snapshot into a temporary canonical store, checks the source digest, verifies the destination, and publishes a new destination file.
+3. Call `verifyDatabaseMigration` independently. Check schema fingerprint, integrity, foreign keys, relation counts, event replay order, store identity, and available LocalGit reachability before cutover.
 
-Formatting lives in `src/repo-formats.ts`, scoping in `src/repo-scope.ts`, and
-explicit export writes in `src/repo-projection.ts`. Query exports are read-only
-snapshots; Awareness never reads them back as canonical state.
+Stop all writers before cutover. Recheck the source digest, retain the predecessor database and matching sidecars under an explicit rollback name, and then select the verified destination. Do not edit rows or schemas by hand.
 
-## Fail-closed database identity
+Migration classifies predecessor-only follow-up rows into canonical owners. A blocker, handoff, actionable Work item, or verified Memory must be unambiguous; otherwise migration stops before writing a destination. The runtime has no refinement entity.
 
-Agent and Awareness databases have distinct application identities and expected
-relation sets. An Awareness open accepts an empty database or a recognized
-Awareness database. It rejects:
+## Transaction boundaries
 
-| Store | `PRAGMA application_id` | ASCII |
-|---|---:|---|
-| Agent control/index | `0x4f435441` | `OCTA` |
-| Agent Rust runtime | `0x4f434147` | `OCAG` |
-| Awareness coordination | `0x4f435431` | `OCT1` |
+Domain writes use SQLite transactions. Event publication and its owning domain transition must remain atomic. Busy retry policy comes from the shared SQLite utilities; individual domain modules must not invent retry loops.
 
-- an Agent control or Agent runtime identity;
-- a CLI, MCP, or other foreign application identity;
-- an identity-free database with unrecognized relations;
-- a drifted Awareness schema with unknown or incompatible relations; and
-- unexpected application tables, views, indexes, or triggers.
-
-Recognized historical Awareness databases require explicit conversion into a new
-destination; normal opens never upgrade them. Identity validation happens before schema writes. Initialization
-assigns the Awareness identity only after DDL, indexes, optional FTS,
-fingerprint, integrity, and foreign-key checks succeed. It must never relabel a
-populated database to make it appear compatible.
-
-Fresh initialization runs under a write transaction so concurrent first opens
-serialize. A waiting process reclassifies the database after acquiring the lock;
-it doesn't assume the file is still empty.
-
-## SQLite runtime safety
-
-The embedded SQLite version controls journal selection. Runtime builds known to
-be safe can use WAL for concurrent readers and writers; other builds use rollback
-journaling. Both paths use a bounded busy timeout and retry deadline.
-
-Every returned connection enables foreign keys. Initialization and canonical
-opens enforce:
-
-- the complete expected Awareness relation set;
-- no Agent-owned or otherwise unexpected application relations;
-- normalized DDL and schema-fingerprint equality;
-- `PRAGMA integrity_check`; and
-- `PRAGMA foreign_key_check`.
-
-FTS5 is optional because the embedded SQLite build can omit it. When present,
-the executable DDL and introspection modules own its virtual table and generated
-shadow-table treatment.
-
-## Operational checks
-
-Use the Awareness CLI and package tests rather than editing a database manually:
-
-```bash
-npx @octocodeai/octocode-awareness maintenance init --workspace "$PWD" --compact
-npx @octocodeai/octocode-awareness status --workspace "$PWD" --compact
-yarn workspace @octocodeai/octocode-awareness test
-yarn workspace @octocodeai/octocode-awareness test:smoke
-yarn workspace @octocodeai/octocode-awareness lint
-```
-
-For an explicit file, use an Awareness-specific name:
-
-```bash
-npx @octocodeai/octocode-awareness maintenance init --db /absolute/path/awareness.sqlite3 --compact
-```
-
-An old mixed Agent/Awareness database is unsupported. Preserve it for inspection
-and select a fresh Awareness store; do not point an Awareness opener at the mixed
-source. See [storage admission and scope](STORAGE_SCOPES.md).
-
-If identity or fingerprint validation rejects a store, preserve it for
-inspection. Don't rerun initialization against an Agent, CLI, MCP, unknown, or
-mixed database, and don't change `PRAGMA application_id` manually. Follow the
-store-selection guidance in [STORAGE_SCOPES.md](STORAGE_SCOPES.md).
-
-## Explicit consolidation copy
-
-Use consolidation only to copy an exact current canonical Awareness ledger into a
-**new** file. It opens the source read-only, writes a private
-temporary file beside the requested destination, validates it, then publishes
-the finished file atomically. It never upgrades, relabels, or deletes the
-source. The destination must not already exist.
-
-```bash
-npx @octocodeai/octocode-awareness database consolidate \
-  --source /absolute/path/current-awareness.sqlite3 \
-  --destination /absolute/path/awareness-consolidated.sqlite3 \
-  --dry-run \
-  --compact
-```
-
-`--dry-run` validates a private temporary copy, then discards it. Inspect the
-reported counts, then omit `--dry-run` to publish the new destination. Any older,
-incomplete, mixed, or drifted schema is rejected. Copying retains transport sequence high-water marks,
-including positions whose events were already pruned, so consumer cursors stay valid.
-
-The command prints JSON. A safe refusal has `ok: false` and does not publish a
-destination. Unsupported stores are not migrated; select a fresh Awareness store.
-
-The programmatic API is
-`consolidateDatabase(sourcePath, destinationPath, { dryRun })`.
-On success it reports copied-table counts. On failure it
-leaves the source unchanged and does not publish a destination.
+History spans SQLite, LocalGit, and workspace files, so a restore cannot be one filesystem-wide transaction. Its preview, protection, undo capture, and verification debt make partial outcomes explicit.

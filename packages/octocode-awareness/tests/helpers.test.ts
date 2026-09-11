@@ -1,8 +1,8 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
-  utcNow, parseJsonList, tagsText, normalizeTags,
-  normalizeReferences, normalizeLabel, normalizeNotificationKind, normalizeReflectionOutcome, normalizeFilePath, rowToMemory,
-  summarizeText, MEMORY_LABELS, REFLECTION_IMPORTANCE,
+  utcNow, parseJsonList, normalizeTags,
+  normalizeReferences, normalizeLabel, normalizeNotificationKind, normalizeFilePath, rowToMemory,
+  summarizeText, MEMORY_LABELS,
 } from '../src/helpers.js';
 import { resolve } from 'node:path';
 
@@ -35,12 +35,6 @@ describe('parseJsonList', () => {
   it('returns [] on invalid JSON', () => expect(parseJsonList('{bad}')).toEqual([]));
   it('returns [] when JSON is not an array', () => expect(parseJsonList('{"a":1}')).toEqual([]));
   it('filters empty strings', () => expect(parseJsonList(['a', '', 'b'])).toEqual(['a', 'b']));
-});
-
-describe('tagsText', () => {
-  it('empty array → single comma', () => expect(tagsText([])).toBe(','));
-  it('wraps tags with commas', () => expect(tagsText(['a', 'b'])).toBe(',a,b,'));
-  it('single tag', () => expect(tagsText(['x'])).toBe(',x,'));
 });
 
 describe('normalizeTags', () => {
@@ -100,14 +94,6 @@ describe('normalizeFilePath', () => {
   });
 });
 
-describe('REFLECTION_IMPORTANCE', () => {
-  it('failed=8, partial=6, worked=5', () => {
-    expect(REFLECTION_IMPORTANCE['failed']).toBe(8);
-    expect(REFLECTION_IMPORTANCE['partial']).toBe(6);
-    expect(REFLECTION_IMPORTANCE['worked']).toBe(5);
-  });
-});
-
 describe('rowToMemory', () => {
   it('deserializes tags_json and leaves references empty when not joined', () => {
     const row = {
@@ -149,17 +135,5 @@ describe('normalizeNotificationKind', () => {
   it('accepts known kinds', () => expect(normalizeNotificationKind('blocker')).toBe('blocker'));
   it('hard-errors unknown kinds by default', () => {
     expect(() => normalizeNotificationKind('not-a-kind')).toThrow(/invalid signal kind/);
-  });
-});
-
-describe('normalizeReflectionOutcome', () => {
-  it('accepts worked|partial|failed', () => {
-    expect(normalizeReflectionOutcome('worked')).toBe('worked');
-    expect(normalizeReflectionOutcome('partial')).toBe('partial');
-    expect(normalizeReflectionOutcome('failed')).toBe('failed');
-  });
-  it('defaults empty to partial', () => expect(normalizeReflectionOutcome(undefined)).toBe('partial'));
-  it('hard-errors unknown outcomes by default', () => {
-    expect(() => normalizeReflectionOutcome('success')).toThrow(/invalid outcome/);
   });
 });

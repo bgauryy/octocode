@@ -56,23 +56,11 @@ export interface InsertSessionParams {
   ref?: string | null;
 }
 
-// ─── Embedding search ─────────────────────────────────────────────────────────
-
-/** Cosine-similarity result from searchByEmbedding(). */
-export interface EmbeddingSearchResult {
-  memory_id: string;
-  similarity: number; // 0–1
-}
-
 export type MemoryState = 'ACTIVE' | 'SUPERSEDED';
-export type LockType = 'EXCLUSIVE';
 export type RunOrigin = 'TASK' | 'WORK' | 'HOOK';
 export type WorkSource = 'EXPLICIT' | 'HOOK';
 /** Maps to the task_runs table status column. */
 export type RunStatus = 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED';
-export type RefinementQuality = 'good' | 'bad' | 'handoff' | 'instructions';
-export type RefinementState = 'open' | 'ongoing' | 'done';
-export type ReflectionOutcome = 'worked' | 'partial' | 'failed';
 
 // ─── Public shapes ────────────────────────────────────────────────────────────
 
@@ -127,22 +115,6 @@ export interface FileLock {
   reason: string;
   run_id: string;
   expires_at: string | null;
-}
-
-export interface RefinementRecord {
-  refinement_id: string;
-  agent_id: string;
-  workspace_path: string;
-  artifact: string | null;
-  repo: string | null;
-  ref: string | null;
-  files: string[];
-  reasoning: string;
-  remember: string;
-  quality: RefinementQuality;
-  state: RefinementState;
-  created_at: string;
-  updated_at: string;
 }
 
 /** One standalone or task-linked execution/verification attempt. */
@@ -294,50 +266,4 @@ export interface GetMemoryResult extends MemoryRecallBounds {
   smart_expanded?: boolean;
   /** Exact caller filters omitted by the smart widening pass. */
   smart_dropped_filters?: string[];
-}
-
-export interface InsertRefinementParams {
-  agentId?: string;
-  reasoning: string;
-  remember: string;
-  quality?: RefinementQuality;
-  state?: RefinementState;
-  workspacePath?: string | null;
-  artifact?: string | null;
-  repo?: string | null;
-  ref?: string | null;
-  files?: string[];
-  cwd?: string;
-}
-
-export interface InsertRefinementResult {
-  refinementId: string;
-  refinement: RefinementRecord;
-}
-
-export interface GetRefinementsParams {
-  /** Narrow to one refinement row by id; bypasses state/scope filters. */
-  refinementId?: string | null;
-  workspacePath?: string | null;
-  artifact?: string | null;
-  repo?: string | null;
-  ref?: string | null;
-  quality?: RefinementQuality;
-  includeHandoffs?: boolean;
-  states?: string[];
-  limit?: number;
-  offset?: number;
-  cwd?: string;
-}
-
-export interface GetRefinementsResult {
-  count: number;
-  refinements: RefinementRecord[];
-  partial: boolean;
-  partialReasons: Array<'limit'>;
-  next?: { list: { method: 'getRefinements'; params: GetRefinementsParams } };
-  /** Present when handoffs are excluded by default — use --include-handoffs to list them. */
-  handoff_count?: number;
-  /** Present when instructions-feedback refinements are excluded by default — see `reflect developer-review`. */
-  instructions_count?: number;
 }

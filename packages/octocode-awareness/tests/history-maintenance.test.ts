@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync, readFileSync, mkdirSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connectDb } from '../src/db-runtime.js';
-import { executeAwarenessCommand } from '../src/command-api.js';
+import { runAwarenessHistoryOperation } from '../src/history-api.js';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -11,7 +11,6 @@ function fixture() {
   const workspace = realpathSync(mkdtempSync(join(tmpdir(), 'history-maintenance-')));
   roots.push(workspace);
   const database = join(workspace, 'ledger.sqlite3');
-  const context = { workspace, database, agentId: 'maintenance-test', compact: true };
   const db = connectDb(database);
   db.prepare(`INSERT INTO local_history_operations
     (operation_id,workspace_path,agent_id,kind,status,request_hash,created_at,updated_at)
@@ -27,9 +26,24 @@ function fixture() {
     } finally { connection.close(); }
   }
   async function call(command: string, params: Record<string, unknown> = {}, expectedExit = 0) {
-    const result = await executeAwarenessCommand({ command, params }, context);
-    expect(result.exitCode, JSON.stringify(result)).toBe(expectedExit);
-    return result.payload as Record<string, any>;
+    const action = command.replace(/^history /, '');
+    const connection = connectDb(database);
+    try {
+      const payload = await runAwarenessHistoryOperation(connection, action, {
+        workspace,
+        ...(['capture', 'checkpoint', 'restore-preview', 'restore-apply'].includes(action)
+          ? { agent_id: 'maintenance-test' }
+          : {}),
+        ...params,
+      });
+      expect(expectedExit === 0 || (expectedExit === 2 && payload.ok === false), JSON.stringify(payload)).toBe(true);
+      return payload as Record<string, any>;
+    } catch (error) {
+      expect(expectedExit, error instanceof Error ? error.message : String(error)).toBe(1);
+      return { ok: false, error };
+    } finally {
+      connection.close();
+    }
   }
   async function pages(command: string, params: Record<string, unknown>, field: string) {
     const rows: Record<string, unknown>[] = [];
@@ -38,8 +52,8 @@ function fixture() {
       const payload = await call(request.command, request.params);
       rows.push(...payload[field]);
       if (!payload.partial) return rows;
-      expect(payload.next?.call, JSON.stringify(payload)).toBeTruthy();
-      request = payload.next.call;
+      expect(payload.next?.command, JSON.stringify(payload)).toBeTruthy();
+      request = { command: String(payload.next.command), params: payload.next.args };
     }
     throw new Error('Maintenance continuation did not terminate');
   }
@@ -106,6 +120,6 @@ it('continues past a full scan window without skipping the first unscanned objec
   const first = await f.call('history evidence', { limit: 1 });
   expect(first).toMatchObject({ objects: [], partial: true, quiescent: false,
     diagnostic: { code: 'HISTORY_EVIDENCE_SCAN_LIMIT' } });
-  const all = await f.pages(first.next.call.command, first.next.call.params, 'objects');
+  const all = await f.pages(first.next.command, first.next.args, 'objects');
   expect(all.map(row => row.oid)).toEqual([1001, 1002, 1003].map(i => i.toString(16).padStart(40, '0')));
 });

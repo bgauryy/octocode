@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openAwarenessStore } from '../src/coordination/open.js';
 import { readExternalAwarenessStatus } from '../src/coordination/external-status.js';
-import { executeAwarenessCommand } from '../src/command-api.js';
+import { createAwarenessClient, type AwarenessExecutableCall } from '../src/client.js';
 import { connectDb } from '../src/db-runtime.js';
 import { agentSignal } from '../src/notifications-signals.js';
 
@@ -50,23 +50,22 @@ describe('lossless recipient inbox pagination', () => {
   it.each([false, true])('executes API continuations with markRead=%s across tied timestamps', async (markRead) => {
     const { store, ids } = fixture(231);
     try {
-      let command = 'signal list';
-      let params: Record<string, unknown> = { limit: 50, mark_read: markRead };
+      const client = createAwarenessClient({ database: store.dbPath, workspace: root, agentId: 'reader' });
+      let call: AwarenessExecutableCall<'message.list'> = {
+        operation: 'message.list', params: { limit: 50, mark_read: markRead },
+      };
       const seen: string[] = [];
       for (let page = 0; page < 10; page++) {
-        const execution = await executeAwarenessCommand(
-          { command, params },
-          { database: store.dbPath, workspace: root, agentId: 'reader', continuations: 'api' },
-        );
+        const execution = await client.execute(call);
         expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
         const result = execution.payload as {
           signals: Array<{ signal_id: string }>; partial?: boolean; partialReasons?: string[];
-          next?: { list: { command: { command: string; params: Record<string, unknown> } } };
+          next?: { list: AwarenessExecutableCall<'message.list'> };
         };
         seen.push(...result.signals.map(signal => signal.signal_id));
         if (!result.partial) break;
         expect(result.partialReasons).toEqual(['limit']);
-        ({ command, params } = result.next!.list.command);
+        call = result.next!.list;
       }
       expect(new Set(seen).size).toBe(seen.length);
       expect([...seen].sort()).toEqual([...ids].sort());
@@ -79,22 +78,21 @@ describe('lossless recipient inbox pagination', () => {
     const db = connectDb(store.dbPath);
     try {
       const selected = ids.slice(0, 111);
-      let command = 'signal list';
-      let params: Record<string, unknown> = { signal_id: selected, limit: 50 };
+      const client = createAwarenessClient({ database: store.dbPath, workspace: root, agentId: 'reader' });
+      let call: AwarenessExecutableCall<'message.list'> = {
+        operation: 'message.list', params: { signal_id: selected, limit: 50 },
+      };
       const seen: string[] = [];
       for (let page = 0; page < 5; page++) {
-        const execution = await executeAwarenessCommand(
-          { command, params },
-          { database: store.dbPath, workspace: root, agentId: 'reader', continuations: 'api' },
-        );
+        const execution = await client.execute(call);
         expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
         const result = execution.payload as {
           signals: Array<{ signal_id: string }>; partial?: boolean;
-          next?: { list: { command: { command: string; params: Record<string, unknown> } } };
+          next?: { list: AwarenessExecutableCall<'message.list'> };
         };
         seen.push(...result.signals.map(signal => signal.signal_id));
         if (!result.partial) break;
-        ({ command, params } = result.next!.list.command);
+        call = result.next!.list;
       }
       expect([...seen].sort()).toEqual([...selected].sort());
       expect(() => store.listMessagesPage({ agentId: 'reader', cursor: 'malformed' })).toThrow(/cursor/i);
@@ -106,7 +104,7 @@ describe('lossless recipient inbox pagination', () => {
     const { store, ids } = fixture(231);
     try {
       const cli = resolve(import.meta.dirname, '../out/octocode-awareness.js');
-      let args = ['signal', 'list', '--db', store.dbPath, '--workspace', root, '--agent-id', 'reader', '--limit', '50', '--mark-read', ...(compact ? ['--compact'] : ['--include-bodies'])];
+      let args = ['message', 'list', '--db', store.dbPath, '--workspace', root, '--agent-id', 'reader', '--limit', '50', '--mark-read', ...(compact ? ['--compact'] : ['--include-bodies'])];
       const seen: string[] = [];
       for (let page = 0; page < 10; page++) {
         const execution = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', timeout: 10000 });
@@ -116,8 +114,17 @@ describe('lossless recipient inbox pagination', () => {
         expect(readExternalAwarenessStatus({ workspace: root, agentId: 'reader' }).unreadInbox).toBe(ids.length - seen.length);
         if (!result.partial) break;
         expect(result.partialReasons).toEqual(['limit']);
-        expect(result.next.list.command.name).toBe('signal list');
-        args = ['signal', 'list', ...result.next.list.command.args];
+        expect(result.next.list.operation).toBe('message.list');
+        const params = result.next.list.params as Record<string, unknown>;
+        args = ['message', 'list', '--db', store.dbPath, '--workspace', root, '--agent-id', 'reader'];
+        for (const [key, value] of Object.entries(params)) {
+          const flag = `--${key.replaceAll('_', '-')}`;
+          if (value === true) args.push(flag);
+          else if (value !== false && value !== undefined) {
+            for (const item of Array.isArray(value) ? value : [value]) args.push(flag, String(item));
+          }
+        }
+        if (compact) args.push('--compact');
       }
       expect(new Set(seen).size).toBe(seen.length);
       expect([...seen].sort()).toEqual([...ids].sort());

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openAwarenessStore } from '../../src/coordination/open.js';
 
-const DIST_INDEX_URL = new URL('../../out/index.js', import.meta.url).href;
+const DIST_HOST_URL = new URL('../../out/host-api.js', import.meta.url).href;
 
 const ACQUIRE_LOCK = `
 const [moduleUrl, workspace, dbPath, agentId, filePath, operation] = process.argv.slice(1);
@@ -54,7 +54,7 @@ function lockProcess(workspace: string, dbPath: string, agentId: string, filePat
     '--input-type=module',
     '--eval',
     ACQUIRE_LOCK,
-    DIST_INDEX_URL,
+    DIST_HOST_URL,
     workspace,
     dbPath,
     agentId,

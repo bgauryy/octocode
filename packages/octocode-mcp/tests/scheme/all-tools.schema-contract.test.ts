@@ -55,6 +55,12 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     langType: 'ts',
     pattern: 'foo($A)',
   },
+  astRewrite: {
+    path: './src',
+    langType: 'typescript',
+    pattern: 'console.log($A)',
+    rewrite: 'logger.info($A)',
+  },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
   [LSP_SEARCH_TOOL_NAME]: {
     uri: '/tmp/test.ts',

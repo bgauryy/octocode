@@ -7,11 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { previewDatabaseMigration } from '../src/db-consolidation.js';
 import { inspectSchemaState, readAwarenessMeta, resolveAwarenessStoreIdentity } from '../src/db-introspection.js';
 import { connectDb } from '../src/db-runtime.js';
-import { AWARENESS_SCHEMA_VERSION, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
+import { SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { AWARENESS_META_DDL } from '../src/db-meta-schema.js';
-import { PREDECESSOR_EVENT_RELATIONS_DDL } from '../src/db-predecessor-schema.js';
+import { LEGACY_RENAMED_V1_SCHEMA_DDL } from '../src/db-predecessor-schema.js';
 import { createHistoryContext, historyHash, historyStoragePaths } from '../src/history-store.js';
-import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
+import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from '../src/storage-scope.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -93,23 +93,7 @@ describe('stable Awareness store identity', () => {
     const { workspace, database } = fixture();
     const destination = join(workspace, 'migrated.sqlite3');
     const source = new DatabaseSync(database);
-    source.exec(SCHEMA_DDL.replace(AWARENESS_META_DDL, ''));
-    source.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
-    for (const relation of [
-      'authorization_receipts', 'capability_receipts', 'event_acknowledgements', 'event_consumers',
-      'event_outbox', 'handoffs', 'local_history_durability', 'local_history_operations',
-      'local_history_restores', 'local_history_versions', 'pending_interactions',
-    ]) source.exec(`DROP TABLE IF EXISTS ${JSON.stringify(relation)}`);
-    for (const [current, legacy] of [
-      ['awareness_agents', 'agents'], ['awareness_locks', 'locks'], ['awareness_memories', 'memories'],
-      ['awareness_plans', 'plans'], ['awareness_tasks', 'tasks'],
-    ]) source.exec(`ALTER TABLE ${JSON.stringify(current)} RENAME TO ${JSON.stringify(legacy)}`);
-    for (const [relation, columns] of Object.entries({
-      agents: ['role', 'status', 'metadata_json'],
-      memories: ['scope_kind', 'source_digest', 'verified_at', 'secret_scan_status'],
-      plans: ['source_kind', 'source_key', 'rfc_path', 'rfc_revision'],
-      tasks: ['source_step_key', 'check_command'],
-    })) for (const column of columns) source.exec(`ALTER TABLE ${JSON.stringify(relation)} DROP COLUMN ${JSON.stringify(column)}`);
+    source.exec(LEGACY_RENAMED_V1_SCHEMA_DDL);
     source.prepare(`INSERT INTO agents
       (agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at)
       VALUES ('agent', '', ?, NULL, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`).run(workspace);

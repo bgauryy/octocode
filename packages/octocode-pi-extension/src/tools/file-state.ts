@@ -17,7 +17,7 @@
  * serialise edits issued within *this* Pi process. They do NOT protect against a
  * second process (for example, a parallel agent worker) editing the same file
  * concurrently. Cross-process safety is a separate layer: declare edited paths
- * via Awareness (`work start`) and take an exclusive lease (`lock acquire`) for
+ * via Awareness (`work.create`) and take exceptional exclusive protection (`work.protect`) for
  * non-mergeable or risky shared files — the Awareness pre-edit `tool_call` gate
  * (wired at activation) enforces those leases across processes. See
  * docs/AWARENESS_AGENT_FLOW.md §"Hooks during edits".

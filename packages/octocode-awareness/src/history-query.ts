@@ -9,6 +9,19 @@ const cursorSchema = z.object({ scope: z.string().length(64), before: z.number()
 function continuation(ctx: HistoryContext, command: string, args: Record<string, unknown>) {
   const scoped = { ...args, workspace: ctx.requestWorkspace ?? ctx.workspace,
     ...(ctx.requestWorkspace ? { source_workspace: ctx.workspace } : {}) };
+  const canonical = {
+    timeline: { operation: 'history.timeline' },
+    read: { operation: 'history.read' },
+    'restore-preview': { operation: 'history.restore', action: 'preview' },
+    'restore-apply': { operation: 'history.restore', action: 'apply' },
+  }[command];
+  if (canonical) {
+    const { workspace: _workspace, ...params } = scoped;
+    return {
+      operation: canonical.operation,
+      params: { ...params, ...(canonical.action ? { action: canonical.action } : {}) },
+    };
+  }
   const argv = ['history', command, '--db', ctx.dbPath];
   for (const [key, value] of Object.entries(scoped)) {
     if (value !== undefined) argv.push(`--${key.replaceAll('_', '-')}`, String(value));

@@ -313,11 +313,6 @@ function validatePrimaryToolGuidance() {
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {
-      file: 'skills/octocode-skills/references/octocode.md',
-      required: ['tools ghSearch', '"operation":"code"'],
-      forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
-    },
-    {
       file: 'docs/CONFIGURATION.md',
       required: ['Example: ["ghSearch", "localSearch", "artifactSearch"]'],
       forbidden: ['Example: `["ghSearchCode", "localSearch"]`'],

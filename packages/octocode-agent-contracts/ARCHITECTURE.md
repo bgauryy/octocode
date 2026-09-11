@@ -49,8 +49,9 @@ native, Pi, and Awareness. It is not an agent runtime or a UI composition root.
   subpath instead of the aggregate package root.
 - Keep `$OCTOCODE_HOME/agent/agent.sqlite3` control tables separate from the
   Rust runtime store at `$OCTOCODE_HOME/agent/core.sqlite3` and Awareness domain
-  relations at the default `$OCTOCODE_HOME/awareness/awareness.sqlite3` or the
-  explicitly selected `<workspace>/.octocode/awareness.sqlite3`.
+  relations at the generation-versioned default
+  `$OCTOCODE_HOME/awareness/awareness-v4.sqlite3` or the explicitly selected
+  `<workspace>/.octocode/awareness-v4.sqlite3`.
 - Fail closed on foreign database identities and unexpected relations before
   writing schema. Shared helpers must not relabel or migrate another owner's
   database.

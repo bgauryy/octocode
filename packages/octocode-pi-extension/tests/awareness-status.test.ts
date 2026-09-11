@@ -1,4 +1,4 @@
-import type { ExternalAwarenessStatus } from '@octocodeai/octocode-awareness';
+import type { ExternalAwarenessStatus } from '@octocodeai/octocode-awareness/host';
 import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
 import {

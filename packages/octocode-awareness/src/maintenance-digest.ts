@@ -19,9 +19,7 @@ export const MAX_RETENTION_DAYS = 3650;
 
 const DIGEST_OPTION_KEYS = [
   'retention_days',
-  'refinement_handoff_retention_days',
   'handoff_signal_retention_days',
-  'refinement_done_retention_days',
   'operational_retention_days',
   'pressure_age_days',
   'fail_stale_active_runs',
@@ -141,7 +139,7 @@ export function inspectMaintenancePressure(
  * 1. Archive memories whose valid_to has passed
  * 2. Hard-delete SUPERSEDED memories older than retention_days
  * 3. Prune expired file locks
- * 4. Prune old session handoffs and completed refinements
+ * 4. Resolve stale handoff signals and compact terminal execution rows
  * 5. Rebuild / optimize the FTS5 index
  */
 export function digest(
@@ -150,9 +148,7 @@ export function digest(
 ): DigestResult {
   assertKnownOptions(params, DIGEST_OPTION_KEYS, 'maintenance digest');
   const retentionDays = retentionWindow(params, 'retention_days', 90);
-  const handoffRetentionDays = retentionWindow(params, 'refinement_handoff_retention_days', 7);
   const handoffSignalRetentionDays = retentionWindow(params, 'handoff_signal_retention_days', 1);
-  const doneRetentionDays = retentionWindow(params, 'refinement_done_retention_days', 30);
   const operationalRetentionDays = retentionWindow(params, 'operational_retention_days', 90);
   retentionWindow(params, 'pressure_age_days', 1);
   const rawFailStaleActiveRuns = params.fail_stale_active_runs;
@@ -165,9 +161,7 @@ export function digest(
   const artifact = normalizeArtifact(params.artifact);
   const now = new Date().toISOString();
   const cutoff = new Date(Date.now() - retentionDays * 86400000).toISOString();
-  const handoffCutoff = new Date(Date.now() - handoffRetentionDays * 86400000).toISOString();
   const handoffSignalCutoff = new Date(Date.now() - handoffSignalRetentionDays * 86400000).toISOString();
-  const doneCutoff = new Date(Date.now() - doneRetentionDays * 86400000).toISOString();
   const operationalCutoff = new Date(Date.now() - operationalRetentionDays * 86400000).toISOString();
   const pressure = inspectMaintenancePressure(db, params);
   const pressureFields = {
@@ -184,12 +178,6 @@ export function digest(
   if (workspacePath) { memoryScope.push('workspace_path = ?'); memoryScopeBinds.push(workspacePath); }
   if (artifact) { memoryScope.push('artifact = ?'); memoryScopeBinds.push(artifact); }
   const memoryScopeSql = memoryScope.length > 0 ? ` AND ${memoryScope.join(' AND ')}` : '';
-  const refinementScope: string[] = [];
-  const refinementScopeBinds: string[] = [];
-  if (workspacePath) { refinementScope.push('workspace_path = ?'); refinementScopeBinds.push(workspacePath); }
-  if (artifact) { refinementScope.push('artifact = ?'); refinementScopeBinds.push(artifact); }
-  const refinementScopeSql = refinementScope.length > 0 ? ` AND ${refinementScope.join(' AND ')}` : '';
-
   // dry_run: count what would change without mutating anything
   if (params.dry_run) {
     const candidateLimit = 20;
@@ -206,12 +194,6 @@ export function digest(
       dry_run: true,
     });
     const wouldPruneLocks = lockDryRun.would_prune ?? 0;
-    // Stale handoff refinements are dead letters (handoffs now live in signals):
-    // prune them past retention in ANY state — their addressed identity never returns.
-    const wouldPruneRefinements = (db.prepare(`SELECT COUNT(*) AS c FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
-          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`)
-      .get(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { c: number }).c;
     const wouldResolveHandoffSignals = (db.prepare(
       `SELECT COUNT(*) AS c FROM signals WHERE kind = 'handoff' AND status = 'open' AND created_at < ?${memoryScopeSql}`
     ).get(handoffSignalCutoff, ...memoryScopeBinds) as { c: number }).c;
@@ -235,12 +217,6 @@ export function digest(
        WHERE state = 'SUPERSEDED' AND updated_at < ?${memoryScopeSql}
        ORDER BY datetime(updated_at), memory_id LIMIT ?`
     ).all(cutoff, ...memoryScopeBinds, candidateLimit) as Array<{ memory_id: string }>).map(row => row.memory_id);
-    const refinementIds = (db.prepare(
-      `SELECT refinement_id FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
-          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}
-       ORDER BY datetime(updated_at), refinement_id LIMIT ?`
-    ).all(handoffCutoff, doneCutoff, ...refinementScopeBinds, candidateLimit) as Array<{ refinement_id: string }>).map(row => row.refinement_id);
     const runIds = (db.prepare(
       `SELECT run_id FROM task_runs
        WHERE task_id IS NULL AND origin IN ('WORK','HOOK')
@@ -252,7 +228,6 @@ export function digest(
       archived_memories: 0,
       pruned_old: 0,
       pruned_locks: 0,
-      pruned_refinements: 0,
       resolved_handoff_signals: 0,
       failed_stale_active_runs: 0,
       pruned_runs: 0,
@@ -261,7 +236,6 @@ export function digest(
       would_archive: wouldArchive,
       would_prune_old: wouldPruneOld,
       would_prune_locks: wouldPruneLocks,
-      would_prune_refinements: wouldPruneRefinements,
       would_resolve_handoff_signals: wouldResolveHandoffSignals,
       would_fail_stale_active_runs: wouldFailStaleActiveRuns,
       would_prune_runs: wouldPruneRuns,
@@ -270,7 +244,6 @@ export function digest(
         expire_memory_ids: expireMemoryIds,
         purge_memory_ids: purgeMemoryIds,
         locks: lockDryRun.locks ?? [],
-        refinement_ids: refinementIds,
         run_ids: runIds,
         stale_active_run_ids: staleActiveRunIds.slice(0, candidateLimit),
       },
@@ -281,7 +254,6 @@ export function digest(
   let archiveRes: { changes: number } = { changes: 0 };
   let deleteRes: { changes: number } = { changes: 0 };
   let prunedLocks = 0;
-  let pruneRefinementsRes: { changes: number } = { changes: 0 };
   let resolvedHandoffSignals = 0;
   let failedStaleActiveRuns = 0;
   let pruneRunsRes: { changes: number } = { changes: 0 };
@@ -308,14 +280,6 @@ export function digest(
       ...(artifact ? { artifact } : {}),
       expired_only: true,
     }).pruned_locks;
-
-    // 4. Prune stale handoff refinements past retention in ANY state (dead
-    // letters — handoffs live in signals now) and completed repo-fix refinements.
-    pruneRefinementsRes = db.prepare(
-      `DELETE FROM refinements
-       WHERE ((quality = 'handoff' AND updated_at < ?)
-          OR (quality IN ('good','bad') AND state = 'done' AND updated_at < ?))${refinementScopeSql}`
-    ).run(handoffCutoff, doneCutoff, ...refinementScopeBinds) as { changes: number };
 
     // 4b. TTL: auto-resolve open handoff signals past retention so the broadcast
     // inbox cannot accumulate unbounded stale handoffs.
@@ -388,7 +352,6 @@ export function digest(
     archived_memories: archiveRes.changes,
     pruned_old: deleteRes.changes,
     pruned_locks: prunedLocks,
-    pruned_refinements: pruneRefinementsRes.changes,
     resolved_handoff_signals: resolvedHandoffSignals,
     failed_stale_active_runs: failedStaleActiveRuns,
     pruned_runs: pruneRunsRes.changes,

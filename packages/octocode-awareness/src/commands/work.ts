@@ -44,8 +44,8 @@ export function cmdPreFlightIntent(db: DatabaseSync, args: ParsedArgs, dbPath: s
 }
 
 export function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  // D1 fix: normalize the workspace filter to the git-root key (same as write
-  // paths) so `verify audit` run from a package/subdir does not miss pending
+  // Normalize the workspace filter to the git-root key (same as write paths)
+  // so work.verify audit from a package/subdir does not miss pending
   // work and report a false "0 unverified".
   const rawAuditWs = args['workspace'] ? String(args['workspace']) : null;
   const result = auditUnverified(db, {
@@ -89,7 +89,10 @@ export function cmdAuditUnverified(db: DatabaseSync, args: ParsedArgs, dbPath: s
     returned_count: page.length,
     omitted_count: result.count - page.length,
     pagination: { offset, limit, total: rows.length, has_more: hasMore, ...(hasMore ? { next_offset: nextOffset } : {}) },
-    ...(hasMore ? { next: { command: 'verify audit', params: nextParams } } : {}),
+    ...(hasMore ? { next: { operation: 'work.verify', params: {
+      action: 'audit',
+      ...Object.fromEntries(Object.entries(nextParams).filter(([key]) => key !== 'agent_id' && key !== 'workspace')),
+    } } } : {}),
   }, result.count > 0 ? 1 : 0, opts);
 }
 
@@ -275,20 +278,22 @@ export function cmdWork(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
       ? showWork(db, { ...params, filePath: targetFiles[0] ?? '' })
       : listWork(db, params);
     const continuation = result.next?.list.params;
-    const nextArgs = continuation ? ['--db', dbPath] : [];
-    if (continuation) {
-      for (const [flag, value] of [
-        ['workspace', continuation.workspacePath], ['artifact', continuation.artifact],
-        ['agent-id', continuation.agentId], ['run-id', continuation.runId],
-        ['file', continuation.filePath], ['limit', continuation.limit], ['offset', continuation.offset],
-      ] as const) if (value != null) nextArgs.push(`--${flag}`, String(value));
-      if (continuation.activeOnly === false) nextArgs.push('--all');
-      if (args['full']) nextArgs.push('--full');
-      if (opts.compact) nextArgs.push('--compact');
-    }
+    const continuationParams = continuation ? {
+      kind: 'presence',
+      ...(continuation.artifact ? { artifact: continuation.artifact } : {}),
+      ...(continuation.runId ? { run_id: continuation.runId } : {}),
+      ...(continuation.filePath ? { file: [continuation.filePath] } : {}),
+      ...(continuation.limit ? { limit: continuation.limit } : {}),
+      ...(continuation.offset !== undefined ? { offset: continuation.offset } : {}),
+      ...(continuation.activeOnly === false ? { all: true } : {}),
+      ...(args['full'] ? { full: true } : {}),
+    } : undefined;
     const pagination = {
       partial: result.partial, partialReasons: result.partialReasons,
-      next: continuation ? { list: { command: { name: `work ${action}`, args: nextArgs } } } : undefined,
+      next: continuationParams ? { list: {
+        operation: action === 'show' ? 'work.show' : 'work.list',
+        params: continuationParams,
+      } } : undefined,
     };
     if (Boolean(args['full'])) return emit({ db_path: dbPath, ...result, ...pagination }, 0, opts);
     const files = result.files.map((file) => ({

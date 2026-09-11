@@ -8,7 +8,6 @@ import { insertEditLog } from '../src/audit.js';
 import { registerAgent } from '../src/agents.js';
 import { insertMemory } from '../src/memory-write.js';
 import { agentSignal } from '../src/notifications-signals.js';
-import { insertRefinement } from '../src/refinements.js';
 import { attendAwareness } from '../src/attend-query.js';
 import type { AwarenessQueryParams } from '../src/repo-model.js';
 import { formatAwarenessQueryResult, queryAwareness, renderAwarenessHtml } from '../src/repo-query.js';
@@ -69,16 +68,6 @@ async function seededDb(workspace: string): Promise<{
      VALUES ('run_auth', ?, 'EXPLICIT', ?, ?, ?)`).run(file, now, now, future);
     db.prepare(`INSERT INTO awareness_locks (lock_id, file_path, run_id, acquired_at, expires_at)
      VALUES ('lock_auth', ?, 'run_auth', ?, ?)`).run(file, now, future);
-    insertRefinement(db, {
-        agentId: 'agent-a',
-        workspacePath: workspace,
-        artifact: 'svc',
-        reasoning: 'Continue auth cleanup',
-        remember: 'Finish middleware after router',
-        quality: 'handoff',
-        state: 'open',
-        files: [file],
-    });
     agentSignal(db, {
         action: 'publish',
         agentId: 'agent-a',
@@ -133,7 +122,7 @@ it('queries every view and renders all supported formats', async () => {
       const { db, file } = (await seededDb(dir));
       const base = { workspacePath: dir, artifact: 'svc', limit: 20 };
 
-      for (const view of ['repo-profile', 'memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'locks', 'agents', 'signals', 'refinements', 'files', 'activity', 'workboard'] as const) {
+      for (const view of ['repo-profile', 'memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'locks', 'agents', 'signals', 'files', 'activity', 'workboard'] as const) {
         const result = queryAwareness(db, { ...base, view, includeBodies: true });
         expect(result.ok).toBe(true);
         expect(result.view).toBe(view);

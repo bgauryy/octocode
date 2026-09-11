@@ -13,14 +13,14 @@ package code, then verify the public runner separately.
 
 ```bash
 export OCTOCODE_AGENT_ID="${OCTOCODE_AGENT_ID:-awareness:$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')}"
-npx @octocodeai/octocode-awareness attend --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
+npx @octocodeai/octocode-awareness context orient --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
 ```
 
-Follow typed `next` results; use `schema command <noun> [action]` for unclear flags.
-SQLite is canonical. Never hand-edit generated `.octocode/` state; only
-workspace-root `.octocode/REFLECT.md` is authored reflection.
+Follow typed `next` results; use `schema command <concept> <operation> --compact`
+for unclear fields. SQLite is canonical. Never hand-edit generated `.octocode/`
+state.
 
-Attend once per workspace/session, or reuse the native host briefing. Communicate
+Orient once per workspace/session, or reuse the native host briefing. Communicate
 when a peer needs to know or act. Discover tracking, locks, memory, or recovery only
 when useful. For tracked work, reuse task/run IDs, record observed checks, and audit
 after final writes. Use locks only for unsafe concurrent work; never bypass a conflict.
@@ -66,12 +66,12 @@ yarn workspace @octocodeai/octocode-awareness verify
 
 Skill changes also require `yarn workspace @octocodeai/octocode-awareness build`
 and focused tests. Preserve failed-check evidence. Record only reusable learning.
-Executable flow: `docs/SKILLS.md`; hooks: `docs/HOOKS.md`; lifecycle:
-`docs/HOW_IT_WORKS.md`; concept owners: `docs/README.md`.
+Hooks: `docs/HOOKS.md`; lifecycle: `docs/HOW_IT_WORKS.md`; concept owners:
+`docs/README.md`.
 
 ## Docs
 
 - [Native API and prompt exports](docs/API.md)
-- [Default features and profiles](docs/CONFIGURATION.md)
+- [Configuration and integration ownership](docs/CONFIGURATION.md)
 - [Shared contracts owner](../octocode-agent-contracts/ARCHITECTURE.md)
 - [Pi integration](../octocode-pi-extension/docs/AWARENESS_AGENT_FLOW.md)

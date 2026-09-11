@@ -10,10 +10,10 @@ related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise keep the rule here.
 
-Operate on standalone Agent Skill folders: `SKILL.md` plus optional references, scripts, assets, and machine-readable schemes.
+Manage standalone Agent Skill folders: `SKILL.md` plus optional refs, scripts, assets, and machine-readable schemes.
 Flow: `UNDERSTAND → INSPECT → ACT → VERIFY`. Discover or compare candidates only when the source is unresolved; ask only for missing scope or authority. For review-only requests, report findings without applying edits.
 
-Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. Chat-only recommendations stay in chat; approved edits, installs, symlinks, and configuration keep their gated destinations.
+Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. Chat-only recommendations stay in chat; approved edits, installs, symlinks, and config keep their gated destinations.
 
 ## Rules
 - `SKILL.md` owns entry decisions and shared constraints; references own conditional detail. Use `scheme/<contract-name>.json` only when the skill needs a machine-readable contract: one valid top-level JSON object per file. Keep each shipped file reachable through a route that explains when to use it.
@@ -31,7 +31,7 @@ Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. 
 - Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — check navigation, useful content, and standalone execution. Assess advisory formatting warnings in context.
 - When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md`, and use `assets/hooks/` — map the correct host event and avoid silent no-ops.
 - When installing, load `references/install-gates.md`, then `references/install-destinations.md`; remote sources use `references/fetch-remote.md`, local creation uses `references/create-local-skill.md`, and vendor links use `references/skill-sync.md` — secure approval, destination, and provenance before writes.
-- When evidence needs code/package/repository research, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, and follow executable continuations — do not duplicate tool contracts.
+- When evidence needs code/package/repo research, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, and follow executable continuations — do not duplicate tool contracts.
 - When tracing source provenance, load `references/references.md`; when authoring a source appendix, start from `references/references-template.md` — keep claims auditable without bloating instructions.
 
 ## Related routes
@@ -42,7 +42,7 @@ Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. 
 - Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required. <!-- style-lint: ignore-line passive-voice -->
 - Run `scripts/skill-sync.mjs` after inspecting its dry-run and confirming that existing authorization covers the source, destinations, and conflict policy. Ask only for missing authority.
 - `scripts/skill-lint.mjs` is an alias for `scripts/skill-review.mjs` — same gate under the older name.
-- A skill script needing Octocode home or env imports `./octocode-config.mjs`, a build artifact injected by `packages/octocode-config` into every skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.
+- A skill script that needs Octocode home or env imports `./octocode-config.mjs`, a build artifact that `packages/octocode-config` injects into each skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.
 - When wiring a hook, copy `assets/hooks/example-hook.sh` into the target skill's hook-script directory and route that internal file from frontmatter.
 
 Follow the approval and destination routes for creation or installation. Then review the result before reporting done.

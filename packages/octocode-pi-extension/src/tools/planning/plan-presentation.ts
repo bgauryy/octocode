@@ -21,8 +21,8 @@ import {
 } from './plan-store.js';
 import { MARK, displayStatus, dependencyIndexes } from './plan-types.js';
 import type { DisplayStatus, PlanStep } from './plan-types.js';
-import type { ExternalPlanScope } from '@octocodeai/octocode-awareness';
-import { projectExternalPlan } from '@octocodeai/octocode-awareness';
+import type { ExternalPlanScope } from '@octocodeai/octocode-awareness/host';
+import { projectExternalPlan } from '@octocodeai/octocode-awareness/host';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
 import { assertPersistentAwarenessEnabled } from '../storage-policy.js';
 import { appendSessionAuditForContext } from '../session-audit.js';
@@ -172,5 +172,4 @@ export function buildRfcReviewTldr(
     '- Review or start implementation: open the plan from /configuration',
   ].filter((line): line is string => typeof line === 'string').join('\n');
 }
-
 

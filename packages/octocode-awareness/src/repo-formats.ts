@@ -80,7 +80,7 @@ export function markdownRows(rows: AwarenessQueryRow[]): string {
           .replace(/([\\`*_{}\[\]()#+.!|~])/g, '\\$1'));
         return `- ${markdownCode(row['agent_id'])} ${name} (vendor=${markdownCode(row['agent_vendor'] || 'unknown')}; host=${markdownCode(row['agent_host'] || 'unknown')})`;
       }
-      const id = row['memory_id'] ?? row['plan_id'] ?? row['task_id'] ?? row['run_id'] ?? row['signal_id'] ?? row['refinement_id'] ?? row['file_path'] ?? row['metric'] ?? 'row';
+      const id = row['memory_id'] ?? row['plan_id'] ?? row['task_id'] ?? row['run_id'] ?? row['signal_id'] ?? row['file_path'] ?? row['metric'] ?? 'row';
       const label = row['label'] ? `[${cellToString(row['label'])}:${cellToString(row['importance'])}] ` : '';
       const title = row['task_context'] ?? row['subject'] ?? row['remember'] ?? row['name'] ?? row['title'] ?? row['rationale'] ?? row['metric'] ?? '';
       const text = row['observation'] ?? row['objective'] ?? row['reasoning'] ?? row['count'] ?? '';

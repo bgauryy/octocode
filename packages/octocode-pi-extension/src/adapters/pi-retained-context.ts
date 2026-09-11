@@ -1,5 +1,5 @@
 import { buildSessionContext } from '@earendil-works/pi-coding-agent';
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import type { PiContext } from '../types.js';
 
 export interface RetainedContextDigestOptions {

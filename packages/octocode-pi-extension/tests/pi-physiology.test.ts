@@ -101,7 +101,7 @@ describe('Pi physiology observer', () => {
     const observer = createPiPhysiologyObserver({ now: () => 10 });
     const ctx = context('session');
     await observer.sessionStart(ctx);
-    await observer.toolStart({ toolCallId: 'internal', toolName: 'bash', args: { command: 'npx @octocodeai/octocode-awareness attend --compact' } }, ctx);
+    await observer.toolStart({ toolCallId: 'internal', toolName: 'bash', args: { command: 'npx @octocodeai/octocode-awareness context orient --compact' } }, ctx);
     await observer.toolTerminal({ toolCallId: 'internal', toolName: 'bash', isError: false }, ctx);
     await observer.toolStart({
       toolCallId: 'internal-env',
@@ -118,7 +118,7 @@ describe('Pi physiology observer', () => {
     await observer.toolTerminal({
       toolCallId: 'internal-terminal-only',
       toolName: 'bash',
-      input: { queries: [{ reasoning: 'inspect coordination', command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" attend --compact' }] },
+      input: { queries: [{ reasoning: 'inspect coordination', command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" context orient --compact' }] },
       isError: false,
     }, ctx);
     await observer.toolTerminal({

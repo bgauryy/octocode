@@ -65,7 +65,6 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.1",
-    "@modelcontextprotocol/core": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "@octocodeai/agent-testing": "^0.1.0",
     "@types/node": "^24.13.4",

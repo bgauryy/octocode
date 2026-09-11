@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { defaultDbPath, type AwarenessCommandContext, type AwarenessStorageScope } from '@octocodeai/octocode-awareness';
+import type { AwarenessClientContext } from '@octocodeai/octocode-awareness';
+import { defaultDbPath, type AwarenessStorageScope } from '@octocodeai/octocode-awareness/host';
 import type { PiContext } from '../types.js';
 import { getAwarenessAgentIdentity } from './awareness-shared.js';
 import { resolveAwarenessCoordinationScope } from '../assets.js';
@@ -11,9 +12,9 @@ export function resolveAwarenessDatabase(workspace: string, scope: AwarenessStor
 }
 
 /** Native bindings use the explicit inherited DB when a worker runs in a worktree. */
-export function buildAwarenessContext(ctx?: PiContext): AwarenessCommandContext {
+export function buildAwarenessContext(ctx?: PiContext): AwarenessClientContext {
   const workspace = path.resolve(ctx?.cwd ?? process.cwd());
   const scope = resolveAwarenessCoordinationScope(workspace);
   const database = resolveAwarenessDatabase(workspace, scope);
-  return { workspace, scope, database, agentId: getAwarenessAgentIdentity(ctx).agentId, compact: true };
+  return { workspace, scope, database, agentId: getAwarenessAgentIdentity(ctx).agentId };
 }

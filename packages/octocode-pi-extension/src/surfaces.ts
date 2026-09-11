@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildAwarenessCommand } from './assets.js';
+import { buildAwarenessCliInvocation } from './assets.js';
 
 /** A command to spawn, or an actionable error explaining why it could not be built. */
 export type SurfaceSpec = { cmd: string; args: string[] } | { error: string };
@@ -21,7 +21,7 @@ export function buildSurfaceSpec(
     case 'memory':
     case 'awareness': {
       const prefix = verb === 'memory' ? ['memory'] : [];
-      return buildAwarenessCommand([...prefix, ...rest]);
+      return buildAwarenessCliInvocation([...prefix, ...rest]);
     }
     case 'tools':
       return { cmd: 'npx', args: ['octocode', 'tools', ...rest] };

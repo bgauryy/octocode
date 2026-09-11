@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { buildSessionContext } from '@earendil-works/pi-coding-agent';
 import { collectPiRetainedContentDigests } from '../src/adapters/pi-retained-context.js';
 

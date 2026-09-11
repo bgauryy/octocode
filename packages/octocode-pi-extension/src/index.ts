@@ -1,7 +1,7 @@
 import type {PromptMode} from '@octocodeai/agent-contracts/protocols';
 import fs from 'node:fs';
 import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from "@octocodeai/config";
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { openPersistentAwareness } from './tools/storage-policy.js';
 import { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
 export { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
@@ -115,7 +115,7 @@ import {
 } from './tools/interaction-broker.js';
 import { renderAwarenessCliContext } from './tools/awareness-cli-context.js';
 import { registerAwarenessTool } from './tools/awareness-tool.js';
-import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT, claimNativeHookOwner } from '@octocodeai/octocode-awareness/host';
 import { getAwarenessAgentId } from './tools/awareness-shared.js';
 import { registerRuntimeUiPhase } from './tools/runtime-ui-registration.js';
 import {
@@ -129,7 +129,6 @@ import {
 } from './tools/planning/plan-store.js';
 import { getCurrentPlanReadModel, renderPlanContext } from './tools/plan-read-model.js';
 import {
-  getCachedAwarenessStatus,
   refreshAwarenessPanel,
   suppressAwarenessPanel,
   resumeAwarenessPanel,
@@ -202,7 +201,6 @@ import {
   updateAwarenessRegistry,
 } from './adapters/pi-awareness-mutation.js';
 export { readPiPhysiology } from './adapters/pi-physiology.js';
-import { createOctocodeCronScheduler } from './scheduler.js';
 import type {BeforeAgentStartEvent, PiInstance, PiContext, OctocodePiExtensionOptions, SessionShutdownEvent, ThinkingLevelEvent, SkillInfo, NotifyFn} from './types.js';
 
 function notify(ctx: PiContext | undefined, message: string, level = 'info'): void {
@@ -247,7 +245,7 @@ export function formatStatus(baseDir?: string): string {
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
-    `awareness CLI: ${getAwarenessCLIPath(baseDir)} — user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <command> [action] --workspace "$PWD"`,
+    `awareness CLI: ${getAwarenessCLIPath(baseDir)} — user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
     `management CLI: npx octocode skill | lsp-server | auth (no bundled CLI — use npx octocode for management tasks)`,
     `disabled/replaced built-ins: overridden: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
     `web search: ${searchStatus}`,
@@ -298,7 +296,7 @@ export function listExtensionHarness(baseDir?: string): ExtensionHarness {
     extensionCommands: Object.values(EXTENSION_COMMANDS).map(command => `/${command.name}`),
     skills: listBundledSkills(baseDir),
     cliNote: `management: npx octocode skill | lsp-server | auth (no bundled CLI — use npx octocode for management tasks)`,
-    awarenessCliNote: `Awareness CLI: ${getAwarenessCLIPath(baseDir)}; user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <command> [action] --workspace "$PWD"`,
+    awarenessCliNote: `Awareness CLI: ${getAwarenessCLIPath(baseDir)}; user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
   };
 }
 
@@ -424,23 +422,6 @@ async function wireOctocodePiExtension(
   // One active session per extension instance. `session` is replaced wholesale on
   // session_start; see SessionScopedState for what that boundary guarantees.
   let session = freshSessionScopedState();
-  // Optional status checks call the structured Awareness API.
-  const cronScheduler = createOctocodeCronScheduler({
-    // Fires once per job run. Refresh the awareness panel immediately and show a
-    // TUI notification when new peer messages arrive — closes the 30-min lag gap
-    // between message arrival and the next user turn.
-    onJobComplete: (result, ctx) => {
-      if (result.status !== 'succeeded') return;
-      refreshAwarenessPanel(ctx);
-      const unread = getCachedAwarenessStatus(ctx?.cwd ?? process.cwd())?.unreadInbox ?? 0;
-      if (unread > 0 && unread !== session.lastCronUnreadAlerted) {
-        session.lastCronUnreadAlerted = unread;
-        notify(ctx, `${unread} unread peer message(s) — check inbox at your next turn.`, 'info');
-      } else if (unread === 0 && session.lastCronUnreadAlerted > 0) {
-        session.lastCronUnreadAlerted = 0;
-      }
-    },
-  });
   // Live footer ticker: while a turn is active, re-render the footer every second
   // so `active`/`session` durations advance (they are otherwise only refreshed on
   // turn/session events). Reads are in-memory only (no git/disk per tick); git
@@ -621,7 +602,6 @@ async function wireOctocodePiExtension(
       const canUseShutdownContext = reason === 'quit';
       awarenessMutationGate.cleanup();
       updateAwarenessRegistry('leave', undefined, latestSessionCwd);
-      cronScheduler.stop();
       stopMcpConfigWatchers();
       closeConfiguration(ctx);
       stopMetricsTicker();
@@ -880,10 +860,9 @@ async function wireOctocodePiExtension(
         runtimeStore.getState().setFooter({ githubAuth: authState });
         updateOctocodeMetricsUi(ctx);
       }));
-      cronScheduler.start(ctx);
       // Announce this session in the shared Awareness agent registry with
-      // its name and provider (peers discover IDs via `agent list` and use
-      // `signal publish --to-agent` to communicate).
+      // its name and provider. Peers discover it through context.orient and
+      // communicate with message.send.
       updateAwarenessRegistry('join', ctx);
       // Full MCP discovery at init: connect every enabled configured server and
       // cache only enabled tools with descriptions and exact input schemas.
@@ -980,6 +959,7 @@ async function wireOctocodePiExtension(
 
     hooks.on('session_start', 'octocode-session-start', async (event: { reason?: string }, ctx: PiContext | undefined) => {
       try {
+        claimNativeHookOwner({ workspace: ctx?.cwd ?? process.cwd(), host: 'pi' });
         await initializeOctocodeSession(ctx, event?.reason);
       } catch (error) {
         sessionRuntime?.store.getState().failed(error);

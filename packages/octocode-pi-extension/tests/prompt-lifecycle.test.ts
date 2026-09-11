@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { PROMPT_LIFECYCLE_MATRIX, canReprojectRehydratedSegment, promptLifecycleFor } from '../src/tools/prompt-lifecycle.js';
 
 describe('prompt lifecycle matrix', () => {

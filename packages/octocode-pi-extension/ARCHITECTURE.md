@@ -163,7 +163,7 @@ Registered in `registerSupportToolPhase` in [`src/index.ts`](src/index.ts):
 | `MCPTool` | `mcp-tool.ts` | MCP 2026-07-28 client → all research tools |
 
 The 14 support tools and guarded `bash` override form the direct palette. The native
-`awareness` facade handles catalog discovery and host-bound calls through imported `executeAwarenessCommand`. Checkpoints, history hooks and optional scheduled checks use the same API. The CLI is an external-host adapter. Native Pi registry, event delivery/policy,
+`awareness` facade executes the canonical Context, Work, Message, Memory, and History operations through a host-bound client. Pi owns history capture through its explicit host lifecycle API. The CLI is an external-host adapter. Native Pi registry, event delivery/policy,
 mutation guards and plan UI remain active.
 External CLI agents can participate through the same physical SQLite file and
 normalized workspace, using distinct stable IDs. Workers retain their physical
@@ -277,7 +277,7 @@ flowchart TD
   Assemble --> Provider[Prompt provider]
   Turn --> Live[Live turn context]
   Live --> Provider
-  Native[Native awareness tool] --> API[executeAwarenessCommand<br/>trusted host context]
+  Native[Native awareness tool] --> API[createAwarenessClient<br/>canonical operation]
   Events[Native Pi events] --> Consumer[awareness-event-consumer.ts<br/>single registered consumer]
   ToolCall[Tool call] --> Mutation[Mutation gate]
   API --> Store[(Awareness store)]

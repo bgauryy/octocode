@@ -28,7 +28,7 @@ export const memoryLabel = z.preprocess(normalizeMemoryLabel, z.enum(MEMORY_LABE
 export const memorySort = z.enum(['smart', 'score', 'importance', 'recent', 'accessed']).default('smart').describe('Sort order.');
 export const importanceLevel = z.number().int().min(1).max(10).describe('1-10 importance.');
 export const targetFiles = z.array(z.string().trim().min(1).max(1024)).min(1).max(200).describe('Files to lock.');
-export const awarenessQueryView = z.enum(['all', 'repo-profile', 'memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'locks', 'agents', 'signals', 'refinements', 'files', 'activity', 'workboard', 'developer-review']).default('all').describe('Awareness read view.');
+export const awarenessQueryView = z.enum(['all', 'repo-profile', 'memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'locks', 'agents', 'signals', 'files', 'activity', 'workboard']).default('all').describe('Awareness read view.');
 export const awarenessOutputFormat = z.enum(['json', 'table', 'csv', 'markdown', 'html']).default('json').describe('Output format.');
 // Signals — repo-scoped agent-to-agent messages. The `kind` enum is the
 // "smart" part: typed messages let recipients filter (e.g. only blockers) and

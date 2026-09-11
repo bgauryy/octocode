@@ -1,4 +1,4 @@
-import { formatExternalAgentCoordinationContext } from '@octocodeai/octocode-awareness';
+import { formatExternalAgentCoordinationContext } from '@octocodeai/octocode-awareness/host';
 
 /** Append bounded peer identities and the assigned durable handback path. */
 export function withPeerCoordination(

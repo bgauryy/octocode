@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness/host';
 import { awarenessEventStatusText, registerAwarenessEventConsumer, resolvePiEventConsumerId } from '../src/tools/awareness-event-consumer.js';
-import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness';
+import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness/host';
 import type { PiContext, PiInstance } from '../src/types.js';
 
 const workspace = '/work/repo';
@@ -210,7 +210,7 @@ describe('ordered Awareness event consumer', () => {
       provenance: { source: 'harness', trust: 'authority' },
       payload: { secret: 'internal-body' },
     });
-    const proposal = peerEvent(2, { payload: { messageId: 'm2', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', topic: 'APPROVAL', text: 'proposal-body' } });
+    const proposal = peerEvent(2, { payload: { messageId: 'm2', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', signalKind: 'approval', topic: 'APPROVAL', text: 'proposal-body' } });
     const wrongTarget = peerEvent(3, { payload: { messageId: 'm3', fromAgentId: 'peer-a', toAgentId: 'someone-else', text: 'wrong-body' } });
     const expired = peerEvent(4, { expiresAt: '2026-08-26T23:59:00.000Z', payload: { messageId: 'm4', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', text: 'expired-body' } });
     const malformed = peerEvent(5, { provenance: { source: 'peer', trust: 'authority' } });
@@ -470,7 +470,7 @@ describe('ordered Awareness event consumer', () => {
 
   it('alerts for a persisted blocking peer event once, even when acknowledgment retries', async () => {
     const fixture = fakeStore([peerEvent(1, {
-      payload: { messageId: 'msg-1', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', topic: 'BLOCKED', text: 'private-body' },
+      payload: { messageId: 'msg-1', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', signalKind: 'blocker', topic: 'BLOCKED', text: 'private-body' },
     })]);
     let firstAck = true;
     const store = { ...fixture.store, acknowledgeEvent: (params: Parameters<AwarenessEventStore['acknowledgeEvent']>[0]) => {

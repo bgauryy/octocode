@@ -38,13 +38,12 @@ describe('peer-only hook briefing', () => {
     for (let i = 0; i < 7; i++) send(`Question ${i}`, 'x'.repeat(900));
     const first = packet(peerBriefing(db, params)!);
     expect(first.partialReasons).toEqual(['limit', 'message_length']);
-    const listArgs = first.next.list.command.args as string[];
+    const listParams = first.next.list.params as Record<string, unknown>;
     const second = getNotifications(db, { agentId: 'owner', workspacePath: '/repo', cwd: '/repo',
-      cursor: listArgs[listArgs.indexOf('--cursor') + 1], limit: 5 });
+      cursor: String(listParams.cursor), limit: 5 });
     expect(new Set([...first.signals.map((s: { signal_id: string }) => s.signal_id), ...second.signals.map(s => s.signal_id)]).size).toBe(7);
     expect(second.partial).toBe(false);
-    const readArgs = first.next.read.command.args as string[];
-    const ids = readArgs.flatMap((arg, i) => arg === '--signal-id' ? [readArgs[i + 1]!] : []);
+    const ids = first.next.read.params.signal_id as string[];
     const full = getNotifications(db, { agentId: 'owner', workspacePath: '/repo', cwd: '/repo', signalIds: ids, unreadOnly: false });
     expect(full.signals).toHaveLength(5);
     expect(full.signals.every(s => s.body?.length === 900)).toBe(true);

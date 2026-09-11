@@ -4,19 +4,23 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import {
   runPreEditLockGate,
-  storageScopeForCommand,
+  storageScopeForOperation,
   type AwarenessStorageScope,
   type PreEditHookResult,
   type PreEditHookOptions,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 
 const extensionDir = path.dirname(fileURLToPath(import.meta.url));
+const defaultAssetDir =
+  path.basename(extensionDir) === 'src'
+    ? path.join(path.dirname(extensionDir), 'dist')
+    : extensionDir;
 const requireFromExtension = createRequire(import.meta.url);
 
 // One root package and one CLI serve both the harness and external agents.
 export const AWARENESS_PACKAGE = '@octocodeai/octocode-awareness';
 
-export interface AwarenessCommandSpec {
+export interface AwarenessCliInvocation {
   cmd: string;
   args: string[];
 }
@@ -29,9 +33,9 @@ export function resolveAwarenessCliPath(): string {
  * Build a spawn spec (`node cli.js …`) for the Awareness bin. Retained for
  * the surfaces the model/user or a foreign host invokes as a real command:
  * launcher verbs (surfaces.ts) and the `$OCTOCODE_AWARENESS_CLI` env var. The
- * extension's own calls import executeAwarenessCommand directly.
+ * extension host adapters import the explicit Awareness host API.
  */
-export function buildAwarenessCommand(args: string[] = []): AwarenessCommandSpec {
+export function buildAwarenessCliInvocation(args: string[] = []): AwarenessCliInvocation {
   return { cmd: process.execPath, args: [resolveAwarenessCliPath(), ...args] };
 }
 
@@ -41,7 +45,7 @@ export function runAwarenessPreEdit(options: PreEditHookOptions): PreEditHookRes
 }
 
 export function resolveAwarenessCoordinationScope(workspace: string): AwarenessStorageScope {
-  return storageScopeForCommand('coordination', workspace);
+  return storageScopeForOperation('context.orient', workspace);
 }
 
 export interface AssetPaths {
@@ -53,7 +57,7 @@ export interface AssetPaths {
   awarenessCliPath: string;
 }
 
-export function getAssetPaths(baseDir = extensionDir): AssetPaths {
+export function getAssetPaths(baseDir = defaultAssetDir): AssetPaths {
   return {
     baseDir,
     docsDir: path.join(baseDir, 'docs'),

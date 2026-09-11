@@ -1,4 +1,4 @@
-import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness/host';
 import {
   INTERACTION_CONTEXT_GUIDANCE,
   LOCAL_TOOL_GUIDANCE,

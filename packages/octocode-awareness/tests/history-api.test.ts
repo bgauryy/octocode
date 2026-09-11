@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { connectDb } from '../src/db-runtime.js';
-import { execHistoryCli, runAwarenessHistoryOperation } from '../src/history-api.js';
+import { runAwarenessHistoryOperation } from '../src/history-api.js';
 
 describe('history-api lazy facade', () => {
   let root: string;
@@ -27,15 +27,5 @@ describe('history-api lazy facade', () => {
   it('runAwarenessHistoryOperation loads the history backend on demand', async () => {
     const result = await runAwarenessHistoryOperation(db, 'status', { workspace });
     expect(result).toBeTypeOf('object');
-  });
-
-  it('execHistoryCli routes argv through the shared CLI runner', async () => {
-    const result = await execHistoryCli([
-      'history', 'timeline', '--workspace', workspace, '--db', join(root, 'awareness.sqlite3'), '--limit', '5', '--compact',
-    ]);
-    expect(result).toHaveProperty('code');
-    expect(result).toHaveProperty('stdout');
-    expect(result).toHaveProperty('stderr');
-    expect(JSON.parse(result.stdout)).toBeTypeOf('object');
   });
 });

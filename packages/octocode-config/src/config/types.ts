@@ -11,6 +11,9 @@ export interface LocalConfigOptions {
 
   enableClone?: boolean;
 
+  /** Opt in to hash-guarded astRewrite file mutation; preview remains available. */
+  enableAstRewriteApply?: boolean;
+
   allowedPaths?: string[];
 
   workspaceRoot?: string;
@@ -96,6 +99,7 @@ export interface RequiredGitHubConfig {
 export interface RequiredLocalConfig {
   enabled: boolean;
   enableClone: boolean;
+  enableAstRewriteApply: boolean;
   allowedPaths: string[];
   workspaceRoot: string | undefined;
 }

@@ -67,6 +67,10 @@
       "description": "Inspect local syntax, symbols, structural matches, files, trees, and graph topology"
     },
     {
+      "name": "astRewrite",
+      "description": "Preview or apply transactional structural rewrites with exact file-hash preconditions"
+    },
+    {
       "name": "localFetch",
       "description": "Read local file content with minification and exact slices"
     },

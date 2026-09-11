@@ -1,4 +1,4 @@
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PiContext } from '../src/types.js';
 import { mergeCompactionRehydrationCaptures } from '../src/tools/compaction-hooks.js';

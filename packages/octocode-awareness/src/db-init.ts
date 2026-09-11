@@ -11,8 +11,8 @@ import {
 } from './db-introspection.js';
 import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { withSqliteBusyRetry } from '@octocodeai/agent-contracts/sqlite';
-import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
-import { AWARENESS_SCHEMA_VERSION, FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
+import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from './storage-scope.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { hasFts, rebuildFts } from './db-maintenance.js';
 import { HISTORY_CAPTURE_DURABILITY_DDL } from './db-history-schema.js';
 import { utcNow } from './helpers.js';
@@ -32,7 +32,7 @@ export function initDb(db: DatabaseSync, knownState?: SchemaState): void {
     assertDatabaseIntegrity(db);
     return;
   }
-  if (state.startsWith('event-envelope-') || state.startsWith('worker-lifecycle-')) {
+  if (state === 'schema-generation-upgrade' || state.startsWith('event-envelope-') || state.startsWith('worker-lifecycle-')) {
     throw new Error(`recognized ${state} Awareness store; use database migration preview/apply to create a copy-on-write v${AWARENESS_SCHEMA_VERSION} destination. The source has not been changed.`);
   }
   if (state === 'legacy-renamed-predecessor') {

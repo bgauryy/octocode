@@ -52,7 +52,7 @@ describe('MCP registration and dispatch adapter parity', () => {
     return { coreTools, mcpTools, mcp };
   }
 
-  it('registers exactly the canonical ten names and schemas', async () => {
+  it('registers exactly the canonical eleven names and schemas', async () => {
     const { coreTools, mcpTools, mcp } = await createFixtureMcp();
     expect(mcpTools.map(tool => tool.name)).toEqual(
       CANONICAL_ADAPTER_TOOL_NAMES

@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-One reference for every Octocode research tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
+This is the field-level reference for the research surface of the Octocode agentic toolkit. It covers every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
 
 Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
@@ -106,7 +106,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 
 ## Internal, external, and hybrid tools
 
-"External" describes the data or provider boundary, not the MCP transport. All ten tools can be called through MCP or the CLI.
+"External" describes the data or provider boundary, not the MCP transport. All eleven tools can be called through MCP or the CLI.
 
 | Tool | Boundary | How it works |
 | --- | --- | --- |
@@ -118,6 +118,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `ghCloneRepo` | Hybrid | Uses provider credentials/network access, then atomically materializes a full or sparse repository under managed local storage. Disabled unless cloning and local storage are enabled. |
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
 | `astSearch` | Internal/local | Runs structural AST, filesystem, tree, symbol, and topology queries against allowed local paths. |
+| `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with rollback on reported errors. Apply mode is separately opt-in and is not crash-atomic. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 
@@ -413,7 +414,7 @@ Find packages for a capability, resolve a known dependency to registry metadata,
 | `keywords` | One or more discovery terms as an array. PyPI supports exact lookup only. |
 | `cursor` | Opaque discovery continuation; copy the complete returned `next.nextPage` query. Exact lookup has no pagination controls. |
 | `pageSize` | Discovery result count, default 10, range 1–100. |
-| `registry` | npm-only HTTP(S) registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
+| `registry` | npm-only HTTP or HTTPS registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
 
 <!-- tool: artifactSearch -->
 ```json

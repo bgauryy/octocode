@@ -1,5 +1,5 @@
 import { openPersistentAwareness } from './storage-policy.js';
-import { loadWorkspacePolicy } from '@octocodeai/octocode-awareness';
+import { loadWorkspacePolicy } from '@octocodeai/octocode-awareness/host';
 
 interface WorkerIdentity { awarenessAgentId?: string; awarenessWorkspace?: string; awarenessDatabase?: string }
 interface AuditStore {
@@ -16,7 +16,7 @@ export interface WorkerAwarenessInspection {
   staleActiveRunIds?: string[];
   runIds?: string[];
   partial?: boolean;
-  next?: { command: 'verify audit'; args: string[] };
+  next?: { operation: 'work.verify'; params: { action: 'audit' } };
 }
 
 /** Routine worker completion does not opt a session into verification bookkeeping. */
@@ -46,7 +46,7 @@ export function inspectWorkerAwareness(
       ...base, status: audit.pendingCount || audit.staleActiveCount ? 'pending' : 'clear', pendingCount: audit.pendingCount,
       staleActiveCount: audit.staleActiveCount, staleActiveRunIds: audit.staleActive.slice(0, 20).map(row => row.runId),
       runIds: audit.pending.slice(0, 20).map(row => row.runId), partial: audit.pendingCount > 20 || audit.staleActiveCount > 20,
-      next: { command: 'verify audit', args: ['--agent-id', agentId, '--workspace', workspace, ...(identity.awarenessDatabase ? ['--db', identity.awarenessDatabase] : []), '--compact'] },
+      next: { operation: 'work.verify', params: { action: 'audit' } },
     };
   } catch {
     return { ...base, status: 'unavailable' };

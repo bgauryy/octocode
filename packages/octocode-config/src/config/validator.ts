@@ -186,6 +186,12 @@ function validateLocal(local: unknown, errors: string[]): void {
   );
   if (enableCloneError) errors.push(enableCloneError);
 
+  const enableAstRewriteApplyError = validateBoolean(
+    loc.enableAstRewriteApply,
+    'local.enableAstRewriteApply'
+  );
+  if (enableAstRewriteApplyError) errors.push(enableAstRewriteApplyError);
+
   const allowedPathsError = validateStringArray(
     loc.allowedPaths,
     'local.allowedPaths'
@@ -365,7 +371,13 @@ export function validateConfig(config: unknown): ValidationResult {
   warnUnknownObjectKeys(
     cfg.local,
     'local',
-    ['enabled', 'enableClone', 'allowedPaths', 'workspaceRoot'],
+    [
+      'enabled',
+      'enableClone',
+      'enableAstRewriteApply',
+      'allowedPaths',
+      'workspaceRoot',
+    ],
     warnings
   );
   warnUnknownObjectKeys(cfg.storage, 'storage', ['mode'], warnings);

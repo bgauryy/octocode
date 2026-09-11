@@ -20,7 +20,7 @@ describe('terminal worker Awareness inspection', () => {
     const result = inspectWorkerAwareness({ awarenessAgentId: 'a', awarenessWorkspace: '/repo' }, () => ({
       auditChecks: () => ({ pendingCount: 51, pending: Array.from({ length: 51 }, (_, n) => ({ runId: `r-${n}` })), staleActiveCount: 0, staleActive: [] }), close() {},
     }));
-    expect(result).toMatchObject({ pendingCount: 51, partial: true, next: { command: 'verify audit', args: ['--agent-id', 'a', '--workspace', '/repo', '--compact'] } });
+    expect(result).toMatchObject({ pendingCount: 51, partial: true, next: { operation: 'work.verify', params: { action: 'audit' } } });
     expect(result.runIds).toHaveLength(20);
   });
 });

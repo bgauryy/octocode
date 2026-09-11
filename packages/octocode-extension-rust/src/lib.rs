@@ -1,4 +1,5 @@
 mod diff;
+mod digest_hex;
 pub mod evidence;
 pub mod filesystem;
 pub mod git_object;

@@ -35,7 +35,7 @@ describe('directToolCatalog', () => {
     );
   });
 
-  it('discovers exactly the 10 canonical public tools in contract order', () => {
+  it('discovers exactly the 11 canonical public tools in contract order', () => {
     const names = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
     expect(names).toEqual([
       'ghSearch',
@@ -46,6 +46,7 @@ describe('directToolCatalog', () => {
       'ghCloneRepo',
       'localSearch',
       'astSearch',
+      'astRewrite',
       'localFetch',
       'lspSearch',
     ]);

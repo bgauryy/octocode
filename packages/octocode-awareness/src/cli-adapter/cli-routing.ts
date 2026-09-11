@@ -1,7 +1,6 @@
 import type { ParsedArgs } from '../commands/args.js';
 import { die } from '../command-output.js';
 import { BOOLEAN_FLAGS, NUMERIC_FLAGS, RETENTION_DAY_FLAGS, VALUE_REQUIRED_FLAGS } from '../command-parser.js';
-import { COMMAND_ROUTES } from '../commands/routes.js';
 
 /**
  * Reject silently-coerced flag values: non-integer numeric flags and
@@ -55,53 +54,6 @@ export function extractGlobalDb(argv: string[]): { dbPath: string | null; dbScop
   return { dbPath, dbScope, filtered };
 }
 
-export const SINGLE_COMMANDS = new Set(['query', 'attend', 'schema', 'status']);
-export const UNKNOWN_COMMAND = '__unknown__';
-
 export function normalizeToken(value: string | undefined): string | undefined {
   return value?.replace(/_/g, '-');
-}
-
-export function selectCommand(argv: string[]): { command: string | undefined; rest: string[] } {
-  const [firstRaw, secondRaw, thirdRaw, ...tail] = argv;
-  const first = normalizeToken(firstRaw);
-  if (!first) return { command: undefined, rest: [] };
-  if (first.startsWith('-')) {
-    // Tolerate a leading global flag (e.g. `--compact workspace status`): pull
-    // it off, re-select on the remainder, and re-append it so parseArgs still
-    // sees it. Without this the whole argv was mis-read as one unknown command.
-    if (first === '--compact' && argv.length > 1) {
-      const sel = selectCommand(argv.slice(1));
-      if (sel.command && sel.command !== UNKNOWN_COMMAND) {
-        return { command: sel.command, rest: [...sel.rest, '--compact'] };
-      }
-    }
-    return argv.every((arg) => arg === '--compact')
-      ? { command: undefined, rest: argv }
-      : { command: UNKNOWN_COMMAND, rest: argv };
-  }
-
-  const second = normalizeToken(secondRaw);
-  if (first === 'hook' && second === 'run') {
-    return { command: 'hook-run', rest: thirdRaw ? [thirdRaw, ...tail] : tail };
-  }
-  if (first === 'hooks' && second) {
-    if (second === 'install') return { command: 'hooks-install', rest: thirdRaw ? [thirdRaw, ...tail] : tail };
-    if (second === 'check') return { command: 'hooks-install', rest: ['--check', ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
-    if (second === 'remove') return { command: 'hooks-install', rest: ['--remove', ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
-  }
-  if (first === 'schema') {
-    return { command: 'schema', rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
-  }
-
-  if (second) {
-    const route = COMMAND_ROUTES[`${first} ${second}`];
-    if (route) return { command: route.command, rest: [...(route.action ? ['--action', route.action] : []), ...(thirdRaw ? [thirdRaw, ...tail] : tail)] };
-  }
-
-  if (SINGLE_COMMANDS.has(first)) {
-    return { command: first, rest: secondRaw ? [secondRaw, ...(thirdRaw ? [thirdRaw, ...tail] : tail)] : [] };
-  }
-
-  return { command: UNKNOWN_COMMAND, rest: argv };
 }

@@ -10,8 +10,8 @@ import type { PiContext, PiInstance } from '../src/types.js';
 import { disableBuiltinTools, formatStatus, formatPromptBudget, getInternalErrorLogPath, listExtensionHarness } from '../src/index.js';
 import { MANAGED_BLOCK_END, MANAGED_BLOCK_START, SYSTEM_PROMPT_MARKER, DISABLED_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
 import { applyOctocodeUi, getThinkingStatus } from '../src/extension-ui.js';
-import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCommand, getInstallSource, listBundledSkills, readTextIfExists, resolveAwarenessCoordinationScope } from '../src/assets.js';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCliInvocation, getInstallSource, listBundledSkills, readTextIfExists, resolveAwarenessCoordinationScope } from '../src/assets.js';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '@octocodeai/agent-contracts/prompts';
 import { getAppendSystemTarget, parseSetupScope, splitArgs, truncateUserVisibleToolOutput } from '../src/utils.js';
 import { mergeManagedAppendSystem } from '../src/prompt.js';
@@ -445,7 +445,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
     'awareness runtime assets are not bundled under dist/awareness'
   );
 
-  const schemaSpec = buildAwarenessCommand(['schema', 'commands', '--compact']);
+  const schemaSpec = buildAwarenessCliInvocation(['schema', 'commands', '--compact']);
   assert.equal(schemaSpec.cmd, process.execPath, 'Awareness schema smoke uses local Node runtime');
   assert.match(schemaSpec.args[0]!, /octocode-awareness.*octocode-awareness\.js$/, 'schema smoke uses installed scoped package CLI');
   const schemaOutput = execFileSync(
@@ -2825,8 +2825,8 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
     );
     assert.deepEqual(
       resourcesResult,
-      {},
-      'source-mode tests have no src/skills directory'
+      { skillPaths: [getAssetPaths().skillsDir] },
+      'source-mode execution publishes the built skill bundle'
     );
 
     flagValues.set('no-context', true);
@@ -3652,7 +3652,7 @@ test('Awareness pre-edit gate blocks lock conflicts', async () => {
         const after = store.listWork({ filePath: 'README.md', agentId: 'agent-b' })[0];
         assert.ok(after, 'native completion must preserve manually owned work');
         assert.equal(after.runId, before.runId);
-        const command = buildAwarenessCommand(['--db', store.dbPath, 'work', 'show', '--kind', 'presence', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
+        const command = buildAwarenessCliInvocation(['--db', store.dbPath, 'work', 'show', '--kind', 'presence', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
         const shown = JSON.parse(execFileSync(command.cmd, command.args, { encoding: 'utf8' })) as { files: Array<{ run_id: string; test_plan: string }> };
         assert.equal(shown.files.find((row) => row.run_id === before.runId)?.test_plan, 'yarn test', 'automatic presence must preserve the declared verification contract');
       } finally { store.close(); }

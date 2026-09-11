@@ -58,6 +58,9 @@ export interface GraphCoverage {
       | 'parse-recovery'
       | 'unsupported-linking'
       | 'unresolved-internal'
+      | 'scan-skip'
+      | 'facts-decode-failed'
+      | 'facts-schema-unsupported'
       | 'syntax-only';
     message: string;
   }>;
@@ -143,6 +146,8 @@ export type FileGraphEdgeKind =
   | 'c-include';
 
 export interface RawGraphFacts {
+  /** Additive native envelope version; absent only in legacy fixtures/binaries. */
+  schemaVersion?: number;
   language?: string;
   commonJs?: Array<{
     specifier?: string;

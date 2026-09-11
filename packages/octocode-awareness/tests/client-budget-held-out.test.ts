@@ -7,8 +7,6 @@ import { connectDb } from '../src/db-runtime.js';
 import { runAwarenessHistoryOperation } from '../src/history.js';
 import {
   getAwarenessOperationDescriptor,
-  operationCallForLegacyCommand,
-  resolveAwarenessOperation,
 } from '../src/schema/operation-catalog.js';
 
 const roots: string[] = [];
@@ -101,18 +99,4 @@ describe('canonical operation catalog held-out behavior', () => {
     expect(result.undo_preview).toEqual({ operation: 'history.restore', params: { preview_id: 'preview-1', action: 'apply' } });
   });
 
-  it('covers default selection, explicit resolution, and compatibility boundaries', () => {
-    expect(operationCallForLegacyCommand('attend', {})).toBeUndefined();
-    expect(operationCallForLegacyCommand('missing route', {})).toBeUndefined();
-    expect(operationCallForLegacyCommand('history restore-preview', {
-      workspace: '/host', compact: true, action: 'ignored', operation_id: 'op-1', side: 'before',
-    })).toEqual({ operation: 'history.restore', params: { operation_id: 'op-1', side: 'before', action: 'preview' } });
-    expect(resolveAwarenessOperation({ operation: 'work.list' }))
-      .toEqual({ command: 'work list', params: { all: false, full: false } });
-    expect(resolveAwarenessOperation({
-      operation: 'work.protect', params: { action: 'release', target_file: ['src/a.ts'] },
-    })).toEqual({ command: 'lock release', params: { target_file: ['src/a.ts'], status: 'PENDING' } });
-    expect(() => resolveAwarenessOperation({ operation: 'missing' } as never))
-      .toThrow('Unknown Awareness operation: missing');
-  });
 });

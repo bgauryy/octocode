@@ -1,6 +1,6 @@
 # `@octocodeai/pi-extension`
 
-The official Octocode package for Pi. It combines Octocode research through MCP with guarded file and shell operations, subagents, skills, media workflows, planning, and a live settings interface.
+The Pi host layer of the Octocode agentic toolkit. It combines Octocode research through MCP with guarded file and shell operations, subagents, skills, media workflows, planning, and a live settings interface.
 
 The Pi host SDK (`@earendil-works/pi-coding-agent` 0.85.1) is a required peer dependency because the extension imports its runtime APIs.
 

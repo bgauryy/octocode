@@ -150,7 +150,10 @@ impl FingerprintTask {
             file.recheck(path, &self.cancelled).map_err(reason)?;
         }
         self.check()?;
-        Ok(format!("{PREFIX}{:x}", hasher.finalize()))
+        Ok(format!(
+            "{PREFIX}{}",
+            crate::digest_hex::lower_hex(hasher.finalize())
+        ))
     }
 }
 
@@ -237,7 +240,10 @@ mod tests {
         ));
         assert_eq!(
             result.fingerprint,
-            Some(format!("{PREFIX}{:x}", hash.finalize()))
+            Some(format!(
+                "{PREFIX}{}",
+                crate::digest_hex::lower_hex(hash.finalize())
+            ))
         );
         assert_eq!(result.files, 1);
         assert_eq!(result.bytes, 0.0);
@@ -290,9 +296,18 @@ mod tests {
         assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_err());
         drop(captured);
         let captured = EvidenceFile::open(path.to_str().unwrap(), &cancel).unwrap();
-        fs::rename(&parent, root.join("old-parent")).unwrap();
-        fs::create_dir(&parent).unwrap();
-        fs::write(&path, b"12345").unwrap();
-        assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_err());
+        match fs::rename(&parent, root.join("old-parent")) {
+            Ok(()) => {
+                fs::create_dir(&parent).unwrap();
+                fs::write(&path, b"12345").unwrap();
+                assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_err());
+            }
+            Err(error) if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Windows may prevent replacing an ancestor while the pinned evidence
+                // handle is live. The original path must remain the captured file.
+                assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_ok());
+            }
+            Err(error) => panic!("failed to replace evidence ancestor: {error}"),
+        }
     }
 }

@@ -7,7 +7,7 @@ import {
   AwarenessInputError,
   commandOutput,
   emit,
-  type AwarenessCommandOutput,
+  type AwarenessOperationOutput,
 } from './command-output.js';
 import {
   MAX_CLI_RETRY_INTERVAL_SECONDS,
@@ -30,8 +30,9 @@ import { HistoryError } from './history-store.js';
 import { commandSchemaProperties } from './schema/command-properties.js';
 import { DEFAULT_RETRY_MS, DEFAULT_WAIT_MS } from './maintenance-stale.js';
 import { waitForLock } from './maintenance-session.js';
-import type { CanonicalExecutionContext, CanonicalOperationResult, CanonicalRouteBinding } from './operation-contracts.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import type { AwarenessOperationResult, CanonicalExecutionContext, CanonicalRouteBinding } from './operation-contracts.js';
+import type { AwarenessOperationCall } from './schema/operation-types.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
 const validators = new Map<string, z.ZodType>();
 const hash = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -154,14 +155,15 @@ async function executeDomainHandler(
   }
 }
 
-/** Canonical operation execution path: direct domain binding, no legacy registry or dispatcher. */
+/** Canonical operation execution path with direct domain binding. */
 export async function executeCanonicalRoute(
+  operation: string,
   binding: CanonicalRouteBinding,
   input: Record<string, unknown>,
   context: CanonicalExecutionContext,
-): Promise<CanonicalOperationResult> {
+): Promise<AwarenessOperationResult> {
   const command = binding.command;
-  const output: AwarenessCommandOutput = { command, compact: true, text: '', diagnostics: [] };
+  const output: AwarenessOperationOutput = { command, compact: true, text: '', diagnostics: [] };
   return commandOutput.run(output, async () => {
     try {
       context.signal?.throwIfAborted();
@@ -175,9 +177,7 @@ export async function executeCanonicalRoute(
       bindHost(params, properties, 'session_id', context.sessionId);
       validate(command, params, binding.schema as Record<string, unknown>);
       const workspace = normalizeWorkspacePath(context.workspace, context.workspace) ?? resolve(context.workspace);
-      const storageCommand = binding.handler === 'memory-record' ? 'tell-memory'
-        : binding.handler === 'memory-recall' ? 'get-memory' : command;
-      const scope = storageScopeForCommand(storageCommand, workspace, context.scope);
+      const scope = storageScopeForOperation(operation, workspace, context.scope);
       const dbPath = resolveDbPath(context.database, { scope, workspace });
       const db = connectDb(dbPath);
       // Memory evidence performs filesystem reads before its domain-owned
@@ -203,7 +203,7 @@ export async function executeCanonicalRoute(
           try {
             ensureCanonicalMutationEvent(db, {
               workspace, actorId: context.agentId, sessionId: context.sessionId,
-              command, beforeSequence, payload: { effect: binding.effect },
+              command: operation, beforeSequence, payload: { effect: binding.effect },
             });
             if (!outer) eventWrite.commit();
           } catch (error) {
@@ -247,7 +247,7 @@ interface AttendDetail {
   workboard?: Record<string, Array<Record<string, unknown>>>;
   counts?: Record<string, number>;
   operational_state?: { unavailable?: unknown[]; context?: { pressure?: string } };
-  next?: { continuations?: Array<{ command?: string; params?: Record<string, unknown> }> };
+  next?: { continuations?: AwarenessOperationCall[] };
 }
 
 function itemSummary(row: Record<string, unknown>) {
@@ -268,13 +268,13 @@ function itemSummary(row: Record<string, unknown>) {
 export async function executeContextOrient(
   context: CanonicalExecutionContext,
   input: OrientParams = {},
-): Promise<CanonicalOperationResult> {
+): Promise<AwarenessOperationResult> {
   const limit = input.limit ?? 3;
   const offset = input.offset ?? 0;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 3) throw new Error('context.orient limit must be an integer from 1 to 3');
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('context.orient offset must be a non-negative integer');
   const workspace = resolve(context.workspace);
-  const scope = storageScopeForCommand('attend', workspace, context.scope);
+  const scope = storageScopeForOperation('context.orient', workspace, context.scope);
   const dbPath = resolveDbPath(context.database, { scope, workspace });
   const db = connectDb(dbPath);
   db.exec('BEGIN');

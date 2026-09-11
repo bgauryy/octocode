@@ -1,15 +1,25 @@
-import { execFile, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = resolve(packageRoot, 'out/octocode-awareness.js');
+const hostApi = pathToFileURL(resolve(packageRoot, 'out/host-api.js')).href;
 const roots: string[] = [];
+
+const CAPTURE = `
+const [moduleUrl, database, workspace, agentId, operationId] = process.argv.slice(1);
+const { createAwarenessHost } = await import(moduleUrl);
+const result = await createAwarenessHost({ database, workspace, agentId }).captureHistory({
+  phase: 'before', operation_id: operationId, file: ['shared.bin'],
+});
+process.stdout.write(JSON.stringify(result));
+`;
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -33,17 +43,11 @@ describe('local-history process concurrency', () => {
     const db = join(root, 'awareness.sqlite3');
     writeFileSync(join(workspace, 'shared.bin'), Buffer.from([0, 1, 2, 255]));
     const env = { ...process.env, PATH: '', OCTOCODE_HOME: join(root, '.home') };
-    const init = spawnSync(process.execPath, args(db, ['maintenance', 'init']), {
-      cwd: workspace, env, encoding: 'utf8', timeout: 30_000,
-    });
-    expect(init.status, init.stderr || init.stdout).toBe(0);
-
     const captures = await Promise.allSettled(Array.from({ length: 8 }, async (_, index) => {
       const operationId = `process-${index}`;
-      const result = await execFileAsync(process.execPath, args(db, [
-        'history', 'capture', '--workspace', workspace, '--agent-id', `agent-${index}`,
-        '--phase', 'before', '--operation-id', operationId, '--file', 'shared.bin',
-      ]), { cwd: workspace, env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+      const result = await execFileAsync(process.execPath, [
+        '--input-type=module', '--eval', CAPTURE, hostApi, db, workspace, `agent-${index}`, operationId,
+      ], { cwd: workspace, env, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
       const body = parse(result.stdout);
       expect(body['ok']).toBe(true);
       expect(body['operation']).toMatchObject({ operation_id: operationId, status: 'open' });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'vitest';
-import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness/host';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
 import { PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
 import { buildPiSystemPrompt, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
@@ -20,11 +20,10 @@ function rolePrompt(role: (typeof roleNames)[number]): string {
 test('standing Awareness policy keeps optional work and administration on demand', () => {
   assert.match(AWARENESS_PI_HOST_PROMPT, /Work is optional/);
   assert.match(AWARENESS_PI_HOST_PROMPT, /Load operator guidance only/);
-  assert.doesNotMatch(AWARENESS_PI_HOST_PROMPT, /work end|task submit|verify mark/);
+  assert.match(AWARENESS_PI_HOST_PROMPT, /Use five concepts/);
   const guide = getExternalAgentAwarenessGuide().prompt;
-  assert.match(guide, /run that declared check.*work end.*task submit.*PENDING.*verify mark/is);
-  assert.ok(guide.indexOf('work end') < guide.indexOf('verify mark'));
-  assert.match(guide, /Reuse host run\/task IDs/);
+  assert.match(guide, /Work\.verify only after observing the declared check/);
+  assert.match(guide, /Reuse host database, workspace and identity/);
 });
 
 test('plan mode uses a conversational RFC flow with one Start decision and no tool restrictions', () => {
@@ -91,7 +90,6 @@ test('all typed role prompts expand the same shared protocol and preserve parser
     const composed = `${expanded}\n\n${AWARENESS_PI_HOST_PROMPT}`;
     assert.equal(composed.split(AWARENESS_PI_HOST_PROMPT).length, 2, `${role} has one canonical operating guide`);
     assert.equal((composed.match(/<awareness>/g) ?? []).length, 1);
-    assert.doesNotMatch(composed, /Send new signals with signal publish/);
     assert.match(composed, /Work\.verify only after observing the declared check/);
     assert.match(expanded, /native Awareness for coordination/i, `${role} uses native coordination`);
     assert.match(expanded, /only when unavailable.*bound CLI/, `${role} limits CLI fallback to hosts without the native tool`);

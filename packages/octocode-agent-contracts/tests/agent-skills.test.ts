@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe('Agent Skills specification', () => {
   it('parses full YAML metadata and keeps allowed-tools informational', () => {
-    const parsed = parseAgentSkill(`---\nname: release-check\ndescription: >-\n  Run release checks safely across packages.\nlicense: MIT\ncompatibility: Requires Node.js 22+\nmetadata:\n  author: octocode\n  version: "1"\nallowed-tools: Bash(git:*) Read\n---\n# Release\n\nRun the checks.`, 'release-check');
+    const parsed = parseAgentSkill(`---\nname: release-check\ndescription: >-\n  Run release checks safely across packages.\nlicense: MIT\ncompatibility: Requires Node.js 24+\nmetadata:\n  author: octocode\n  version: "1"\nallowed-tools: Bash(git:*) Read\n---\n# Release\n\nRun the checks.`, 'release-check');
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.skill.description).toBe('Run release checks safely across packages.');

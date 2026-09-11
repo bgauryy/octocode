@@ -14,7 +14,7 @@ export const HOOK_RECEIPTS_DDL = `
       workspace_path TEXT NOT NULL,
       host           TEXT NOT NULL CHECK(host IN ('claude','codex','copilot','cursor','gemini','opencode')),
       event          TEXT NOT NULL,
-      status         TEXT NOT NULL CHECK(status IN ('success','failure')),
+      status         TEXT NOT NULL CHECK(status IN ('success','degraded','failure')),
       last_seen_at   TEXT NOT NULL,
       PRIMARY KEY(workspace_path, host, event)
     );

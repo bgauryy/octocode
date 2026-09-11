@@ -20,18 +20,12 @@ export const MEMORY_LABEL_VALUES = [
   'BUG', 'FEATURE', 'SUGGESTION', 'GOTCHA', 'IMPROVEMENT', 'DECISION',
   'ARCHITECTURE', 'SECURITY', 'PERFORMANCE', 'TEST', 'BUILD', 'DOCS',
   'CONFIG', 'WORKFLOW', 'REFACTOR', 'API', 'RELEASE', 'INCIDENT',
-  'EXPERIENCE', // post-task reflections (worked/partial/failed outcomes)
+  'EXPERIENCE', // post-task outcomes (worked/partial/failed)
   'OVERRIDE',   // contradicts model training defaults (e.g. "this repo uses Bun, not npm")
   'OTHER',
 ] as const;
 
 export const MEMORY_LABELS = new Set<string>(MEMORY_LABEL_VALUES);
-
-export const REFLECTION_IMPORTANCE: Record<string, number> = {
-  failed: 8,
-  partial: 6,
-  worked: 5,
-};
 
 // ─── Time ─────────────────────────────────────────────────────────────────────
 
@@ -53,11 +47,6 @@ export function parseJsonList(value: unknown): string[] {
   } catch {
     return [];
   }
-}
-
-/** Comma-surrounded tags string for LIKE searches: `,tag1,tag2,` */
-export function tagsText(tags: string[]): string {
-  return tags.length === 0 ? ',' : ',' + tags.join(',') + ',';
 }
 
 // ─── Normalizers ─────────────────────────────────────────────────────────────
@@ -117,19 +106,6 @@ export function normalizeNotificationKind(value: unknown): (typeof NOTIFICATION_
   throw new Error(
     `invalid signal kind "${String(value)}"; allowed: ${NOTIFICATION_KIND_VALUES.join(', ')}`,
   );
-}
-
-export const REFLECTION_OUTCOME_VALUES = ['worked', 'partial', 'failed'] as const;
-
-/** Validate reflect outcome; unknown outcomes hard-error. */
-export function normalizeReflectionOutcome(value: unknown): (typeof REFLECTION_OUTCOME_VALUES)[number] {
-  // Missing outcome still defaults to partial; only non-empty unknown values hard-error.
-  if (value == null || String(value).trim() === '') return 'partial';
-  const cleaned = String(value).trim().toLowerCase();
-  if ((REFLECTION_OUTCOME_VALUES as readonly string[]).includes(cleaned)) {
-    return cleaned as (typeof REFLECTION_OUTCOME_VALUES)[number];
-  }
-  throw new Error(`invalid outcome "${String(value)}"; allowed: ${REFLECTION_OUTCOME_VALUES.join('|')}`);
 }
 
 /** Resolve and normalize a file path to absolute. Returns null for falsy input. */

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { renewWorkLease } from './work.js';
-import type { FileLockParams, FileLockResult } from './types/locks-reflection.js';
+import type { FileLockParams, FileLockResult } from './types/locks.js';
 import { activeLockRows, preFlightIntent } from './intents-preflight.js';
 import { releaseFileLock } from './intents-release.js';
 

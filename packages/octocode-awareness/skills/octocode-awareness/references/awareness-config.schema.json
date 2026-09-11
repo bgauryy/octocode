@@ -1,53 +1,60 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://octocode.ai/schemas/awareness-config.v1.schema.json",
-  "title": "Octocode Awareness Configuration",
-  "description": "Global shell-hook automation preferences stored at <OCTOCODE_HOME>/awareness.json; Pi native events are outside this contract.",
+  "$id": "https://octocode.ai/schemas/awareness-workspace-policy.v1.schema.json",
+  "title": "Octocode Awareness workspace policy",
+  "description": "Workspace storage scope and exclusive host lifecycle ownership at .octocode/awareness.json.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "features"],
+  "required": ["version", "storage", "hooks"],
   "properties": {
     "version": {
       "const": 1,
-      "description": "Configuration contract version."
+      "description": "Workspace policy contract version."
     },
-    "features": {
+    "storage": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "hooks",
-        "notifications",
-        "verificationGate",
-        "sessionCapture",
-        "maintenanceReminders"
-      ],
+      "required": ["repository", "memory"],
       "properties": {
-        "hooks": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable installed Awareness hooks. Missing configuration uses peer-communication defaults."
+        "repository": {
+          "enum": ["global", "repo"],
+          "description": "Storage scope for Context, Work, Message, History, and host events."
         },
-        "notifications": {
-          "type": "boolean",
-          "default": true,
-          "description": "Allow hooks to deliver new peer messages."
-        },
-        "verificationGate": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable stop verification for tracked work with the guard/full profile."
-        },
-        "sessionCapture": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable automatic session handoffs with the full profile."
-        },
-        "maintenanceReminders": {
-          "type": "boolean",
-          "default": false,
-          "description": "Allow bounded maintenance-pressure reminders from hooks."
+        "memory": {
+          "enum": ["global", "repo"],
+          "description": "Storage scope for Memory."
         }
       }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile"],
+      "properties": {
+        "profile": {
+          "enum": ["guard", "coordination", "full"],
+          "description": "Lifecycle breadth for the selected host owner."
+        },
+        "owners": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "claude": { "$ref": "#/$defs/owner" },
+            "codex": { "$ref": "#/$defs/owner" },
+            "cursor": { "$ref": "#/$defs/owner" },
+            "copilot": { "$ref": "#/$defs/owner" },
+            "gemini": { "$ref": "#/$defs/owner" },
+            "opencode": { "$ref": "#/$defs/owner" },
+            "pi": { "$ref": "#/$defs/owner" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "owner": {
+      "enum": ["shell", "native"],
+      "description": "The only lifecycle adapter allowed to process events for this host."
     }
   }
 }

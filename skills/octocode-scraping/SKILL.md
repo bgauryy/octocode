@@ -16,9 +16,9 @@ Corpora/runs: `<output>/tmp/scrape/`; reports: `<output>/octocode-scraping/`. Ch
 
 Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; process its HAR into the same session.
 
-For repository, package, or implementation claims adjacent to a scrape, use `octocode-research`; it owns the MCP/CLI workflow and live tool/grammar discovery. Keep URL fetching and corpus extraction in this skill.
+For repo, package, or code claims next to a scrape, use `octocode-research`; it owns the MCP/CLI workflow and live tool/grammar discovery. Keep URL fetching and corpus extraction in this skill.
 
-Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data export, form submits, purchases, sends, deletes, or account changes. Stop after two same-class failures, a hosted `403`, an auth/challenge gate, one failed CDP escalation, sufficient saved evidence, or before expanding a crawl whose summary is not yet useful. Use `references/failure-recovery.md`; cite artifact paths plus URL metadata, never raw dumps.
+Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data export, form submits, purchases, sends, deletes, or account changes. Stop after two same-class failures, a hosted `403`, an auth/challenge gate, one failed CDP escalation, or enough saved evidence. Stop before expanding a crawl whose summary is not yet useful. Use `references/failure-recovery.md`; cite artifact paths plus URL metadata, never raw dumps.
 
 ## Route
 
@@ -28,7 +28,7 @@ Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data expor
 - When querying static DOM/assets/paths, run `scripts/dom-find.mjs`, `scripts/resource-list.mjs`, or `scripts/graph-navigate.mjs` with `--session-dir <d>`; live DOM stays in chrome-devtools.
 - Local field proof → `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` or `--script <file>`.
 - CDP bridge → `scripts/har-ingest.mjs --session-dir <d> --from-cdp-dir <run>`; reverse with `--export-packet`.
-- When extraction field names are unclear, run `scripts/schema-helper.mjs --intent "extract pricing and features"`.
+- When field names are unclear, run `scripts/schema-helper.mjs --intent "extract pricing and features"`.
 - When an old transcript names `scripts/scrapingant-fetch.mjs`, `scripts/scrapingant-check.mjs`, or `scripts/scrapingant-usage.mjs`, treat them as forwarding shims and use the neutral scripts above.
 
 Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, vendored env resolution in `scripts/octocode-config.mjs`, and JSON contracts in `scripts/schemas/`.

@@ -46,6 +46,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -101,6 +102,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
+          package-manager-cache: false
       - uses: actions/download-artifact@v4
         with:
           pattern: extension-rust-*

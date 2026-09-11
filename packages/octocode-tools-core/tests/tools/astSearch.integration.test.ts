@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeAstSearch } from '../../src/tools/ast_search/execution.js';
+import { contextUtils } from '../../src/utils/contextUtils.js';
 import { AstSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 
 let root: string;
@@ -141,6 +142,71 @@ describe('astSearch native contracts and executable continuations', () => {
         }),
       ])
     );
+  });
+  it('reports structured native skips for directory symbol scans', async () => {
+    const path = join(root, 'oversized-symbols.ts');
+    await writeFile(path, Buffer.alloc(1_000_001, 'x'));
+
+    const result = await run({ operation: 'symbols', path: root });
+
+    expect(result.filesSkipped).toBe(1);
+    expect(result.complete).toBe(false);
+    expect(result.terminalLimit).toBe(true);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: expect.stringMatching(/oversized-symbols\.ts$/),
+        message:
+          'graph.scan.fileTooLarge: file exceeds the graph scan byte limit',
+      })
+    );
+    await rm(path);
+  });
+  it('bounds malformed directory fact payloads instead of throwing', async () => {
+    const scan = vi.spyOn(contextUtils, 'scanGraphFacts').mockResolvedValueOnce({
+      schemaVersion: 1,
+      candidatePaths: ['malformed.ts'],
+      filesSkipped: 0,
+      truncated: false,
+      skipped: [],
+      entries: [
+        {
+          relativePath: 'malformed.ts',
+          factsJson: '{not-json',
+          referenceCounts: [],
+        },
+      ],
+    });
+
+    const result = await run({ operation: 'symbols', path: root });
+
+    expect(result.filesSkipped).toBe(1);
+    expect(result.terminalLimit).toBe(true);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: expect.stringMatching(/malformed\.ts$/),
+        message:
+          'facts-decode-failed: native graph facts could not be decoded',
+      })
+    );
+    scan.mockRestore();
+  });
+  it('rejects unsupported schemas for single-file symbol inspection', async () => {
+    const extract = vi
+      .spyOn(contextUtils, 'extractGraphFacts')
+      .mockReturnValueOnce(JSON.stringify({ schemaVersion: 2 }));
+
+    const result = await run({ operation: 'symbols', path: join(root, 'a.ts') });
+
+    expect(result.filesSkipped).toBe(1);
+    expect(result.terminalLimit).toBe(true);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: expect.stringMatching(/a\.ts$/),
+        message:
+          'facts-schema-unsupported: unsupported graph-fact schema version: 2',
+      })
+    );
+    extract.mockRestore();
   });
   it('restarts symbol pagination after source changes', async () => {
     const path = join(root, 'mutable-symbols.ts');

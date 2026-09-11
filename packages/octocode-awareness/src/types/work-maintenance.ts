@@ -30,22 +30,6 @@ export interface MemoryRow {
   _bm25?: number;
 }
 
-export interface RefinementRow {
-  refinement_id: string;
-  agent_id: string;
-  workspace_path: string;
-  artifact: string | null;
-  repo: string | null;
-  ref: string | null;
-  files_json: string;
-  reasoning: string;
-  remember: string;
-  quality: string;
-  state: string;
-  created_at: string;
-  updated_at: string;
-}
-
 // ─── Advisory file work ──────────────────────────────────────────────────────
 
 export interface WorkRunRecord {
@@ -219,32 +203,4 @@ export interface RestoreMemoryResult {
   dry_run?: true;
   would_restore?: number;
   memory_ids: string[];
-}
-
-// ─── Wait-for-lock ────────────────────────────────────────────────────────────
-
-export interface WaitForLockParams {
-  agentId?: string;
-  targetFiles?: string[];
-  waitMs?: number;               // max wait time ms (default 60000)
-  retryIntervalMs?: number;      // poll interval ms (default 5000)
-}
-
-// ─── Prune-stale ──────────────────────────────────────────────────────────────
-
-export interface PruneStaleParams {
-  dryRun?: boolean;
-  olderThanMinutes?: number;     // treat locks acquired >= N minutes ago as stale (default 20)
-  expiredOnly?: boolean;         // only prune locks past expires_at (ignore age)
-  agentId?: string;
-  targetFiles?: string[];
-}
-
-// ─── Delete refinement ───────────────────────────────────────────────────────
-
-export interface DeleteRefinementParams {
-  refinementIds: string[];
-  workspacePath?: string;
-  artifact?: string | null;
-  dryRun?: boolean;
 }

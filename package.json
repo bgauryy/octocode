@@ -21,6 +21,9 @@
   "packageManager": "yarn@4.9.1",
   "private": true,
   "repository": "bgauryy/octocode.git",
+  "resolutions": {
+    "minimatch@npm:10.0.1": "npm:10.2.6"
+  },
   "scripts": {
     "build": "yarn workspaces foreach -At --exclude octocode-monorepo run build",
     "build:ci": "yarn prepublish && yarn workspace @octocodeai/octocode-engine build && node ./scripts/workspace-health.mjs run build --exclude @octocodeai/octocode-engine --exclude @octocodeai/octocode-benchmark",
@@ -53,29 +56,5 @@
     "packages/octocode-engine/npm/*",
     "packages/octocode-extension-rust/npm/*",
     "skills"
-  ],
-  "resolutions": {
-    "@octocodeai/agent-contracts": "workspace:*",
-    "@octocodeai/agent-testing": "file:///Users/bgaryy/code/octocode-agent/packages/octocode-agent-testing",
-    "@octocodeai/config": "workspace:*",
-    "@octocodeai/octocode-awareness": "workspace:*",
-    "@octocodeai/octocode-core": "file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core",
-    "@octocodeai/octocode-engine": "workspace:*",
-    "@octocodeai/octocode-engine-darwin-arm64": "workspace:*",
-    "@octocodeai/octocode-engine-darwin-x64": "workspace:*",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "workspace:*",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "workspace:*",
-    "@octocodeai/octocode-engine-linux-x64-musl": "workspace:*",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "workspace:*",
-    "@octocodeai/octocode-extension-rust": "workspace:*",
-    "@octocodeai/octocode-extension-rust-darwin-arm64": "workspace:*",
-    "@octocodeai/octocode-extension-rust-darwin-x64": "workspace:*",
-    "@octocodeai/octocode-extension-rust-linux-arm64-gnu": "workspace:*",
-    "@octocodeai/octocode-extension-rust-linux-x64-gnu": "workspace:*",
-    "@octocodeai/octocode-extension-rust-linux-x64-musl": "workspace:*",
-    "@octocodeai/octocode-extension-rust-win32-x64-msvc": "workspace:*",
-    "@octocodeai/octocode-skill-installer": "workspace:*",
-    "@octocodeai/octocode-tools-core": "workspace:*",
-    "minimatch": "10.2.6"
-  }
+  ]
 }

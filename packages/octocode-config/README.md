@@ -40,7 +40,7 @@ Octocode researches **your local code and external code alike** (GitHub reposito
 
 ## Quick start
 
-**Prerequisites:** Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+
+**Prerequisites:** Node.js 24.15.0+ (24.x)
 
 **1. Run the Octocode CLI with `npx`**
 

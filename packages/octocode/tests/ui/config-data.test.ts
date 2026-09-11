@@ -10,7 +10,7 @@ describe('interactive configuration catalog', () => {
     expect(getAllTools().map(tool => tool.id)).toEqual(
       DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name)
     );
-    expect(getAllTools()).toHaveLength(10);
+    expect(getAllTools()).toHaveLength(11);
     expect(getAllTools().map(tool => tool.id)).toEqual(
       expect.arrayContaining(['ghSearchHistory', 'ghGetHistoryItem'])
     );

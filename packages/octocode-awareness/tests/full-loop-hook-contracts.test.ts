@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   hookBlockOutcome,
   hookContextEnvelope,
@@ -10,7 +10,6 @@ import {
 import { runHookCommand } from '../src/hooks/runner.js';
 import { agentId } from '../src/hooks/payload.js';
 import { connectDb, resolveDbPath } from '../src/db-runtime.js';
-import { runHooksInstall } from '../src/hooks-install-command.js';
 import { auditUnverified } from '../src/verify-audit.js';
 import { markVerified } from '../src/verify-mark.js';
 import { withEnabledAwarenessConfig } from './helpers/enabled-awareness-config.js';
@@ -111,61 +110,6 @@ describe('full-loop host hook contracts', () => {
       exitCode: 0,
       payload: { followup_message: 'verification debt' },
     });
-  });
-
-  it('quotes hook paths, adds a Codex Windows command, and reports config-only health', () => {
-    const projectDir = mkdtempSync(join(tmpdir(), 'awareness hook contract '));
-    const hookDir = resolve(projectDir, 'skill with spaces/scripts/hooks');
-    mkdirSync(hookDir, { recursive: true });
-    for (const script of [
-      'pre-edit.sh',
-      'post-edit.sh',
-      'stop-verify.sh',
-      'session-compact.sh',
-      'notify-deliver.sh',
-    ]) {
-      writeFileSync(resolve(hookDir, script), '#!/bin/sh\n');
-    }
-    writeFileSync(resolve(hookDir, '..', 'hook-runner.mjs'), '#!/usr/bin/env node\n');
-    try {
-      const installed = runHooksInstall(
-        ['--host', 'codex', '--project-dir', projectDir, '--profile', 'guard'],
-        { cwd: projectDir, hookDir },
-      );
-      expect(installed.exitCode).toBe(0);
-      const settingsPath = resolve(projectDir, '.codex/hooks.json');
-      const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
-        hooks: Record<string, Array<{ hooks?: Array<Record<string, unknown>> }>>;
-      };
-      const commandHook = settings.hooks.PreToolUse?.[0]?.hooks?.[0];
-      expect(commandHook?.command).toContain(`"${process.execPath}"`);
-      expect(commandHook?.command).toContain('skill with spaces/scripts/hook-runner.mjs" pre-edit --host codex --skill-root');
-      expect(commandHook?.commandWindows).toContain('hook-runner.mjs');
-      expect(commandHook?.commandWindows).toContain('--host codex');
-      expect(commandHook?.commandWindows).toContain('--skill-root');
-
-      const checked = runHooksInstall(
-        ['--host', 'codex', '--project-dir', projectDir, '--profile', 'guard', '--check', '--strict'],
-        { cwd: projectDir, hookDir },
-      );
-      expect(checked.exitCode).toBe(0);
-      expect(checked.payload).toMatchObject({
-        ok: true,
-        strict_scope: 'config_only',
-        health: {
-          config: { status: 'ready', verified: true },
-          runtime: {
-            status: 'unverified',
-            verified: false,
-            project_trust: 'not_checked',
-            hook_definition_trust: 'not_checked',
-            hooks_feature_enabled: 'not_checked',
-          },
-        },
-      });
-    } finally {
-      rmSync(projectDir, { recursive: true, force: true });
-    }
   });
 
   it('aggregates one session turn into one pending fallback HOOK run', async () => {

@@ -1,22 +1,31 @@
 # @octocodeai/octocode-benchmark
 
-Plain-markdown, orchestrated CLI **research** benchmark. Each question is answered by **three
+The evaluation layer of the Octocode agentic toolkit: a plain-markdown, orchestrated CLI **research** benchmark. Each question is answered by **three
 isolated agents** — Octocode, `gh`+RTK, `gh`+Headroom — and scored by a fourth, blind judge.
 An orchestrator drives all four phases and summarizes the campaign.
 
-The orchestrated research campaign itself has **no harness and no JSON
+The legacy GitHub research campaign itself has **no harness and no JSON
 schemas**. Its questions and grading flow remain markdown you can read and
-edit. A separate deterministic regression gate measures the retired local-tool
+edit. The new [Terra v3 local benchmark harness](compare/terra-v3/README.md)
+separately freezes workspace/corpus/tool/model receipts and compares two locked
+local repositories against raw specialist tools; it does not rewrite or pool the
+historical campaign below. A separate deterministic regression gate measures the retired local-tool
 removal contract: [Local-tool removal held-out eval](docs/UNIFIED_ROUTING_EVAL.md).
 The [artifact routing diagnostic v2](evals/artifact-routing-v2/README.md) separately
 compares native and emulated tool calls with frozen canonical input schemas,
 executable validators, and deterministic grader tests.
 
-## Characters delivered per tool (≈ tokens)
+For the new local comparison, use the [Terra v3 runbook](compare/terra-v3/RUNBOOK.md) and
+[comparison contract](compare/terra-v3/COMPARISON.md). Terra v3 reports deterministic and
+blind-judge quality, latency, CPU, peak memory, I/O, provider-reported tokens, context
+characters, and schema/empty-call trajectories as separate metric families.
+
+## Historical context characters per tool (not token usage)
 
 Characters pushed through the model to answer the **same 30 research questions** (model-in +
-model-out; Unicode code points ≈ tokens). Correctness is a near-ceiling tie across tools, so
-this is the difference that matters — **fewer characters = leaner context**.
+model-out Unicode code points). This is a tokenizer-independent context proxy, not token
+usage, and is unrelated to Terra v3's provider-reported token measurements. Correctness was
+a near-ceiling tie in that historical campaign, so fewer characters meant leaner context.
 
 | Tool | Mean chars / question | Total over 30 Q | vs Octocode |
 |---|---:|---:|---:|
@@ -32,6 +41,7 @@ see [`results/SUMMARY.md`](results/SUMMARY.md) for CIs and [`results/index.html`
 ```
 compare/
   bin/                      shared wrappers + scripts (octoc, ghm, rtkm, ghc, …)
+  terra-v3/                 workspace-only two-repository specialist harness
   github-questions/         the 30 shared GitHub questions — ONE canonical copy
   octocode-vs-gh/           README.md            (arm: plain gh)
   octocode-vs-gh-rtk/       README.md            (arm: gh + RTK)

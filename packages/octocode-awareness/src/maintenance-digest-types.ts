@@ -5,7 +5,6 @@ export interface DigestResult {
   archived_memories: number;   // valid_to expired (or would_archive in dry_run)
   pruned_old: number;          // SUPERSEDED older than retention_days
   pruned_locks: number;        // expired file locks
-  pruned_refinements: number;  // stale handoffs (any state) and done refinements
   resolved_handoff_signals: number; // open handoff signals auto-resolved past TTL
   failed_stale_active_runs: number; // explicit recovery for ACTIVE runs with expired presence
   pruned_runs: number;         // old terminal standalone WORK/HOOK rows
@@ -14,7 +13,6 @@ export interface DigestResult {
   would_archive?: number;
   would_prune_old?: number;
   would_prune_locks?: number;
-  would_prune_refinements?: number;
   would_resolve_handoff_signals?: number;
   would_fail_stale_active_runs?: number;
   would_prune_runs?: number;
@@ -30,7 +28,6 @@ export interface DigestResult {
     expire_memory_ids: string[];
     purge_memory_ids: string[];
     locks: FileLock[];
-    refinement_ids: string[];
     run_ids: string[];
     stale_active_run_ids: string[];
   };

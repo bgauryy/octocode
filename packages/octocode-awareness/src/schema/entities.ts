@@ -51,7 +51,6 @@ const FAMILY_BY_NAME: Record<string, string> = {
   task_claims: 'execution',
   awareness_locks: 'locks',
   delivery_state: 'delivery',
-  refinements: 'learning',
   signals: 'messaging',
   signal_reads: 'messaging',
   memory_refs: 'memory',

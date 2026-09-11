@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { createIsolatedAwarenessStore, createPiFlowHarness } from '@octocodeai/agent-testing';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 import {
   clearPlan,
 } from '../src/tools/planning/plan-store.js';

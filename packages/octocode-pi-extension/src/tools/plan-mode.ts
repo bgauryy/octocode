@@ -8,11 +8,13 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  getAwarenessOperationDescriptor,
+} from '@octocodeai/octocode-awareness';
+import {
   contentDigest,
   effectiveCapabilityDecision,
-  getAwarenessCommandDescriptor,
   type CapabilityDecisionReceiptV1,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import { paintUi } from '../tui/palette.js';
 import type { PiContext } from '../types.js';
 import { resolveSessionIdentity, type SessionIdentityInput } from './session-artifacts.js';
@@ -211,14 +213,15 @@ export function getToolEffect(toolName: string | undefined, input?: Record<strin
       : [input ?? {}];
     let effect: ToolEffect = 'read';
     for (const query of queries) {
-      const action = typeof query['action'] === 'string' ? query['action'].toLowerCase() : 'list';
-      if (action === 'list' || action === 'describe') continue;
-      if (action !== 'call' || typeof query['command'] !== 'string') return undefined;
-      const descriptor = getAwarenessCommandDescriptor(query['command']);
+      if (typeof query['operation'] !== 'string') return undefined;
+      const descriptor = getAwarenessOperationDescriptor(query['operation']);
       if (!descriptor) return undefined;
-      if (descriptor.effect === 'host-config-write' || descriptor.effect === 'destructive-admin') return 'external-effect';
-      if (descriptor.effect === 'workspace-write') effect = 'workspace-write';
-      else if (descriptor.effect === 'coordination-write' && effect === 'read') effect = 'coordination-write';
+      const params = query['params'] && typeof query['params'] === 'object' && !Array.isArray(query['params'])
+        ? query['params'] as Record<string, unknown>
+        : {};
+      const operationEffect = descriptor.effect(params);
+      if (operationEffect === 'workspace-write') effect = 'workspace-write';
+      else if (operationEffect === 'coordination-write' && effect === 'read') effect = 'coordination-write';
     }
     return effect;
   }
@@ -242,6 +245,8 @@ export function unclassifiedToolNames(toolNames: Iterable<string>): string[] {
     const normalized = name.toLowerCase();
     return normalized === 'agent'
       ? !TOOL_EFFECTS[normalized]
+      : normalized === 'awareness'
+        ? false
       : !getToolEffect(name);
   }).sort();
 }

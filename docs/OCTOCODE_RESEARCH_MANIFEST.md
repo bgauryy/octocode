@@ -1,6 +1,6 @@
 # Octocode research manifest
 
-Octocode research connects a question to inspectable code evidence. The agent
+This manifest defines the research method used across the Octocode agentic toolkit. Octocode research connects a question to inspectable code evidence. The agent
 chooses the scope and evaluates the evidence; tools retrieve source, syntax,
 repository topology, language-server results, and provider records. A successful
 search locates a candidate. It does not by itself establish identity, completeness,

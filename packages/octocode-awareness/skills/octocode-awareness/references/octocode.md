@@ -22,6 +22,4 @@ Choose calls that answer the question. Read exact source before anchored LSP; `l
 
 Carry decisive paths, lines, revisions, and evidence limits into a signal or memory only when they change a coordination decision. A peer report remains a lead until verified.
 
-For an authorized skill installation, preview the source and destinations with the package's `skill install` command. Reuse existing authorization; ask only for missing destination or conflict authority. Use `references/agent-cheatsheet.md` for Awareness command discovery.
-
 Next: return evidence to the owning coordination decision; use `references/output-routing.md` when choosing where to record it.

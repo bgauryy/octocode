@@ -51,29 +51,29 @@ describe('lossless work listing', () => {
     expect([...seen].sort()).toEqual([...ids].sort());
   });
 
-  it.each([false, true])('executes rebuilt CLI continuation with --full=%s and preserves default bounds', (full) => {
+  it.each([false, true])('returns and executes a bounded canonical retry when --full=%s exceeds the output budget', (full) => {
     const cli = resolve(import.meta.dirname, '../out/octocode-awareness.js');
     const base = ['work', 'list', '--db', dbPath, '--workspace', root, '--agent-id', 'owner', '--compact', ...(full ? ['--full'] : [])];
-    const run = (args: string[]) => {
+    const run = (args: string[], expected = 0) => {
       const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', timeout: 10000 });
-      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(result.status, result.stderr || result.stdout).toBe(expected);
       return JSON.parse(result.stdout);
     };
     expect(run(base).count).toBe(5);
     expect(run(base.filter(arg => arg !== '--compact')).count).toBe(5);
-    let args = [...base, '--limit', '200'];
-    const seen: string[] = [];
-    for (let page = 0; page < 3; page++) {
-      const result = run(args);
-      expect(result.total_count).toBe(workspaceIds.length);
-      if (full) expect(result.files[0]).toHaveProperty('test_plan', 'pagination union');
-      seen.push(...result.files.map((file: { run_id: string; file_path: string }) => `${file.run_id}:${file.file_path}`));
-      if (!result.partial) break;
-      expect(result.partialReasons).toEqual(['limit']);
-      expect(result.next.list.command.name).toBe('work list');
-      args = ['work', 'list', ...result.next.list.command.args];
+    const exceeded = run([...base, '--limit', '200'], 2);
+    expect(exceeded).toMatchObject({
+      error_code: 'OUTPUT_BUDGET_EXCEEDED',
+      next: { retry: { operation: 'work.list', params: { limit: 1, full } } },
+    });
+    const retry = exceeded.next.retry.params as Record<string, unknown>;
+    const retryArgs = [...base.filter(arg => arg !== '--full'), '--limit', String(retry.limit)];
+    if (retry.full === true) retryArgs.push('--full');
+    const page = run(retryArgs);
+    expect(page.files).toHaveLength(1);
+    expect(page.total_count).toBe(workspaceIds.length);
+    if (full) {
+      expect(page.files[0]).toHaveProperty('test_plan', 'pagination union');
     }
-    expect(new Set(seen).size).toBe(seen.length);
-    expect([...seen].sort()).toEqual([...workspaceIds].sort());
   });
 });

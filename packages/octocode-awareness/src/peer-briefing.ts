@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { getDatabasePath, getDeliveryFingerprint, setDeliveryFingerprint } from './db-runtime.js';
+import { getDeliveryFingerprint, setDeliveryFingerprint } from './db-runtime.js';
 import { getNotifications } from './notifications-inbox.js';
 import { normalizeWorkspacePath } from './git.js';
 import { decodeSignalBody } from './signal-data.js';
@@ -14,8 +14,6 @@ export function peerBriefing(db: DatabaseSync, params: {
     agentId: params.agentId, workspacePath: workspace, artifact: params.artifact,
     unreadOnly: true, markRead: false, limit: 5, cwd: workspace,
   });
-  const scopeArgs = ['--db', getDatabasePath(db), '--workspace', workspace, '--agent-id', params.agentId,
-    ...(params.artifact ? ['--artifact', params.artifact] : []), '--compact'];
   const clippedIds: string[] = [];
   const dataIds: string[] = [];
   const signals = inbox.signals.map(signal => {
@@ -37,9 +35,15 @@ export function peerBriefing(db: DatabaseSync, params: {
     partial: Boolean(inbox.partial || clippedIds.length || dataIds.length),
     partialReasons: [...(inbox.partial ? ['limit'] : []), ...(clippedIds.length ? ['message_length'] : []), ...(dataIds.length ? ['message_data'] : [])],
     next: {
-      ...(cursor ? { list: { command: { name: 'signal list', args: [...scopeArgs, '--cursor', String(cursor), '--limit', '5', '--include-bodies'] } } } : {}),
-      ...(clippedIds.length || dataIds.length ? { read: { command: { name: 'signal list', args: [...scopeArgs, '--all', '--include-bodies',
-        ...[...new Set([...clippedIds, ...dataIds])].flatMap(id => ['--signal-id', id])] } } } : {}),
+      ...(cursor ? { list: { operation: 'message.list', params: {
+        cursor: String(cursor), limit: 5, include_bodies: true,
+        ...(params.artifact ? { artifact: params.artifact } : {}),
+      } } } : {}),
+      ...(clippedIds.length || dataIds.length ? { read: { operation: 'message.list', params: {
+        all: true, include_bodies: true,
+        signal_id: [...new Set([...clippedIds, ...dataIds])],
+        ...(params.artifact ? { artifact: params.artifact } : {}),
+      } } } : {}),
     },
   };
   const delivery = { consumerId: params.agentId, channel: 'peer-messages', scopeKey: JSON.stringify([workspace, params.artifact ?? null, params.sessionId ?? null]) };

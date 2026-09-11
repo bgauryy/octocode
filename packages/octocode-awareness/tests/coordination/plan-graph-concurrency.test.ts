@@ -40,7 +40,7 @@ function projectionWorker(input: {
   `;
   const worker = new Worker(new URL(`data:text/javascript,${encodeURIComponent(source)}`), {
     workerData: {
-      moduleUrl: new URL('../../out/index.js', import.meta.url).href,
+      moduleUrl: new URL('../../out/host-api.js', import.meta.url).href,
       workspace,
       dbPath,
       input,

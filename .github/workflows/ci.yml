@@ -24,7 +24,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          cache: 'yarn'
+          package-manager-cache: false
 
       - name: Enable Corepack
         run: corepack enable
@@ -32,14 +32,7 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Verify docs
-        run: yarn docs:verify
-
-      - name: Lint
-        # octocode-engine excluded: Rust/clippy compilation is too costly for CI
-        run: yarn lint:ci
-
-      # Build must run before Typecheck/Test: packages consume their siblings'
+      # Build must run before Lint/Docs/Typecheck/Test: packages consume their siblings'
       # compiled output (e.g. @octocodeai/octocode-engine subpath exports map to
       # ./dist/*, which is gitignored), and tools-core tests load the host
       # octocode-engine native addon through the workspace dependency.
@@ -47,6 +40,13 @@ jobs:
         # build:ci builds the host octocode-engine native addon once, then skips
         # rebuilding octocode-engine while compiling dependent packages.
         run: yarn build:ci
+
+      - name: Verify docs
+        run: yarn docs:verify
+
+      - name: Lint
+        # octocode-engine excluded: Rust/clippy compilation is too costly for CI
+        run: yarn lint:ci
 
       - name: Verify build outputs
         run: node scripts/workspace-health.mjs check-outputs

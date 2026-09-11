@@ -7,12 +7,8 @@ import { initDb } from '../src/db-init.js';
 import { rebuildFts } from '../src/db-maintenance.js';
 import { preFlightIntent } from '../src/intents-preflight.js';
 import { pruneStale } from '../src/maintenance-stale.js';
-import { notifyGet } from '../src/maintenance-briefing.js';
 import { digest } from '../src/maintenance-digest.js';
-import { getWorkspaceStatus, exportMemoryDoc } from '../src/maintenance-workspace.js';
 import { insertMemory } from '../src/memory-write.js';
-import { insertRefinement, updateRefinement } from '../src/refinements.js';
-import { insertNotification } from '../src/notifications-core.js';
 import { auditUnverified } from '../src/verify-audit.js';
 function freshDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');
@@ -76,114 +72,6 @@ describe('auditUnverified', () => {
   });
 });
 
-describe('notifyGet', () => {
-  it('returns ok=true and empty array when there is no briefing', () => {
-    const db = freshDb();
-    const result = notifyGet(db, {});
-    expect(result.ok).toBe(true);
-    expect(result.count).toBe(0);
-    expect(result.notifications).toHaveLength(0);
-  });
-
-  it('returns a query-grounded memory briefing without db envelope noise', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'notify briefing',
-      observation: 'Important gotcha should appear in briefing',
-      importance: 8,
-      label: 'GOTCHA',
-    }));
-    const result = notifyGet(db, { format: 'hook', query: 'notify briefing' });
-    expect(result.ok).toBe(true);
-    expect(result.count).toBe(1);
-    expect(result.notifications[0]?.kind).toBe('memory');
-    expect('additionalContext' in result).toBe(true);
-    expect('db_path' in result).toBe(false);
-  });
-
-  it('delivers an unread signal once per unchanged hook scope without acknowledging it', () => {
-    const db = freshDb();
-    insertNotification(db, {
-      agentId: 'agent-a',
-      toAgent: 'agent-b',
-      kind: 'request',
-      subject: 'please check locks',
-      body: 'handoff detail',
-      workspacePath: '/repo',
-      importance: 8,
-    });
-
-    const first = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(first.ok).toBe(true);
-    expect(first.notifications[0]?.kind).toBe('notification');
-    expect('additionalContext' in first && first.additionalContext).toContain('please check locks');
-
-    const second = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(second).toEqual({ ok: true, count: 0, notifications: [] });
-    expect((db.prepare('SELECT COUNT(*) AS c FROM signal_reads').get() as { c: number }).c).toBe(0);
-  });
-
-  it('clusters repeated handoff signals in hook brief output', () => {
-    const db = freshDb();
-    const senders = ['pi:session-a', 'pi:session-b', 'pi:session-b'];
-    const files = ['README.md', '/repo/packages/octocode-awareness/bin/cli-work.ts', 'README.md'];
-    for (let i = 0; i < senders.length; i++) {
-      insertNotification(db, {
-        agentId: senders[i]!,
-        kind: 'handoff',
-        subject: `Review session handoff for ${senders[i]}`,
-        body: `Review session handoff for ${senders[i]} with different run/file summary ${i}`,
-        files: [files[i]!],
-        workspacePath: '/repo',
-        importance: 8,
-      });
-    }
-
-    const result = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(result.ok).toBe(true);
-    expect(result.notifications).toHaveLength(1);
-    expect(result.notifications[0]?.text).toContain('handoff ×3');
-    expect(result.notifications[0]?.text).toContain('files 2: README.md (+1)');
-    expect(result.notifications[0]?.text).toContain('Review session handoff');
-    expect(result.notifications[0]?.text).toContain('from multiple agents');
-    expect(result.notifications[0]?.text).toContain('broadcast');
-    expect(result.notifications[0]?.text).not.toContain('/repo/packages');
-    expect(result.notifications[0]?.text).not.toContain('pi:session-a');
-    expect('additionalContext' in result && result.additionalContext).toContain('🧠 Brief — showing 1/1');
-    expect('additionalContext' in result && result.additionalContext).toContain('handoff ×3');
-  });
-
-  it('dedupes colon-suffixed session handoff subjects before selecting hook brief rows', () => {
-    const db = freshDb();
-    insertNotification(db, {
-      agentId: 'pi:session-a',
-      kind: 'handoff',
-      subject: 'Review session handoff for pi:session-a',
-      body: 'Review session handoff: 0 active and 0 pending runs remain.',
-      files: ['.gitignore'],
-      workspacePath: '/repo',
-      importance: 8,
-    });
-    insertNotification(db, {
-      agentId: 'pi:session-a',
-      kind: 'handoff',
-      subject: 'Review session handoff: 0 active and 0 pending runs remain.',
-      body: 'Session capture for pi:session-a: 0 active and 0 pending runs remain.',
-      files: ['.gitignore'],
-      workspacePath: '/repo',
-      importance: 8,
-    });
-
-    const result = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(result.ok).toBe(true);
-    expect(result.notifications).toHaveLength(1);
-    expect(result.notifications[0]?.text).toContain('handoff ×2');
-    expect(result.notifications[0]?.text).toContain('files 1: .gitignore');
-    expect(result.notifications[0]?.text).toContain('Review session handoff');
-    expect(result.notifications[0]?.text).not.toContain('Review session handoff: 0 active');
-  });
-});
-
 describe('digest dry_run', () => {
   it('returns prediction fields without mutating anything', async () => {
     const db = freshDb();
@@ -210,9 +98,9 @@ describe('digest dry_run', () => {
     const result = digest(db, { dry_run: true });
     expect(Object.keys(result).sort()).toEqual([
       'archived_memories', 'candidate_ids', 'candidate_limit', 'dry_run', 'failed_stale_active_runs', 'fts_rebuilt', 'ok', 'pressure_age_days',
-      'pressure_samples', 'pruned_locks', 'pruned_old', 'pruned_refinements', 'pruned_runs', 'resolved_handoff_signals',
+      'pressure_samples', 'pruned_locks', 'pruned_old', 'pruned_runs', 'resolved_handoff_signals',
       'stale_active_runs', 'stale_handoff_signals', 'stale_missing_refs', 'stale_open_signals', 'stale_pending_runs',
-      'would_archive', 'would_fail_stale_active_runs', 'would_prune_locks', 'would_prune_old', 'would_prune_refinements', 'would_prune_runs',
+      'would_archive', 'would_fail_stale_active_runs', 'would_prune_locks', 'would_prune_old', 'would_prune_runs',
       'would_resolve_handoff_signals',
     ]);
     expect(result).toMatchObject({
@@ -225,7 +113,7 @@ describe('digest dry_run', () => {
       pressure_samples: { run_ids: [], active_run_ids: [], signal_ids: [], handoff_signal_ids: [], memory_ids: [] },
       candidate_limit: 20,
       candidate_ids: {
-        expire_memory_ids: [], purge_memory_ids: [], locks: [], refinement_ids: [], run_ids: [], stale_active_run_ids: [],
+        expire_memory_ids: [], purge_memory_ids: [], locks: [], run_ids: [], stale_active_run_ids: [],
       },
     });
   });
@@ -266,26 +154,6 @@ describe('digest', () => {
     const stale = db.prepare('SELECT memory_id FROM memories_fts WHERE memories_fts MATCH ?').get('stale') as Record<string, unknown> | undefined;
     expect(stale).toBeUndefined();
   });
-  it('prunes terminal handoffs and completed refinements while keeping active repo fixes', () => {
-    const db = freshDb();
-    const old = new Date(Date.now() - 45 * 86400000).toISOString();
-    const fresh = new Date().toISOString();
-    const handoff = insertRefinement(db, { reasoning: 'handoff', remember: 'Review session handoff for agent', quality: 'handoff' }).refinementId;
-    updateRefinement(db, { refinementId: handoff, state: 'done', actorAgentId: 'tester', checkReceipt: 'handoff consumed' });
-    const done = insertRefinement(db, { reasoning: 'done', remember: 'done fix', quality: 'bad', state: 'open' }).refinementId;
-    updateRefinement(db, { refinementId: done, state: 'done', actorAgentId: 'tester', checkReceipt: 'fixture verified' });
-    const active = insertRefinement(db, { reasoning: 'active', remember: 'active fix', quality: 'bad', state: 'open' }).refinementId;
-    db.prepare('UPDATE refinements SET created_at = ?, updated_at = ? WHERE refinement_id IN (?, ?)').run(old, old, handoff, done);
-    db.prepare('UPDATE refinements SET created_at = ?, updated_at = ? WHERE refinement_id = ?').run(fresh, fresh, active);
-
-    const dry = digest(db, { dry_run: true });
-    expect(dry.would_prune_refinements).toBe(2);
-    const result = digest(db, {});
-    expect(result.pruned_refinements).toBe(2);
-    const remaining = db.prepare('SELECT refinement_id FROM refinements').all() as Array<{ refinement_id: string }>;
-    expect(remaining.map(r => r.refinement_id)).toEqual([active]);
-  });
-
   it('compacts old terminal standalone runs while retaining verification receipts', () => {
     const db = freshDb();
     const old = '2020-01-01T00:00:00Z';
@@ -308,93 +176,5 @@ describe('digest', () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE run_id = 'run_old_terminal'").get()).toEqual({ count: 0 });
     expect(db.prepare("SELECT aggregate_id, payload_json FROM event_outbox WHERE event_id = 'evt_receipt'").get()).toEqual(
       { aggregate_id: 'run_old_terminal', payload_json: '{"message":"focused test passed"}' });
-  });
-});
-describe('getWorkspaceStatus', () => {
-  it('returns ok:true with counts and locks', () => {
-    const db = freshDb();
-    const result = getWorkspaceStatus(db, {});
-    expect(result.ok).toBe(true);
-    expect(typeof result.active_memories).toBe('number');
-    expect(typeof result.pending_runs).toBe('number');
-    expect(typeof result.active_runs).toBe('number');
-    expect(typeof result.actionable_refinements).toBe('number');
-    expect(typeof result.all_open_refinements).toBe('number');
-    expect(Array.isArray(result.locks)).toBe(true);
-  });
-
-  it('reflects memory counts accurately', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'workspace status test',
-      observation: 'a test memory',
-      importance: 7,
-      label: 'GOTCHA',
-    }));
-    const result = getWorkspaceStatus(db, {});
-    expect(result.active_memories).toBe(1);
-  });
-
-  it('shows active file locks', () => {
-    const db = freshDb();
-    const { path, cleanup } = tempFile();
-    try {
-      const intent = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      expect(intent.ok).toBe(true);
-      const result = getWorkspaceStatus(db, {});
-      expect(result.locks.length).toBeGreaterThanOrEqual(1);
-      expect(result.locks[0]).toMatchObject({
-        agent: 'agent-a',
-        state: 'locked',
-      });
-      expect(result.locks[0]?.path).toContain('/oc-stubs-test-');
-      expect(result.locks[0]?.path).toMatch(/\/f\.txt$/);
-    } finally { cleanup(); }
-  });
-});
-
-describe('exportMemoryDoc', () => {
-  it('returns a non-empty markdown string', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'export doc test',
-      observation: 'a memorable observation for the report',
-      importance: 8,
-      label: 'DECISION',
-      tags: ['export', 'test'],
-    }));
-    const doc = exportMemoryDoc(db, {});
-    expect(typeof doc).toBe('string');
-    expect(doc).toContain('# Memory Store Report');
-    expect(doc).toContain('DECISION');
-    expect(doc).toContain('a memorable observation for the report');
-    expect(doc).toContain('export, test');
-  });
-
-  it('includes stats header with counts and labels', async () => {
-    const db = freshDb();
-    (await insertMemory(db, { taskContext: 'c1', observation: 'o1', importance: 7, label: 'GOTCHA' }));
-    (await insertMemory(db, { taskContext: 'c2', observation: 'o2', importance: 6, label: 'DECISION' }));
-    const doc = exportMemoryDoc(db, {});
-    expect(doc).toContain('**Total active memories:** 2');
-    expect(doc).toContain('GOTCHA(1)');
-    expect(doc).toContain('DECISION(1)');
-  });
-
-  it('includes provenance references', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'reference export',
-      observation: 'doc export should keep provenance visible',
-      importance: 8,
-      references: ['file:/tmp/provenance.ts', 'pr:owner/repo#456'],
-    }));
-    const doc = exportMemoryDoc(db, {});
-    expect(doc).toContain('**References:** file:/tmp/provenance.ts, pr:owner/repo#456');
-  });
-  it('returns empty report when no memories exist', () => {
-    const db = freshDb();
-    const doc = exportMemoryDoc(db, {});
-    expect(doc).toContain('**Total active memories:** 0');
   });
 });

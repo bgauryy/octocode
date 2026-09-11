@@ -1,52 +1,9 @@
-# Plan, Task, And Standalone WORK
+# Shared Work
 
-Load when a shared plan, claimed task, or standalone work declaration is needed. This reference step ends here; return to the main skill flow.
+Load this reference only when ownership, dependencies, or resumption justify durable work. Ordinary solo edits need no record.
 
-One durable queue exists: plan `tasks`. Never create "today's tasks" in Markdown, memory, or refinements. Inspect attend/Ready/Claimed/Verify; claim a matching task or open explicit Work with reason, files, and test plan.
+Use `work.create` with `kind: plan`, `task`, or `standalone`. Inspect existing records with `work.list` and `work.show`; do not duplicate host-owned work. Use `work.depend` for real dependency edges and `work.claim` for an available task.
 
-## Lead: create shared work
+Transitions use `work.update`: `heartbeat`, `submit`, `release`, `retry`, `touch`, `end`, `join`, `document`, or `status`. The selected transition determines required fields; inspect its schema before calling it.
 
-```bash
-<cli> plan create --name "Release" --objective "Ship safely" \
-  --lead-agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
-# author docs/DESIGN.md inside the returned plan folder, then register it
-<cli> plan doc --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --path docs/DESIGN.md --title "Design" --compact
-<cli> task create --plan-id plan_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --title "Implement parser" --reasoning "Needed before integration" \
-  --acceptance "parser tests pass" --path src/parser.ts --compact
-```
-
-Tasks require reasoning, acceptance, and 1+ paths; `--depends-on task_...` orders them.
-New plans are ACTIVE. PAUSED retains work but blocks claims. Complete/cancel only after active runs resolve. SQLite owns task state; plan prose lives under `.octocode/plan/<timestamp-name>/` under the exact `--workspace` you pass (repo root when omitted; the plan row always scopes to the repo root for discovery) and never duplicates a mutable checklist.
-
-## Agent: execute plan task
-
-```bash
-<cli> task claim --task-id task_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
-# hooks declare files; without hooks, attach them to the returned run
-<cli> work start --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --file src/a.ts --compact
-# run the acceptance check
-<cli> task submit --task-id task_123 --run-id run_123 \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
-<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --status SUCCESS --message "<observed acceptance command and passing result>" --compact
-```
-
-Heartbeat long claims with `task heartbeat --task-id <task> --run-id <run> --agent-id "$OCTOCODE_AGENT_ID" --compact`. `task release` returns unfinished work to OPEN/BLOCKED.
-Dependencies and ACTIVE plan status derive readiness; never set READY manually.
-
-## Standalone WORK
-
-```bash
-<cli> work start --agent-id "$OCTOCODE_AGENT_ID" --file README.md \
-  --rationale "small docs fix" --test-plan "review diff" --compact
-# run the declared check
-<cli> work end --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" --compact
-<cli> verify mark --run-id run_123 --agent-id "$OCTOCODE_AGENT_ID" \
-  --status SUCCESS --message "<observed review and result>" --compact
-```
-
-Use `--status FAILED` for an observed failed check; leave unrun checks pending. Before finishing, run `verify audit --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD"` in the same store and settle or disclose your remaining debt.
-
-Return to `SKILL.md`. Add `--exclusive` only for sensitive work; only explicit `--run-id` or a host hook extends a run.
+Completion is receipt-gated: run the declared check, transition the work, then call `work.verify` with `action: mark` and the observed result. Use `action: audit` after final writes. Never infer success from a claim, lease expiry, message, or clean workboard.

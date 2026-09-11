@@ -21,7 +21,7 @@ Search results are leads. Findings use exact repository paths, package versions,
 
 ## Tools
 
-Prefer current Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx -y octocode`. Choose text for lexical anchors, AST for syntax, LSP for identity, and graph for file topology. A known exact target skips discovery. See `references/tool-examples.md` for all ten tools and `references/references.md` for primary sources.
+Prefer current Octocode MCP tools. The monorepo uses its built CLI; installed skills use `npx -y octocode`. Choose text for lexical anchors, AST for syntax, LSP for identity, and graph for file topology. A known exact target skips discovery. See `references/tool-examples.md` for all eleven tools and `references/references.md` for primary sources.
 
 ## Install
 

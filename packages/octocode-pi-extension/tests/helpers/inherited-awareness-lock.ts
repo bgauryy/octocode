@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 
 /** Exercise the registered host gate against a real peer lease in a non-default ledger. */
 export async function assertInheritedAwarenessLockGate(runGate: (workspace: string) => Promise<unknown>): Promise<void> {

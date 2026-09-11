@@ -90,10 +90,9 @@ export function maybePreviewDigest(
         archive: preview.would_archive ?? 0,
         memories: preview.would_prune_old ?? 0,
         locks: preview.would_prune_locks ?? 0,
-        refinements: preview.would_prune_refinements ?? 0,
       };
       if (Object.values(pressure).some((count) => count > 0)) {
-        return `Maintenance pressure: archive ${pressure.archive}, prune memories ${pressure.memories}, locks ${pressure.locks}, refinements ${pressure.refinements}. Review with npx @octocodeai/octocode-awareness maintenance digest --dry-run --workspace "$PWD" --compact; apply only after review.`;
+        return `Maintenance pressure: archive ${pressure.archive}, prune memories ${pressure.memories}, locks ${pressure.locks}. Review with the canonical maintenance surface; apply only after review.`;
       }
     }
   } catch (error) {

@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const DIST_INDEX_URL = pathToFileURL(resolve(PACKAGE_ROOT, 'out/index.js')).href;
+const DIST_HOST_URL = pathToFileURL(resolve(PACKAGE_ROOT, 'out/host-api.js')).href;
 
 const OPEN_AT_ONCE = `
 const [moduleUrl, dbPath, startAt] = process.argv.slice(1);
@@ -26,7 +26,7 @@ function openConcurrently(dbPath: string, count: number): Promise<Array<{ code: 
     const child = spawn(process.execPath, [
       '--input-type=module',
       '--eval', OPEN_AT_ONCE,
-      DIST_INDEX_URL,
+      DIST_HOST_URL,
       dbPath,
       String(startAt),
     ], { stdio: ['ignore', 'ignore', 'pipe'] });

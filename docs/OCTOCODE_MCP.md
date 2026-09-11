@@ -1,6 +1,6 @@
 # Octocode MCP server
 
-The Octocode MCP server exposes Octocode's research tools to AI coding clients through the Model Context Protocol over stdio. It is intentionally thin: the server registers schemas and transports requests, while tool behavior lives in `@octocodeai/octocode-tools-core` and native primitives live in `@octocodeai/octocode-engine`.
+The Octocode MCP server is the toolkit's standard interface for AI coding clients. It exposes Octocode's research tools through the Model Context Protocol over stdio. The server is intentionally thin: it registers schemas and transports requests, while tool behavior lives in `@octocodeai/octocode-tools-core` and native primitives live in `@octocodeai/octocode-engine`.
 
 Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. For every tool, see [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md). For settings, GitHub tokens, and encrypted credential storage, see [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
@@ -57,15 +57,18 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool catalog
 
-The full discovery catalog contains 10 tools. With the default settings, the MCP
-server registers 9: `ghCloneRepo` is opt-in and requires `ENABLE_CLONE=true` plus
+The full discovery catalog contains 11 tools. With the default settings, the MCP
+server registers 10: `ghCloneRepo` is opt-in and requires `ENABLE_CLONE=true` plus
 persistent storage.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
-| Local | `localSearch`, `localFetch`, `astSearch`, `lspSearch` |
+| Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
+
+`astRewrite` is preview-first. File mutation is separately opt-in with
+`ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
 
 To read the live CLI catalog, run `octocode tools --json`.
 

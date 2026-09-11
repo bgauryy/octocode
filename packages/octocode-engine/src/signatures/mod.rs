@@ -8,9 +8,24 @@ mod js_oxc_calls;
 mod js_oxc_commonjs;
 mod js_oxc_shared;
 
+pub(crate) const GRAPH_FACTS_SCHEMA_VERSION: u32 = 1;
+
+pub(crate) struct GraphFactsExtraction {
+    pub facts_json: String,
+    pub exported_declaration_names: Vec<String>,
+}
+
+pub(crate) fn extract_graph_facts_with_metadata_inner(
+    content: &str,
+    file_path: &str,
+) -> Option<GraphFactsExtraction> {
+    js_oxc::extract_graph_facts_with_metadata(content, file_path)
+        .or_else(|| graph_facts::extract_graph_facts_with_metadata(content, file_path))
+}
+
 pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
-    js_oxc::extract_graph_facts(content, file_path)
-        .or_else(|| graph_facts::extract_graph_facts(content, file_path))
+    extract_graph_facts_with_metadata_inner(content, file_path)
+        .map(|extraction| extraction.facts_json)
 }
 pub mod languages;
 pub mod renderer;
@@ -261,6 +276,35 @@ mod tests {
 
     fn extract(content: &str, path: &str) -> Option<String> {
         extract_signatures_inner(content, path)
+    }
+
+    #[test]
+    fn graph_fact_metadata_preserves_json_and_export_order_across_producers() {
+        for (source, path, expected_names, producer_field) in [
+            (
+                "export function first() { return 1; } export const second = first();",
+                "main.ts",
+                vec!["first", "second"],
+                "commonJs",
+            ),
+            (
+                "pub fn first() {} pub struct Second; fn private() {}",
+                "lib.rs",
+                vec!["first", "Second"],
+                "modules",
+            ),
+        ] {
+            let extraction = extract_graph_facts_with_metadata_inner(source, path)
+                .expect("graph facts with metadata");
+            assert_eq!(extraction.exported_declaration_names, expected_names);
+            assert_eq!(
+                extraction.facts_json,
+                extract_graph_facts_inner(source, path).expect("legacy JSON facts")
+            );
+            let json: serde_json::Value =
+                serde_json::from_str(&extraction.facts_json).expect("valid facts JSON");
+            assert!(json.get(producer_field).is_some());
+        }
     }
 
     /// Regression: the tree-sitter boundary extractor must never abort the

@@ -15,7 +15,9 @@ describe('shared-definition ownership', () => {
 
   it('keeps Awareness operating policy in its owner instead of copying it into Pi', () => {
     const prompt = source('../../octocode-pi-extension/src/prompts/system-prompt.ts');
-    expect(prompt).toContain("import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness'");
+    expect(prompt).toContain(
+      "import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness/host'",
+    );
     expect(prompt).not.toContain('signal publish');
     expect(prompt).not.toContain('verify audit');
   });

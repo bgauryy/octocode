@@ -9,7 +9,7 @@ import {
   type AwarenessEventObservability,
   type AwarenessEventStore,
   type AwarenessPeerDelivery,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import type { PiContext, PiInstance } from '../types.js';
 import { openPersistentAwareness } from './storage-policy.js';
 import { notifyDesktopAttention } from './desktop-notify.js';
