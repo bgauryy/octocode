@@ -3,12 +3,25 @@ use std::fs;
 use rayon::prelude::*;
 
 use crate::types::{
-    FileSystemQueryOptions, GraphFactsScanEntry, GraphFactsScanOptions, GraphFactsScanResult,
-    GraphReferenceCount,
+    FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsScanEntry, GraphFactsScanOptions,
+    GraphFactsScanResult, GraphReferenceCount,
 };
 
 const DEFAULT_MAX_FILES: u32 = 20_000;
 const DEFAULT_MAX_FILE_BYTES: u32 = 1_000_000;
+
+enum GraphFactsScanOutcome {
+    Entry(GraphFactsScanEntry),
+    Skipped(GraphFactsScanDiagnostic),
+}
+
+fn skipped(relative_path: String, code: &str, message: &str) -> GraphFactsScanOutcome {
+    GraphFactsScanOutcome::Skipped(GraphFactsScanDiagnostic {
+        relative_path,
+        code: code.to_owned(),
+        message: message.to_owned(),
+    })
+}
 
 pub(crate) fn scan_graph_facts(
     options: GraphFactsScanOptions,
@@ -34,65 +47,77 @@ pub(crate) fn scan_graph_facts(
         .map(|entry| entry.relative_path.replace('\\', "/"))
         .collect();
     candidate_paths.sort_unstable();
-    let outcomes: Vec<Option<GraphFactsScanEntry>> = query
+    let outcomes: Vec<GraphFactsScanOutcome> = query
         .entries
         .into_par_iter()
         .map(|entry| {
+            let relative_path = entry.relative_path.replace('\\', "/");
             if entry.size.unwrap_or_default() > max_file_bytes {
-                return None;
+                return skipped(
+                    relative_path,
+                    "graph.scan.fileTooLarge",
+                    "file exceeds the graph scan byte limit",
+                );
             }
             let Ok(content) = fs::read_to_string(&entry.path) else {
-                return None;
+                return skipped(
+                    relative_path,
+                    "graph.scan.readFailed",
+                    "file could not be read as UTF-8 text",
+                );
             };
-            let relative_path = entry.relative_path.replace('\\', "/");
-            let facts_json =
-                crate::signatures::extract_graph_facts_inner(&content, &relative_path)?;
-            let reference_counts = exported_reference_counts(&content, &facts_json);
-            Some(GraphFactsScanEntry {
+            let Some(extraction) = crate::signatures::extract_graph_facts_with_metadata_inner(
+                &content,
+                &relative_path,
+            ) else {
+                return skipped(
+                    relative_path,
+                    "graph.scan.extractFailed",
+                    "native graph-fact extraction returned no result",
+                );
+            };
+            let reference_counts =
+                exported_reference_counts(&content, &extraction.exported_declaration_names);
+            GraphFactsScanOutcome::Entry(GraphFactsScanEntry {
                 relative_path,
-                facts_json,
+                facts_json: extraction.facts_json,
                 reference_counts,
             })
         })
         .collect();
-    let files_skipped = outcomes.iter().filter(|outcome| outcome.is_none()).count() as u32;
-    let entries = outcomes.into_iter().flatten().collect();
+    let mut entries = Vec::new();
+    let mut skipped = Vec::new();
+    for outcome in outcomes {
+        match outcome {
+            GraphFactsScanOutcome::Entry(entry) => entries.push(entry),
+            GraphFactsScanOutcome::Skipped(diagnostic) => skipped.push(diagnostic),
+        }
+    }
+    entries.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    skipped.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    let files_skipped = skipped.len() as u32;
 
     Ok(GraphFactsScanResult {
+        schema_version: crate::signatures::GRAPH_FACTS_SCHEMA_VERSION,
         entries,
+        skipped,
         candidate_paths,
         files_skipped,
         truncated,
     })
 }
 
-fn exported_reference_counts(content: &str, facts_json: &str) -> Vec<GraphReferenceCount> {
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(facts_json) else {
-        return Vec::new();
-    };
-    let Some(declarations) = value.get("declarations").and_then(|value| value.as_array()) else {
-        return Vec::new();
-    };
-
-    let mut counts = Vec::new();
-    for declaration in declarations {
-        if declaration
-            .get("exported")
-            .and_then(|value| value.as_bool())
-            != Some(true)
-        {
-            continue;
-        }
-        let Some(name) = declaration.get("name").and_then(|value| value.as_str()) else {
-            continue;
-        };
-        let count = count_ascii_word_occurrences(content, name);
-        counts.push(GraphReferenceCount {
-            name: name.to_owned(),
-            count,
-        });
-    }
-    counts
+fn exported_reference_counts(
+    content: &str,
+    exported_declaration_names: &[String],
+) -> Vec<GraphReferenceCount> {
+    exported_declaration_names
+        .iter()
+        .map(|name| GraphReferenceCount {
+            name: name.clone(),
+            count: count_ascii_word_occurrences(content, name),
+        })
+        .collect()
 }
 
 fn count_ascii_word_occurrences(content: &str, name: &str) -> u32 {
@@ -160,10 +185,87 @@ mod tests {
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.candidate_paths, ["src/entry.ts", "src/large.ts"]);
         assert_eq!(result.files_skipped, 1);
+        assert_eq!(result.schema_version, 1);
+        assert_eq!(result.skipped.len(), 1);
+        assert_eq!(result.skipped[0].relative_path, "src/large.ts");
+        assert_eq!(result.skipped[0].code, "graph.scan.fileTooLarge");
         assert_eq!(result.entries[0].relative_path, "src/entry.ts");
         assert_eq!(result.entries[0].reference_counts[0].name, "answer");
         assert_eq!(result.entries[0].reference_counts[0].count, 2);
         assert!(!result.truncated);
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn reports_stable_read_and_extraction_failures() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-graph-scan-diagnostics-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create fixture");
+        fs::write(root.join("invalid.js"), [0xff, 0xfe]).expect("write invalid utf8 fixture");
+        let extraction_size = crate::minify::minifier::MAX_SIZE + 1;
+        fs::write(root.join("extract.ts"), vec![b'x'; extraction_size])
+            .expect("write extraction fixture");
+
+        let result = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(10),
+            max_file_bytes: Some(extraction_size as u32),
+            ..Default::default()
+        })
+        .expect("scan graph facts");
+
+        assert_eq!(result.files_skipped as usize, result.skipped.len());
+        assert_eq!(
+            result
+                .skipped
+                .iter()
+                .map(|diagnostic| (diagnostic.relative_path.as_str(), diagnostic.code.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("extract.ts", "graph.scan.extractFailed"),
+                ("invalid.js", "graph.scan.readFailed"),
+            ]
+        );
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn preserves_reference_counts_from_both_fact_producers() {
+        let root = std::env::temp_dir().join(format!(
+            "octocode-graph-scan-reference-metadata-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create fixture");
+        fs::write(
+            root.join("main.ts"),
+            "export function alpha() { return alpha; }",
+        )
+        .expect("write TypeScript fixture");
+        fs::write(root.join("lib.rs"), "pub fn beta() { let _ = beta; }")
+            .expect("write Rust fixture");
+
+        let result = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            ..Default::default()
+        })
+        .expect("scan graph facts");
+
+        assert_eq!(
+            result
+                .entries
+                .iter()
+                .map(|entry| (
+                    entry.relative_path.as_str(),
+                    entry.reference_counts[0].name.as_str(),
+                    entry.reference_counts[0].count,
+                ))
+                .collect::<Vec<_>>(),
+            [("lib.rs", "beta", 2), ("main.ts", "alpha", 2)]
+        );
         fs::remove_dir_all(root).expect("cleanup fixture");
     }
 

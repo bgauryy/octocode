@@ -41,7 +41,7 @@ At FRAME/CLASSIFY/MODEL, ground the problem contract and load-bearing system pat
 
 Load only the references earned by the current step. `references/octocode.md` explains invocation, auth, gates, materialization, diagnostics, and exit codes; live core-owned contracts remain authoritative for tool names, schemas, descriptions, and MCP context. `references/improve-loop.md` owns accept/revert when this skill changes.
 
-For query templates across all ten tools, load `references/tool-examples.md` and substitute observed paths/identities. For source authority or upstream limits, load `references/references.md` and verify current official docs.
+For query templates across all eleven tools, load `references/tool-examples.md` and substitute observed paths/identities. For source authority or upstream limits, load `references/references.md` and verify current official docs.
 
 ## Tools and output
 

@@ -29,7 +29,7 @@ fn too_large(maximum: usize) -> String {
     format!("TOO_LARGE: File exceeds maximum {maximum} bytes")
 }
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::digest_hex::lower_hex(Sha256::digest(bytes))
 }
 // mode_t is u16 on macOS and u32 on Linux; normalize it for stored mode values.
 #[allow(clippy::unnecessary_cast)]
@@ -319,7 +319,7 @@ fn snapshot_at(
     if stat_at(parent)?.as_ref() != Some(&before) {
         return Err(changed());
     }
-    let hash = format!("{:x}", hasher.finalize());
+    let hash = crate::digest_hex::lower_hex(hasher.finalize());
     let version = digest(format!("v1\0{path}\0{}\0{before:?}\0{hash}", parent.chain).as_bytes());
     Ok(Snapshot {
         exists: true,

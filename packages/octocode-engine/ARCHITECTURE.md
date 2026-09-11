@@ -62,8 +62,14 @@ regex logic:
   normalized into common symbol/relation facts;
 - `graph/mod.rs` owns the bounded filesystem walk, parallel file reads, native
   fact extraction, and conservative same-file reference counts behind the
-  async `scanGraphFacts` batch binding; tools-core connects the returned facts
-  into file/symbol/dependency graph nodes and edges;
+  async `scanGraphFacts` batch binding. The outer scan result and each embedded
+  fact payload carry the same additive `schemaVersion`. Per-file omissions are
+  reported in the stable `skipped` diagnostic envelope (`relativePath`, `code`,
+  `message`) instead of being recoverable only from an aggregate count.
+  Tools-core validates the fact version, preserves those diagnostics, and
+  connects accepted facts into file/symbol/dependency graph nodes and edges;
+  exported declaration names also travel through a crate-private extraction
+  result so reference counting does not parse the just-serialized JSON;
 - tools-core owns graph-policy algorithms over those facts:
   `../octocode-tools-core/src/graph/reachability.ts` runs BFS reachability and
   iterative Tarjan's SCC, while

@@ -596,7 +596,7 @@ describe('toolCommand', () => {
       'Follow executable next.* calls with their scope and snapshot unchanged. Partial scan/depth state can require continuation even when hasMore is false. Whole-response pagination may split results; a restart discards earlier pages.'
     );
     expect(context).not.toContain('Use Octocode tools carefully.');
-    expect(context.length).toBeLessThanOrEqual(4000);
+    expect(context.length).toBeLessThanOrEqual(4200);
     for (const tool of TOOL_DEFINITIONS) {
       expect(context).toContain(tool.name);
     }
@@ -690,6 +690,7 @@ describe('toolCommand', () => {
       'ghCloneRepo',
       'localSearch',
       'astSearch',
+      'astRewrite',
       'localFetch',
       'lspSearch',
     ]);

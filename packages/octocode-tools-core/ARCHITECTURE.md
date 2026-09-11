@@ -30,8 +30,8 @@ attaches runtime behavior to core's canonical catalog.
   `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`,
   and `ghCloneRepo`.
 - **Package**: `artifactSearch`.
-- **Local** (`security: 'basic'`): `localSearch`, `astSearch`, and
-  `localFetch`.
+- **Local** (`security: 'basic'`): `localSearch`, `astSearch`, `astRewrite`,
+  and `localFetch`.
 - **LSP**: `lspSearch`; its engine-managed local client pool does not initialize
   GitHub providers or the server runtime.
 

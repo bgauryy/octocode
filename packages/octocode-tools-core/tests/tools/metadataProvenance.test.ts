@@ -25,12 +25,12 @@ describe('metadata provenance — core owns executable contracts', () => {
     expect(SYSTEM_PROMPT).toContain('next.* queries unchanged');
   });
 
-  it('serves the core description and executable validators for all ten public tools', () => {
+  it('serves the core description and executable validators for every public tool', () => {
     const names = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
       definition => definition.name
     );
-    expect(names).toHaveLength(10);
-    expect(new Set(names).size).toBe(10);
+    expect(names).toHaveLength(11);
+    expect(new Set(names).size).toBe(11);
     expect(Object.keys(PUBLIC_TOOL_DESCRIPTIONS)).toEqual(names);
     expect(
       DIRECT_TOOL_SPECIFICATIONS.map(specification => specification.name)
@@ -96,6 +96,6 @@ describe('metadata provenance — core owns executable contracts', () => {
   it('does not expose a second schema registry beside the direct catalog', () => {
     expect('toolSchemas' in publicSchemas).toBe(false);
     expect('findToolSchema' in publicSchemas).toBe(false);
-    expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(10);
+    expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(11);
   });
 });

@@ -16,6 +16,7 @@ use super::languages;
 #[serde(rename_all = "camelCase")]
 struct GraphFacts {
     kind: &'static str,
+    schema_version: u32,
     source: &'static str,
     language: String,
     file: String,
@@ -185,29 +186,50 @@ impl GraphAccumulator {
     }
 }
 
+#[cfg(test)]
 pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
+    extract_graph_facts_with_metadata(content, file_path).map(|extraction| extraction.facts_json)
+}
+
+pub(crate) fn extract_graph_facts_with_metadata(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
     if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        extract_graph_facts_inner(content, file_path)
+        extract_graph_facts_with_metadata_inner(content, file_path)
     }))
     .unwrap_or(None)
 }
 
-fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
-    extract_graph_facts_before(
+fn extract_graph_facts_with_metadata_inner(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
+    extract_graph_facts_with_metadata_before(
         content,
         file_path,
         std::time::Instant::now() + super::extractor::AST_EXECUTION_TIMEOUT,
     )
 }
 
+#[cfg(test)]
 fn extract_graph_facts_before(
     content: &str,
     file_path: &str,
     deadline: std::time::Instant,
 ) -> Option<String> {
+    extract_graph_facts_with_metadata_before(content, file_path, deadline)
+        .map(|extraction| extraction.facts_json)
+}
+
+fn extract_graph_facts_with_metadata_before(
+    content: &str,
+    file_path: &str,
+    deadline: std::time::Instant,
+) -> Option<super::GraphFactsExtraction> {
     let ext = get_extension_internal(file_path, true, "txt");
     if !graph_fact_extensions().iter().any(|item| item == &ext) {
         return None;
@@ -243,6 +265,7 @@ fn extract_graph_facts_before(
 
     let facts = GraphFacts {
         kind: "graphFacts",
+        schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
         source: "native-ast",
         language: language_label(&ext, entry.language_id),
         file: file_path.to_owned(),
@@ -255,7 +278,17 @@ fn extract_graph_facts_before(
         modules: acc.modules,
         rust_root_unsupported,
     };
-    serde_json::to_string(&facts).ok()
+    let exported_declaration_names = facts
+        .declarations
+        .iter()
+        .filter(|declaration| declaration.exported)
+        .map(|declaration| declaration.name.clone())
+        .collect();
+    let facts_json = serde_json::to_string(&facts).ok()?;
+    Some(super::GraphFactsExtraction {
+        facts_json,
+        exported_declaration_names,
+    })
 }
 
 pub fn graph_fact_extensions() -> Vec<String> {
@@ -1393,6 +1426,7 @@ pub fn distance(point: Point) -> f64 {
 }
 "#;
         let graph = facts(src, "geo.rs");
+        assert_eq!(graph["schemaVersion"], 1);
         assert!(graph
             .get("language")
             .is_some_and(|language| language == "rust"));

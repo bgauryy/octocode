@@ -176,7 +176,7 @@ impl GitObjectTask {
                     if size != body_size {
                         return Err(invalid("truncated object body"));
                     }
-                    if format!("{:x}", hash.finalize()) != self.oid {
+                    if crate::digest_hex::lower_hex(hash.finalize()) != self.oid {
                         return Err("HISTORY_OBJECT_HASH_MISMATCH: decoded object does not match requested SHA-1".into());
                     }
                     source.recheck(&self.path, &self.cancelled)?;

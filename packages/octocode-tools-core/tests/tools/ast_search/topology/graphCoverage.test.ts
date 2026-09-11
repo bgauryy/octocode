@@ -22,6 +22,103 @@ function mockScan(
 }
 
 describe('graph coverage survives every public operation', () => {
+  it('preserves native scan-skip reason codes as bounded coverage evidence', async () => {
+    vi.spyOn(contextUtils, 'scanGraphFacts').mockResolvedValue({
+      schemaVersion: 1,
+      candidatePaths: ['src/large.ts'],
+      filesSkipped: 1,
+      truncated: false,
+      entries: [],
+      skipped: [
+        {
+          relativePath: 'src/large.ts',
+          code: 'graph.scan.fileTooLarge',
+          message: 'file exceeds the graph scan byte limit',
+        },
+      ],
+    });
+
+    const built = await buildFileGraph('/nonexistent-graph-fixture', [], 20);
+
+    expect(built.filesSkipped).toBe(1);
+    expect(built.coverage?.diagnostics).toEqual([
+      {
+        file: 'src/large.ts',
+        code: 'scan-skip',
+        message:
+          'graph.scan.fileTooLarge: file exceeds the graph scan byte limit',
+      },
+    ]);
+  });
+
+  it('rejects unsupported fact schemas and reports malformed fact payloads', async () => {
+    vi.spyOn(contextUtils, 'scanGraphFacts').mockResolvedValue({
+      schemaVersion: 1,
+      candidatePaths: ['future.ts', 'malformed.ts'],
+      filesSkipped: 0,
+      truncated: false,
+      skipped: [],
+      entries: [
+        {
+          relativePath: 'future.ts',
+          factsJson: JSON.stringify({ schemaVersion: 2, declarations: [] }),
+          referenceCounts: [],
+        },
+        {
+          relativePath: 'malformed.ts',
+          factsJson: '{not-json',
+          referenceCounts: [],
+        },
+      ],
+    });
+
+    const built = await buildFileGraph('/nonexistent-graph-fixture', [], 20);
+
+    expect(built.filesSkipped).toBe(2);
+    expect(built.filesScanned).toBe(0);
+    expect(built.coverage?.diagnostics).toEqual([
+      {
+        file: 'future.ts',
+        code: 'facts-schema-unsupported',
+        message: 'unsupported graph-fact schema version: 2',
+      },
+      {
+        file: 'malformed.ts',
+        code: 'facts-decode-failed',
+        message: 'native graph facts could not be decoded',
+      },
+    ]);
+  });
+
+  it('rejects an unsupported outer scan envelope even when facts match it', async () => {
+    vi.spyOn(contextUtils, 'scanGraphFacts').mockResolvedValue({
+      schemaVersion: 2,
+      candidatePaths: ['future.ts'],
+      filesSkipped: 0,
+      truncated: false,
+      skipped: [],
+      entries: [
+        {
+          relativePath: 'future.ts',
+          factsJson: JSON.stringify({ schemaVersion: 2, declarations: [] }),
+          referenceCounts: [],
+        },
+      ],
+    });
+
+    const built = await buildFileGraph('/nonexistent-graph-fixture', [], 20);
+
+    expect(built.filesSkipped).toBe(1);
+    expect(built.filesScanned).toBe(0);
+    expect(built.coverage?.diagnostics).toEqual([
+      {
+        file: '.',
+        code: 'facts-schema-unsupported',
+        message: 'unsupported graph scan schema version: 2',
+      },
+    ]);
+  });
+
   it('preserves syntax-only guidance without misreporting a parse failure', async () => {
     const message =
       'tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof';

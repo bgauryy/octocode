@@ -1,13 +1,13 @@
 # Tool data and handoff contract
 
-This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's ten tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live schema when constructing an unfamiliar request; compact fields are a summary, while the full schema retains nested and conditional constraints.
+This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's eleven tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live schema when constructing an unfamiliar request; compact fields are a summary, while the full schema retains nested and conditional constraints.
 
 ```sh
 node packages/octocode/out/octocode.js tools --json
 node packages/octocode/out/octocode.js tools astSearch --scheme --json
 ```
 
-The CLI discovery catalog includes disabled tools: ten tools are discoverable and nine are enabled by default. MCP registers the enabled subset. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
+The CLI discovery catalog includes disabled tools: eleven tools are discoverable and ten are enabled by default. MCP registers the enabled subset. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.
 
 ## Ownership and runtime boundaries
 

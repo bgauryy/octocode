@@ -277,8 +277,18 @@ pub struct GraphFactsScanEntry {
 
 #[napi(object)]
 #[derive(Debug, Clone)]
+pub struct GraphFactsScanDiagnostic {
+    pub relative_path: String,
+    pub code: String,
+    pub message: String,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
 pub struct GraphFactsScanResult {
+    pub schema_version: u32,
     pub entries: Vec<GraphFactsScanEntry>,
+    pub skipped: Vec<GraphFactsScanDiagnostic>,
     pub candidate_paths: Vec<String>,
     pub files_skipped: u32,
     pub truncated: bool,

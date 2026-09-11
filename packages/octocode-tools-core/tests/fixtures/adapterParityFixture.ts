@@ -12,6 +12,7 @@ export const CANONICAL_ADAPTER_TOOL_NAMES = [
   'ghCloneRepo',
   'localSearch',
   'astSearch',
+  'astRewrite',
   'localFetch',
   'lspSearch',
 ] as const;
@@ -76,6 +77,13 @@ const CASE_QUERIES: Readonly<
     path: '/adapter-parity/fixture',
     file: 'src/index.ts',
     depth: 1,
+  },
+  astRewrite: {
+    path: '/adapter-parity/fixture',
+    langType: 'typescript',
+    pattern: 'oldName($A)',
+    rewrite: 'newName($A)',
+    pageSize: 1,
   },
   localFetch: {
     path: '/adapter-parity/fixture.ts',

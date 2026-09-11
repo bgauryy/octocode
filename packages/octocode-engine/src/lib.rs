@@ -1,5 +1,6 @@
 mod bindings;
 mod graph;
+pub mod index;
 mod lsp;
 mod minify;
 mod search;

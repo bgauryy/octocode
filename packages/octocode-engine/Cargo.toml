@@ -70,13 +70,13 @@ memmap2 = "0.9.11"
 lightningcss = { version = "1.0.0-alpha.72", default-features = false, optional = true }
 
 # ── OXC — JS/TS AST minifier + native semantic (scopes/bindings/refs) ─────────
-oxc_allocator = "0.148"
-oxc_ast       = "0.148"
-oxc_codegen   = { version = "0.148", default-features = false }
-oxc_minifier  = "0.148"
-oxc_parser    = "0.148"
-oxc_span      = "0.148"
-oxc_semantic  = "0.148"   # real ECMAScript scopes/bindings/in-file refs — native JS/TS symbols
+oxc_allocator = "0.149"
+oxc_ast       = "0.149"
+oxc_codegen   = { version = "0.149", default-features = false }
+oxc_minifier  = "0.149"
+oxc_parser    = "0.149"
+oxc_span      = "0.149"
+oxc_semantic  = "0.149"   # real ECMAScript scopes/bindings/in-file refs — native JS/TS symbols
 
 # ── tree-sitter core ─────────────────────────────────────────────────────────
 tree-sitter          = "0.27"

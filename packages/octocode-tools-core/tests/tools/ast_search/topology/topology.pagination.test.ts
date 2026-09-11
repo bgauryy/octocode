@@ -331,6 +331,11 @@ describe('astSearch topology deadCode pagination', () => {
       partialReasons: ['filesSkipped'],
       terminalLimit: true,
     });
+    expect(row?.data?.coverage?.diagnostics).toContainEqual({
+      file: 'oversized.js',
+      code: 'scan-skip',
+      message: 'graph.scan.fileTooLarge: file exceeds the graph scan byte limit',
+    });
     expect(row?.meta?.diagnostics?.partial).toBe(true);
     expect(row?.meta?.diagnostics?.codes).toContain('terminalLimitReached');
     expect(row?.meta?.diagnostics?.codes).not.toContain('continuationMissing');

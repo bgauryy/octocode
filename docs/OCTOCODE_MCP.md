@@ -57,15 +57,18 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool catalog
 
-The full discovery catalog contains 10 tools. With the default settings, the MCP
-server registers 9: `ghCloneRepo` is opt-in and requires `ENABLE_CLONE=true` plus
+The full discovery catalog contains 11 tools. With the default settings, the MCP
+server registers 10: `ghCloneRepo` is opt-in and requires `ENABLE_CLONE=true` plus
 persistent storage.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
-| Local | `localSearch`, `localFetch`, `astSearch`, `lspSearch` |
+| Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
+
+`astRewrite` is preview-first. File mutation is separately opt-in with
+`ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
 
 To read the live CLI catalog, run `octocode tools --json`.
 

@@ -39,7 +39,7 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
     ]) {
       expect(publicBarrelSource).not.toContain(legacyToolModule);
     }
-    expect(DIRECT_TOOL_SPECIFICATIONS).toHaveLength(10);
+    expect(DIRECT_TOOL_SPECIFICATIONS).toHaveLength(11);
     expect(DIRECT_TOOL_SPECIFICATIONS.map(tool => tool.name)).not.toEqual(
       expect.arrayContaining(['ghListReleases', 'ghSearchDiscussions'])
     );
@@ -230,8 +230,8 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
 
 describe('default read-only tool availability', () => {
   it('publishes one schema per canonical capability', () => {
-    expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(10);
-    expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(10);
+    expect(DIRECT_TOOL_DEFINITIONS).toHaveLength(11);
+    expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(11);
     expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toBe(DIRECT_TOOL_DEFINITIONS);
   });
 

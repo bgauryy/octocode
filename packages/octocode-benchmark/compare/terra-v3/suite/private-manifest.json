@@ -1,0 +1,29 @@
+{
+  "version": 3,
+  "split": "private",
+  "status": "slots-reserved",
+  "materializationRequired": true,
+  "note": "Prompts, anchors, and answer keys are held outside the repository. A private curator must replace these reserved envelope digests and set status=sealed before a measured campaign.",
+  "cases": [
+    {"id":"s01","lane":"lexical","repositories":["langchain-ai/langchain"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000001"},
+    {"id":"s02","lane":"lexical","repositories":["vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000002"},
+    {"id":"s03","lane":"lexical","repositories":["langchain-ai/langchain","vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000003"},
+    {"id":"s04","lane":"lexical","repositories":["langchain-ai/langchain","vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000004"},
+    {"id":"s05","lane":"structural","repositories":["langchain-ai/langchain"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000005"},
+    {"id":"s06","lane":"structural","repositories":["langchain-ai/langchain"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000006"},
+    {"id":"s07","lane":"structural","repositories":["vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000007"},
+    {"id":"s08","lane":"structural","repositories":["vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000008"},
+    {"id":"s09","lane":"semantic","repositories":["langchain-ai/langchain"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000009"},
+    {"id":"s10","lane":"semantic","repositories":["vercel/next.js"],"envelopeDigest":"000000000000000000000000000000000000000000000000000000000000000a"},
+    {"id":"s11","lane":"semantic","repositories":["langchain-ai/langchain"],"envelopeDigest":"000000000000000000000000000000000000000000000000000000000000000b"},
+    {"id":"s12","lane":"semantic","repositories":["vercel/next.js"],"envelopeDigest":"000000000000000000000000000000000000000000000000000000000000000c"},
+    {"id":"s13","lane":"indexed","repositories":["langchain-ai/langchain","vercel/next.js"],"envelopeDigest":"000000000000000000000000000000000000000000000000000000000000000d"},
+    {"id":"s14","lane":"indexed","repositories":["langchain-ai/langchain","vercel/next.js"],"envelopeDigest":"000000000000000000000000000000000000000000000000000000000000000e"},
+    {"id":"s15","lane":"indexed","repositories":["langchain-ai/langchain","vercel/next.js"],"envelopeDigest":"000000000000000000000000000000000000000000000000000000000000000f"},
+    {"id":"s16","lane":"codemod-preview","repositories":["langchain-ai/langchain"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000010"},
+    {"id":"s17","lane":"codemod-preview","repositories":["vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000011"},
+    {"id":"s18","lane":"end-to-end","repositories":["langchain-ai/langchain"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000012"},
+    {"id":"s19","lane":"end-to-end","repositories":["vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000013"},
+    {"id":"s20","lane":"end-to-end","repositories":["langchain-ai/langchain","vercel/next.js"],"envelopeDigest":"0000000000000000000000000000000000000000000000000000000000000014"}
+  ]
+}

@@ -11,7 +11,7 @@ const LEGACY_LOCAL_DISCOVERY_TOOLS = [
 ] as const;
 
 describe('MCP unified localSearch default catalog', () => {
-  it('keeps four local defaults and removes the legacy discovery aliases', () => {
+  it('keeps five local defaults and removes the legacy discovery aliases', () => {
     const localResearchNames = ALL_TOOLS.filter(
       tool => tool.isLocal && !tool.isClone && tool.isDefault
     )
@@ -19,7 +19,13 @@ describe('MCP unified localSearch default catalog', () => {
       .sort();
 
     expect(localResearchNames).toEqual(
-      ['localSearch', 'localFetch', 'astSearch', 'lspSearch'].sort()
+      [
+        'localSearch',
+        'localFetch',
+        'astSearch',
+        'astRewrite',
+        'lspSearch',
+      ].sort()
     );
     for (const legacyName of LEGACY_LOCAL_DISCOVERY_TOOLS) {
       expect(ALL_TOOLS.some(tool => tool.name === legacyName)).toBe(false);

@@ -194,6 +194,7 @@ describe('scanGraphFacts', () => {
           maxFiles?: number;
           maxFileBytes?: number;
         }): Promise<{
+          schemaVersion: number;
           entries: Array<{
             relativePath: string;
             factsJson: string;
@@ -201,6 +202,11 @@ describe('scanGraphFacts', () => {
           }>;
           candidatePaths: string[];
           filesSkipped: number;
+          skipped: Array<{
+            relativePath: string;
+            code: string;
+            message: string;
+          }>;
           truncated: boolean;
         }>;
       };
@@ -208,6 +214,7 @@ describe('scanGraphFacts', () => {
       expect(pending).toBeInstanceOf(Promise);
       const result = await pending;
 
+      expect(result.schemaVersion).toBe(1);
       expect(result.entries.map(entry => entry.relativePath).sort()).toEqual([
         'src/entry.ts',
         'src/value.ts',
@@ -217,7 +224,9 @@ describe('scanGraphFacts', () => {
         'src/value.ts',
       ]);
       expect(result.entries[0]?.factsJson).toContain('declarations');
+      expect(JSON.parse(result.entries[0]!.factsJson).schemaVersion).toBe(1);
       expect(result.filesSkipped).toBe(0);
+      expect(result.skipped).toEqual([]);
       expect(result.truncated).toBe(false);
 
       const exactCap = await native.scanGraphFacts({

@@ -177,6 +177,12 @@ External commands run through `child_process.spawn()` with an argument array —
 | `git` | Only `clone` + `sparse-checkout`. `file://`, `git://`, `http://` URLs blocked (HTTPS only). `-c` keys allowlisted to safe config (`advice.detachedHead`, `core.autocrlf`, `http.extraHeader`, …). |
 | `find` | `-exec`, `-execdir`, `-ok`, `-delete`, `-printf` and all exec/write operators blocked. |
 | `grep` | Shared dangerous-pattern scan (`;&|$()` etc.) applied to all arguments. |
+| `ast-grep` | Resolved executable is version checked; arguments are passed without a shell. Octocode requests JSON matches and owns patch generation instead of granting ast-grep direct write access. |
+
+`astRewrite` preview never writes. Apply is disabled by default and requires both
+`ENABLE_AST_REWRITE_APPLY=true` (or `local.enableAstRewriteApply`) and the exact
+SHA-256 `beforeHash` for every affected absolute path. Targets are realpath-checked
+against the requested root, staged before promotion, and rolled back on failure.
 
 ---
 

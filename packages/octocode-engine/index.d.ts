@@ -258,6 +258,7 @@ export interface GraphFactEdge {
 }
 
 export interface GraphFacts {
+  schemaVersion: number;
   kind: 'graphFacts';
   source: 'native-ast';
   language: string;
@@ -288,8 +289,16 @@ export interface GraphFactsScanEntry {
   referenceCounts: Array<GraphReferenceCount>;
 }
 
+export interface GraphFactsScanDiagnostic {
+  relativePath: string;
+  code: string;
+  message: string;
+}
+
 export interface GraphFactsScanResult {
+  schemaVersion: number;
   entries: Array<GraphFactsScanEntry>;
+  skipped: Array<GraphFactsScanDiagnostic>;
   candidatePaths: Array<string>;
   filesSkipped: number;
   truncated: boolean;

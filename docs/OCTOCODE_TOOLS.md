@@ -106,7 +106,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 
 ## Internal, external, and hybrid tools
 
-"External" describes the data or provider boundary, not the MCP transport. All ten tools can be called through MCP or the CLI.
+"External" describes the data or provider boundary, not the MCP transport. All eleven tools can be called through MCP or the CLI.
 
 | Tool | Boundary | How it works |
 | --- | --- | --- |
@@ -118,6 +118,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `ghCloneRepo` | Hybrid | Uses provider credentials/network access, then atomically materializes a full or sparse repository under managed local storage. Disabled unless cloning and local storage are enabled. |
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
 | `astSearch` | Internal/local | Runs structural AST, filesystem, tree, symbol, and topology queries against allowed local paths. |
+| `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with rollback on reported errors. Apply mode is separately opt-in and is not crash-atomic. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 

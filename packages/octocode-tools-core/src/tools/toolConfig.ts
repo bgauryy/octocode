@@ -8,6 +8,7 @@ import {
   GITHUB_GET_HISTORY_ITEM_TOOL_NAME,
   GITHUB_SEARCH_HISTORY_TOOL_NAME,
   AST_SEARCH_TOOL_NAME,
+  AST_REWRITE_TOOL_NAME,
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '@octocodeai/octocode-core/schema';
@@ -25,6 +26,7 @@ interface ToolCatalog {
   GITHUB_CLONE_REPO: ToolConfig;
   LOCAL_SEARCH: ToolConfig;
   AST_SEARCH: ToolConfig;
+  AST_REWRITE: ToolConfig;
   LOCAL_FETCH_CONTENT: ToolConfig;
   LSP_SEARCH: ToolConfig;
   ALL_TOOLS: ToolConfig[];
@@ -139,6 +141,16 @@ const RUNTIME_ATTACHMENT_BY_NAME: Readonly<
       security: 'basic',
     },
   },
+  [AST_REWRITE_TOOL_NAME]: {
+    isDefault: true,
+    isLocal: true,
+    type: 'content',
+    direct: {
+      executionFn: async input =>
+        (await import('./ast_rewrite/execution.js')).executeAstRewrite(input),
+      security: 'basic',
+    },
+  },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: {
     isDefault: true,
     isLocal: true,
@@ -209,6 +221,7 @@ function createToolCatalog(): ToolCatalog {
   const GITHUB_CLONE_REPO = getTool(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO);
   const LOCAL_SEARCH = getTool(LOCAL_SEARCH_TOOL_NAME);
   const AST_SEARCH = getTool(AST_SEARCH_TOOL_NAME);
+  const AST_REWRITE = getTool(AST_REWRITE_TOOL_NAME);
   const LOCAL_FETCH_CONTENT = getTool(STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT);
   const LSP_SEARCH = getTool(LSP_SEARCH_TOOL_NAME);
   const ALL_TOOLS = DIRECT_TOOL_SPECIFICATIONS.map(specification =>
@@ -224,6 +237,7 @@ function createToolCatalog(): ToolCatalog {
     GITHUB_CLONE_REPO,
     LOCAL_SEARCH,
     AST_SEARCH,
+    AST_REWRITE,
     LOCAL_FETCH_CONTENT,
     LSP_SEARCH,
     ALL_TOOLS,
@@ -241,6 +255,7 @@ export const PACKAGE_SEARCH = DEFAULT_TOOL_CATALOG.PACKAGE_SEARCH;
 export const GITHUB_CLONE_REPO = DEFAULT_TOOL_CATALOG.GITHUB_CLONE_REPO;
 export const LOCAL_SEARCH = DEFAULT_TOOL_CATALOG.LOCAL_SEARCH;
 export const AST_SEARCH = DEFAULT_TOOL_CATALOG.AST_SEARCH;
+export const AST_REWRITE = DEFAULT_TOOL_CATALOG.AST_REWRITE;
 export const LOCAL_FETCH_CONTENT = DEFAULT_TOOL_CATALOG.LOCAL_FETCH_CONTENT;
 export const LSP_SEARCH = DEFAULT_TOOL_CATALOG.LSP_SEARCH;
 export const ALL_TOOLS = DEFAULT_TOOL_CATALOG.ALL_TOOLS;

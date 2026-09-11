@@ -96,7 +96,7 @@ fn too_large(maximum: usize) -> String {
     format!("TOO_LARGE: File exceeds maximum {maximum} bytes")
 }
 fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::digest_hex::lower_hex(Sha256::digest(bytes))
 }
 fn nt_error(status: i32) -> std::io::Error {
     // SAFETY: pure status-code conversion, no pointers.
@@ -493,7 +493,7 @@ fn snapshot_at(
     {
         return Err(changed());
     }
-    let digest = format!("{:x}", hasher.finalize());
+    let digest = crate::digest_hex::lower_hex(hasher.finalize());
     Ok(Snapshot {
         exists: true,
         kind: if reparse { "symlink" } else { "file" }.into(),

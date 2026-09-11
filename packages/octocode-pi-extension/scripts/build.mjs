@@ -463,6 +463,11 @@ async function build() {
     );
   } finally {
     fs.rmSync(stagedSkills, { recursive: true, force: true });
+    // `build:skills` materializes this legacy package-root tree for explicit
+    // development workflows. A normal build owns the single discoverable copy
+    // in dist/skills and must remove the legacy tree even when compilation or a
+    // later packaging step fails.
+    fs.rmSync(SOURCE_PATHS.skills, { recursive: true, force: true });
     releaseBuildLock(buildLock);
   }
 }

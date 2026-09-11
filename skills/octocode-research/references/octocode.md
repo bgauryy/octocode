@@ -18,7 +18,7 @@ Inspect an unfamiliar schema once, including relations and operation variants; r
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 
-## 10 public tools
+## 11 public tools
 
 | Evidence question | Tool |
 |---|---|
@@ -26,10 +26,10 @@ Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also 
 | Known GitHub file | `ghGetFileContent` |
 | GitHub history discovery / known item | `ghSearchHistory` / `ghGetHistoryItem` |
 | Repeated cross-file GitHub analysis | `ghCloneRepo` when enabled |
-| Local text / syntax or topology / exact content / symbol identity | `localSearch` / `astSearch` / `localFetch` / `lspSearch` |
+| Local text / syntax or topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astRewrite` / `localFetch` / `lspSearch` |
 | Package metadata or capability discovery | `artifactSearch` |
 
-The default catalog contains 9 tools; the full discovery catalog includes opt-in `ghCloneRepo`. Local access, clone, storage, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
+The default catalog contains 10 tools; the full discovery catalog includes opt-in `ghCloneRepo`. Local access, clone, storage, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 
 ## Output and recovery
 - CLI default is YAML; `--compact` gives structured data; `--json` gives the full MCP-style envelope. MCP returns text plus structured data. Inspect per-row status: error is failure, empty is scoped absence, and exit 0 alone does not establish success for every row.

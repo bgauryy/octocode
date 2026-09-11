@@ -22,7 +22,7 @@ node packages/octocode/out/octocode.js tools localFetch --scheme --json --compac
 node packages/octocode/out/octocode.js tools ghGetHistoryItem --scheme --json
 ```
 
-The discovery catalog contains 10 tools, with 9 enabled by default. Enabled tools depend on local-tool,
+The discovery catalog contains 11 tools, with 10 enabled by default. Enabled tools depend on local-tool,
 clone, storage, and allowlist settings. Record the effective configuration and
 unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.

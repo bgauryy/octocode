@@ -35,6 +35,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
   },
   localSearch: { controls: ['page', 'pageSize'] },
   astSearch: { controls: ['page', 'pageSize'] },
+  astRewrite: { controls: ['page', 'pageSize'] },
   localFetch: { controls: ['chunkType', 'offset', 'limit'] },
   lspSearch: { controls: ['page', 'pageSize'] },
 };

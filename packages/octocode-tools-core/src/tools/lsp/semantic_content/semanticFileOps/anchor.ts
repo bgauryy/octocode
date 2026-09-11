@@ -6,6 +6,7 @@ import { ToolError } from '../../../../errors/ToolError.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../../../errors/localToolErrors.js';
 import { contextUtils } from '../../../../utils/contextUtils.js';
 import { isValidJsSymbolName } from '../../../../utils/jsSymbolNames.js';
+import { decodeGraphFactsJson } from '../../../../graph/scanContract.js';
 import type {
   SemanticContentType,
   WorkspaceSymbolSemanticQuery,
@@ -211,9 +212,11 @@ export function graphFactsDocumentSymbols(
   try {
     const json = contextUtils.extractGraphFacts(content, uri);
     if (!json) return null;
-    const parsed = JSON.parse(json) as {
+    const decoded = decodeGraphFactsJson<{
       declarations?: RawGraphFactDeclaration[];
-    };
+    }>(json);
+    if (!decoded.ok) return null;
+    const parsed = decoded.parsed;
     const declarations = Array.isArray(parsed.declarations)
       ? parsed.declarations
       : [];

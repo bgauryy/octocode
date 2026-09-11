@@ -195,13 +195,13 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**10 tools in the full discovery catalog.** Nine are enabled by default on
+**11 tools in the full discovery catalog.** Ten are enabled by default on
 CLI and MCP. Repository cloning is opt-in:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
-| MCP, no flags | 9 | GitHub, package, local, graph, and LSP tools |
-| CLI, no flags | 9 | The same default tools as MCP |
+| MCP, no flags | 10 | GitHub, package, local, graph, rewrite, and LSP tools |
+| CLI, no flags | 10 | The same default tools as MCP |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools;

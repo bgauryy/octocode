@@ -56,7 +56,7 @@ The public catalog is:
 - **GitHub**: `ghSearch`, `ghGetFileContent`, `ghSearchHistory`,
   `ghGetHistoryItem`, and `ghCloneRepo`.
 - **Package**: `artifactSearch`.
-- **Local**: `localSearch`, `astSearch`, and `localFetch`.
+- **Local**: `localSearch`, `astSearch`, `astRewrite`, and `localFetch`.
 - **LSP**: `lspSearch`.
 
 ## Output Safety (`src/utils/secureServer.ts`)

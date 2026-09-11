@@ -150,7 +150,10 @@ impl FingerprintTask {
             file.recheck(path, &self.cancelled).map_err(reason)?;
         }
         self.check()?;
-        Ok(format!("{PREFIX}{:x}", hasher.finalize()))
+        Ok(format!(
+            "{PREFIX}{}",
+            crate::digest_hex::lower_hex(hasher.finalize())
+        ))
     }
 }
 
@@ -237,7 +240,10 @@ mod tests {
         ));
         assert_eq!(
             result.fingerprint,
-            Some(format!("{PREFIX}{:x}", hash.finalize()))
+            Some(format!(
+                "{PREFIX}{}",
+                crate::digest_hex::lower_hex(hash.finalize())
+            ))
         );
         assert_eq!(result.files, 1);
         assert_eq!(result.bytes, 0.0);
