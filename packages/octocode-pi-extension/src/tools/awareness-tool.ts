@@ -31,6 +31,7 @@ import {
 } from './awareness-tool-protocol.js';
 
 type RegisterFn = typeof registerUniqueTool;
+const NATIVE_HISTORY_READ_CHUNK_BYTES = 6 * 1024;
 
 function validateOperationQuery(query: Record<string, unknown>): void {
   const operation = String(query['operation'] ?? '').trim();
@@ -72,6 +73,40 @@ async function callOperation(
         { status: 'denied', operation, effect, approval },
         true,
       );
+  }
+
+  // The canonical History read defaults to 64 KiB. Base64 expansion makes that
+  // exceed both the client and Pi model-output budgets, and the client's generic
+  // one-row fallback would turn a byte stream into one-byte pages. Preflight an
+  // omitted limit into a bounded byte continuation before any history read.
+  if (operation === 'history.read' && params['limit'] === undefined) {
+    const retry = {
+      tool: 'awareness',
+      queries: [{
+        reasoning: 'Read a bounded Awareness History chunk',
+        operation,
+        params: { ...params, limit: NATIVE_HISTORY_READ_CHUNK_BYTES },
+      }],
+    };
+    const payload = {
+      partial: true,
+      partialReasons: ['output_limit'],
+      diagnostic: {
+        kind: 'output-limit',
+        code: 'AWARENESS_OUTPUT_LIMIT',
+        limit: AWARENESS_OUTPUT_MAX_CHARS,
+      },
+      next: { retry },
+      hint: 'History read defaults exceed the native output budget. Continue with the bounded byte limit.',
+    };
+    return result(JSON.stringify(payload), {
+      status: 'partial',
+      operation,
+      effect,
+      code: 2,
+      output: payload,
+      truncated: true,
+    });
   }
 
   const bindings = buildAwarenessContext(ctx);

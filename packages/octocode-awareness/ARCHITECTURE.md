@@ -1,6 +1,6 @@
 # Awareness architecture
 
-`@octocodeai/octocode-awareness` owns local multi-agent coordination, reusable memory, verification receipts, host lifecycle integration, and recoverable file evidence. It does not own code research, host UI, model scheduling, or Agent control databases.
+`@octocodeai/octocode-awareness` owns local multi-agent coordination, reusable memory, verification receipts, host lifecycle integration, and recoverable file evidence. It does not own code research, host UI, model execution, or Agent control databases.
 
 ## Public boundaries
 
@@ -85,7 +85,7 @@ Ordered event consumers acknowledge only after the host persistence boundary acc
 
 ## Dependency rules
 
-- Do not import the Agent runtime, Pi UI, or model scheduler into Awareness.
+- Do not import the Agent runtime, Pi UI, or model execution policy into Awareness.
 - Keep `bin/` responsible for argv, stdout, stderr, and process exit only.
 - Keep routine discovery limited to the nineteen canonical operations.
 - Keep host-only capabilities under `/host` and migration under `/admin`.

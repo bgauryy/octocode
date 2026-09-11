@@ -7,7 +7,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { Scope, ScopePartial } from './types/locks-reflection.js';
+import type { Scope, ScopePartial } from './types/locks.js';
 
 export interface GitInfo {
   is_repo: false;

@@ -1,4 +1,4 @@
-# Exclusive Path Protection
+# Exclusive path protection
 
 Normal source and documentation edits are advisory. Use `work.protect` only when concurrent changes cannot be merged safely: migrations, generated singletons, dependency lockfiles, or broad mechanical rewrites.
 

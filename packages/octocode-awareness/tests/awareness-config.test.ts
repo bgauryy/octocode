@@ -13,6 +13,7 @@ import {
   writeAwarenessConfig,
 } from '../src/awareness-config.js';
 import { runHookCommand } from '../src/hooks/runner.js';
+import { AWARENESS_INTEGRATION_HOSTS, DEFAULT_WORKSPACE_POLICY } from '../src/workspace-policy.js';
 
 vi.mock('../src/hooks/history-capture.js', () => ({ captureHookHistory: vi.fn() }));
 
@@ -50,7 +51,7 @@ describe('awareness configuration', () => {
     expect(() => parseAwarenessConfig({ version: 1, features: { ...DEFAULT_AWARENESS_CONFIG.features, hooks: 'yes' } })).toThrow(/must be boolean/);
   });
 
-  it('keeps the bundled skill JSON Schema aligned with parser defaults', () => {
+  it('keeps the bundled workspace-policy JSON Schema aligned with canonical defaults', () => {
     const schemaPath = resolve(
       dirname(fileURLToPath(import.meta.url)),
       '../skills/octocode-awareness/references/awareness-config.schema.json',
@@ -59,19 +60,38 @@ describe('awareness configuration', () => {
       additionalProperties: boolean;
       properties: {
         version: { const: number };
-        features: {
+        storage: {
           additionalProperties: boolean;
           required: string[];
-          properties: Record<string, { default: boolean }>;
+          properties: {
+            repository: { enum: string[] };
+            memory: { enum: string[] };
+          };
+        };
+        hooks: {
+          additionalProperties: boolean;
+          required: string[];
+          properties: {
+            profile: { enum: string[] };
+            owners: { additionalProperties: boolean; properties: Record<string, { $ref: string }> };
+          };
         };
       };
     };
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties.version.const).toBe(1);
-    expect(schema.properties.features.additionalProperties).toBe(false);
-    expect(schema.properties.features.required).toEqual(Object.keys(DEFAULT_AWARENESS_CONFIG.features));
-    expect(Object.fromEntries(Object.entries(schema.properties.features.properties).map(([key, value]) => [key, value.default])))
-      .toEqual(DEFAULT_AWARENESS_CONFIG.features);
+    expect(schema.properties.storage).toMatchObject({
+      additionalProperties: false,
+      required: Object.keys(DEFAULT_WORKSPACE_POLICY.storage),
+    });
+    expect(schema.properties.storage.properties.repository.enum).toEqual(['global', 'repo']);
+    expect(schema.properties.storage.properties.memory.enum).toEqual(['global', 'repo']);
+    expect(schema.properties.hooks).toMatchObject({ additionalProperties: false, required: ['profile'] });
+    expect(schema.properties.hooks.properties.profile.enum).toContain(DEFAULT_WORKSPACE_POLICY.hooks.profile);
+    expect(schema.properties.hooks.properties.owners.additionalProperties).toBe(false);
+    expect(Object.keys(schema.properties.hooks.properties.owners.properties)).toEqual(AWARENESS_INTEGRATION_HOSTS);
+    expect(new Set(Object.values(schema.properties.hooks.properties.owners.properties).map(value => value.$ref)))
+      .toEqual(new Set(['#/$defs/owner']));
   });
 
   it('reports malformed files with their path', () => {

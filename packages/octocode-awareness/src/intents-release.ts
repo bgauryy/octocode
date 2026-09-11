@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { beginWrite } from './db-transaction.js';
 import { normalizeArtifact, utcNow } from './helpers.js';
-import type { FileLockReleaseStatus, ReleaseFileLockParams, ReleaseFileLockResult } from './types/locks-reflection.js';
+import type { FileLockReleaseStatus, ReleaseFileLockParams, ReleaseFileLockResult } from './types/locks.js';
 import { resolveTargetFiles, VALID_RELEASE_STATUSES, workspaceScopeRoot } from './intents-preflight.js';
 import { appendWorkEvent } from './work-events.js';
 

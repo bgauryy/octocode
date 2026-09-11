@@ -44,7 +44,7 @@ it.each([false, true])('drains idle hints through receipts (delayed=%s) with one
   const add = (sequence: number) => events.push({ version: 1, sequence, eventId: `e${sequence}`, workspace: root,
     type: 'peer.message', actor: { kind: 'agent', id: 'sender' }, provenance: { source: 'peer', trust: 'attributed-data' },
     aggregate: { kind: 'message', id: `m${sequence}` }, createdAt: new Date().toISOString(),
-    payload: { messageId: `m${sequence}`, fromAgentId: 'sender', toAgentId: 'recipient', topic: 'BLOCKED', text: 'peer needs a decision' } });
+    payload: { messageId: `m${sequence}`, fromAgentId: 'sender', toAgentId: 'recipient', signalKind: 'blocker', topic: 'BLOCKED', text: 'peer needs a decision' } });
   try {
     await handlers.get('session_start')!({}, ctx);
     expect(watchEvents).toHaveBeenCalledOnce();

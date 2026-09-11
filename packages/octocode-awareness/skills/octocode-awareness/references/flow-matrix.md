@@ -1,4 +1,4 @@
-# Awareness Flow Matrix
+# Awareness flow matrix
 
 Use the live schema for exact fields: `schema commands --compact` and `schema command <concept> <operation> --compact`.
 

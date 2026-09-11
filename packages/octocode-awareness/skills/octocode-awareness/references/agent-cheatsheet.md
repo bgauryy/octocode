@@ -1,4 +1,4 @@
-# Awareness Cheat Sheet
+# Awareness cheat sheet
 
 1. Reuse the host briefing or call `context.orient` once.
 2. Work normally when no shared state affects the decision.

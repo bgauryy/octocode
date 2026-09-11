@@ -24,7 +24,7 @@ npx @octocodeai/octocode-awareness schema commands --compact
 npx @octocodeai/octocode-awareness schema command context orient --compact
 ```
 
-The CLI exposes exactly nineteen operations across Context, Work, Message, Memory, and History. It has no skill installer, documentation server, maintenance catalog, scheduler, or legacy aliases.
+The CLI exposes exactly nineteen operations across Context, Work, Message, Memory, and History. Unknown operation names fail.
 
 ## Reference map
 

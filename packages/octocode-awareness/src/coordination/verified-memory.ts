@@ -9,7 +9,21 @@ import { normalizeArtifact, normalizeLabel, normalizeReferences, normalizeTags }
 import { DEFAULT_SEMANTIC_MIN_SIMILARITY, splitTags, now } from './coordination-shared.js';
 import { decodeMemoryContent, encodeMemoryContent, renderMemoryContent } from '../memory-content.js';
 import { repositoryWorkspacePaths } from '../git.js';
-import type { AwarenessOperationCall } from '../schema/operation-types.js';
+import type {
+  VerifiedMemoryHost,
+  VerifiedMemoryPageV1,
+  VerifiedMemoryRecallParams,
+  VerifiedMemoryStoreParams,
+  VerifiedMemoryV1,
+} from './verified-memory-types.js';
+export type {
+  VerifiedMemoryHost,
+  VerifiedMemoryPageV1,
+  VerifiedMemoryPartialReason,
+  VerifiedMemoryRecallParams,
+  VerifiedMemoryStoreParams,
+  VerifiedMemoryV1,
+} from './verified-memory-types.js';
 
 const MAX_TEXT = 4000;
 const MAX_SOURCE_DIGEST = 512;
@@ -17,85 +31,6 @@ const MAX_LIMIT = 50;
 const MAX_OFFSET = 1_000_000_000;
 const SEMANTIC_CANDIDATE_LIMIT = 2000;
 const MAX_PAGE_BYTES = 16 * 1024;
-export type VerifiedMemoryPartialReason = 'limit' | 'terminal-limit' | 'snapshot_changed';
-
-export interface VerifiedMemoryV1 {
-  version: 1;
-  memoryId: string;
-  workspacePath: string;
-  label: string;
-  text: string;
-  scope: 'project' | 'artifact';
-  artifact?: string;
-  sourceDigest: string;
-  verifiedAt: string;
-  validUntil?: string;
-  importance: number;
-  file?: string[];
-  area?: string;
-  why?: string;
-  constraint?: string;
-  historyRef?: string;
-  historyEvidence?: {
-    state: 'recorded' | 'incomplete' | 'unavailable';
-    reason: string;
-    next?: { call: AwarenessOperationCall<'history.read'> };
-  };
-  explanation?: string;
-}
-
-export interface VerifiedMemoryPageV1 {
-  memories: VerifiedMemoryV1[];
-  partial: boolean;
-  partialReasons: VerifiedMemoryPartialReason[];
-  revision: string;
-  terminalLimit?: { code: 'MEMORY_SEMANTIC_LIMIT'; candidateLimit: number; message: string };
-  warnings?: string[];
-  next?: { params: VerifiedMemoryRecallParams };
-}
-
-export interface VerifiedMemoryHost {
-  readonly db: DatabaseSync;
-  readonly canonicalWorkspace: string;
-  writeTransaction<T>(operation: () => T): T;
-  embedMemory(memoryId: string, text: string): boolean;
-}
-
-export interface VerifiedMemoryStoreParams {
-  label: string;
-  text: string;
-  scope?: 'project' | 'artifact';
-  artifact?: string;
-  sourceDigest: string;
-  verifiedAt?: string;
-  validUntil?: string;
-  importance?: number;
-  tags?: string | string[] | null;
-  file?: string | string[] | null;
-  area?: string;
-  why?: string;
-  constraint?: string;
-  historyRef?: string;
-  supersedes?: string[];
-}
-
-export interface VerifiedMemoryRecallParams {
-  memoryId?: string;
-  query?: string;
-  label?: string;
-  sourceDigest?: string;
-  scope?: 'project' | 'artifact';
-  artifact?: string;
-  limit?: number;
-  offset?: number;
-  now?: string;
-  mode?: MemoryRecallModeV1;
-  minSimilarity?: number;
-  file?: string | string[];
-  area?: string;
-  revision?: string;
-  strictScope?: boolean;
-}
 function boundedText(value: string, field: string, max: number): string {
   const text = value.trim();
   if (!text) throw new Error(`${field} is required`);

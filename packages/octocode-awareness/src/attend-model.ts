@@ -220,26 +220,16 @@ export function resourceLeads(query: string, workspacePath: string): Array<Recor
   const haystack = query.toLowerCase();
   const leads: Array<Record<string, string>> = [];
   const add = (source: string, why: string, verification = 'lead_to_verify') => {
-    leads.push({ source, why, verification });
+    if (existsSync(source)) leads.push({ source, why, verification });
   };
-  if (/(awareness|homeostatic|attend|workboard|memory|task|reflection|drive|motivation|resource|creative|personality)/.test(haystack)) {
+  if (/(awareness|architecture|context|work|message|memory|history|coordination|localgit|sqlite)/.test(haystack)) {
     add(
-      join(workspacePath, '.octocode', 'rfc', 'homeostatic-awareness-loop', 'RFC.md'),
-      'RFC goals and decision for the awareness loop',
+      join(workspacePath, '.octocode', 'rfc', 'awareness-one-surface', 'RFC.md'),
+      'accepted decision for the canonical Awareness surface',
     );
     add(
-      join(workspacePath, '.octocode', 'rfc', 'homeostatic-awareness-loop', 'IMPLEMENTATION.md'),
-      'dependency-ordered build plan for workboard, attend, drive_state, and digest',
-    );
-    add(
-      join(workspacePath, 'packages', 'octocode-awareness', 'skills', 'octocode-awareness', 'references', 'homeostatic-loop.md'),
-      'compact agent-facing organ and drive map',
-    );
-  }
-  if (/(role.?dialogue|self.?reflection|tutor|student|builder|tester|alter.?ego|debate|duo)/.test(haystack)) {
-    add(
-      join(workspacePath, 'packages', 'octocode-awareness', 'skills', 'octocode-awareness', 'references', 'self-reflection-dialogue.md'),
-      'role-dialogue pattern for hard ideas without persona bloat',
+      join(workspacePath, 'packages', 'octocode-awareness', 'ARCHITECTURE.md'),
+      'current package boundaries and storage ownership',
     );
   }
   if (leads.length === 0) {

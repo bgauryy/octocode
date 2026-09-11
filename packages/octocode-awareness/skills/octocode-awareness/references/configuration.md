@@ -1,6 +1,6 @@
 # Awareness configuration
 
-Missing workspace configuration uses package defaults. Create or change configuration only when the user requests different storage or lifecycle behavior.
+Missing workspace configuration uses package defaults. Create or change configuration only when you request different storage or lifecycle behavior.
 
 Workspace policy lives at `.octocode/awareness.json` and owns two decisions:
 

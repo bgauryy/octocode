@@ -7,7 +7,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { canonicalizePath, normalizeWorkspacePath } from './git.js';
 import { startWork } from './work.js';
-import type { FileLockReleaseStatus, PreFlightRunParams, PreFlightRunResult } from './types/locks-reflection.js';
+import type { FileLockReleaseStatus, PreFlightRunParams, PreFlightRunResult } from './types/locks.js';
 
 export const MAX_LOCK_TTL_MS = 10 * 60_000;
 export const VALID_RELEASE_STATUSES = new Set<FileLockReleaseStatus>(['PENDING', 'ACTIVE', 'FAILED']);

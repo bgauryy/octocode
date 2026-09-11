@@ -20,7 +20,7 @@ export const MEMORY_LABEL_VALUES = [
   'BUG', 'FEATURE', 'SUGGESTION', 'GOTCHA', 'IMPROVEMENT', 'DECISION',
   'ARCHITECTURE', 'SECURITY', 'PERFORMANCE', 'TEST', 'BUILD', 'DOCS',
   'CONFIG', 'WORKFLOW', 'REFACTOR', 'API', 'RELEASE', 'INCIDENT',
-  'EXPERIENCE', // post-task reflections (worked/partial/failed outcomes)
+  'EXPERIENCE', // post-task outcomes (worked/partial/failed)
   'OVERRIDE',   // contradicts model training defaults (e.g. "this repo uses Bun, not npm")
   'OTHER',
 ] as const;

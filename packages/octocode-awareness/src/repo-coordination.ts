@@ -141,17 +141,6 @@ export function signalRows(db: DatabaseSync, params: AwarenessQueryParams): Awar
   }));
 }
 
-/** Pull the feedback clause out of a reflection narrative, if present. */
-export function extractInstructionsFeedback(observation: string): string {
-  const marker = 'instructions feedback:';
-  const idx = observation.toLowerCase().indexOf(marker);
-  if (idx === -1) return observation;
-  const after = observation.slice(idx + marker.length);
-  // The narrative joins clauses with ' | ' and closes reflection bodies with ')'.
-  const end = after.search(/\s\|\s|\)\s*$/);
-  return (end === -1 ? after : after.slice(0, end)).trim();
-}
-
 /**
  * Feedback addressed to the human developer who authored the agent's operating
  * instructions. Developer-review-tagged memories are the canonical source.
@@ -179,7 +168,7 @@ export function developerReviewRows(db: DatabaseSync, params: AwarenessQueryPara
       id: String(row['memory_id']),
       memory_id: String(row['memory_id']),
       state: 'recorded',
-      feedback: extractInstructionsFeedback(observation),
+      feedback: observation,
       context: String(row['task_context'] ?? ''),
       importance: Number(row['importance'] ?? 0),
       files: [],

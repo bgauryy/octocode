@@ -36,9 +36,9 @@ npx @octocodeai/octocode-awareness schema commands --compact
 npx @octocodeai/octocode-awareness schema command work verify --compact
 ```
 
-There are no routine aliases or legacy command surface. Host lifecycle integration and database migration are separate module subpaths, not additional model commands.
+Unknown operation names fail. Host lifecycle integration and database migration are separate module subpaths, not additional model commands.
 
-## Operating boundaries
+## Boundaries
 
 - Create Work only when ownership, dependencies, resumption, or verification must be shared.
 - Send Messages only when another actor's next action can change.
