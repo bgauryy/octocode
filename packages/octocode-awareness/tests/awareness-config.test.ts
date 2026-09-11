@@ -13,30 +13,12 @@ import {
   writeAwarenessConfig,
 } from '../src/awareness-config.js';
 import { runHookCommand } from '../src/hooks/runner.js';
-import { cmdAwarenessConfig } from '../src/commands/config.js';
-import { parseArgs } from '../src/command-parser.js';
 
 vi.mock('../src/hooks/history-capture.js', () => ({ captureHookHistory: vi.fn() }));
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('awareness configuration', () => {
-  it('shows and validates defaults, then persists only requested overrides without onboarding', () => {
-    const home = mkdtempSync(join(tmpdir(), 'awareness-optional-config-'));
-    vi.stubEnv('OCTOCODE_HOME', home);
-    const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const call = (args: string[]) => {
-      const code = cmdAwarenessConfig(parseArgs(args), { compact: true });
-      return { code, payload: JSON.parse(String(out.mock.calls.at(-1)![0])) };
-    };
-    try {
-      expect(call(['--action', 'show'])).toMatchObject({ code: 0, payload: { source: 'defaults', requires_user_answers: false, automation_active: true } });
-      expect(call(['--action', 'validate'])).toMatchObject({ code: 0, payload: { source: 'defaults' } });
-      expect(call(['--action', 'init', '--notifications', 'false'])).toMatchObject({ code: 0, payload: { created: true } });
-      expect(loadAwarenessConfig().config.features).toEqual({ hooks: true, notifications: false, verificationGate: false, sessionCapture: false, maintenanceReminders: false });
-      expect(call(['--action', 'init']).code).toBe(1);
-    } finally { out.mockRestore(); rmSync(home, { recursive: true, force: true }); }
-  });
   it('uses explicit defaults when awareness.json is missing', () => {
     const home = mkdtempSync(join(tmpdir(), 'awareness-config-'));
     try {

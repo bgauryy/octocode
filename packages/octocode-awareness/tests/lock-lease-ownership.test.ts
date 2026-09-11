@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { executeAwarenessCommand } from '../src/command-api.js';
+import { createAwarenessClient } from '../src/client.js';
 import { openAwarenessStore } from '../src/coordination/open.js';
 
 async function fixture(prefix: string) {
@@ -25,10 +25,9 @@ describe('lock lease ownership', () => {
       expect(() => owner.acquireLock({ filePath: 'src/shared.ts', agentId: 'other', reason: 'audit', testPlan: 'audit' }))
         .toThrow(/conflict/);
 
-      const result = await executeAwarenessCommand(
-        { command: 'lock release', params: { run_id: owner.listLocks()[0]!.runId, agent_id: 'other' } },
-        { workspace, database, agentId: 'owner', compact: true },
-      );
+      const result = await createAwarenessClient({ workspace, database, agentId: 'other' }).execute({
+        operation: 'work.protect', params: { action: 'release', run_id: owner.listLocks()[0]!.runId },
+      });
       expect(result.exitCode).toBe(1);
       expect(owner.listLocks()).toHaveLength(1);
     } finally {
@@ -49,10 +48,9 @@ describe('lock lease ownership', () => {
         db.close();
       }
 
-      const result = await executeAwarenessCommand(
-        { command: 'work touch', params: { run_id: work.runId, file: ['expired.ts'] } },
-        { workspace, database, agentId: 'owner', compact: true },
-      );
+      const result = await createAwarenessClient({ workspace, database, agentId: 'owner' }).execute({
+        operation: 'work.update', params: { transition: 'touch', run_id: work.runId, file: ['expired.ts'] },
+      });
       expect(result.exitCode).toBe(1);
     } finally {
       store.close();
@@ -65,22 +63,22 @@ describe('lock lease ownership', () => {
     const store = openAwarenessStore({ workspace, dbPath: database });
     try {
       const first = store.acquireLock({ filePath: 'a.ts', agentId: 'owner', reason: 'audit', testPlan: 'audit' });
-      const second = await executeAwarenessCommand(
-        { command: 'lock acquire', params: {
+      const client = createAwarenessClient({ workspace, database, agentId: 'owner' });
+      const second = await client.execute({
+        operation: 'work.protect', params: {
+          action: 'acquire',
           run_id: first.runId,
           target_file: ['b.ts'],
           rationale: 'audit',
           test_plan: 'audit',
-        } },
-        { workspace, database, agentId: 'owner', compact: true },
-      );
+        },
+      });
       expect(second.exitCode).toBe(0);
       expect(store.listLocks()).toHaveLength(2);
 
-      const release = await executeAwarenessCommand(
-        { command: 'lock release', params: { run_id: first.runId, target_file: ['missing.ts'] } },
-        { workspace, database, agentId: 'owner', compact: true },
-      );
+      const release = await client.execute({
+        operation: 'work.protect', params: { action: 'release', run_id: first.runId, target_file: ['missing.ts'] },
+      });
       expect(release.exitCode).toBe(1);
       expect(store.listLocks()).toHaveLength(2);
     } finally {

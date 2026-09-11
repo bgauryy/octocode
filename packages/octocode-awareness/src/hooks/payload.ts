@@ -2,7 +2,7 @@ import { writeCommandDiagnostic, writeCommandPayload } from '../command-output.j
 /** Shared payload normalization for package-owned lifecycle hook adapters. */
 import { basename, relative, resolve } from 'node:path';
 import { connectDb, resolveDbPath } from '../db-runtime.js';
-import { storageScopeForCommand } from '../workspace-policy.js';
+import { storageScopeForOperation } from '../workspace-policy.js';
 import { canonicalizePath } from '../git.js';
 import { extractWriteTargetPaths } from '../write-targets.js';
 import { resolveHookAgentId } from '../hook-identity.js';
@@ -380,10 +380,10 @@ export function resolveHookPath(file: string, cwd = process.cwd()): string {
   return canonicalizePath(resolve(cwd, file));
 }
 
-export function db(payload: Record<string, unknown>, command = 'work-command') {
+export function db(payload: Record<string, unknown>, operation = 'host.hook') {
   const cwd = workspace(payload) ?? process.cwd();
   return connectDb(resolveDbPath(null, {
-    scope: storageScopeForCommand(command, cwd),
+    scope: storageScopeForOperation(operation, cwd),
     workspace: cwd,
   }));
 }

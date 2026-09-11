@@ -41,13 +41,13 @@ describe('attention evidence and continuations', () => {
     expect(first).toMatchObject({ partial: true, evidence_omitted_count: 4 });
     expect(first.next.continuations).toHaveLength(1);
     const continuation = first.next.continuations?.[0];
-    expect(continuation).toMatchObject({ command: 'memory recall' });
+    expect(continuation).toMatchObject({ operation: 'memory.recall' });
     const client = createAwarenessClient({
       database: dbPath,
       workspace,
       agentId: 'owner',
     });
-    const executed = await client.execute({ operation: 'memory.recall', params: continuation!.params });
+    const executed = await client.execute(continuation!);
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ memories: expect.any(Array) });
     expect((executed.payload as { memories: unknown[] }).memories.length).toBeGreaterThanOrEqual(5);
@@ -87,17 +87,14 @@ describe('attention evidence and continuations', () => {
     expect(first.workboard.Verify).toHaveLength(1);
     expect(first.operational_state.coverage.omitted_rows).toBeGreaterThan(0);
     expect(first).toMatchObject({ partial: true, partial_reasons: expect.arrayContaining(['workboard']) });
-    const continuation = first.next.continuations?.find(item => item.command === 'query workboard');
+    const continuation = first.next.continuations?.find(item => item.operation === 'work.list');
     expect(continuation).toBeDefined();
     const client = createAwarenessClient({
       database: dbPath,
       workspace,
       agentId: 'owner',
     });
-    const executed = await client.execute({
-      operation: 'work.list',
-      params: { kind: 'workboard', ...continuation!.params },
-    });
+    const executed = await client.execute(continuation!);
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ rows: expect.any(Array) });
     expect((executed.payload as { rows: unknown[] }).rows.length).toBeGreaterThanOrEqual(2);

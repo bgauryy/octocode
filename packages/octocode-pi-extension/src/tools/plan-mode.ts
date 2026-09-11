@@ -245,6 +245,8 @@ export function unclassifiedToolNames(toolNames: Iterable<string>): string[] {
     const normalized = name.toLowerCase();
     return normalized === 'agent'
       ? !TOOL_EFFECTS[normalized]
+      : normalized === 'awareness'
+        ? false
       : !getToolEffect(name);
   }).sort();
 }

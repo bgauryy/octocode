@@ -36,9 +36,9 @@ test('Awareness tool effects follow the canonical operation catalog', () => {
   const query = (operation?: string, params?: Record<string, unknown>) => ({ queries: [{ ...(operation ? { operation } : {}), ...(params ? { params } : {}) }] });
   assert.equal(getToolEffect('awareness', query()), undefined);
   assert.equal(getToolEffect('awareness', query('context.orient')), 'read');
-  assert.equal(getToolEffect('awareness', query('message.send')), 'coordination-write');
-  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'apply' })), 'workspace-write');
-  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'preview' })), 'read');
+  assert.equal(getToolEffect('awareness', query('message.send', { kind: 'fyi', subject: 'status' })), 'coordination-write');
+  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'apply', preview_id: 'p1' })), 'workspace-write');
+  assert.equal(getToolEffect('awareness', query('history.restore', { action: 'preview', operation_id: 'o1', side: 'before' })), 'read');
   assert.equal(getToolEffect('awareness', query('not.an.operation')), undefined);
 });
 

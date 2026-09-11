@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { initCheckpointStore } from '../src/tools/checkpoints.js';
 
 const ok = (payload: unknown) => Promise.resolve({ exitCode: 0, payload: { ok: true, ...payload as object } });
+const params = (call: AwarenessExecutableCall): Record<string, unknown> => call.params as Record<string, unknown>;
 
 describe('Awareness-backed checkpoints', () => {
   it('maps the bounded timeline and selects before for edits and after for checkpoints', async () => {
@@ -10,14 +11,14 @@ describe('Awareness-backed checkpoints', () => {
     const engine = await initCheckpointStore('/tmp/work', { agentId: 'pi:test', run: async args => {
       calls.push(args);
       if (args.operation === 'history.timeline') return ok({ operations: [{ operation_id: 'edit-1', kind: 'edit', created_at: '2026-01-01T00:00:00Z', file_count: 1 }] });
-      if (args.operation === 'history.restore' && args.params?.action === 'preview') return ok({ preview_id: 'preview-1', changes: [{ action: 'update', path: 'a.ts' }] });
+      if (args.operation === 'history.restore' && params(args).action === 'preview') return ok({ preview_id: 'preview-1', changes: [{ action: 'update', path: 'a.ts' }] });
       return ok({ status: 'applied', verification_run_id: 'verify-1' });
     } });
     expect(await engine.listCheckpoints(5)).toEqual({ checkpoints: [expect.objectContaining({ id: 'edit-1', side: 'before', filesChanged: 1 })] });
     expect(await engine.diffStat('edit-1')).toEqual([{ status: 'M', path: 'a.ts' }]);
     await expect(engine.restoreFiles('edit-1')).resolves.toEqual({ verificationRunId: 'verify-1' });
-    expect(calls.find(args => args.operation === 'history.restore' && args.params?.action === 'preview')).toEqual(expect.objectContaining({ params: expect.objectContaining({ side: 'before' }) }));
-    expect(calls.find(args => args.operation === 'history.restore' && args.params?.action === 'apply')).toEqual(expect.objectContaining({ params: { action: 'apply', preview_id: 'preview-1' } }));
+    expect(calls.find(args => args.operation === 'history.restore' && params(args).action === 'preview')).toEqual(expect.objectContaining({ params: expect.objectContaining({ side: 'before' }) }));
+    expect(calls.find(args => args.operation === 'history.restore' && params(args).action === 'apply')).toEqual(expect.objectContaining({ params: { action: 'apply', preview_id: 'preview-1' } }));
   });
 
   it('does not apply when preview fails', async () => {
@@ -28,7 +29,7 @@ describe('Awareness-backed checkpoints', () => {
       return { exitCode: 1, payload: { ok: false, error: 'conflict' } };
     } });
     await expect(engine.restoreFiles('missing')).rejects.toThrow('Preview this restore');
-    expect(calls.some(args => args.operation === 'history.restore' && args.params?.action === 'apply')).toBe(false);
+    expect(calls.some(args => args.operation === 'history.restore' && params(args).action === 'apply')).toBe(false);
   });
 
   it('executes the canonical continuation without dropping reachable history', async () => {

@@ -3,9 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initDb } from '../src/db-init.js';
 import { registerAgent } from '../src/agents.js';
 import { attendWorkspace } from '../src/attend-presence.js';
-import { cmdAttend } from '../src/commands/repo.js';
-import { parseArgs } from '../src/command-parser.js';
-import { validateFlagValues } from '../src/cli-adapter/cli-routing.js';
 
 const databases: DatabaseSync[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const db of databases.splice(0)) db.close(); });
@@ -38,17 +35,9 @@ describe('default attend presence', () => {
       if (!('peers' in result)) throw new Error('expected presence');
       for (const peer of result.peers) peers.add(String(peer['agent_id']));
       if (!result.partial) break;
-      const continuation = result.next!.list.command;
-      expect(continuation.name).toBe('attend');
-      expect(continuation.args).toEqual(expect.arrayContaining(['--workspace', '/repo', '--limit', '2']));
-      const args = parseArgs(continuation.args);
-      validateFlagValues(args);
-      const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-      expect(cmdAttend(db, args, ':memory:', { compact: true })).toBe(0);
-      const nextPage = JSON.parse(String(out.mock.calls.at(-1)![0]));
-      out.mockRestore();
+      const nextPage = attendWorkspace(db, { workspacePath: '/repo', limit: 2, offset: offset + result.peers.length });
+      if (!('peers' in nextPage)) throw new Error('expected presence continuation');
       expect(nextPage.mode).toBe('presence');
-      expect(nextPage.offset).toBe(Number(args['offset']));
       offset = nextPage.offset;
     }
     expect([...peers].sort()).toEqual(Array.from({ length: 7 }, (_, i) => `peer-${i}`));

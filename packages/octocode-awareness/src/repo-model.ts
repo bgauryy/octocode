@@ -43,7 +43,7 @@ export interface AwarenessQueryParams {
 }
 
 export interface QueryContinuationState {
-  next?: { list: { command: { name: 'query'; args: string[] } } };
+  next?: { list: { operation: 'work.list'; params: Record<string, unknown> } };
   terminal_limit?: { code: 'QUERY_VIEW_LIMIT'; view: AwarenessQueryView; limit: number };
 }
 
@@ -188,9 +188,12 @@ export interface QueryCompleteness {
 
 export function continuationFor(view: AwarenessQueryView, requestedLimit: number): string {
   if (requestedLimit < 500) {
-    return `query ${view} --limit ${Math.min(500, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
+    if (view === 'workboard') {
+      return `work list --kind workboard --limit ${Math.min(50, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
+    }
+    return `No routine continuation exposes ${view}; narrow filters to reduce the result`;
   }
-  return `query ${view} reached the 500-row safety cap; narrow workspace, state, label, file, time, or text filters`;
+  return `${view} reached the 500-row safety cap; narrow workspace, state, label, file, time, or text filters`;
 }
 
 export function boundedRows(view: AwarenessQueryView, probedRows: AwarenessQueryRow[], requestedLimit: number): QueryCompleteness {

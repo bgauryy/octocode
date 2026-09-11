@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { insertMemory, openAwarenessStore } from '../src/index.js';
+import { insertMemory } from '../src/memory-write.js';
+import { openAwarenessStore } from '../src/coordination/open.js';
 import { DatabaseSync } from 'node:sqlite';
 
 const roots: string[] = [];

@@ -1,7 +1,7 @@
 // Tokenization for the canonical shell adapter.
 import type { ParsedArgs } from './commands/args.js';
 
-export const ARRAY_FLAGS = new Set(['tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);
+export const ARRAY_FLAGS = new Set(['tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const result: ParsedArgs = { _: [] };
@@ -69,8 +69,8 @@ export const GLOBAL_FLAGS = ['db', 'db_scope', 'compact', 'help'];
 // read as "it worked". Excludes flags that already have dedicated validation
 // with their own messages/bounds (wait_seconds, retry_interval via
 // parseBoundedSeconds; ttl_*; importance on memory record).
-export const NUMERIC_FLAGS = new Set(['limit', 'min_importance', 'max_importance', 'min_count', 'min_edits', 'min_lines', 'older_than_days', 'retention_days', 'refinement_handoff_retention_days', 'handoff_signal_retention_days', 'refinement_done_retention_days', 'operational_retention_days', 'pressure_age_days', 'priority', 'lease_minutes']);
-export const RETENTION_DAY_FLAGS = new Set(['retention_days', 'refinement_handoff_retention_days', 'handoff_signal_retention_days', 'refinement_done_retention_days', 'operational_retention_days', 'pressure_age_days']);
+export const NUMERIC_FLAGS = new Set(['limit', 'min_importance', 'max_importance', 'older_than_days', 'priority', 'lease_minutes']);
+export const RETENTION_DAY_FLAGS = new Set<string>();
 // Only these flags may use the `--no-*` spelling. Treating every `--no-*`
 // token as false let required scalar values such as `--agent-id` and
 // `--task-context` evade validation.
@@ -121,7 +121,6 @@ export const VALUE_REQUIRED_FLAGS = new Set([
   'status',
   'verified_note',
   'memory_id',
-  'refinement_id',
   'signal_id',
   'to_agent',
   'ref_id',

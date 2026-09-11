@@ -8,7 +8,7 @@ import {
   hookCommandEnabled,
   hookIntegrationOwner,
   loadWorkspacePolicy,
-  storageScopeForCommand,
+  storageScopeForOperation,
   workspacePolicyPath,
   writeWorkspacePolicy,
 } from '../src/workspace-policy.js';
@@ -22,11 +22,11 @@ describe('workspace Awareness policy', () => {
         exists: false,
         policy: DEFAULT_WORKSPACE_POLICY,
       });
-      expect(storageScopeForCommand('work-command', workspace)).toBe('global');
-      expect(storageScopeForCommand('attend', workspace)).toBe('global');
-      expect(storageScopeForCommand('tell-memory', workspace)).toBe('global');
-      expect(storageScopeForCommand('work-command', workspace, 'global')).toBe('global');
-      expect(storageScopeForCommand('work-command', workspace, 'repo')).toBe('repo');
+      expect(storageScopeForOperation('work.create', workspace)).toBe('global');
+      expect(storageScopeForOperation('context.orient', workspace)).toBe('global');
+      expect(storageScopeForOperation('memory.record', workspace)).toBe('global');
+      expect(storageScopeForOperation('work.create', workspace, 'global')).toBe('global');
+      expect(storageScopeForOperation('work.create', workspace, 'repo')).toBe('repo');
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -46,8 +46,8 @@ describe('workspace Awareness policy', () => {
         exists: true,
         policy: { ...policy, hooks: { ...policy.hooks, owners: DEFAULT_WORKSPACE_POLICY.hooks.owners } },
       });
-      expect(storageScopeForCommand('work-command', workspace)).toBe('global');
-      expect(storageScopeForCommand('tell-memory', workspace)).toBe('repo');
+      expect(storageScopeForOperation('work.create', workspace)).toBe('global');
+      expect(storageScopeForOperation('memory.record', workspace)).toBe('repo');
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

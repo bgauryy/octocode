@@ -2,9 +2,13 @@ import type { AwarenessClientContext } from './client.js';
 import { connectDb, resolveDbPath } from './db-runtime.js';
 import { runAwarenessHistoryOperation } from './history-api.js';
 import type { HistoryCaptureInput } from './schema/definitions-history.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
-export type AwarenessHistoryCaptureInput = Omit<HistoryCaptureInput, 'workspace' | 'agent_id'>;
+type BindHistoryCaptureContext<T> = T extends unknown
+  ? Omit<T, 'workspace' | 'agent_id'>
+  : never;
+
+export type AwarenessHistoryCaptureInput = BindHistoryCaptureContext<HistoryCaptureInput>;
 
 export interface AwarenessHost {
   readonly context: Readonly<AwarenessClientContext>;
@@ -17,7 +21,7 @@ export function createAwarenessHost(context: AwarenessClientContext): AwarenessH
   return Object.freeze({
     context: bound,
     async captureHistory(input: AwarenessHistoryCaptureInput): Promise<Record<string, unknown>> {
-      const scope = storageScopeForCommand('history capture', bound.workspace, bound.scope);
+      const scope = storageScopeForOperation('host.history.capture', bound.workspace, bound.scope);
       const database = connectDb(resolveDbPath(bound.database, { workspace: bound.workspace, scope }));
       try {
         return await runAwarenessHistoryOperation(database, 'capture', {
@@ -44,6 +48,7 @@ export type {
   AuthorizationReceiptV1,
   CapabilityDecisionReceiptV1,
   ContextSegmentV1,
+  InboundDecision,
   InteractionAnswerV1,
   InteractionRequestV1,
 } from './continuity-contracts.js';
@@ -73,12 +78,13 @@ export { runPreEditLockGate } from './coordination/hooks.js';
 export type { PreEditHookOptions, PreEditHookResult } from './coordination/hooks.js';
 export { readExternalAwarenessStatus } from './coordination/external-status.js';
 export type { ExternalAwarenessStatus } from './coordination/external-status.js';
-export { finalizeExternalPlan, projectExternalPlan } from './coordination/external-plan.js';
+export { completeExternalPlanTask, finalizeExternalPlan, projectExternalPlan } from './coordination/external-plan.js';
 export type { ExternalPlanScope, ObservedCheckReceipt } from './coordination/external-plan.js';
 export { detectAgentHost, generateAgentName } from './coordination/agent-naming.js';
 export type { AgentHost } from './coordination/agent-naming.js';
 export type { OutboxEventV1, StoredInteractionV1 } from './coordination/coordination-continuity.js';
 export { assessRuntimeRegulation } from './attend-physiology.js';
-export { claimNativeHookOwner, loadWorkspacePolicy, storageScopeForCommand } from './workspace-policy.js';
+export { defaultDbPath } from './coordination/coordination-shared.js';
+export { claimNativeHookOwner, loadWorkspacePolicy, storageScopeForOperation } from './workspace-policy.js';
 export type { AwarenessIntegrationHost, AwarenessHookOwner } from './workspace-policy.js';
 export type { AwarenessStorageScope } from './storage-scope.js';

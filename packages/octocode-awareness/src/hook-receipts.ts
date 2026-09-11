@@ -2,11 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { connectDb, resolveDbPath } from './db-runtime.js';
 import { canonicalizePath } from './git.js';
 import { utcNow } from './helpers.js';
-import type { HookHost } from './hooks-install-specs.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import type { ShellHookHost } from './hooks/payload.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
 export type HookReceiptStatus = 'success' | 'degraded' | 'failure';
-export type HookReceiptHost = HookHost | 'opencode';
+export type HookReceiptHost = ShellHookHost;
 
 export interface HookReceipt {
   workspace_path: string;
@@ -67,7 +67,7 @@ export function recordHookReceiptBestEffort(receipt: {
   try {
     database = connectDb(resolveDbPath(null, {
       workspace: receipt.workspacePath,
-      scope: storageScopeForCommand('hook', receipt.workspacePath),
+      scope: storageScopeForOperation('host.hook.receipt', receipt.workspacePath),
     }));
     return upsertHookReceipt(database, receipt);
   } catch {

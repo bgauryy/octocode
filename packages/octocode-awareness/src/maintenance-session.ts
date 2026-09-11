@@ -7,7 +7,7 @@ import { insertNotification } from './notifications-core.js';
 import { boundedMs, compactText, DEFAULT_RETRY_MS, DEFAULT_WAIT_MS, listSummary, MAX_RETRY_MS, MAX_WAIT_MS, SESSION_CAPTURE_FILE_LIMIT, SESSION_CAPTURE_RUN_DETAIL_LIMIT, SESSION_CAPTURE_RUN_FILE_LIMIT, SessionCaptureResult, WaitForLockResult } from './maintenance-stale.js';
 import { gitDirtyFiles } from './maintenance-git-status.js';
 
-/** REAL: Capture unresolved session state as an open, self-addressed handoff signal (one inbox; no parallel refinement row). */
+/** Capture unresolved session state as one open, self-addressed handoff message. */
 export function sessionCapture(
   db: DatabaseSync,
   params: Record<string, unknown> = {},

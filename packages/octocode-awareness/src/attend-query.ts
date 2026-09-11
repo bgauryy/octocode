@@ -1,5 +1,4 @@
 import { decideNext } from './attend-flow.js';
-import { getDatabasePath } from './db-runtime.js';
 import { relative, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
@@ -291,10 +290,8 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
   const scopedInspectionPath = scopedInspection ? String(scopedInspection['path'] ?? scopedInspection['file_path']) : null;
 
   const { continuations, partialReasons: nextPartialReasons } = attendContinuations({
-    workspacePath,
     params,
     query,
-    agentId,
     files,
     limit,
     workboardPartial: workboardResult.is_partial,
@@ -305,7 +302,7 @@ export function attendAwareness(db: DatabaseSync, params: AttendParams = {}): At
 
   const next = {
     ...decideNext({
-    databasePath: getDatabasePath(db), workspacePath, artifact: params.artifact, agentId,
+    workspacePath, artifact: params.artifact, agentId,
     verificationRequired: verificationTargets.length > 0, verificationRunId,
     ...(scopedInspectionPath ? { inspection: {
       file: scopedInspectionPath,

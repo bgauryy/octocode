@@ -75,7 +75,7 @@ export function createPiHistoryAdapter(options: PiHistoryAdapterOptions = {}): P
       try {
         const host = createHost({ workspace, agentId, sessionId: session });
         const payload = await host.captureHistory({
-          phase: 'before', operation_id: id, session_id: session, host: 'pi', label: `${event.toolName} mutation ${id}`, file: effect.files,
+          phase: 'before', operation_id: id, session_id: session, host: 'pi', label: `${event.toolName} mutation ${id}`, file: [...effect.files],
         });
         const operation = payload['operation'];
         if (operation && typeof operation === 'object' && ['partial', 'failed'].includes(String((operation as Record<string, unknown>)['status']))) {

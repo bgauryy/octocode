@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import {
   runPreEditLockGate,
-  storageScopeForCommand,
+  storageScopeForOperation,
   type AwarenessStorageScope,
   type PreEditHookResult,
   type PreEditHookOptions,
@@ -41,7 +41,7 @@ export function runAwarenessPreEdit(options: PreEditHookOptions): PreEditHookRes
 }
 
 export function resolveAwarenessCoordinationScope(workspace: string): AwarenessStorageScope {
-  return storageScopeForCommand('coordination', workspace);
+  return storageScopeForOperation('context.orient', workspace);
 }
 
 export interface AssetPaths {

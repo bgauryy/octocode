@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { resolve } from 'node:path';
-import { getDatabasePath } from './db-runtime.js';
 import { normalizeWorkspacePath, repositoryWorkspacePaths } from './git.js';
 import { assertKnownOptions } from './helpers.js';
 import { attendAwareness } from './attend-query.js';
@@ -43,14 +42,13 @@ export function attendWorkspace(db: DatabaseSync, params: AttendWorkspaceParams 
     ORDER BY agent_id, workspace_path LIMIT ? OFFSET ?`).all(JSON.stringify(workspaces), limit + 1, offset);
   const partial = rows.length > limit;
   const peers = rows.slice(0, limit);
-  const args = partial ? ['--db', getDatabasePath(db), '--workspace', workspace, '--limit', String(limit),
-    '--offset', String(offset + peers.length), '--compact'] : [];
-  if (params.agentId) args.push('--agent-id', params.agentId);
   return {
     ok: true, mode: 'presence' as const, workspace_path: workspace, self_id: params.agentId ?? null,
     repository_workspaces: workspaces,
     peers, count: peers.length, offset, partial, partialReasons: partial ? ['limit'] : [],
-    ...(partial ? { next: { list: { command: { name: 'attend', args } } } } : {}),
+    ...(partial ? { next: { list: { operation: 'context.orient', params: {
+      limit: Math.min(3, limit), offset: offset + peers.length,
+    } } } } : {}),
     note: 'Registered workspace peers; last_seen_at is activity evidence, not proof of a live session. Hooks deliver messages. Inspect other capabilities only when needed.',
   };
 }

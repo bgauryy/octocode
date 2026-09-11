@@ -15,9 +15,9 @@ describe('Awareness CLI shell arguments remain data', () => {
     expect(() => assertBashCommandAllowed(command, cwd)).not.toThrow();
   });
   it.each([
-    `node awareness.js signal list > /outside-review-fixture/result.txt`,
-    `node awareness.js signal list | tee /outside-review-fixture/result.txt`,
-    `node awareness.js signal list; install source /outside-review-fixture/result.txt`,
+    `node awareness.js message list > /outside-review-fixture/result.txt`,
+    `node awareness.js message list | tee /outside-review-fixture/result.txt`,
+    `node awareness.js message list; install source /outside-review-fixture/result.txt`,
     `sudo install source /outside-review-fixture/result.txt`,
     `node awareness.js skill install --dry-run && cp source /outside-review-fixture/result.txt`,
     `node awareness.js message send --body "$(printf x > /outside-review-fixture/result.txt)"`,

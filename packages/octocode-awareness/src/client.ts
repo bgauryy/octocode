@@ -8,7 +8,7 @@ import {
 import { appendDomainEvent, listOutboxEvents, type DomainEventInput, type OutboxEventPage } from './event-outbox.js';
 import { connectDb, resolveDbPath } from './db-runtime.js';
 import type { AwarenessInsightCandidate, AwarenessInsightProvider, AwarenessOperationResult } from './operation-contracts.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
 export interface AwarenessClientContext {
   database?: string;
@@ -184,7 +184,7 @@ export function createAwarenessClient(
     context: bound,
     operations: listAwarenessOperationDescriptors,
     async recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }> {
-      const scope = storageScopeForCommand('event-outbox', bound.workspace, bound.scope);
+      const scope = storageScopeForOperation('host.events.record', bound.workspace, bound.scope);
       const db = connectDb(resolveDbPath(bound.database, { scope, workspace: bound.workspace }));
       db.exec('BEGIN IMMEDIATE');
       try {
@@ -203,7 +203,7 @@ export function createAwarenessClient(
       } finally { db.close(); }
     },
     async consumeEvents(params: AwarenessEventCursor = {}): Promise<OutboxEventPage> {
-      const scope = storageScopeForCommand('event-outbox', bound.workspace, bound.scope);
+      const scope = storageScopeForOperation('host.events.consume', bound.workspace, bound.scope);
       const db = connectDb(resolveDbPath(bound.database, { scope, workspace: bound.workspace }));
       try { return listOutboxEvents(db, { workspace: bound.workspace, ...params }); }
       finally { db.close(); }

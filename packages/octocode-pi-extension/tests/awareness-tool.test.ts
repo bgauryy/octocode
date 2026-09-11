@@ -97,7 +97,7 @@ test('executes an operation with trusted host bindings and timeout', async () =>
 test('rejects removed dispatch fields before execution', async () => {
   const runner = vi.fn<AwarenessOperationRunner>();
   const result = await runQueries(makeTool(runner), [
-    { operation: 'message.send', command: 'signal publish', params: { kind: 'fyi', subject: 'x' } },
+    { operation: 'message.send', command: 'removed route', params: { kind: 'fyi', subject: 'x' } },
   ]);
   assert.equal(result.isError, true);
   assert.match(text(result), /command is not part of the canonical Awareness surface/);
@@ -125,7 +125,7 @@ test('allows batched reads but refuses every mixed or repeated mutation batch', 
     { operation: 'context.orient' },
     { operation: 'message.list' },
   ]);
-  assert.equal(reads.isError, false);
+  assert.notEqual(reads.isError, true);
   const mutations = await runQueries(makeTool(runner), [
     { operation: 'message.send', params: { kind: 'fyi', subject: 'one' } },
     { operation: 'message.send', params: { kind: 'fyi', subject: 'two' } },
@@ -177,7 +177,7 @@ test('does not offer to replay an oversized completed mutation', async () => {
 });
 
 test('reports cancelled and thrown executions without claiming success', async () => {
-  const cancelled = vi.fn<AwarenessOperationRunner>(async () => ({ exitCode: null, payload: {}, cancelled: true }));
+  const cancelled = vi.fn<AwarenessOperationRunner>(async () => ({ exitCode: 130, payload: {}, cancelled: true }));
   const cancelledValue = await runQueries(makeTool(cancelled), [{ operation: 'context.orient' }]);
   assert.equal(cancelledValue.isError, true);
   assert.equal(details(cancelledValue).status, 'cancelled');

@@ -63,7 +63,7 @@ describe('READ -> DO -> LEARN closure fixes', () => {
       agentId: 'worker', workspacePath: '/repo', query: 'implement current feature', compact: true,
     });
     expect(packet.counts?.Maintenance).toBeGreaterThan(0);
-    expect(packet.next.command).toBeUndefined();
+    expect(packet.next.operation).toBeUndefined();
     expect(packet.next.action).toBe('continue');
   });
 

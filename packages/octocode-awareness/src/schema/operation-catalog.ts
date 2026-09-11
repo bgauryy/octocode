@@ -198,7 +198,7 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
       const executor = await import('../operation-executor.js');
       return input.operation === 'context.orient'
         ? executor.executeContextOrient(context, selected.params as AwarenessOperationParams['context.orient'])
-        : executor.executeCanonicalRoute({
+        : executor.executeCanonicalRoute(input.operation, {
           command: selected.route.command,
           schema: projectCommandInput(selected.route.command, schemas[selected.route.schemaName]),
           handler: selected.route.handler,

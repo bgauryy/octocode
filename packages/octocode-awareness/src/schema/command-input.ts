@@ -10,14 +10,14 @@ export function projectCommandInput(commandName: string, schema: z.ZodType): Rec
   // command selector. Keep that explicit public field in discovery/validation.
   const selectsRoute = commandName !== 'history recovery' && commandName !== 'history evidence';
   if (properties && action && properties.action && selectsRoute) delete properties.action;
-  let aliases: Record<string, string> = {};
+  let canonicalNames: Record<string, string> = {};
   if (properties) {
-    aliases = projectCliProperties(properties, commandName);
+    canonicalNames = projectCliProperties(properties, commandName);
   }
   const existingRequired = Array.isArray(output.required)
     ? (output.required as string[])
       .filter((field) => field !== "action" || !selectsRoute)
-      .map((field) => aliases[field] ?? field)
+      .map((field) => canonicalNames[field] ?? field)
       .filter((field) => properties?.[field] && !Object.hasOwn(properties[field] as object, "default"))
     : [];
   const required = [...new Set([...existingRequired, ...(CLI_REQUIRED[commandName] ?? [])])];

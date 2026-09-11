@@ -85,7 +85,10 @@ export function nativeOperationContinuations(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(nativeOperationContinuations);
   const object = record(value);
   if (!object) return value;
-  if (typeof object['operation'] === 'string' && getAwarenessOperationDescriptor(object['operation'])) {
+  const executableKeys = Object.keys(object);
+  if (typeof object['operation'] === 'string'
+    && executableKeys.every(key => key === 'operation' || key === 'params')
+    && getAwarenessOperationDescriptor(object['operation'])) {
     const params = record(object['params']);
     return {
       tool: 'awareness',

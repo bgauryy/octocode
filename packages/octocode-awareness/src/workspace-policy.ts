@@ -48,10 +48,7 @@ export const DEFAULT_WORKSPACE_POLICY: WorkspaceAwarenessPolicy = Object.freeze(
   hooks: Object.freeze({ profile: 'coordination', owners: DEFAULT_HOOK_OWNERS }),
 });
 
-const MEMORY_COMMANDS = new Set([
-  'tell-memory', 'get-memory', 'memory-lifecycle', 'forget', 'mine-weakness',
-  'digest', 'export-harness',
-]);
+const MEMORY_OPERATIONS = new Set(['memory.record', 'memory.recall']);
 
 const PROFILE_COMMANDS: Record<AwarenessHookProfile, ReadonlySet<string>> = {
   guard: new Set(['pre-edit', 'post-edit', 'stop-verify']),
@@ -183,14 +180,14 @@ export function claimNativeHookOwner(input: { workspace: string; host: Awareness
   return { path, host: input.host, owner: 'native', changed: true };
 }
 
-export function storageScopeForCommand(
-  command: string,
+export function storageScopeForOperation(
+  operation: string,
   workspace: string,
   explicit?: AwarenessStorageScope,
 ): AwarenessStorageScope {
   if (explicit) return explicit;
   const policy = loadWorkspacePolicy(workspace).policy;
-  return MEMORY_COMMANDS.has(command) ? policy.storage.memory : policy.storage.repository;
+  return MEMORY_OPERATIONS.has(operation) ? policy.storage.memory : policy.storage.repository;
 }
 
 export function hookCommandEnabled(profileName: AwarenessHookProfile, command: string): boolean {

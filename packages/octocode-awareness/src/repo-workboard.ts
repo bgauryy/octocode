@@ -194,7 +194,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
       item_type: 'pressure', id: 'stale-pending-runs', status: 'review',
       title: `${pressure.stale_pending_runs} pending run(s) older than ${pressure.pressure_age_days}d`,
       detail: 'Run the declared checks; pending age never implies success or deletion.',
-      action: 'verify audit --workspace "$PWD" --compact',
+      action: 'work verify --action audit --compact',
       raw_ids: sample ? [sample] : [],
       files: [], created_at: utcNow(),
     });
@@ -204,7 +204,6 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
       item_type: 'pressure', id: 'stale-active-runs', status: 'review',
       title: `${pressure.stale_active_runs} active run(s) have expired file presence`,
       detail: 'Preview maintenance digest, then apply to mark stale ACTIVE runs FAILED with an audit receipt.',
-      action: 'maintenance digest --workspace "$PWD" --dry-run --compact',
       raw_ids: pressure.samples.active_run_ids,
       files: [], created_at: utcNow(),
     });
@@ -214,7 +213,6 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
       item_type: 'pressure', id: 'stale-handoff-signals', status: 'review',
       title: `${pressure.stale_handoff_signals} handoff signal(s) older than ${pressure.pressure_age_days}d`,
       detail: 'Preview maintenance digest, then apply to auto-resolve stale handoff broadcasts.',
-      action: 'maintenance digest --workspace "$PWD" --dry-run --compact',
       raw_ids: pressure.samples.handoff_signal_ids,
       files: [], created_at: utcNow(),
     });
@@ -225,20 +223,16 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
       item_type: 'pressure', id: 'stale-open-signals', status: 'review',
       title: `${nonHandoffSignals} non-handoff signal(s) older than ${pressure.pressure_age_days}d`,
       detail: 'Acknowledge or resolve after review; only stale handoff broadcasts are auto-resolved.',
-      action: 'signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --all --limit 5 --compact',
+      action: 'message list --all --limit 5 --compact',
       raw_ids: pressure.samples.signal_ids,
       files: [], created_at: utcNow(),
     });
   }
   if (pressure.stale_missing_refs > 0) {
-    const memoryId = pressure.samples.memory_ids[0];
     pressureRows.push({
       item_type: 'pressure', id: 'stale-missing-memory-refs', status: 'review',
       title: `${pressure.stale_missing_refs} old memory reference(s) point to missing files`,
       detail: 'Revalidate, supersede, or preview deletion by exact memory id.',
-      action: memoryId
-        ? `memory forget --memory-id ${memoryId} --dry-run --compact`
-        : 'query files --workspace "$PWD" --format table --limit 20',
       raw_ids: pressure.samples.memory_ids,
       files: [], created_at: utcNow(),
     });

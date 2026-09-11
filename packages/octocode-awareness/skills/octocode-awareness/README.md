@@ -39,12 +39,6 @@ npx @octocodeai/octocode-awareness context orient --workspace "$PWD" --compact
 
 CLI use and installed hooks need no global feature configuration. Missing configuration uses lean defaults. Use `config init` with explicit feature overrides only when customization is needed. Configuration preferences never authorize hook installation.
 
-For the optional advanced workflow store:
-
-```bash
-npx @octocodeai/octocode-awareness maintenance init --compact
-```
-
 Install this bundled skill through the public CLI. Choose an explicit platform and
 scope, preview the destination, then rerun without `--dry-run` only after approval:
 
@@ -56,8 +50,6 @@ Run `npx @octocodeai/octocode-awareness skill install --help` for user-level and
 host-specific destinations. The CLI materializes its packaged skill under
 `$OCTOCODE_HOME/skills`, then links the host directory to that durable copy; it
 never links to an npm cache. Do not reconstruct package paths in an agent prompt.
-`maintenance init` is safe to repeat.
-
 Awareness is the package's only bundled skill. Use `octocode-subagent` when
 execution choices, delegation, or independent workstreams need orchestration.
 Install other workflow skills with `octocode skill install <name>` when needed.
@@ -78,7 +70,6 @@ npx @octocodeai/octocode-awareness docs list --compact
 | `scripts/hook-runner.mjs` | Shared host lifecycle implementation. |
 | `scripts/extract-hook-files.mjs` | Host payload path extraction. |
 | `scripts/hooks/*.sh` | Thin lifecycle wrappers. |
-| [scripts/install.mjs](scripts/install.mjs) | Installer implementation; prefer the public `skill install` command and its preview. |
 | [scripts/hooks/pre-edit.sh](scripts/hooks/pre-edit.sh), [scripts/hooks/post-edit.sh](scripts/hooks/post-edit.sh), [scripts/hooks/stop-verify.sh](scripts/hooks/stop-verify.sh) | Opt-in guard/full profile wrappers for tracked edits and verification. |
 | [scripts/hooks/session-compact.sh](scripts/hooks/session-compact.sh) | Opt-in full-profile continuity hook. |
 
@@ -88,7 +79,7 @@ npx @octocodeai/octocode-awareness docs list --compact
 These are generated artifacts — do not hand-edit. Maintainers regenerate them from
 `src/schema/*.ts` and `bin/*.ts`.
 
-For integration maintenance, use the [flow matrix](references/flow-matrix.md) to
+For integration work, use the [flow matrix](references/flow-matrix.md) to
 choose a lifecycle, [Octocode bindings](references/octocode.md) for tool discovery,
 [output routing](references/output-routing.md) for artifact placement, and the
 [configuration schema](references/awareness-config.schema.json) to inspect stored

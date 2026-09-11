@@ -223,12 +223,3 @@ export interface PruneStaleParams {
   agentId?: string;
   targetFiles?: string[];
 }
-
-// ─── Delete refinement ───────────────────────────────────────────────────────
-
-export interface DeleteRefinementParams {
-  refinementIds: string[];
-  workspacePath?: string;
-  artifact?: string | null;
-  dryRun?: boolean;
-}

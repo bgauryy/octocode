@@ -144,7 +144,7 @@ describe('canonical Awareness client held-out behavior', () => {
 
   it('rejects direct host-binding conflicts before opening a route', async () => {
     const context = fixture();
-    const result = await executeCanonicalRoute({
+    const result = await executeCanonicalRoute('work.list', {
       command: 'query workboard',
       schema: {
         type: 'object',
@@ -163,7 +163,7 @@ describe('canonical Awareness client held-out behavior', () => {
 
   it('rolls back validation, nonzero, thrown-handler, and event-write failures', async () => {
     const context = fixture();
-    const invalid = await executeCanonicalRoute({
+    const invalid = await executeCanonicalRoute('work.list', {
       command: 'query workboard',
       schema: {
         type: 'object',
@@ -175,21 +175,21 @@ describe('canonical Awareness client held-out behavior', () => {
     }, {}, context);
     expect(invalid).toMatchObject({ exitCode: 1, payload: { error: expect.stringContaining('Invalid parameters') } });
 
-    const nonzero = await executeCanonicalRoute({
+    const nonzero = await executeCanonicalRoute('work.update', {
       command: 'work nonsense',
       schema: { type: 'object', properties: { workspace: { type: 'string' } }, additionalProperties: false },
       handler: 'work', action: 'nonsense', effect: 'coordination-write',
     }, {}, context);
     expect(nonzero.exitCode).toBe(1);
 
-    const thrown = await executeCanonicalRoute({
+    const thrown = await executeCanonicalRoute('work.create', {
       command: 'held-out work start failure',
       schema: { type: 'object', properties: { workspace: { type: 'string' } }, additionalProperties: false },
       handler: 'work', action: 'start', effect: 'coordination-write',
     }, {}, context);
     expect(thrown).toMatchObject({ exitCode: 1, payload: { error: expect.any(String) } });
 
-    const eventFailure = await executeCanonicalRoute({
+    const eventFailure = await executeCanonicalRoute('work.list', {
       command: 'query workboard',
       schema: { type: 'object', properties: { workspace: { type: 'string' } }, additionalProperties: false },
       handler: 'query', action: 'workboard', effect: 'workspace-write',

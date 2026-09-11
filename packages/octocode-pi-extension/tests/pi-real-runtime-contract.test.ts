@@ -16,7 +16,6 @@ import { COMPACTION_CHECKPOINT_TYPE } from '../src/tools/custom-messages.js';
 import type { PiContext } from '../src/types.js';
 import { createAwarenessClient } from '@octocodeai/octocode-awareness';
 import {
-  execHistoryCli,
   openAwarenessStore,
   watchAwarenessEventHints,
 } from '@octocodeai/octocode-awareness/host';
@@ -453,19 +452,20 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       }));
       expect(physiologyBeforeCompact?.tools).toEqual({ window: 32, observed: 3, failed: 1, cancelled: 0, blocked: 0 });
       expect(fs.readFileSync(path.join(workspace, 'history-fixture.txt'), 'utf8')).toBe('captured by real Pi SDK\n');
-      const history = await execHistoryCli(['history', 'timeline', '--workspace', workspace, '--limit', '10', '--compact']);
-      expect(history.code).toBe(0);
-      const timeline = JSON.parse(history.stdout) as { operations: Array<Record<string, unknown>> };
+      const historyClient = createAwarenessClient({ workspace, agentId: 'pi:real-runtime-test' });
+      const history = await historyClient.execute({ operation: 'history.timeline', params: { limit: 10 } });
+      expect(history.exitCode).toBe(0);
+      const timeline = history.payload as { operations: Array<Record<string, unknown>> };
       const operation = timeline.operations.find(candidate => candidate.host === 'pi');
       expect(operation).toEqual(expect.objectContaining({
         status: 'complete', outcome: 'success', file_count: 1,
         before_commit_oid: expect.any(String), after_commit_oid: expect.any(String),
       }));
       const operationId = String(operation?.operation_id);
-      const before = await execHistoryCli(['history', 'read', '--workspace', workspace, '--operation-id', operationId, '--file', 'history-fixture.txt', '--side', 'before', '--compact']);
-      const after = await execHistoryCli(['history', 'read', '--workspace', workspace, '--operation-id', operationId, '--file', 'history-fixture.txt', '--side', 'after', '--compact']);
-      expect(JSON.parse(before.stdout)).toEqual(expect.objectContaining({ ok: true, status: 'missing' }));
-      const afterPayload = JSON.parse(after.stdout) as { status: string; encoding: string; content: string };
+      const before = await historyClient.execute({ operation: 'history.read', params: { operation_id: operationId, file: 'history-fixture.txt', side: 'before' } });
+      const after = await historyClient.execute({ operation: 'history.read', params: { operation_id: operationId, file: 'history-fixture.txt', side: 'after' } });
+      expect(before.payload).toEqual(expect.objectContaining({ ok: true, status: 'missing' }));
+      const afterPayload = after.payload as { status: string; encoding: string; content: string };
       expect(afterPayload).toEqual(expect.objectContaining({ status: 'captured', encoding: 'base64' }));
       expect(Buffer.from(afterPayload.content, 'base64').toString('utf8')).toBe('captured by real Pi SDK\n');
 

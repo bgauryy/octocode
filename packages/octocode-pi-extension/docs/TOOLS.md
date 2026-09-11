@@ -137,12 +137,12 @@ The `awareness` tool exposes nineteen canonical operations across Context, Work,
 | Reuse/create/maintain a verified dynamic capability | `callTool` |
 | Load or manage a reusable multi-step workflow | `skill` with `type:"load"|"call"` |
 | Compact or reset context | Pi's native auto-compaction or user `/compact` / `/new`; configure Pi's reserve threshold for 80% |
-| Recall prior lessons that may change the approach | `awareness` call: `memory recall` |
-| Record a verified reusable root cause / decision | `awareness` call: `memory record`, after substantial work or a meaningful event |
-| Inspect deeper shared-state diagnostics | `awareness` list/describe/call; load one relevant skill reference |
-| Send / read needed peer messages | `awareness` call: `signal publish` / `signal list` |
-| Protect sensitive/non-mergeable files exceptionally | `awareness` call: `lock acquire` |
-| Diagnose task, handoff, verification, or presence state | `awareness` list/describe/call |
+| Recall prior lessons that may change the approach | `awareness` operation `memory.recall` |
+| Record a verified reusable root cause or decision | `awareness` operation `memory.record` |
+| Read decision-changing shared state | `awareness` operation `context.orient` |
+| Send or read needed peer messages | `awareness` operations `message.send` and `message.list` |
+| Protect sensitive, non-mergeable files | `awareness` operation `work.protect` |
+| Inspect shared work or verification debt | `awareness` operations `work.list`, `work.show`, and `work.verify` |
 
 ---
 
@@ -342,7 +342,7 @@ Large generic tool results and bash logs are intentionally not durable session a
 
 ## Local file history
 
-Successful native `file` mutations are captured before and after through the shared Awareness history store. Awareness owns the private bundled Git objects and metadata; Pi does not invoke system Git or write a second history database. Use `/octocode-rewind` to select a bounded timeline entry, inspect its file-level preview, and explicitly approve the same preview for apply. In headless sessions, use the bundled `octocode-awareness history timeline`, `history read`, `history restore-preview`, and `history restore-apply` commands through the Awareness skill. Pi never snapshots the whole workspace on input and never rewinds conversation state.
+Successful native `file` mutations are captured before and after through the shared Awareness history store. Awareness owns the private bundled Git objects and metadata; Pi does not invoke system Git or write a second history database. Use `/octocode-rewind` to select a bounded timeline entry, inspect its file-level preview, and approve the same preview for apply. In headless sessions, use `history.timeline`, `history.read`, and `history.restore` through the native tool; restore selects `action: preview` or `action: apply`. Pi never snapshots the whole workspace on input and never rewinds conversation state.
 
 ---
 

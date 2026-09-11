@@ -1,14 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /** Request-local output, shared by command handlers and their shell adapters. */
-export interface AwarenessCommandOutput {
+export interface AwarenessOperationOutput {
   command: string;
   compact: boolean;
   payload?: unknown;
   text: string;
   diagnostics: string[];
 }
-export const commandOutput = new AsyncLocalStorage<AwarenessCommandOutput>();
+export const commandOutput = new AsyncLocalStorage<AwarenessOperationOutput>();
 
 export class AwarenessInputError extends Error {
   constructor(message: string, readonly details: Record<string, unknown> = {}) { super(message); }

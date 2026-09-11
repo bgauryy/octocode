@@ -7,11 +7,9 @@ import { initDb } from '../src/db-init.js';
 import { rebuildFts } from '../src/db-maintenance.js';
 import { preFlightIntent } from '../src/intents-preflight.js';
 import { pruneStale } from '../src/maintenance-stale.js';
-import { notifyGet } from '../src/maintenance-briefing.js';
 import { digest } from '../src/maintenance-digest.js';
 import { getWorkspaceStatus, exportMemoryDoc } from '../src/maintenance-workspace.js';
 import { insertMemory } from '../src/memory-write.js';
-import { insertNotification } from '../src/notifications-core.js';
 import { auditUnverified } from '../src/verify-audit.js';
 function freshDb(): DatabaseSync {
     const db = new DatabaseSync(':memory:');
@@ -72,114 +70,6 @@ describe('auditUnverified', () => {
     expect(result.ok).toBe(true);
     expect(result.unverified).toHaveLength(0);
     expect(result.count).toBe(0);
-  });
-});
-
-describe('notifyGet', () => {
-  it('returns ok=true and empty array when there is no briefing', () => {
-    const db = freshDb();
-    const result = notifyGet(db, {});
-    expect(result.ok).toBe(true);
-    expect(result.count).toBe(0);
-    expect(result.notifications).toHaveLength(0);
-  });
-
-  it('returns a query-grounded memory briefing without db envelope noise', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'notify briefing',
-      observation: 'Important gotcha should appear in briefing',
-      importance: 8,
-      label: 'GOTCHA',
-    }));
-    const result = notifyGet(db, { format: 'hook', query: 'notify briefing' });
-    expect(result.ok).toBe(true);
-    expect(result.count).toBe(1);
-    expect(result.notifications[0]?.kind).toBe('memory');
-    expect('additionalContext' in result).toBe(true);
-    expect('db_path' in result).toBe(false);
-  });
-
-  it('delivers an unread signal once per unchanged hook scope without acknowledging it', () => {
-    const db = freshDb();
-    insertNotification(db, {
-      agentId: 'agent-a',
-      toAgent: 'agent-b',
-      kind: 'request',
-      subject: 'please check locks',
-      body: 'handoff detail',
-      workspacePath: '/repo',
-      importance: 8,
-    });
-
-    const first = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(first.ok).toBe(true);
-    expect(first.notifications[0]?.kind).toBe('notification');
-    expect('additionalContext' in first && first.additionalContext).toContain('please check locks');
-
-    const second = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(second).toEqual({ ok: true, count: 0, notifications: [] });
-    expect((db.prepare('SELECT COUNT(*) AS c FROM signal_reads').get() as { c: number }).c).toBe(0);
-  });
-
-  it('clusters repeated handoff signals in hook brief output', () => {
-    const db = freshDb();
-    const senders = ['pi:session-a', 'pi:session-b', 'pi:session-b'];
-    const files = ['README.md', '/repo/packages/octocode-awareness/bin/cli-work.ts', 'README.md'];
-    for (let i = 0; i < senders.length; i++) {
-      insertNotification(db, {
-        agentId: senders[i]!,
-        kind: 'handoff',
-        subject: `Review session handoff for ${senders[i]}`,
-        body: `Review session handoff for ${senders[i]} with different run/file summary ${i}`,
-        files: [files[i]!],
-        workspacePath: '/repo',
-        importance: 8,
-      });
-    }
-
-    const result = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(result.ok).toBe(true);
-    expect(result.notifications).toHaveLength(1);
-    expect(result.notifications[0]?.text).toContain('handoff ×3');
-    expect(result.notifications[0]?.text).toContain('files 2: README.md (+1)');
-    expect(result.notifications[0]?.text).toContain('Review session handoff');
-    expect(result.notifications[0]?.text).toContain('from multiple agents');
-    expect(result.notifications[0]?.text).toContain('broadcast');
-    expect(result.notifications[0]?.text).not.toContain('/repo/packages');
-    expect(result.notifications[0]?.text).not.toContain('pi:session-a');
-    expect('additionalContext' in result && result.additionalContext).toContain('🧠 Brief — showing 1/1');
-    expect('additionalContext' in result && result.additionalContext).toContain('handoff ×3');
-  });
-
-  it('dedupes colon-suffixed session handoff subjects before selecting hook brief rows', () => {
-    const db = freshDb();
-    insertNotification(db, {
-      agentId: 'pi:session-a',
-      kind: 'handoff',
-      subject: 'Review session handoff for pi:session-a',
-      body: 'Review session handoff: 0 active and 0 pending runs remain.',
-      files: ['.gitignore'],
-      workspacePath: '/repo',
-      importance: 8,
-    });
-    insertNotification(db, {
-      agentId: 'pi:session-a',
-      kind: 'handoff',
-      subject: 'Review session handoff: 0 active and 0 pending runs remain.',
-      body: 'Session capture for pi:session-a: 0 active and 0 pending runs remain.',
-      files: ['.gitignore'],
-      workspacePath: '/repo',
-      importance: 8,
-    });
-
-    const result = notifyGet(db, { format: 'hook', agent_id: 'agent-b', workspace_path: '/repo' });
-    expect(result.ok).toBe(true);
-    expect(result.notifications).toHaveLength(1);
-    expect(result.notifications[0]?.text).toContain('handoff ×2');
-    expect(result.notifications[0]?.text).toContain('files 1: .gitignore');
-    expect(result.notifications[0]?.text).toContain('Review session handoff');
-    expect(result.notifications[0]?.text).not.toContain('Review session handoff: 0 active');
   });
 });
 

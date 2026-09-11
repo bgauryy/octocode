@@ -27,6 +27,7 @@ export type {
 export type {
   AwarenessInsightCandidate,
   AwarenessInsightProvider,
+  AwarenessOperationEffect,
   AwarenessOperationResult,
 } from './operation-contracts.js';
 export type {

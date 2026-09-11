@@ -53,14 +53,14 @@ file-mutation route and one schema cost.
 | New file or intentional full rewrite | `file({queries:[{type:"write", path, content, reasoning}]})` |
 | Explicitly scoped file/symlink removal | `file({queries:[{type:"delete", path, reasoning}]})` |
 | Builds, tests, package commands, mechanical work | `bash` |
-| Awareness signals, explicit locks, memory and maintenance | Native `awareness` tool → imported package API |
+| Shared Context, Work, Message, Memory, and History operations | Native `awareness` tool → imported package API |
 
 Pi supplies `OCTOCODE_NODE`, `OCTOCODE_AWARENESS_CLI`, `OCTOCODE_AWARENESS_DB`,
 `OCTOCODE_AWARENESS_WORKSPACE` and `OCTOCODE_AGENT_ID` to guarded shell calls.
 Use `"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" <command>`
 with the supplied workspace and identity on scoped operations. CLI calls and native
-mutation guards share the same ledger. No separate model-facing memory, lock or
-message wrapper is registered; native event delivery, registry and plan UI remain.
+mutation guards share the same ledger. No duplicate model-facing coordination
+wrapper is registered; native event delivery, registry and plan UI remain.
 
 Read existing files before edit or delete. Prefer exact `oldText`; use `matchMode:"normalized"` only for representation drift and `lineRange` only with freshly read line numbers. Do not use shell redirection, `sed`, or `rm` for ordinary mutations when `file` is available.
 

@@ -32,7 +32,7 @@ export interface AgentEventEnvelopeV1<T = unknown> {
   sessionId?: string;
   correlationId?: string;
   type: string;
-  /** Omitted only by legacy delivery callers; parsed envelopes always materialize it. */
+  /** Parsed envelopes always materialize this; direct internal callers may omit it. */
   retentionClass?: EventRetentionClass;
   actor: ActorIdentityV1;
   provenance: EventProvenanceV1;
@@ -289,30 +289,15 @@ export function effectiveCapabilityDecision(guards: CapabilityDecisionReceiptV1[
   return 'allow';
 }
 
-const PROPOSAL_TOPICS = new Set(['PROPOSAL', 'APPROVAL']);
-const BLOCKING_TOPICS = new Set(['BLOCKED', 'OVERLAP', 'CONFLICT']);
-const HANDOFF_TOPICS = new Set(['HANDOFF']);
-
 /**
  * Classify peer input without interpreting its body as host policy. Canonical
- * signal kinds preserve routing independently of human-written subjects. Routine
- * questions, requests, and decisions are data; only the typed approval kind or
- * legacy approval topics cross the human authorization boundary.
+ * message kinds preserve routing independently of human-written subjects.
  */
-export function classifyPeerMessage(topic: string | null | undefined, body: string, signalKind?: string): PeerMessageClass {
-  // Canonical signals carry a kind independently of their human-written subject.
-  // Never require magic subject words to surface blockers or handoffs.
+export function classifyPeerMessage(signalKind?: string): PeerMessageClass {
   const normalizedKind = signalKind?.trim().toLowerCase();
   if (normalizedKind === 'approval') return 'proposal';
   if (normalizedKind === 'blocker') return 'blocking';
   if (normalizedKind === 'handoff') return 'handoff';
-  // A known typed kind owns routing; human subjects cannot override it.
-  if (normalizedKind) return 'informational';
-  const normalizedTopic = topic?.trim().toUpperCase() ?? '';
-  if (PROPOSAL_TOPICS.has(normalizedTopic)) return 'proposal';
-  if (BLOCKING_TOPICS.has(normalizedTopic)) return 'blocking';
-  if (HANDOFF_TOPICS.has(normalizedTopic)) return 'handoff';
-  if (/\b(blocked|conflict|overlap|cannot continue)\b/i.test(body)) return 'blocking';
   return 'informational';
 }
 
@@ -332,7 +317,7 @@ export function evaluatePeerInbound(input: {
   const expected = input.expectedAgentId.trim();
   const to = input.toAgentId?.trim() || null;
   const body = input.text.trim();
-  const messageClass = classifyPeerMessage(input.topic, body, input.signalKind);
+  const messageClass = classifyPeerMessage(input.signalKind);
   if (!from || !expected || !body) return { version: 1, decision: 'refuse', messageClass, actionable: false, reason: 'missing peer identity, target, or body' };
   if (from === expected) return { version: 1, decision: 'refuse', messageClass, actionable: false, reason: 'self-authored messages are not inbound peer events' };
   if (to !== null && to !== expected) return { version: 1, decision: 'refuse', messageClass, actionable: false, reason: 'message target does not match this agent' };

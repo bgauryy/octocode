@@ -60,12 +60,12 @@ describe('lossless recipient inbox pagination', () => {
         expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
         const result = execution.payload as {
           signals: Array<{ signal_id: string }>; partial?: boolean; partialReasons?: string[];
-          next?: { list: { command: AwarenessExecutableCall<'message.list'> } };
+          next?: { list: AwarenessExecutableCall<'message.list'> };
         };
         seen.push(...result.signals.map(signal => signal.signal_id));
         if (!result.partial) break;
         expect(result.partialReasons).toEqual(['limit']);
-        call = result.next!.list.command;
+        call = result.next!.list;
       }
       expect(new Set(seen).size).toBe(seen.length);
       expect([...seen].sort()).toEqual([...ids].sort());
@@ -88,11 +88,11 @@ describe('lossless recipient inbox pagination', () => {
         expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
         const result = execution.payload as {
           signals: Array<{ signal_id: string }>; partial?: boolean;
-          next?: { list: { command: AwarenessExecutableCall<'message.list'> } };
+          next?: { list: AwarenessExecutableCall<'message.list'> };
         };
         seen.push(...result.signals.map(signal => signal.signal_id));
         if (!result.partial) break;
-        call = result.next!.list.command;
+        call = result.next!.list;
       }
       expect([...seen].sort()).toEqual([...selected].sort());
       expect(() => store.listMessagesPage({ agentId: 'reader', cursor: 'malformed' })).toThrow(/cursor/i);
@@ -114,8 +114,8 @@ describe('lossless recipient inbox pagination', () => {
         expect(readExternalAwarenessStatus({ workspace: root, agentId: 'reader' }).unreadInbox).toBe(ids.length - seen.length);
         if (!result.partial) break;
         expect(result.partialReasons).toEqual(['limit']);
-        expect(result.next.list.command.operation).toBe('message.list');
-        const params = result.next.list.command.params as Record<string, unknown>;
+        expect(result.next.list.operation).toBe('message.list');
+        const params = result.next.list.params as Record<string, unknown>;
         args = ['message', 'list', '--db', store.dbPath, '--workspace', root, '--agent-id', 'reader'];
         for (const [key, value] of Object.entries(params)) {
           const flag = `--${key.replaceAll('_', '-')}`;

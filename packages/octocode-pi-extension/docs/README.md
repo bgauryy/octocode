@@ -33,7 +33,6 @@ use `node $OCTOCODE_CLI tools <name> --scheme`.
 | [AWARENESS_AGENT_FLOW.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/AWARENESS_AGENT_FLOW.md) | Agent lifecycle for using Awareness inside Pi sessions. |
 | [AGENT_ORCHESTRATOR.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/AGENT_ORCHESTRATOR.md) | Pi SDK subagent orchestration contract, rollback notes, and UX policy. |
 | [SUBAGENTS.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/SUBAGENTS.md) | Spawn profiles, live control, durable peer communication, and isolation. |
-| [REFLECT.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/REFLECT.md) | Reflection and memory workflow as exposed through the harness. |
 
 ### Runtime and TUI
 

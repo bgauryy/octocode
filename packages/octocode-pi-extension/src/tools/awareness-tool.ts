@@ -107,7 +107,7 @@ async function callOperation(
     ...params,
     limit: Number.isSafeInteger(currentLimit) && currentLimit > 1
       ? Math.max(1, Math.floor(currentLimit / 2))
-      : 1,
+      : 8_192,
   };
   const completedWrite = !readOnly && execution.exitCode === 0 && !execution.cancelled;
   const bounded = boundedOutput(
@@ -128,11 +128,16 @@ async function callOperation(
     && params['action'] === 'audit'
     && execution.exitCode === 1
     && record(parsedOutput)?.['ok'] === true;
-  const accepted = !execution.cancelled && (execution.exitCode === 0 || validAttention);
+  const validPartial = readOnly
+    && execution.exitCode === 2
+    && record(execution.payload)?.['error_code'] === 'OUTPUT_BUDGET_EXCEEDED';
+  const accepted = !execution.cancelled && (execution.exitCode === 0 || validAttention || validPartial);
   const status = execution.cancelled
     ? 'cancelled'
     : execution.exitCode === 0
       ? 'ok'
+      : validPartial
+        ? 'partial'
       : validAttention
         ? 'attention'
         : execution.exitCode === 2

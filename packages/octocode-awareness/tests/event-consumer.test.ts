@@ -5,9 +5,9 @@ import { insertNotification } from '../src/notifications-core.js';
 import {
   createAwarenessEventConsumer,
   type AwarenessEventStore,
-  type InboundDecision,
-  type OutboxEventV1,
-} from '../src/index.js';
+} from '../src/event-consumer.js';
+import type { InboundDecision } from '../src/continuity-contracts.js';
+import type { OutboxEventV1 } from '../src/coordination/coordination-continuity.js';
 
 const workspace = '/work/repo';
 

@@ -94,9 +94,11 @@ function nextQueries(payload: Record<string, unknown>): Record<string, unknown>[
   const retry = next?.retry as Record<string, unknown> | undefined;
   const retryQueries = retry?.queries;
   if (Array.isArray(retryQueries)) return retryQueries as Record<string, unknown>[];
+  if (typeof retry?.operation === 'string') return [retry];
   const continuation = next?.call as Record<string, unknown> | undefined;
   const continuationQueries = continuation?.queries;
   if (Array.isArray(continuationQueries)) return continuationQueries as Record<string, unknown>[];
+  if (typeof continuation?.operation === 'string') return [continuation];
   const directQueries = next?.queries;
   return Array.isArray(directQueries) ? directQueries as Record<string, unknown>[] : undefined;
 }
@@ -118,20 +120,17 @@ async function capture(
   ctx: PiContext,
   phase: 'before' | 'after',
   files: string[],
-  outcome?: string,
+  outcome?: 'unknown' | 'success' | 'failure' | 'interrupted' | 'timeout',
 ): Promise<void> {
   const host = createAwarenessHost({
-    workspace: ctx.cwd,
+    workspace: ctx.cwd ?? process.cwd(),
     agentId: 'pi:history-budget',
-    sessionId: ctx.sessionManager?.getSessionId?.(),
+    ...(ctx.sessionManager?.getSessionId?.() ? { sessionId: ctx.sessionManager.getSessionId() } : {}),
     database: process.env.OCTOCODE_AWARENESS_DB,
   });
-  await host.captureHistory({
-    phase,
-    file: files,
-    operation_id: OPERATION_ID,
-    ...(outcome ? { outcome } : {}),
-  });
+  await host.captureHistory(phase === 'before'
+    ? { phase, file: files, operation_id: OPERATION_ID }
+    : { phase, file: files, operation_id: OPERATION_ID, outcome: outcome ?? 'unknown' });
 }
 
 test('bounds native history reads while preserving exact operation/file/side continuations', async () => {
@@ -155,6 +154,8 @@ test('bounds native history reads while preserving exact operation/file/side con
         params: { operation_id: OPERATION_ID, file: fixture.name, side },
       }];
       const chunks: Buffer[] = [];
+      const observedKeys: string[][] = [];
+      const observedNext: unknown[] = [];
       let calls = 0;
       let retrySeen = false;
       while (queries) {
@@ -167,10 +168,12 @@ test('bounds native history reads while preserving exact operation/file/side con
         assert.equal(params.file, fixture.name);
         assert.equal(params.side, side);
         const response = await run(tool, query, ctx);
-        assert.equal(response.isError, false, modelText(response));
+        assert.equal(response.isError, false, JSON.stringify(response));
         const text = modelText(response);
         assert.ok(text.length <= MODEL_TEXT_LIMIT, `${fixture.name} ${side} model text exceeded ${MODEL_TEXT_LIMIT}`);
         const payload = JSON.parse(text) as Record<string, unknown>;
+        observedKeys.push(Object.keys(payload));
+        observedNext.push(payload.next);
         if (typeof payload.content === 'string') {
           const offset = Number(payload.offset ?? chunks.reduce((sum, chunk) => sum + chunk.length, 0));
           assert.equal(offset, chunks.reduce((sum, chunk) => sum + chunk.length, 0));
@@ -181,7 +184,11 @@ test('bounds native history reads while preserving exact operation/file/side con
         queries = continued && continued.length > 0 ? continued : undefined;
       }
       assert.equal(retrySeen, true, `${fixture.name} ${side} must exercise the native output-limit retry`);
-      assert.deepEqual(Buffer.concat(chunks), expected, `${fixture.name} ${side} history bytes must be exact`);
+      assert.equal(
+        Buffer.compare(Buffer.concat(chunks), expected),
+        0,
+        `${fixture.name} ${side} history bytes must be exact; keys=${JSON.stringify(observedKeys)} next=${JSON.stringify(observedNext)}`,
+      );
       assert.equal(Buffer.concat(chunks).length, FILE_BYTES);
     }
   }

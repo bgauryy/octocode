@@ -96,7 +96,7 @@ describe.each(['global', 'repo'] as const)(
       }
     }
 
-    it('shares directed messages, acknowledgement and a threaded reply across processes', () => {
+    it('shares directed messages, read state and a threaded reply across processes', () => {
       const sent = native(store =>
         store.sendMessage({
           fromAgentId: piAgent,
@@ -106,11 +106,12 @@ describe.each(['global', 'repo'] as const)(
         })
       );
       const inbox = cli([
-        'signal',
+        'message',
         'list',
         '--agent-id',
         cliAgent,
         '--include-bodies',
+        '--mark-read',
       ]);
       expect(inbox.signals.map((signal: any) => signal.signal_id)).toContain(
         sent.messageId
@@ -119,19 +120,11 @@ describe.each(['global', 'repo'] as const)(
         inbox.signals.find((signal: any) => signal.signal_id === sent.messageId)
           .body
       ).toBe('The parser check passed.');
-      cli([
-        'signal',
-        'ack',
-        '--agent-id',
-        cliAgent,
-        '--signal-id',
-        sent.messageId,
-      ]);
       expect(
         native(store => store.listMessages({ agentId: cliAgent }))
       ).toEqual([]);
       cli([
-        'signal',
+        'message',
         'reply',
         '--agent-id',
         cliAgent,
@@ -152,15 +145,15 @@ describe.each(['global', 'repo'] as const)(
           messageId: reply[0]!.messageId,
         })
       );
-      expect(cli(['signal', 'list', '--agent-id', piAgent]).signals).toEqual(
+      expect(cli(['message', 'list', '--agent-id', piAgent]).signals).toEqual(
         []
       );
     });
 
-    it('routes CLI-directed and broadcast signals to the native inbox without crossing workspaces', () => {
+    it('routes CLI-directed and broadcast messages to the native inbox without crossing workspaces', () => {
       cli([
-        'signal',
-        'publish',
+        'message',
+        'send',
         '--agent-id',
         cliAgent,
         '--to-agent',
@@ -173,8 +166,8 @@ describe.each(['global', 'repo'] as const)(
         'Only the named Pi agent.',
       ]);
       cli([
-        'signal',
-        'publish',
+        'message',
+        'send',
         '--agent-id',
         cliAgent,
         '--kind',
@@ -186,8 +179,8 @@ describe.each(['global', 'repo'] as const)(
       ]);
       cli(
         [
-          'signal',
-          'publish',
+          'message',
+          'send',
           '--agent-id',
           cliAgent,
           '--kind',
@@ -215,7 +208,7 @@ describe.each(['global', 'repo'] as const)(
         })
       );
       expect(
-        cli(['signal', 'list', '--agent-id', 'another-peer']).signals.map(
+        cli(['message', 'list', '--agent-id', 'another-peer']).signals.map(
           (signal: any) => signal.subject
         )
       ).toEqual(['Broadcast']);
@@ -244,7 +237,7 @@ describe.each(['global', 'repo'] as const)(
           )
         );
         let args = [
-          'signal',
+          'message',
           'list',
           '--agent-id',
           cliAgent,
@@ -257,12 +250,16 @@ describe.each(['global', 'repo'] as const)(
           const result = cli(args);
           seen.push(...result.signals.map((signal: any) => signal.signal_id));
           if (!result.partial) break;
-          expect(result.next.list.command.name).toBe('signal list');
-          expect(result.next.list.command.args).toBeInstanceOf(Array);
-          args = [
-            ...result.next.list.command.name.split(' '),
-            ...result.next.list.command.args,
-          ];
+          expect(result.next.list.operation, JSON.stringify(result.next)).toBe('message.list');
+          const params = result.next.list.params as Record<string, unknown>;
+          args = ['message', 'list', '--agent-id', cliAgent];
+          for (const [key, value] of Object.entries(params)) {
+            const flag = `--${key.replaceAll('_', '-')}`;
+            if (value === true) args.push(flag);
+            else if (value !== false && value !== undefined) {
+              for (const item of Array.isArray(value) ? value : [value]) args.push(flag, String(item));
+            }
+          }
         }
         expect(seen).toHaveLength(ids.length);
         expect([...seen].sort()).toEqual([...ids].sort());
@@ -285,7 +282,9 @@ describe.each(['global', 'repo'] as const)(
       );
       cli(
         [
-          'lock',
+          'work',
+          'protect',
+          '--action',
           'acquire',
           '--agent-id',
           cliAgent,
@@ -308,7 +307,9 @@ describe.each(['global', 'repo'] as const)(
       );
       const work = cli([
         'work',
-        'start',
+        'create',
+        '--kind',
+        'standalone',
         '--agent-id',
         cliAgent,
         '--file',
@@ -323,14 +324,16 @@ describe.each(['global', 'repo'] as const)(
           item => item.runId
         )
       ).toContain(work.run_id);
-      cli(['work', 'end', '--agent-id', cliAgent, '--run-id', work.run_id]);
+      cli(['work', 'update', '--transition', 'end', '--agent-id', cliAgent, '--run-id', work.run_id]);
       const audit = native(store => store.auditChecks({ agentId: cliAgent }));
       expect(JSON.stringify(audit)).toContain(work.run_id);
       expect(readFileSync(path.join(workspace, 'shared.txt'), 'utf8')).toBe(
         'verified fixture\n'
       );
       cli([
+        'work',
         'verify',
+        '--action',
         'mark',
         '--agent-id',
         cliAgent,
@@ -341,7 +344,7 @@ describe.each(['global', 'repo'] as const)(
         '--message',
         'Interop fixture exists and contains the asserted content.',
       ]);
-      cli(['verify', 'audit', '--agent-id', cliAgent]);
+      cli(['work', 'verify', '--action', 'audit', '--agent-id', cliAgent]);
     });
 
     it('runs the quoted Awareness runner through the real Pi bash tool with native storage and identity', async () => {
@@ -361,7 +364,7 @@ describe.each(['global', 'repo'] as const)(
           queries: [
             {
               reasoning:
-                'Publish a fixture signal through the installed Awareness CLI using native Pi bindings.',
+                'Send a fixture message through the installed Awareness CLI using native Pi bindings.',
               command:
                 '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" --db "$OCTOCODE_AWARENESS_DB" message send --agent-id "$OCTOCODE_AGENT_ID" --workspace "$OCTOCODE_AWARENESS_WORKSPACE" --to-agent external-skill-agent --kind fyi --subject "Bash bridge" --body "Native identity and database" --compact',
               timeout: 10,
@@ -380,7 +383,7 @@ describe.each(['global', 'repo'] as const)(
         .join('\n');
       expect(result.isError, text).toBeFalsy();
       const inbox = cli([
-        'signal',
+        'message',
         'list',
         '--agent-id',
         cliAgent,

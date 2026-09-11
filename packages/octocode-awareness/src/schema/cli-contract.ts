@@ -17,7 +17,7 @@ export const CLI_REQUIRED: Record<string, string[]> = {
   'work start': ['agent_id', 'file'], 'work touch': ['agent_id', 'run_id'], 'work end': ['agent_id', 'run_id'],
   'work show': ['workspace', 'file'], 'memory record': ['agent_id', 'task_context', 'observation', 'importance'],
   'signal publish': ['agent_id', 'kind', 'subject'], 'signal reply': ['agent_id', 'in_reply_to', 'subject'],
-  'signal ack': ['agent_id', 'signal_id'], 'signal resolve': ['agent_id'],
+  'signal resolve': ['agent_id'],
   ...HISTORY_REQUIRED,
 };
 
@@ -35,13 +35,10 @@ const CLI_ALLOWED: Record<string, string[]> = {
   'work list': ['agent_id', 'workspace', 'artifact', 'run_id', 'all', 'full', 'limit', 'offset'], 'work show': ['agent_id', 'workspace', 'artifact', 'run_id', 'file', 'all', 'full', 'limit', 'offset'],
   'verify audit': ['agent_id', 'workspace', 'artifact', 'older_than_days', 'origin', 'before', 'limit', 'offset'],
   'verify mark': ['run_id', 'all_pending', 'agent_id', 'status', 'message', 'workspace', 'artifact', 'adopt_verification'],
-  'refinement get': ['workspace', 'refinement_id', 'artifact', 'repo', 'ref', 'quality', 'include_handoffs', 'state', 'limit', 'offset', 'full'],
-  'lock prune': ['older_than_minutes', 'expired_only', 'agent_id', 'workspace', 'artifact', 'target_file', 'dry_run'],
-  'reflect record': ['agent_id', 'task', 'outcome', 'lesson', 'worked', 'didnt_work', 'fix_repo', 'fix_file', 'fix_harness', 'fix_instructions', 'failure_signature', 'importance', 'judgment_note', 'duo', 'eval_failure_json', 'workspace', 'artifact', 'repo', 'ref', 'allow_similar'],
   'signal publish': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'subject', 'body', 'data', 'to_agent', 'file', 'ref_id', 'importance'],
   'signal list': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'kind', 'thread_id', 'signal_id', 'all', 'unread_only', 'mark_read', 'limit', 'cursor', 'include_bodies', 'format'],
   'signal reply': ['agent_id', 'workspace', 'artifact', 'repo', 'ref', 'in_reply_to', 'subject', 'body', 'data', 'to_agent', 'file', 'ref_id', 'importance'],
-  'signal ack': ['agent_id', 'signal_id'], 'signal resolve': ['agent_id', 'signal_id', 'thread_id'],
+  'signal resolve': ['agent_id', 'signal_id', 'thread_id'],
   ...HISTORY_ALLOWED,
 };
 
@@ -50,7 +47,7 @@ export function cliAllowedFlags(commandName: string): readonly string[] | undefi
   return CLI_ALLOWED[commandName];
 }
 
-function aliasesFor(commandName: string): Record<string, string> {
+function canonicalFieldNames(commandName: string): Record<string, string> {
   return {
     workspace_path: 'workspace', target_files: 'file', tags: 'tag', references: 'reference', labels: 'label', files: 'file', states: 'state',
     eval_failures: 'eval_failure_json', to_agents: 'to_agent', refs: 'ref_id',
@@ -59,12 +56,12 @@ function aliasesFor(commandName: string): Record<string, string> {
 }
 
 export function projectCliProperties(properties: Record<string, unknown>, commandName: string): Record<string, string> {
-  const aliases = aliasesFor(commandName);
+  const canonicalNames = canonicalFieldNames(commandName);
   if (commandName === 'signal list' && properties.kinds) {
     properties.kind = properties.kinds;
     properties.all = { type: 'boolean', description: 'Include read as well as unread signals.' };
   }
-  for (const [from, to] of Object.entries(aliases)) {
+  for (const [from, to] of Object.entries(canonicalNames)) {
     if (properties[from] && !properties[to]) properties[to] = properties[from];
     delete properties[from];
   }
@@ -77,5 +74,5 @@ export function projectCliProperties(properties: Record<string, unknown>, comman
       if (!allowed.includes(property)) delete properties[property];
     }
   }
-  return aliases;
+  return canonicalNames;
 }

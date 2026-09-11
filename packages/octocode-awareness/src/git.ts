@@ -242,7 +242,7 @@ export function fillScope(partial: ScopePartial, cwd?: string): Scope {
 }
 
 /**
- * Normalize a workspace filter/storage key the same way memory/refinement scope
+ * Normalize a workspace filter/storage key the same way repository scope
  * does: an explicit path inside a git worktree becomes that repo root; a non-git
  * path remains an absolute path. Returns null only when no workspace/cwd exists.
  */

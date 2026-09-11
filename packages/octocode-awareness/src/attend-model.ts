@@ -7,12 +7,9 @@ import { join, resolve } from 'node:path';
 import { AwarenessQueryRow } from './repo-model.js';
 import type { OperationalState, Regulation } from './attend-physiology.js';
 import type { RuntimeObservation } from '@octocodeai/agent-contracts/physiology';
+import type { AwarenessOperation, AwarenessOperationCall } from './schema/operation-catalog.js';
 
-export interface AttendContinuation {
-  /** Native API request; CLI adapters can translate the same command/params. */
-  command: 'query workboard' | 'memory recall';
-  params: Record<string, unknown>;
-}
+export type AttendContinuation = AwarenessOperationCall<'work.list' | 'memory.recall'>;
 
 export type AttendNext = AttendFlowNext & {
   continuations?: AttendContinuation[];
@@ -75,7 +72,7 @@ export interface AttendResult {
   verification_targets?: AwarenessQueryRow[];
   trust_warnings?: string[];
   trace?: Array<{ step: string; count?: number; note?: string }>;
-  organ_reference?: Array<{ organ: string; role: string; commands: string[]; guardrail: string }>;
+  organ_reference?: Array<{ organ: string; role: string; operations: AwarenessOperation[]; guardrail: string }>;
   next: AttendNext;
 }
 
@@ -102,41 +99,46 @@ export const TEAM_NORMS = [
   'verify-before-policy',
 ];
 
-export const ORGAN_REFERENCE = [
+export const ORGAN_REFERENCE: Array<{
+  organ: string;
+  role: string;
+  operations: AwarenessOperation[];
+  guardrail: string;
+}> = [
   {
     organ: 'senses',
     role: 'read live state',
-    commands: ['workspace status', 'query repo-profile'],
+    operations: ['context.orient', 'work.list'],
     guardrail: 'Live DB beats stale projections.',
   },
   {
     organ: 'attention',
     role: 'select a small packet',
-    commands: ['attend', 'query workboard', 'memory recall'],
+    operations: ['context.orient', 'work.list', 'memory.recall'],
     guardrail: 'Show gaps, not dumps.',
   },
   {
     organ: 'memory',
     role: 'durable lessons',
-    commands: ['memory record', 'memory recall', 'reflect record'],
+    operations: ['memory.record', 'memory.recall'],
     guardrail: 'Memories are leads until verified.',
   },
   {
     organ: 'immune_pruning',
     role: 'tag weak/stale evidence',
-    commands: ['memory forget --dry-run', 'maintenance digest --dry-run', 'query workboard'],
+    operations: ['memory.recall', 'context.orient'],
     guardrail: 'Report before deleting.',
   },
   {
     organ: 'corpus_bridge',
     role: 'coordinate agents',
-    commands: ['plan list', 'task ready', 'task claim', 'work start', 'work list', 'signal publish', 'lock acquire', 'verify audit'],
+    operations: ['work.list', 'work.claim', 'work.protect', 'work.verify', 'message.send'],
     guardrail: 'SQLite is canonical.',
   },
   {
     organ: 'drive',
     role: 'goal/gaps/resources',
-    commands: ['attend --explain-organ', 'query workboard'],
+    operations: ['context.orient'],
     guardrail: 'Collective state, not persona.',
   },
 ];

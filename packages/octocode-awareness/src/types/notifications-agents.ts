@@ -37,7 +37,7 @@ export interface InsertNotificationParams {
   subject: string;
   body?: string | null;
   files?: string[];
-  refIds?: string[];             // related task/refinement/memory ids
+  refIds?: string[];             // related task/memory/message ids
   inReplyTo?: string | null;     // inherits thread from parent
   importance?: number;
   cwd?: string;
