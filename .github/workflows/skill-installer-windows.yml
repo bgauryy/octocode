@@ -44,7 +44,7 @@ jobs:
         run: node scripts/prepublish.mjs --fix
 
       - name: Install dependencies
-        run: yarn install
+        run: yarn install --no-immutable
 
       - name: Build config dependency
         run: yarn workspace @octocodeai/config build
