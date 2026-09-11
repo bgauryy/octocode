@@ -407,8 +407,10 @@ fn read_symlink(file: &File, maximum: usize) -> FsResult<Vec<u8>> {
         .filter(|_| count.is_multiple_of(2))
         .ok_or("IO_FAILURE: Invalid symlink reparse buffer")?;
     let wide: Vec<_> = target
-        .chunks_exact(2)
-        .map(|v| u16::from_le_bytes([v[0], v[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&value| u16::from_le_bytes(value))
         .collect();
     let text =
         String::from_utf16(&wide).map_err(|_| "IO_FAILURE: Symlink target is not Unicode")?;
