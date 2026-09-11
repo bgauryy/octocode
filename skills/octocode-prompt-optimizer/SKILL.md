@@ -22,12 +22,13 @@ Reviews/drafts: `<output>/octocode-prompt-optimizer/`; scratch: `<output>/tmp/oc
 - Read the complete input and map its intent before judging it. Rate evidenced issues before drafting fixes.
 - For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
 - Keep a sentence only when it defines a distinction, sets a boundary, explains a consequence, or directs an action. Cut repeated rules, motivational language, role-play, uninformative headings, and decorative terminology.
-- Prefer the smallest wrong/right example pair over more explanation when the pair fixes the boundary more precisely. Use literal language wherever literal language suffices.
-- Optimize behavioral information per token, not minimum length. Justify growth by the boundary it adds.
+- Prefer the smallest wrong/right example pair when it defines the boundary better than more prose. Use literal language when it suffices.
+- Use standard short terms (`repo`, `config`, `env`) when meaning stays exact. Keep one noun per concept; prefer direct verbs (`decide`, `verify`) to noun phrases.
+- Maximize behavior per token, not brevity. Justify growth by the boundary it adds.
 - Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before rewriting them.
 - Reserve mandatory language for real requirements. Keep preferences flexible and mutate files only when authorized.
 - When the request is for prompt text, output only that text.
-- Ask one focused question only when an unresolved choice materially changes intent, scope, or risk. Without write authority, return a delta. Report unmeasured reliability claims as unmeasured.
+- Ask one focused question only when an unresolved choice changes intent, scope, or risk. Without write authority, return a delta. Report unmeasured reliability claims as unmeasured.
 
 ## Smart routes — load only what the current step needs
 

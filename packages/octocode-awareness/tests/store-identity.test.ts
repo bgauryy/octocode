@@ -9,7 +9,7 @@ import { inspectSchemaState, readAwarenessMeta, resolveAwarenessStoreIdentity } 
 import { connectDb } from '../src/db-runtime.js';
 import { AWARENESS_SCHEMA_VERSION, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { AWARENESS_META_DDL } from '../src/db-meta-schema.js';
-import { PREDECESSOR_EVENT_RELATIONS_DDL } from '../src/db-predecessor-schema.js';
+import { PREDECESSOR_EVENT_RELATIONS_DDL, PREDECESSOR_REFINEMENTS_DDL } from '../src/db-predecessor-schema.js';
 import { createHistoryContext, historyHash, historyStoragePaths } from '../src/history-store.js';
 import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
 
@@ -95,6 +95,7 @@ describe('stable Awareness store identity', () => {
     const source = new DatabaseSync(database);
     source.exec(SCHEMA_DDL.replace(AWARENESS_META_DDL, ''));
     source.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
+    source.exec(PREDECESSOR_REFINEMENTS_DDL);
     for (const relation of [
       'authorization_receipts', 'capability_receipts', 'event_acknowledgements', 'event_consumers',
       'event_outbox', 'handoffs', 'local_history_durability', 'local_history_operations',

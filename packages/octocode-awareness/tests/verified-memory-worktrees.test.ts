@@ -8,6 +8,7 @@ import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects
 import { openAwarenessStore } from '../src/coordination/open.js';
 import { connectDb } from '../src/db-runtime.js';
 import { runAwarenessHistoryOperation } from '../src/history-api.js';
+import { createAwarenessClient } from '../src/client.js';
 import type { VerifiedMemoryPageV1, VerifiedMemoryRecallParams } from '../src/coordination/verified-memory.js';
 
 const roots: string[] = [];
@@ -83,12 +84,13 @@ describe('verified memories across Git worktrees', () => {
       command: 'history inspect', params: { operation_id: 'source-checkpoint', source_workspace: main },
     } } });
     const inspected = await history(peer, 'inspect', page.memories[0]!.historyEvidence!.next!.call.params);
-    const inspection = inspected as { rows: Array<{ next: { after: { command: string; args: Record<string, unknown> } } }> };
+    const inspection = inspected as { rows: Array<{ next: { after: { operation: 'history.read'; params: Record<string, unknown> } } }> };
     expect(inspection.rows).toHaveLength(1);
     const readCall = inspection.rows[0]!.next.after;
-    expect(readCall.args).toMatchObject({ workspace: peer, source_workspace: main, operation_id: 'source-checkpoint', file: 'source.ts' });
-    const read = await history(peer, readCall.command.replace(/^history /, ''), readCall.args);
-    expect(Buffer.from(String(read.content), 'base64').toString()).toBe('export const evidence = 1;\n');
+    expect(readCall.params).toMatchObject({ source_workspace: main, operation_id: 'source-checkpoint', file: 'source.ts' });
+    const read = await createAwarenessClient({ workspace: peer, database, agentId: 'reader' }).execute(readCall);
+    expect(read.exitCode, JSON.stringify(read.payload)).toBe(0);
+    expect(Buffer.from(String((read.payload as { content: string }).content), 'base64').toString()).toBe('export const evidence = 1;\n');
     expect(() => reader.storeVerifiedMemory({
       label: 'TEST', text: 'Foreign history cannot authorize a local store',
       sourceDigest: 'source-v1', historyRef: 'source-checkpoint',

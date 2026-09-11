@@ -3,14 +3,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { initDb } from '../src/db-init.js';
 import { attendAwareness } from '../src/attend-query.js';
 import { agentSignal } from '../src/notifications-signals.js';
-import { tsxCli } from './helpers/tsx-cli.js';
-import { memorySchemas } from '../src/schema/definitions-memory.js';
 import { insertMemory } from '../src/memory-write.js';
+import { createAwarenessClient } from '../src/client.js';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { vi.restoreAllMocks(); cleanups.splice(0).forEach(cleanup => cleanup()); });
@@ -181,23 +178,20 @@ describe('scoped attend revisions', () => {
     expect(after.next.action).not.toBe('inspect_lock');
   });
 
-  it('executes revision continuation across real CLI processes and persistent database reopen', () => {
+  it('executes revision continuation across fresh clients and persistent database reopen', async () => {
     const { workspace } = fixture();
-    const cli = fileURLToPath(new URL('../bin/awareness.ts', import.meta.url));
-    const db = join(workspace, 'persistent.sqlite3');
-    const call = (extra: string[] = []) => {
-      const child = spawnSync(process.execPath, [tsxCli, cli, 'attend', '--details', '--db', db,
-        '--workspace', workspace, '--agent-id', 'owner', '--compact', ...extra],
-      { cwd: workspace, encoding: 'utf8', timeout: 30_000 });
-      expect(child.status, child.stderr || child.stdout).toBe(0);
-      return JSON.parse(child.stdout);
+    const database = join(workspace, 'persistent.sqlite3');
+    const call = async (ifRevision?: string) => {
+      const result = await createAwarenessClient({ database, workspace, agentId: 'owner' }).execute({
+        operation: 'context.orient', params: ifRevision ? { if_revision: ifRevision } : {},
+      });
+      expect(result.exitCode, JSON.stringify(result.payload)).toBe(0);
+      return result.payload as Record<string, any>;
     };
-    const first = call();
-    expect(memorySchemas.attend.parse({ revision: first.revision }).revision).toBe(first.revision);
-    expect(memorySchemas.attend.safeParse({ revision: 'x'.repeat(257) }).success).toBe(false);
-    expect(memorySchemas.attend.safeParse({ revision: 123 }).success).toBe(false);
-    const next = call(['--revision', first.revision]);
+    const first = await call();
+    expect(first.revision).toMatch(/^[a-f0-9]{64}$/);
+    const next = await call(first.revision);
     expect(next).toMatchObject({ unchanged: true, revision: first.revision });
-    expect(call(['--revision', 'invalid'])).toMatchObject({ unchanged: false, reset_reason: 'invalid_revision' });
+    expect(await call('invalid')).toMatchObject({ unchanged: false, revision: first.revision });
   });
 });

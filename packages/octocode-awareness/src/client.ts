@@ -141,12 +141,11 @@ export function createAwarenessClient(
               params: {
                 ...inputParams,
                 ...(call.operation === 'context.orient' ? { if_revision: undefined } : {}),
-                limit: currentLimit === undefined
-                  ? 1
-                  : Math.max(1, Math.min(
-                      currentLimit - 1,
-                      Math.floor(currentLimit * descriptor.outputBudget / actualBytes * 0.8),
-                    )),
+                // A proportional estimate is unsafe for heterogeneous rows: a
+                // retry can still exceed the budget and strand the caller.
+                // One row is the only monotonic bounded retry; list handlers
+                // then expose their stable cursor/offset for lossless paging.
+                limit: 1,
               },
             } as AwarenessExecutableCall
           : findExecutableCall(payload);

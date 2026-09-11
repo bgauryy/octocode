@@ -1,6 +1,6 @@
 # @octocodeai/octocode-benchmark
 
-Plain-markdown, orchestrated CLI **research** benchmark. Each question is answered by **three
+The evaluation layer of the Octocode agentic toolkit: a plain-markdown, orchestrated CLI **research** benchmark. Each question is answered by **three
 isolated agents** — Octocode, `gh`+RTK, `gh`+Headroom — and scored by a fourth, blind judge.
 An orchestrator drives all four phases and summarizes the campaign.
 

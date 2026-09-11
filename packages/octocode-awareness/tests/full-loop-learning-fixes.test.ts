@@ -147,9 +147,8 @@ describe('READ -> DO -> LEARN closure fixes', () => {
     const board = queryAwareness(db, { view: 'workboard', workspacePath: workspace, limit: 10 });
     const maintenance = board.rows.filter(row => row.column === 'Maintenance');
     expect(maintenance.length).toBeGreaterThan(0);
-    expect(maintenance.every(row => String(row.action).includes('--'))).toBe(true);
-    expect(maintenance.every(row => !String(row.action).includes(';'))).toBe(true);
-    expect(maintenance.some(row => String(row.action).includes('--memory-id'))).toBe(true);
+    expect(maintenance.find(row => row.id === 'stale-open-signals')?.action).toBe('message list --all --limit 5 --compact');
+    expect(maintenance.find(row => row.id === 'stale-missing-memory-refs')?.raw_ids).toEqual([memory.memoryId]);
   });
 
 });

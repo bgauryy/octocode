@@ -39,14 +39,15 @@ it('inspects and reads linked history through executable caller-bound pages with
   const archiveState = () => archivePaths.map(path => { const value = statSync(path); return [value.mode, value.mtimeMs, value.ctimeMs]; });
   const beforeRead = archiveState();
   type HistoryRequest = { command: string; args: Record<string, unknown> };
+  type HistoryReadCall = { operation: 'history.read'; params: Record<string, unknown> };
   let request: HistoryRequest | undefined = {
     command: 'inspect', args: { source_workspace: main, operation_id: 'source', limit: 1 },
   };
   const files: string[] = [];
-  let read: HistoryRequest | undefined;
+  let read: HistoryReadCall | undefined;
   while (request) {
     const payload = await runHistory(peer, request.command, request.args) as {
-      rows: Array<{ file_path: string; next?: { after?: HistoryRequest } }>;
+      rows: Array<{ file_path: string; next?: { after?: HistoryReadCall } }>;
       next?: HistoryRequest;
     };
     for (const row of payload.rows) { files.push(row.file_path); read ??= row.next?.after; }
@@ -54,15 +55,16 @@ it('inspects and reads linked history through executable caller-bound pages with
     if (request) expect(request.args).toMatchObject({ workspace: peer, source_workspace: main });
   }
   expect(files).toEqual(['a', 'b', 'unicode-λ']);
-  expect(read?.command).toBe('history read');
-  read = { command: 'read', args: { ...read!.args, limit: 2 } };
+  expect(read?.operation).toBe('history.read');
+  read = { operation: 'history.read', params: { ...read!.params, limit: 2 } };
   const bytes: Buffer[] = [];
+  const reader = createAwarenessClient({ workspace: peer, database, agentId: 'reader' });
   while (read) {
-    const payload = await runHistory(peer, read.command, read.args) as {
-      content: string; next?: HistoryRequest;
-    };
+    const execution = await reader.execute(read);
+    expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
+    const payload = execution.payload as { content: string; next?: typeof read };
     bytes.push(Buffer.from(payload.content, 'base64')); read = payload.next;
-    if (read) expect(read.args).toMatchObject({ workspace: peer, source_workspace: main });
+    if (read) expect(read.params).toMatchObject({ source_workspace: main });
   }
   expect(Buffer.concat(bytes).toString()).toBe('bytes:a');
   expect(archiveState()).toEqual(beforeRead);

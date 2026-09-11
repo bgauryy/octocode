@@ -8,15 +8,15 @@ related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Design trustworthy evals and benchmarks, then run evidence-backed improvement loops for one agent or a multi-agent workflow.
+Design trustworthy evals and benchmarks, then run evidence-backed loops for agent and multi-agent workflows.
 Flow: `ERROR-ANALYZE → FRAME(goal→KPI) → BASELINE → LOOP → JUDGE → CAPTURE → VERIFY → SUITE-EVOLVE`.
 Modes: **ErrorAnalyze** · **Define** · **Run** · **Suite** · **Benchmark** · **Audit**.
 
 Reports and frozen harnesses: `<output>/octocode-eval-benchmark/`; scratch: `<output>/tmp/octocode-eval-benchmark/`. Chat-only results stay in chat; approved subject/suite edits keep their paths.
 
 ## Rules
-- Link your goal to one measurable primary KPI, a runnable sensor, a fixed budget, guardrails, and a decision rule before iterating.
-- Establish a failing case or below-target baseline before changing the subject. Keep the harness frozen during an experiment; grow the suite between experiments only.
+- Before iterating, link the goal to one measurable primary KPI, runnable sensor, fixed budget, guardrails, and decision rule.
+- Record a failing case or below-target baseline before changing the subject. Freeze the harness during an experiment; grow the suite only between experiments.
 - Accept only when comparable held-out results improve and guardrails hold. Never edit cases or graders to make a candidate pass.
 - Prefer deterministic outcome graders; use calibrated model or human judgment where deterministic checks cannot capture quality.
 - Public benchmarks orient; private failure suites gate releases. Account for contamination, saturation, and variance.
@@ -24,10 +24,10 @@ Reports and frozen harnesses: `<output>/octocode-eval-benchmark/`; scratch: `<ou
 - When a benchmark measures tool use, freeze the live catalog and relevant schemas for the run. Keep lexical `localSearch`, structural `astSearch`, exact `localFetch`, and semantic `lspSearch` outcomes distinct; grade the required evidence and result, not a guessed tool sequence.
 
 ## Workflow
-1. Error-analyze traces into a failure taxonomy; frame success, primary/leading metrics, guardrails, and decision rule.
+1. Turn traces into a failure taxonomy; define success, primary/leading metrics, guardrails, and the decision rule.
 2. Measure a fixed-budget baseline; make the smallest subject change; keep or discard from comparable results.
 3. Judge grader quality, fairness, capability versus regression, and contamination; capture one durable lesson.
-4. Verify held-out results and required checks; then add new failure cases between experiments.
+4. Verify held-out results and required checks; add new failure cases only between experiments.
 Stop when the contract is undefined, checks cannot run comparably, the harness changed mid-experiment, or another iteration cannot change the verdict. <!-- style-lint: ignore-line passive-voice -->
 
 ## Smart routes — load only what the current step needs

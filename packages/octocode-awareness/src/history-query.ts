@@ -16,7 +16,7 @@ function continuation(ctx: HistoryContext, command: string, args: Record<string,
     'restore-apply': { operation: 'history.restore', action: 'apply' },
   }[command];
   if (canonical) {
-    const { workspace: _workspace, source_workspace: _sourceWorkspace, ...params } = scoped;
+    const { workspace: _workspace, ...params } = scoped;
     return {
       operation: canonical.operation,
       params: { ...params, ...(canonical.action ? { action: canonical.action } : {}) },

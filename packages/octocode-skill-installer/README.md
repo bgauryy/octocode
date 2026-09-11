@@ -1,6 +1,6 @@
 # `@octocodeai/octocode-skill-installer`
 
-Private workspace installation engine bundled into Octocode package outputs.
+The Agent Skill distribution layer of the Octocode toolkit. This private workspace package is bundled into Octocode package outputs.
 
 It materializes each bundled skill into the durable canonical store at
 `$OCTOCODE_HOME/skills/<name>`, then installs a directory symlink into each

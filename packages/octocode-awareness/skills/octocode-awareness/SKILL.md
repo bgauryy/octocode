@@ -10,9 +10,13 @@ hooks:
 
 # Awareness
 
-tools: `npx @octocodeai/octocode-awareness` or the host-native `awareness` tool
+tools: `npx octocode` / `octocode-mcp`
+awareness: run operations through `npx @octocodeai/octocode-awareness` or the host-native `awareness` tool
+related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load one reference only when its detail changes the next action
+routes: load or run a reference, doc, script, or scheme only when it changes the next action; otherwise keep the rule here
+
+Flow: `ORIENT → ACT → COORDINATE WHEN DECISION-CHANGING → VERIFY → RECOVER IF NEEDED`
 
 ## Operate through one surface
 

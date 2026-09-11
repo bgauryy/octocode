@@ -10,7 +10,7 @@ related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
 
-Write evidence-backed documentation for humans and agents. Classify the deliverable, verify repository facts, and prefer durable links over copied implementation detail.
+Write evidence-backed docs for humans and agents. Classify the deliverable, verify repo facts, and link durable sources instead of copying code detail.
 
 ## Flow
 
@@ -22,8 +22,8 @@ UNDERSTAND identifies the deliverable, audience, approved paths, and facts that 
 
 ## Rules
 
-- Verify commands, paths, APIs, environment variables, and behavioral claims in the repository. Omit unsupported claims or label them "Not verified in repository".
-- Choose one mode and load only its route. A named-file copyedit starts at STYLE.
+- Verify commands, paths, APIs, env vars, and behavior claims in the repo. Omit unsupported claims or label them "Not verified in repo".
+- Choose one mode and load only its route. A single-file copyedit starts at STYLE.
 - Apply edits within the approved scope. Authorization persists across the current session; ask only when a target or action needs authority that has not been granted.
 - Apply `references/style-index.md`; when changing another writer's wording, identify the rule.
 - For disputed, missing, legal, trademark, product, security, or public-API guidance, check the linked live Google page. The live guide wins; note when verification is unavailable.
@@ -40,7 +40,7 @@ UNDERSTAND identifies the deliverable, audience, approved paths, and facts that 
 | agent-docs | `AGENTS.md`, nested instructions, `CLAUDE.md` entrypoint | `references/modes.md` → `references/evidence-research.md` → `references/agents-md.md` → `references/agent-readable.md` → `references/write-verify.md` |
 | human-docs | README, tutorial, how-to, reference, explanation, runbook | `references/modes.md` → `references/evidence-research.md` → `references/diataxis.md` → `references/agent-readable.md` → `references/write-verify.md` |
 | adr | Architecture decision record | `references/modes.md` → `references/evidence-research.md` → `references/adr.md` → `references/write-verify.md` |
-| codebase-pack | Multi-file documentation set | `references/modes.md` → plan and gate the set once → per file: `references/diataxis.md` → `references/write-verify.md` |
+| codebase-pack | Multi-file docs set | `references/modes.md` → plan and gate the set once → per file: `references/diataxis.md` → `references/write-verify.md` |
 | style-pass | Copyedit or style-review report | `references/style-index.md` → owning style reference → `style-lint.mjs`; add `references/style-review.md` for a report |
 
 For style work, start at `references/style-index.md`, then load only the matching group:
@@ -56,4 +56,4 @@ For style work, start at `references/style-index.md`, then load only the matchin
 
 Run `node scripts/style-lint.mjs <changed paths>`, then hand-check non-Markdown text. ERROR findings block completion; WARN findings need correction or explanation; INFO findings need judgment. Run `--self-test` after changing a lint rule. Use `scripts/refresh-word-list.mjs --dry-run` only to check word-list drift; it fetches the live guide without writing.
 
-Finish when the approved docs pass fact, link, safety, structure, and style checks. Name unverified claims or residual findings. For repository facts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery; route skill folders to `octocode-skills`.
+Finish when the approved docs pass fact, link, safety, structure, and style checks. Name unverified claims or residual findings. For repo facts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery; route skill folders to `octocode-skills`.

@@ -34,7 +34,7 @@ describe('schema entities', () => {
     expect(result.status, result.stderr || result.stdout).toBe(0);
     const entities = result.parsed?.['entities'] as Array<Record<string, unknown>>;
     expect(result.parsed?.['kind']).toBe('awareness.entities');
-    expect(entities).toHaveLength(31);
+    expect(entities).toHaveLength(30);
     expect(entities.find((entity) => entity['name'] === 'awareness_meta')).toMatchObject({ owner: 'awareness', family: 'storage' });
     expect(entities.find((entity) => entity['name'] === 'awareness_plans')).toMatchObject({ owner: 'awareness', family: 'planning' });
     expect(entities.find((entity) => entity['name'] === 'plans')).toBeUndefined();

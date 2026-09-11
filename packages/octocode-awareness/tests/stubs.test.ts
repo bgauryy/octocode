@@ -8,7 +8,6 @@ import { rebuildFts } from '../src/db-maintenance.js';
 import { preFlightIntent } from '../src/intents-preflight.js';
 import { pruneStale } from '../src/maintenance-stale.js';
 import { digest } from '../src/maintenance-digest.js';
-import { getWorkspaceStatus, exportMemoryDoc } from '../src/maintenance-workspace.js';
 import { insertMemory } from '../src/memory-write.js';
 import { auditUnverified } from '../src/verify-audit.js';
 function freshDb(): DatabaseSync {
@@ -177,91 +176,5 @@ describe('digest', () => {
     expect(db.prepare("SELECT COUNT(*) AS count FROM task_runs WHERE run_id = 'run_old_terminal'").get()).toEqual({ count: 0 });
     expect(db.prepare("SELECT aggregate_id, payload_json FROM event_outbox WHERE event_id = 'evt_receipt'").get()).toEqual(
       { aggregate_id: 'run_old_terminal', payload_json: '{"message":"focused test passed"}' });
-  });
-});
-describe('getWorkspaceStatus', () => {
-  it('returns ok:true with counts and locks', () => {
-    const db = freshDb();
-    const result = getWorkspaceStatus(db, {});
-    expect(result.ok).toBe(true);
-    expect(typeof result.active_memories).toBe('number');
-    expect(typeof result.pending_runs).toBe('number');
-    expect(typeof result.active_runs).toBe('number');
-    expect(Array.isArray(result.locks)).toBe(true);
-  });
-
-  it('reflects memory counts accurately', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'workspace status test',
-      observation: 'a test memory',
-      importance: 7,
-      label: 'GOTCHA',
-    }));
-    const result = getWorkspaceStatus(db, {});
-    expect(result.active_memories).toBe(1);
-  });
-
-  it('shows active file locks', () => {
-    const db = freshDb();
-    const { path, cleanup } = tempFile();
-    try {
-      const intent = preFlightIntent(db, { agentId: 'agent-a', targetFiles: [path] });
-      expect(intent.ok).toBe(true);
-      const result = getWorkspaceStatus(db, {});
-      expect(result.locks.length).toBeGreaterThanOrEqual(1);
-      expect(result.locks[0]).toMatchObject({
-        agent: 'agent-a',
-        state: 'locked',
-      });
-      expect(result.locks[0]?.path).toContain('/oc-stubs-test-');
-      expect(result.locks[0]?.path).toMatch(/\/f\.txt$/);
-    } finally { cleanup(); }
-  });
-});
-
-describe('exportMemoryDoc', () => {
-  it('returns a non-empty markdown string', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'export doc test',
-      observation: 'a memorable observation for the report',
-      importance: 8,
-      label: 'DECISION',
-      tags: ['export', 'test'],
-    }));
-    const doc = exportMemoryDoc(db, {});
-    expect(typeof doc).toBe('string');
-    expect(doc).toContain('# Memory Store Report');
-    expect(doc).toContain('DECISION');
-    expect(doc).toContain('a memorable observation for the report');
-    expect(doc).toContain('export, test');
-  });
-
-  it('includes stats header with counts and labels', async () => {
-    const db = freshDb();
-    (await insertMemory(db, { taskContext: 'c1', observation: 'o1', importance: 7, label: 'GOTCHA' }));
-    (await insertMemory(db, { taskContext: 'c2', observation: 'o2', importance: 6, label: 'DECISION' }));
-    const doc = exportMemoryDoc(db, {});
-    expect(doc).toContain('**Total active memories:** 2');
-    expect(doc).toContain('GOTCHA(1)');
-    expect(doc).toContain('DECISION(1)');
-  });
-
-  it('includes provenance references', async () => {
-    const db = freshDb();
-    (await insertMemory(db, {
-      taskContext: 'reference export',
-      observation: 'doc export should keep provenance visible',
-      importance: 8,
-      references: ['file:/tmp/provenance.ts', 'pr:owner/repo#456'],
-    }));
-    const doc = exportMemoryDoc(db, {});
-    expect(doc).toContain('**References:** file:/tmp/provenance.ts, pr:owner/repo#456');
-  });
-  it('returns empty report when no memories exist', () => {
-    const db = freshDb();
-    const doc = exportMemoryDoc(db, {});
-    expect(doc).toContain('**Total active memories:** 0');
   });
 });

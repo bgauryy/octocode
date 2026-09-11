@@ -1,4 +1,4 @@
-# Octocode: agentic research platform
+# Octocode: an agentic toolkit for software engineering
 
 <div align="center">
   <img src="https://github.com/bgauryy/octocode/raw/main/packages/octocode-mcp/assets/logo_white.png" width="400px" alt="Octocode Logo">
@@ -12,9 +12,11 @@
 
 </div>
 
-**Evidence-first code research for AI agents and developers.**
+**Evidence-first tools, workflows, and runtime infrastructure for coding agents.**
 
-Octocode researches **your local code and external code alike** (GitHub repositories, PRs, npm) with one toolset: ripgrep + AST search, trees, precise reads, and LSP. Use it as a **CLI** or **MCP server**, backed by a **Rust engine** for fast, token-efficient results across single files or mega-repos.
+Octocode is an **agentic toolkit** for researching, changing, coordinating, and evaluating software work. It gives coding agents one evidence model across local code, GitHub, and package registries; reusable Agent Skills for disciplined workflows; CLI and MCP interfaces; native security and code-intelligence primitives; and optional coordination, host integration, and benchmark packages.
+
+Start with the **CLI** or **MCP server**. Both use the same tool contracts and Rust-backed research engine, from exact file reads and text search to AST, repository topology, and LSP navigation. Add the other toolkit packages when you need durable skills, multi-agent coordination, a full Pi host, editor setup, or evaluation infrastructure.
 
 ---
 
@@ -139,9 +141,19 @@ Learn more at **[octocode.ai](https://octocode.ai)**.
 
 ## Why Octocode
 
-Agents code better from evidence than from guesses. Octocode researches **two worlds with one flow**, your **local code** and **external code** on GitHub and npm, and hands back compact, citable context before an agent changes, reviews, or explains code. *Code is truth; context is the map.*
+Coding agents need more than a search command. They need reliable evidence, rules for choosing the next tool, safe execution boundaries, reusable workflows, and ways to coordinate and measure results. Octocode packages those pieces as one composable toolkit. *Code is truth; context is the map.*
 
-Most tools do one slice (web search, or grep your repository) and hand back a fixed blob. Octocode covers the whole loop and lets the **agent decide what data it needs next**:
+The toolkit has five layers:
+
+| Layer | What it provides |
+|------|------------------|
+| **Research** | One evidence flow across local code, GitHub, pull requests, issues, commits, and package registries. |
+| **Agent workflows** | Skills for research, architecture, documentation, evaluation, scraping, prompt design, and orchestration. |
+| **Interfaces and hosts** | CLI, MCP, VS Code setup, and a complete Pi extension. |
+| **Runtime and safety** | Shared contracts, configuration, tool execution, native code intelligence, secret redaction, and guarded file operations. |
+| **Coordination and evaluation** | A local multi-agent ledger, recoverable workspace history, and benchmark infrastructure. |
+
+The research layer connects **local code** and **external code** on GitHub and package registries. Instead of returning a fixed blob, it lets the agent decide what evidence it needs next:
 
 - **Agent-driven, efficient flows.** Instead of one-shot dumps, Octocode chains cheap steps into an optimized research flow: broad code search, then fetch only the **exact matched lines/region**, with **smart pagination** and **out-of-the-box minification** so the model never over-fetches. Every result carries **next-step hints** to the cheapest follow-up.
 - **Scales to monorepos.** Spot a pattern in one repository, follow the PR that introduced it, then trace it across other repositories and your own files, without leaving the chat. Clone any repository and study it locally.
@@ -460,7 +472,7 @@ npx octocode skill help
 
 ## Architecture
 
-A yarn-workspaces monorepo. The **MCP server** and the **CLI** are thin front-ends over one shared TypeScript tool core, which delegates every CPU-heavy path to a single **Rust engine** (compiled through [napi-rs](https://napi.rs) to prebuilt `.node` binaries). One tool catalog, one security layer, one response shaper, reached two ways.
+Octocode is a yarn-workspaces monorepo organized as a toolkit rather than one application. The **MCP server** and **CLI** are thin research interfaces over one shared TypeScript tool core. The tool core consumes canonical public contracts, central configuration, and a Rust engine compiled through [napi-rs](https://napi.rs). Skills, host integrations, coordination, file mutation, and evaluation packages build around that research spine without duplicating it.
 
 ```mermaid
 graph LR
@@ -491,33 +503,39 @@ client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize 
 
 ### Packages
 
-| Directory | npm package | Role |
-|-----------|-------------|------|
-| [`packages/octocode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode) | `octocode` | CLI: quick commands, raw tool runner, skill installs, auth/login/logout, install, status, context. |
-| [`packages/octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) | `octocode-mcp` | MCP server (stdio) that registers the tool catalog for AI assistants. |
-| [`packages/octocode-tools-core`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | Shared tool core: implementations, GitHub client, credentials and token resolution, session, pagination, security bridge. |
-| [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) | `@octocodeai/octocode-engine` | Rust/napi native engine: security scanning, minification, signatures, structural AST, ripgrep/diff/YAML, LSP. |
-| [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader: `getOctocodeHome`, `.env` parsing, `.octocoderc` reading. Single source used by every package and skill. |
-| [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) | `octocode-mcp-vscode` | VS Code extension: GitHub OAuth + multi-editor MCP install. |
+Each workspace package owns one layer of the toolkit. Package architecture pages document the internal boundaries and invariants.
 
-`packages/octocode-benchmark` (private, not published) holds benchmark methodology, evals, and run artifacts - see [Documentation](#documentation).
+| Layer | Directory / package | Responsibility |
+|------|---------------------|----------------|
+| Interface | [`packages/octocode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode) · `octocode` | Agent-oriented CLI for raw tool calls, authentication, installation, configuration inspection, cache management, language servers, and Agent Skills. |
+| Interface | [`packages/octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) · `octocode-mcp` | Thin stdio MCP server that publishes the enabled tool catalog and forwards validated calls to the shared runtime. |
+| Interface | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) · `octocode-mcp-vscode` | VS Code extension for GitHub OAuth, token synchronization, and MCP installation across supported editors. |
+| Host | [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) · `@octocodeai/pi-extension` | Full Pi integration: Octocode research, guarded shell and file operations, subagents, planning, skills, media workflows, and live settings. |
+| Research runtime | [`packages/octocode-tools-core`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core) · `@octocodeai/octocode-tools-core` | Shared execution layer for every public tool: provider clients, credentials, sessions, pagination, response shaping, and security integration. |
+| Native research | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) · `@octocodeai/octocode-engine` | Rust/napi primitives for search, minification, syntax and topology analysis, LSP orchestration, serialization, and secret detection. |
+| Native workspace | [`packages/octocode-extension-rust`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-extension-rust) · `@octocodeai/octocode-extension-rust` | Separate Rust/napi boundary for workspace snapshots, guarded mutations, durable history, and line-level diffs used by agent hosts and Awareness. |
+| Shared contracts | [`packages/octocode-agent-contracts`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agent-contracts) · `@octocodeai/agent-contracts` | Canonical host protocols, prompt fragments, entity and permission types, paths, and Agent control data shared by integrations. |
+| Configuration | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Zero-dependency loader for Octocode home resolution, environment propagation, `.env`, and `.octocoderc`; the single configuration source for the monorepo. |
+| Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
+| Coordination | [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) · `@octocodeai/octocode-awareness` | Local SQLite coordination for shared work, messages, verification receipts, memory, and recoverable workspace history—without a server or daemon. |
+| Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private benchmark and eval workspace for head-to-head research studies, routing regressions, graders, reports, and reproducible run artifacts. |
+
+The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package owns the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts; `octocode-tools-core` owns their execution.
 
 ---
 
 ## Documentation
 
-Website: **[octocode.ai](https://octocode.ai)** · Product docs: **[github.com/bgauryy/octocode/tree/main/docs](https://github.com/bgauryy/octocode/tree/main/docs)**. This section is the canonical documentation index; benchmark methodology, evals, and run artifacts live in [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark).
+Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/README.md`](https://github.com/bgauryy/octocode/blob/main/docs/README.md)**. The hub separates user guides, reference material, design explanations, contributor checks, and package architecture pages.
 
 | Area | Docs |
 |---|---|
-| MCP server | [Octocode MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
-| Tools and workflows | [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [RDD manifest and workflows](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Octocode research skill](https://github.com/bgauryy/octocode/tree/main/skills/octocode-research) |
-| CLI | [Octocode CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
-| Research model | [Octocode research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [Routing and evidence position paper](https://github.com/bgauryy/octocode/blob/main/docs/ROUTING_EVIDENCE_POSITION_PAPER.md) · [MCP tool quality and agent workflow](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
-| Skills | [Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
-| Development and security | [Security model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP server lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
-| Benchmarks and evals | [Benchmark results](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark/results) · [Benchmark design](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [Benchmark runbook](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/skills/octocode-benchmark/references/INSTRUCTIONS.md) · [Support matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix) |
-| Shared internals | [Token priority order](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#github-token) · [Session persistence](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md#session-persistence) |
+| Start and configure | [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) · [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
+| Research tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Local research workflow](https://github.com/bgauryy/octocode/blob/main/docs/LOCAL_RESEARCH_WORKFLOW.md) · [Tool data and handoff contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) |
+| Agent method | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Agent Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
+| Design and quality | [Routing and evidence position paper](https://github.com/bgauryy/octocode/blob/main/docs/ROUTING_EVIDENCE_POSITION_PAPER.md) · [Tool quality acceptance](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) · [Dated contract audit](https://github.com/bgauryy/octocode/blob/main/docs/MCP_CLI_TOOL_CONTRACT_GAPS.md) |
+| Safety and support | [Security model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
+| Packages and evaluation | [Package architecture index](https://github.com/bgauryy/octocode/blob/main/docs/README.md#package-guides) · [Benchmark workspace](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) |
 
 ---
 

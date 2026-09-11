@@ -5,7 +5,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { openAwarenessStore } from '../../src/coordination/open.js';
 import type { AwarenessStore } from '../../src/coordination/coordination-continuity.js';
-import { getWorkspaceStatus } from '../../src/maintenance-workspace.js';
 
 let workspace: string;
 let aw: AwarenessStore;
@@ -40,7 +39,6 @@ it('projects expired state without mutating stored rows', () => {
   const pausedBefore = db.prepare('SELECT status FROM awareness_plans WHERE plan_id = ?').get(pausedPlan.planId);
 
   expect(aw.status()).toMatchObject({ inProgressTasks: 0, readyTasks: 1, locks: 0, work: 0 });
-  expect(getWorkspaceStatus(db, { workspace_path: workspace })).toMatchObject({ ready_tasks: 1 });
   expect(aw.listTasks({ planId: plan.planId })).toMatchObject([{ status: 'OPEN', agentId: null }]);
   expect(aw.listLocks()).toEqual([]);
   expect(aw.listWork()).toEqual([]);

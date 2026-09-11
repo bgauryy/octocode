@@ -154,7 +154,7 @@ async function executeDomainHandler(
   }
 }
 
-/** Canonical operation execution path: direct domain binding, no legacy registry or dispatcher. */
+/** Canonical operation execution path with direct domain binding. */
 export async function executeCanonicalRoute(
   operation: string,
   binding: CanonicalRouteBinding,

@@ -56,21 +56,11 @@ export interface InsertSessionParams {
   ref?: string | null;
 }
 
-// ─── Embedding search ─────────────────────────────────────────────────────────
-
-/** Cosine-similarity result from searchByEmbedding(). */
-export interface EmbeddingSearchResult {
-  memory_id: string;
-  similarity: number; // 0–1
-}
-
 export type MemoryState = 'ACTIVE' | 'SUPERSEDED';
-export type LockType = 'EXCLUSIVE';
 export type RunOrigin = 'TASK' | 'WORK' | 'HOOK';
 export type WorkSource = 'EXPLICIT' | 'HOOK';
 /** Maps to the task_runs table status column. */
 export type RunStatus = 'PENDING' | 'ACTIVE' | 'SUCCESS' | 'FAILED';
-export type ReflectionOutcome = 'worked' | 'partial' | 'failed';
 
 // ─── Public shapes ────────────────────────────────────────────────────────────
 
