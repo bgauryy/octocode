@@ -1,0 +1,50 @@
+name: Skill installer - Windows
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/skill-installer-windows.yml'
+      - 'packages/octocode-skill-installer/**'
+      - 'packages/octocode/src/cli/commands/skill.ts'
+      - 'packages/octocode/src/cli/commands/skills/**'
+      - 'packages/octocode-awareness/src/skill-*-command.ts'
+  push:
+    paths:
+      - '.github/workflows/skill-installer-windows.yml'
+      - 'packages/octocode-skill-installer/**'
+      - 'packages/octocode/src/cli/commands/skill.ts'
+      - 'packages/octocode/src/cli/commands/skills/**'
+      - 'packages/octocode-awareness/src/skill-*-command.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify installer and junction behavior
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build config dependency
+        run: yarn workspace @octocodeai/config build
+
+      - name: Verify cross-platform skill installer
+        run: yarn workspace @octocodeai/octocode-skill-installer verify
