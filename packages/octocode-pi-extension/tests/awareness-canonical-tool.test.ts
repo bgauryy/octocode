@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import type { AwarenessOperationResult } from '@octocodeai/octocode-awareness';
+import { defaultDbPath } from '@octocodeai/octocode-awareness/host';
 import type { AwarenessOperationRunner } from '../src/tools/awareness-operation-runner.js';
 import { registerAwarenessTool } from '../src/tools/awareness-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
@@ -62,7 +63,7 @@ test('exposes direct routine operations without list-describe-call ceremony', as
   const bindings = runner.mock.calls[0]?.[1];
   assert.equal(bindings?.workspace, root);
   assert.ok(bindings?.agentId);
-  assert.match(String(bindings?.database), /awareness\.sqlite3$/);
+  assert.equal(bindings?.database, defaultDbPath(root));
 });
 
 test('rejects removed command-dispatch fields', async () => {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test, vi } from 'vitest';
 import type { AwarenessOperationResult } from '@octocodeai/octocode-awareness';
+import { defaultDbPath } from '@octocodeai/octocode-awareness/host';
 import type { AwarenessOperationRunner } from '../src/tools/awareness-operation-runner.js';
 import { registerAwarenessTool } from '../src/tools/awareness-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
@@ -91,7 +92,7 @@ test('executes an operation with trusted host bindings and timeout', async () =>
   assert.equal(runner.mock.calls[0]?.[1].workspace, root);
   assert.equal(runner.mock.calls[0]?.[1].timeoutMs, 321);
   assert.ok(runner.mock.calls[0]?.[1].agentId);
-  assert.match(String(runner.mock.calls[0]?.[1].database), /awareness\.sqlite3$/);
+  assert.equal(runner.mock.calls[0]?.[1].database, defaultDbPath(root));
 });
 
 test('rejects removed dispatch fields before execution', async () => {
