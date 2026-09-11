@@ -16,94 +16,72 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { getOctocodeHome } from '@octocodeai/config';
 
 export type SkillPlatform =
-  | 'pi'
-  | 'cursor'
-  | 'claude'
-  | 'claude-desktop'
-  | 'codex'
-  | 'codex-native'
-  | 'opencode'
-  | 'copilot'
-  | 'gemini';
+  'pi' | 'cursor' | 'claude' | 'codex' | 'opencode' | 'copilot' | 'gemini';
 
 export type SkillScope = 'global' | 'project';
 export type SkillInstallMode = 'symlink' | 'copy' | 'auto';
 export type SkillCanonicalStatus =
-  'installed' | 'unchanged' | 'conflict' | 'failed';
+  'installed' | 'upgraded' | 'unchanged' | 'conflict' | 'failed';
 export type SkillDestinationStatus =
   'linked' | 'copied' | 'unchanged' | 'conflict' | 'failed';
 
 export interface SkillPlatformDescriptor {
   readonly platform: SkillPlatform;
   readonly aliases: readonly string[];
-  readonly supportsGlobal: true;
-  readonly supportsProject: boolean;
   readonly autoMode: 'symlink' | 'copy';
+  readonly globalRelativePath: string;
+  readonly projectRelativePath: string;
 }
 
 export const SKILL_PLATFORMS: readonly SkillPlatformDescriptor[] = [
   {
     platform: 'pi',
     aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
     autoMode: 'symlink',
+    globalRelativePath: '.pi/agent/skills',
+    projectRelativePath: '.pi/skills',
   },
   {
     platform: 'cursor',
     aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
     autoMode: 'symlink',
+    globalRelativePath: '.cursor/skills',
+    projectRelativePath: '.cursor/skills',
   },
   {
     platform: 'claude',
-    aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
-    autoMode: 'copy',
-  },
-  {
-    platform: 'claude-desktop',
-    aliases: [],
-    supportsGlobal: true,
-    supportsProject: false,
-    autoMode: 'copy',
+    aliases: ['claude-desktop'],
+    autoMode: 'symlink',
+    globalRelativePath: '.claude/skills',
+    projectRelativePath: '.claude/skills',
   },
   {
     platform: 'codex',
-    aliases: ['shared', 'common', 'agents'],
-    supportsGlobal: true,
-    supportsProject: true,
+    aliases: ['shared', 'common', 'agents', 'codex-native'],
     autoMode: 'symlink',
-  },
-  {
-    platform: 'codex-native',
-    aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
-    autoMode: 'symlink',
+    globalRelativePath: '.agents/skills',
+    projectRelativePath: '.agents/skills',
   },
   {
     platform: 'opencode',
     aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
     autoMode: 'symlink',
+    globalRelativePath: '.config/opencode/skills',
+    projectRelativePath: '.opencode/skills',
   },
   {
     platform: 'copilot',
     aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
     autoMode: 'symlink',
+    globalRelativePath: '.copilot/skills',
+    projectRelativePath: '.github/skills',
   },
   {
     platform: 'gemini',
     aliases: [],
-    supportsGlobal: true,
-    supportsProject: true,
     autoMode: 'symlink',
+    globalRelativePath: '.gemini/skills',
+    projectRelativePath: '.gemini/skills',
   },
 ] as const;
 
@@ -118,6 +96,27 @@ const PLATFORM_BY_VALUE = new Map<string, SkillPlatform>(
     ...aliases.map(alias => [alias, platform] as const),
   ])
 );
+
+const PLATFORM_DESCRIPTOR_BY_NAME = new Map<
+  SkillPlatform,
+  SkillPlatformDescriptor
+>(SKILL_PLATFORMS.map(descriptor => [descriptor.platform, descriptor]));
+
+export function formatSkillPlatformHelp(): string {
+  const canonical = [
+    ...SKILL_PLATFORMS.map(({ platform }) => platform),
+    'all',
+  ].join(' | ');
+  const aliases = SKILL_PLATFORMS.filter(
+    ({ aliases: platformAliases }) => platformAliases.length > 0
+  )
+    .map(
+      ({ platform, aliases: platformAliases }) =>
+        `${platformAliases.join(', ')} -> ${platform}`
+    )
+    .join('; ');
+  return aliases ? `${canonical} (aliases: ${aliases})` : canonical;
+}
 
 export function parseSkillPlatforms(raw: string): {
   platforms: SkillPlatform[];
@@ -148,75 +147,27 @@ export interface SkillDestinationOptions {
   scope: SkillScope;
   homeDir?: string;
   projectDir?: string;
-  appDataDir?: string;
-  operatingSystem?: NodeJS.Platform;
 }
 
 export function resolveSkillDestination(
   options: SkillDestinationOptions
 ): string {
-  const descriptor = SKILL_PLATFORMS.find(
-    ({ platform }) => platform === options.platform
-  )!;
-  if (options.scope === 'project' && !descriptor.supportsProject) {
-    throw new Error(
-      `${options.platform} does not support project skill installation`
-    );
-  }
-
   const home = resolve(options.homeDir ?? homedir());
-  const operatingSystem = options.operatingSystem ?? osPlatform();
-  const appData = resolve(
-    options.appDataDir ??
-      process.env['APPDATA'] ??
-      join(home, 'AppData', 'Roaming')
-  );
   const root =
     options.scope === 'project' ? resolve(options.projectDir ?? '') : home;
   if (options.scope === 'project' && !options.projectDir) {
     throw new Error('projectDir is required for project skill installation');
   }
 
-  if (options.scope === 'global') {
-    if (options.platform === 'claude-desktop' && operatingSystem === 'win32') {
-      return join(appData, 'Claude Desktop', 'skills');
-    }
-    if (options.platform === 'opencode' && operatingSystem === 'win32') {
-      return join(appData, 'opencode', 'skills');
-    }
-  }
-
-  switch (options.platform) {
-    case 'pi':
-      return join(
-        root,
-        options.scope === 'global' ? '.pi/agent/skills' : '.pi/skills'
-      );
-    case 'cursor':
-      return join(root, '.cursor/skills');
-    case 'claude':
-      return join(root, '.claude/skills');
-    case 'claude-desktop':
-      return join(root, '.claude-desktop/skills');
-    case 'codex':
-      return join(root, '.agents/skills');
-    case 'codex-native':
-      return join(root, '.codex/skills');
-    case 'opencode':
-      return join(
-        root,
-        options.scope === 'global'
-          ? '.config/opencode/skills'
-          : '.opencode/skills'
-      );
-    case 'copilot':
-      return join(
-        root,
-        options.scope === 'global' ? '.copilot/skills' : '.github/skills'
-      );
-    case 'gemini':
-      return join(root, '.gemini/skills');
-  }
+  const descriptor = PLATFORM_DESCRIPTOR_BY_NAME.get(options.platform);
+  if (!descriptor)
+    throw new Error(`Unknown skill platform: ${options.platform}`);
+  return join(
+    root,
+    options.scope === 'global'
+      ? descriptor.globalRelativePath
+      : descriptor.projectRelativePath
+  );
 }
 
 export function getCanonicalSkillsDir(
@@ -235,7 +186,6 @@ export interface SkillInstallTarget {
   scope: SkillScope;
   homeDir?: string;
   projectDir?: string;
-  appDataDir?: string;
   operatingSystem?: NodeJS.Platform;
 }
 
@@ -245,6 +195,7 @@ export interface InstallBundledSkillsOptions {
   canonicalSkillsDir?: string;
   mode?: SkillInstallMode;
   force?: boolean;
+  upgrade?: boolean;
   dryRun?: boolean;
 }
 
@@ -269,6 +220,7 @@ export interface SkillInstallOutcome {
 
 export interface SkillInstallSummary {
   installed: number;
+  upgraded: number;
   linked: number;
   copied: number;
   unchanged: number;
@@ -278,9 +230,10 @@ export interface SkillInstallSummary {
 
 export interface InstallBundledSkillsResult {
   ok: boolean;
-  action: 'install' | 'dry-run';
+  action: 'install' | 'upgrade' | 'dry-run';
   dryRun: boolean;
   force: boolean;
+  upgrade: boolean;
   canonicalSkillsDir: string;
   skills: SkillInstallOutcome[];
   summary: SkillInstallSummary;
@@ -423,6 +376,7 @@ function increment(
   status: SkillCanonicalStatus | SkillDestinationStatus
 ): void {
   if (status === 'installed') summary.installed += 1;
+  else if (status === 'upgraded') summary.upgraded += 1;
   else if (status === 'linked') summary.linked += 1;
   else if (status === 'copied') summary.copied += 1;
   else if (status === 'unchanged') summary.unchanged += 1;
@@ -435,12 +389,14 @@ export function installBundledSkills(
 ): InstallBundledSkillsResult {
   const dryRun = options.dryRun ?? false;
   const force = options.force ?? false;
+  const upgrade = options.upgrade ?? false;
   const mode = options.mode ?? 'symlink';
   const canonicalSkillsDir = resolve(
     options.canonicalSkillsDir ?? getCanonicalSkillsDir()
   );
   const summary: SkillInstallSummary = {
     installed: 0,
+    upgraded: 0,
     linked: 0,
     copied: 0,
     unchanged: 0,
@@ -453,6 +409,22 @@ export function installBundledSkills(
     const source = resolve(skill.sourcePath);
     const canonical = join(canonicalSkillsDir, skill.name);
     const validationError = validateSkill({ ...skill, sourcePath: source });
+    const canonicalExists = pathExists(canonical);
+    const canonicalDiffers =
+      canonicalExists && !validationError && !sameTree(source, canonical);
+    const managedCopyDestinations = new Set<string>();
+    if (upgrade && canonicalDiffers) {
+      for (const target of options.targets) {
+        if (effectiveMode(mode, target.platform) !== 'copy') continue;
+        try {
+          const destination = join(resolveSkillDestination(target), skill.name);
+          if (sameTree(canonical, destination))
+            managedCopyDestinations.add(destination);
+        } catch {
+          // Target validation is reported by the normal destination pass below.
+        }
+      }
+    }
     let canonicalStatus: SkillCanonicalStatus;
     let canonicalError: string | undefined;
 
@@ -461,14 +433,14 @@ export function installBundledSkills(
       canonicalError = validationError;
     } else if (sameTree(source, canonical)) {
       canonicalStatus = 'unchanged';
-    } else if (pathExists(canonical) && !force) {
+    } else if (canonicalExists && !force && !upgrade) {
       canonicalStatus = 'conflict';
     } else if (dryRun) {
-      canonicalStatus = 'installed';
+      canonicalStatus = canonicalExists ? 'upgraded' : 'installed';
     } else {
       try {
         replaceDirectory(source, canonical);
-        canonicalStatus = 'installed';
+        canonicalStatus = canonicalExists ? 'upgraded' : 'installed';
       } catch (error) {
         canonicalStatus = 'failed';
         canonicalError = error instanceof Error ? error.message : String(error);
@@ -478,7 +450,11 @@ export function installBundledSkills(
 
     const destinations: SkillDestinationOutcome[] = [];
     const seenDestinations = new Set<string>();
-    if (canonicalStatus === 'installed' || canonicalStatus === 'unchanged') {
+    if (
+      canonicalStatus === 'installed' ||
+      canonicalStatus === 'upgraded' ||
+      canonicalStatus === 'unchanged'
+    ) {
       for (const target of options.targets) {
         let destination: string;
         try {
@@ -503,17 +479,29 @@ export function installBundledSkills(
         let status: SkillDestinationStatus;
         let error: string | undefined;
         const exists = pathExists(destination);
+        const managedCopyUpgrade =
+          upgrade &&
+          canonicalStatus === 'upgraded' &&
+          targetMode === 'copy' &&
+          managedCopyDestinations.has(destination);
+        const copyAlreadyMatchesIncoming =
+          upgrade &&
+          canonicalStatus === 'upgraded' &&
+          targetMode === 'copy' &&
+          sameTree(source, destination);
         const unchanged =
           targetMode === 'symlink'
             ? pointsTo(destination, canonical)
-            : sameTree(
-                dryRun && !pathExists(canonical) ? source : canonical,
-                destination
-              );
+            : copyAlreadyMatchesIncoming ||
+              (!managedCopyUpgrade &&
+                sameTree(
+                  dryRun && !pathExists(canonical) ? source : canonical,
+                  destination
+                ));
 
         if (unchanged) {
           status = 'unchanged';
-        } else if (exists && !force) {
+        } else if (exists && !force && !managedCopyUpgrade) {
           status = 'conflict';
         } else if (dryRun) {
           status = targetMode === 'symlink' ? 'linked' : 'copied';
@@ -565,9 +553,10 @@ export function installBundledSkills(
 
   return {
     ok: summary.conflicts === 0 && summary.failed === 0,
-    action: dryRun ? 'dry-run' : 'install',
+    action: dryRun ? 'dry-run' : upgrade ? 'upgrade' : 'install',
     dryRun,
     force,
+    upgrade,
     canonicalSkillsDir,
     skills: outcomes,
     summary,

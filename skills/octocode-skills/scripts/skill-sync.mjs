@@ -37,9 +37,9 @@ const isWin = process.platform === 'win32';
 
 /** User-scope vendor skill roots (global). Project scope is out of band — pass --project-root. */
 const VENDORS = {
-  agents: {
-    id: 'agents',
-    label: 'shared agents / common',
+  codex: {
+    id: 'codex',
+    label: 'Codex / shared agents',
     user: join(HOME, '.agents', 'skills'),
     project: '.agents/skills',
     notes: 'Codex default in Octocode CLI; shared cross-agent dir',
@@ -54,11 +54,9 @@ const VENDORS = {
   'claude-desktop': {
     id: 'claude-desktop',
     label: 'Claude Desktop',
-    user: isWin
-      ? join(process.env.APPDATA || join(HOME, 'AppData', 'Roaming'), 'Claude Desktop', 'skills')
-      : join(HOME, '.claude-desktop', 'skills'),
-    project: null,
-    notes: 'Desktop app; no project scope',
+    user: join(HOME, '.claude', 'skills'),
+    project: '.claude/skills',
+    notes: 'Alias: Claude Code Desktop reads Claude Code skill locations',
   },
   cursor: {
     id: 'cursor',
@@ -67,26 +65,24 @@ const VENDORS = {
     project: '.cursor/skills',
     notes: 'Native Cursor skills; SKILL.md hooks frontmatter not executed',
   },
-  codex: {
-    id: 'codex',
+  agents: {
+    id: 'agents',
     label: 'Codex (agents dir)',
     user: join(HOME, '.agents', 'skills'),
     project: '.agents/skills',
-    notes: 'Octocode maps codex → ~/.agents/skills',
+    notes: 'Alias for the shared Codex Agent Skills location',
   },
   'codex-native': {
     id: 'codex-native',
     label: 'Codex native',
-    user: join(HOME, '.codex', 'skills'),
-    project: null,
-    notes: 'Observed ~/.codex/skills on some hosts; include when that dir is used',
+    user: join(HOME, '.agents', 'skills'),
+    project: '.agents/skills',
+    notes: 'Legacy alias for the current Codex Agent Skills location',
   },
   opencode: {
     id: 'opencode',
     label: 'OpenCode',
-    user: isWin
-      ? join(process.env.APPDATA || join(HOME, 'AppData', 'Roaming'), 'opencode', 'skills')
-      : join(HOME, '.config', 'opencode', 'skills'),
+    user: join(HOME, '.config', 'opencode', 'skills'),
     project: '.opencode/skills',
     notes: '',
   },
@@ -113,8 +109,24 @@ const VENDORS = {
   },
 };
 
-const TOP = ['claude', 'cursor', 'agents', 'codex-native'];
-const ALL = Object.keys(VENDORS);
+const TOP = ['claude', 'cursor', 'codex'];
+const PRIMARY = [
+  'codex',
+  'claude',
+  'cursor',
+  'opencode',
+  'pi',
+  'copilot',
+  'gemini',
+];
+const VENDOR_IDS = Object.keys(VENDORS);
+const PLATFORM_ALIASES = {
+  agents: 'codex',
+  shared: 'codex',
+  common: 'codex',
+  'codex-native': 'codex',
+  'claude-desktop': 'claude',
+};
 
 function usage() {
   return `skill-sync <skill-dir> [options]
@@ -124,7 +136,7 @@ Default is dry-run (plan only). Writes require --approve after human OK.
 
 Options:
   --platforms <list>   top | all | comma ids (default: top)
-                       top = claude,cursor,agents,codex-native
+                       top = claude,cursor,codex
   --project-root <dir> also plan/write project-scope destinations under <dir>
   --name <skill-name>  override destination folder name (default: source folder)
   --approve            human approved — perform symlink writes
@@ -178,15 +190,15 @@ function parseArgs(argv) {
 function resolvePlatformIds(spec) {
   const raw = String(spec || 'top').trim().toLowerCase();
   if (!raw || raw === 'top') return [...TOP];
-  if (raw === 'all') return [...ALL];
+  if (raw === 'all') return [...PRIMARY];
   const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
-  const bad = ids.filter((id) => !VENDORS[id]);
+  const validIds = [...VENDOR_IDS, ...Object.keys(PLATFORM_ALIASES)];
+  const bad = ids.filter((id) => !VENDORS[id] && !PLATFORM_ALIASES[id]);
   if (bad.length) {
-    console.error(`Unknown platform(s): ${bad.join(', ')}. Valid: ${ALL.join(', ')}, top, all`);
+    console.error(`Unknown platform(s): ${bad.join(', ')}. Valid: ${validIds.join(', ')}, top, all`);
     process.exit(1);
   }
-  // de-dupe while preserving order; codex + agents share path — keep both labels but one write
-  return [...new Set(ids)];
+  return [...new Set(ids.map((id) => PLATFORM_ALIASES[id] || id))];
 }
 
 function readFrontmatterName(skillMdPath) {
@@ -256,7 +268,17 @@ function runSelfTest() {
   expectThrow('parent destination', () => assertDestinationWithin(root, resolve(root, '..')));
   expectThrow('root destination', () => assertDestinationWithin(root, root));
 
-  return { ok: failures.length === 0, checks: 14, failures };
+  if (JSON.stringify(resolvePlatformIds('all')) !== JSON.stringify(PRIMARY)) {
+    failures.push('all must expand to each canonical platform exactly once');
+  }
+  const aliases = resolvePlatformIds(
+    'codex,codex-native,agents,shared,common,claude-desktop,claude'
+  );
+  if (JSON.stringify(aliases) !== JSON.stringify(['codex', 'claude'])) {
+    failures.push('platform aliases must normalize and de-duplicate');
+  }
+
+  return { ok: failures.length === 0, checks: 16, failures };
 }
 
 function inspectDest(destPath) {
@@ -381,19 +403,27 @@ function applyRow(row, sourcePath, { force }) {
 }
 
 function printVendors(asJson) {
-  const list = ALL.map((id) => {
+  const list = VENDOR_IDS.map((id) => {
     const v = VENDORS[id];
     return {
       id,
+      canonical: PLATFORM_ALIASES[id] || id,
       label: v.label,
       user: v.user,
+      userRelativePath: relative(HOME, v.user).split(sep).join('/'),
       project: v.project,
       notes: v.notes,
       top: TOP.includes(id),
     };
   });
   if (asJson) {
-    console.log(JSON.stringify({ vendors: list, top: TOP }, null, 2));
+    console.log(
+      JSON.stringify(
+        { vendors: list, aliases: PLATFORM_ALIASES, top: TOP },
+        null,
+        2
+      )
+    );
     return;
   }
   console.log('Vendor skill locations (user scope):\n');

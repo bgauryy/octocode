@@ -3,7 +3,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  SKILL_PLATFORMS,
   installBundledSkills,
   type InstallBundledSkillsResult,
   type SkillInstallTarget,
@@ -33,6 +32,8 @@ export interface InstallOptions {
   mode: InstallMode;
   /** Replace existing canonical copies or destinations that differ. */
   force: boolean;
+  /** Refresh changed bundled content without replacing arbitrary destination drift. */
+  upgrade: boolean;
   dryRun: boolean;
   json: boolean;
 }
@@ -119,18 +120,6 @@ function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
   }
 
   if (opts.projectDir) {
-    const unsupported = parsed.platforms.filter(
-      platform =>
-        !SKILL_PLATFORMS.find(candidate => candidate.platform === platform)
-          ?.supportsProject
-    );
-    if (unsupported.length > 0) {
-      fail(
-        `Project skill installation is unsupported for: ${unsupported.join(', ')}`,
-        opts.json
-      );
-      return null;
-    }
     const projectDir = resolve(opts.projectDir);
     if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
       fail(`Project directory does not exist: ${projectDir}`, opts.json);
@@ -146,7 +135,12 @@ function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
 }
 
 function statusIcon(status: string): string {
-  if (status === 'installed' || status === 'linked' || status === 'copied')
+  if (
+    status === 'installed' ||
+    status === 'upgraded' ||
+    status === 'linked' ||
+    status === 'copied'
+  )
     return c('green', '✓');
   if (status === 'unchanged') return c('yellow', '~');
   return c('red', '✗');
@@ -168,7 +162,7 @@ function renderHuman(
     const canonicalNote = skill.canonicalError
       ? c('red', `  ${skill.canonicalError}`)
       : skill.canonicalStatus === 'conflict'
-        ? dim('  (differs; use --force to replace)')
+        ? dim('  (differs; use --upgrade to refresh or --force to replace)')
         : '';
     console.log(
       `     ${statusIcon(skill.canonicalStatus)}  ${'canonical'.padEnd(18)} ${dim(shortPath(skill.canonical))}${canonicalNote}`
@@ -192,13 +186,13 @@ function renderHuman(
   const summary = result.summary;
   console.log(`  ${dim('─'.repeat(60))}`);
   console.log(
-    `  ${summary.installed} materialized · ${summary.linked} linked · ${summary.copied} copied · ${summary.unchanged} unchanged · ${summary.conflicts} conflicts · ${summary.failed} failed`
+    `  ${summary.installed} materialized · ${summary.upgraded} upgraded · ${summary.linked} linked · ${summary.copied} copied · ${summary.unchanged} unchanged · ${summary.conflicts} conflicts · ${summary.failed} failed`
   );
   console.log();
 
   if (!result.ok) {
     console.log(
-      `  ${c('red', 'Installation did not complete cleanly.')} Resolve conflicts or rerun with --force.`
+      `  ${c('red', 'Installation did not complete cleanly.')} Resolve drift, use --upgrade for bundled content, or rerun with --force.`
     );
     console.log();
     return;
@@ -249,6 +243,7 @@ export function runInstall(skillNames: string[], opts: InstallOptions): void {
     canonicalSkillsDir: opts.customPath || undefined,
     mode: opts.mode,
     force: opts.force,
+    upgrade: opts.upgrade,
     dryRun: opts.dryRun,
   });
 

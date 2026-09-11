@@ -24,7 +24,7 @@ describe('skill installer canonical home', () => {
     const outcome = installSkill({
       sourcePath: sourceDir,
       skillName: 'fixture-skill',
-      platforms: ['claude', 'cursor', 'codex-native'],
+      platforms: ['claude', 'cursor', 'codex'],
       workspace: false,
       customPath: null,
       mode: 'symlink',
@@ -45,9 +45,8 @@ describe('skill installer canonical home', () => {
     expect(fs.lstatSync(expectedHome).isDirectory()).toBe(true);
     expect(fs.lstatSync(expectedHome).isSymbolicLink()).toBe(false);
 
-    for (const platform of ['claude', 'cursor', 'codex-native']) {
-      const platformDir =
-        platform === 'codex-native' ? '.codex' : `.${platform}`;
+    for (const platform of ['claude', 'cursor', 'codex']) {
+      const platformDir = platform === 'codex' ? '.agents' : `.${platform}`;
       const linkPath = path.join(
         root,
         'home',

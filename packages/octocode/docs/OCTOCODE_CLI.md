@@ -236,13 +236,14 @@ Useful flags:
 
 | Flag | Meaning |
 |---|---|
-| `--platform pi,cursor,claude,claude-desktop,codex,codex-native,opencode,copilot,gemini,shared,common,agents,all` | Select one or more agent skill directories. The three aliases normalize to `codex`. |
+| `--platform pi,cursor,claude,codex,opencode,copilot,gemini,shared,common,agents,claude-desktop,codex-native,all` | Select agent skill directories. `claude-desktop` maps to `claude`; shared/common/agents/codex-native map to the current Codex `.agents/skills` location. `all` selects the seven distinct destinations. |
 | `--global` | Install selected platform links in user scope. Use exactly one scope with `--platform`. |
-| `--project-dir <dir>` | Install selected platform links in project scope. Claude Desktop is global-only. |
+| `--project-dir <dir>` | Install selected platform links in project scope. |
 | `--add <source>` | Install a skill from a local path or GitHub source. |
 | `--path <dir>` | Use a custom canonical skill root instead of `$OCTOCODE_HOME/skills`. |
-| `--mode symlink\|copy\|auto` | Install strategy. `symlink` is the default; `auto` copies only for platforms declared link-incompatible. |
+| `--mode symlink\|copy\|auto` | Install strategy. `symlink` is the default; `copy` is an explicit portability fallback. |
 | `--force` | Replace existing canonical or destination content that differs. Existing content is preserved by default. |
+| `--upgrade` | Refresh changed bundled content in the canonical store. Managed copies refresh only when they still match the previous canonical content; arbitrary destination drift remains a conflict. |
 | `--dry-run` | Preview actions without writing. |
 | `--fix` | `check` only: repair missing/broken installed locations. |
 | `--no-env` | `check` only: skip skill environment-readiness checks. |

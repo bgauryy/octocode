@@ -21,10 +21,9 @@ node scripts/skill-sync.mjs --list-vendors
 |----|-----------|
 | `claude` | `~/.claude/skills` |
 | `cursor` | `~/.cursor/skills` |
-| `agents` | `~/.agents/skills` |
-| `codex-native` | `~/.codex/skills` |
+| `codex` | `~/.agents/skills` |
 
-`all` adds: `claude-desktop`, `codex` (→ `~/.agents/skills`), `opencode`, `pi`, `copilot`, `gemini`. Full map: `--list-vendors` or `references/install-destinations.md`.
+`all` adds the distinct `opencode`, `pi`, `copilot`, and `gemini` destinations. `agents`, `shared`, `common`, and `codex-native` alias `codex`; `claude-desktop` aliases `claude`. The standalone script mirrors the shared installer registry and CI contract-tests that mirror because an installed skill cannot import workspace packages. Full map: `--list-vendors` or `references/install-destinations.md`.
 
 ## When to use
 

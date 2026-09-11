@@ -20,6 +20,7 @@ import {
 } from '../../../src/cli/commands/skills/platforms.js';
 import type { ParsedArgs } from '../../../src/cli/types.js';
 import { EXIT } from '../../../src/cli/exit-codes.js';
+import { findCommandSpec } from '../../../src/cli/commands/specs.js';
 
 function run(
   args: string[] = [],
@@ -59,6 +60,7 @@ describe('skill command', () => {
       'all',
       'mode',
       'force',
+      'upgrade',
       'global',
       'project-dir',
       'workspace',
@@ -88,6 +90,26 @@ describe('skill command', () => {
     ]) {
       expect(optNames).not.toContain(removed);
     }
+  });
+
+  it('documents the same install flags in generated command help', () => {
+    const helpOptions = findCommandSpec('skill')?.options ?? [];
+    const names = helpOptions.map(option => option.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'platform',
+        'mode',
+        'force',
+        'upgrade',
+        'global',
+        'project-dir',
+        'dry-run',
+      ])
+    );
+    expect(names).not.toContain('keep');
+    expect(
+      helpOptions.find(option => option.name === 'workspace')?.description
+    ).toContain('check only');
   });
 
   it('prints bundled skill help when no subcommand is provided', () => {
@@ -144,6 +166,18 @@ describe('skill command', () => {
     expect(parsed.summary.failed).toBe(0);
   });
 
+  it('passes the explicit upgrade contract to the shared installer', () => {
+    run(['install', 'octocode-research'], {
+      upgrade: true,
+      'dry-run': true,
+      json: true,
+    });
+    expect(loggedJson<{ ok: boolean; upgrade: boolean }>()).toMatchObject({
+      ok: true,
+      upgrade: true,
+    });
+  });
+
   it('requires exactly one explicit scope when a platform is selected', () => {
     run(['install', 'octocode-research'], {
       platform: 'pi',
@@ -186,10 +220,12 @@ describe('skill command', () => {
       'dry-run': true,
       json: true,
     });
-    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
-      ok: false,
-      error: expect.stringContaining('claude-desktop'),
-    });
+    const allPlatforms = loggedJson<{
+      ok: boolean;
+      skills: Array<{ destinations: unknown[] }>;
+    }>();
+    expect(allPlatforms).toMatchObject({ ok: true });
+    expect(allPlatforms.skills[0]?.destinations).toHaveLength(7);
   });
 
   it('dry-runs adding a local skill through canonical home and vendor links', () => {
@@ -265,11 +301,11 @@ describe('skill command', () => {
           linkTarget: '/mock-home/.octocode/skills/fixture-skill',
         },
         {
-          platform: 'codex-native',
+          platform: 'codex',
           scope: 'global',
           destination: path.join(
             homedir(),
-            '.codex',
+            '.agents',
             'skills',
             'fixture-skill'
           ),
@@ -317,18 +353,14 @@ describe('skill command', () => {
     }
   });
 
-  it('maps Claude Code and native Codex to distinct global skill homes', () => {
+  it('normalizes desktop/native aliases to current host skill homes', () => {
     expect(getPlatformSkillsDir('claude')).toBe(
       path.join(homedir(), '.claude', 'skills')
     );
-    expect(getPlatformSkillsDir('claude-desktop')).toBe(
-      path.join(homedir(), '.claude-desktop', 'skills')
-    );
-    expect(getPlatformSkillsDir('codex-native')).toBe(
-      path.join(homedir(), '.codex', 'skills')
-    );
-    expect(parsePlatforms('claude,cursor,codex,codex-native')).toEqual({
-      platforms: ['claude', 'cursor', 'codex', 'codex-native'],
+    expect(
+      parsePlatforms('claude,claude-desktop,cursor,codex,codex-native')
+    ).toEqual({
+      platforms: ['claude', 'cursor', 'codex'],
     });
   });
 

@@ -4,21 +4,18 @@ Load when choosing where a skill lands — after `install-gates.md`. Why: wrong 
 
 | Provider | User (global) | Project (per-repository) |
 |----------|---------------|--------------------|
-| shared agents | `~/.agents/skills/` | `<repo>/.agents/skills/` |
-| claude-code | `~/.claude/skills/` | `<repo>/.claude/skills/` |
-| claude-desktop | `~/.claude-desktop/skills/` | n/a |
+| claude (`claude-desktop` alias) | `~/.claude/skills/` | `<repo>/.claude/skills/` |
 | cursor | `~/.cursor/skills/` | `<repo>/.cursor/skills/` |
-| codex | `~/.agents/skills/` | `<repo>/.agents/skills/` |
-| codex-native | `~/.codex/skills/` | n/a |
+| codex / shared agents (`agents`, `shared`, `common`, `codex-native` aliases) | `~/.agents/skills/` | `<repo>/.agents/skills/` |
 | opencode | `~/.config/opencode/skills/` | `<repo>/.opencode/skills/` |
 | pi | `~/.pi/agent/skills/` | `<repo>/.pi/skills/` |
 | copilot | `~/.copilot/skills/` | `<repo>/.github/skills/` |
-| gemini | `~/.gemini/skills/` or `~/.agents/skills/` | matching project path |
-| other | path the runtime scans | in-repository path user confirms |
+| gemini | `~/.gemini/skills/` | `<repo>/.gemini/skills/` |
+| other | path the runtime scans | in-repository path you confirm |
 
 Symlink sync to these dirs: `scripts/skill-sync.mjs` (`references/skill-sync.md`) — dry-run, then human `--approve`.
 
-Windows: `~` → `%USERPROFILE%` (or `%APPDATA%` for desktop apps). Custom override = user-supplied absolute path.
+Windows: `~` resolves to the account profile. Custom override = supplied absolute path.
 
 ## Scope defaults
 

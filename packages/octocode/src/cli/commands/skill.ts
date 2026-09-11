@@ -8,6 +8,7 @@ import { runRemove } from './skills/commands/remove.js';
 import { runInfo } from './skills/commands/info.js';
 import { runCheck } from './skills/commands/check.js';
 import type { InstallMode } from './skills/installer.js';
+import { formatSkillPlatformHelp } from '@octocodeai/octocode-skill-installer';
 
 const SUBCOMMANDS = new Set([
   'list',
@@ -35,12 +36,13 @@ ${bold('Commands')}
 
 ${bold('Install options')}
   --all                   Install all bundled skills
-  --platform <p>          Link into platform dir  ${dim('(comma-sep: pi | cursor | claude | claude-desktop | codex | codex-native | opencode | copilot | gemini | common | all)')}
+  --platform <p>          Link into platform dir  ${dim(`(${formatSkillPlatformHelp()})`)}
   --global                Install links in the selected platform's global scope
   --project-dir <dir>     Install links in the selected platform's project scope
   --path <dir>            Install bundled skill directly to a custom destination
-  --mode copy|symlink|auto  ${dim('[default: symlink · auto = copy where required]')}
+  --mode copy|symlink|auto  ${dim('[default: symlink · copy only when requested]')}
   --force                 Replace an existing installation that differs
+  --upgrade               Refresh changed bundled content; preserve destination drift
   --dry-run               Preview without writing
 
 ${bold('Remove options')}
@@ -101,6 +103,7 @@ export const skillCommand: CLICommand = {
     { name: 'all' },
     { name: 'mode', hasValue: true, default: 'symlink' },
     { name: 'force' },
+    { name: 'upgrade' },
     { name: 'global' },
     { name: 'project-dir', hasValue: true },
     { name: 'workspace' },
@@ -160,6 +163,7 @@ export const skillCommand: CLICommand = {
           customPath: addLocal ? null : rawPath,
           mode: installMode(args),
           force: getBool(args.options, 'force'),
+          upgrade: getBool(args.options, 'upgrade'),
           dryRun: getBool(args.options, 'dry-run'),
           json,
         };

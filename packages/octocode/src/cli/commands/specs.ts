@@ -174,9 +174,15 @@ const SPECS: readonly CLICommandSpec[] = [
       flag('add', 'Local path or GitHub skill source', true),
       flag('platform', 'Comma-separated install targets', true),
       flag('all', 'Select every bundled skill'),
-      flag('mode', 'Install mode', true),
-      flag('keep', 'Preserve existing destinations'),
-      flag('workspace', 'Also install into the workspace'),
+      flag('mode', 'Install mode: symlink, copy, or auto', true),
+      flag('force', 'Replace differing destinations'),
+      flag(
+        'upgrade',
+        'Refresh bundled content while preserving destination drift'
+      ),
+      flag('global', 'Install platform links in user scope'),
+      flag('project-dir', 'Install platform links in project scope', true),
+      flag('workspace', 'Also check the workspace (check only)'),
       flag('path', 'Custom destination', true),
       flag('dry-run', 'Preview without writing'),
       flag('fix', 'Repair missing installs'),
