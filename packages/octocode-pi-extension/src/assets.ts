@@ -11,6 +11,10 @@ import {
 } from '@octocodeai/octocode-awareness/host';
 
 const extensionDir = path.dirname(fileURLToPath(import.meta.url));
+const defaultAssetDir =
+  path.basename(extensionDir) === 'src'
+    ? path.join(path.dirname(extensionDir), 'dist')
+    : extensionDir;
 const requireFromExtension = createRequire(import.meta.url);
 
 // One root package and one CLI serve both the harness and external agents.
@@ -53,7 +57,7 @@ export interface AssetPaths {
   awarenessCliPath: string;
 }
 
-export function getAssetPaths(baseDir = extensionDir): AssetPaths {
+export function getAssetPaths(baseDir = defaultAssetDir): AssetPaths {
   return {
     baseDir,
     docsDir: path.join(baseDir, 'docs'),

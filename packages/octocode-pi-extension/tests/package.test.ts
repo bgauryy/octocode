@@ -2825,8 +2825,8 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
     );
     assert.deepEqual(
       resourcesResult,
-      {},
-      'source-mode tests have no src/skills directory'
+      { skillPaths: [getAssetPaths().skillsDir] },
+      'source-mode execution publishes the built skill bundle'
     );
 
     flagValues.set('no-context', true);
