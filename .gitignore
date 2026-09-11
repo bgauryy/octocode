@@ -20,6 +20,7 @@ target/
 **/bench/results/
 out
 coverage
+.vitest/
 .octocode
 .codex
 .env
@@ -56,5 +57,4 @@ devScripts
 .agents
 output
 __pycache__
-output
 releases/**

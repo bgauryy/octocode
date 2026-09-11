@@ -5,8 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { defaultDbPath } from '../src/coordination/coordination-shared.js';
 import { createAwarenessClient } from '../src/client.js';
 import { resolveDbPath } from '../src/db-runtime.js';
-import { AWARENESS_DB_FILENAME, parseStorageScope, repoDatabasePath } from '../src/storage-scope.js';
-import { AWARENESS_SCHEMA_VERSION } from '../src/db-schema.js';
+import { AWARENESS_DB_FILENAME, AWARENESS_SCHEMA_VERSION, parseStorageScope, repoDatabasePath } from '../src/storage-scope.js';
 import { extractGlobalDb } from '../src/cli-adapter/cli-routing.js';
 
 const originalMemoryHome = process.env.OCTOCODE_AGENT_DIR;

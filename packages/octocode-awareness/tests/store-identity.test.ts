@@ -7,11 +7,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { previewDatabaseMigration } from '../src/db-consolidation.js';
 import { inspectSchemaState, readAwarenessMeta, resolveAwarenessStoreIdentity } from '../src/db-introspection.js';
 import { connectDb } from '../src/db-runtime.js';
-import { AWARENESS_SCHEMA_VERSION, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
+import { SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { AWARENESS_META_DDL } from '../src/db-meta-schema.js';
 import { LEGACY_RENAMED_V1_SCHEMA_DDL } from '../src/db-predecessor-schema.js';
 import { createHistoryContext, historyHash, historyStoragePaths } from '../src/history-store.js';
-import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
+import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from '../src/storage-scope.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });

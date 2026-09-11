@@ -28,7 +28,7 @@ The physical database and normalized workspace identity form the coordination bo
 
 ## Database migration
 
-Migration lives only under `@octocodeai/octocode-awareness/admin`. It is a three-stage copy-on-write process:
+Migration lives only under `@octocodeai/octocode-awareness/admin`. The current migration contract recognizes an exact `v3` schema-generation predecessor and writes a separate `v4` destination; altered `v3` fingerprints still fail without mutation. Migration is a three-stage copy-on-write process:
 
 1. Call `previewDatabaseMigration(sourcePath, destinationPath, options)` with different paths. Preview opens the source read-only, recognizes an exact predecessor schema, validates row classification, and reports every transformation or omission.
 2. Call `applyDatabaseMigration` only after reviewing the preview. Apply copies from a read snapshot into a temporary canonical store, checks the source digest, verifies the destination, and publishes a new destination file.

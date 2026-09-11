@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { AGENT_APPLICATION_ID, readSchemaObjects, assertSchemaObjects } from '@octocodeai/agent-contracts/schema';
-import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
+import {
+  AWARENESS_APPLICATION_ID,
+  AWARENESS_MIGRATABLE_SCHEMA_VERSIONS,
+  AWARENESS_SCHEMA_VERSION,
+} from './storage-scope.js';
 import type { TableInfoRow } from './types/work-maintenance.js';
 import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
-import { AWARENESS_SCHEMA_VERSION, FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { WORKER_LIFECYCLE_DDL } from './db-worker-schema.js';
 import { EVENT_OUTBOX_V1_DDL, EVENT_OUTBOX_V1_INDEX_DDL } from './db-continuity-schema.js';
 import {
@@ -136,6 +140,7 @@ export type SchemaState =
   | 'fresh'
   | 'canonical'
   | 'canonical-path-identity'
+  | 'schema-generation-upgrade'
   | 'history-durability-upgrade'
   | 'history-durability-path-identity-upgrade'
   | 'event-envelope-upgrade'
@@ -238,7 +243,9 @@ export function readAwarenessMeta(db: DatabaseSync): AwarenessMeta {
 /** Read metadata from an exact copy-on-write predecessor without accepting arbitrary versions. */
 export function readMigrationAwarenessMeta(db: DatabaseSync): AwarenessMeta | null {
   const hasMeta = db.prepare("SELECT 1 AS present FROM sqlite_schema WHERE type='table' AND name='awareness_meta'").get();
-  return hasMeta ? readAwarenessMetaVersion(db, [2, AWARENESS_SCHEMA_VERSION]) : null;
+  return hasMeta
+    ? readAwarenessMetaVersion(db, [2, ...AWARENESS_MIGRATABLE_SCHEMA_VERSIONS, AWARENESS_SCHEMA_VERSION])
+    : null;
 }
 
 export function resolveAwarenessStoreIdentity(db: DatabaseSync): AwarenessMeta & { persisted: boolean } {
@@ -332,7 +339,13 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
     }
     assertCanonicalRelationContract(db, identity.relations);
     assertCanonicalSchemaFingerprint(db);
-    readAwarenessMeta(db);
+    const metadata = readAwarenessMetaVersion(
+      db,
+      [...AWARENESS_MIGRATABLE_SCHEMA_VERSIONS, AWARENESS_SCHEMA_VERSION],
+    );
+    if (metadata.schemaVersion !== AWARENESS_SCHEMA_VERSION && !hasWorkerLifecycle) {
+      return 'schema-generation-upgrade';
+    }
     return hasWorkerLifecycle ? 'worker-lifecycle-upgrade' : 'canonical';
   }
   if (identity.applicationId === AGENT_APPLICATION_ID) {

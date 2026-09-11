@@ -11,6 +11,7 @@ export const AWARENESS_APPLICATION_ID = 0x4f435431;
  * a fresh store instead of applying a new fingerprint to an older database.
  */
 export const AWARENESS_SCHEMA_VERSION = 4;
+export const AWARENESS_MIGRATABLE_SCHEMA_VERSIONS = [3] as const;
 export const AWARENESS_DB_FILENAME = `awareness-v${AWARENESS_SCHEMA_VERSION}.sqlite3`;
 
 export function parseStorageScope(

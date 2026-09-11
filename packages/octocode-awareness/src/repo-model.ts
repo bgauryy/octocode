@@ -17,7 +17,6 @@ export const AWARENESS_QUERY_VIEWS = [
 
 export type AwarenessQueryView = (typeof AWARENESS_QUERY_VIEWS)[number];
 export type AwarenessQueryFormat = 'json' | 'table' | 'csv' | 'markdown' | 'html';
-export type RepoContextMode = 'local' | 'share';
 
 export interface AwarenessQueryParams {
   view?: string | null;
@@ -72,33 +71,6 @@ export interface AwarenessQueryResult extends QueryContinuationState {
   continuation: string | null;
   sections?: Record<string, AwarenessQuerySection>;
   filters: Record<string, unknown>;
-}
-
-export interface RepoContextInjectParams extends AwarenessQueryParams {
-  outDir?: string | null;
-  out_dir?: string | null;
-  mode?: string | null;
-  includeView?: boolean | null;
-  include_view?: boolean | null;
-  pruneOrphans?: boolean | null;
-  prune_orphans?: boolean | null;
-  check?: boolean | null;
-  /** Actual resolved store path for this run; reported verbatim as manifest source.canonical. */
-  dbPath?: string | null;
-}
-
-export interface RepoContextInjectResult {
-  ok: true;
-  generated_at: string;
-  workspace_path: string;
-  out_dir: string;
-  mode: RepoContextMode;
-  count: number;
-  files: string[];
-  warnings: string[];
-  orphan_candidates: string[];
-  pruned_orphans: string[];
-  manifest: Record<string, unknown>;
 }
 
 export type AwarenessQueryRow = Record<string, string | number | boolean | null | string[]>;

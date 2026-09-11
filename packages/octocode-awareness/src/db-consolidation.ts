@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, linkSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
-import { AWARENESS_SCHEMA_VERSION, FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { hasFts, rebuildFts } from './db-maintenance.js';
 import {
   assertCanonicalRelationContract,
@@ -17,7 +17,7 @@ import {
   readMigrationAwarenessMeta,
   tableColumns,
 } from './db-introspection.js';
-import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
+import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from './storage-scope.js';
 import { WORKER_LIFECYCLE_DDL } from './db-worker-schema.js';
 import {
   MIGRATED_EVENT_TABLES,

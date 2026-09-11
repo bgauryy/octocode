@@ -204,22 +204,3 @@ export interface RestoreMemoryResult {
   would_restore?: number;
   memory_ids: string[];
 }
-
-// ─── Wait-for-lock ────────────────────────────────────────────────────────────
-
-export interface WaitForLockParams {
-  agentId?: string;
-  targetFiles?: string[];
-  waitMs?: number;               // max wait time ms (default 60000)
-  retryIntervalMs?: number;      // poll interval ms (default 5000)
-}
-
-// ─── Prune-stale ──────────────────────────────────────────────────────────────
-
-export interface PruneStaleParams {
-  dryRun?: boolean;
-  olderThanMinutes?: number;     // treat locks acquired >= N minutes ago as stale (default 20)
-  expiredOnly?: boolean;         // only prune locks past expires_at (ignore age)
-  agentId?: string;
-  targetFiles?: string[];
-}

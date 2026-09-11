@@ -3,6 +3,7 @@ import type { SchemaState } from './db-introspection.js';
 export type DatabaseMigrationSourceVersion =
   | 'legacy-renamed-v1'
   | 'canonical-path-identity'
+  | 'schema-generation-upgrade'
   | 'event-envelope-upgrade'
   | 'event-envelope-path-identity-upgrade'
   | 'event-envelope-history-durability-upgrade'
@@ -41,6 +42,7 @@ export interface DatabaseMigrationVerification {
 
 const COPY_ON_WRITE_SOURCE_STATES = new Set<SchemaState>([
   'canonical-path-identity',
+  'schema-generation-upgrade',
   'event-envelope-upgrade',
   'event-envelope-path-identity-upgrade',
   'event-envelope-history-durability-upgrade',

@@ -6,18 +6,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyDatabaseMigration, previewDatabaseMigration, verifyDatabaseMigration } from '../src/db-consolidation.js';
 import { inspectSchemaState, readAwarenessMeta, type SchemaState } from '../src/db-introspection.js';
-import { AWARENESS_SCHEMA_VERSION, FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { EVENT_OUTBOX_V1_DDL, EVENT_OUTBOX_V1_INDEX_DDL } from '../src/db-continuity-schema.js';
-import {
-  LEGACY_RENAMED_V1_SCHEMA_DDL,
-  PREDECESSOR_EVENT_RELATIONS_DDL,
-  PREDECESSOR_REFINEMENTS_DDL,
-} from '../src/db-predecessor-schema.js';
+import { LEGACY_RENAMED_V1_SCHEMA_DDL, PREDECESSOR_EVENT_RELATIONS_DDL, PREDECESSOR_REFINEMENTS_DDL } from '../src/db-predecessor-schema.js';
 import { WORKER_LIFECYCLE_DDL } from '../src/db-worker-schema.js';
 import { captureHistory } from '../src/history-capture.js';
 import { previewHistoryRestore } from '../src/history-restore.js';
 import { createHistoryContext, historyHash, historyStoragePaths } from '../src/history-store.js';
-import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
+import { AWARENESS_APPLICATION_ID, AWARENESS_MIGRATABLE_SCHEMA_VERSIONS, AWARENESS_SCHEMA_VERSION } from '../src/storage-scope.js';
 import { initDb } from '../src/db-init.js';
 
 const roots: string[] = [];
@@ -44,6 +40,7 @@ interface PredecessorOptions {
   missingMeta?: boolean;
   missingDurability?: boolean;
   refinements?: boolean;
+  schemaVersion?: number;
 }
 
 function exactPredecessorFixture(options: PredecessorOptions) {
@@ -65,7 +62,7 @@ function exactPredecessorFixture(options: PredecessorOptions) {
   if (options.worker) db.exec(WORKER_LIFECYCLE_DDL);
   if (options.missingMeta) db.exec('DROP TABLE awareness_meta');
   else {
-    const schemaVersion = options.eventV1 ? 2 : AWARENESS_SCHEMA_VERSION;
+    const schemaVersion = options.schemaVersion ?? (options.eventV1 ? 2 : AWARENESS_SCHEMA_VERSION);
     db.prepare(`INSERT INTO awareness_meta
       (application_id,schema_version,store_id,created_at,last_migrated_at)
       VALUES (?,?,?,?,NULL)`).run(AWARENESS_APPLICATION_ID, schemaVersion, '11111111-1111-4111-8111-111111111111', '2026-01-01T00:00:00Z');
@@ -293,6 +290,7 @@ describe('event-stream convergence predecessor migration', () => {
 
 describe('exact canonical predecessor copy-on-write migration', () => {
   const cases: ReadonlyArray<{ state: SchemaState; options: PredecessorOptions; label?: string }> = [
+    { state: 'schema-generation-upgrade', options: { schemaVersion: AWARENESS_MIGRATABLE_SCHEMA_VERSIONS[0] } },
     { state: 'refinements-upgrade', options: { refinements: true } },
     { state: 'canonical-path-identity', options: { missingMeta: true } },
     { state: 'event-envelope-upgrade', options: { eventV1: true } },
@@ -311,13 +309,23 @@ describe('exact canonical predecessor copy-on-write migration', () => {
     { state: 'worker-lifecycle-history-durability-path-identity-upgrade', options: { worker: true, missingMeta: true, missingDurability: true } },
   ];
 
+  it.each([2, AWARENESS_SCHEMA_VERSION + 1])('rejects unsupported schema generation %i with the current fingerprint', (schemaVersion) => {
+    const { db } = exactPredecessorFixture({ schemaVersion });
+    expect(() => inspectSchemaState(db)).toThrow(`unsupported Awareness schema_version ${schemaVersion}`);
+    db.close();
+  });
+
   for (const testCase of cases) {
     it(`previews and applies ${testCase.state}${testCase.label ? ` ${testCase.label}` : ''} without mutating the source`, () => {
       const fixture = exactPredecessorFixture(testCase.options);
       const { db, workspace, sourcePath, destinationPath } = fixture;
-      expect(inspectSchemaState(db)).toBe(testCase.state);
-      db.close();
       const sourceBefore = digest(sourcePath);
+      expect(inspectSchemaState(db)).toBe(testCase.state);
+      if (testCase.state === 'schema-generation-upgrade') {
+        expect(() => initDb(db)).toThrow(/recognized schema-generation-upgrade Awareness store/);
+        expect(digest(sourcePath)).toBe(sourceBefore);
+      }
+      db.close();
 
       const preview = previewDatabaseMigration(sourcePath, destinationPath, { workspace });
       expect(preview).toMatchObject({ dryRun: true, sourceVersion: testCase.state, sourceUnchanged: true });
