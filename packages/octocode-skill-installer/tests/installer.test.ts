@@ -105,8 +105,9 @@ describe('platform contract', () => {
   });
 
   it('resolves the durable canonical store through shared config', () => {
-    expect(getCanonicalSkillsDir({ OCTOCODE_HOME: '/tmp/octocode-home' })).toBe(
-      '/tmp/octocode-home/skills'
+    const octocodeHome = resolve(tmpdir(), 'octocode-home');
+    expect(getCanonicalSkillsDir({ OCTOCODE_HOME: octocodeHome })).toBe(
+      join(octocodeHome, 'skills')
     );
     expect(
       resolveSkillDestination({ platform: 'codex', scope: 'global' })
