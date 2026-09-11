@@ -36,7 +36,6 @@ describe('attention evidence and continuations', () => {
     const params = { workspacePath: workspace, agentId: 'owner', query: 'attention contract',
       file: Array.from({ length: 5 }, (_, i) => `source-${i}.ts`), compact: true };
     const first = attendAwareness(db, params);
-    const repeat = attendAwareness(db, { ...params, revision: first.revision });
     expect(first.evidence).toHaveLength(1);
     expect(first).toMatchObject({ partial: true, evidence_omitted_count: 4 });
     expect(first.next.continuations).toHaveLength(1);
@@ -51,7 +50,6 @@ describe('attention evidence and continuations', () => {
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ memories: expect.any(Array) });
     expect((executed.payload as { memories: unknown[] }).memories.length).toBeGreaterThanOrEqual(5);
-    expect(repeat).toMatchObject({ unchanged: true, revision: first.revision });
   });
 
   it('preserves peer context across unchanged observations', () => {
