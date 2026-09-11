@@ -20,9 +20,11 @@ Run `npx @octocodeai/octocode-awareness schema entities --compact` for the canon
 
 ## Store identity
 
-Each canonical store has an application ID, schema version, and stable store ID. The store ID namespaces LocalGit evidence independently of the database filename. Callers must use paths returned by `history.status` instead of deriving a namespace.
+Each canonical store has an application ID, schema version, and stable store ID. The schema generation owns both the metadata version and default filename (`awareness-v4.sqlite3` for the current generation). A breaking DDL change must bump that generation. Default resolution then creates or opens the new generation without mutating the prior file; package releases that do not change DDL continue to share the same generation.
 
-The physical database and normalized workspace identity form the coordination boundary. Separate databases never coordinate implicitly.
+The store ID namespaces LocalGit evidence independently of the database filename. A fresh generation receives a fresh store ID and therefore a separate LocalGit namespace. Previous database and LocalGit pairs remain available for explicit migration or cleanup; they are never merged automatically. Callers must use paths returned by `history.status` instead of deriving a namespace.
+
+The physical database and normalized workspace identity form the coordination boundary. Separate databases never coordinate implicitly. Explicit database paths remain strict: a generation or fingerprint mismatch fails without changing the selected file.
 
 ## Database migration
 

@@ -63,7 +63,7 @@ A passing adapter test establishes the first level, not universal host activatio
 
 The physical SQLite path and normalized workspace identity define a coordination boundary. Linked Git worktrees can share repository-scoped discovery in one store while retaining physical workspace keys for protection, authorization, verification, and recovery. Unrelated clones or databases do not coordinate automatically.
 
-The default global store is `$OCTOCODE_HOME/awareness/awareness.sqlite3`. Repository scope uses `<workspace>/.octocode/awareness.sqlite3`. An explicit database path has the highest precedence for a call. Scope changes never merge databases implicitly.
+The default global store is `$OCTOCODE_HOME/awareness/awareness-v<schema-version>.sqlite3`. Repository scope uses `<workspace>/.octocode/awareness-v<schema-version>.sqlite3`. The current generation is `v4`. One generation constant owns both the metadata version and filename, so a breaking DDL change selects a fresh default store instead of opening an older generation. An explicit database path has the highest precedence for a call and remains subject to exact fingerprint checks. Scope or generation changes never merge databases implicitly.
 
 Opening a store accepts the exact canonical fingerprint. Migration code recognizes only explicit predecessor contracts and writes a different destination file. It verifies schema, integrity, foreign keys, counts, event order, and available LocalGit reachability before an operator selects the destination. The source remains available for rollback.
 

@@ -89,7 +89,7 @@ See the [API reference](docs/API.md) and [architecture](ARCHITECTURE.md).
 
 ## Storage
 
-The default database is `$OCTOCODE_HOME/awareness/awareness.sqlite3`. If `OCTOCODE_HOME` is unset, the platform Octocode home is used. Workspace policy or `--db-scope repo` selects `<workspace>/.octocode/awareness.sqlite3`; `--db` selects an explicit database for a call.
+The default database is `$OCTOCODE_HOME/awareness/awareness-v4.sqlite3`. If `OCTOCODE_HOME` is unset, the platform Octocode home is used. Workspace policy or `--db-scope repo` selects `<workspace>/.octocode/awareness-v4.sqlite3`; `--db` selects an explicit database for a call. The filename suffix is the schema generation, not the package version. A breaking DDL generation selects a fresh default file instead of opening or mutating an older generation.
 
 All cooperating actors must resolve the same physical database and use distinct stable actor IDs. A scope change does not merge stores. Opening a store validates the canonical schema and does not mutate a predecessor schema.
 

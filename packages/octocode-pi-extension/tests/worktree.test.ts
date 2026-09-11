@@ -21,7 +21,7 @@ import {
 import type { PiContext } from '../src/types.js';
 import { makeMockAgentProcess } from './helpers/mock-process.js';
 import { extensionWorkspaceRoot } from '../src/extension-paths.js';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
+import { defaultDbPath, openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 
 function git(cwd: string, args: string[]): string {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -217,7 +217,7 @@ test('worktree worker derives the parent repository-scoped Awareness database', 
     storage: { repository: 'repo', memory: 'global' },
     hooks: { profile: 'coordination' },
   }));
-  const expectedDb = path.join(repo, '.octocode', 'awareness.sqlite3');
+  const expectedDb = defaultDbPath(repo, 'repo');
   const mock = makeMockAgentProcess();
   let spawnedEnv: NodeJS.ProcessEnv | undefined;
   setAgentProcessFactoryForTests((_command, _args, options) => {

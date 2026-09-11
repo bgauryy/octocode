@@ -11,7 +11,7 @@ The host owns capture through `@octocodeai/octocode-awareness/host`. Routine age
 - `history.read`: read one exact historical version.
 - `history.restore`: preview or apply one bound restore.
 
-SQLite stores operation, version, restore, and durability metadata. Immutable file objects live under `<workspace>/.octocode/.localGit`, partitioned by canonical store and physical workspace identity. Read exact paths from `history.status`; do not derive them.
+SQLite stores operation, version, restore, and durability metadata. Immutable file objects live under `<workspace>/.octocode/.localGit`, partitioned by canonical store and physical workspace identity. A new database schema generation receives a new store ID and LocalGit namespace; older database and namespace pairs remain separate until explicitly migrated or removed. The LocalGit layout label reported by `history.status` is independent of the database schema generation. Read exact paths from `history.status`; do not derive them.
 
 The LocalGit backend does not modify the repository index, `HEAD`, branches, remotes, configuration, or hooks. It does not require network access.
 
