@@ -1,6 +1,6 @@
 # Tool quality and agent workflow acceptance
 
-This contributor reference defines how to evaluate Octocode's ten public tools.
+This contributor reference defines how to evaluate the ten public research tools in the Octocode agentic toolkit.
 It separates implemented contracts from the tests needed to establish quality.
 For routing decisions, read the [research manifest](OCTOCODE_RESEARCH_MANIFEST.md).
 For parameters and defaults, use the [tool reference](OCTOCODE_TOOLS.md) and live

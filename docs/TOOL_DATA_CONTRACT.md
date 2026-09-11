@@ -1,6 +1,6 @@
 # Tool data and handoff contract
 
-This reference explains how agents carry evidence between Octocode's ten tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live schema when constructing an unfamiliar request; compact fields are a summary, while the full schema retains nested and conditional constraints.
+This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's ten tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](LOCAL_RESEARCH_WORKFLOW.md) for choosing the next evidence source. Inspect the live schema when constructing an unfamiliar request; compact fields are a summary, while the full schema retains nested and conditional constraints.
 
 ```sh
 node packages/octocode/out/octocode.js tools --json

@@ -1,6 +1,6 @@
 # Octocode configuration and authentication
 
-Use this page for credentials, registries, feature gates, storage, timeouts, and environment precedence. Configuration controls whether a capability is available; it does not redefine a tool's input schema. See [`OCTOCODE_TOOLS.md`](OCTOCODE_TOOLS.md) for tool fields and internal/external behavior, [`OCTOCODE_MCP.md`](OCTOCODE_MCP.md) for server lifecycle, and [`SECURITY.md`](SECURITY.md) for path, secret, and command boundaries.
+This reference configures the interfaces and shared runtime of the Octocode agentic toolkit. Use it for credentials, registries, feature gates, storage, timeouts, and environment precedence. Configuration controls whether a capability is available; it does not redefine a tool's input schema. See [`OCTOCODE_TOOLS.md`](OCTOCODE_TOOLS.md) for tool fields and internal/external behavior, [`OCTOCODE_MCP.md`](OCTOCODE_MCP.md) for server lifecycle, and [`SECURITY.md`](SECURITY.md) for path, secret, and command boundaries.
 
 ## Table of contents
 

@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-One reference for every Octocode research tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
+This is the field-level reference for the research surface of the Octocode agentic toolkit. It covers every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
 
 Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
