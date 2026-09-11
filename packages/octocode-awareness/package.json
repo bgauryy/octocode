@@ -43,7 +43,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+    "node": "^24.15.0"
   },
   "scripts": {
     "build": "node build.mjs",
@@ -61,8 +61,8 @@
   },
   "devDependencies": {
     "@octocodeai/agent-contracts": "0.1.0",
-    "@octocodeai/octocode-skill-installer": "0.1.0",
-    "@types/node": "^26.4.1",
+    "@octocodeai/octocode-skill-installer": "workspace:*",
+    "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",

@@ -18,7 +18,7 @@ await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: 'node22',
+  target: 'node24',
   external: [
     '@octocodeai/config',
     ...builtinModules,

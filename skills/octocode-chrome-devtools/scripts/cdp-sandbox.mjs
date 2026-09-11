@@ -23,14 +23,14 @@ function nodeSupportsAllowNet() {
   return /--allow-net\b/.test(text);
 }
 
-function requireNode22() {
+function requireNode24() {
   const [major] = process.versions.node.split('.').map(Number);
-  if (!Number.isFinite(major) || major < 22) {
-    console.error(`[CDP_SANDBOX] Node.js 22+ required (you have ${process.versions.node}).`);
+  if (!Number.isFinite(major) || major < 24) {
+    console.error(`[CDP_SANDBOX] Node.js 24+ required (you have ${process.versions.node}).`);
     process.exit(1);
   }
 }
-requireNode22();
+requireNode24();
 
 const __dir  = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(__dir, 'cdp-runner.mjs');
@@ -185,7 +185,7 @@ if (VERBOSE) {
   console.error(`[CDP_SANDBOX]  Node:           ${process.versions.node}`);
   console.error(`[CDP_SANDBOX]  Network:       CDP localhost only; --allow-net=${allowNet ? 'yes (Node 25+)' : 'skipped (Node <25)'}`);
   if (!allowNet) {
-    console.error('[CDP_SANDBOX]  Note: Node 22–24 grant net under --permission; Node 25+ requires --allow-net');
+    console.error('[CDP_SANDBOX]  Note: Node 24 grants net under --permission; Node 25+ requires --allow-net');
   }
 } else {
   console.error(`[CDP_SANDBOX] sandboxed (node ${process.versions.node}, fs scoped, net=CDP-only) — rerun with --verbose for full detail`);

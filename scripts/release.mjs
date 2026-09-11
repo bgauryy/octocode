@@ -254,7 +254,7 @@ await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  target: 'node20',
+  target: 'node24',
   minify: true,
   treeShaking: true,
   outfile: join(workDir, 'sea-bundle.cjs'),

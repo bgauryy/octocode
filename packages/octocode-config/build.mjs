@@ -28,7 +28,7 @@ const shared = {
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: 'node20',
+  target: 'node24',
   // Mark all Node built-ins as external — no need to bundle them.
   external: ['node:fs', 'node:os', 'node:path', 'node:process', 'fs', 'os', 'path'],
   sourcemap: true,

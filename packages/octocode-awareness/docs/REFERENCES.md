@@ -52,7 +52,7 @@ not make a repository alive, sentient, self-authorizing, or self-governing.
   concurrency, same-host limits, checkpointing, and the WAL-reset bug in
   [Write-Ahead Logging](https://sqlite.org/wal.html).
 - **Implemented invariant:** the package requires Node.js
-  `^22.22.2 || ^24.15.0 || >=26.0.0`, where `node:sqlite` is available without
+  `^24.15.0`, where `node:sqlite` is available without
   the experimental flag. See the
   [Node SQLite API history](https://nodejs.org/download/release/latest-v22.x/docs/api/sqlite.html).
 

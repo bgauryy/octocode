@@ -6,7 +6,7 @@ import { RuntimeFailure } from '@octocodeai/agent-core';
 const PI_HOST_PACKAGE = '@earendil-works/pi-coding-agent';
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
-export const APPROVED_PI_HOST_VERSION = '0.84.4' as const;
+export const APPROVED_PI_HOST_VERSION = '0.85.1' as const;
 
 export class PiHostCompatibilityError extends RuntimeFailure {
   readonly code = 'OCTOCODE_PI_HOST_INCOMPATIBLE' as const;

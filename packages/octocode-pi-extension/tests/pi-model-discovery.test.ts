@@ -19,8 +19,8 @@ function fixture() {
 }
 
 describe('Pi model adapter', { concurrent: false }, () => {
-  it('merges model IDs into real Pi 0.84.4, preserving native overrides, sibling models and active auth', async () => {
-    expect(VERSION).toBe('0.84.4');
+  it('merges model IDs into real Pi 0.85.1, preserving native overrides, sibling models and active auth', async () => {
+    expect(VERSION).toBe('0.85.1');
     vi.stubEnv('PI_OFFLINE', '1');
     const f = fixture();
     f.write(path.join(f.piAgentDir, 'models.json'), { openai: { models: [{ id: 'native-sibling', api: 'openai-responses', baseUrl: 'http://localhost:1' }], modelOverrides: { 'shared-fixture': { maxTokens: 777 } } } });

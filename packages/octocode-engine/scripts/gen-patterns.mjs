@@ -82,7 +82,7 @@ async function loadAllRegexPatternsFromSource() {
       outfile: bundledEntry,
       bundle: true,
       platform: 'node',
-      target: 'node20',
+      target: 'node24',
       format: 'esm',
       logLevel: 'silent',
     });

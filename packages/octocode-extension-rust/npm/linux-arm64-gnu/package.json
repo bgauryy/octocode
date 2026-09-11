@@ -17,7 +17,7 @@
     "glibc"
   ],
   "engines": {
-    "node": ">=22"
+    "node": "^24.15.0"
   },
   "publishConfig": {
     "access": "public"

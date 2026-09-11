@@ -9,8 +9,8 @@ Hermetic checks do not cover every bot-wall/CAPTCHA/region case. After two same-
 | `Chrome not found` | Install Chrome or check path in `open-browser.mjs` |
 | `Chrome not running on port` | Run `open-browser.mjs --headless` first |
 | Chrome already open, no CDP | Handled automatically — `open-browser.mjs` launches isolated CDP session |
-| `WebSocket unavailable` | Upgrade to Node.js 22+ (native WebSocket required, no install needed) |
-| `bad option: --allow-net` from sandbox | `--allow-net` is Node **25+** only. Sandbox gates on `process.versions.node` major ≥ 25 (skips on 22–24). Pull latest `cdp-sandbox.mjs` if you still see this. |
+| `WebSocket unavailable` | Upgrade to Node.js 24+ (native WebSocket required, no install needed) |
+| `bad option: --allow-net` from sandbox | `--allow-net` is Node **25+** only. Sandbox gates on `process.versions.node` major ≥ 25 (skips on 24). Pull latest `cdp-sandbox.mjs` if you still see this. |
 | Cookie bridge / profile lock | Chrome already open with Default profile → use `--from-port` or `--from-storage-state`, or quit Chrome before `--from-profile`. |
 | `Script not found` | Use `.octocode/tmp/cdp-<task>.mjs`, never hardcode `/tmp/` |
 | `CDP timeout for <method>` | Domain not enabled — add the required `enable` call before using it |

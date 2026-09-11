@@ -1,6 +1,6 @@
 # Adaptive status and progress UX
 
-> Status: core implementation shipped. `UxSnapshotV1`, event reconciliation, adaptive priority/budget policy, bounded worker aggregation, one-line cell-safe rendering, production footer wiring, durable plan/worker transcript cards, and a real Pi 0.84.4 launch pass are implemented and covered by focused fixtures. Durable peer/local reconciliation and the complete state/layout matrix remain acceptance debt. [UI.md](UI.md) is canonical for shipped behavior.
+> Status: core implementation shipped. `UxSnapshotV1`, event reconciliation, adaptive priority/budget policy, bounded worker aggregation, one-line cell-safe rendering, production footer wiring, durable plan/worker transcript cards, and a real Pi 0.85.1 launch pass are implemented and covered by focused fixtures. Durable peer/local reconciliation and the complete state/layout matrix remain acceptance debt. [UI.md](UI.md) is canonical for shipped behavior.
 
 This design gives users one truthful answer to four questions:
 

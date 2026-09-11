@@ -4,7 +4,7 @@
   <img src="assets/logo.png" alt="Octocode Awareness" width="300" />
 </p>
 
-Local coordination for coding agents: shared work, messages, verification, recoverable file history, and reusable learning. SQLite stores coordination state; repository files and observed checks establish truth. No server or daemon. Requires Node `^22.22.2 || ^24.15.0 || >=26.0.0`.
+Local coordination for coding agents: shared work, messages, verification, recoverable file history, and reusable learning. SQLite stores coordination state; repository files and observed checks establish truth. No server or daemon. Requires Node `^24.15.0`.
 
 This is the canonical Awareness overview for CLI users, agents, and host integrators. It covers the operating flow, feature families, storage, architecture, and known limits. The [reference index](docs/README.md) routes exact protocols; the [agent skill](skills/octocode-awareness/SKILL.md) owns operating instructions. Dated plans, ratings, and benchmark receipts do not define runtime behavior.
 

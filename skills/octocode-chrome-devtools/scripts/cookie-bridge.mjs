@@ -73,8 +73,8 @@ if (EXPORT_STATE) {
 
 const WS = globalThis.WebSocket;
 const [nodeMajor] = process.versions.node.split('.').map(Number);
-if (!Number.isFinite(nodeMajor) || nodeMajor < 22 || !WS) {
-  fail(`Node.js 22+ required (you have ${process.versions.node}). Native WebSocket is unavailable.`);
+if (!Number.isFinite(nodeMajor) || nodeMajor < 24 || !WS) {
+  fail(`Node.js 24+ required (you have ${process.versions.node}). Native WebSocket is unavailable.`);
 }
 
 function cookieMeta(c) {

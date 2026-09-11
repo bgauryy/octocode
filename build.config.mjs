@@ -12,14 +12,14 @@ export const nodeExternals = [
 ];
 
 /**
- * Base esbuild options for Node 22 ESM bundles.
+ * Base esbuild options for Node 24 ESM bundles.
  * Each package extends / overrides as needed (entryPoints, outdir, external, …).
  */
 export const baseOptions = {
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: 'node22',
+  target: 'node24',
   external: nodeExternals,
   sourcemap: false,
   treeShaking: true,

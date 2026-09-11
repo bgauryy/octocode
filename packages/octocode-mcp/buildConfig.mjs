@@ -25,7 +25,7 @@ export const shimBanner = '#!/usr/bin/env node';
 export const sharedBuildOptions = {
   bundle: true,
   platform: 'node',
-  target: 'node18',
+  target: 'node24',
   format: 'esm',
   minify: true,
   treeShaking: true,

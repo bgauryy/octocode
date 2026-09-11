@@ -2,11 +2,11 @@
 
 The official Octocode package for Pi. It combines Octocode research through MCP with guarded file and shell operations, subagents, skills, media workflows, planning, and a live settings interface.
 
-The Pi host SDK (`@earendil-works/pi-coding-agent` 0.84.4) is a required peer dependency because the extension imports its runtime APIs.
+The Pi host SDK (`@earendil-works/pi-coding-agent` 0.85.1) is a required peer dependency because the extension imports its runtime APIs.
 
 ## Install
 
-Requires Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+.
+Requires Node.js 24.15.0+ (24.x).
 
 ```bash
 pi install npm:@octocodeai/pi-extension

@@ -1,9 +1,10 @@
 # Skill installer architecture
 
-`@octocodeai/octocode-skill-installer` is the single filesystem and platform
-contract used by the Octocode and Awareness CLIs. Bundling remains owned by each
-caller: Octocode supplies its complete skill suite, while Awareness supplies only
-`octocode-awareness`.
+`@octocodeai/octocode-skill-installer` is the private workspace contract for
+filesystem and platform behavior shared by the Octocode and Awareness CLIs. Each
+caller bundles this workspace into its own output: Octocode supplies its complete
+skill suite, while Awareness supplies only `octocode-awareness`. The installer is
+not published or resolved as a runtime package.
 
 ## Data flow
 

@@ -1,12 +1,12 @@
 {
   "name": "node-domexception",
   "version": "1.0.1",
-  "description": "Node 22+ compatibility bridge to the native DOMException implementation.",
+  "description": "Node 24 compatibility bridge to the native DOMException implementation.",
   "type": "module",
   "main": "./index.js",
   "exports": "./index.js",
   "engines": {
-    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+    "node": "^24.15.0"
   },
   "private": true
 }

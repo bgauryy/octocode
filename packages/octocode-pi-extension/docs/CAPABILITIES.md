@@ -85,7 +85,7 @@ The [model adapter](../src/adapters/pi-model-discovery.ts) merges providers and 
 
 Provider fields include `name`, `api`, `baseUrl`, `apiKey`, `headers`, and `authHeader`. Model fields include `id`, `name`, `api`, `baseUrl`, `reasoning`, `input`, `cost`, `contextWindow`, `maxTokens`, `headers`, `compat`, `thinkingLevelMap`, and `samplingParams`. Model IDs must be unique within one provider definition. Token limits must be positive numbers; costs must be finite, nonnegative numbers.
 
-`modelOverrides` maps model IDs to partial model definitions. Global Octocode overrides apply before workspace overrides. Pi 0.84.4 applies the `modelOverrides` in its own `models.json` after the extension's model contributions, so those explicit Pi overrides remain final.
+`modelOverrides` maps model IDs to partial model definitions. Global Octocode overrides apply before workspace overrides. Pi 0.85.1 applies the `modelOverrides` in its own `models.json` after the extension's model contributions, so those explicit Pi overrides remain final.
 
 Pi retains ownership of active authentication. Configure OAuth through Pi; the Octocode model JSON adapter rejects `oauth`, `streamSimple`, and `refreshModels` fields. API key expressions remain inert during discovery. The configuration page exposes provider IDs, model IDs, names, APIs, and token limits; it omits keys, request headers, and endpoint URLs.
 
@@ -93,7 +93,7 @@ When you remove a source, the adapter removes its contributions and restores the
 
 Source files must be regular files no larger than 1 MiB. Workspace sources must remain inside the workspace. The adapter rejects symlinked model files.
 
-The [real Pi model tests](../tests/pi-model-discovery.test.ts) exercise the pinned 0.84.4 runtime, merged model IDs, final native overrides, active authentication, sibling preservation, and cleanup.
+The [real Pi model tests](../tests/pi-model-discovery.test.ts) exercise the pinned 0.85.1 runtime, merged model IDs, final native overrides, active authentication, sibling preservation, and cleanup.
 
 ## Declarative command hooks
 

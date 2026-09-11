@@ -1,6 +1,6 @@
 # `@octocodeai/octocode-skill-installer`
 
-Shared installation engine for skills bundled by Octocode packages.
+Private workspace installation engine bundled into Octocode package outputs.
 
 It materializes each bundled skill into the durable canonical store at
 `$OCTOCODE_HOME/skills/<name>`, then installs a directory symlink into each

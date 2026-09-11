@@ -22,7 +22,7 @@ Ask before real-profile access, cookie transfer, CAPTCHA, or MFA handling; purch
 
 ## Install
 
-Requires Chrome and Node.js 22 or later. Sandboxed `--allow-net` execution requires Node.js 25 or later.
+Requires Chrome and Node.js 24 or later. Sandboxed `--allow-net` execution requires Node.js 25 or later.
 
 ```bash
 npx -y octocode skill install octocode-chrome-devtools

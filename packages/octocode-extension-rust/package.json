@@ -23,7 +23,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22"
+    "node": "^24.15.0"
   },
   "scripts": {
     "build": "node scripts/build.mjs --release",
@@ -47,7 +47,7 @@
     "build:win32-x64-msvc": "node scripts/build.mjs --release --target win32-x64-msvc"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
+    "@types/node": "^24.13.4",
     "typescript": "^6.0.3"
   },
   "publishConfig": {

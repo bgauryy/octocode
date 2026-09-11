@@ -60,11 +60,11 @@ formats it for a terminal.
 - `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
   (ESM, minified, code-split, with a `#!/usr/bin/env node` shebang).
 - Published runtime dependencies, including
-  `@octocodeai/octocode-tools-core`, `@octocodeai/octocode-engine`, and
-  `@octocodeai/octocode-skill-installer`, stay
-  external so each package owns and resolves its own dependency graph. The
-  native `.node` binary comes from the engine package's platform
-  `optionalDependencies`.
+  `@octocodeai/octocode-tools-core` and `@octocodeai/octocode-engine`, stay
+  external so each package owns and resolves its own dependency graph. The private
+  `@octocodeai/octocode-skill-installer` workspace is a dev dependency bundled
+  into the CLI output. The native `.node` binary comes from the engine package's
+  platform `optionalDependencies`.
 - The build inspects esbuild's metafile and fails if output contains a bare
   external import that the CLI does not declare as a runtime dependency.
 - `__APP_VERSION__` is injected at build time from `package.json`.

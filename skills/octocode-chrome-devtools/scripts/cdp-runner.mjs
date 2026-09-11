@@ -57,8 +57,8 @@ if (!scriptArg && !LIST_TARGETS) {
 }
 
 const [nodeMajor] = process.versions.node.split('.').map(Number);
-if (nodeMajor < 22) {
-  console.error(`[CDP_RUNNER] Node.js 22+ required (you have ${process.versions.node}). Native WebSocket is unavailable.`);
+if (nodeMajor < 24) {
+  console.error(`[CDP_RUNNER] Node.js 24+ required (you have ${process.versions.node}). Native WebSocket is unavailable.`);
   process.exit(1);
 }
 const WS = globalThis.WebSocket;

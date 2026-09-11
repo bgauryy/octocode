@@ -5,7 +5,7 @@ export const baseOptions = {
   bundle: true,
   platform: 'node',
   format: 'esm',
-  target: 'node22',
+  target: 'node24',
   external: [...nodeExternals, '@octocodeai/octocode-extension-rust'],
   // Bundled Git dependencies contain CommonJS calls to Node builtins. Every
   // split chunk and standalone hook needs its own ESM-compatible require.

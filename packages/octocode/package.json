@@ -9,7 +9,6 @@
     "@inquirer/prompts": "^8.7.2",
     "@octocodeai/config": "20.0.0",
     "@octocodeai/octocode-engine": "19.1.0",
-    "@octocodeai/octocode-skill-installer": "0.1.0",
     "@octocodeai/octocode-tools-core": "19.1.0",
     "@octokit/auth-oauth-device": "^8.0.5",
     "@octokit/oauth-methods": "^6.0.5",
@@ -17,7 +16,8 @@
     "open": "^11.0.3"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
+    "@octocodeai/octocode-skill-installer": "workspace:*",
+    "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
@@ -31,7 +31,7 @@
     "@octocodeai/config"
   ],
   "engines": {
-    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+    "node": "^24.15.0"
   },
   "files": [
     "out",

@@ -1,6 +1,6 @@
 # Pi Built-in Tool Policy
 
-Octocode intentionally changes Pi 0.84.4's built-in tool surface to reduce duplicate routes and strengthen mutation safety.
+Octocode intentionally changes Pi 0.85.1's built-in tool surface to reduce duplicate routes and strengthen mutation safety.
 
 ## Pi's installed built-ins
 

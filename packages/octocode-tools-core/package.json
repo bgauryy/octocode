@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@octokit/core": "^7.0.8",
-    "@types/node": "^26.4.1",
+    "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
@@ -34,7 +34,7 @@
     "@octocodeai/config"
   ],
   "engines": {
-    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+    "node": "^24.15.0"
   },
   "exports": {
     ".": {
