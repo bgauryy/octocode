@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { AwarenessQueryRow } from './repo-model.js';
 import type { OperationalState, Regulation } from './attend-physiology.js';
 import type { RuntimeObservation } from '@octocodeai/agent-contracts/physiology';
-import type { AwarenessOperation, AwarenessOperationCall } from './schema/operation-catalog.js';
+import type { AwarenessOperation, AwarenessOperationCall } from './schema/operation-types.js';
 
 export type AttendContinuation = AwarenessOperationCall<'work.list' | 'memory.recall'>;
 

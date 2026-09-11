@@ -413,7 +413,7 @@ Find packages for a capability, resolve a known dependency to registry metadata,
 | `keywords` | One or more discovery terms as an array. PyPI supports exact lookup only. |
 | `cursor` | Opaque discovery continuation; copy the complete returned `next.nextPage` query. Exact lookup has no pagination controls. |
 | `pageSize` | Discovery result count, default 10, range 1–100. |
-| `registry` | npm-only HTTP(S) registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
+| `registry` | npm-only HTTP or HTTPS registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
 
 <!-- tool: artifactSearch -->
 ```json

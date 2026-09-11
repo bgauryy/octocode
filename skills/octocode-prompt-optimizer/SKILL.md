@@ -23,7 +23,9 @@ Reviews/drafts: `<output>/octocode-prompt-optimizer/`; scratch: `<output>/tmp/oc
 - For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
 - Keep a sentence only when it defines a distinction, sets a boundary, explains a consequence, or directs an action. Cut repeated rules, motivational language, role-play, uninformative headings, and decorative terminology.
 - Prefer the smallest wrong/right example pair when it defines the boundary better than more prose. Use literal language when it suffices.
-- Use standard short terms (`repo`, `config`, `env`) when meaning stays exact. Keep one noun per concept; prefer direct verbs (`decide`, `verify`) to noun phrases.
+- State intent before constraints or steps. Use grammatical sentences, concrete nouns, explicit referents, and direct verbs that name the action.
+- Use standard short terms (`repo`, `config`, `env`) when meaning stays exact. Keep one noun per concept; replace noun phrases with direct verbs (`decide`, `verify`).
+- Use an available small, fast model (for example, Luna or Haiku) for bounded repetition, term-drift, format, and checklist scans. Give it exact input and a fixed output shape; verify each finding before editing. Keep intent mapping, conflict resolution, risky rules, and final validation on the main model.
 - Maximize behavior per token, not brevity. Justify growth by the boundary it adds.
 - Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before rewriting them.
 - Reserve mandatory language for real requirements. Keep preferences flexible and mutate files only when authorized.

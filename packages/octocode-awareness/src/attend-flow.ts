@@ -1,5 +1,5 @@
 /** Read-first routing. These decisions advise the host; they never execute actions. */
-import type { AwarenessOperationCall } from './schema/operation-catalog.js';
+import type { AwarenessOperationCall } from './schema/operation-types.js';
 
 export interface AttendNext {
   action: 'verify_owned_work' | 'inspect_lock' | 'inspect_overlap' | 'resume_owned_task'
@@ -31,7 +31,10 @@ export function decideNext(input: FlowInput): AttendNext {
   if (input.verificationRequired) return {
     action: 'verify_owned_work', reason: 'Inspect owned debt and run the declared checks before recording a receipt.',
     ...(input.verificationRunId ? { target: { run_id: input.verificationRunId } } : {}),
-    ...operation({ operation: 'work.verify', params: { action: 'audit' } }),
+    ...operation({
+      operation: 'work.verify',
+      params: { action: 'audit', ...(input.artifact ? { artifact: input.artifact } : {}) },
+    }),
   };
   if (input.inspection) return {
     action: input.inspection.locked ? 'inspect_lock' : 'inspect_overlap',

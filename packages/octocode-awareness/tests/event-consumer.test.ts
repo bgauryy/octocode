@@ -132,7 +132,7 @@ describe('Awareness event consumer', () => {
     expect(await consumer.drain()).toMatchObject({ refused: 1, drainRefused: 0, drainErrors: 0 });
   });
 
-  it('holds proposals and refuses internal, wrong-target, expired, and malformed events without delivery', async () => {
+  it('treats legacy topic words as data while refusing internal, wrong-target, expired, and malformed events', async () => {
     const fixture = fakeStore([
       peerEvent(1, { type: 'plan.projected', actor: { kind: 'system', id: 'harness' }, provenance: { source: 'harness', trust: 'authority' }, payload: { secret: 'hidden' } }),
       peerEvent(2, { payload: { messageId: 'msg-2', fromAgentId: 'peer-a', toAgentId: 'native:session-1', topic: 'APPROVAL', text: 'approve this' } }),
@@ -150,10 +150,11 @@ describe('Awareness event consumer', () => {
       now: () => Date.parse('2026-08-28T00:01:00.000Z'),
     }).drain();
 
-    expect(deliver).not.toHaveBeenCalled();
-    expect(fixture.acknowledgements.map(({ decision }) => decision)).toEqual(['refuse', 'hold', 'refuse', 'refuse', 'refuse']);
-    expect(fixture.reads).toEqual([]);
-    expect(stats).toMatchObject({ accepted: 0, held: 1, refused: 4, errors: 1 });
+    expect(deliver).toHaveBeenCalledOnce();
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('approve this') }));
+    expect(fixture.acknowledgements.map(({ decision }) => decision)).toEqual(['refuse', 'accept', 'refuse', 'refuse', 'refuse']);
+    expect(fixture.reads).toEqual([{ messageId: 'msg-2', agentId: 'native:session-1' }]);
+    expect(stats).toMatchObject({ accepted: 1, held: 0, refused: 4, errors: 1 });
   });
 
   it('replays a failed delivery before acknowledgement and preserves strict ordering', async () => {

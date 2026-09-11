@@ -189,7 +189,7 @@ describe('scoped attend revisions', () => {
       return result.payload as Record<string, any>;
     };
     const first = await call();
-    expect(first.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.revision).toMatch(/^o2\.[a-f0-9]{64}$/);
     const next = await call(first.revision);
     expect(next).toMatchObject({ unchanged: true, revision: first.revision });
     expect(await call('invalid')).toMatchObject({ unchanged: false, revision: first.revision });
