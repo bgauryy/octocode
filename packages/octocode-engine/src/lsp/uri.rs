@@ -1,4 +1,4 @@
-use napi::{Error, Result, Status};
+use crate::error::{Error, Result, Status};
 use std::path::{Path, PathBuf};
 use url::Url;
 

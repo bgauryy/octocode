@@ -1,4 +1,5 @@
 import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { signalExpiresAt } from './message-lifecycle.js';
 
 export interface MigrationEvent {
   event_id: string; workspace_path: string; event_type: string;
@@ -47,12 +48,14 @@ export function copyLegacyHandoffSignals(source: DatabaseSync, destination: Data
   if (!hasTable(source, 'handoffs')) return;
   const rows = source.prepare('SELECT * FROM handoffs ORDER BY created_at, handoff_id').all() as Array<Record<string, unknown>>;
   const insert = destination.prepare(`INSERT INTO signals(signal_id,workspace_path,from_agent,to_agent,kind,subject,
-    body,files_json,refs_json,thread_id,reply_to,importance,status,resolved_at,created_at)
-    VALUES (?,?,?,NULL,'handoff',?,NULL,?,'[]',?,NULL,5,?,?,?)`);
+    body,files_json,refs_json,thread_id,reply_to,importance,status,resolved_at,created_at,expires_at)
+    VALUES (?,?,?,NULL,'handoff',?,NULL,?,'[]',?,NULL,5,?,?,?,?)`);
   for (const row of rows) {
     const id = required(row, 'handoff_id');
     const clearedAt = typeof row.cleared_at === 'string' ? row.cleared_at : null;
+    const createdAt = required(row, 'created_at');
     insert.run(id, required(row, 'workspace_path'), required(row, 'agent_id'), required(row, 'summary'),
-      required(row, 'files_json'), id, clearedAt ? 'resolved' : 'open', clearedAt, required(row, 'created_at'));
+      required(row, 'files_json'), id, clearedAt ? 'resolved' : 'open', clearedAt, createdAt,
+      signalExpiresAt('handoff', createdAt));
   }
 }

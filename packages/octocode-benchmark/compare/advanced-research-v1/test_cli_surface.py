@@ -93,6 +93,44 @@ class CliSurface(unittest.TestCase):
         self.assertIsNotNone(policy.audit(command + "\nid"))
         self.assertIsNotNone(policy.audit(command + ' "$(id)"'))
 
+    def test_native_field_inputs_use_canonical_parser_and_all_scope_checks(self):
+        bridge = pilot.cli_input.prepare_bridge(self.root / "parser")
+        policy = pilot.Policy("octocode", self.cli, [self.corpus], flag_bridge=bridge)
+        def call(tool, *tail):
+            return policy.audit(shlex.join(["node", str(self.cli), "tools", tool, *tail]))
+        self.assertIsNone(call("localFetch", "--path", str(self.source), "--start-line", "1", "--end-line=1"))
+        self.assertEqual(call("localFetch", "--path", "/outside/source.py"), "query_outside_corpus")
+        self.assertIsNone(call("astSearch", "topology", "reachability", "--path", str(self.corpus),
+                               "--entrypoints", str(self.source)))
+        self.assertEqual(call("astSearch", "topology", "reachability", "--path", str(self.corpus),
+                               "--entrypoints", str(self.source), "--entrypoints", "/outside/source.py"),
+                         "query_outside_corpus")
+        self.assertEqual(call("localFetch", "--path", str(self.source), "--unknown"),
+                         "recoverable_cli_syntax:invalid_field_flags")
+        self.assertIsNone(call("localFetch", "--help"))
+
+    def test_read_only_word_counts_keep_every_path_scoped(self):
+        for flags in ([], ["-c"], ["-m"], ["-w"], ["-lc"], ["-l", "-c"]):
+            self.assertIsNone(self.policy.audit(shlex.join(["wc", *flags, str(self.source)])))
+        self.assertIsNone(self.policy.audit(shlex.join(["wc", "-c", str(self.source), str(self.source)])))
+        self.assertIsNotNone(self.policy.audit(shlex.join(["wc", "-c", str(self.source), "/outside/source.py"])))
+        self.assertIsNotNone(self.policy.audit("wc -c"))
+        self.assertIsNotNone(self.policy.audit(shlex.join(["wc", "--files0-from", str(self.source)])))
+        actual = subprocess.run(["wc", "-c", str(self.source)], capture_output=True, text=True, check=True)
+        self.assertEqual(int(actual.stdout.split()[0]), len(self.source.read_bytes()))
+
+    def test_multiple_tool_names_get_actual_cli_error_without_tool_execution(self):
+        cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
+        policy = pilot.Policy("octocode", cli, [self.corpus], remote=True)
+        args = ["node", str(cli), "tools", "localFetch", "ghGetFileContent", "--queries",
+                '[{"path":"/outside/source.py"},{"owner":"outside","repo":"scope"}]']
+        self.assertEqual(policy.audit(shlex.join(args)), "recoverable_cli_syntax:multiple_tool_names")
+        actual = subprocess.run(args, capture_output=True, text=True, timeout=20)
+        self.assertNotEqual(actual.returncode, 0)
+        self.assertIn("positional selector", actual.stdout + actual.stderr)
+        self.assertNotIn("source.py", actual.stdout + actual.stderr)
+        self.assertEqual(policy.audit(shlex.join(args + ["--unexpected"])), "unsupported_cli_flags")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -179,15 +179,15 @@ describe('shell hook correlation state', () => {
     }
   });
 
-  it('writes the scoped preview marker only after a dry-run digest succeeds', () => {
+  it('writes the scoped preview marker only after a retention report succeeds', () => {
     const source = readFileSync(SOURCE_LIFECYCLE, 'utf8');
-    const digestCall = source.indexOf('const preview = digest(database, {');
-    const dryRun = source.indexOf('dry_run: true', digestCall);
-    const markerWrite = source.indexOf("writeFileSync(markerPath, String(now), 'utf8');", digestCall);
+    const reportCall = source.indexOf('const preview = runMaintenanceRetention(');
+    const reportMode = source.indexOf("maintenanceRetentionSchema.parse({ action: 'report' })", reportCall);
+    const markerWrite = source.indexOf("writeFileSync(markerPath, String(now), 'utf8');", reportCall);
     expect(source).toContain('const memoryHome = dirname(resolveDbPath(null));');
-    expect(source).toContain('.last-digest-preview-${scopeHash}-epoch-ms');
-    expect(digestCall).toBeGreaterThanOrEqual(0);
-    expect(dryRun).toBeGreaterThan(digestCall);
-    expect(markerWrite).toBeGreaterThan(dryRun);
+    expect(source).toContain('.last-retention-preview-${scopeHash}-epoch-ms');
+    expect(reportCall).toBeGreaterThanOrEqual(0);
+    expect(reportMode).toBeGreaterThan(reportCall);
+    expect(markerWrite).toBeGreaterThan(reportMode);
   });
 });

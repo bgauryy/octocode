@@ -17,6 +17,8 @@ describe('canonical operation registry contract', () => {
   it('owns executable schema, validation, handler, effects, approval, bounds, and continuations', () => {
     for (const descriptor of listAwarenessOperationDescriptors()) {
       expect(() => z.fromJSONSchema(descriptor.inputSchema)).not.toThrow();
+      expect(descriptor.inputSchemaText).toBe(JSON.stringify(descriptor.inputSchema));
+      expect(JSON.parse(descriptor.inputSchemaText)).toEqual(descriptor.inputSchema);
       expect(typeof descriptor.validate).toBe('function');
       expect(typeof descriptor.handler).toBe('function');
       expect(typeof descriptor.effect).toBe('function');
@@ -59,6 +61,11 @@ describe('canonical operation registry contract', () => {
       ['work.verify', { action: 'mark' }],
       ['work.verify', { action: 'mark', run_id: ['run'] }],
       ['work.verify', { action: 'mark', run_id: ['run'], status: 'SUCCESS' }],
+      ['work.verify', { action: 'mark', run_id: ['a', 'b'], message: 'checked', adopt_verification: true }],
+      ['work.verify', { action: 'mark', all_pending: true, message: 'checked', adopt_verification: true }],
+      ['message.resolve', {}],
+      ['message.resolve', { signal_id: [] }],
+      ['message.resolve', { signal_id: ['signal'], thread_id: 'thread' }],
     ];
     for (const [operation, params] of invalid) {
       const descriptor = getAwarenessOperationDescriptor(operation)!;
@@ -78,6 +85,9 @@ describe('canonical operation registry contract', () => {
       ['work.protect', { action: 'release', target_file: ['src/a.ts'] }],
       ['work.verify', { action: 'mark', run_id: ['run'], status: 'FAILED' }],
       ['work.verify', { action: 'mark', all_pending: true, message: 'Tests passed' }],
+      ['work.verify', { action: 'mark', run_id: ['run'], message: 'Tests passed', adopt_verification: true }],
+      ['message.resolve', { signal_id: ['signal'] }],
+      ['message.resolve', { thread_id: 'thread' }],
     ];
     for (const [operation, params] of valid) {
       const descriptor = getAwarenessOperationDescriptor(operation)!;

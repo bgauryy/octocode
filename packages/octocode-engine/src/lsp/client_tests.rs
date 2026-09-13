@@ -1,6 +1,31 @@
 use super::*;
 use std::path::PathBuf;
 
+#[test]
+fn location_links_select_the_symbol_and_preserve_definition_context() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let file_path = temp_file("octocode-engine-location-link");
+        std::fs::write(&file_path, "// context\nfunction target() {\n  return 1;\n}\n").unwrap();
+        let uri = path_to_uri(&file_path.to_string_lossy()).unwrap();
+        let selection = json!({"start":{"line":1,"character":9},"end":{"line":1,"character":15}});
+        let locations = snippets_from_locations(json!([
+            {"targetUri":uri,"targetRange":{"start":{"line":0,"character":0},"end":{"line":4,"character":0}},"targetSelectionRange":selection},
+            {"uri":uri,"range":selection}
+        ])).await.unwrap();
+        std::fs::remove_file(file_path).unwrap();
+        assert_eq!(locations.len(), 2);
+        for location in &locations {
+            assert_eq!(location.range.start.line, 1);
+            assert_eq!(location.range.start.character, 9);
+            assert_eq!(location.range.end.character, 15);
+        }
+        assert_eq!(locations[0].content, "// context\nfunction target() {\n  return 1;\n}");
+        assert_eq!(locations[1].content, "function target() {");
+        assert_eq!(locations[0].display_range, Some(json!({"startLine":1,"endLine":4})));
+        assert!(locations[1].display_range.is_none());
+    });
+}
+
 // `sh` is used to spawn a real, minimal child process for the two tests
 // below rather than a synthetic stand-in — the property under test
 // (`wait_for_graceful_exit` actually observing/killing a real OS process) is

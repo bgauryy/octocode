@@ -45,6 +45,7 @@ import {
 } from './db-migration-contracts.js';
 import { utcNow } from './helpers.js';
 import { historyStoragePathsForIdentity } from './history-store.js';
+import { backfillSignalExpiries } from './message-lifecycle.js';
 
 export interface DatabaseConsolidationReport {
   dryRun: boolean;
@@ -144,6 +145,7 @@ export function applyDatabaseMigration(
     }
     Object.assign(copiedTables, copySyntheticEvents(source, destination));
     copyLegacyHandoffSignals(source, destination);
+    backfillSignalExpiries(destination);
     const migratedAt = utcNow();
     destination.prepare(`INSERT INTO awareness_meta
         (application_id, schema_version, store_id, created_at, last_migrated_at)

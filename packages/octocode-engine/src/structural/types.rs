@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 
 /// Precise position of one captured metavariable node. Line is 1-based (usable
 /// as an `lspSearch` `lineHint`); columns are 0-based UTF-16 code-unit
 /// offsets — the same convention as `StructuralMatch.start_col` and LSP.
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct MetavarRange {
     pub text: String,
     pub line: u32,
@@ -18,7 +19,7 @@ pub struct MetavarRange {
 /// directly as an `lspSearch` `lineHint`; columns are 0-based UTF-16
 /// code-unit offsets (converted from tree-sitter's native byte columns to match
 /// the resolver, signatures, and LSP layers).
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralMatch {
     pub start_line: u32,
     pub end_line: u32,
@@ -34,7 +35,7 @@ pub struct StructuralMatch {
     pub metavar_ranges: HashMap<String, Vec<MetavarRange>>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone)]
 pub struct StructuralDiagnostic {
     pub code: String,
@@ -45,7 +46,7 @@ pub struct StructuralDiagnostic {
     pub recovery: Option<String>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralQueryExplanation {
     pub kind: String,
     pub source: String,
@@ -58,7 +59,7 @@ pub struct StructuralQueryExplanation {
 /// A structural match with stable evidence metadata. Existing
 /// `StructuralMatch` remains unchanged for the legacy APIs; detailed APIs add
 /// IDs and confidence without forcing old callers to carry metadata.
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralDetailedMatch {
     pub id: String,
     pub start_line: u32,
@@ -72,7 +73,7 @@ pub struct StructuralDetailedMatch {
     pub confidence: String,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchFilesOptions {
     pub path: String,
     pub pattern: Option<String>,
@@ -95,13 +96,13 @@ pub struct StructuralSearchFilesOptions {
     pub max_file_bytes: Option<u32>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchFileResult {
     pub path: String,
     pub matches: Vec<StructuralMatch>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchFilesResult {
     pub scan_truncated: bool,
     pub status: String,
@@ -124,7 +125,7 @@ pub struct StructuralSearchFilesResult {
     pub warnings: Vec<String>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchDetailedResult {
     pub path: String,
     pub analyzer: String,
@@ -136,7 +137,7 @@ pub struct StructuralSearchDetailedResult {
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchDetailedFileResult {
     pub path: String,
     pub status: String,
@@ -146,7 +147,7 @@ pub struct StructuralSearchDetailedFileResult {
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchFilesDetailedResult {
     pub scan_truncated: bool,
     pub files: Vec<StructuralSearchDetailedFileResult>,

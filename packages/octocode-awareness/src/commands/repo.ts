@@ -23,6 +23,7 @@ export function cmdQuery(db: DatabaseSync, args: ParsedArgs, dbPath: string, opt
     limit: args['limit']
       ? parseInt(String(args['limit']), 10)
       : opts.compact ? (view === 'workboard' ? 1 : 5) : undefined,
+    offset: args['offset'] ? parseInt(String(args['offset']), 10) : undefined,
     // The host-bound actor identifies workboard ordering and inbox visibility;
     // it must not filter peer work or verification rows out of the shared board.
     agentId: view === 'workboard' ? null : requestedAgentId,

@@ -43,6 +43,6 @@ Report only the pairs and fields you compared. An unexamined tool is a gap, not 
 
 ## Sources
 - Anthropic, [Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents) — distinguishable tools, consistent naming, and evaluation-driven tool sets.
-- Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) — unique tool names and declared input/output schemas per tool.
+- Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) — unique tool names, declared schemas, deterministic discovery, and versioned result contracts.
 
-Next: to repair a finding in its owning layer load `references/tools/tool-contracts.md`; for the wording of each repaired rule load `references/writing/behavior.md`; to prove agents now pick correctly load `references/flow/evaluation-data.md`; record the repairs in `references/flow/fix.md` and confirm them in `references/flow/validate.md`.
+Next: to repair a finding in its owning layer load `references/tools/tool-contracts.md`; for version-specific wire findings load `references/tools/mcp-wire-contract.md`; when the same semantics cross agent apps load `references/agents/cross-app-contracts.md`; for wording load `references/writing/behavior.md`; prove selection with `references/flow/evaluation-data.md`; record repairs in `references/flow/fix.md` and confirm them in `references/flow/validate.md`.

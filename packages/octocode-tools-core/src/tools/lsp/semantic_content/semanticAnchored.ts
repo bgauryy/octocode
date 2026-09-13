@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { withReferenceAliasContinuations } from './referenceAliases.js';
+import { collectVerifiedAliasReferences } from './referenceAliases.js';
 import { runTypedLexicalSearch } from '../../local_search/typedLexicalService.js';
 import { nativeSearchPartialReasons } from '../../local_ripgrep/searchCompleteness.js';
 import { acquirePooledClient } from '@octocodeai/octocode-engine/lsp/manager';
@@ -243,13 +243,48 @@ export async function dispatchAnchoredSemantic(
         query.includeDeclaration ?? true,
         anchor.content
       );
-      return withReferenceAliasContinuations(
+      const aliases = await collectVerifiedAliasReferences(
         query,
         anchor,
         client,
-        references,
-        referencesEnvelope(query, anchor, references, warmupStats)
+        references
       );
+      const envelope = referencesEnvelope(
+        query,
+        anchor,
+        aliases.locations,
+        warmupStats
+      );
+      if (envelope.payload.kind !== 'references') return envelope;
+      return {
+        ...envelope,
+        payload: {
+          ...envelope.payload,
+          coverage: {
+            scope: 'languageServer',
+            exhaustive: false,
+            ...(aliases.verified > 0 && {
+              verifiedAliasBindings: aliases.verified,
+            }),
+            ...(aliases.unverified > 0 && {
+              unverifiedAliasBindings: aliases.unverified,
+            }),
+            ...(aliases.uninspectedFiles > 0 && {
+              uninspectedFiles: aliases.uninspectedFiles,
+            }),
+          },
+        },
+        ...((aliases.unverified > 0 || aliases.uninspectedFiles > 0) && {
+          incompleteResults: true,
+          partialReasons: [
+            ...(envelope.partialReasons ?? []),
+            'aliasReferences' as const,
+          ],
+        }),
+        ...((aliases.unverified > 0 || aliases.uninspectedFiles > 0) && {
+          terminalLimit: true,
+        }),
+      };
     }
     case 'hover':
       if (!client.hasCapability('hoverProvider')) {

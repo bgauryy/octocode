@@ -55,13 +55,15 @@ The extension overrides `bash` with command and path guards. It removes Pi's pub
 Awareness coordination uses the native `awareness` facade for direct, host-bound
 operation calls through the imported Awareness API. The bundled skill provides workflow guidance. Pi
 supplies the database, workspace and agent identity; native calls never launch the Awareness CLI. Signals,
-locks, memory, bookkeeping and maintenance share the same SQLite ledger as native
+locks, memory and bookkeeping share the same SQLite ledger as native
 Pi events and external CLI agents. Pi retains automatic registry/event delivery,
 mutation guards and plan UI. Peers use the same physical database with distinct stable
 IDs; workers keep their own physical worktree as the workspace for file and lock
 ownership. `OCTOCODE_AWARENESS_DB` is the canonical inherited binding across native
 calls, the guarded CLI fallback, worker lifecycle and delivery; no database copies are
 created. See [Awareness agent flow](docs/AWARENESS_AGENT_FLOW.md).
+
+Operator-only retention and whole-store retirement stay on the Awareness CLI/admin surface and are not exposed as routine Pi model operations.
 
 The default Awareness flow is one peer briefing plus native message delivery. Scheduled status checks require `OCTOCODE_CRON_STATUS=1`. Work bookkeeping and worker audits require the guard/full workspace profile; full enables bounded local file history around native `file` mutations with bundled private Git storage. `/octocode-rewind` previews and explicitly applies a selected file restore in interactive Pi; headless sessions use the same `history` commands through the native `awareness` facade. This does not snapshot the workspace on every prompt or rewind the conversation.
 

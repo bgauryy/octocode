@@ -7,17 +7,17 @@ Awareness supports global, repository, and explicit database selection. All acto
 Global scope is the default. Its database is:
 
 ```text
-$OCTOCODE_HOME/awareness/awareness-v4.sqlite3
+$OCTOCODE_HOME/awareness/awareness-v5.sqlite3
 ```
 
-If `OCTOCODE_HOME` is unset, the platform Octocode home supplies the base directory. The `v4` suffix is the schema generation, not the package version. A future breaking DDL generation selects a different default filename; it does not mutate or merge the previous file.
+If `OCTOCODE_HOME` is unset, the platform Octocode home supplies the base directory. The `v5` suffix is the schema generation, not the package version. A future breaking DDL generation selects a different default filename; it does not mutate or merge the previous file.
 
 ## Repository scope
 
 Repository scope stores the database at:
 
 ```text
-<workspace>/.octocode/awareness-v4.sqlite3
+<workspace>/.octocode/awareness-v5.sqlite3
 ```
 
 Select it through workspace policy, a client scope, or `--db-scope repo`. Repository scope is local to the physical workspace path unless host discovery intentionally joins linked worktrees through the same store.

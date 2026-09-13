@@ -1,6 +1,7 @@
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct SanitizationResult {
     pub content: String,
     pub has_secrets: bool,

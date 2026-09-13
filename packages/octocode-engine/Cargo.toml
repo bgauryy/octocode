@@ -31,8 +31,8 @@ unused_mut       = "deny"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-napi        = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
-napi-derive = "3"
+napi        = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
+napi-derive = { version = "3", optional = true }
 rayon       = "1"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
@@ -111,7 +111,10 @@ tree-sitter-swift  = { version = "0.7", optional = true }   # .swift
 [features]
 # Enable all registered grammars and parser-grade CSS by default. A constrained
 # build can use `--no-default-features` plus selected features to reduce size.
-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
+default = ["portable-default", "napi-addon"]
+portable-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
+napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+napi-test = ["napi-addon", "napi/noop"]
 tree-sitter-cpp     = ["dep:tree-sitter-cpp"]
 tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
 tree-sitter-swift   = ["dep:tree-sitter-swift"]
@@ -127,7 +130,6 @@ tree-sitter-extended = [
 ]
 
 [dev-dependencies]
-napi      = { version = "3", default-features = false, features = ["noop", "napi4", "tokio_rt", "serde-json"] }
 proptest  = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
 
@@ -140,7 +142,7 @@ name = "minify"
 harness = false
 
 [build-dependencies]
-napi-build = "2"
+napi-build = { version = "2", optional = true }
 
 [profile.release]
 lto           = true

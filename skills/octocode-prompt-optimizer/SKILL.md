@@ -1,6 +1,6 @@
 ---
 name: octocode-prompt-optimizer
-description: "Use when a prompt, agent or MCP instruction, tool/schema description, policy, or handoff must actually change behavior: make boundaries decidable, cut no-op text, put rules in their owning layer, audit tool contracts, reason about token/context economics and vendor caching, or preserve a frozen agent prompt. SKILL.md structure, install, or review: use octocode-skills."
+description: "Use when a prompt, agent contract, MCP instruction, tool/schema description, policy, or handoff must change behavior: resolve context flow, make boundaries decidable, align runtimes, remove no-op text, place rules correctly, audit drift, and budget context. For SKILL.md structure or trigger review, use octocode-skills."
 ---
 
 # Octocode prompt optimizer
@@ -12,7 +12,9 @@ routes: load/run a reference, doc, or script only when it changes the next actio
 
 Optimize the instruction surface the runtime reads, not nearby prose. Trace `source → assembly/serialization → model or tool reader → observable action/result`, then change the smallest owning layer.
 
-Standard flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`. When the input is a goal rather than an existing prompt, skip RATE.
+Flow: `READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT`
+
+When the input is a goal rather than an existing prompt, skip RATE.
 
 Reviews/drafts: `<output>/octocode-prompt-optimizer/`; scratch: `<output>/tmp/octocode-prompt-optimizer/`. Chat-only deltas stay in chat; approved prompt/schema/policy/source edits keep their paths.
 
@@ -23,7 +25,7 @@ Before judging text, record the context that changes the optimization:
 | Field | Record |
 |---|---|
 | Target | exact prompt, instruction, tool/schema, policy, or handoff and its owning source |
-| Runtime | how it is assembled, serialized, cached, and read; model/provider/tool versions only when relevant |
+| Runtime | executing surface; runtime-resolved host/framework, dependency version, entrypoint, configuration, assembly, serialization, caching, and reader |
 | Readers | model, agent, tool client, server, human, or downstream parser and their authority boundaries |
 | Outcome | observable behavior to change and evidence of the current failure |
 | Invariants | intent, precedence, frozen bytes/contracts, identifiers, permissions, and working branches |
@@ -34,6 +36,7 @@ For an active safety, permission, or production failure, contain first: `READ af
 
 ## Rules
 - Read the complete input and map its intent before judging it. Rate evidenced issues before drafting fixes.
+- Identify the executing surface and prove the running dependency and effective context path before counting or rewriting context. A manifest, source file, or installed copy alone does not prove what the active process reads.
 - For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
 - Make every rule decide an observable action. Keep one owner per behavior; use `references/writing/behavior.md` only when its action or scope remains ambiguous.
 - Maximize behavior per token, not brevity. Justify growth by the boundary it adds.
@@ -58,9 +61,12 @@ Load references that resolve the current decision. Reuse material already read a
 | Instructions conflict, or a fix needs a stock pattern | `references/writing/patterns.md` | which authority wins; one-line resolution log |
 | Text is noisy, buried, or mis-prioritized | `references/writing/conciseness-toolkit.md` · `references/writing/attention.md` | token cuts that keep logic; rule placement |
 | A specific failure mode is observed | `references/writing/prompt-techniques.md` | technique matched to failure mechanism |
-| MCP server instructions, tool definition/description, schema, discovery, or result contract | `references/tools/tool-contracts.md` | layer ownership and current MCP wire contract |
+| A host, framework, skill loader, middleware, graph, or dependency assembles the context | `references/flow/runtime-context.md` | executing surface, running version, visibility, lifetime, and effective model/tool input |
+| MCP server instructions, tool descriptions, or schema design | `references/tools/tool-contracts.md` | ownership: workflow vs. selection vs. exact fields |
+| MCP discovery, negotiated versions, calls, results, caching, or state | `references/tools/mcp-wire-contract.md` | version-specific wire and lifecycle contract |
 | Multi-tool server, or after any description/schema edit | `references/tools/contract-audit.md` | set-wide contradictions, overlapping selection, descriptor drift |
 | Agent delegation, handoff, async work, or capability exchange | `references/agents/agent-communication.md` | ownership, lifecycle, authority, recovery, context transfer |
+| The same capability or payload crosses agent apps, hosts, vendors, or protocols | `references/agents/cross-app-contracts.md` | canonical semantics, native adapters, compatibility, and removal gates |
 | A TypeScript/Zod agent or MCP packet needs a runtime schema | `references/agents/zod-agent-contracts.md` | discriminated states, bounds, validation, versioning |
 | Context can overflow or the usable working budget is unclear | `references/context/context-budget.md` | capacity, occupancy, output reserve, relevance, pagination |
 | Token use, model choice, caching, or tool use needs an economic decision | `references/context/token-economics.md` | cost per successful task at the measured operating point |

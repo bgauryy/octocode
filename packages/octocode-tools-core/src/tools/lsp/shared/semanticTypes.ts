@@ -216,7 +216,6 @@ export type ReferenceCoverage = {
   verifiedAliasBindings?: number;
   unverifiedAliasBindings?: number;
   uninspectedFiles?: number;
-  deferredAliasInspection?: true;
 };
 
 export type LspSemanticEnvelope = {

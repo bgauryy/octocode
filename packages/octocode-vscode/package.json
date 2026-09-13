@@ -130,13 +130,11 @@
     "directory": "packages/octocode-vscode"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "build": "yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
     "lint": "node ../../node_modules/eslint/bin/eslint.js src",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src --fix",
     "package": "npx -y @vscode/vsce@3.9.2 package --allow-missing-repository --no-dependencies",
-    "prepack": "yarn readme:sync",
     "publish": "npx -y @vscode/vsce@3.9.2 publish",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "tsc --noEmit",

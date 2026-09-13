@@ -90,10 +90,8 @@ then the engine root and tools-core, then `octocode-mcp`.
 
 `package.json#files` ships generated/static files alongside `dist/`:
 
-- `README.md` — **not** hand-authored here. `yarn readme:sync` (runs before
-  `build`/`build:dev`/`prepack`) copies the root `README.md` in via
-  `scripts/sync-package-readmes.mjs`. Edit the root `README.md`, never this
-  package's copy directly — it is gitignored and overwritten on every sync.
+- `README.md` — package-owned MCP installation and operation reference. Builds
+  and publish hooks never replace it with the repository README.
 - `manifest.json` — Claude Desktop / DXT extension manifest. Declares the
   `mcp_octocode_*`-prefixed tool catalog, `user_config` fields, and platform
   compatibility for the desktop-extension install path.

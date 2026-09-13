@@ -2,10 +2,23 @@
 import { z } from 'zod';
 import { TASK_STATUSES } from '@octocodeai/agent-contracts/entities';
 import {
-  agentId, nonEmptyText, workspacePath, artifactScope, targetFiles,
+  agentId, nonEmptyText, workspacePath, artifactScope, targetFiles, repoScope, refScope,
 } from './common.js';
 
 export const workSchemas = {
+  agents: z
+    .object({
+      workspace: workspacePath.optional().describe("Host-bound workspace used for linked-checkout visibility."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repository scope filter."),
+      ref: refScope.optional().describe("Git ref scope filter."),
+      query: z.string().trim().max(1000).default("").describe("Agent id, name, or context filter."),
+      limit: z.number().int().min(1).max(500).default(50),
+      offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0)
+        .describe("Zero-based offset in the stable, deduplicated agent projection."),
+    })
+    .strict()
+    .describe("List every visible agent identity in the bound store and workspace scope."),
 task: z
     .object({
       action: z.enum(["create", "list", "ready", "show", "claim", "heartbeat", "submit", "release", "depend", "retry"]),
@@ -115,6 +128,7 @@ task: z
         .default([])
         .describe("Exact runs covered by the observed check; required unless all_pending is true."),
       all_pending: z.boolean().default(false).describe("Select all pending runs in workspace/artifact scope only when the observed check covers every selected run."),
+      adopt_verification: z.boolean().default(false).describe("Explicitly let this actor verify one run owned by another actor; requires one run_id and workspace."),
       status: z.enum(["SUCCESS", "FAILED"]).default("SUCCESS").describe("Observed check result. Unrun checks remain pending; never use SUCCESS to clear debt."),
       message: z.string().trim().min(1).max(2000).optional().describe("Observed command and result; required for SUCCESS. Worker confidence alone is not a receipt."),
     })
@@ -128,6 +142,9 @@ task: z
       }
       if (value.all_pending && !value.workspace && !value.artifact) {
         ctx.addIssue({ code: "custom", path: ["all_pending"], message: "all_pending requires workspace or artifact scope." });
+      }
+      if (value.adopt_verification && (value.all_pending || value.run_id.length !== 1 || !value.workspace)) {
+        ctx.addIssue({ code: "custom", path: ["adopt_verification"], message: "adopt_verification requires one run_id and workspace." });
       }
     })
     .describe("Record an observed check against selected runs. Ending work leaves it pending; only evidence establishes SUCCESS or FAILED."),

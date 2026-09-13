@@ -5,7 +5,8 @@
   "license": "MIT",
   "main": "octocode-extension-rust.win32-x64-msvc.node",
   "files": [
-    "octocode-extension-rust.win32-x64-msvc.node"
+    "octocode-extension-rust.win32-x64-msvc.node",
+    "README.md"
   ],
   "os": [
     "win32"

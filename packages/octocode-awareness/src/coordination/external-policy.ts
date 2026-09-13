@@ -14,7 +14,7 @@ Self-monitoring applies during solo work; coordination is conditional. Load the 
 
 Load only the instruction section needed for the next action from getAwarenessAgentInstructions({ sections: ['coordination'] }), replacing the section name as needed, or with \`npx @octocodeai/octocode-awareness instructions --section <name>\`: start (bindings and orient), observe (measurements), advise (nudges), feedback (outcomes), coordination (work, messages, memory, and history), trust (untrusted evidence), schema (exact fields and routes). Reuse sections already supplied by the host.
 
-Before an unfamiliar operation, inspect its live descriptor with \`schema command <concept> <operation> --compact\`; copy its fields, enum values, required combinations, defaults, and executable continuations exactly. The live descriptor is the contract; do not guess or maintain an inventory here.
+Before an unfamiliar operation, inspect its live descriptor with \`schema command <concept> <operation> --compact\` or native \`describe:true\`; every descriptor exposes exact generated \`inputSchemaText\`. Copy its fields, enum values, required combinations, defaults, and executable continuations exactly. Load one needed schema and reuse it; do not guess, maintain a second inventory, or preload every schema into standing context.
 
 Coordinate only when shared ownership, dependencies, exceptional protection, verification debt, a blocker, or a decision-changing request requires it. Preserve pending checks and owned verification debt. Without native delivery, check message.list on a wake or expected reply; reply with the exact message ID and resolve only when no response or work remains.
 
@@ -60,14 +60,15 @@ export function formatExternalAgentAwarenessInstructions(format: ExternalAgentIn
 /** Explicit CLI bootstrap uses the same complete catalog as schema discovery. */
 export function getExternalAgentAwarenessGuide(): {
   prompt: string;
-  commands: Array<{ operation: string; cli: string; summary: string }>;
+  commands: Array<{ operation: string; cli: string; summary: string; inputSchemaText: string }>;
 } {
   return {
     prompt: EXTERNAL_AGENT_AWARENESS_INSTRUCTIONS,
-    commands: listAwarenessOperationDescriptors().map(({ operation, use }) => ({
+    commands: listAwarenessOperationDescriptors().map(({ operation, use, inputSchemaText }) => ({
       operation,
       cli: `npx @octocodeai/octocode-awareness ${operation.replace('.', ' ')}`,
       summary: use,
+      inputSchemaText,
     })),
   };
 }

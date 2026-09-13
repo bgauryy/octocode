@@ -150,7 +150,7 @@ Script: [`scripts/dev-setup.mjs`](scripts/dev-setup.mjs). Idempotent — safe to
 
 ### `scripts/prepublish.mjs` — publish prep: remove local resolutions
 
-Runs automatically as part of `yarn prepublish`, followed by the shared final guard at `packages/octocode/scripts/check-no-workspace-protocol.mjs` and `readme:sync`. Also callable directly:
+Runs automatically as part of `yarn prepublish`, followed by the shared final guard at `packages/octocode/scripts/check-no-workspace-protocol.mjs`. Also callable directly:
 
 ```bash
 node ./scripts/prepublish.mjs             # check only — exit 1 if issues found

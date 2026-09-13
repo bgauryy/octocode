@@ -10,11 +10,10 @@ import {
   resolveFileAnchor,
   type SymbolAnchor,
 } from '../shared/resolveSymbolAnchor.js';
-import type {
-  LspSemanticEnvelope,
-  SymbolAnchoredSemanticQuery,
-} from '../shared/semanticTypes.js';
-import { DEFAULT_LOCATIONS_PER_PAGE } from './semanticEnvelopes/envelopeHelpers.js';
+import type { SymbolAnchoredSemanticQuery } from '../shared/semanticTypes.js';
+
+const MAX_ALIAS_INSPECTIONS = 32;
+const MAX_ALIAS_FILES = 100;
 
 function localPath(uri: string): string {
   return uri.startsWith('file:') ? fileURLToPath(uri) : uri;
@@ -32,59 +31,28 @@ function identity(location: { uri: string; range: LSPRange }): string {
 }
 
 /** Syntax finds bindings; matching provider definitions alone proves identity. */
-export async function withReferenceAliasContinuations(
+export async function collectVerifiedAliasReferences(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
   client: LSPClient,
-  locations: CodeSnippet[],
-  envelope: LspSemanticEnvelope
-): Promise<LspSemanticEnvelope> {
-  if (envelope.payload.kind !== 'references') return envelope;
-  const payload = envelope.payload;
-  const visible = payload.locations ?? payload.byFile ?? [];
-  const files = new Set(
-    visible.flatMap(item =>
-      typeof item === 'object' &&
-      item !== null &&
-      'uri' in item &&
-      typeof item.uri === 'string'
-        ? [localPath(item.uri)]
-        : []
-    )
-  );
-  const next = { ...envelope.next };
+  locations: CodeSnippet[]
+): Promise<{
+  locations: CodeSnippet[];
+  verified: number;
+  unverified: number;
+  uninspectedFiles: number;
+}> {
+  const files = anchor.resolvedSymbol.name
+    ? [...new Set(locations.map(item => localPath(item.uri)))].sort()
+    : [];
   const providerIdentities = new Set(locations.map(identity));
-  const pageLocations = payload.byFile
-    ? locations.filter(location => files.has(localPath(location.uri)))
-    : visible.flatMap(item =>
-        typeof item === 'object' &&
-        item !== null &&
-        'range' in item &&
-        item.range
-          ? [item as CodeSnippet]
-          : []
-      );
-  const pageIdentities = new Set(pageLocations.map(identity));
-  const deferred = Boolean(
-    anchor.resolvedSymbol.name &&
-    payload.byFile &&
-    pageIdentities.size > (query.pageSize ?? DEFAULT_LOCATIONS_PER_PAGE)
-  );
-  if (deferred) {
-    const { snapshot: _snapshot, ...restart } = query;
-    next.nextAliasReferences = {
-      tool: 'lspSearch',
-      query: { ...restart, groupByFile: false, page: 1 },
-      why: 'Inspect individual reference pages for alias bindings; grouped file counts do not bound this work.',
-      confidence: 'exact',
-    };
-  }
   let verified = 0;
   let unverified = 0;
-  let uninspectedFiles = 0;
+  let uninspectedFiles = Math.max(0, files.length - MAX_ALIAS_FILES);
   let definitions: Set<string> | undefined;
   const inspectedBindings = new Set<string>();
-  for (const file of deferred || !anchor.resolvedSymbol.name ? [] : files) {
+  const recoveredLocations: CodeSnippet[] = [];
+  for (const file of files.slice(0, MAX_ALIAS_FILES)) {
     const source = await resolveFileAnchor({ uri: file }, 'lspSearch');
     if (!source.ok) {
       uninspectedFiles += 1;
@@ -124,10 +92,10 @@ export async function withReferenceAliasContinuations(
         unverified += 1;
         continue;
       }
-      // The original import token owns the work on exactly one reference page.
+      // Only inspect imports already present in the provider's reference set.
       // Syntax supplies coordinates, never a substitute semantic identity.
       if (
-        !pageIdentities.has(
+        !providerIdentities.has(
           identity({ uri: file, range: binding.importedRange })
         )
       )
@@ -137,10 +105,16 @@ export async function withReferenceAliasContinuations(
         range: binding.localRange,
       });
       if (inspectedBindings.has(bindingIdentity)) continue;
-      inspectedBindings.add(bindingIdentity);
-      // No extra query for bindings already in this provider's reference set.
-      // Coverage remains provider-scoped, never an exhaustive-use claim.
+      // Providers that already include the local binding need no extra query.
       if (providerIdentities.has(bindingIdentity)) continue;
+      if (inspectedBindings.size >= MAX_ALIAS_INSPECTIONS) {
+        // The remaining syntax candidates are deliberately not queried.  They
+        // are typed as incomplete below; no cursor can honestly resume an
+        // unmaterialized definition-verification worklist.
+        unverified += 1;
+        continue;
+      }
+      inspectedBindings.add(bindingIdentity);
       try {
         if (!client.hasCapability('definitionProvider')) {
           unverified += 1;
@@ -178,27 +152,16 @@ export async function withReferenceAliasContinuations(
           unverified += 1;
           continue;
         }
-        next[`searchAliasReferences${verified}`] = {
-          tool: 'lspSearch',
-          query: {
-            operation: 'references',
-            uri: file,
-            position: binding.localRange.start,
-            ...(query.workspaceRoot && { workspaceRoot: query.workspaceRoot }),
-            ...(query.rustContext && { rustContext: query.rustContext }),
-            includeDeclaration: query.includeDeclaration ?? true,
-            ...(query.pageSize && { pageSize: query.pageSize }),
-            ...(query.format && { format: query.format }),
-            ...(query.contextLines !== undefined && {
-              contextLines: query.contextLines,
-            }),
-            ...(query.groupByFile !== undefined && {
-              groupByFile: query.groupByFile,
-            }),
-          },
-          why: 'This import alias resolves to the same definition but is absent from the provider reference set. Query its references separately; retain both sets.',
-          confidence: 'exact',
-        };
+        // Query the semantically identical local binding now, so its references
+        // enter the same canonical dedupe/order/pagination pass as provider refs.
+        // Syntax only proposes this position; definition-set equality authorizes it.
+        const aliasReferences = await client.findReferences(
+          file,
+          binding.localRange.start,
+          query.includeDeclaration ?? true,
+          source.value.content
+        );
+        recoveredLocations.push(...aliasReferences);
         verified += 1;
       } catch {
         unverified += 1;
@@ -206,26 +169,9 @@ export async function withReferenceAliasContinuations(
     }
   }
   return {
-    ...envelope,
-    payload: {
-      ...payload,
-      coverage: {
-        scope: 'languageServer',
-        exhaustive: false,
-        ...(verified > 0 && { verifiedAliasBindings: verified }),
-        ...(unverified > 0 && { unverifiedAliasBindings: unverified }),
-        ...(uninspectedFiles > 0 && { uninspectedFiles }),
-        ...(deferred && { deferredAliasInspection: true }),
-      },
-    },
-    ...((verified > 0 || unverified > 0 || deferred) && {
-      incompleteResults: true,
-      partialReasons: [
-        ...(envelope.partialReasons ?? []),
-        'aliasReferences' as const,
-      ],
-    }),
-    ...(unverified > 0 && { terminalLimit: true }),
-    ...(Object.keys(next).length > 0 && { next }),
+    locations: [...locations, ...recoveredLocations],
+    verified,
+    unverified,
+    uninspectedFiles,
   };
 }

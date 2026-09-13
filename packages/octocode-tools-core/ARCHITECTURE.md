@@ -36,10 +36,11 @@ attaches runtime behavior to core's canonical catalog.
   GitHub providers or the server runtime.
 
 Exact LSP positions bypass fuzzy name resolution. Native import token ranges
-schedule alias checks on individual reference pages; tools-core verifies identity
-through matching language-server definitions and owns executable follow-ups.
-Grouped pages that exceed the inspection budget offer ungrouped pagination.
-Parser coordinates identify candidates; they never replace semantic evidence.
+identify alias candidates; tools-core verifies identity through matching
+language-server definitions and collects their references before one canonical
+deduplication and pagination pass. Inspection limits and failed verification
+remain explicit partial coverage. Parser coordinates never replace semantic
+evidence, and provider-scoped results do not prove exhaustive workspace usage.
 
 Each tool lives in `src/tools/<tool_name>/` with `execution.ts` (the bulk-loop
 `executionFn`), plus `finalizer.ts` / `types.ts` and helper modules as needed.
@@ -130,6 +131,14 @@ builds the execution context from `serverConfig`, runs operations, and
 normalizes provider errors. GitHub API plumbing (client, search, content, PRs,
 structure, history) lives in `src/github/`.
 
+Issue listing keeps GitHub's repository-list endpoint, including its ordering and
+coverage beyond the Search API window. Because that endpoint also returns PRs,
+`issues/fetchers.ts` can skip up to five consecutive PR-only pages after the
+requested page. It stops at the first issue-bearing page, provider exhaustion,
+or that request bound. Pagination records the actual provider page and extra
+requests; continuations resume after that page. This reduces empty agent calls,
+not upstream API calls.
+
 ## Cross-cutting modules
 
 - `src/cacheMaintenance.ts` — shared 24-hour maintenance gate, persisted marker,
@@ -139,8 +148,10 @@ structure, history) lives in `src/github/`.
   Output schemas are not published.
 - `src/utils/pagination/` (incl. `hints.ts` — next-step hints: pagination
   cursors, token-budget warnings, structure hints) + `src/utils/response/` — the
-  single lossless char-pagination flow and YAML/JSON result rendering shared by
-  text + `structuredContent`.
+  shared YAML/JSON result rendering and lossless whole-response text pagination.
+  Text pages preserve Unicode code points and carry executable snapshot-bound
+  continuations. An offset inside a code point returns a restart. This pagination
+  scopes `content.text`; it does not truncate `structuredContent`.
 - Direct structured projections carry an internal per-execution render flag to
   skip unused text rendering after response normalization. Text still renders
   for pagination and errors; structured-content sanitization remains mandatory

@@ -99,6 +99,21 @@ describe('fetchIssues (orchestrator)', () => {
     expect(mockFetchIssueByNumber).not.toHaveBeenCalled();
   });
 
+  it('keeps closed archived repositories on the list endpoint beyond the search result window', async () => {
+    mockListIssues.mockResolvedValue(EMPTY_ISSUES_RESPONSE);
+
+    await fetchIssues({
+      owner: 'archived-owner',
+      repo: 'archived-repo',
+      state: 'closed',
+      page: 1001,
+      limit: 1,
+    });
+
+    expect(mockListIssues).toHaveBeenCalledOnce();
+    expect(mockSearchIssues).not.toHaveBeenCalled();
+  });
+
   it('returns an empty issues response on no-results error', async () => {
     // isNoResultsSearchError requires a RequestError with status 422 and a
     // specific error payload containing a "no results" message.

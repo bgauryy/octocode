@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { inspectMaintenancePressure } from './maintenance-digest.js';
+import { inspectMaintenancePressure } from './maintenance-pressure.js';
 import { AwarenessQueryParams, AwarenessQueryRow, limitOf, utcNow } from './repo-model.js';
 import { filesUnderWorkRows, pushLimited, repoProfileRows, rowFiles } from './repo-files.js';
 import { scopeFromParams, withScope } from './repo-scope.js';
@@ -203,7 +203,8 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     pressureRows.push({
       item_type: 'pressure', id: 'stale-active-runs', status: 'review',
       title: `${pressure.stale_active_runs} active run(s) have expired file presence`,
-      detail: 'Preview maintenance digest, then apply to mark stale ACTIVE runs FAILED with an audit receipt.',
+      detail: 'Run maintenance retention with explicit stale-run recovery to mark abandoned work FAILED with a receipt.',
+      action: 'maintenance retention --action apply --confirm apply-retention --fail-stale-active-runs --compact',
       raw_ids: pressure.samples.active_run_ids,
       files: [], created_at: utcNow(),
     });
@@ -212,7 +213,8 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     pressureRows.push({
       item_type: 'pressure', id: 'stale-handoff-signals', status: 'review',
       title: `${pressure.stale_handoff_signals} handoff signal(s) older than ${pressure.pressure_age_days}d`,
-      detail: 'Preview maintenance digest, then apply to auto-resolve stale handoff broadcasts.',
+      detail: 'Review the thread; message expiry resolves it by kind and retention prunes it only after the grace window.',
+      action: 'message list --kind handoff --all --limit 5 --compact',
       raw_ids: pressure.samples.handoff_signal_ids,
       files: [], created_at: utcNow(),
     });
@@ -222,7 +224,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     pressureRows.push({
       item_type: 'pressure', id: 'stale-open-signals', status: 'review',
       title: `${nonHandoffSignals} non-handoff signal(s) older than ${pressure.pressure_age_days}d`,
-      detail: 'Acknowledge or resolve after review; only stale handoff broadcasts are auto-resolved.',
+      detail: 'Acknowledge or resolve after review; every message kind also has an explicit expiry policy.',
       action: 'message list --all --limit 5 --compact',
       raw_ids: pressure.samples.signal_ids,
       files: [], created_at: utcNow(),

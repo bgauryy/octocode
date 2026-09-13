@@ -1,5 +1,6 @@
 import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import type { MigrationEvent } from './db-consolidation-handoffs.js';
+import { signalExpiresAt } from './message-lifecycle.js';
 
 type RefinementDestination = 'message' | 'work' | 'memory';
 type RefinementBlocker =
@@ -174,8 +175,8 @@ export function copyClassifiedRefinements(source: DatabaseSync, destination: Dat
   const rows = readClassifiedRefinements(source);
   const insertSignal = destination.prepare(`INSERT INTO signals
     (signal_id,workspace_path,artifact,repo,ref,from_agent,to_agent,kind,subject,body,files_json,refs_json,
-      thread_id,reply_to,importance,status,resolved_at,created_at)
-    VALUES (?,?,?,?,?,?,NULL,'handoff',?,?,?,?,?,NULL,5,?,?,?)`);
+      thread_id,reply_to,importance,status,resolved_at,created_at,expires_at)
+    VALUES (?,?,?,?,?,?,NULL,'handoff',?,?,?,?,?,NULL,5,?,?,?,?)`);
   const insertWork = destination.prepare(`INSERT INTO task_runs
     (run_id,task_id,origin,agent_id,session_id,rationale,test_plan,context_ref,status,workspace_path,artifact,created_at,updated_at)
     VALUES (?,NULL,'WORK',?,NULL,?,?,?,?,?,?,?,?)`);
@@ -196,7 +197,8 @@ export function copyClassifiedRefinements(source: DatabaseSync, destination: Dat
         row.remember.trim() ? `${row.reasoning}\n\n${row.remember}` : row.reasoning,
         JSON.stringify(row.files),
         JSON.stringify([`legacy-refinement:${row.refinementId}`]), id,
-        resolvedAt ? 'resolved' : 'open', resolvedAt, row.createdAt);
+        resolvedAt ? 'resolved' : 'open', resolvedAt, row.createdAt,
+        signalExpiresAt('handoff', row.createdAt));
       continue;
     }
     if (owner === 'work') {

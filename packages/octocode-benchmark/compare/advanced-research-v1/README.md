@@ -7,6 +7,10 @@ This public diagnostic does not replace the [Terra v3 gate](../terra-v3/README.m
 
 ## Outcomes and evidence
 
+The [benchmark validation rerun](../../../../.octocode/octocode-eval-benchmark/benchmark-validation-20260913/REPORT.md)
+records the repaired controller, fresh Terra trials, source-adjudicated quality,
+and all-tool controls. Revised controller cohorts remain separate.
+
 The [tool-quality audit](../../../../.octocode/octocode-eval-benchmark/tool-quality-20260913/REPORT.md)
 covers current schemas, result contracts, local semantics, rewrite application and
 recovery, GitHub tools, and all eight package ecosystems. Its supplied-evidence
@@ -45,7 +49,7 @@ artifacts cannot be placed inside a measured corpus.
 
 ## Run the controlled pilot
 
-The current runner uses `recoverable-read-surfaces-v9`. It freezes and delivers the
+The current runner uses `read-surface-recovery-v10`. It freezes and delivers the
 measured CLI's verbatim `context --compact`, together with the catalog and selected
 schemas; Octocode research examples are owned by public core.
 
@@ -77,9 +81,11 @@ against corpus scope. A malformed `--queries` value is recorded as the CLI's act
 recoverable syntax error, so a repaired call may use the remaining shared budget.
 Catalog and context discovery use strict read-only flags. Literal newlines inside a
 quoted argument are permitted; unquoted command composition, expansion, and source
-writes remain forbidden. Raw tools may read a known in-scope path directly. Schema
-discovery and failed calls consume the same budget. Arm order alternates across cases
-and passes, including a one-pass campaign.
+writes remain forbidden. Raw tools may read a known in-scope path directly. The
+canonical native field flags advertised by the frozen CLI context are converted through
+the CLI's shared query parser, then receive the same scope checks as `--queries`.
+Schema discovery and failed calls consume the same budget. Arm order alternates across
+cases and passes, including a one-pass campaign.
 
 After all peers have stopped changing the candidate, run the fixed three-pass pilot:
 
@@ -113,6 +119,11 @@ missing coverage, and citation imprecision separate. A function-entry citation p
 only what its cited declaration establishes; body behavior needs its body range. Absent answers are unscorable; intention-only
 text has no evidence coverage. Record execution eligibility independently and compare
 only valid pairs. Independent held-out review is still required for acceptance.
+
+Check line citations against exact file bytes at the locked revision, or an exact
+tool view with source ranges. Web-extractor line numbers can differ from source
+lines even for a pinned raw URL. Resolve a disagreement against the committed blob
+and retain the acquisition evidence and initial grade before adjudicating it.
 
 ### Seal and validate each quality review
 
@@ -153,6 +164,11 @@ This is an integrity check, not a semantic judge: it cannot prove the source ran
 actually establishes a behavioral claim. Keep independent source-grounded review for
 that decision. Older grade artifacts without these binding fields remain historical
 records and are intentionally rejected by this validator.
+
+The count surface supports `wc -l/-c/-m/-w` on scoped paths. Invalid mixed-tool
+`--queries` calls receive the real CLI rejection and may be repaired within budget.
+Observer `policyAuditSeconds` is recorded separately; it is not subtracted from
+end-to-end wall time.
 
 Provider total tokens are input plus output; cached input and reasoning are subsets.
 Absent optional cached, reasoning, or cache-write counters remain unknown without

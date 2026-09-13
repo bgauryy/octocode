@@ -27,8 +27,8 @@ $OCTOCODE_HOME/extension/state/extension.sqlite3
 This extension-owned database is separate from shared Awareness coordination and
 memory state. Plans, tasks, interactions, and memories continue to use the canonical
 Awareness database opened by `openAwarenessStore`, which defaults to
-`$OCTOCODE_HOME/awareness/awareness-v4.sqlite3`. An explicit repository scope selects
-`<workspace>/.octocode/awareness-v4.sqlite3`. The suffix is the Awareness schema
+`$OCTOCODE_HOME/awareness/awareness-v5.sqlite3`. An explicit repository scope selects
+`<workspace>/.octocode/awareness-v5.sqlite3`. The suffix is the Awareness schema
 generation; Pi consumes the package-owned path resolver rather than constructing it. These records stay outside extension-private
 storage and are not copied or forked with sessions. Agent-control database settings
 do not redirect Awareness storage.

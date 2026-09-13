@@ -59,7 +59,6 @@ the run verified:
 ```bash
 yarn workspace @octocodeai/octocode-awareness typecheck
 yarn workspace @octocodeai/octocode-awareness test:quiet
-yarn workspace @octocodeai/octocode-awareness test:smoke
 yarn workspace @octocodeai/octocode-awareness pack:check
 yarn workspace @octocodeai/octocode-awareness verify
 ```

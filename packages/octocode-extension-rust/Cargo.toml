@@ -8,13 +8,18 @@ description = "Native filesystem and text primitives for the Octocode extension"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["napi-addon"]
+napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+
 [dependencies]
-napi = { version = "3", default-features = false, features = ["napi4"] }
-napi-derive = "3"
+napi = { version = "3", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "3", optional = true }
 libc = "0.2"
 sha2 = "0.11"
 sha1 = "0.11"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 similar = "3"
 
@@ -22,7 +27,7 @@ similar = "3"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Threading", "Win32_Security", "Win32_Security_Authorization"] }
 
 [build-dependencies]
-napi-build = "2"
+napi-build = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

@@ -4,8 +4,10 @@ import { z } from 'zod';
 import { historyEntitySchemas, type HistoryInspectInput, type HistoryReadInput, type HistoryTimelineInput } from './schema/definitions-history.js';
 import { HistoryError, historyHash, historyOperation, historyPath, historyStoragePaths, historyTransaction, historyVersions, type HistoryContext } from './history-store.js';
 import { historyGitBackend } from './history-git.js';
+import { MAX_HISTORY_RECLAIM_BYTES, MAX_HISTORY_RECLAIM_OBJECTS, MIN_HISTORY_RECLAIM_GRACE_SECONDS } from './history-git-maintenance.js';
 
 const cursorSchema = z.object({ scope: z.string().length(64), before: z.number().int().positive() }).strict();
+const historyOid = /^[0-9a-f]{40}$/;
 function continuation(ctx: HistoryContext, command: string, args: Record<string, unknown>) {
   const scoped = { ...args, workspace: ctx.requestWorkspace ?? ctx.workspace,
     ...(ctx.requestWorkspace ? { source_workspace: ctx.workspace } : {}) };
@@ -37,7 +39,11 @@ export function historyStatus(ctx: HistoryContext) {
   return { ok: true, available: ctx.dbPath !== ':memory:', initialized: storage !== null && existsSync(join(storage.root, 'history-store.json')), storage,
     backend: historyGitBackend(),
     workspace: ctx.workspace, operations: Number(count.operations), incomplete: Number(count.incomplete ?? 0),
-    retention: { automatic_object_pruning: false, capturing_operations: Number(count.capturing ?? 0),
+    retention: { automatic_object_pruning: false, manual_object_reclamation: ctx.dbPath !== ':memory:',
+      minimum_grace_seconds: MIN_HISTORY_RECLAIM_GRACE_SECONDS,
+      max_objects_per_call: MAX_HISTORY_RECLAIM_OBJECTS,
+      max_bytes_per_call: MAX_HISTORY_RECLAIM_BYTES,
+      capturing_operations: Number(count.capturing ?? 0),
       expired_restore_previews: Number(restores.expired ?? 0), applying_restores: Number(restores.applying ?? 0) },
     disabled_reason: ctx.dbPath === ':memory:' ? 'memory_database' : null };
 }
@@ -117,12 +123,60 @@ export function historyRecovery(ctx: HistoryContext, input: import('./schema/def
 }
 
 export async function historyEvidence(ctx: HistoryContext, input: import('./schema/definitions-history.js').HistoryEvidenceInput) {
-  if (input.action === 'reclaim') return { ok: false, code: 'HISTORY_EVIDENCE_RECLAIM_UNAVAILABLE', diagnostic: 'Evidence reclamation is disabled until capture writers participate in one atomic maintenance handshake.', action: input.action, safety: 'report_only' };
-  const store = await ctx.store();
-  const rows = ctx.db.prepare('SELECT before_commit_oid AS oid FROM local_history_operations WHERE workspace_path=? AND before_commit_oid IS NOT NULL UNION SELECT after_commit_oid AS oid FROM local_history_operations WHERE workspace_path=? AND after_commit_oid IS NOT NULL').all(ctx.workspace, ctx.workspace) as Array<{ oid: string }>;
-  const versions = ctx.db.prepare("SELECT before_oid AS oid FROM local_history_versions v JOIN local_history_operations o ON o.operation_id=v.operation_id WHERE o.workspace_path=? AND before_oid IS NOT NULL UNION SELECT after_oid AS oid FROM local_history_versions v JOIN local_history_operations o ON o.operation_id=v.operation_id WHERE o.workspace_path=? AND after_oid IS NOT NULL").all(ctx.workspace, ctx.workspace) as Array<{ oid: string }>;
-  const result = await store.inspectOrphanObjects({ retainedOids: [...rows, ...versions].map(row => row.oid), graceMs: input.grace_seconds * 1000, limit: input.limit, cursor: input.cursor });
-  return { ok: true, action: 'report' as const, dry_run: true, safety: 'observational', ...result, next: result.next_cursor ? continuation(ctx, 'evidence', { action: 'report', grace_seconds: input.grace_seconds, limit: input.limit, cursor: result.next_cursor }) : null };
+  const maintain = async () => {
+    const store = await ctx.store();
+    const rows = ctx.db.prepare('SELECT before_commit_oid AS oid FROM local_history_operations WHERE workspace_path=? AND before_commit_oid IS NOT NULL UNION SELECT after_commit_oid AS oid FROM local_history_operations WHERE workspace_path=? AND after_commit_oid IS NOT NULL').all(ctx.workspace, ctx.workspace) as Array<{ oid: string }>;
+    const versions = ctx.db.prepare("SELECT before_oid AS oid FROM local_history_versions v JOIN local_history_operations o ON o.operation_id=v.operation_id WHERE o.workspace_path=? AND before_oid IS NOT NULL UNION SELECT after_oid AS oid FROM local_history_versions v JOIN local_history_operations o ON o.operation_id=v.operation_id WHERE o.workspace_path=? AND after_oid IS NOT NULL").all(ctx.workspace, ctx.workspace) as Array<{ oid: string }>;
+    const archives = ctx.db.prepare("SELECT payload_json FROM event_outbox WHERE workspace_path=? AND aggregate_kind='experience' AND event_type='experience.archive'").all(ctx.workspace) as Array<{ payload_json: string }>;
+    const archiveOids = archives.map(row => {
+      try {
+        const commit = (JSON.parse(row.payload_json) as { commit?: unknown }).commit;
+        if (typeof commit !== 'string' || !historyOid.test(commit)) throw new Error();
+        return commit;
+      } catch {
+        throw new HistoryError('HISTORY_EVIDENCE_METADATA_INVALID', 'An experience archive receipt has an invalid LocalGit commit ID.');
+      }
+    });
+    const options = { retainedOids: [...rows, ...versions].map(row => row.oid).concat(archiveOids), graceMs: input.grace_seconds * 1000, limit: input.limit, cursor: input.cursor };
+    return input.action === 'reclaim'
+      ? store.reclaimOrphanObjects(options)
+      : store.inspectOrphanObjects(options);
+  };
+  let result: Awaited<ReturnType<typeof maintain>>;
+  if (input.action === 'reclaim') {
+    if (ctx.db.isTransaction) throw new HistoryError('HISTORY_EVIDENCE_BUSY', 'Evidence reclamation requires an independent metadata maintenance transaction.');
+    ctx.db.exec('BEGIN IMMEDIATE');
+    try {
+      const capturing = ctx.db.prepare("SELECT COUNT(*) AS count FROM local_history_operations WHERE workspace_path=? AND status='capturing'").get(ctx.workspace) as { count: number };
+      const archiving = ctx.db.prepare(`SELECT EXISTS(
+        SELECT 1 FROM event_outbox sealed
+        WHERE sealed.workspace_path=? AND sealed.aggregate_kind='experience' AND sealed.event_type='experience.sealed'
+          AND NOT EXISTS (
+            SELECT 1 FROM event_outbox archived
+            WHERE archived.workspace_path=sealed.workspace_path
+              AND archived.aggregate_kind='experience'
+              AND archived.aggregate_id=sealed.aggregate_id
+              AND archived.event_type='experience.archive'
+          )
+      ) AS pending`).get(ctx.workspace) as { pending: number };
+      if (Number(capturing.count) > 0 || Number(archiving.pending) > 0) {
+        throw new HistoryError('HISTORY_EVIDENCE_BUSY', 'Evidence reclamation requires no capturing operations or pending experience archives.');
+      }
+      result = await maintain();
+      ctx.db.exec('COMMIT');
+    } catch (error) {
+      if (ctx.db.isTransaction) ctx.db.exec('ROLLBACK');
+      throw error;
+    }
+  } else {
+    result = await maintain();
+  }
+  const nextArgs = { action: input.action, ...(input.action === 'reclaim' ? { confirm: 'reclaim' } : {}),
+    grace_seconds: input.grace_seconds, limit: input.limit, cursor: result.next_cursor };
+  return { ok: true, action: input.action, dry_run: input.action === 'report',
+    safety: input.action === 'report' ? 'observational' : 'exclusive_metadata_handshake',
+    ...result,
+    next: result.next_cursor ? continuation(ctx, 'evidence', nextArgs) : null };
 }
 export function historyTimeline(ctx: HistoryContext, input: HistoryTimelineInput) {
   const file = input.file === undefined ? undefined : historyPath(ctx, input.file);

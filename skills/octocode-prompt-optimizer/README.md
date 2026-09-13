@@ -6,8 +6,10 @@ Write and repair instruction surfaces so they change behavior. A stated preferen
 
 - A goal must become a compact prompt, rule, tool description, or policy.
 - An instruction surface is unclear, unsafe, too expensive in context, or difficult to trigger.
+- Pi, LangChain, LangGraph, a skill host, or another runtime may assemble different effective context than the edited source suggests.
 - MCP server instructions, a tool description, and a schema disagree, or a shared field name drifted between tools.
 - A handoff omits authority, evidence, acceptance, or return shape.
+- Equivalent capabilities or payloads drift across agent apps, hosts, vendors, or protocol adapters.
 - A tool schema or pagination contract permits ambiguous or incomplete behavior.
 - Token, output, cache-write, tool-call, or retry costs need an explicit cost-per-success comparison.
 - A context window needs a usable budget that reserves output/reasoning space and counts tools, history, and cached tokens correctly.
@@ -21,7 +23,7 @@ Weak: “Be efficient with tools.”
 
 Decidable: “Reuse a schema already read; inspect it again only when the tool or schema version changes.”
 
-The skill also separates prompt wording, runtime context, tool/MCP contracts, agent contracts, and evaluation into load-on-demand reference domains.
+The skill first resolves the executing surface, runtime dependency, and effective context flow. It then separates prompt wording, context budgeting, tool/MCP contracts, agent contracts, and evaluation into load-on-demand reference domains.
 
 ## Workflow
 

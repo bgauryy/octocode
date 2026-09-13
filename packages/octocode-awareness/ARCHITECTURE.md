@@ -11,7 +11,7 @@ Context -> Work -> Message -> Memory -> History
    3         8         4          5          5
 ```
 
-The package root has eight runtime exports: the client factory, two operation catalogs, two descriptor lookups, the agent instruction section catalog, the agent instruction builder, and the shared Message parameter guidance. Side-effect-free discovery is also available from `/schema`. Host integration is isolated under `/host`; copy-on-write database migration is isolated under `/admin`.
+The package root has eight runtime exports: the client factory, two operation catalogs, two descriptor lookups, the agent instruction section catalog, the agent instruction builder, and the shared Message parameter guidance. Side-effect-free discovery is also available from `/schema`. Host integration is isolated under `/host`; copy-on-write database migration and whole-store retirement are isolated under `/admin`.
 
 The CLI parses shell input and renders results. It does not own domain behavior. Operation descriptors validate parameters, select one domain route, execute it with trusted host bindings, canonicalize continuations, and enforce output budgets. Unknown operations fail instead of entering a compatibility dispatcher.
 
@@ -34,6 +34,16 @@ database predecessor
   -> copy-on-write destination
   -> independent verification
   -> explicit cutover with retained rollback source
+
+operator maintenance
+  -> dry report from domain-owned policies
+  -> exact confirmation
+  -> bounded atomic page with executable continuation
+
+store retirement
+  -> bound report and active-state checks
+  -> exclusive writer fence
+  -> recoverable quarantine of exact SQLite and LocalGit targets
 ```
 
 The domain owners are:
@@ -45,6 +55,14 @@ The domain owners are:
 - Context: attributed observations and intervention feedback, plus a bounded projection over decision-changing state. Observations and feedback use the existing event outbox; assessment does not create a second source of truth.
 
 SQL stays with the module that owns each relation. Interface code must not duplicate schemas, query strings, lifecycle policy, or history writers.
+
+## Lifecycle and cleanup
+
+Every canonical entity declares its semantic owner, retention class, deletion semantics, and executable cleanup operation. `maintenance retention` composes Message, event, interaction, lock, run, Memory, and restore-preview owners. Reporting is read-only and aggregate; apply requires `--confirm apply-retention`, limits each owner to a deterministic batch, and returns a repeatable continuation with a fixed cutoff when more work remains. Stale ACTIVE run recovery is visible in reports but mutates only with the explicit `--fail-stale-active-runs` option.
+
+Messages receive a non-null expiry from one per-kind policy when written. Expiry first resolves open messages; physical deletion waits for the grace cutoff and preserves a parent while any retained descendant still depends on it. Messages are coordination state, not durable Memory.
+
+`maintenance store-retire` is separate from row retention. Its default report binds the store identity, workspaces, exact targets, and blockers. Confirmed apply refuses live lifecycle state or another SQLite writer, then renames the database, sidecars, and derived LocalGit roots into recoverable sibling quarantine paths. It never recursively targets a workspace, home directory, filesystem root, or shared `.localGit` parent.
 
 ## Agent-independent regulation
 
@@ -71,7 +89,7 @@ A passing adapter test establishes the first level, not universal host activatio
 
 The physical SQLite path and normalized workspace identity define a coordination boundary. Linked Git worktrees can share repository-scoped discovery in one store while retaining physical workspace keys for protection, authorization, verification, and recovery. Unrelated clones or databases do not coordinate automatically.
 
-The default global store is `$OCTOCODE_HOME/awareness/awareness-v<schema-version>.sqlite3`. Repository scope uses `<workspace>/.octocode/awareness-v<schema-version>.sqlite3`. The current generation is `v4`. One generation constant owns both the metadata version and filename, so a breaking DDL change selects a fresh default store instead of opening an older generation. An explicit database path has the highest precedence for a call and remains subject to exact fingerprint checks. Scope or generation changes never merge databases implicitly.
+The default global store is `$OCTOCODE_HOME/awareness/awareness-v<schema-version>.sqlite3`. Repository scope uses `<workspace>/.octocode/awareness-v<schema-version>.sqlite3`. The current generation is `v5`. One generation constant owns both the metadata version and filename, so a breaking DDL change selects a fresh default store instead of opening an older generation. An explicit database path has the highest precedence for a call and remains subject to exact fingerprint checks. Scope or generation changes never merge databases implicitly.
 
 Opening a store accepts the exact canonical fingerprint. Migration code recognizes only explicit predecessor contracts and writes a different destination file. It verifies schema, integrity, foreign keys, counts, event order, and available LocalGit reachability before an operator selects the destination. The source remains available for rollback.
 

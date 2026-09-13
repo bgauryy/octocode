@@ -22,7 +22,7 @@ export interface AwarenessOperationParams {
   'context.observe': ContextObservation;
   'context.feedback': ContextFeedback;
   'work.create': KindParams<'plan' | 'task' | 'standalone'>;
-  'work.list': Params & { kind?: 'plan' | 'task' | 'ready' | 'presence' | 'workboard' };
+  'work.list': Params & { kind?: 'plan' | 'task' | 'ready' | 'agents' | 'presence' | 'workboard' };
   'work.show': KindParams<'plan' | 'task' | 'presence'>;
   'work.claim': Params;
   'work.update': TransitionParams<'heartbeat' | 'submit' | 'release' | 'retry' | 'touch' | 'end' | 'join' | 'document' | 'status'>;

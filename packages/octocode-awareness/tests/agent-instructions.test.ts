@@ -23,6 +23,8 @@ describe('portable Awareness agent instructions', () => {
     expect(instructions).toContain('to_agent (an array), file, and ref_id');
     expect(instructions).toContain('in_reply_to to the returned signal_id and requires its own subject; use in_reply_to, not notification_id');
     expect(instructions).toContain('The live operation descriptor is the field-level source of truth');
+    expect(instructions).toContain('inputSchemaText');
+    expect(instructions).toContain('generated from the canonical descriptor');
     expect(instructions).not.toContain('to_agents');
     expect(instructions).not.toContain('kinds(');
     expect(instructions).not.toContain('files(');

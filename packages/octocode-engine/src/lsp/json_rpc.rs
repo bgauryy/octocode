@@ -1,4 +1,4 @@
-use napi::{Error, Result, Status};
+use crate::error::{Error, Result, Status};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

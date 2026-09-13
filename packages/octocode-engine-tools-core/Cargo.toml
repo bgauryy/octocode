@@ -1,0 +1,63 @@
+[package]
+name = "octocode-engine-tools-core"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+license = "MIT"
+description = "Native Octocode tool runtime and command-line interface"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "octo"
+path = "src/main.rs"
+
+[[bin]]
+name = "octocode-regex-worker"
+path = "src/bin/regex_worker.rs"
+
+[features]
+default = []
+napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+regex = "1"
+regress = "0.12"
+url = "2"
+clap = { version = "4", features = ["derive"] }
+base64 = "0.22"
+sha2 = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "http2", "query", "system-proxy"] }
+bytes = "1"
+futures-util = "0.3"
+secrecy = "0.10"
+octocode-engine = { path = "../octocode-engine", default-features = false, features = ["portable-default"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
+napi-derive = { version = "3", optional = true }
+
+[build-dependencies]
+napi-build = { version = "2", optional = true }
+
+[dev-dependencies]
+wiremock = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+dbg_macro = "deny"

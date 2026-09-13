@@ -27,14 +27,14 @@ describe('Awareness storage scope', () => {
     const home = mkdtempSync(join(tmpdir(), 'awareness-agent-home-'));
     process.env.OCTOCODE_HOME = home;
     expect(AWARENESS_DB_FILENAME).toBe(`awareness-v${AWARENESS_SCHEMA_VERSION}.sqlite3`);
-    expect(defaultDbPath(workspace)).toBe(join(home, 'awareness', 'awareness-v4.sqlite3'));
-    expect(resolveDbPath(null, { workspace })).toBe(join(home, 'awareness', 'awareness-v4.sqlite3'));
+    expect(defaultDbPath(workspace)).toBe(join(home, 'awareness', 'awareness-v5.sqlite3'));
+    expect(resolveDbPath(null, { workspace })).toBe(join(home, 'awareness', 'awareness-v5.sqlite3'));
     expect(repoDatabasePath(workspace, AWARENESS_DB_FILENAME))
-      .toBe(join(workspace, '.octocode', 'awareness-v4.sqlite3'));
+      .toBe(join(workspace, '.octocode', 'awareness-v5.sqlite3'));
     expect(defaultDbPath(workspace, 'repo'))
-      .toBe(join(workspace, '.octocode', 'awareness-v4.sqlite3'));
+      .toBe(join(workspace, '.octocode', 'awareness-v5.sqlite3'));
     expect(resolveDbPath(null, { scope: 'repo', workspace }))
-      .toBe(join(workspace, '.octocode', 'awareness-v4.sqlite3'));
+      .toBe(join(workspace, '.octocode', 'awareness-v5.sqlite3'));
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -43,7 +43,7 @@ describe('Awareness storage scope', () => {
     process.env.OCTOCODE_HOME = home;
     try {
       expect(resolveDbPath(null, { scope: 'global', workspace: '/tmp/repo' }))
-        .toBe(join(home, 'awareness', 'awareness-v4.sqlite3'));
+        .toBe(join(home, 'awareness', 'awareness-v5.sqlite3'));
       expect(resolveDbPath('./explicit.sqlite3', { scope: 'repo', workspace: '/tmp/repo' }))
         .toBe(resolve('./explicit.sqlite3'));
     } finally {
@@ -72,10 +72,10 @@ describe('Awareness storage scope', () => {
     try {
       const client = createAwarenessClient({ workspace, agentId: 'reader' });
       await client.orient();
-      const dbPath = join(home, 'awareness', 'awareness-v4.sqlite3');
+      const dbPath = join(home, 'awareness', 'awareness-v5.sqlite3');
       expect(existsSync(dbPath)).toBe(true);
       expect(client.context.workspace).toMatch(/awareness-repo-scope-/);
-      expect(existsSync(join(workspace, '.octocode', 'awareness-v4.sqlite3'))).toBe(false);
+      expect(existsSync(join(workspace, '.octocode', 'awareness-v5.sqlite3'))).toBe(false);
       expect(existsSync(join(home, 'agent', 'agent.sqlite3'))).toBe(false);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -94,7 +94,7 @@ describe('Awareness storage scope', () => {
       const client = createAwarenessClient({ workspace, agentId: 'reader' });
       await client.orient();
       expect(readFileSync(predecessor, 'utf8')).toBe('predecessor-store');
-      expect(existsSync(join(home, 'awareness', 'awareness-v4.sqlite3'))).toBe(true);
+      expect(existsSync(join(home, 'awareness', 'awareness-v5.sqlite3'))).toBe(true);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
@@ -108,7 +108,7 @@ describe('Awareness storage scope', () => {
       const client = createAwarenessClient({ workspace, agentId: 'reader', database: dbPath, scope: 'repo' });
       await client.orient();
       expect(existsSync(dbPath)).toBe(true);
-      expect(existsSync(join(workspace, '.octocode', 'awareness-v4.sqlite3'))).toBe(false);
+      expect(existsSync(join(workspace, '.octocode', 'awareness-v5.sqlite3'))).toBe(false);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

@@ -45,6 +45,7 @@ Any agent can use the CLI or imported client to submit measurements with `contex
 
 - Create Work only when ownership, dependencies, resumption, or verification must be shared.
 - Send Messages only when another actor's next action can change.
+- Resolve handled threads promptly. Every Message kind expires; expired rows remain through a grace period and must not be used as durable Memory.
 - Use exclusive path protection only for changes that cannot merge safely.
 - Record verification only after running the declared check and observing its result.
 - Record Memory only for scoped, evidence-linked learning likely to affect future work.
@@ -91,17 +92,19 @@ Use these explicit subpaths for non-routine integration:
 |---|---|
 | `@octocodeai/octocode-awareness/schema` | Side-effect-free operation discovery and types |
 | `@octocodeai/octocode-awareness/host` | Host lifecycle adapters, event delivery, policy, and host-owned History capture |
-| `@octocodeai/octocode-awareness/admin` | Copy-on-write database migration preview, apply, and verification |
+| `@octocodeai/octocode-awareness/admin` | Copy-on-write migration and safe whole-store retirement |
 
 See the [API reference](docs/API.md) and [architecture](ARCHITECTURE.md).
 
 ## Storage
 
-The default database is `$OCTOCODE_HOME/awareness/awareness-v4.sqlite3`. If `OCTOCODE_HOME` is unset, the platform Octocode home is used. Workspace policy or `--db-scope repo` selects `<workspace>/.octocode/awareness-v4.sqlite3`; `--db` selects an explicit database for a call. The filename suffix is the schema generation, not the package version. A breaking DDL generation selects a fresh default file instead of opening or mutating an older generation.
+The default database is `$OCTOCODE_HOME/awareness/awareness-v5.sqlite3`. If `OCTOCODE_HOME` is unset, the platform Octocode home is used. Workspace policy or `--db-scope repo` selects `<workspace>/.octocode/awareness-v5.sqlite3`; `--db` selects an explicit database for a call. The filename suffix is the schema generation, not the package version. A breaking DDL generation selects a fresh default file instead of opening or mutating an older generation.
 
 All cooperating actors must resolve the same physical database and use distinct stable actor IDs. A scope change does not merge stores. Opening a store validates the canonical schema and does not mutate a predecessor schema.
 
 LocalGit stores optional recoverable evidence under the workspace `.octocode/.localGit` boundary. File capture is host-owned. Routine agents inspect file evidence with `history status`, `history timeline`, and `history read`; they do not create file captures or checkpoints. Agents can also record and seal non-file investigation traces with `history experience`, and preserve keyed lessons, rationale, and typed anchors with `memory set`. See [experience and memory](docs/EXPERIENCE_MEMORY.md), [storage scopes](docs/STORAGE_SCOPES.md), [database ownership](docs/DB.md), and [LocalGit history](docs/LOCAL_HISTORY.md).
+
+Operators inspect data with `view`, preview or apply bounded row cleanup with `maintenance retention`, and recoverably retire an entire store with `maintenance store-retire`. Both routes default to reports and require exact confirmation before mutation; store retirement also requires the saved reviewed report file. They stay outside the routine agent catalog.
 
 ## Host lifecycle
 

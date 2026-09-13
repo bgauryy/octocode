@@ -11,7 +11,7 @@ import { forgetMemory as forgetCanonicalMemory } from '../memory-lifecycle.js';
 import { queryMemory as getCanonicalMemory } from '../memory-recall.js';
 import { queryMemorySemantic as recallCanonicalMemory } from '../memory-semantic.js';
 import { insertNotification } from '../notifications-core.js';
-import { deletePrunableSignals } from '../notifications-signals.js';
+import { deletePrunableSignals } from '../message-lifecycle.js';
 import { canonicalizePath, repositoryWorkspacePaths } from '../git.js';
 import { countInboxMessages, listInboxMessagesPage, type MessageListParams, type MessagePage } from './coordination-message-inbox.js';
 import { evaluateVerifiedMemory as evaluateVerifiedMemoryCanonical, recallVerifiedMemory as recallVerifiedMemoryCanonical, storeVerifiedMemory as storeVerifiedMemoryCanonical, type VerifiedMemoryPageV1, type VerifiedMemoryRecallParams, type VerifiedMemoryStoreParams, type VerifiedMemoryV1 } from './verified-memory.js';

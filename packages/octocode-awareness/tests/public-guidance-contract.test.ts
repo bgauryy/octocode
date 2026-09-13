@@ -32,8 +32,8 @@ describe('public Awareness guidance', () => {
     expect('Run `init` once.').toMatch(retiredProse);
     expect('Run `refinement list`.').toMatch(retiredProse);
     expect(guides).not.toContain('.octocode/octocode.sqlite3');
-    expect(guides).toContain('.octocode/awareness-v4.sqlite3');
-    expect(guides).toContain('OCTOCODE_HOME/awareness/awareness-v4.sqlite3');
+    expect(guides).toContain('.octocode/awareness-v5.sqlite3');
+    expect(guides).toContain('OCTOCODE_HOME/awareness/awareness-v5.sqlite3');
     expect(guides).toContain('schema generation');
     expect(guides).toContain('Never substitute an Agent runtime database.');
   });

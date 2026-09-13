@@ -19,7 +19,7 @@ const Request = z.object({
 }).strict();
 const Reply = z.object({ v: z.literal(1), id: z.string().min(1), inReplyTo: z.string().min(1) });
 const ErrorInfo = z.object({ code: z.string().min(1).max(80), retry: z.enum(["retry", "ask_user", "do_not_retry"]) }).strict();
-const Result = Reply.extend({ kind: z.literal("result"), summary: z.string().min(1).max(800), artifactRef: z.string().url().optional(), next: z.string().max(240).optional() }).strict();
+const Result = Reply.extend({ kind: z.literal("result"), summary: z.string().min(1).max(800), artifactRef: z.string().min(1).max(500).optional(), next: z.string().max(240).optional() }).strict();
 const Failure = Reply.extend({ kind: z.enum(["blocked", "rejected"]), summary: z.string().min(1).max(800), error: ErrorInfo, next: z.string().max(240).optional() }).strict();
 export const AgentPacket = z.discriminatedUnion("kind", [Request, Result, Failure]);
 ```
@@ -45,6 +45,6 @@ export const AgentPacket = z.discriminatedUnion("kind", [Request, Result, Failur
 ## Sources
 - Zod, [Defining schemas](https://zod.dev/api) — discriminated unions and type narrowing.
 - Zod, [JSON Schema](https://zod.dev/json-schema) — stable `z.toJSONSchema()` conversion; `z.fromJSONSchema()` is experimental.
-- A2A, [Protocol specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) — required-field validation, schema validation, authorization, and injection protections.
+- A2A, [Protocol specification](https://a2a-protocol.org/dev/specification/) — required-field validation, schema validation, authorization, and injection protections.
 
-Next: for the protocol and ownership rules around this packet load `references/agents/agent-communication.md`; for the tool-facing surface it validates load `references/tools/tool-contracts.md`; for the string/array bounds that protect context load `references/context/context-budget.md`.
+Next: for protocol and ownership rules load `references/agents/agent-communication.md`; when the schema must align across apps or vendors load `references/agents/cross-app-contracts.md`; for the tool-facing surface load `references/tools/tool-contracts.md`; for context bounds load `references/context/context-budget.md`.

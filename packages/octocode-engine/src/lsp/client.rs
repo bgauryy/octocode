@@ -1,7 +1,8 @@
+use crate::error::{Error, Result, Status};
 use crate::lsp::json_rpc::{ClientRequestContext, JsonRpcConnection, ProgressTracker};
 use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
-use napi::{Error, Result, Status};
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -76,7 +77,7 @@ fn executable_has_node_shebang(path: &str) -> Result<bool> {
     Ok(first_line.starts_with("#!") && first_line.contains("node"))
 }
 
-#[napi]
+#[cfg_attr(feature = "napi-addon", napi)]
 pub struct NativeLspClient {
     config: JsLanguageServerConfig,
     child: Mutex<Option<Child>>,
@@ -102,9 +103,13 @@ pub struct NativeLspClient {
     open_docs: StdMutex<HashMap<String, i32>>,
 }
 
-#[napi]
+/// Portable name for the stateful JSON-RPC transport. The historical native
+/// name remains the N-API class name when the addon feature is enabled.
+pub type LspClient = NativeLspClient;
+
+#[cfg_attr(feature = "napi-addon", napi)]
 impl NativeLspClient {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "napi-addon", napi(constructor))]
     pub fn new(config: JsLanguageServerConfig) -> Self {
         Self {
             config,
@@ -119,7 +124,7 @@ impl NativeLspClient {
         }
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn start(&self) -> Result<()> {
         let mut child_guard = self.child.lock().await;
         if child_guard.is_some() {
@@ -243,7 +248,7 @@ impl NativeLspClient {
         Ok(())
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn stop(&self) -> Result<()> {
         let connection = self.connection.lock().await.take();
         if let Some(connection) = connection {
@@ -273,7 +278,7 @@ impl NativeLspClient {
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
     /// one that never reported progress or is still busy. The returned string
     /// is one of `"progressIdle"`, `"settledFallback"`, or `"timeout"`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
         Ok(self
@@ -289,7 +294,7 @@ impl NativeLspClient {
     /// Lets the JS client pool evict a stale pooled entry at the next
     /// `acquire()` instead of returning a client whose requests will just
     /// fail until the idle timer eventually reaps it.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn is_alive(&self) -> bool {
         match self.connection.lock().await.as_ref() {
             Some(connection) => connection.is_alive(),
@@ -297,7 +302,7 @@ impl NativeLspClient {
         }
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub fn has_capability(&self, capability: String) -> bool {
         let Ok(capabilities) = self.capabilities.lock() else {
             return false;
@@ -312,7 +317,7 @@ impl NativeLspClient {
     /// `None` means the server omitted it (implying the spec default, utf-16) or
     /// the client has not started yet. octocode advertises utf-16 only, so a
     /// value other than `Some("utf-16")` indicates a non-conformant server.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub fn position_encoding(&self) -> Option<String> {
         self.position_encoding
             .lock()
@@ -320,7 +325,7 @@ impl NativeLspClient {
             .and_then(|slot| slot.clone())
     }
 
-    #[napi(js_name = "getRecentStderr")]
+    #[cfg_attr(feature = "napi-addon", napi(js_name = "getRecentStderr"))]
     pub fn get_recent_stderr(&self) -> Vec<String> {
         self.stderr_lines
             .lock()
@@ -334,7 +339,7 @@ impl NativeLspClient {
     /// incremented version and a full-document content change. Re-sending
     /// `didOpen` (as before) is ignored or rejected by many servers and can make
     /// changed content resolve against the stale original.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
         let uri = path_to_uri(&file_path)?;
 
@@ -383,7 +388,7 @@ impl NativeLspClient {
 
     /// Close a previously opened document (`textDocument/didClose`) and forget
     /// its version, so a later `open_document` starts a fresh `didOpen`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn close_document(&self, file_path: String) -> Result<()> {
         let uri = path_to_uri(&file_path)?;
         let was_open = {
@@ -406,7 +411,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_definition(
         &self,
         file_path: String,
@@ -417,7 +422,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_references(
         &self,
         file_path: String,
@@ -435,7 +440,7 @@ impl NativeLspClient {
         snippets_from_locations(result).await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_hover(&self, file_path: String, line: u32, character: u32) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -448,7 +453,7 @@ impl NativeLspClient {
         .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_type_definition(
         &self,
         file_path: String,
@@ -459,7 +464,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_implementation(
         &self,
         file_path: String,
@@ -470,7 +475,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_document_symbols(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -480,7 +485,7 @@ impl NativeLspClient {
         .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn prepare_call_hierarchy(
         &self,
         file_path: String,
@@ -498,13 +503,13 @@ impl NativeLspClient {
         .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn incoming_calls(&self, item: Value) -> Result<Value> {
         self.request("callHierarchy/incomingCalls", json!({ "item": item }))
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn outgoing_calls(&self, item: Value) -> Result<Value> {
         self.request("callHierarchy/outgoingCalls", json!({ "item": item }))
             .await
@@ -513,7 +518,7 @@ impl NativeLspClient {
     /// Project-wide fuzzy symbol search — `workspace/symbol`.
     /// Returns `WorkspaceSymbol[] | SymbolInformation[]` (raw JSON).
     /// `query` is the fuzzy name string; empty string returns all symbols.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn workspace_symbol(&self, query: String) -> Result<Value> {
         self.request("workspace/symbol", json!({ "query": query }))
             .await
@@ -521,7 +526,7 @@ impl NativeLspClient {
 
     /// Prepare a type-hierarchy item at a given position — `textDocument/prepareTypeHierarchy`.
     /// Returns `TypeHierarchyItem[] | null` (raw JSON).
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn prepare_type_hierarchy(
         &self,
         file_path: String,
@@ -541,7 +546,7 @@ impl NativeLspClient {
 
     /// Retrieve supertypes (base classes / implemented interfaces) — `typeHierarchy/supertypes`.
     /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn type_hierarchy_supertypes(&self, item: Value) -> Result<Value> {
         self.request("typeHierarchy/supertypes", json!({ "item": item }))
             .await
@@ -549,7 +554,7 @@ impl NativeLspClient {
 
     /// Retrieve subtypes (subclasses / implementors) — `typeHierarchy/subtypes`.
     /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn type_hierarchy_subtypes(&self, item: Value) -> Result<Value> {
         self.request("typeHierarchy/subtypes", json!({ "item": item }))
             .await
@@ -559,7 +564,7 @@ impl NativeLspClient {
     /// Returns `DocumentDiagnosticReport` with `kind: "full"|"unchanged"` and `items: Diagnostic[]`.
     /// Prefer pull diagnostics over push (`publishDiagnostics`) for agent/CLI use: you control
     /// *when* to request them and avoid a notification firehose.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_diagnostics(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -571,7 +576,7 @@ impl NativeLspClient {
 
     /// Return the latest bounded `textDocument/publishDiagnostics` payload for
     /// a file, waiting briefly when the server has not published one yet.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_push_diagnostics(
         &self,
         file_path: String,
@@ -749,11 +754,11 @@ async fn initialize(
                 "positionEncodings": ["utf-16"]
             },
             "textDocument": {
-                "definition": { "dynamicRegistration": false, "linkSupport": false },
+                "definition": { "dynamicRegistration": false, "linkSupport": true },
                 "references": { "dynamicRegistration": false },
                 "hover": { "dynamicRegistration": false, "contentFormat": ["markdown", "plaintext"] },
-                "typeDefinition": { "dynamicRegistration": false, "linkSupport": false },
-                "implementation": { "dynamicRegistration": false, "linkSupport": false },
+                "typeDefinition": { "dynamicRegistration": false, "linkSupport": true },
+                "implementation": { "dynamicRegistration": false, "linkSupport": true },
                 "documentSymbol": { "dynamicRegistration": false, "hierarchicalDocumentSymbolSupport": true },
                 "callHierarchy": { "dynamicRegistration": false },
                 // LSP 3.17: type hierarchy — navigate supertypes (base classes/interfaces)
@@ -852,13 +857,22 @@ async fn snippet_from_location_like(
     let (Some(uri), Some(range_value)) = (uri, range_value) else {
         return Ok(None);
     };
-    let range = parse_range(range_value)?;
+    let context_range = parse_range(range_value)?;
+    // LocationLink separates the symbol selection from its enclosing declaration.
+    // Keep provider selection coordinates for navigation and enclosing source for context.
+    let range = match value.get("targetSelectionRange") {
+        Some(selection) => parse_range(selection)?,
+        None => context_range.clone(),
+    };
     let file_path = uri_to_path(uri)?;
     // A read failure here is real evidence ("target file is missing/unreadable/
     // generated"), not "no useful definition". Surface it as explicit content
     // instead of an empty string so callers don't misread it — and keep the
     // request resilient (one bad target must not drop the other locations).
-    let content = match content_cache.read_range_content(&file_path, &range).await {
+    let content = match content_cache
+        .read_range_content(&file_path, &context_range)
+        .await
+    {
         Ok(text) => text,
         Err(err) => format!("[content unavailable — could not read {uri}: {err}]"),
     };
@@ -867,7 +881,16 @@ async fn snippet_from_location_like(
         range,
         content,
         symbol_kind: None,
-        display_range: None,
+        display_range: value.get("targetSelectionRange").map(|_| {
+            json!({
+                "startLine": context_range.start.line + 1,
+                "endLine": if context_range.end.character == 0 {
+                    context_range.end.line.max(context_range.start.line + 1)
+                } else {
+                    context_range.end.line + 1
+                }
+            })
+        }),
     }))
 }
 

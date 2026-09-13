@@ -275,8 +275,8 @@ describe('provider-scoped reference alias follow-ups', () => {
         uninspectedFiles: 2,
       },
     });
-    expect(result.incompleteResults).toBeUndefined();
-    expect(result.terminalLimit).toBeUndefined();
+    expect(result.incompleteResults).toBe(true);
+    expect(result.terminalLimit).toBe(true);
   });
 
   it('does not guess an alias position when native syntax cannot provide its ranges', async () => {
@@ -307,20 +307,20 @@ describe('provider-scoped reference alias follow-ups', () => {
     expect(f.client.gotoDefinition).not.toHaveBeenCalled();
   });
 
-  it('offers the same exact continuation for grouped results', async () => {
+  it('collects verified grouped aliases before grouped pagination', async () => {
     const f = await fixture();
     const result = await dispatchAnchoredSemantic(
       { ...f.query, groupByFile: true },
       f.anchor,
       f.client as never
     );
-    expect(result.next?.searchAliasReferences0?.query).toMatchObject({
-      position: { line: 0, character: 29 },
-      groupByFile: true,
+    expect(result.next?.searchAliasReferences0).toBeUndefined();
+    expect(result.payload).toMatchObject({
+      coverage: { verifiedAliasBindings: 1 },
     });
   });
 
-  it('resolves a multiline import to an exact verified position', async () => {
+  it('collects a multiline import before pagination', async () => {
     const f = await fixture(
       'from origin import (\n    target as alias,\n)\nresult = alias(1)\n'
     );
@@ -329,9 +329,9 @@ describe('provider-scoped reference alias follow-ups', () => {
       f.anchor,
       f.client as never
     );
-    expect(result.next?.searchAliasReferences0?.query).toMatchObject({
-      uri: f.use,
-      position: { line: 1, character: 14 },
+    expect(result.next?.searchAliasReferences0).toBeUndefined();
+    expect(result.payload).toMatchObject({
+      coverage: { verifiedAliasBindings: 1 },
     });
   });
 
@@ -360,9 +360,9 @@ describe('provider-scoped reference alias follow-ups', () => {
         verifiedAliasBindings: 6,
       },
     });
-    expect(result.incompleteResults).toBe(true);
+    expect(result.incompleteResults).toBeUndefined();
     expect(result.terminalLimit).toBeUndefined();
-    expect(result.partialReasons).toContain('aliasReferences');
+    expect(result.partialReasons).toBeUndefined();
     for (const continuation of Object.values(result.next ?? {})) {
       expect(LspSearchQuerySchema.safeParse(continuation.query).success).toBe(
         true
@@ -389,17 +389,11 @@ describe('provider-scoped reference alias follow-ups', () => {
         f.anchor,
         f.client as never
       );
-      const aliases = Object.entries(result.next ?? {}).filter(([key]) =>
-        key.startsWith('searchAliasReferences')
-      );
-      expect(aliases.length).toBeLessThanOrEqual(1);
-      for (const [, next] of aliases) positions.push(next.query.position);
+      expect(result.next?.searchAliasReferences0).toBeUndefined();
+      positions.push(result.payload.coverage?.verifiedAliasBindings);
     }
-    expect(positions).toEqual([
-      { line: 0, character: 29 },
-      { line: 0, character: 46 },
-    ]);
-    expect(f.client.gotoDefinition).toHaveBeenCalledTimes(4);
+    expect(positions).toEqual([2, 2, 2]);
+    expect(f.client.gotoDefinition).toHaveBeenCalledTimes(9);
   });
 
   it('offers bounded ungrouped pages when a grouped file has many bindings', async () => {
@@ -420,35 +414,27 @@ describe('provider-scoped reference alias follow-ups', () => {
       f.anchor,
       f.client as never
     );
-    const next = result.next?.nextAliasReferences;
-    expect(next?.query).toMatchObject({
-      operation: 'references',
-      groupByFile: false,
-      page: 1,
-      pageSize: 1,
-      includeDeclaration: false,
-    });
-    expect(LspSearchQuerySchema.safeParse(next?.query).success).toBe(true);
-    expect(result.incompleteResults).toBe(true);
+    expect(result.next?.nextAliasReferences).toBeUndefined();
+    expect(result.incompleteResults).toBeUndefined();
     expect(result.terminalLimit).toBeUndefined();
-    expect(f.client.gotoDefinition).not.toHaveBeenCalled();
-    const seen = [];
-    for (const page of [1, 2]) {
-      const detail = await dispatchAnchoredSemantic(
-        { ...next!.query, page } as never,
-        f.anchor,
-        f.client as never
-      );
-      seen.push(detail.next?.searchAliasReferences0?.query.position);
-    }
-    expect(seen).toEqual([
-      { line: 0, character: 29 },
-      { line: 0, character: 46 },
-    ]);
+    expect(f.client.gotoDefinition).toHaveBeenCalledTimes(3);
+    expect(result.payload).toMatchObject({
+      coverage: { verifiedAliasBindings: 2 },
+    });
   });
 
-  it('keeps provider results intact and offers an exact semantically verified alias query', async () => {
+  it('merges an absent alias use before pagination', async () => {
     const f = await fixture();
+    const aliasUse = {
+      ...f.imported,
+      range: {
+        start: { line: 1, character: 9 },
+        end: { line: 1, character: 14 },
+      },
+    };
+    f.client.findReferences.mockImplementation(async (_file, position) =>
+      position?.character === 29 ? [aliasUse] : [f.declaration, f.imported]
+    );
     const result = await dispatchAnchoredSemantic(
       f.query,
       f.anchor,
@@ -456,23 +442,144 @@ describe('provider-scoped reference alias follow-ups', () => {
     );
     expect(result.payload).toMatchObject({
       kind: 'references',
-      totalReferences: 2,
+      totalReferences: 3,
       coverage: {
         scope: 'languageServer',
         exhaustive: false,
         verifiedAliasBindings: 1,
       },
     });
-    const next = result.next?.searchAliasReferences0;
-    expect(next?.tool).toBe('lspSearch');
-    expect(next?.query).toMatchObject({
-      operation: 'references',
-      uri: f.use,
-      position: { line: 0, character: 29 },
-    });
-    expect(LspSearchQuerySchema.safeParse(next?.query).success).toBe(true);
-    expect(f.client.findReferences).toHaveBeenCalledTimes(1);
+    expect(result.payload.locations).toContainEqual(
+      expect.objectContaining({
+        uri: pathToFileURL(f.use).href,
+        range: aliasUse.range,
+      })
+    );
+    expect(result.next?.searchAliasReferences0).toBeUndefined();
+    // The verified alias is collected before the response is paginated, rather
+    // than requiring the caller to discover it through a separate follow-up.
+    expect(f.client.findReferences).toHaveBeenCalledTimes(2);
     expect(f.client.gotoDefinition).toHaveBeenCalledTimes(2);
+  });
+
+  it('executes ordinary and grouped pages across merged alias references', async () => {
+    const f = await fixture();
+    const aliasUse = {
+      ...f.imported,
+      range: {
+        start: { line: 1, character: 9 },
+        end: { line: 1, character: 14 },
+      },
+    };
+    f.client.findReferences.mockImplementation(async (_file, position) =>
+      position?.character === 29 ? [aliasUse] : [f.declaration, f.imported]
+    );
+    const first = await dispatchAnchoredSemantic(
+      { ...f.query, pageSize: 1 },
+      f.anchor,
+      f.client as never
+    );
+    const second = await dispatchAnchoredSemantic(
+      {
+        ...f.query,
+        page: first.pagination!.nextPage!,
+        pageSize: 1,
+        snapshot: first.pagination!.snapshot,
+      } as never,
+      f.anchor,
+      f.client as never
+    );
+    const third = await dispatchAnchoredSemantic(
+      {
+        ...f.query,
+        page: second.pagination!.nextPage!,
+        pageSize: 1,
+        snapshot: second.pagination!.snapshot,
+      } as never,
+      f.anchor,
+      f.client as never
+    );
+    const union = [first, second, third].flatMap(
+      result => result.payload.locations ?? []
+    );
+    expect(union).toHaveLength(3);
+    expect(union).toContainEqual(
+      expect.objectContaining({
+        uri: pathToFileURL(f.use).href,
+        range: aliasUse.range,
+      })
+    );
+    const grouped = await dispatchAnchoredSemantic(
+      { ...f.query, groupByFile: true, pageSize: 1 },
+      f.anchor,
+      f.client as never
+    );
+    const groupedNext = await dispatchAnchoredSemantic(
+      {
+        ...f.query,
+        groupByFile: true,
+        page: grouped.pagination!.nextPage!,
+        pageSize: 1,
+        snapshot: grouped.pagination!.snapshot,
+      } as never,
+      f.anchor,
+      f.client as never
+    );
+    expect(
+      [
+        ...(grouped.payload.byFile ?? []),
+        ...(groupedNext.payload.byFile ?? []),
+      ].flatMap(group => group.lines)
+    ).toContain(2);
+  });
+
+  it('caps alias verification with typed incomplete state', async () => {
+    const f = await fixture(
+      Array.from(
+        { length: 40 },
+        (_, index) => `from origin import target as alias${index}`
+      ).join('\n')
+    );
+    f.client.findReferences.mockResolvedValue([
+      f.declaration,
+      ...Array.from({ length: 40 }, (_, line) => ({
+        ...f.imported,
+        range: { start: { line, character: 19 }, end: { line, character: 25 } },
+      })),
+    ]);
+    const result = await dispatchAnchoredSemantic(
+      f.query,
+      f.anchor,
+      f.client as never
+    );
+    expect(result.payload).toMatchObject({
+      coverage: { verifiedAliasBindings: 32, unverifiedAliasBindings: 8 },
+    });
+    expect(result.incompleteResults).toBe(true);
+    expect(result.partialReasons).toContain('aliasReferences');
+    expect(result.terminalLimit).toBe(true);
+  });
+
+  it('bounds distinct alias-reference files and reports omitted files', async () => {
+    const f = await fixture();
+    const files = await Promise.all(Array.from({ length: 101 }, async (_, index) => {
+      const file = path.join(f.root, `consumer-${index}.py`);
+      await writeFile(file, 'from origin import target as alias\nalias(1)\n');
+      return {
+        uri: pathToFileURL(file).href,
+        range: { start: { line: 0, character: 19 }, end: { line: 0, character: 25 } },
+      };
+    }));
+    f.client.findReferences.mockResolvedValue(files);
+    const extract = vi.spyOn(contextUtils, 'extractGraphFacts');
+    const result = await dispatchAnchoredSemantic(f.query, f.anchor, f.client as never);
+    expect(extract).toHaveBeenCalledTimes(100);
+    expect(result.payload).toMatchObject({
+      coverage: { verifiedAliasBindings: 32, uninspectedFiles: 1 },
+    });
+    expect(result.incompleteResults).toBe(true);
+    expect(result.partialReasons).toContain('aliasReferences');
+    expect(result.terminalLimit).toBe(true);
   });
 
   it('rejects an alias candidate whose semantic definition differs', async () => {

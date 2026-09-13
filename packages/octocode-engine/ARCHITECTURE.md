@@ -43,6 +43,10 @@ secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
   fallbacks such as `node_modules/typescript-language-server/lib/cli.mjs`.
   Resolver tests must inject cwd/PATH availability through helpers instead of
   mutating process-global cwd.
+  Definition, type-definition, and implementation requests negotiate LocationLink
+  support. Native conversion preserves the provider's symbol selection range
+  separately from enclosing source context. Plain Location ranges remain unchanged;
+  providers may include annotations in declaration spans.
 - `src/signatures/` owns syntax outlines and JS/TS symbol extraction.
 - `src/security/` owns secret detection and sanitization across two tiers: Rust
   (`detector.rs`, `sanitizer.rs`, `patterns.rs`) for the detection engine and

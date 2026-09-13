@@ -2,7 +2,14 @@ import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { appendDomainEvent } from './event-outbox.js';
-import { interpretRunState, selectContextNudge, type ContextNudge } from './context-state.js';
+import {
+  interpretRunState,
+  selectContextNudge,
+  type ContextAdvisory,
+  type ContextAdvisoryKind,
+  type ContextNudge,
+} from './context-state.js';
+export type { ContextAdvisory, ContextAdvisoryKind } from './context-state.js';
 
 const label = z.string().trim().min(1).max(200);
 const opaqueId = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/);
@@ -43,10 +50,6 @@ export const contextFeedbackJsonSchema = z.toJSONSchema(z.union([
 export type ContextObservation = z.input<typeof contextObservationSchema>;
 export type ContextFeedback = z.infer<typeof contextFeedbackSchema>;
 export interface ContextRegulationScope { workspace: string; actorId: string; sessionId: string }
-export type ContextAdvisoryKind = 'repetition' | 'stalled-progress' | 'context-pressure' | 'tool-failure';
-export interface ContextAdvisory {
-  id: string; kind: ContextAdvisoryKind; observation_ids: string[]; reason: string; suggested_action: string;
-}
 interface State { repetition: number; stalled: number; recent_ids: string[]; roots: Partial<Record<ContextAdvisoryKind, string>> }
 interface ObservationRecord { report: ContextObservation; state: State; advisories: ContextAdvisory[]; sequence?: number; progressing?: boolean; passive_nudge?: ContextNudge }
 const WINDOW = 64;

@@ -11,7 +11,7 @@ import { queryContinuation } from './repo-continuations.js';
 import { getDatabasePath } from './db-runtime.js';
 
 const QUERY_OPTION_KEYS = [
-  'view', 'workspacePath', 'artifact', 'repo', 'ref', 'query', 'limit', 'agentId',
+  'view', 'workspacePath', 'artifact', 'repo', 'ref', 'query', 'limit', 'offset', 'agentId',
   'preferAgentId', 'preferFiles', 'state', 'label', 'file', 'since', 'includeBodies', 'cwd',
   'recipientAgentId',
 ] as const;
@@ -44,6 +44,7 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
   const filters = {
     query: params.query ?? null,
     limit: requestedLimit,
+    offset: params.offset ?? 0,
     agent_id: params.agentId ?? null,
     state: stringList(params.state),
     label: stringList(params.label),
@@ -94,6 +95,7 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
       total,
       omitted_count: omittedCount,
       is_partial: isPartial,
+      partial: isPartial,
       continuation: isPartial ? 'inspect section completeness and follow its targeted continuation' : null,
       sections,
       filters,
@@ -120,6 +122,7 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
     total: completeness.total,
     omitted_count: completeness.omitted_count,
     is_partial: completeness.is_partial,
+    partial: completeness.is_partial,
     continuation: completeness.continuation,
     ...queryContinuation(getDatabasePath(db), scope.workspacePath, view, params, requestedLimit, completeness.is_partial),
     filters,

@@ -63,15 +63,14 @@
     "directory": "packages/octocode"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn lint && node build.mjs && node scripts/bundle-docs.mjs",
+    "build": "yarn lint && node build.mjs && node scripts/bundle-docs.mjs",
     "release": "node ../../scripts/release.mjs --target cli",
-    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
+    "build:dev": "yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
     "clean": "rm -rf out/",
     "lint": "node ../../node_modules/eslint/bin/eslint.js src tests",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src tests --fix",
-    "prepack": "yarn readme:sync && node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
+    "prepack": "node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
     "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "start": "node ./out/octocode.js",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",

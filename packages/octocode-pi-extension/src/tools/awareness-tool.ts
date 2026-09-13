@@ -30,6 +30,80 @@ import {
 
 type RegisterFn = typeof registerUniqueTool;
 const NATIVE_HISTORY_READ_CHUNK_BYTES = 6 * 1024;
+export const AWARENESS_CONTRACT_MAX_UTF8_BYTES = 2_000;
+
+const AWARENESS_SCHEMA_PART_MAX_UTF8_BYTES = 1_200;
+
+function assertContractBudget(operation: string, text: string): string {
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > AWARENESS_CONTRACT_MAX_UTF8_BYTES) {
+    throw new Error(
+      `Awareness ${operation} contract exceeds the ${AWARENESS_CONTRACT_MAX_UTF8_BYTES}-UTF-8-byte ceiling (${bytes} bytes)`,
+    );
+  }
+  return text;
+}
+
+function descriptorContract(
+  operation: string,
+  descriptor: NonNullable<ReturnType<typeof getAwarenessOperationDescriptor>>,
+  payload: Record<string, unknown>,
+): string {
+  const guided = JSON.stringify({ operation, use: descriptor.use, effects: descriptor.effects, ...payload });
+  if (Buffer.byteLength(guided, 'utf8') <= AWARENESS_CONTRACT_MAX_UTF8_BYTES) return guided;
+  return assertContractBudget(operation, JSON.stringify({ operation, ...payload }));
+}
+
+function splitSchemaText(text: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let bytes = 0;
+  for (const char of text) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    if (bytes + charBytes > AWARENESS_SCHEMA_PART_MAX_UTF8_BYTES && current) {
+      parts.push(current);
+      current = '';
+      bytes = 0;
+    }
+    current += char;
+    bytes += charBytes;
+  }
+  if (current || parts.length === 0) parts.push(current);
+  return parts;
+}
+
+function describeOperation(operation: string, descriptor: NonNullable<ReturnType<typeof getAwarenessOperationDescriptor>>, part?: number): string {
+  const inputSchemaText = descriptor.inputSchemaText;
+  const completeBytes = Buffer.byteLength(JSON.stringify({ operation, inputSchemaText }), 'utf8');
+  if (completeBytes <= AWARENESS_CONTRACT_MAX_UTF8_BYTES) {
+    if (part !== undefined && part !== 0) throw new Error(`Awareness ${operation} schema has only part 0`);
+    return descriptorContract(operation, descriptor, { inputSchemaText });
+  }
+
+  const parts = splitSchemaText(inputSchemaText);
+  const index = part ?? 0;
+  if (!Number.isSafeInteger(index) || index < 0 || index >= parts.length) {
+    throw new Error(`Awareness ${operation} schema part must be an integer from 0 to ${parts.length - 1}`);
+  }
+  const nextPart = index + 1 < parts.length ? index + 1 : undefined;
+  return descriptorContract(operation, descriptor, {
+    partial: true,
+    inputSchemaTextPart: parts[index],
+    schemaPart: { index, total: parts.length },
+    ...(nextPart === undefined ? {} : {
+      next: {
+        tool: 'awareness',
+        queries: [{
+          reasoning: 'Continue the canonical Awareness schema',
+          operation,
+          describe: true,
+          part: nextPart,
+        }],
+      },
+    }),
+    hint: 'Concatenate inputSchemaTextPart values in schemaPart.index order before parsing the executable schema.',
+  });
+}
 
 function validateOperationQuery(query: Record<string, unknown>): void {
   const operation = String(query['operation'] ?? '').trim();
@@ -40,8 +114,12 @@ function validateOperationQuery(query: Record<string, unknown>): void {
   if (obsoleteField) throw new Error(`${obsoleteField} is not part of the canonical Awareness surface`);
   if (query['describe'] === true) {
     if (query['params'] !== undefined) throw new Error('Awareness describe cannot include params; describe reads only the operation schema');
+    if (query['part'] !== undefined && (!Number.isSafeInteger(query['part']) || Number(query['part']) < 0)) {
+      throw new Error('Awareness schema part must be a non-negative integer');
+    }
     return;
   }
+  if (query['part'] !== undefined) throw new Error('Awareness part is available only with describe:true');
   const params = record(query['params']) ?? {};
   try {
     validateRoutineParams(descriptor, params);
@@ -61,9 +139,18 @@ async function callOperation(
   if (!descriptor)
     return result(`Unknown Awareness operation: "${operation}".`, { status: 'unknown', operation }, true);
   if (query['describe'] === true) {
-    const payload = { operation, use: descriptor.use, inputSchema: descriptor.inputSchema, effects: descriptor.effects };
-    const bounded = boundedOutput(JSON.stringify(payload));
-    return result(bounded.text, { status: bounded.truncated ? 'partial' : 'ok', operation, effect: 'read', ...bounded });
+    const text = describeOperation(
+      operation,
+      descriptor,
+      typeof query['part'] === 'number' ? query['part'] : undefined,
+    );
+    return result(text, {
+      status: 'ok',
+      operation,
+      effect: 'read',
+      truncated: false,
+      totalChars: text.length,
+    });
   }
   assertPersistentAwarenessEnabled();
   const params = record(query['params']) ?? {};
@@ -219,29 +306,38 @@ export function registerAwarenessTool(
   const operationCount = ROUTINE_AWARENESS_OPERATIONS.length;
   const itemSchema = z.strictObject({
     operation: z.enum(ROUTINE_AWARENESS_OPERATIONS)
-      .describe(`One of ${operationCount} canonical Awareness operations.`),
+      .describe(`${operationCount} canonical operations.`),
     describe: z.boolean().optional()
-      .describe('Return the canonical operation schema without executing it. Do not include params.'),
+      .describe('Return its schema; omit params.'),
+    part: z.number().int().min(0).optional()
+      .describe('Schema part returned by describe discovery.'),
     params: z.record(z.string(), z.unknown()).optional()
-      .describe('Operation parameters. Pi binds database, workspace, session, and actor.'),
+      .describe('Canonical params; omit host bindings.'),
     timeoutMs: z.number().int().min(1).max(300_000).optional()
-      .describe('Cooperative deadline in milliseconds; default 120000.'),
+      .describe('Cooperative deadline in ms.'),
   });
   const parameters = buildQueryEnvelopeSchema(itemSchema, {
     maxItems: 100,
-    reasoningDescription: 'Concise reason this Awareness operation is necessary.',
+    reasoningDescription: 'Why this operation is needed.',
   });
+  const description = DIRECT_TOOL_DESCRIPTIONS.awareness!;
+  const promptSnippet = `${operationCount} bound Awareness operations; start with context.orient.`;
+  const promptGuidelines = [
+    'Call queries[{reasoning,operation,params?}]. Use {"describe":true} without params; concatenate returned schema parts before parsing. Pi binds database, workspace, session, and actor. Follow executable continuations.',
+  ];
+  assertContractBudget('standing', [
+    description,
+    promptSnippet,
+    ...promptGuidelines,
+    JSON.stringify(parameters),
+  ].join('\n'));
 
   registerFn(pi, registeredToolNames, {
     name: 'awareness',
     label: 'awareness',
-    description: DIRECT_TOOL_DESCRIPTIONS.awareness!,
-    promptSnippet: `Call one of ${operationCount} bound Awareness operations directly. Start with context.orient.`,
-    promptGuidelines: [
-      'Use queries[] with reasoning, operation, and optional params. Example: {"queries":[{"reasoning":"Orient once","operation":"context.orient"}]}.',
-      'Discover exact parameters without executing: {"queries":[{"reasoning":"Inspect operation schema","operation":"work.create","describe":true}]}. Do not include params with describe.',
-      'Pi binds database, workspace, session, and actor. Follow executable next continuations; exit 2 is partial for output-budget recovery, otherwise blocked.',
-    ],
+    description,
+    promptSnippet,
+    promptGuidelines,
     parameters,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       let stateChangingCalls = 0;

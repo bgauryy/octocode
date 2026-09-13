@@ -8,11 +8,15 @@ Read every section. Record the document type, purpose, and any part you skipped 
 
 ## Understand
 
+Identify the executing surface before mapping the instruction flow. When a host, framework, skill loader, middleware, graph, or dependency assembles the context, load `references/flow/runtime-context.md`; do not infer effective model context from the edited source alone.
+
 ```markdown
 ## Understanding
 Goal: <intended outcome>
 Parts: <section -> purpose>
+Surface: <host/framework/skill/direct API and runtime-resolved dependency>
 Flow: <execution/routing order>
+Effective boundary: <last observable model/tool input, or why it is unavailable>
 Assumptions: <safe, reversible assumptions and impact if wrong>
 Unknowns: <material choices that change intent, scope, or risk>
 ```

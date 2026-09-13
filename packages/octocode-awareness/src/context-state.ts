@@ -1,4 +1,11 @@
-import type { ContextAdvisory, ContextAdvisoryKind } from './context-regulation.js';
+export type ContextAdvisoryKind = 'repetition' | 'stalled-progress' | 'context-pressure' | 'tool-failure';
+export interface ContextAdvisory {
+  id: string;
+  kind: ContextAdvisoryKind;
+  observation_ids: string[];
+  reason: string;
+  suggested_action: string;
+}
 
 export interface RunState {
   basis: 'attributed-observations';

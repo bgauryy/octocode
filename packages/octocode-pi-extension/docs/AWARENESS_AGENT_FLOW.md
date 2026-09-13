@@ -14,7 +14,7 @@ Pi exposes one native `awareness` tool backed by `createAwarenessClient`. The to
 
 Read operations may be batched. A write must be the only query so approval, cancellation, and receipts remain unambiguous. Partial responses contain executable canonical continuations. Pi enforces operation-specific output budgets.
 
-For an unfamiliar operation, use `describe:true` without `params` in its query. Discovery returns the canonical input schema, purpose, and effects without execution or storage access. This path also works for workers without Bash. Execution validates through the same descriptor that owns effects and approval classification.
+For an unfamiliar operation, use `describe:true` without `params` in its query. Discovery returns the canonical input schema as exact generated `inputSchemaText`, plus purpose and effects, without execution or storage access. Parse that text as JSON when a structured object is needed. This path also works for workers without Bash. Execution validates through the same descriptor that owns effects and approval classification. Load schemas on demand instead of injecting all 25 into every turn.
 
 Pi translates nested `next`, `actions`, `continuations`, and History `undo_preview` calls into native `awareness` queries. Oversized reads offer a schema-valid retry or an explicit terminal-limit diagnostic; a completed write is never offered as a retry.
 

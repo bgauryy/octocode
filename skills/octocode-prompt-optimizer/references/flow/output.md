@@ -32,6 +32,6 @@ Load after VALIDATE passes. Why: deliver the requested artifact with a truthful 
 The variant must match the request, include the deliverable, and report only successful writes. The template above belongs to the document and delta variants; adding it to a prompt-only request contradicts the request. Fix formatting here; if a requested change alters the repair, return to FIX, and revalidate.
 
 ## Sources
-- Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) — explicit output structure and error signaling support reliable tool use.
+- Model Context Protocol, [Tools specification](https://modelcontextprotocol.io/specification/2026-07-28/server/tools) — typed result states, structured content, and error signaling support reliable tool use.
 
 Next: the flow ends once you present the artifact and its truthful delta; when the user requests further changes return to `references/flow/fix.md` and revalidate with `references/flow/validate.md`; when a reliability claim still needs proof load `references/flow/evaluation-data.md`. <!-- style-lint: ignore-line the-user -->

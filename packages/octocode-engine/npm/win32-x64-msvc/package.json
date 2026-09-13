@@ -10,7 +10,8 @@
     "node": "^24.15.0"
   },
   "files": [
-    "octocode-engine.win32-x64-msvc.node"
+    "octocode-engine.win32-x64-msvc.node",
+    "README.md"
   ],
   "license": "MIT",
   "main": "octocode-engine.win32-x64-msvc.node",

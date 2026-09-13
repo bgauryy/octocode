@@ -24,6 +24,7 @@ export interface NotificationRecord {
   importance: number;
   status: NotificationStatus;
   created_at: string;
+  expires_at: string;
 }
 
 export interface InsertNotificationParams {

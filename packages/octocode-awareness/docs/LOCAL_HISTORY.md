@@ -27,6 +27,22 @@ Use `history.timeline` to find an operation, then `history.read` for the require
 
 Recheck the current workspace independently. A historical digest establishes the retained version, not the correctness of the current file.
 
+## Retention and reclamation
+
+`history.status` reports automatic object pruning as disabled. LocalGit objects are never removed by a background task. It also reports whether confirmed manual reclamation is available, the one-hour minimum grace period, and the per-call object and byte bounds.
+
+`history evidence` is an operator-only CLI command; it is intentionally absent from the routine agent/API/Pi operation catalog. It defaults to `action: report`. Report mode is a dry run: it lists grace-aged loose objects that are unreachable from every SQLite history object ID and every LocalGit ref, but it does not delete them. The default grace period is one day; callers may select any value from one hour through one year. Run `history evidence --help` for its schema-derived flags.
+
+Reclamation is deliberately explicit:
+
+1. Run `history evidence` with `action: report`, inspect every page, and resolve any terminal diagnostic.
+2. Run the same selection with `action: reclaim` and `confirm: reclaim`.
+3. Follow the returned executable continuation while `partial` is true. A call removes at most the requested `limit` (maximum 100 objects) and at most 64 MiB of loose-object storage.
+
+Each reclaim call takes the Awareness metadata maintenance handshake before scanning. It refuses to run while a file capture is in `capturing` state or a sealed experience archive is still pending publication. While the handshake is held, new capture and seal transitions cannot begin; durable experience archive receipts also retain their recorded commits and descendants. Reachability is recomputed on every page, so a report is never treated as deletion authorization or as a stable deletion plan.
+
+Deletion uses the native snapshot version as a compare-and-delete precondition. A changed object, unsafe path, scan bound, or durability limitation remains explicit in the result. `objects`, `reclaimed_objects`, and `reclaimed_bytes` describe only deletions that committed; a terminal diagnostic has no continuation and requires operator inspection. Reclamation scans loose objects only and does not run Git garbage collection or alter pack files, the workspace repository, refs, index, `HEAD`, branches, remotes, configuration, or hooks.
+
 ## Restore
 
 Restore has two phases:

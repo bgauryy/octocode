@@ -12,7 +12,7 @@ Awareness exposes one routine operation contract through the CLI and a host-boun
 | Memory | `memory.recall`, `memory.record`, `memory.set`, `memory.get`, `memory.revalidate` |
 | History | `history.status`, `history.timeline`, `history.read`, `history.restore`, `history.experience` |
 
-The descriptor for each operation owns its validation schema, effect, optional approval class, output budget, continuation conversion, and handler. Host fields such as database, workspace, actor, session, and cancellation signal are bound by the client or CLI context instead of model parameters.
+The descriptor for each operation owns its validation schema, exact compact `inputSchemaText`, effect, optional approval class, output budget, continuation conversion, and handler. The text is serialized from the descriptor schema, not maintained separately. Host fields such as database, workspace, actor, session, and cancellation signal are bound by the client or CLI context instead of model parameters.
 
 Use the live schema for exact fields:
 
@@ -20,6 +20,8 @@ Use the live schema for exact fields:
 npx @octocodeai/octocode-awareness schema commands --compact
 npx @octocodeai/octocode-awareness schema command history restore --compact
 ```
+
+Native hosts read `descriptor.inputSchemaText`; Pi returns that same value from `describe:true`. The complete external-host guide includes it for every operation, while standing instructions keep schemas on demand to avoid paying their token cost on every turn.
 
 ## Package root
 
@@ -59,6 +61,8 @@ const result = await client.execute({
 });
 ```
 
+Use `kind: 'agents'` to inspect visible identities directly. This read-only projection unions registered identities with distinct senders and addressed recipients observed in Message rows, labels each row `registered` or `observed`, applies the bound workspace's linked-checkout scope, and includes store-global registrations. It does not implicitly filter to the calling agent or register an actor merely because `context.orient` was called. Results are stably ordered and paged after deduplication; when `partial` is true, execute `next.list` to advance `offset` without gaps or duplicates.
+
 `execute` returns an `AwarenessOperationResult` with `exitCode` and structured `payload`. Invalid parameters and unknown operations return `exitCode: 1`. If a serialized result exceeds its operation budget, the client returns `exitCode: 2`, `error_code: "OUTPUT_BUDGET_EXCEEDED"`, and an executable retry under `next.retry`.
 
 Do not discard a bounded result's `partial`, `partialReasons`, omission counts, terminal limit, or executable `next` calls. Execute a continuation with the same bindings and reject repeated pages in one read chain.
@@ -80,6 +84,32 @@ const instructions = getAwarenessAgentInstructions({
 ```
 
 The CLI equivalent is `instructions`; repeat `--section <name>` to compose selected sections. Omitting sections returns all guidance. The instruction builder does not open a store.
+
+## Operator HTML view
+
+`view` is an operator-only CLI command. It creates a private, self-contained HTML snapshot and opens it in the platform browser by default:
+
+```bash
+npx @octocodeai/octocode-awareness view --workspace "$PWD"
+npx @octocodeai/octocode-awareness view --workspace "$PWD" --out .octocode/awareness.html --no-open
+```
+
+The page includes the workspace-scoped agent projection, every row and column from every canonical SQLite entity, each entity's canonical owner, lifecycle policy, and executable cleanup operation, and the workspace-scoped `history.status` projection for LocalGit. Its top cards label scope explicitly: agent and LocalGit values are workspace-scoped, while entity rows and the SQLite row count are store-wide. The Agents panel uses the same registered-plus-observed projection as `work.list` with `kind: 'agents'`. LocalGit file bytes are deliberately not copied into the page; the history ledger still exposes capture paths, object IDs, durability, restores, and operations. The generated file uses mode `0600`, contains no remote assets, and escapes stored text before rendering. Re-run `view` to refresh the snapshot.
+
+`view` stays outside `schema commands` because it is an operator inspection surface, not a routine agent operation. Use `view --help` for its exact flags. `--db`, `--db-scope`, and `--workspace` select the same store and workspace bindings used by routine commands.
+
+## Operator lifecycle commands
+
+Operator commands are intentionally absent from routine agent discovery. Their canonical strict Zod contracts are still inspectable and executable as JSON Schema:
+
+```bash
+npx @octocodeai/octocode-awareness schema command maintenance retention --compact
+npx @octocodeai/octocode-awareness schema command maintenance store-retire --compact
+```
+
+`maintenance retention` reports by default. Confirmed apply uses bounded per-owner batches and returns an executable `next` command with the original cutoff until the eligible set is empty. It expires Messages, preserves their grace window and thread ancestry, retires old interactions/events/runs/Memories/restore previews, and removes expired locks. Abandoned ACTIVE runs are reported but are failed only when `--fail-stale-active-runs` is supplied; each failure receives a verification event.
+
+`maintenance store-retire` reports exact store targets and blockers by default. Save and inspect that JSON. `--action apply --confirm retire --report-file <reviewed-json>` revalidates the bound report, refuses active lifecycle state and SQLite writers, and quarantines exact SQLite and LocalGit targets by sibling rename. The result contains recovery paths; it does not permanently erase them.
 
 ## Discovery subpath
 
@@ -113,10 +143,15 @@ Inspect the generated type declaration before implementing a host adapter becaus
 
 ## Administration subpath
 
-`@octocodeai/octocode-awareness/admin` exports exactly three runtime functions:
+`@octocodeai/octocode-awareness/admin` exports migration and store-retirement services:
 
 - `previewDatabaseMigration`
 - `applyDatabaseMigration`
 - `verifyDatabaseMigration`
+- `reportStoreRetirement`
+- `applyStoreRetirement`
+- `StoreRetirementError`
 
 Migration is copy-on-write. Preview reads a recognized predecessor, classifies every row, and reports transformations without creating a destination. Apply writes a different destination file and verifies it before publication. Cutover is explicit and retains the source for rollback. For the procedure, see [Database migration](DB.md#database-migration).
+
+Store retirement is also report-bound and recoverable. It quarantines exact files and directories only after lifecycle and writer checks; it is not exported from the routine package root.

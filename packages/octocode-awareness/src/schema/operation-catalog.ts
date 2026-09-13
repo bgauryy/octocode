@@ -46,6 +46,8 @@ export interface AwarenessOperationDescriptor<K extends AwarenessOperation = Awa
   visibility: 'routine';
   effects: readonly AwarenessOperationEffect[];
   inputSchema: Readonly<Record<string, unknown>>;
+  /** Exact compact serialization of inputSchema for prompt/tool transports. */
+  inputSchemaText: string;
   validate(params?: unknown): AwarenessOperationParams[K];
   effect(params?: AwarenessOperationParams[K]): AwarenessOperationEffect;
   approval(params?: AwarenessOperationParams[K]): ApprovalClass | undefined;
@@ -149,6 +151,7 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     ? routeSchemas[0]!
     : { $schema: 'https://json-schema.org/draft/2020-12/schema', oneOf: routeSchemas });
   const validator = z.fromJSONSchema(inputSchema);
+  const inputSchemaText = JSON.stringify(inputSchema);
   for (const route of input.routes) reverseRoutes.set(route.command, { operation: input.operation, ...(route.selector ? { selector: route.selector } : {}) });
   const effects = [...new Set(input.routes.map(route => route.effect))];
   const resolve = (value?: unknown) => {
@@ -173,6 +176,7 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     visibility: 'routine' as const,
     effects: Object.freeze(effects),
     inputSchema: Object.freeze(inputSchema),
+    inputSchemaText,
     validate: (params?: unknown) => resolve(params).params as AwarenessOperationParams[K],
     effect: (params?: AwarenessOperationParams[K]) => resolve(params).route.effect,
     approval: (params?: AwarenessOperationParams[K]) => resolve(params).route.approval,
@@ -213,10 +217,12 @@ function contextWriteDescriptor<K extends 'context.observe' | 'context.feedback'
   operation: K, use: string, schema: z.ZodType, inputSchema: Record<string, unknown>,
 ): AwarenessOperationDescriptor<K> {
   const validate = (params?: unknown) => schema.parse(params) as AwarenessOperationParams[K];
+  const inputSchemaText = JSON.stringify(inputSchema);
   return Object.freeze({
     operation, concept: 'context', use, visibility: 'routine',
     effects: ['coordination-write'] as const,
     inputSchema: Object.freeze(inputSchema),
+    inputSchemaText,
     validate, effect: () => 'coordination-write' as const, approval: () => undefined,
     outputBudget: 1_500, continuations: canonicalizeContinuation,
     handler: async (context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]) => {
@@ -230,6 +236,7 @@ function knowledgeDescriptor(
   operation: KnowledgeOperation, use: string, schema: z.ZodType,
 ): AwarenessOperationDescriptor {
   const validate = (params?: unknown) => schema.parse(params ?? {}) as Params;
+  const inputSchema = z.toJSONSchema(schema, { io: 'input' }) as Record<string, unknown>;
   const effect = (params?: Params): AwarenessOperationEffect => {
     const input = validate(params);
     return operation === 'memory.set' || (operation === 'history.experience' && ['record', 'seal'].includes(String(input.action)))
@@ -239,7 +246,8 @@ function knowledgeDescriptor(
     operation, concept: operation.startsWith('memory.') ? 'memory' : 'history', use, visibility: 'routine',
     effects: operation === 'history.experience' ? ['read', 'coordination-write'] as const
       : operation === 'memory.set' ? ['coordination-write'] as const : ['read'] as const,
-    inputSchema: Object.freeze(z.toJSONSchema(schema, { io: 'input' })),
+    inputSchema: Object.freeze(inputSchema),
+    inputSchemaText: JSON.stringify(inputSchema),
     validate, effect, approval: () => undefined,
     outputBudget: operation === 'history.experience' ? BOUNDED_ROUTINE_OUTPUT_BYTES : 32_000,
     continuations: canonicalizeContinuation,
@@ -250,28 +258,25 @@ function knowledgeDescriptor(
   });
 }
 
+const contextOrientInputSchema = z.strictObject({
+  if_revision: z.string().min(1).max(80).optional(),
+  limit: z.number().int().min(1).max(3).optional(),
+  offset: z.number().int().min(0).optional(),
+  file: z.union([
+    z.string().min(1).max(1024),
+    z.array(z.string().min(1).max(1024)).min(1).max(20),
+  ]).optional(),
+  query: z.string().min(1).max(500).optional(),
+  flow: z.string().min(1).max(400).optional(),
+  failure_signature: z.string().min(1).max(400).optional(),
+});
+
 const operationDescriptors = Object.freeze([
   descriptor({
     operation: 'context.orient',
     use: 'Actively read interpreted run state, nudges and shared context; reuse the revision on the next relevant call.',
     routes: [route('attend', 'attend', 'query', 'read')],
-    inputSchema: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object',
-      properties: {
-        if_revision: { type: 'string', minLength: 1, maxLength: 80 },
-        limit: { type: 'integer', minimum: 1, maximum: 3 },
-        offset: { type: 'integer', minimum: 0 },
-        file: { oneOf: [
-          { type: 'string', minLength: 1, maxLength: 1024 },
-          { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 1024 } },
-        ] },
-        query: { type: 'string', minLength: 1, maxLength: 500 },
-        flow: { type: 'string', minLength: 1, maxLength: 400 },
-        failure_signature: { type: 'string', minLength: 1, maxLength: 400 },
-      },
-      additionalProperties: false,
-    },
+    inputSchema: z.toJSONSchema(contextOrientInputSchema, { io: 'input' }) as Record<string, unknown>,
     outputBudget: 6_000,
   }),
   contextWriteDescriptor('context.observe', 'Record a session observation. Passive acquisition offers a brief new-episode nudge; retry with the same observation ID.', contextObservationSchema, contextObservationJsonSchema),
@@ -281,9 +286,10 @@ const operationDescriptors = Object.freeze([
     task: route('task create', 'task', 'task', 'coordination-write', 'create'),
     standalone: route('work start', 'work', 'work', 'coordination-write', 'start'),
   }) }),
-  descriptor({ operation: 'work.list', use: 'List scoped plans, tasks, ready work, active presence, or the workboard.', routes: choice('kind', {
+  descriptor({ operation: 'work.list', use: 'List scoped plans, tasks, ready work, agents, active presence, or the workboard.', routes: choice('kind', {
     plan: route('plan list', 'plan', 'plan', 'read', 'list'), task: route('task list', 'task', 'task', 'read', 'list'),
     ready: route('task ready', 'task', 'task', 'read', 'ready'), presence: route('work list', 'work', 'work', 'read', 'list'),
+    agents: route('query agents', 'agents', 'query', 'read', 'agents'),
     workboard: route('query workboard', 'query', 'query', 'read', 'workboard'),
   }, 'presence') }),
   descriptor({ operation: 'work.show', use: 'Inspect one plan, task, or active file.', routes: choice('kind', {

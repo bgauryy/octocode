@@ -23,7 +23,28 @@ it('lets an Awareness-only worker discover and execute the native API without sh
     expect(receipt.awarenessPolicyCopies).toBe(1);
     expect(receipt.results).toHaveLength(2);
     expect(receipt.results.map((result: { isError: boolean }) => result.isError), JSON.stringify(receipt.results)).toEqual([false, false]);
-    expect(JSON.parse(receipt.results[0].text).inputSchema).toEqual(getAwarenessOperationDescriptor('message.send')!.inputSchema);
+    const firstSchema = JSON.parse(receipt.results[0].text) as {
+      inputSchemaText?: string;
+      inputSchemaTextPart?: string;
+      schemaPart?: { index: number; total: number };
+      next?: { queries: Array<Record<string, unknown>> };
+    };
+    const schemaParts = firstSchema.inputSchemaText === undefined ? [firstSchema.inputSchemaTextPart!] : [];
+    if (firstSchema.schemaPart && firstSchema.next) {
+      const followups = Array.from({ length: firstSchema.schemaPart.total - 1 }, (_, index) => ({
+        name: 'awareness',
+        arguments: { queries: [{ ...firstSchema.next!.queries[0], part: index + 1 }] },
+      }));
+      const continued = await runWorker(root, binding, 'index.js', 'awareness', followups, 'high');
+      expect(continued.receipt.results.every((result: { isError: boolean }) => !result.isError)).toBe(true);
+      for (const result of continued.receipt.results) {
+        const payload = JSON.parse(result.text) as { inputSchemaTextPart: string; schemaPart: { index: number } };
+        schemaParts[payload.schemaPart.index] = payload.inputSchemaTextPart;
+      }
+    }
+    const schemaText = firstSchema.inputSchemaText ?? schemaParts.join('');
+    expect(schemaText).toBe(getAwarenessOperationDescriptor('message.send')!.inputSchemaText);
+    expect(JSON.parse(schemaText)).toEqual(getAwarenessOperationDescriptor('message.send')!.inputSchema);
     expect(JSON.parse(receipt.results[1].text).self.actorId).toBeTruthy();
   } finally {
     await broker.dispose();

@@ -10,7 +10,8 @@
     "node": "^24.15.0"
   },
   "files": [
-    "octocode-engine.darwin-x64.node"
+    "octocode-engine.darwin-x64.node",
+    "README.md"
   ],
   "license": "MIT",
   "main": "octocode-engine.darwin-x64.node",

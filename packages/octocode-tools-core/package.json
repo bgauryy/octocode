@@ -98,15 +98,14 @@
     "directory": "packages/octocode-tools-core"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types-deps && node ../../node_modules/typescript/bin/tsc --emitDeclarationOnly -p tsconfig.build.json",
-    "build:dev": "yarn readme:sync && node ../../scripts/esbuild-package.mjs && yarn build:types-deps && node ../../node_modules/typescript/bin/tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build": "yarn clean && node ../../scripts/esbuild-package.mjs && yarn build:types-deps && node ../../node_modules/typescript/bin/tsc --emitDeclarationOnly -p tsconfig.build.json",
+    "build:dev": "node ../../scripts/esbuild-package.mjs && yarn build:types-deps && node ../../node_modules/typescript/bin/tsc --emitDeclarationOnly -p tsconfig.build.json",
     "build:types-deps": "yarn workspace @octocodeai/config build",
     "clean": "rm -rf dist/",
     "lint": "node ../../node_modules/eslint/bin/eslint.js src",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src --fix",
-    "prepack": "yarn readme:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
+    "prepack": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit --skipLibCheck -p tsconfig.json",

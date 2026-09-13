@@ -319,9 +319,18 @@ class PilotControls(unittest.TestCase):
         runner.write_text("Frozen runner.\n")
         permissions = controls / "sandbox_permissions.py"
         permissions.write_text("Frozen permission module.\n")
+        parser_source = controls / "cli_input.py"
+        parser_source.write_text("Frozen parser adapter.\n")
+        bridge_source = controls / "cli_input_bridge.ts"
+        bridge_source.write_text("Frozen parser bridge source.\n")
         output = self.root / ("campaign-" + str(drift))
         state = {"candidate": "before", "corpora": "before", "toolContract": "before"}
         launches = []
+
+        def fake_bridge(directory):
+            bridge = directory / "cli-input-bridge.cjs"
+            bridge.write_text("Frozen canonical parser bundle.\n")
+            return bridge
 
         def fake_trial(case, arm, pass_number, question, args, corpora, budgets):
             launches.append((case, arm, pass_number))
@@ -338,12 +347,16 @@ class PilotControls(unittest.TestCase):
                     (controls / "RUBRIC.md").unlink()
                 else:
                     target = {"runner": runner, "questions": controls / "QUESTIONS.md",
-                              "rubric": controls / "RUBRIC.md", "permissions": permissions}[drift]
+                              "rubric": controls / "RUBRIC.md", "permissions": permissions,
+                              "parser": parser_source, "bridge_source": bridge_source,
+                              "bridge": output / "cli-input-bridge.cjs"}[drift]
                     target.write_text("Changed after first trial.\n")
             return result
 
         with patch.object(pilot, "HERE", controls), patch.object(pilot, "__file__", str(runner)), \
                 patch.object(pilot.sandbox_permissions, "__file__", str(permissions)), \
+                patch.object(pilot.cli_input, "__file__", str(parser_source)), \
+                patch.object(pilot.cli_input, "prepare_bridge", side_effect=fake_bridge), \
                 patch.object(pilot, "fingerprint", side_effect=lambda cli: {"digest": state["candidate"]}), \
                 patch.object(pilot, "corpus_receipts", side_effect=lambda corpora: {"digest": state["corpora"]}), \
                 patch.object(pilot, "capture_tool_contract", create=True,
@@ -370,7 +383,8 @@ class PilotControls(unittest.TestCase):
             self.assertEqual((output / name).stat().st_mode & 0o222, 0)
 
     def test_every_frozen_input_is_checked_between_trials(self):
-        for drift in ("corpora", "runner", "permissions", "questions", "rubric", "missing_rubric", "toolContract"):
+        for drift in ("corpora", "runner", "permissions", "questions", "rubric", "missing_rubric", "toolContract",
+                      "parser", "bridge_source", "bridge"):
             with self.subTest(drift=drift):
                 status, launches, _, report = self.mock_campaign(drift)
                 self.assertEqual(status, 1)
@@ -409,7 +423,7 @@ class PilotControls(unittest.TestCase):
         plan = json.loads(printed.call_args.args[0])
         self.assertEqual(plan["corpora"]["langchain"]["path"], str(self.corpus.resolve()))
         self.assertEqual(plan["corpora"]["nextjs"]["commit"], pilot.COMMITS["nextjs"])
-        self.assertEqual(plan["protocol"], "recoverable-read-surfaces-v9")
+        self.assertEqual(plan["protocol"], "read-surface-recovery-v10")
         with patch("sys.stderr"), self.assertRaises(SystemExit):
             pilot.main(["--output-dir", str(self.root / "missing-roots")])
 

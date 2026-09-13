@@ -98,12 +98,10 @@ it('reconciles only a complete unique durable journal and never replays workspac
   expect(readFileSync(join(f.workspace, 'file.ts'), 'utf8')).toBe('preserve current bytes');
 });
 
-it('reports evidence through the public API and explicitly refuses reclamation', async () => {
+it('reports evidence through the public API without mutating objects', async () => {
   const f = fixture();
   const report = await f.call('history evidence', { action: 'report' });
   expect(report).toMatchObject({ ok: true, dry_run: true, safety: 'observational', objects: [] });
-  const unavailable = await f.call('history evidence', { action: 'reclaim', confirm: 'reclaim' }, 2);
-  expect(unavailable).toMatchObject({ ok: false, code: 'HISTORY_EVIDENCE_RECLAIM_UNAVAILABLE' });
 });
 
 it('continues past a full scan window without skipping the first unscanned object', async () => {

@@ -3,13 +3,25 @@ import { HOOK_RECEIPTS_DDL } from '../db-meta-schema.js';
 import { DEFAULT_AWARENESS_STORAGE_SCOPE, globalAwarenessDatabasePath } from '../storage-scope.js';
 
 export type AwarenessEntityKind = 'table' | 'virtual_table';
-export type AwarenessEntityOwner = 'awareness';
+export type AwarenessEntityOwner = 'storage' | 'work' | 'message' | 'memory' | 'context' | 'history' | 'host' | 'infrastructure';
+export type AwarenessEntityAccess = 'read-write' | 'derived-index';
+export type AwarenessEntityRetention = 'store-lifetime' | 'domain-lifecycle' | 'end-state' | 'lease-bound' | 'lease-and-receipt' | 'policy-prunable' | 'retention-class';
+export type AwarenessEntityDeletion = 'store-only' | 'cascade' | 'expiry-maintenance' | 'expired-ready-maintenance' | 'retention-maintenance' | 'index-rebuild';
+export type AwarenessEntityCleanupOperation = 'maintenance retention' | 'maintenance store-retire';
+
+export interface AwarenessEntityLifecycle {
+  access: AwarenessEntityAccess;
+  retention: AwarenessEntityRetention;
+  deletion: AwarenessEntityDeletion;
+  cleanup_operation: AwarenessEntityCleanupOperation;
+}
 
 export interface AwarenessEntity {
   name: string;
   kind: AwarenessEntityKind;
   owner: AwarenessEntityOwner;
   family: string;
+  lifecycle: AwarenessEntityLifecycle;
 }
 
 export interface AwarenessEntityCatalog {
@@ -35,38 +47,78 @@ function ddlRelations(ddl: string): Array<{ name: string; kind: AwarenessEntityK
   return relations;
 }
 
-const FAMILY_BY_NAME: Record<string, string> = {
-  awareness_meta: 'storage',
-  hook_receipts: 'hooks',
-  sessions: 'presence',
-  awareness_memories: 'memory',
-  awareness_plans: 'planning',
-  plan_members: 'planning',
-  plan_docs: 'planning',
-  awareness_tasks: 'tasks',
-  task_paths: 'tasks',
-  task_dependencies: 'tasks',
-  task_runs: 'execution',
-  run_files: 'execution',
-  task_claims: 'execution',
-  awareness_locks: 'locks',
-  delivery_state: 'delivery',
-  signals: 'messaging',
-  signal_reads: 'messaging',
-  memory_refs: 'memory',
-  awareness_agents: 'identity',
-  memories_fts: 'search',
-  event_outbox: 'events',
-  event_consumers: 'events',
-  event_acknowledgements: 'events',
-  pending_interactions: 'interactions',
-  authorization_receipts: 'authorization',
-  capability_receipts: 'authorization',
-  local_history_operations: 'history',
-  local_history_versions: 'history',
-  local_history_restores: 'history',
-  local_history_durability: 'history',
-};
+interface EntityMetadata {
+  family: string;
+  owner: AwarenessEntityOwner;
+  lifecycle: AwarenessEntityLifecycle;
+}
+
+type AwarenessEntityLifecyclePolicy = Omit<AwarenessEntityLifecycle, 'cleanup_operation'>;
+
+const lifecycle = (
+  access: AwarenessEntityAccess,
+  retention: AwarenessEntityRetention,
+  deletion: AwarenessEntityDeletion,
+): AwarenessEntityLifecyclePolicy => Object.freeze({ access, retention, deletion });
+
+const DURABLE = lifecycle('read-write', 'store-lifetime', 'store-only');
+const DOMAIN = lifecycle('read-write', 'domain-lifecycle', 'store-only');
+const END_STATE = lifecycle('read-write', 'end-state', 'store-only');
+const TERMINAL_RETENTION = lifecycle('read-write', 'domain-lifecycle', 'retention-maintenance');
+const CASCADE = lifecycle('read-write', 'domain-lifecycle', 'cascade');
+const LEASE = lifecycle('read-write', 'lease-bound', 'expiry-maintenance');
+const RESTORE = lifecycle('read-write', 'lease-and-receipt', 'expired-ready-maintenance');
+const PRUNABLE = lifecycle('read-write', 'policy-prunable', 'retention-maintenance');
+const EVENT = lifecycle('read-write', 'retention-class', 'retention-maintenance');
+const INDEX = lifecycle('derived-index', 'domain-lifecycle', 'index-rebuild');
+
+const metadata = (
+  family: string,
+  owner: AwarenessEntityOwner,
+  policy: AwarenessEntityLifecyclePolicy,
+  cleanupOperation: AwarenessEntityCleanupOperation,
+): EntityMetadata => Object.freeze({
+  family,
+  owner,
+  lifecycle: Object.freeze({ ...policy, cleanup_operation: cleanupOperation }),
+});
+
+const RETENTION = 'maintenance retention' as const;
+const STORE_RETIREMENT = 'maintenance store-retire' as const;
+
+/** Canonical semantic owner and lifecycle policy for every current DDL relation. */
+const ENTITY_METADATA_BY_NAME: Readonly<Record<string, EntityMetadata>> = Object.freeze({
+  awareness_meta: metadata('storage', 'storage', DURABLE, STORE_RETIREMENT),
+  hook_receipts: metadata('hooks', 'host', DURABLE, STORE_RETIREMENT),
+  sessions: metadata('presence', 'work', END_STATE, STORE_RETIREMENT),
+  awareness_memories: metadata('memory', 'memory', PRUNABLE, RETENTION),
+  awareness_plans: metadata('planning', 'work', DOMAIN, STORE_RETIREMENT),
+  plan_members: metadata('planning', 'work', CASCADE, STORE_RETIREMENT),
+  plan_docs: metadata('planning', 'work', CASCADE, STORE_RETIREMENT),
+  awareness_tasks: metadata('tasks', 'work', DOMAIN, STORE_RETIREMENT),
+  task_paths: metadata('tasks', 'work', CASCADE, STORE_RETIREMENT),
+  task_dependencies: metadata('tasks', 'work', CASCADE, STORE_RETIREMENT),
+  task_runs: metadata('execution', 'work', PRUNABLE, RETENTION),
+  run_files: metadata('execution', 'work', CASCADE, RETENTION),
+  task_claims: metadata('execution', 'work', CASCADE, RETENTION),
+  awareness_locks: metadata('locks', 'work', LEASE, RETENTION),
+  delivery_state: metadata('delivery', 'message', DOMAIN, STORE_RETIREMENT),
+  signals: metadata('messaging', 'message', PRUNABLE, RETENTION),
+  signal_reads: metadata('messaging', 'message', CASCADE, RETENTION),
+  memory_refs: metadata('memory', 'memory', CASCADE, RETENTION),
+  awareness_agents: metadata('identity', 'work', DOMAIN, STORE_RETIREMENT),
+  memories_fts: metadata('search', 'memory', INDEX, RETENTION),
+  event_outbox: metadata('events', 'infrastructure', EVENT, RETENTION),
+  event_consumers: metadata('events', 'infrastructure', DOMAIN, STORE_RETIREMENT),
+  event_acknowledgements: metadata('events', 'infrastructure', CASCADE, RETENTION),
+  pending_interactions: metadata('interactions', 'host', TERMINAL_RETENTION, RETENTION),
+  authorization_receipts: metadata('authorization', 'host', DURABLE, STORE_RETIREMENT),
+  capability_receipts: metadata('authorization', 'host', DURABLE, STORE_RETIREMENT),
+  local_history_operations: metadata('history', 'history', DURABLE, STORE_RETIREMENT),
+  local_history_versions: metadata('history', 'history', CASCADE, STORE_RETIREMENT),
+  local_history_restores: metadata('history', 'history', RESTORE, RETENTION),
+  local_history_durability: metadata('history', 'history', CASCADE, STORE_RETIREMENT),
+});
 
 /**
  * Read-only entity catalog derived from the executable canonical Awareness DDL.
@@ -80,13 +132,12 @@ export function awarenessEntityCatalog(env: NodeJS.ProcessEnv = process.env): Aw
   for (const relation of [...canonical, ...search]) names.set(relation.name, relation);
   const entities = [...names.values()]
     .map(({ name, kind }) => {
-      const family = FAMILY_BY_NAME[name];
-      if (family === undefined) throw new Error(`entity catalog missing family mapping: ${name}`);
+      const semantic = ENTITY_METADATA_BY_NAME[name];
+      if (semantic === undefined) throw new Error(`entity catalog missing lifecycle metadata: ${name}`);
       return {
         name,
         kind,
-        owner: 'awareness' as const,
-        family,
+        ...semantic,
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name));

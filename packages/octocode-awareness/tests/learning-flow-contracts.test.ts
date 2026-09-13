@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db-init.js';
 import { attendAwareness } from '../src/attend-query.js';
-import { digest } from '../src/maintenance-digest.js';
+import { inspectMaintenancePressure } from '../src/maintenance-pressure.js';
 import { getMemory } from '../src/memory-recall.js';
 import { insertMemory } from '../src/memory-write.js';
 import { agentSignal } from '../src/notifications-signals.js';
@@ -134,7 +134,7 @@ describe('read, act, and learn flow contracts', () => {
     db.prepare('UPDATE awareness_memories SET created_at = ?, updated_at = ? WHERE memory_id = ?')
       .run(old, old, memory.memoryId);
 
-    const preview = digest(db, { workspace_path: workspace, dry_run: true });
+    const preview = inspectMaintenancePressure(db, { workspace_path: workspace });
     expect(preview.pressure_age_days).toBe(1);
     expect(preview.stale_pending_runs).toBe(1);
     expect(preview.stale_active_runs).toBe(0);

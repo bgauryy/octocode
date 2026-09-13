@@ -10,7 +10,8 @@
     "node": "^24.15.0"
   },
   "files": [
-    "octocode-engine.linux-x64-gnu.node"
+    "octocode-engine.linux-x64-gnu.node",
+    "README.md"
   ],
   "libc": [
     "glibc"

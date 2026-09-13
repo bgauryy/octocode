@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test, vi } from 'vitest';
-import { getAwarenessAgentInstructions, ROUTINE_AWARENESS_OPERATIONS, type AwarenessOperationResult } from '@octocodeai/octocode-awareness';
+import {
+  getAwarenessAgentInstructions,
+  getAwarenessOperationDescriptor,
+  ROUTINE_AWARENESS_OPERATIONS,
+  type AwarenessOperationResult,
+} from '@octocodeai/octocode-awareness';
 import { defaultDbPath } from '@octocodeai/octocode-awareness/host';
 import type { AwarenessOperationRunner } from '../src/tools/awareness-operation-runner.js';
 import { runAwarenessOperation } from '../src/tools/awareness-operation-runner.js';
@@ -38,6 +43,17 @@ function makeTool(runner: AwarenessOperationRunner): ToolDefinition {
   return definition;
 }
 
+const AWARENESS_CONTRACT_MAX_UTF8_BYTES = 2_000;
+
+function modelVisibleStandingContract(tool: ToolDefinition): string {
+  return [
+    tool.description,
+    tool.promptSnippet,
+    ...(tool.promptGuidelines ?? []),
+    JSON.stringify(tool.parameters),
+  ].join('\n');
+}
+
 async function run(tool: ToolDefinition, queries: Record<string, unknown>[], ctx: PiContext = { cwd: root } as PiContext): Promise<ToolCallResult> {
   try {
     return await tool.execute('call', { queries: queries.map(query => ({ reasoning: 'canonical contract', ...query })) }, undefined, undefined, ctx);
@@ -45,6 +61,33 @@ async function run(tool: ToolDefinition, queries: Record<string, unknown>[], ctx
     if (error instanceof ToolResultError) return error.result;
     return { content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }], isError: true };
   }
+}
+
+async function describeSchema(tool: ToolDefinition, operation: string): Promise<string> {
+  const parts: string[] = [];
+  let part: number | undefined;
+  let total = 1;
+  do {
+    const value = await run(tool, [{ operation, describe: true, ...(part === undefined ? {} : { part }) }]);
+    assert.equal(value.isError, false, `${operation} part ${part ?? 0}`);
+    const text = String((value.content[0] as { text?: string }).text);
+    assert.ok(Buffer.byteLength(text, 'utf8') <= AWARENESS_CONTRACT_MAX_UTF8_BYTES, operation);
+    const payload = JSON.parse(text) as {
+      inputSchemaText?: string;
+      inputSchemaTextPart?: string;
+      schemaPart?: { index: number; total: number };
+      next?: { queries?: Array<{ part?: number }> };
+    };
+    if (payload.inputSchemaText !== undefined) return payload.inputSchemaText;
+    assert.ok(payload.schemaPart, operation);
+    assert.equal(typeof payload.inputSchemaTextPart, 'string', operation);
+    parts[payload.schemaPart!.index] = payload.inputSchemaTextPart!;
+    total = payload.schemaPart!.total;
+    part = payload.next?.queries?.[0]?.part;
+  } while (part !== undefined);
+  assert.equal(parts.length, total, `${operation} schema parts`);
+  assert.ok(parts.every(value => typeof value === 'string'), `${operation} contiguous schema parts`);
+  return parts.join('');
 }
 
 test('exposes direct routine operations without list-describe-call ceremony', async () => {
@@ -68,6 +111,26 @@ test('exposes direct routine operations without list-describe-call ceremony', as
   assert.equal(bindings?.workspace, root);
   assert.ok(bindings?.agentId);
   assert.equal(bindings?.database, defaultDbPath(root));
+});
+
+test('keeps the complete model-visible standing Awareness contract within a conservative 2,000-byte ceiling', () => {
+  const tool = makeTool(async () => ({ exitCode: 0, payload: {} }));
+  const contract = modelVisibleStandingContract(tool);
+  assert.ok(
+    Buffer.byteLength(contract, 'utf8') <= AWARENESS_CONTRACT_MAX_UTF8_BYTES,
+    `standing Awareness contract is ${Buffer.byteLength(contract, 'utf8')} UTF-8 bytes`,
+  );
+});
+
+test('bounds every describe contract and reconstructs the exact canonical executable schema', async () => {
+  const tool = makeTool(async () => ({ exitCode: 0, payload: {} }));
+  for (const operation of ROUTINE_AWARENESS_OPERATIONS) {
+    const descriptor = getAwarenessOperationDescriptor(operation);
+    assert.ok(descriptor);
+    const reconstructed = await describeSchema(tool, operation);
+    assert.equal(reconstructed, descriptor.inputSchemaText, `${operation} exact schema text`);
+    assert.deepEqual(JSON.parse(reconstructed), descriptor.inputSchema, `${operation} canonical schema`);
+  }
 });
 
 test('keeps Message guidance in the canonical instructions and native schema discovery on the tool', () => {

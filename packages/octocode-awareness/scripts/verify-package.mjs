@@ -190,7 +190,11 @@ try {
   const help = run(process.execPath, [cli, '--help'], installedOptions);
   assert(help.includes('octocode-awareness'), 'published CLI must name its bundled skill');
   assert(help.includes('ONE SURFACE') && help.includes('FIVE CONCEPTS'), 'published CLI must advertise the canonical concepts');
-  for (const removed of ['maintenance', 'docs list', 'skill install', 'refinement']) {
+  assert(
+    help.includes('maintenance retention') && help.includes('maintenance store-retire'),
+    'published CLI must advertise both explicit operator maintenance commands',
+  );
+  for (const removed of ['docs list', 'skill install', 'refinement']) {
     assert(!help.includes(removed), `published CLI help still advertises removed surface: ${removed}`);
   }
 
@@ -206,6 +210,13 @@ try {
     const schema = JSON.parse(run(process.execPath, [cli, 'schema', 'command', concept, action, '--compact'], installedOptions));
     assertStrictOperationSchema(schema, operation);
     assert(schema['x-awareness-operation'] === operation, `${operation} descriptor identity drifted`);
+  }
+  for (const operation of ['maintenance.retention', 'maintenance.store-retire']) {
+    const [concept, action] = operation.split('.');
+    const schema = JSON.parse(run(process.execPath, [cli, 'schema', 'command', concept, action, '--compact'], installedOptions));
+    assertStrictOperationSchema(schema, operation);
+    assert(schema['x-awareness-operation'] === operation, `${operation} operator descriptor identity drifted`);
+    assert(!surface.operations.includes(operation), `${operation} must remain outside routine agent discovery`);
   }
   const entities = JSON.parse(run(process.execPath, [cli, 'schema', 'entities', '--compact'], installedOptions));
   assert(entities.ok === true && Array.isArray(entities.families) && entities.families.length > 0, 'schema entities must expose canonical storage entities');
@@ -259,8 +270,11 @@ try {
       assert.equal(typeof host.claimNativeHookOwner, 'function');
       const admin = await import(${JSON.stringify(pathToFileURL(join(installed, 'out/admin-api.js')).href)});
       assert.deepEqual(Object.keys(admin).sort(), [
+        'StoreRetirementError',
         'applyDatabaseMigration',
+        'applyStoreRetirement',
         'previewDatabaseMigration',
+        'reportStoreRetirement',
         'verifyDatabaseMigration',
       ]);
     `,

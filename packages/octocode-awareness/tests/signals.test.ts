@@ -14,6 +14,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { initDb } from '../src/db-init.js';
 import { utcNow } from '../src/helpers.js';
+import { signalExpiresAt } from '../src/message-lifecycle.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,11 +48,12 @@ function insertSignal(
 ): string {
   const signalId = opts.signalId ?? makeSignalId();
   const threadId = opts.threadId ?? signalId;
+  const createdAt = utcNow();
   db.prepare(`
     INSERT INTO signals
       (signal_id, workspace_path, from_agent, kind, subject,
-       files_json, refs_json, thread_id, reply_to, importance, status, created_at)
-    VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, ?, 5, 'open', ?)
+       files_json, refs_json, thread_id, reply_to, importance, status, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, ?, 5, 'open', ?, ?)
   `).run(
     signalId,
     opts.workspacePath ?? '/repo',
@@ -60,7 +62,8 @@ function insertSignal(
     opts.subject ?? 'test signal',
     threadId,
     opts.replyTo ?? null,
-    utcNow(),
+    createdAt,
+    signalExpiresAt(opts.kind ?? 'fyi', createdAt),
   );
   return signalId;
 }

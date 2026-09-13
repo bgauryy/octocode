@@ -120,7 +120,7 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(3);
   });
 
-  it('printToolsContext: prints full context to stdout', async () => {
+  it('printToolsContext: prints compact context to stdout', async () => {
     const { printToolsContext } =
       await import('../../src/cli/tool-command/context.js');
 
@@ -129,7 +129,9 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('Octocode CLI — Agent Context');
     expect(output).toContain('tools <name>');
-    expect(output).toContain('Protocol: answer the next unresolved question');
+    expect(output).toContain(
+      'Check every requested fact against returned evidence'
+    );
     expect(output).toContain('Tools (');
     expect(output).not.toContain('Server instructions.');
     expect(output).toContain('Output contract');
@@ -144,7 +146,9 @@ describe('tool-command coverage', () => {
 
     // Schemas are no longer embedded in context — read them on demand via octocode tools <name>
     expect(compact).not.toContain('"$schema"');
-    expect(compact).toContain('Protocol: answer the next unresolved question');
+    expect(compact).toContain(
+      'Check every requested fact against returned evidence'
+    );
     expect(full).toContain(
       'Choose the next unresolved question; skip stages already supported by evidence.'
     );

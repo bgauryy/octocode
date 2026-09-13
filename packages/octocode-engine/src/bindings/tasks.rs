@@ -159,7 +159,7 @@ impl Task for SearchRipgrepTask {
             .options
             .take()
             .ok_or_else(|| Error::new(Status::GenericFailure, "search options already consumed"))?;
-        ripgrep_search::search(options)
+        Ok(ripgrep_search::search(options)?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {

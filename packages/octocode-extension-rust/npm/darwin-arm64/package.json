@@ -5,7 +5,8 @@
   "license": "MIT",
   "main": "octocode-extension-rust.darwin-arm64.node",
   "files": [
-    "octocode-extension-rust.darwin-arm64.node"
+    "octocode-extension-rust.darwin-arm64.node",
+    "README.md"
   ],
   "os": [
     "darwin"

@@ -593,9 +593,7 @@ describe('toolCommand', () => {
 
     expect(context).toContain('TOOL CALLS');
     expect(context).toContain('tools <name>');
-    expect(context).toContain(
-      'Choose the available tool for the next unresolved question'
-    );
+    expect(context).toContain('Choose a tool for the next unresolved question');
     expect(context).toContain('1. ghSearch');
     expect(context).toContain('2. ghSearchHistory');
     expect(context).toContain('3. ghGetHistoryItem');
@@ -642,7 +640,9 @@ describe('toolCommand', () => {
     // lean mode includes short tool descriptions inline
     expect(context).toContain('1. ghSearch — Discover GitHub repositories');
     expect(context).not.toContain('"$schema"');
-    expect(context).toContain('Protocol: answer the next unresolved question');
+    expect(context).toContain(
+      'Check every requested fact against returned evidence'
+    );
     expect(context).toContain(
       'Follow executable next.* calls with their scope and snapshot unchanged. Partial scan/depth state can require continuation even when hasMore is false. Whole-response pagination may split results; a restart discards earlier pages.'
     );

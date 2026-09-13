@@ -25,7 +25,7 @@ for (const platform of platforms) {
   const desired = {
     name: platform.packageName, version: pkg.version,
     description: `Octocode extension native operations for ${platform.id}`,
-    license: pkg.license, main: platform.binary, files: [platform.binary],
+    license: pkg.license, main: platform.binary, files: [platform.binary, 'README.md'],
     os: [platform.os], cpu: [platform.arch], ...(platform.libc ? { libc: [platform.libc] } : {}),
     engines: pkg.engines, publishConfig: pkg.publishConfig,
     repository: { ...pkg.repository, directory: `${pkg.repository.directory}/npm/${platform.id}` },

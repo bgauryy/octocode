@@ -11,7 +11,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { resolveDbPath } from '../db-runtime.js';
 import { auditUnverified } from '../verify-audit.js';
-import { digest } from '../maintenance-digest.js';
+import { runMaintenanceRetention } from '../maintenance-retention.js';
+import { maintenanceRetentionSchema } from '../schema/definitions-maintenance.js';
 import { peerBriefing } from '../peer-briefing.js';
 import { sessionCapture } from '../maintenance-session.js';
 import { endSession } from '../sessions.js';
@@ -49,17 +50,17 @@ export async function runStopVerify(
   return 0;
 }
 
-function digestPreviewSchedule(
+function retentionPreviewSchedule(
   payload: Record<string, unknown>,
   features: AwarenessFeatureConfig,
 ): { markerPath: string; now: number; due: boolean } | null {
-  if (!features.maintenanceReminders || process.env.OCTOCODE_NO_DIGEST === '1') return null;
-  const intervalHours = Number(process.env.OCTOCODE_DIGEST_INTERVAL_HOURS ?? 4);
+  if (!features.maintenanceReminders || process.env.OCTOCODE_NO_RETENTION_REMINDER === '1') return null;
+  const intervalHours = Number(process.env.OCTOCODE_RETENTION_REMINDER_INTERVAL_HOURS ?? 4);
   const intervalMs = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours * 3600_000 : 4 * 3600_000;
   const memoryHome = dirname(resolveDbPath(null));
-  const digestScope = workspace(payload) ?? 'global';
-  const scopeHash = createHash('sha256').update(digestScope).digest('hex').slice(0, 12);
-  const markerPath = join(memoryHome, `.last-digest-preview-${scopeHash}-epoch-ms`);
+  const retentionScope = workspace(payload) ?? 'global';
+  const scopeHash = createHash('sha256').update(retentionScope).digest('hex').slice(0, 12);
+  const markerPath = join(memoryHome, `.last-retention-preview-${scopeHash}-epoch-ms`);
   let last = 0;
   try { last = Number(readFileSync(markerPath, 'utf8').trim() || 0); } catch { /* first preview */ }
   const now = Date.now();
@@ -67,36 +68,38 @@ function digestPreviewSchedule(
 }
 
 /** A cheap filesystem deadline check; unchanged SQLite bytes do not stop time. */
-export function isDigestPreviewDue(payload: Record<string, unknown>, features: AwarenessFeatureConfig): boolean {
-  return digestPreviewSchedule(payload, features)?.due ?? false;
+export function isRetentionPreviewDue(payload: Record<string, unknown>, features: AwarenessFeatureConfig): boolean {
+  return retentionPreviewSchedule(payload, features)?.due ?? false;
 }
 
-export function maybePreviewDigest(
+export function maybePreviewRetention(
   payload: Record<string, unknown>,
   features: AwarenessFeatureConfig = DEFAULT_AWARENESS_CONFIG.features,
 ): string | null {
   try {
-    const schedule = digestPreviewSchedule(payload, features);
+    const schedule = retentionPreviewSchedule(payload, features);
     if (schedule?.due) {
       const { markerPath, now } = schedule;
       const database = db(payload, 'digest');
-      const preview = digest(database, {
-        workspace_path: workspace(payload),
-        dry_run: true,
-      });
+      const selectedWorkspace = workspace(payload) ?? process.cwd();
+      const preview = runMaintenanceRetention(
+        database,
+        selectedWorkspace,
+        maintenanceRetentionSchema.parse({ action: 'report' }),
+      ) as { domains: { memories: { archived: number; matched: number }; locks: { matched: number } } };
       mkdirSync(dirname(markerPath), { recursive: true });
       writeFileSync(markerPath, String(now), 'utf8');
       const pressure = {
-        archive: preview.would_archive ?? 0,
-        memories: preview.would_prune_old ?? 0,
-        locks: preview.would_prune_locks ?? 0,
+        archive: preview.domains.memories.archived,
+        memories: preview.domains.memories.matched,
+        locks: preview.domains.locks.matched,
       };
       if (Object.values(pressure).some((count) => count > 0)) {
         return `Maintenance pressure: archive ${pressure.archive}, prune memories ${pressure.memories}, locks ${pressure.locks}. Review with the canonical maintenance surface; apply only after review.`;
       }
     }
   } catch (error) {
-    writeCommandDiagnostic(`octocode-awareness digest warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
+    writeCommandDiagnostic(`octocode-awareness retention warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
   }
   return null;
 }
@@ -127,7 +130,7 @@ async function runCommunication(
   features: AwarenessFeatureConfig,
 ): Promise<number> {
   if (process.env.OCTOCODE_NO_NOTIFY === '1' || !canDeliverHookCommunication(payload)) return 0;
-  const maintenanceContext = maybePreviewDigest(payload, features);
+  const maintenanceContext = maybePreviewRetention(payload, features);
   const database = db(payload);
   registerHookAgent(database, payload, 'hook:notify-deliver');
   const messageContext = features.notifications

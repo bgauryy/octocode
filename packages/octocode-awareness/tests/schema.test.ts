@@ -304,6 +304,7 @@ describe('signals table column names', () => {
       'artifact',
       'body',
       'created_at',
+      'expires_at',
       'files_json',
       'from_agent',
       'importance',
@@ -337,8 +338,8 @@ describe('lifecycle enum constraints', () => {
   it('rejects unknown signal statuses', () => {
     const db = freshDb();
     const insert = db.prepare(`INSERT INTO signals(
-      signal_id, workspace_path, from_agent, kind, subject, thread_id, importance, status, created_at
-    ) VALUES (?, '/tmp/repo', 'agent-a', 'fyi', 'subject', ?, 5, ?, '2026-01-01T00:00:00Z')`);
+      signal_id, workspace_path, from_agent, kind, subject, thread_id, importance, status, created_at, expires_at
+    ) VALUES (?, '/tmp/repo', 'agent-a', 'fyi', 'subject', ?, 5, ?, '2026-01-01T00:00:00Z', '2026-01-08T00:00:00Z')`);
 
     expect(() => insert.run('ntf_bad', 'ntf_bad', 'archived')).toThrow(/CHECK constraint failed/);
     expect(() => insert.run('ntf_good_open', 'ntf_good_open', 'open')).not.toThrow();

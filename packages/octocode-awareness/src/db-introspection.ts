@@ -199,6 +199,21 @@ function isLegacyRenamedPredecessor(db: DatabaseSync, identity: SchemaIdentity):
   }
 }
 
+function assertMessageRetentionPredecessorFingerprint(db: DatabaseSync): void {
+  const canonical = new DatabaseSync(':memory:');
+  try {
+    canonical.exec(SCHEMA_DDL);
+    canonical.exec(SCHEMA_INDEX_DDL);
+    canonical.exec('DROP INDEX IF EXISTS idx_signals_expires_at');
+    canonical.exec('ALTER TABLE signals DROP COLUMN expires_at');
+    if (readSchemaObjects(db).some(({ name }) => name === 'memories_fts')) canonical.exec(FTS_SCHEMA_DDL);
+    if (readSchemaObjects(db).some(({ name }) => name === 'worker_lifecycle_events')) canonical.exec(WORKER_LIFECYCLE_DDL);
+    assertSchemaObjects(readSchemaObjects(db), readSchemaObjects(canonical));
+  } finally {
+    canonical.close();
+  }
+}
+
 export function stableIdentityHash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -314,6 +329,11 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
       if (missingDurability) return 'event-envelope-history-durability-upgrade';
       return 'event-envelope-upgrade';
     }
+    if (!tableColumns(db, 'signals').has('expires_at')) {
+      assertMessageRetentionPredecessorFingerprint(db);
+      readAwarenessMetaVersion(db, [2, ...AWARENESS_MIGRATABLE_SCHEMA_VERSIONS]);
+      return 'schema-generation-upgrade';
+    }
     if (canonicalCount !== expected.size) {
       if (canonicalCount === expected.size - 1 && missingMeta) {
         assertSchemaFingerprint(db, { omittedTables: ['awareness_meta'], includeRefinements: hasRefinements });
@@ -357,6 +377,10 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
 }
 
 export function assertDatabaseIntegrity(db: DatabaseSync): void {
+  if (tableColumns(db, 'signals').has('expires_at')) {
+    const missingExpiry = db.prepare('SELECT COUNT(*) AS count FROM signals WHERE expires_at IS NULL').get() as { count: number | bigint };
+    if (Number(missingExpiry.count) > 0) throw new Error(`canonical signals expiry invariant failed for ${missingExpiry.count} row(s)`);
+  }
   const integrity = db.prepare('PRAGMA integrity_check').all() as Array<{ integrity_check: string }>;
   const failures = integrity.filter(({ integrity_check }) => integrity_check !== 'ok');
   if (failures.length > 0) {

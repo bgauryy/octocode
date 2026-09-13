@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getAwarenessAgentInstructions } from '../src/agent-instructions.js';
 import { ROUTINE_AWARENESS_OPERATIONS } from '../src/schema/operation-types.js';
+import { getAwarenessOperationDescriptor } from '../src/schema/operation-catalog.js';
 import {
   AWARENESS_PI_HOST_PROMPT,
   formatExternalAgentAwarenessInstructions,
@@ -129,6 +130,12 @@ describe('host-only Awareness behavior', () => {
     expect(guide.prompt).toContain(AWARENESS_PI_HOST_PROMPT.replace('</awareness>', ''));
     expect(guide.prompt).not.toContain('## observe\n');
     expect(guide.prompt).not.toContain('solo work needs no record');
+    expect(guide.commands).toHaveLength(ROUTINE_AWARENESS_OPERATIONS.length);
+    for (const command of guide.commands) {
+      expect(JSON.parse(command.inputSchemaText)).toEqual(
+        getAwarenessOperationDescriptor(command.operation)?.inputSchema,
+      );
+    }
     expect(guide.prompt).toContain('Operation calls use `<concept> <operation>`');
     expect(guide.prompt).toContain('instructions');
     expect(guide.commands.map(({ operation }) => operation)).toEqual(ROUTINE_AWARENESS_OPERATIONS);

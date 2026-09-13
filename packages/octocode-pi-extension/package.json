@@ -103,9 +103,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "octocode": {
-    "readmeSync": false
-  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.1"
   }

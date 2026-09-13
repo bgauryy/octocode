@@ -144,18 +144,39 @@ def _ratio(numerator, denominator):
 
 
 def _replay_current_protocol(report, rows, root, errors):
-    from pilot import PROTOCOL
+    import cli_input
+    import pilot
+
+    PROTOCOL = pilot.PROTOCOL
     protocol = report.get("plan", {}).get("protocol")
     result = {"attempted": False, "protocol": protocol, "supported": protocol == PROTOCOL}
     if protocol != PROTOCOL:
         return result
-    plan = report["plan"]
-    cli = plan.get("cli")
-    roots = [item.get("path") for item in plan.get("corpora", {}).values() if isinstance(item, dict)]
-    if not isinstance(cli, str) or not all(isinstance(root_path, str) for root_path in roots):
+    preflight = report.get("preflight")
+    if not isinstance(preflight, dict):
+        result["reason"] = "current protocol lacks frozen preflight"
+        return result
+    cli, bridge_name = preflight.get("cli"), preflight.get("flagBridge")
+    roots = [item.get("path") for item in preflight.get("corpora", {}).values() if isinstance(item, dict)]
+    bridge = _safe_file(root, str(Path(bridge_name).resolve().relative_to(root)) if isinstance(bridge_name, str)
+                        and Path(bridge_name).resolve().is_relative_to(root) else None,
+                        errors, "preflight.flagBridge")
+    expected_hashes = {
+        "flagBridgeSha256": _digest(bridge) if bridge is not None and bridge.is_file() else None,
+        "flagParserSha256": _digest(Path(cli_input.__file__)),
+        "flagBridgeSourceSha256": _digest(Path(cli_input._BRIDGE_SOURCE)),
+        "runnerSha256": _digest(Path(pilot.__file__)),
+    }
+    if (not isinstance(cli, str) or bridge is None or not bridge.is_file()
+            or not all(isinstance(root_path, str) for root_path in roots)):
         result["reason"] = "current protocol lacks replay inputs"
         return result
-    from pilot import Budgets, EventAudit, Policy
+    for name, actual in expected_hashes.items():
+        if preflight.get(name) != actual:
+            errors.append(f"preflight: frozen_metadata_mismatch:{name}")
+    if any(preflight.get(name) != actual for name, actual in expected_hashes.items()):
+        result["reason"] = "frozen replay metadata differs from current implementation"
+        return result
     result["attempted"] = True
     for row, events in rows:
         label = f"{row.get('case')}:{row.get('passNumber')}:{row.get('arm')}"
@@ -163,8 +184,10 @@ def _replay_current_protocol(report, rows, root, errors):
             errors.append(f"{label}: trial_protocol_mismatch")
             continue
         try:
-            audit = EventAudit(Policy(row["arm"], cli, roots, remote=bool(plan.get("remote"))),
-                               Budgets(**row["budgets"]))
+            audit = pilot.EventAudit(
+                pilot.Policy(row["arm"], cli, roots, remote=bool(preflight.get("remote")), flag_bridge=bridge),
+                pilot.Budgets(**row["budgets"]),
+            )
             for event in events:
                 audit.feed(event)
             replay = audit.finish(row.get("exitCode"), bool(row.get("timedOut")))

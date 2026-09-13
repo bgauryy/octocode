@@ -2639,10 +2639,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.0.2
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=5d694a&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=4265d3&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/9752b457f35d3c988059ce1d9234ba77e3c877a759732d83ec63ed904062a750239590de067e07ed615f220496da44ff1f249e6b86a7a42d2e7e18e2798548da
+  checksum: 10c0/90836df3b5e8921f18237b416a39f36fd083b88bcb56b40ab823a10c03e0fb530de6126c3b74b6bd7f84c9fc003c12860deb92a0a066130def68a43fa518feef
   languageName: node
   linkType: hard
 
@@ -2673,6 +2673,12 @@ __metadata:
 "@octocodeai/octocode-engine-linux-x64-musl@workspace:*, @octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-linux-x64-musl@workspace:packages/octocode-engine/npm/linux-x64-musl"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-engine-tools-core@workspace:packages/octocode-engine-tools-core":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-engine-tools-core@workspace:packages/octocode-engine-tools-core"
   languageName: unknown
   linkType: soft
 

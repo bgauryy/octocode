@@ -1,0 +1,17 @@
+{
+  "name": "@octocodeai/octocode-engine-tools-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Octocode tools, runtime, CLI and MCP addon",
+  "license": "MIT",
+  "scripts": {
+    "build": "cargo build --release --bins --no-default-features",
+    "build:dev": "cargo build --bins --no-default-features",
+    "build:addon": "cargo build --release --lib --features napi-addon",
+    "build:addon:dev": "cargo build --lib --features napi-addon",
+    "test": "cargo test --no-default-features",
+    "lint": "cargo clippy --no-default-features --all-targets -- -D warnings",
+    "format:check": "cargo fmt --check",
+    "typecheck": "cargo check --no-default-features --all-targets"
+  }
+}

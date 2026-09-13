@@ -1,4 +1,5 @@
 fn main() {
+    #[cfg(feature = "napi-addon")]
     napi_build::setup();
 
     // The library re-exports `#[napi]` bindings whose generated glue references
@@ -9,7 +10,9 @@ fn main() {
     // benched paths (minify / structural) are pure Rust and never call into
     // napi, so we let the bench linker leave the unreferenced napi symbols
     // unresolved. Scoped to bench targets only — the cdylib addon is untouched.
+    #[cfg(feature = "napi-addon")]
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    #[cfg(feature = "napi-addon")]
     match target_os.as_str() {
         "macos" | "ios" => {
             println!("cargo:rustc-link-arg-benches=-Wl,-undefined,dynamic_lookup");

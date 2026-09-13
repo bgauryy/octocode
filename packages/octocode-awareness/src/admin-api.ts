@@ -14,3 +14,17 @@ export type {
   DatabaseMigrationVerification,
   DatabaseMigrationVerificationRequest,
 } from './db-consolidation.js';
+export {
+  applyStoreRetirement,
+  reportStoreRetirement,
+  StoreRetirementError,
+} from './store-retirement.js';
+export type {
+  StoreRetirementBlocker,
+  StoreRetirementBlockerCode,
+  StoreRetirementInput,
+  ApplyStoreRetirementInput,
+  StoreRetirementReport,
+  StoreRetirementResult,
+  StoreRetirementTarget,
+} from './store-retirement.js';

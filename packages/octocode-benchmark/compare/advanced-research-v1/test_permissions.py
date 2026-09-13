@@ -41,7 +41,7 @@ class PermissionPreflight(unittest.TestCase):
         self.assertEqual(probe_argv[:4], ["codex", "sandbox", "-P", "octocode-benchmark-readonly-net"])
         permissions = pilot.permission_args(True)
         self.assertEqual(probe_argv[4:4 + len(permissions)], permissions)
-        args = SimpleNamespace(output_dir=self.root, cli=self.cli, remote=True, tool_context="Canonical")
+        args = SimpleNamespace(output_dir=self.root, cli=self.cli, remote=True, tool_context="Canonical", flag_bridge=None)
         with patch.object(pilot, "monitor", return_value={"answer": "Answer", "eligible": False, "failures": []}) as monitor, patch("builtins.print"):
             pilot.trial("A15", "octocode", 1, "Question", args,
                         {"langchain": self.corpus, "nextjs": self.corpus}, pilot.Budgets())

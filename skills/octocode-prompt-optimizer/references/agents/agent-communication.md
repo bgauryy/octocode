@@ -13,11 +13,11 @@ Load when agents delegate, hand off ownership, work asynchronously, or expose ca
 | Specialist takes over | Handoff | Receiver, transfer condition, filtered context, and return/terminal rule |
 | Independent remote agent | A2A | Agent Card, declared capabilities, task lifecycle, artifacts, auth |
 | Model calls a service/tool | MCP | Tool contract; do not present it as an agent-to-agent protocol |
-| Slow operation | Task/status capability | Poll/stream/cancel semantics; MCP tasks remain experimental |
+| Slow operation | Host task/status capability or negotiated MCP Tasks extension | Poll/update/cancel semantics, durable handle, and terminal result |
 
 ## Packet and lifecycle rules
 
-- Send `protocolVersion`, `messageId`, `inReplyTo`/task ID, sender, intended receiver, goal, allowed scope, expected result shape, and deadline only when each changes a decision.
+- Carry protocol/version, correlation IDs, sender, intended receiver, goal, allowed scope, expected result shape, and deadline at the locations the chosen interaction defines—and only when each changes a decision.
 - Separate a request, question, status delta, result, blocker, approval-needed, and cancellation; do not make the receiver infer intent from prose.
 - Put deliverables in structured results/artifacts; keep status messages to phase, delta, blocker, and next action.
 - Declare who owns user communication and mutation approval after every delegation; a specialist must not silently expand scope.
@@ -37,8 +37,8 @@ Load when agents delegate, hand off ownership, work asynchronously, or expose ca
 - Do not forward credentials through agent chains by default; request approval or credentials through the authorized path.
 
 ## Sources
-- A2A, [Protocol specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md) — Agent Cards, Tasks, Messages, Artifacts, capability checks, authorization, and validation.
-- Model Context Protocol, [Tasks](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks) — task lifecycle support is experimental in the 2025-11-25 specification.
+- A2A, [Protocol specification](https://a2a-protocol.org/dev/specification/) — Agent Cards, Tasks, Messages, Artifacts, capability checks, authorization, and version negotiation.
+- MCP Tasks, [Tasks extension](https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks) — negotiated durable task handles, polling, input updates, cancellation, and terminal results.
 - OpenAI Agents SDK, [composition patterns](https://openai.github.io/openai-agents-js/guides/agents/) and [handoffs](https://openai.github.io/openai-agents-js/guides/handoffs/) — manager versus ownership transfer and filtered/typed handoff inputs.
 
-Next: to type the packet this protocol carries load `references/agents/zod-agent-contracts.md`; to freeze and verify its instruction base load `references/agents/agent-prompt-integrity.md`; to bound what travels inside it load `references/context/context-budget.md`; when a remote Agent Card, message, or artifact must stay data load `references/context/untrusted-content.md`.
+Next: when the interaction crosses app or protocol boundaries load `references/agents/cross-app-contracts.md`; to type a local packet in Zod load `references/agents/zod-agent-contracts.md`; to freeze and verify its instruction base load `references/agents/agent-prompt-integrity.md`; to bound what travels inside it load `references/context/context-budget.md`; when a remote Agent Card, message, or artifact must stay data load `references/context/untrusted-content.md`.

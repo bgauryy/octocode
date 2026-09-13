@@ -12,7 +12,9 @@ Apply the shared checks to every draft. Apply a domain check only when the targe
 - [ ] Every sentence defines a distinction, sets a boundary, explains a consequence, or directs an action; no motivational, role-play, or decorative residue remains.
 - [ ] No conflicting instructions, ambiguous actions/referents, filler, or duplicate rule owners.
 - [ ] For a tool or MCP surface: each rule sits in its owning layer, shared descriptors have one name/type/meaning from a single definition, and no tool pair lacks a deciding condition.
+- [ ] For a cross-app contract: canonical semantics have one owner, each adapter preserves native wire rules, and normal, invalid, denied, retry, cancellation, stale-version, and removal paths are tested where applicable.
 - [ ] For MCP: the negotiated version, paginated `tools/list`, definition fields, schema-valid call/result, structured-content validation, catalog change signal, and untrusted annotations are handled where applicable.
+- [ ] For runtime-assembled context: the executing surface, runtime-resolved dependency/version, active entrypoint/configuration, composition order, visibility, lifetime, persistence, and last observable model/tool input are evidenced; declared and installed dependencies are not mistaken for the running instance.
 - [ ] For context: the current model limit and exact serialized occupancy are measured, output/reasoning capacity is reserved, and cached tokens are not mistaken for freed window space.
 - [ ] For economics: current model/vendor prices and usage buckets feed cost per successful task; cache writes, reads, output/reasoning, retries, and paid tool calls are not omitted.
 - [ ] For caching: a cold/warm/tail-change check confirms vendor telemetry, and every miss is classified before the prompt is changed.

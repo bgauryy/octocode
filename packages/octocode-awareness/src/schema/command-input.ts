@@ -26,8 +26,12 @@ function objectBranch(
 }
 
 const requireFields = (output: JsonSchema, ...fields: string[]): JsonSchema => objectBranch(output, fields);
-const requireNonEmptyArray = (output: JsonSchema, field: string): JsonSchema =>
-  objectBranch(output, [field], { [field]: { minItems: 1 } });
+const requireNonEmptyArray = (output: JsonSchema, field: string): JsonSchema => {
+  const branch = objectBranch(output, [field], { [field]: { minItems: 1 } });
+  const property = (branch.properties as Record<string, JsonSchema> | undefined)?.[field];
+  if (property) delete property.default;
+  return branch;
+};
 
 function constrainArray(output: JsonSchema, field: string, minItems: number, maxItems?: number): void {
   const properties = output.properties as Record<string, JsonSchema> | undefined;
@@ -93,6 +97,12 @@ function applyCommandConstraints(output: JsonSchema, commandName: string): void 
     case 'lock release':
       allOf.push({ anyOf: [requireFields(output, 'run_id'), requireNonEmptyArray(output, 'target_file')] });
       break;
+    case 'signal resolve':
+      allOf.push({ oneOf: [
+        requireNonEmptyArray(output, 'signal_id'),
+        requireFields(output, 'thread_id'),
+      ] });
+      break;
     case 'verify mark':
       constrainArray(output, 'run_id', 1);
       allOf.push(
@@ -103,6 +113,14 @@ function applyCommandConstraints(output: JsonSchema, commandName: string): void 
         { anyOf: [
           objectBranch(output, ['status'], { status: { const: 'FAILED' } }),
           requireFields(output, 'message'),
+        ] },
+        { anyOf: [
+          objectBranch(output, [], { adopt_verification: { const: false } }),
+          objectBranch(output, ['adopt_verification', 'run_id'], {
+            adopt_verification: { const: true },
+            run_id: { minItems: 1, maxItems: 1 },
+            all_pending: { const: false },
+          }),
         ] },
       );
       break;
@@ -118,6 +136,33 @@ function applyCommandConstraints(output: JsonSchema, commandName: string): void 
         { required: ['action', 'confirm'], overrides: { action: { const: 'reclaim' }, confirm: { const: 'reclaim' } } },
       ]);
       return;
+    case 'maintenance retention':
+      {
+        const report = objectBranch(output, [], { action: { const: 'report' } });
+        (report.properties as Record<string, unknown>).confirm = false;
+        allOf.push({ oneOf: [
+          report,
+        objectBranch(output, ['action', 'confirm'], {
+          action: { const: 'apply' },
+          confirm: { const: 'apply-retention' },
+        }),
+        ] });
+      }
+      break;
+    case 'maintenance store-retire':
+      {
+        const report = objectBranch(output, [], { action: { const: 'report' } });
+        (report.properties as Record<string, unknown>).confirm = false;
+        (report.properties as Record<string, unknown>).report_file = false;
+        allOf.push({ oneOf: [
+          report,
+          objectBranch(output, ['action', 'confirm', 'report_file'], {
+            action: { const: 'apply' },
+            confirm: { const: 'retire' },
+          }),
+        ] });
+      }
+      break;
   }
   if (allOf.length) output.allOf = [...(Array.isArray(output.allOf) ? output.allOf : []), ...allOf];
 }
@@ -129,7 +174,10 @@ export function projectCommandInput(commandName: string, schema: z.ZodType): Rec
   const action = commandName.split(" ")[1];
   // History maintenance has a mode within its route; it is not the route's
   // command selector. Keep that explicit public field in discovery/validation.
-  const selectsRoute = commandName !== 'history recovery' && commandName !== 'history evidence';
+  const selectsRoute = commandName !== 'history recovery'
+    && commandName !== 'history evidence'
+    && commandName !== 'maintenance retention'
+    && commandName !== 'maintenance store-retire';
   if (properties && action && properties.action && selectsRoute) delete properties.action;
   let canonicalNames: Record<string, string> = {};
   if (properties) {

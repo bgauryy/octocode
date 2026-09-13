@@ -6,6 +6,7 @@ import { LEGACY_RELATION_DESTINATIONS } from './db-introspection.js';
 import { AWARENESS_APPLICATION_ID } from './storage-scope.js';
 import { legacyHandoffEvents, type MigrationEvent } from './db-consolidation-handoffs.js';
 import { refinementDestinationCounts, refinementMigrationEvents } from './db-consolidation-refinements.js';
+import { signalExpiresAt } from './message-lifecycle.js';
 
 const SQLITE_AUXILIARY = /^(?:sqlite_|memories_fts(?:_|$))/;
 type SqlScalar = Exclude<SQLInputValue, undefined>;
@@ -75,25 +76,32 @@ export function copyMappedTables(
     const sourceColumns = sourceInfo.map(({ name }) => name);
     if (destinationColumns.length === 0) continue;
     const destinationInfo = destination.prepare(`PRAGMA table_info(${JSON.stringify(destinationTable)})`).all() as Array<{ name: string; notnull: number; dflt_value: string | null }>;
+    const derivesSignalExpiry = destinationTable === 'signals' && !sourceColumns.includes('expires_at');
     const extra = sourceColumns.filter((column) => !destinationColumns.includes(column));
     if (extra.length > 0) throw new Error(`unsupported source schema: ${sourceTable} has unmappable columns ${extra.join(', ')}`);
     for (const column of destinationInfo) {
-      if (!sourceColumns.includes(column.name) && column.notnull !== 0 && column.dflt_value === null) {
+      if (!sourceColumns.includes(column.name) && column.notnull !== 0 && column.dflt_value === null
+        && !(derivesSignalExpiry && column.name === 'expires_at')) {
         throw new Error(`unsupported source schema: ${sourceTable} lacks required column ${column.name}`);
       }
     }
     const selectedColumns = destinationColumns.filter((column) => sourceColumns.includes(column));
+    if (derivesSignalExpiry) selectedColumns.push('expires_at');
     if (selectedColumns.length === 0) throw new Error(`unsupported source schema: ${sourceTable} has no mappable columns`);
-    const quoted = selectedColumns.map((column) => JSON.stringify(column)).join(', ');
+    const sourceSelectedColumns = selectedColumns.filter((column) => sourceColumns.includes(column));
+    const quoted = sourceSelectedColumns.map((column) => JSON.stringify(column)).join(', ');
     const primaryKey = sourceInfo.filter(({ pk }) => pk > 0).sort((a, b) => a.pk - b.pk).map(({ name }) => JSON.stringify(name));
     const orderBy = primaryKey.length > 0 ? ` ORDER BY ${primaryKey.join(', ')}` : ' ORDER BY rowid';
     const rows = source.prepare(`SELECT ${quoted} FROM ${JSON.stringify(sourceTable)}${orderBy}`).all() as Array<Record<string, unknown>>;
     if (rows.length === 0) { result[sourceTable] = 0; continue; }
-    const insert = destination.prepare(`INSERT INTO ${JSON.stringify(destinationTable)} (${quoted}) VALUES (${selectedColumns.map((column) => `@${column}`).join(', ')})`);
+    const insertColumns = selectedColumns.map((column) => JSON.stringify(column)).join(', ');
+    const insert = destination.prepare(`INSERT INTO ${JSON.stringify(destinationTable)} (${insertColumns}) VALUES (${selectedColumns.map((column) => `@${column}`).join(', ')})`);
     for (const row of rows) {
       const values: Record<string, SQLInputValue> = {};
       for (const column of selectedColumns) {
-        values[column] = scalar(row[column], sourceTable, column);
+        values[column] = column === 'expires_at' && derivesSignalExpiry
+          ? signalExpiresAt(String(row.kind), String(row.created_at))
+          : scalar(row[column], sourceTable, column);
       }
       insert.run(values);
     }

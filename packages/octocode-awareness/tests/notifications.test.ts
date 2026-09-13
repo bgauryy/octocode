@@ -4,6 +4,7 @@ import { initDb } from '../src/db-init.js';
 import { insertNotification } from '../src/notifications-core.js';
 import { getNotifications, resolveNotification } from '../src/notifications-inbox.js';
 import { pruneNotifications, agentSignal } from '../src/notifications-signals.js';
+import { MESSAGE_RETENTION_DAYS, pruneExpiredNotifications, signalExpiresAt } from '../src/message-lifecycle.js';
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -300,4 +301,100 @@ describe('notifications', () => {
     const result = getNotifications(db, { agentId: 'agent-b', workspacePath: '/repo', limit: 500 });
     expect(result.signals).toHaveLength(200);
   });
+
+  it('derives an explicit expiry from the canonical per-kind retention policy', () => {
+    const db = freshDb();
+    for (const kind of Object.keys(MESSAGE_RETENTION_DAYS) as Array<keyof typeof MESSAGE_RETENTION_DAYS>) {
+      const signal = insertNotification(db, {
+        agentId: 'agent-a', toAgent: 'agent-b', kind, subject: `policy ${kind}`, workspacePath: '/repo',
+      });
+      const row = db.prepare('SELECT created_at, expires_at FROM signals WHERE signal_id = ?')
+        .get(signal.signal_id) as { created_at: string; expires_at: string | null };
+      expect(row.expires_at).toBe(signalExpiresAt(kind, row.created_at));
+    }
+  });
+  it('transitions expired messages and preserves an expired parent while a reply remains live', () => {
+    const db = freshDb();
+    const parent = insertNotification(db, {
+      agentId: 'agent-a', toAgent: 'agent-b', kind: 'question', subject: 'parent', workspacePath: '/repo',
+    });
+    const reply = insertNotification(db, {
+      agentId: 'agent-b', toAgent: 'agent-a', kind: 'reply', subject: 'reply', body: 'still relevant',
+      inReplyTo: parent.signal_id, workspacePath: '/repo',
+    });
+    db.prepare('UPDATE signals SET expires_at = ? WHERE signal_id = ?').run('2020-01-01T00:00:00.000Z', parent.signal_id);
+    db.prepare('UPDATE signals SET expires_at = ? WHERE signal_id = ?').run('2999-01-01T00:00:00.000Z', reply.signal_id);
+
+    const result = pruneExpiredNotifications(db, { now: '2021-01-01T00:00:00.000Z' });
+    expect(result.transitioned).toBe(1);
+    expect(result.deleted).toBe(0);
+    expect(db.prepare('SELECT status, resolved_at FROM signals WHERE signal_id = ?').get(parent.signal_id))
+      .toMatchObject({ status: 'resolved', resolved_at: '2020-01-01T00:00:00.000Z' });
+    expect(db.prepare('SELECT signal_id FROM signals WHERE signal_id = ?').get(reply.signal_id)).toBeDefined();
+  });
+  it('supports a dry-run and then prunes an expired thread only after its descendants expire', () => {
+    const db = freshDb();
+    const parent = insertNotification(db, {
+      agentId: 'agent-a', toAgent: 'agent-b', kind: 'handoff', subject: 'parent', workspacePath: '/repo',
+    });
+    const reply = insertNotification(db, {
+      agentId: 'agent-b', toAgent: 'agent-a', kind: 'reply', subject: 'reply', inReplyTo: parent.signal_id, workspacePath: '/repo',
+    });
+    db.prepare('UPDATE signals SET expires_at = ?').run('2020-01-01T00:00:00.000Z');
+
+    const preview = pruneExpiredNotifications(db, { now: '2021-01-01T00:00:00.000Z', dryRun: true });
+    expect(preview).toMatchObject({ transitioned: 0, wouldTransition: 2, deleted: 0, wouldDelete: 2 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signals').get()).toEqual({ count: 2 });
+
+    const applied = pruneExpiredNotifications(db, { now: '2021-01-01T00:00:00.000Z' });
+    expect(applied).toMatchObject({ transitioned: 2, deleted: 2 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signals').get()).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signal_reads WHERE signal_id IN (?, ?)').get(parent.signal_id, reply.signal_id))
+      .toEqual({ count: 0 });
+  });
+  it('keeps expired messages through the grace window and scopes lifecycle work to one workspace', () => {
+    const db = freshDb();
+    const first = insertNotification(db, {
+      agentId: 'agent-a', toAgent: 'agent-b', kind: 'fyi', subject: 'repo a', workspacePath: '/repo-a',
+    });
+    const second = insertNotification(db, {
+      agentId: 'agent-a', toAgent: 'agent-b', kind: 'fyi', subject: 'repo b', workspacePath: '/repo-b',
+    });
+    db.prepare('UPDATE signals SET expires_at = ?').run('2020-01-01T00:00:00.000Z');
+
+    const inGrace = pruneExpiredNotifications(db, { now: '2020-01-05T00:00:00.000Z', workspacePath: '/repo-a' });
+    expect(inGrace).toEqual({ transitioned: 1, deleted: 0 });
+    expect(db.prepare('SELECT status FROM signals WHERE signal_id = ?').get(first.signal_id)).toEqual({ status: 'resolved' });
+    expect(db.prepare('SELECT status FROM signals WHERE signal_id = ?').get(second.signal_id)).toEqual({ status: 'open' });
+    expect(getNotifications(db, { agentId: 'agent-b', workspacePath: '/repo-a', unreadOnly: false }).signals).toHaveLength(1);
+
+    const afterGrace = pruneExpiredNotifications(db, {
+      now: '2020-01-05T00:00:00.000Z', pruneBefore: '2020-01-02T00:00:00.000Z', workspacePath: '/repo-a',
+    });
+    expect(afterGrace).toEqual({ transitioned: 0, deleted: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signals WHERE signal_id = ?').get(first.signal_id)).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signals WHERE signal_id = ?').get(second.signal_id)).toEqual({ count: 1 });
+  });
+  it('bounds expiry pruning and returns a deterministic continuation', () => {
+    const db = freshDb();
+    for (let i = 0; i < 3; i++) {
+      const signal = insertNotification(db, {
+        agentId: 'agent-a', toAgent: 'agent-b', kind: 'fyi', subject: `expired ${i}`, workspacePath: '/repo',
+      });
+      db.prepare('UPDATE signals SET expires_at = ? WHERE signal_id = ?').run(`2020-01-0${i + 1}T00:00:00.000Z`, signal.signal_id);
+    }
+
+    const result = pruneExpiredNotifications(db, {
+      now: '2020-02-01T00:00:00.000Z', pruneBefore: '2020-01-31T00:00:00.000Z', limit: 2, workspacePath: '/repo',
+    });
+    expect(result).toMatchObject({ transitioned: 2, deleted: 2, partial: true });
+    expect(result.next).toEqual({ pruneExpired: {
+      now: '2020-02-01T00:00:00.000Z', pruneBefore: '2020-01-31T00:00:00.000Z', workspacePath: '/repo', limit: 2,
+    } });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signals').get()).toEqual({ count: 1 });
+    const next = pruneExpiredNotifications(db, result.next!.pruneExpired);
+    expect(next).toEqual({ transitioned: 1, deleted: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM signals').get()).toEqual({ count: 0 });
+  });
+
 });

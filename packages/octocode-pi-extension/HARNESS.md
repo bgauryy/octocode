@@ -242,8 +242,8 @@ their host ownership.
 
 The harness imports `@octocodeai/octocode-awareness` for native registry membership,
 shared plan projection, mutation guards/presence and peer-event delivery/policy.
-Model-facing signals, explicit locks, memory, verification, history, bookkeeping,
-and maintenance use the single `awareness` list/describe/call facade, importing the package API directly. Internal hook callbacks stay with the host lifecycle; setup and instruction export use the native API. The stable Awareness runtime segment supplies the physical SQLite path, normalized workspace, and identity; native execution needs no CLI runner.
+Model-facing signals, explicit locks, memory, verification, history, and bookkeeping
+use the single `awareness` list/describe/call facade, importing the package API directly. Operator retention and whole-store retirement remain outside routine Pi discovery. Internal hook callbacks stay with the host lifecycle; setup and instruction export use the native API. The stable Awareness runtime segment supplies the physical SQLite path, normalized workspace, and identity; native execution needs no CLI runner.
 External CLI agents communicate through that same database/workspace with their own
 distinct IDs. Workers keep their physical worktree as workspace, while the inherited
 `OCTOCODE_AWARENESS_DB` selects the parent ledger for native calls, CLI fallback,

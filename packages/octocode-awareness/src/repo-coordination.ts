@@ -3,7 +3,6 @@ import { parseJsonList } from './helpers.js';
 import { AwarenessQueryParams, AwarenessQueryRow, BindValue, limitOf, stringList } from './repo-model.js';
 import { addExactScope, addNullableScope, addStateFilter, addTextFilter, repositoryScopeFromParams, scopeFromParams, workspaceArtifactScope } from './repo-scope.js';
 import { summarize } from './repo-formats.js';
-import { AGENTS_LIST_SELECT, AGENTS_LIST_ORDER } from './sql/agents.js';
 
 export function countPendingStandaloneRuns(db: DatabaseSync, params: AwarenessQueryParams): number {
   const scope = scopeFromParams(params);
@@ -63,29 +62,112 @@ export function lockRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
 
 export function agentRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
   const scope = repositoryScopeFromParams(params);
-  const where: string[] = [];
-  const binds: BindValue[] = [];
+  const registeredWhere: string[] = [];
+  const registeredBinds: BindValue[] = [];
   if (scope.workspacePaths.length > 0) {
-    where.push(`(workspace_path IN (${scope.workspacePaths.map(() => '?').join(',')}) OR workspace_path = '')`);
-    binds.push(...scope.workspacePaths);
+    registeredWhere.push(`(a.workspace_path IN (${scope.workspacePaths.map(() => '?').join(',')}) OR a.workspace_path = '')`);
+    registeredBinds.push(...scope.workspacePaths);
   }
   if (scope.artifact) {
-    where.push('(artifact = ? OR artifact IS NULL)');
-    binds.push(scope.artifact);
+    registeredWhere.push('(a.artifact = ? OR a.artifact IS NULL)');
+    registeredBinds.push(scope.artifact);
   }
-  addTextFilter(where, binds, params.query, ['agent_id', 'agent_name', 'context']);
+  const registeredSqlWhere = registeredWhere.length > 0 ? `WHERE ${registeredWhere.join(' AND ')}` : '';
+
+  const signalWhere: string[] = [];
+  const signalBinds: BindValue[] = [];
+  addExactScope(signalWhere, signalBinds, scope, 's');
+  const signalSqlWhere = signalWhere.length > 0 ? `WHERE ${signalWhere.join(' AND ')}` : '';
+  const outerWhere: string[] = [];
+  const binds: BindValue[] = [...registeredBinds, ...signalBinds];
+  const query = params.query?.trim();
+  if (query) {
+    outerWhere.push(`INSTR(LOWER(
+      COALESCE(c.agent_id, '') || ' ' || COALESCE(c.agent_name, '') || ' ' ||
+      COALESCE(c.context, '') || ' ' || COALESCE(c.agent_vendor, '') || ' ' ||
+      COALESCE(c.agent_host, '') || ' ' || COALESCE(c.provenance, '')
+    ), LOWER(?)) > 0`);
+    binds.push(query);
+  }
   if (params.agentId) {
-    where.push('agent_id = ?');
+    outerWhere.push('c.agent_id = ?');
     binds.push(params.agentId);
   }
-  const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db.prepare(
-    `${AGENTS_LIST_SELECT}
-       ${sqlWhere}
-       ${AGENTS_LIST_ORDER}
-      LIMIT ?`
-  ).all(...binds, limitOf(params.limit)) as unknown as AwarenessQueryRow[];
-  return rows;
+  const outerSqlWhere = outerWhere.length > 0 ? `WHERE ${outerWhere.join(' AND ')}` : '';
+  const offset = params.offset == null || !Number.isFinite(params.offset)
+    ? 0
+    : Math.max(0, Math.floor(params.offset));
+  return db.prepare(`WITH
+    registered_candidates AS (
+      SELECT a.agent_id, a.agent_name, a.workspace_path, a.artifact, a.context, a.status,
+        a.registered_at, a.last_seen_at,
+        CASE WHEN json_type(a.metadata_json, '$.vendor') = 'text'
+          THEN json_extract(a.metadata_json, '$.vendor') ELSE NULL END AS agent_vendor,
+        CASE WHEN json_type(a.metadata_json, '$.host') = 'text'
+          THEN json_extract(a.metadata_json, '$.host') ELSE NULL END AS agent_host,
+        ROW_NUMBER() OVER (
+          PARTITION BY a.agent_id
+          ORDER BY a.last_seen_at DESC, a.workspace_path, a.agent_id
+        ) AS identity_rank
+      FROM awareness_agents a
+      ${registeredSqlWhere}
+    ),
+    registered AS (
+      SELECT agent_id, agent_name, workspace_path, artifact, context, status,
+        registered_at, last_seen_at, agent_vendor, agent_host, 'registered' AS provenance
+      FROM registered_candidates
+      WHERE identity_rank = 1
+    ),
+    scoped_signals AS (
+      SELECT s.signal_id, s.from_agent, s.to_agent, s.workspace_path, s.artifact, s.created_at
+      FROM signals s
+      ${signalSqlWhere}
+    ),
+    observed_candidates AS (
+      SELECT TRIM(s.from_agent) AS agent_id, s.workspace_path, s.artifact, s.created_at, s.signal_id
+      FROM scoped_signals s
+      WHERE LENGTH(TRIM(s.from_agent)) BETWEEN 1 AND 128
+      UNION ALL
+      SELECT TRIM(CAST(recipient.value AS TEXT)) AS agent_id,
+        s.workspace_path, s.artifact, s.created_at, s.signal_id
+      FROM scoped_signals s
+      JOIN json_each(CASE
+        WHEN json_valid(s.to_agent) AND json_type(s.to_agent) IN ('array', 'text') THEN s.to_agent
+        WHEN SUBSTR(LTRIM(COALESCE(s.to_agent, '')), 1, 1) NOT IN ('[', '"')
+          THEN json_array(s.to_agent)
+        ELSE json('[]')
+      END) AS recipient
+      WHERE recipient.type = 'text'
+        AND LENGTH(TRIM(CAST(recipient.value AS TEXT))) BETWEEN 1 AND 128
+    ),
+    observed_ranked AS (
+      SELECT agent_id, workspace_path, artifact, created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY agent_id
+          ORDER BY created_at DESC, signal_id DESC
+        ) AS identity_rank
+      FROM observed_candidates
+    ),
+    observed AS (
+      SELECT o.agent_id, '' AS agent_name, o.workspace_path, o.artifact,
+        NULL AS context, NULL AS status, NULL AS registered_at, o.created_at AS last_seen_at,
+        NULL AS agent_vendor, NULL AS agent_host, 'observed' AS provenance
+      FROM observed_ranked o
+      WHERE o.identity_rank = 1
+        AND NOT EXISTS (SELECT 1 FROM registered r WHERE r.agent_id = o.agent_id)
+    ),
+    combined AS (
+      SELECT * FROM registered
+      UNION ALL
+      SELECT * FROM observed
+    )
+    SELECT c.agent_id, c.agent_name, c.status, c.agent_vendor, c.agent_host,
+      c.workspace_path, c.artifact, c.context, c.registered_at, c.last_seen_at, c.provenance
+    FROM combined c
+    ${outerSqlWhere}
+    ORDER BY c.last_seen_at DESC, c.agent_id COLLATE BINARY ASC
+    LIMIT ? OFFSET ?`
+  ).all(...binds, limitOf(params.limit), offset) as unknown as AwarenessQueryRow[];
 }
 
 /** Shared signal recipient visibility for list, workboard, profile, and snapshots. */

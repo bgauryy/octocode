@@ -7,7 +7,7 @@ use napi_derive::napi;
 /// line/character position inside the file at `file_path`.
 #[napi(js_name = "resolvePosition")]
 pub fn resolve_position(file_path: String, fuzzy: JsFuzzyPosition) -> Result<JsResolvedSymbol> {
-    crate::lsp::resolver::resolve_position(file_path, fuzzy)
+    Ok(crate::lsp::resolver::resolve_position(file_path, fuzzy)?)
 }
 
 /// Resolve a fuzzy symbol position against in-memory `content` rather than
@@ -17,25 +17,29 @@ pub fn resolve_position_from_content(
     content: String,
     fuzzy: JsFuzzyPosition,
 ) -> Result<JsResolvedSymbol> {
-    crate::lsp::resolver::resolve_position_from_content(content, fuzzy)
+    Ok(crate::lsp::resolver::resolve_position_from_content(
+        content, fuzzy,
+    )?)
 }
 
 /// Convert a filesystem path to a `file://` URI string.
 #[napi(js_name = "toUri")]
 pub fn to_uri(path: String) -> Result<String> {
-    crate::lsp::uri::path_to_uri(&path)
+    Ok(crate::lsp::uri::path_to_uri(&path)?)
 }
 
 /// Convert a `file://` URI string back to an absolute filesystem path.
 #[napi(js_name = "fromUri")]
 pub fn from_uri(uri: String) -> Result<String> {
-    crate::lsp::uri::uri_to_path(&uri)
+    Ok(crate::lsp::uri::uri_to_path(&uri)?)
 }
 
 /// Walk upward from `file_path` to find the workspace root.
 #[napi(js_name = "resolveWorkspaceRootForFile")]
 pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
-    crate::lsp::workspace::resolve_workspace_root_for_file(file_path)
+    Ok(crate::lsp::workspace::resolve_workspace_root_for_file(
+        file_path,
+    )?)
 }
 
 /// Return the LSP language identifier for the file at `file_path`.
@@ -65,7 +69,7 @@ pub fn is_command_available(command: String) -> Result<bool> {
 /// absolute regular file.
 #[napi(js_name = "safeReadFile")]
 pub fn safe_read_file(file_path: String) -> Result<String> {
-    crate::lsp::validation::safe_read_file(file_path)
+    Ok(crate::lsp::validation::safe_read_file(file_path)?)
 }
 
 /// Read only a bounded line window around `line_zero_based` after canonicalizing
@@ -76,13 +80,17 @@ pub fn safe_read_line_window(
     line_zero_based: u32,
     context_lines: u32,
 ) -> Result<String> {
-    crate::lsp::validation::safe_read_line_window(file_path, line_zero_based, context_lines)
+    Ok(crate::lsp::validation::safe_read_line_window(
+        file_path,
+        line_zero_based,
+        context_lines,
+    )?)
 }
 
 /// Validate that `command` resolves to an executable LSP server binary.
 #[napi(js_name = "validateLspServerPath")]
 pub fn validate_lsp_server_path(command: String) -> Result<String> {
-    crate::lsp::validation::validate_lsp_server_path(command)
+    Ok(crate::lsp::validation::validate_lsp_server_path(command)?)
 }
 
 /// Convert an LSP `SymbolKind` numeric code to a human-readable string tag.

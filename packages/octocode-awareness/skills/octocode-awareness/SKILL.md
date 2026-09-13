@@ -24,11 +24,11 @@ Use the host-bound client when available. Otherwise use the CLI with the same da
 
 Keep the external kernel standing, then load only the canonical section needed for the next action. Import `getAwarenessAgentInstructions({ sections: ['coordination'] })`, replacing the section name as needed, or run `npx -y @octocodeai/octocode-awareness instructions --section <name>`. Sections are `start`, `observe`, `advise`, `feedback`, `coordination`, `trust`, and `schema`; reuse sections already supplied by the host.
 
-Start once with `context.orient`, or reuse a host briefing. Retain its revision and refresh only when changed observations or shared state can affect a decision. Execute returned continuations with the same bindings. For an unfamiliar operation, discover exact fields with `schema commands --compact` or `schema command <concept> <operation> --compact`; reuse the live descriptor rather than maintaining an operation list.
+Start once with `context.orient`, or reuse a host briefing. Retain its revision and refresh only when changed observations or shared state can affect a decision. Execute returned continuations with the same bindings. For an unfamiliar operation, discover exact fields with `schema commands --compact` or `schema command <concept> <operation> --compact`; Pi uses `describe:true`. Every descriptor exposes `inputSchemaText`, generated from its canonical schema rather than a hand-maintained parameter list. Load one operation schema when needed and reuse it; do not preload all schemas into standing context.
 
 ## Coordinate only when it changes work
 
-- Send a decision-changing question, request, blocker, or continuation with `message.send`; skip routine FYIs. Reply with `message.reply` and the exact message ID; resolve only when no response or work remains.
+- Send a decision-changing question, request, blocker, or continuation with `message.send`; skip routine FYIs. Reply with `message.reply` and the exact message ID; resolve when no response or work remains. Every kind expires and pruning waits for a grace window, so put durable lessons in Memory rather than Messages.
 - Create work only for shared ownership or dependencies, protect only exceptional non-mergeable paths, and never bypass active peer protection.
 - For tracked work, run the declared check, transition the work, then use `work.verify` with `action: mark` from the observed result. An unrun check stays pending. Audit owned debt after final writes with `action: audit`.
 

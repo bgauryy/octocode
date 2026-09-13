@@ -21,6 +21,7 @@ import subprocess
 import time
 from urllib.parse import unquote, urlsplit
 import sandbox_permissions
+import cli_input
 from sandbox_permissions import permission_args, preflight_permissions
 
 HERE = Path(__file__).resolve().parent
@@ -28,7 +29,7 @@ WORKSPACE = HERE.parents[3]
 MODEL = "gpt-5.6-terra"
 COMMITS = {"langchain": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
            "nextjs": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"}
-PROTOCOL = "recoverable-read-surfaces-v9"
+PROTOCOL = "read-surface-recovery-v10"
 REMOTE_REPOS = {("langchain-ai", "langchain"): COMMITS["langchain"],
                 ("vercel", "next.js"): COMMITS["nextjs"]}
 GITHUB_HEADERS = {
@@ -83,11 +84,13 @@ class Policy:
     local_tools = {"localSearch", "localFetch", "astSearch", "lspSearch"}
     remote_tools = {"ghSearch", "ghGetFileContent", "ghSearchHistory", "ghGetHistoryItem"}
 
-    def __init__(self, arm, cli, roots, remote=False):
+    def __init__(self, arm, cli, roots, remote=False, flag_bridge=None):
         self.arm, self.cli = arm, Path(cli).resolve()
         self.roots = [Path(root).resolve() for root in roots]
         self.remote = remote
         self.allowed_tools = self.local_tools | (self.remote_tools if remote else set())
+        self.flag_bridge = flag_bridge
+        self.flag_queries = {}
 
     def scoped(self, value):
         if not isinstance(value, str) or not value.startswith("/"):
@@ -198,11 +201,26 @@ class Policy:
         names = []
         while args and not args[0].startswith("-"):
             names.append(args.pop(0))
-        if not names or not set(names) <= self.allowed_tools:
+        if not names or names[0] not in self.allowed_tools:
             return "non_local_tool_or_inventory"
         if "--scheme" in args:
+            if not set(names) <= self.allowed_tools:
+                return "non_local_tool_or_inventory"
             return None if set(args) <= {"--scheme", "--json", "--compact", "--brief", "--yaml"} else "schema_flags"
-        if len(names) != 1 or args.count("--queries") != 1:
+        if len(names) == 1 and args == ["--help"]:
+            return None
+        if "--queries" not in args:
+            if self.flag_bridge is None:
+                return "field_parser_unavailable"
+            tail = (*names[1:], *args)
+            key = (names[0], tail)
+            try:
+                if key not in self.flag_queries:
+                    self.flag_queries[key] = cli_input.parse_flag_query(self.flag_bridge, names[0], tail)
+            except cli_input.CliInputError:
+                return "recoverable_cli_syntax:invalid_field_flags"
+            return None if self.scoped_query(names[0], self.flag_queries[key]) else "query_outside_corpus"
+        if args.count("--queries") != 1:
             return "missing_single_tool_queries"
         index = args.index("--queries")
         if index + 1 >= len(args):
@@ -210,6 +228,10 @@ class Policy:
         remainder = args[:index] + args[index + 2:]
         if not set(remainder) <= {"--compact", "--json", "--yaml"}:
             return "unsupported_cli_flags"
+        if len(names) != 1:
+            # getInputText rejects positional selectors alongside --queries
+            # before dispatch. Let the agent see and repair that actual error.
+            return "recoverable_cli_syntax:multiple_tool_names"
         try:
             queries = json.loads(args[index + 1])
         except json.JSONDecodeError:
@@ -236,9 +258,19 @@ class Policy:
             if len(args) != 3 or args[0] != "-n" or not re.fullmatch(r"\d+(,\d+)?p", args[1]):
                 return "unsupported_sed_program"
             return None if self.scoped(args[2]) else "read_outside_corpus"
-        if name in {"head", "tail", "wc"}:
-            pattern = (len(args) == 2 and args[0] == "-l") if name == "wc" else (
-                len(args) == 3 and args[0] == "-n" and args[1].isdigit() and int(args[1]) > 0)
+        if name == "wc":
+            paths, literal = [], False
+            for value in args:
+                if value == "--" and not literal:
+                    literal = True
+                elif value.startswith("-") and not literal:
+                    if not re.fullmatch(r"-[clmw]+", value):
+                        return "unsupported_count_flag"
+                else:
+                    paths.append(value)
+            return None if paths and all(self.scoped(path) for path in paths) else "read_outside_corpus"
+        if name in {"head", "tail"}:
+            pattern = len(args) == 3 and args[0] == "-n" and args[1].isdigit() and int(args[1]) > 0
             return None if pattern and self.scoped(args[-1]) else "unsupported_targeted_read"
         if name == "ast-grep":
             if not args or args.pop(0) not in {"run"}:
@@ -372,6 +404,7 @@ class EventAudit:
         self.failures, self.items, self.receipts, self.answers = [], {}, [], []
         self.outputs = {}
         self.events_seen = 0
+        self.policy_audit_seconds = 0.0
 
     def fail(self, reason):
         if reason not in self.failures:
@@ -418,7 +451,11 @@ class EventAudit:
             if row.get("command") and row["command"] != text:
                 self.fail("command_identity_changed:" + ident)
             row["command"] = text
-            issue = self.policy.audit(text)
+            audit_start = time.perf_counter()
+            try:
+                issue = self.policy.audit(text)
+            finally:
+                self.policy_audit_seconds += time.perf_counter() - audit_start
             row["recoverableCommandError"] = issue if issue and issue.startswith("recoverable_cli_syntax:") else None
             row["surfaceError"] = None if row["recoverableCommandError"] else issue
             if row["surfaceError"]:
@@ -506,6 +543,7 @@ class EventAudit:
                 "nonzeroCommandExits": sum(r.get("exitCode") not in {None, 0} for r in self.items.values()),
                 "rawToolOutputBytes": sum(r["rawOutputBytes"] for r in self.items.values()),
                 "modelVisibleToolOutputBytes": None, "answer": answer,
+                "policyAuditSeconds": self.policy_audit_seconds,
                 "exitCode": exit_code, "timedOut": timed_out, "eventsSeen": self.events_seen}
 
 
@@ -693,7 +731,8 @@ Use rg with explicit corpus paths and common search/context/glob/type flags; no
 --pre, config, custom executable or pattern-file options. ast-grep run supports
 literal -p/--pattern, -l/--lang, --kind, --selector, context and --json options.
 Source reads: sed -n 'START,ENDp' /absolute/file; head/tail -n N /absolute/file
-(N > 0), or wc -l /absolute/file. All reads share the output budgets above.
+(N > 0), or wc [-l|-c|-m|-w] /absolute/file. Counts may combine flags and scoped files.
+All reads share the output budgets above.
 Do not use sed programs or other executables.
 Search for unknown paths; read known paths directly. The -m flag limits matches
 per file, not total output across a directory. Read bounded ranges from selected files.
@@ -741,7 +780,8 @@ def trial(case, arm, pass_number, question, args, corpora, budgets):
     argv = ["codex", "exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check",
             *permission_args(args.remote), "-C", "/tmp", "-m", MODEL,
             "-c", 'model_reasoning_effort="medium"', "--json", "-"]
-    audit = EventAudit(Policy(arm, args.cli, list(corpora.values()), remote=args.remote), budgets)
+    audit = EventAudit(Policy(arm, args.cli, list(corpora.values()), remote=args.remote,
+                              flag_bridge=args.flag_bridge), budgets)
     try:
         result = monitor(argv, prompt, directory, audit)
     except Exception as error:
@@ -805,7 +845,11 @@ def frozen_state_changes(preflight, candidate, corpora, tool_contract):
                "runnerSha256": digest(Path(__file__)),
                "permissionsSha256": digest(Path(sandbox_permissions.__file__)),
                "questionsSha256": digest(Path(preflight.get("questionsFile", HERE / "QUESTIONS.md"))),
-               "rubricSha256": digest(Path(preflight.get("rubricFile", HERE / "RUBRIC.md")))}
+                "rubricSha256": digest(Path(preflight.get("rubricFile", HERE / "RUBRIC.md")))}
+    if "flagBridge" in preflight:
+        current.update(flagBridgeSha256=digest(Path(preflight["flagBridge"])),
+                       flagParserSha256=digest(Path(cli_input.__file__)),
+                       flagBridgeSourceSha256=digest(HERE / "cli_input_bridge.ts"))
     return [name for name, value in current.items() if value != preflight[name]]
 
 
@@ -835,10 +879,12 @@ def main(argv=None):
     if len(set(args.cases)) != len(args.cases) or any(case not in questions for case in args.cases):
         parser.error("cases must be unique question IDs from QUESTIONS.md")
     args.cli, args.output_dir = args.cli.resolve(), args.output_dir.resolve()
+    args.flag_bridge = args.output_dir / "cli-input-bridge.cjs"
     corpora = resolve_corpora(args, parser)
     if any(args.output_dir.is_relative_to(root) for root in corpora.values()):
         parser.error("output directory must be outside the measured corpora")
     plan = {"runRequested": args.run, "checkRequested": args.check, "protocol": PROTOCOL,
+            "cli": str(args.cli), "flagBridge": str(args.flag_bridge),
             "corpora": {name: {"path": str(root), "commit": COMMITS[name]} for name, root in corpora.items()},
             "trials": len(args.cases) * args.passes * 2,
             "cases": args.cases, "passes": args.passes, "remote": args.remote,
@@ -857,12 +903,16 @@ def main(argv=None):
         write_once(args.output_dir / "permission-preflight.json", permission_receipt)
         if not permission_receipt["passed"]:
             raise RuntimeError("permission_preflight_failed")
+        args.flag_bridge = cli_input.prepare_bridge(args.output_dir)
         corpus_before = corpus_receipts(corpora)
         preflight = {**plan, "candidate": fingerprint(args.cli), "corpora": corpus_before,
                      "permissionPreflight": permission_receipt,
                      "toolContract": capture_tool_contract(args.cli, remote=args.remote),
                      "questionsSha256": digest(args.questions_file), "rubricSha256": digest(args.rubric_file),
-                     "runnerSha256": digest(Path(__file__)), "platform": os.uname().sysname,
+                      "runnerSha256": digest(Path(__file__)), "platform": os.uname().sysname,
+                      "flagBridgeSha256": digest(args.flag_bridge),
+                      "flagParserSha256": digest(Path(cli_input.__file__)),
+                      "flagBridgeSourceSha256": digest(HERE / "cli_input_bridge.ts"),
                      "permissionsSha256": digest(Path(sandbox_permissions.__file__)),
                      "versions": {name: command([name, "--version"]).splitlines()[0] for name in (("codex", "node", "rg", "ast-grep", "gh") if args.remote else ("codex", "node", "rg", "ast-grep"))}}
         for filename, source in (("QUESTIONS.md", args.questions_file), ("RUBRIC.md", args.rubric_file)):

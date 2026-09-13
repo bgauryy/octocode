@@ -25,6 +25,37 @@ function tool(runner: AwarenessOperationRunner = vi.fn<AwarenessOperationRunner>
   return definition!;
 }
 
+async function describeExactSchema(definition: ToolDefinition, operation: string): Promise<string> {
+  const parts: string[] = [];
+  let part: number | undefined;
+  let total = 1;
+  do {
+    const query = { reasoning: 'Inspect the exact operation contract', operation, describe: true, ...(part === undefined ? {} : { part }) };
+    expect(compileMcpSchemaValidator(definition.parameters).validate({ queries: [query] }).valid).toBe(true);
+    const result = await definition.execute('describe', { queries: [query] }, undefined, undefined, {} as PiContext);
+    expect(result.isError).not.toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(2_000);
+    const payload = JSON.parse(text) as {
+      operation: string;
+      inputSchemaText?: string;
+      inputSchemaTextPart?: string;
+      schemaPart?: { index: number; total: number };
+      next?: { queries?: Array<{ part?: number }> };
+    };
+    expect(payload.operation).toBe(operation);
+    if (payload.inputSchemaText !== undefined) return payload.inputSchemaText;
+    expect(payload.schemaPart).toBeDefined();
+    expect(typeof payload.inputSchemaTextPart).toBe('string');
+    parts[payload.schemaPart!.index] = payload.inputSchemaTextPart!;
+    total = payload.schemaPart!.total;
+    part = payload.next?.queries?.[0]?.part;
+  } while (part !== undefined);
+  expect(parts).toHaveLength(total);
+  expect(parts.every(value => typeof value === 'string')).toBe(true);
+  return parts.join('');
+}
+
 type NativeCall = { tool: string; queries: { reasoning: string; operation: string; params?: Record<string, unknown> }[] };
 
 describe('native Awareness continuations', () => {
@@ -100,14 +131,18 @@ describe('native Awareness schema discovery', () => {
     vi.stubEnv('OCTOCODE_STORAGE_MODE', 'memory');
     const runner = vi.fn<AwarenessOperationRunner>();
     const definition = tool(runner);
-    const query = { reasoning: 'Inspect the exact operation contract', operation, describe: true };
-    expect(compileMcpSchemaValidator(definition.parameters).validate({ queries: [query] }).valid).toBe(true);
-    const result = await definition.execute('describe', { queries: [query] }, undefined, undefined, {} as PiContext);
-    const payload = JSON.parse((result.content[0] as { text: string }).text);
-    expect(result.isError).not.toBe(true);
-    expect(payload.inputSchema).toEqual(getAwarenessOperationDescriptor(operation)!.inputSchema);
-    expect(payload.operation).toBe(operation);
+    const schemaText = await describeExactSchema(definition, operation);
+    expect(schemaText).toBe(getAwarenessOperationDescriptor(operation)!.inputSchemaText);
+    expect(JSON.parse(schemaText)).toEqual(getAwarenessOperationDescriptor(operation)!.inputSchema);
     expect(runner).not.toHaveBeenCalled();
+  });
+
+  it('reconstructed executable schemas accept canonical calls with multiple optional fields', async () => {
+    const definition = tool();
+    const schema = JSON.parse(await describeExactSchema(definition, 'memory.recall'));
+    const params = { query: 'schema fidelity', limit: 7, smart: true, explain: true };
+    expect(() => getAwarenessOperationDescriptor('memory.recall')!.validate(params)).not.toThrow();
+    expect(compileMcpSchemaValidator(schema).validate(params).valid).toBe(true);
   });
 
   it('rejects describe with execution parameters instead of silently ignoring them', async () => {

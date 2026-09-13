@@ -252,6 +252,7 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
   });
 });
 
+
 describe('event-stream convergence predecessor migration', () => {
   it('preserves the source and maps one legacy handoff to a signal and typed peer event', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'awareness-stream-predecessor-')));

@@ -1,8 +1,9 @@
 use grep::pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep::regex::RegexMatcherBuilder;
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct RipgrepPatternValidationResult {
     pub valid: bool,
     pub error: Option<String>,

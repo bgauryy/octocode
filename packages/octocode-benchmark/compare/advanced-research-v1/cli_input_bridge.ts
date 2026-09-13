@@ -4,6 +4,7 @@
  * registering or invoking any tool runtime.
  */
 import { buildQueryFromFlags } from '../../../octocode/src/cli/tool-command/flags-to-query.ts';
+import { DirectToolInputError } from '@octocodeai/octocode-core/schema';
 
 const [toolName, ...tail] = process.argv.slice(2);
 
@@ -16,6 +17,9 @@ if (!toolName) {
   try {
     process.stdout.write(JSON.stringify({ ok: true, query: buildQueryFromFlags(toolName, tail) }));
   } catch (error) {
+    if (!(error instanceof DirectToolInputError)) {
+      throw error;
+    }
     const input = error as Error & { details?: unknown };
     process.stdout.write(
       JSON.stringify({

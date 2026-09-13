@@ -1,7 +1,7 @@
 import { lstat, opendir, realpath, stat } from 'node:fs/promises';
 import { relative, resolve, sep } from 'node:path';
 import * as git from 'isomorphic-git';
-import { inspectOrphanObjects, type HistoryMaintenanceResult } from './history-git-maintenance.js';
+import { inspectOrphanObjects, reclaimOrphanObjects, type HistoryMaintenanceResult } from './history-git-maintenance.js';
 import { ensureHistoryIgnoreMarker } from './history-ignore.js';
 import { readHistoryObject, parseHistoryTree, parseHistoryCommit, MAX_HISTORY_OBJECT_BYTES } from './history-git-object.js';
 import { createPrivateHistoryIo } from './history-git-storage.js';
@@ -53,6 +53,8 @@ export interface HistoryGitStore {
   resolveRef(ref: string): Promise<string | null>;
   flush(): Promise<FileDurability>;
   inspectOrphanObjects(options: { retainedOids: string[]; graceMs: number; limit: number; cursor?: string }): Promise<HistoryMaintenanceResult>;
+  /** Caller must hold the Awareness metadata maintenance handshake. */
+  reclaimOrphanObjects(options: { retainedOids: string[]; graceMs: number; limit: number; cursor?: string }): Promise<HistoryMaintenanceResult>;
 }
 
 export interface OpenHistoryGitStoreOptions {
@@ -364,6 +366,10 @@ export async function openHistoryGitStore(options: OpenHistoryGitStoreOptions): 
     },
     async inspectOrphanObjects({ retainedOids, graceMs, limit, cursor }) {
       return inspectOrphanObjects({ gitdir: canonicalGitdir, retainedOids, graceMs, limit, cursor, assertMetadataSafe });
+    },
+    async reclaimOrphanObjects({ retainedOids, graceMs, limit, cursor }) {
+      assertWritable();
+      return reclaimOrphanObjects({ gitdir: canonicalGitdir, retainedOids, graceMs, limit, cursor, assertMetadataSafe });
     },
     async publishRef(ref, oid) {
       assertWritable();

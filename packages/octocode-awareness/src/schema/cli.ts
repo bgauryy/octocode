@@ -7,6 +7,13 @@ import {
   listAwarenessOperationDescriptors,
   type AwarenessOperation,
 } from './operation-catalog.js';
+import {
+  maintenanceRetentionDescriptor,
+  maintenanceRetentionSchema,
+  storeRetirementDescriptor,
+  storeRetirementSchema,
+} from './definitions-maintenance.js';
+import { projectCommandInput } from './command-input.js';
 
 function canonicalOperationName(value: string): AwarenessOperation | undefined {
   const normalized = value.trim().replace(/\s+/, '.');
@@ -28,6 +35,22 @@ function routineDiscovery() {
 
 /** Return the exact contract for one public Awareness operation. */
 export function cliCommandSchema(operationName: string): Record<string, unknown> | null {
+  const requested = operationName.trim().replace(/\s+/, '.');
+  const operator = requested === maintenanceRetentionDescriptor.operation
+    ? { descriptor: maintenanceRetentionDescriptor, schema: maintenanceRetentionSchema, approval: 'apply requires --confirm apply-retention' }
+    : requested === storeRetirementDescriptor.operation
+      ? { descriptor: storeRetirementDescriptor, schema: storeRetirementSchema, approval: 'apply requires --confirm retire' }
+      : null;
+  if (operator) {
+    return {
+      ...projectCommandInput(operator.descriptor.command, operator.schema),
+      'x-awareness-operation': operator.descriptor.operation,
+      'x-cli-command': operator.descriptor.command,
+      'x-cli-context': ['db', 'db_scope', 'workspace', 'compact'],
+      'x-awareness-effect': operator.descriptor.effects,
+      'x-awareness-approval': operator.approval,
+    };
+  }
   const operation = canonicalOperationName(operationName);
   if (!operation) return null;
   const descriptor = getAwarenessOperationDescriptor(operation)!;
@@ -110,7 +133,7 @@ export async function runSchemaCommand(command: string | undefined, params: Reco
         kind: 'awareness.entities',
         storage: catalog.storage,
         families: [...families.entries()].map(([family, entities]) => ({ family, entities })),
-        hint: 'Pass --all for owner and relation kind per entity.',
+        hint: 'Pass --all for owner, relation kind, and lifecycle policy per entity.',
       }, compact);
     }
     return 0;

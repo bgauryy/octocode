@@ -9,6 +9,7 @@ import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from '../src/stora
 // A DDL change must intentionally mint a new generation, filename, and fingerprint.
 const GENERATION_FINGERPRINTS = {
   4: 'c7a8e65cdabc20e301931c9a2e3cb6590e6dd19d963dbfea3d6dcb1d635c357f',
+  5: 'dec4da0e8e5147a95f189dc8a4cd85190c62cd8d3acfbaa3bee2be468426f060',
 } as const;
 
 const databases: DatabaseSync[] = [];

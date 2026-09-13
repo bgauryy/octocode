@@ -1,7 +1,7 @@
 import { writeCommandDiagnostic, writeCommandText } from '../command-output.js';
 import { HookRunOptions, INTERNAL_HOOK_HOST, INTERNAL_SKILL_ROOT, agentId, hookEventName, parsePayload, shellHookHost, workspace } from './payload.js';
 import { runPostEdit, runPreEdit } from './edit-events.js';
-import { canDeliverHookCommunication, isDigestPreviewDue, runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify, runToolCommunication } from './lifecycle.js';
+import { canDeliverHookCommunication, isRetentionPreviewDue, runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify, runToolCommunication } from './lifecycle.js';
 import { normalizeToolHookPayload } from './tool-protocol.js';
 import { captureHookHistory } from './history-capture.js';
 import { HOOK_RECEIPT_SUCCESS_SAMPLE_MS, recordHookReceiptBestEffort } from '../hook-receipts.js';
@@ -113,7 +113,7 @@ export async function runHookCommand(
     receipt('success');
     return 0;
   }
-  if (communicationOnly && hookStateUnchanged(payload) && !isDigestPreviewDue(payload, features)) {
+  if (communicationOnly && hookStateUnchanged(payload) && !isRetentionPreviewDue(payload, features)) {
     receipt('success');
     recordHookChangeState(payload);
     return 0;

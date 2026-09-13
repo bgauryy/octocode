@@ -88,9 +88,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "octocode": {
-    "readmeSync": false
-  },
   "optionalDependencies": {
     "@octocodeai/octocode-extension-rust": "0.1.0"
   }

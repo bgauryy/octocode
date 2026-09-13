@@ -200,7 +200,8 @@ export const SCHEMA_DDL = `
       status         TEXT NOT NULL DEFAULT 'open'
                      CHECK(status IN ('open','resolved')),
       resolved_at    TEXT,
-      created_at     TEXT NOT NULL
+      created_at     TEXT NOT NULL,
+      expires_at     TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS signal_reads (
@@ -284,6 +285,7 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);
   CREATE INDEX IF NOT EXISTS idx_signals_scope          ON signals(workspace_path, artifact);
   CREATE INDEX IF NOT EXISTS idx_signals_created_at     ON signals(created_at);
+  CREATE INDEX IF NOT EXISTS idx_signals_expires_at     ON signals(expires_at);
   CREATE INDEX IF NOT EXISTS idx_signals_thread         ON signals(thread_id);
   CREATE INDEX IF NOT EXISTS idx_memory_refs_ref  ON memory_refs(reference);
   CREATE INDEX IF NOT EXISTS idx_memory_refs_kind ON memory_refs(kind);

@@ -26,6 +26,7 @@ export interface AwarenessQueryParams {
   ref?: string | null;
   query?: string | null;
   limit?: number | null;
+  offset?: number | null;
   agentId?: string | null;
   /** Prefer this owner before bounded workboard selection; does not filter totals. */
   preferAgentId?: string | null;
@@ -68,6 +69,7 @@ export interface AwarenessQueryResult extends QueryContinuationState {
   total: number | null;
   omitted_count: number | null;
   is_partial: boolean;
+  partial: boolean;
   continuation: string | null;
   sections?: Record<string, AwarenessQuerySection>;
   filters: Record<string, unknown>;
@@ -159,6 +161,7 @@ export interface QueryCompleteness {
 }
 
 export function continuationFor(view: AwarenessQueryView, requestedLimit: number): string {
+  if (view === 'agents') return 'follow next.list to read the next stable agent page';
   if (requestedLimit < 500) {
     if (view === 'workboard') {
       return `work list --kind workboard --limit ${Math.min(50, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
