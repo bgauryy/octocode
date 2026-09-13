@@ -366,7 +366,7 @@ describe('prepareDirectToolInput', () => {
     expect(
       fields.files?.find(field => field.name === 'pageSize')
     ).toMatchObject({
-      constraints: '1-50',
+      constraints: '1-100',
     });
   });
 

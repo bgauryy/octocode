@@ -37,10 +37,9 @@ function register(context: ReturnType<typeof fixture>, agentId = context.agentId
 }
 
 describe('canonical Awareness client', () => {
-  it('publishes one routine surface of five concepts and nineteen operations', () => {
+  it('publishes one unique routine operation catalog across five concepts', () => {
     expect(AWARENESS_CONCEPTS).toEqual(['context', 'work', 'message', 'memory', 'history']);
-    expect(ROUTINE_AWARENESS_OPERATIONS).toHaveLength(19);
-    expect(new Set(ROUTINE_AWARENESS_OPERATIONS)).toHaveLength(19);
+    expect(new Set(ROUTINE_AWARENESS_OPERATIONS)).toHaveLength(ROUTINE_AWARENESS_OPERATIONS.length);
     expect(new Set(listAwarenessOperationDescriptors().map(row => row.concept)))
       .toEqual(new Set(AWARENESS_CONCEPTS));
     expect(listAwarenessOperationDescriptors().every(row => row.visibility === 'routine')).toBe(true);

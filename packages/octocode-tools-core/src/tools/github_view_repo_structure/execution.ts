@@ -16,7 +16,13 @@ import {
   shouldIgnoreDiscoveryFile,
   shouldIgnoreDiscoveryDir,
 } from '@octocodeai/octocode-engine/security';
-import { handleCatchError, createSuccessResult } from '../utils.js';
+import {
+  handleCatchError,
+  createSuccessResult,
+  createErrorResult,
+} from '../utils.js';
+import { handleGitHubAPIError } from '../../github/errors.js';
+import type { GitHubAPIError } from '../../github/githubAPI.js';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import {
   mapRepoStructureProviderResult,
@@ -34,7 +40,7 @@ function normalizeStructureErrorResult(
   const rawError = result.error;
   const apiError =
     typeof rawError === 'object' && rawError !== null
-      ? (rawError as { error?: unknown; status?: unknown; type?: unknown })
+      ? (rawError as Partial<GitHubAPIError>)
       : undefined;
 
   const status =
@@ -95,6 +101,15 @@ function normalizeStructureErrorResult(
       ? { statusCode: apiError.status }
       : {}),
     ...(typeof apiError?.type === 'string' ? { errorType: apiError.type } : {}),
+    ...(typeof apiError?.retryAfter === 'number'
+      ? { retryAfter: apiError.retryAfter }
+      : {}),
+    ...(typeof apiError?.rateLimitRemaining === 'number'
+      ? { rateLimitRemaining: apiError.rateLimitRemaining }
+      : {}),
+    ...(typeof apiError?.rateLimitReset === 'number'
+      ? { rateLimitReset: apiError.rateLimitReset }
+      : {}),
     ...(next ? { next } : {}),
   };
 }
@@ -223,6 +238,13 @@ export async function exploreRepositoryStructure(
       }
     );
   } catch (error) {
+    const apiError = handleGitHubAPIError(error);
+    if (apiError.type === 'http') {
+      return normalizeStructureErrorResult(
+        createErrorResult(apiError, query),
+        query
+      );
+    }
     return handleCatchError(
       error,
       query,

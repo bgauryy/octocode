@@ -2,7 +2,10 @@ import type { RepoStructureResult as ProviderRepoStructureResult } from '../../p
 import type { GitHubSearchQuery } from '@octocodeai/octocode-core/schema';
 import type { WithOptionalMeta } from '../../types/execution.js';
 
-import { GITHUB_STRUCTURE_DEFAULTS } from '../github_view_repo_structure/constants.js';
+import {
+  GITHUB_STRUCTURE_DEFAULTS,
+  CONTENTS_DIRECTORY_LIMIT,
+} from '../github_view_repo_structure/constants.js';
 import { buildNextPageContinuation } from '../../scheme/pagination.js';
 
 type GitHubViewRepoStructureQuery = Extract<
@@ -141,6 +144,15 @@ export function mapRepoStructureProviderResult(
     ...(isPartial ? { isPartial: true } : {}),
     ...(terminalLimit ? { terminalLimit: true } : {}),
     ...(partialReasons ? { partialReasons } : {}),
+    ...(data.partialReasons?.includes('providerContentsLimit')
+      ? {
+          providerLimit: {
+            reason: 'providerContentsLimit',
+            maxEntriesPerDirectory: CONTENTS_DIRECTORY_LIMIT,
+            completeness: 'unknown',
+          },
+        }
+      : {}),
   };
 
   if (data.metadataPagination) {

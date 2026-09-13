@@ -66,7 +66,7 @@ For local core changes, build that sibling package before refreshing the develop
 
 Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). Live catalog: `$OCTO tools --json`; read `$OCTO tools <name> --scheme --json --compact` before calling a tool. Compact schemas include `relations` for conditional and mutually exclusive fields.
 
-**Full discovery catalog (10)** — `ENABLE_CLONE=false` disables cloning:
+**Full discovery catalog** — `ENABLE_CLONE=false` disables cloning:
 
 | Family | Tools | Role |
 |---|---|---|
@@ -74,6 +74,7 @@ Full field-level reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md). 
 | Package | `artifactSearch` | Package lookup/discovery across eight ecosystems + source repo |
 | Local | `localSearch` · `localFetch` | Lexical text/regex search and exact/explicitly minified file reads. `ENABLE_LOCAL=false` disables the family. |
 | AST | `astSearch` | Files, filesystem/syntax trees, symbols, structural matching, and topology: dependencies, dependents, shortest path, cycles/SCCs, reachability, and dead-code candidates |
+| AST rewrite | `astRewrite` | Preview structural changes; applying a preview requires its snapshot and unchanged file hashes. |
 | LSP | `lspSearch` | definition, references, callers/callees, symbols, types, diagnostics, … |
 
 Evidence: search and `astSearch` topology import edges are **candidates**, not symbol proof — use graph operations for repository file topology, then confirm identity/usage with `lspSearch` (`references`/`callers`) before a delete claim. Do not treat search relevance ranking as proof.

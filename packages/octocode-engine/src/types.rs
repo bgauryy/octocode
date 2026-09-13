@@ -1,5 +1,140 @@
 use napi_derive::napi;
 
+// ── persistent index types ───────────────────────────────────────────────────
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexStoreOptions {
+    pub home: String,
+    pub root_id: String,
+    pub root_path: String,
+    pub source_commit: Option<String>,
+    pub source_tree: Option<String>,
+    pub index_schema_version: u32,
+    pub parser_schema_version: u32,
+    pub tool_version: String,
+    pub max_generations: Option<u32>,
+    pub max_bytes: Option<i64>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexBuildRequest {
+    pub store: IndexStoreOptions,
+    pub exclusions: Option<Vec<String>>,
+    pub max_files: Option<u32>,
+    pub max_entries: Option<u32>,
+    pub max_depth: Option<u32>,
+    pub max_file_bytes: Option<i64>,
+    pub max_source_bytes: Option<i64>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexQueryRequest {
+    pub store: IndexStoreOptions,
+    pub text: String,
+    /// `content` or `symbol`.
+    pub kind: String,
+    pub case_sensitive: Option<bool>,
+    pub offset: Option<u32>,
+    pub limit: Option<u32>,
+    /// Bind a continuation to the generation returned by the prior page.
+    pub expected_generation: Option<i64>,
+    pub freshness_max_entries: Option<u32>,
+    pub freshness_max_depth: Option<u32>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexStatusRequest {
+    pub store: IndexStoreOptions,
+    pub freshness_max_entries: Option<u32>,
+    pub freshness_max_depth: Option<u32>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexFreshnessResult {
+    pub checked: i64,
+    pub fresh: i64,
+    pub generation_complete: bool,
+    pub traversal_complete: bool,
+    pub scanned_entries: i64,
+    pub added: Vec<String>,
+    pub dirty: Vec<String>,
+    pub deleted: Vec<String>,
+    pub unverifiable: Vec<String>,
+    pub can_prove_absence: bool,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexBuildResult {
+    pub generation: i64,
+    pub root_id: String,
+    pub canonical_root: String,
+    pub snapshot: String,
+    pub document_count: i64,
+    pub indexed_source_bytes: i64,
+    pub symbol_count: i64,
+    pub complete: bool,
+    pub truncated: bool,
+    pub limit_reason: Option<String>,
+    pub excluded_paths: Vec<String>,
+    pub skipped_binary: Vec<String>,
+    pub skipped_too_large: Vec<String>,
+    pub skipped_symlinks: Vec<String>,
+    pub unverifiable: Vec<String>,
+    pub freshness: IndexFreshnessResult,
+    pub usable: bool,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexQueryMatchResult {
+    pub path: String,
+    pub line: i64,
+    pub column: i64,
+    pub start_byte: i64,
+    pub end_byte: i64,
+    pub value: String,
+    pub symbol_kind: Option<String>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexQueryResult {
+    pub generation: i64,
+    pub root_id: String,
+    pub canonical_root: String,
+    pub snapshot: String,
+    pub matches: Vec<IndexQueryMatchResult>,
+    pub total_matches: i64,
+    pub next_offset: Option<i64>,
+    pub exclusions: Vec<String>,
+    pub freshness: IndexFreshnessResult,
+    pub usable: bool,
+    pub absence_proven: bool,
+    pub diagnostic: Option<String>,
+}
+
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IndexStatusResult {
+    pub indexed: bool,
+    pub usable: bool,
+    pub root_id: String,
+    pub canonical_root: String,
+    pub generation: Option<i64>,
+    pub snapshot: Option<String>,
+    pub document_count: i64,
+    pub indexed_source_bytes: i64,
+    pub exclusions: Vec<String>,
+    pub freshness: Option<IndexFreshnessResult>,
+    pub diagnostic: Option<String>,
+}
+
 /// One parser entry from the canonical grammar registry. Consumers use this
 /// runtime inventory for language selection and agent guidance instead of
 /// maintaining extension/name tables outside the engine.
@@ -65,6 +200,10 @@ pub struct RipgrepStats {
     pub search_time: Option<String>,
     pub capped: Option<bool>,
     pub cap_reason: Option<String>,
+    /// Traversal or per-file search failures; nonzero means incomplete coverage.
+    pub error_count: Option<u32>,
+    /// Bounded first failure detail. Counts include every observed failure.
+    pub first_error: Option<String>,
 }
 
 #[napi(object)]

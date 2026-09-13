@@ -33,6 +33,7 @@ vi.mock('../../src/github/repoStructureRecursive.js', () => ({
   fetchDirectoryContentsRecursivelyAPI: mocks.recursive,
   getRecursiveFetchFailureCount: (items: unknown[]) =>
     items.length === 1 ? 1 : 0,
+  hasRecursiveContentsLimit: () => false,
 }));
 
 beforeEach(() => {

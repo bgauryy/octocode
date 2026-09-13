@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AWARENESS_DB_FILENAME } from '../../octocode-awareness/src/storage-scope.js';
 import { writeWorkspacePolicy } from '../../octocode-awareness/src/workspace-policy.js';
 import { createAwarenessMutationGate } from '../src/tools/awareness-mutation-gate.js';
 import { createPiHistoryAdapter } from '../src/adapters/pi-history-adapter.js';
@@ -14,6 +15,7 @@ vi.mock('../src/tools/storage-policy.js', () => ({ openPersistentAwareness: vi.f
 vi.mock('@octocodeai/octocode-awareness/host', async () => ({
   ...await import('../../octocode-awareness/src/workspace-policy.js'),
   ...await import('../../octocode-awareness/src/history-tool-effects.js'),
+  defaultDbPath: (workspace: string) => join(workspace, '.octocode', AWARENESS_DB_FILENAME),
 }));
 const dirs: string[] = [];
 afterEach(() => { vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });

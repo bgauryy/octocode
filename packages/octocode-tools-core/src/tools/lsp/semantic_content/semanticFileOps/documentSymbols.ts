@@ -1,7 +1,4 @@
-import {
-  acquirePooledClientDetailed,
-  isLanguageServerAvailable,
-} from '@octocodeai/octocode-engine/lsp/manager';
+import { acquirePooledClientDetailed } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import type { LSPRange } from '@octocodeai/octocode-engine/lsp/types';
 import { markdownHeadingOutlineToDocumentSymbols } from '../../../../utils/markdownOutline.js';
@@ -56,6 +53,7 @@ export async function getDocumentSymbols(
   // Stamp `source` so callers know the fidelity tier.
   let symbols: unknown[] = [];
   let source: 'lsp' | 'native' | 'native-graph-facts' | 'markdown' | undefined;
+  let lspReceipt: LspSemanticEnvelope['lsp']['receipt'];
   const nativeFast = nativeDocumentSymbols(
     anchor.value.uri,
     anchor.value.content
@@ -66,8 +64,8 @@ export async function getDocumentSymbols(
   if (nativeFast?.length) {
     symbols = nativeFast;
     source = 'native';
-  } else if (graphFactsFallback?.length) {
-    symbols = graphFactsFallback;
+  } else if (graphFactsFallback) {
+    symbols = graphFactsFallback.symbols;
     source = 'native-graph-facts';
   } else {
     const markdown = markdownHeadingOutlineToDocumentSymbols(
@@ -87,14 +85,6 @@ export async function getDocumentSymbols(
     const workspaceRoot =
       query.workspaceRoot ??
       (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
-    if (
-      !(await isLanguageServerAvailable(
-        anchor.value.absolutePath,
-        workspaceRoot
-      ))
-    ) {
-      throwLspUnavailable(anchor.value.uri, 'documentSymbols');
-    }
     const result = await acquirePooledClientDetailed(
       workspaceRoot,
       anchor.value.absolutePath,
@@ -102,11 +92,20 @@ export async function getDocumentSymbols(
     );
     if (result.ok === false)
       throwLspUnavailable(anchor.value.uri, 'documentSymbols', result);
+    lspReceipt = (
+      result as typeof result & {
+        receipt: NonNullable<LspSemanticEnvelope['lsp']['receipt']>;
+      }
+    ).receipt;
     if (!result.client.hasCapability('documentSymbolProvider')) {
       return {
         type: 'documentSymbols',
         uri: anchor.value.uri,
-        lsp: { serverAvailable: true, provider: 'documentSymbolProvider' },
+        lsp: {
+          serverAvailable: true,
+          provider: 'documentSymbolProvider',
+          receipt: lspReceipt,
+        },
         payload: {
           kind: 'empty',
           category: 'unsupportedOperation',
@@ -130,6 +129,11 @@ export async function getDocumentSymbols(
     query
   );
   const kindCounts = countBy(compactSymbols, symbol => symbol.kind);
+  const recoveryDiagnostics =
+    graphFactsFallback?.diagnostics.map(message => ({
+      code: 'parseRecovery' as const,
+      message,
+    })) ?? [];
   return {
     type: 'documentSymbols',
     uri: anchor.value.uri,
@@ -138,6 +142,7 @@ export async function getDocumentSymbols(
         ? { serverAvailable: true, provider: 'documentSymbolProvider' }
         : {}),
       ...(source ? { source } : {}),
+      ...(lspReceipt ? { receipt: lspReceipt } : {}),
     },
     summary: {
       totalSymbols: compactSymbols.length,
@@ -148,8 +153,18 @@ export async function getDocumentSymbols(
     payload: {
       kind: 'documentSymbols',
       symbols: pageItems,
+      ...(recoveryDiagnostics.length
+        ? { diagnostics: recoveryDiagnostics }
+        : {}),
     },
     pagination,
+    ...(recoveryDiagnostics.length
+      ? {
+          incompleteResults: true,
+          terminalLimit: true,
+          partialReasons: ['parseRecovery' as const],
+        }
+      : {}),
   };
 }
 

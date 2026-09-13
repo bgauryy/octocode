@@ -66,14 +66,15 @@ describe('localSearch architecture boundary', () => {
     }
   });
 
-  it('adapts the lexical engine without nesting its public bulk wrapper', async () => {
+  it('uses the private typed lexical service without nesting public wrappers', async () => {
     const imports = await moduleImports('tools/local_search/execution.ts');
 
     expect(imports).toEqual(
-      expect.arrayContaining(['../local_ripgrep/searchContentRipgrep.js'])
+      expect.arrayContaining(['./typedLexicalService.js'])
     );
     expect(imports).not.toEqual(
       expect.arrayContaining([
+        '../local_ripgrep/searchContentRipgrep.js',
         '../local_ripgrep/execution.js',
         '../local_find_files/execution.js',
         '../local_view_structure/execution.js',

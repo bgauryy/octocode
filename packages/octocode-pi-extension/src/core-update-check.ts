@@ -17,8 +17,6 @@
  * (interactive-mode.js#run, never print/rpc mode).
  */
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 
 export const CORE_PACKAGE_NAME = '@octocodeai/pi-extension';
 const NPM_VIEW_TIMEOUT_MS = 10_000;
@@ -40,27 +38,6 @@ function isTruthyEnvFlag(value: string | undefined): boolean {
 /** Same PI_OFFLINE convention Pi's own version/package checks honor. */
 export function isUpdateCheckDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return isTruthyEnvFlag(env.PI_OFFLINE);
-}
-
-/** Reads this extension's own version from its package.json (one level above baseDir/dist). */
-const ownVersionCache = new Map<string, string | undefined>();
-
-/** Memoized: the banner entry renderer calls this per frame; the file never changes mid-process. */
-export function readOwnVersion(baseDir: string): string | undefined {
-  if (ownVersionCache.has(baseDir)) return ownVersionCache.get(baseDir);
-  const v = readOwnVersionUncached(baseDir);
-  ownVersionCache.set(baseDir, v);
-  return v;
-}
-
-function readOwnVersionUncached(baseDir: string): string | undefined {
-  try {
-    const pkgPath = path.join(path.dirname(baseDir), 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { version?: string };
-    return typeof pkg.version === 'string' && pkg.version.trim() ? pkg.version.trim() : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function defaultRunNpmView(packageName: string): Promise<string> {

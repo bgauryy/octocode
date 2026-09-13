@@ -19,6 +19,7 @@ import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
+import { rejectUnreachableSearchPage } from './searchWindow.js';
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
   GITHUB_SEARCH_MAX_LIMIT,
@@ -97,13 +98,18 @@ async function searchGitHubCodeAPIInternal(
       GITHUB_SEARCH_MAX_LIMIT
     );
     const currentPage = params.page || 1;
+    const windowError = rejectUnreachableSearchPage(currentPage, perPage);
+    if (windowError) return windowError;
 
     const searchParams: SearchCodeParameters = {
       q: query,
       per_page: perPage,
       page: currentPage,
       headers: {
-        Accept: 'application/vnd.github.v3.text-match+json',
+        Accept:
+          params.match === 'path'
+            ? 'application/vnd.github+json'
+            : 'application/vnd.github.v3.text-match+json',
       },
     };
 
@@ -111,7 +117,8 @@ async function searchGitHubCodeAPIInternal(
 
     const optimizedResult = await transformToOptimizedFormat(
       result.data.items,
-      result.data.total_count
+      result.data.total_count,
+      params.match !== 'path'
     );
 
     // HTTP 200 can still contain an incomplete search index result. Preserve
@@ -189,7 +196,8 @@ async function searchGitHubCodeAPIInternal(
 
 async function transformToOptimizedFormat(
   items: CodeSearchResultItem[],
-  apiTotalCount?: number
+  apiTotalCount: number | undefined,
+  includeFragments: boolean
 ): Promise<OptimizedCodeSearchResult> {
   const singleRepo = extractSingleRepository(items);
 
@@ -199,16 +207,14 @@ async function transformToOptimizedFormat(
 
   const foundFiles = new Set<string>();
 
-  let droppedMatches = 0;
-
-  const itemResults = await Promise.allSettled(
+  const optimizedItems = await Promise.all(
     items.map(async item => {
       foundFiles.add(`${item.repository.full_name}/${item.path}`);
 
       const itemMinificationTypes: string[] = [];
 
-      const matchResults = await Promise.allSettled(
-        (item.text_matches || []).map(async match => {
+      const processedMatches = await Promise.all(
+        (includeFragments ? item.text_matches || [] : []).map(async match => {
           const sanitizationResult = ContentSanitizer.sanitizeContent(
             match.fragment || '',
             item.path
@@ -246,24 +252,6 @@ async function transformToOptimizedFormat(
         })
       );
 
-      const processedMatches = matchResults
-        .filter(
-          (
-            r
-          ): r is PromiseFulfilledResult<{
-            context: string;
-            positions: [number, number][];
-          }> => r.status === 'fulfilled'
-        )
-        .map(r => r.value);
-
-      const rejectedMatchCount = matchResults.filter(
-        r => r.status === 'rejected'
-      ).length;
-      if (rejectedMatchCount > 0) {
-        droppedMatches += rejectedMatchCount;
-      }
-
       const itemWithOptionalFields = item as CodeSearchResultItem & {
         last_modified_at?: string;
       };
@@ -288,20 +276,6 @@ async function transformToOptimizedFormat(
       };
     })
   );
-
-  const optimizedItems = itemResults
-    .filter(
-      (
-        r
-      ): r is PromiseFulfilledResult<
-        (typeof itemResults)[number] extends PromiseFulfilledResult<infer T>
-          ? T
-          : never
-      > => r.status === 'fulfilled'
-    )
-    .map(r => r.value);
-
-  const droppedItems = itemResults.filter(r => r.status === 'rejected').length;
 
   const result: OptimizedCodeSearchResult = {
     items: optimizedItems,
@@ -331,17 +305,6 @@ async function transformToOptimizedFormat(
       updatedAt: singleRepo.updated_at || undefined,
       pushedAt: singleRepo.pushed_at || undefined,
     };
-  }
-
-  if (droppedItems > 0) {
-    allMatchLocationsSet.add(
-      `${droppedItems} item(s) dropped due to processing errors`
-    );
-  }
-  if (droppedMatches > 0) {
-    allMatchLocationsSet.add(
-      `${droppedMatches} match(es) dropped due to processing errors`
-    );
   }
 
   if (allMatchLocationsSet.size > 0) {

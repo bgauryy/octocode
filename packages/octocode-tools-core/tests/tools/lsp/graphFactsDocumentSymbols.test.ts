@@ -30,15 +30,18 @@ describe('graphFactsDocumentSymbols contract decoding', () => {
       })
     );
 
-    expect(graphFactsDocumentSymbols('/tmp/example.js', '')).toEqual([
-      {
-        name: 'answer',
-        kind: 'function',
-        range: {
-          start: { line: 0, character: 0 },
-          end: { line: 0, character: 6 },
+    expect(graphFactsDocumentSymbols('/tmp/example.js', '')).toEqual({
+      diagnostics: [],
+      symbols: [
+        {
+          name: 'answer',
+          kind: 'function',
+          range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 6 },
+          },
         },
-      },
-    ]);
+      ],
+    });
   });
 });

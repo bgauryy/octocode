@@ -10,7 +10,6 @@ import { summarizeAgentCohorts } from './cohorts.js';
  * Calls wireProcessCallbacks once at module init so spawnRpcAgent's event handlers
  * can invoke refreshAgentLedgerUi without a circular import.
  */
-import fs from 'node:fs';
 import { OCTOCODE_SPINNER_FRAMES } from '../../ui-extras.js';
 import { hasUiTickSubscriber, setUiTickSubscriber } from '../../tui/ui-ticker.js';
 import { shortId } from '../ids.js';
@@ -20,7 +19,6 @@ import type {
   PiContext,
   ToolCallResult,
   PiTheme,
-  WorkerWorktreeState,
 } from '../../types.js';
 import { paint } from '../../tui/palette.js';
 import {
@@ -34,8 +32,8 @@ import {
   getLedgerHidden,
   isTerminal,
 } from './registry.js';
+import { getArgCsv, getArgValue, statHandbackArtifact, worktreeSnapshot } from './worker-metadata.js';
 import {
-  refreshNormalizedResult,
   getActiveAgentUi,
   wireProcessCallbacks,
 } from './process.js';
@@ -115,37 +113,12 @@ export function formatElapsed(startedAt: number, endedAt?: number): string {
   return s > 0 ? `${m}m${s}s` : `${m}m`;
 }
 
-function statHandbackArtifact(filePath: string): { path: string; exists: boolean; bytes?: number; modifiedAt?: string } {
-  try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) return { path: filePath, exists: false };
-    return { path: filePath, exists: true, bytes: stat.size, modifiedAt: stat.mtime.toISOString() };
-  } catch {
-    return { path: filePath, exists: false };
-  }
-}
-
 export function formatToolCalls(toolCalls: AgentToolCall[], limit = 3): string {
   const recent = toolCalls.slice(-limit);
   return recent.map((call) => `${call.toolName}:${call.status}`).join(', ');
 }
 
-function worktreeSnapshot(worktree: WorkerWorktreeState | undefined): WorkerWorktreeState | undefined {
-  return worktree ? { ...worktree } : undefined;
-}
-
-function getArgValue(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
-function getArgCsv(args: string[], flag: string): string[] | undefined {
-  const value = getArgValue(args, flag);
-  return value ? value.split(',').map((item) => item.trim()).filter(Boolean) : undefined;
-}
-
 export function summarizeAgent(record: AgentRecord, opts: { full?: boolean } = {}) {
-  refreshNormalizedResult(record);
   const normalized = record.normalizedResult;
   const summaryText = normalized?.result || normalized?.next || record.lastOutput || record.stderr || record.error || '';
   const preview = truncateUserVisibleToolOutput(summaryText, 1000);

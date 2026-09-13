@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { schemas } from '../src/schema/registry.js';
 import { cliAllowedFlags, projectCliProperties } from '../src/schema/cli-contract.js';
+import { projectCommandInput } from '../src/schema/command-input.js';
 
 describe('signal CLI schema routing fields', () => {
   for (const command of ['signal publish', 'signal reply']) {
@@ -45,5 +46,17 @@ describe('CLI-only discovery fields', () => {
     projectCliProperties(properties, 'signal list');
     expect(properties.kind).toMatchObject({ type: 'array' });
     expect(properties.all).toMatchObject({ type: 'boolean' });
+  });
+});
+
+describe('projected conditional command contracts', () => {
+  it.each([
+    ['history recovery', 'history_recovery', { workspace: '/repo', action: 'reconcile' }, { workspace: '/repo', action: 'reconcile', confirm: 'reconcile' }],
+    ['history evidence', 'history_evidence', { workspace: '/repo', action: 'reclaim' }, { workspace: '/repo', action: 'reclaim', confirm: 'reclaim' }],
+  ] as const)('%s requires its explicit mutation confirmation', (command, schemaName, invalid, valid) => {
+    const projected = z.fromJSONSchema(projectCommandInput(command, schemas[schemaName]));
+    expect(projected.safeParse(invalid).success).toBe(false);
+    expect(projected.safeParse(valid).success).toBe(true);
+    expect(projected.safeParse({ workspace: '/repo' }).success).toBe(true);
   });
 });

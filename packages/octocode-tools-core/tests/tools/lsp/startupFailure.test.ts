@@ -78,5 +78,45 @@ describe('lspSearch startup failures', () => {
     expect(row?.data?.error).toContain('localSearch for text');
     expect(row?.data?.error).toContain('astSearch operation:"match"');
     expect(row?.data?.error).not.toContain('local.text');
+    expect(mocks.acquirePooledClientDetailed).toHaveBeenCalledTimes(1);
+    expect(mocks.isLanguageServerAvailable).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the detailed unavailable acquisition without a separate preflight', async () => {
+    const dir = await mkdtemp(join(process.cwd(), '.tmp-octocode-lsp-none-'));
+    tempDirs.push(dir);
+    const filePath = join(dir, 'fixture.ts');
+    await writeFile(filePath, 'export const target = 1;\n');
+
+    mocks.resolveWorkspaceRootForFile.mockResolvedValue(dir);
+    mocks.detectLanguageId.mockReturnValue('typescript');
+    mocks.acquirePooledClientDetailed.mockResolvedValue({
+      ok: false,
+      kind: 'unavailable',
+      message: 'No language server is available for this file.',
+      filePath,
+      workspaceRoot: dir,
+    });
+
+    const result = await executeLspSearch({
+      queries: [
+        {
+          uri: filePath,
+          operation: 'definition',
+          symbolName: 'target',
+          lineHint: 1,
+        },
+      ],
+    } as never);
+
+    expect(result.isError).toBe(true);
+    const row = (result.structuredContent as {
+      results?: Array<{ status?: string; data?: { error?: string } }>;
+    }).results?.[0];
+    expect(row?.status).toBe('error');
+    expect(row?.data?.error).toContain('unavailable');
+    expect(row?.data?.error).toContain('localSearch for text');
+    expect(mocks.acquirePooledClientDetailed).toHaveBeenCalledTimes(1);
+    expect(mocks.isLanguageServerAvailable).not.toHaveBeenCalled();
   });
 });

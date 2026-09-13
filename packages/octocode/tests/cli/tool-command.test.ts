@@ -138,6 +138,30 @@ describe('toolCommand', () => {
     );
   });
 
+  it.each([false, true])(
+    'honors compact=%s when JSON output is explicitly selected',
+    async compact => {
+      const { toolCommand } =
+        await import('../../src/cli/tool-command/command.js');
+      const result = { content: [{ type: 'text', text: 'same evidence' }] };
+      publicMocks.localSearch.mockResolvedValueOnce(result);
+
+      await toolCommand.handler!({
+        command: 'tools',
+        args: ['localSearch'],
+        options: {
+          json: true,
+          compact,
+          queries: '{"path":".","searchText":"runCLI"}',
+        },
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        JSON.stringify(result, null, compact ? 0 : 2)
+      );
+    }
+  );
+
   it('shows schema help when a tool is selected without input', async () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
@@ -279,6 +303,33 @@ describe('toolCommand', () => {
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Tool input must be valid JSON')
     );
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('keeps malformed batch input strict and gives a runnable batch envelope', async () => {
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
+
+    await toolCommand.handler!({
+      command: 'tools',
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"queries":[{"path":".","searchText":"first"},{"path":".","searchText":"second"}',
+      },
+    });
+
+    expect(publicMocks.localSearch).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Tool input must be valid JSON');
+    const diagnostic = JSON.parse(output) as { details?: string[] };
+    const example = diagnostic.details?.[0]?.match(/--queries '([^']+)'/);
+    expect(example).not.toBeNull();
+    const { buildDirectToolCommandPatterns } =
+      await import('@octocodeai/octocode-core/schema');
+    expect(JSON.parse(example![1]!)).toEqual({
+      queries: [buildDirectToolCommandPatterns('localSearch')[0]!.query],
+    });
     expect(process.exitCode).toBe(2);
   });
 

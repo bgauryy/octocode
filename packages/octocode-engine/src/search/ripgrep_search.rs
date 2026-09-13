@@ -171,6 +171,17 @@ struct CollectResult {
     elapsed: Duration,
     capped: bool,
     cap_reason: Option<String>,
+    error_count: u32,
+    first_error: Option<String>,
+}
+
+fn record_collection_error(count: &AtomicU32, first: &Mutex<Option<String>>, message: String) {
+    count.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut detail) = first.lock() {
+        if detail.is_none() {
+            *detail = Some(message.chars().take(512).collect());
+        }
+    }
 }
 
 /// `grep_searcher::Sink` that accumulates matches/contexts for one file and,
@@ -185,6 +196,8 @@ struct CollectSink<'a, M: Matcher> {
     match_window: usize,
     /// Accumulated only-matching spans for this file.
     om_matches: Vec<RipgrepMatch>,
+    /// A retained span limit must never be reported as an exhaustive search.
+    span_cap_reached: bool,
 }
 
 impl<M: Matcher> Sink for CollectSink<'_, M> {
@@ -203,24 +216,28 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             let matcher = self.matcher;
             let window = self.match_window;
             let om = &mut self.om_matches;
-            let _ = matcher.find_iter(bytes, |m| {
-                count = count.saturating_add(1);
-                if count <= MAX_ONLY_MATCHING_PER_LINE {
-                    let value = span_value(&line_text, m.start(), m.end(), window);
-                    let column =
-                        byte_to_char_offset_inner(&line_text, m.start().min(line_text.len()))
-                            as u32;
-                    om.push(RipgrepMatch {
-                        line: line_number,
-                        column,
-                        value,
-                        count: None,
-                        kind: None,
-                        score_hint: None,
-                    });
-                }
-                true
-            });
+            matcher
+                .find_iter(bytes, |m| {
+                    count = count.saturating_add(1);
+                    if count <= MAX_ONLY_MATCHING_PER_LINE {
+                        let value = span_value(&line_text, m.start(), m.end(), window);
+                        let column =
+                            byte_to_char_offset_inner(&line_text, m.start().min(line_text.len()))
+                                as u32;
+                        om.push(RipgrepMatch {
+                            line: line_number,
+                            column,
+                            value,
+                            count: None,
+                            kind: None,
+                            score_hint: None,
+                        });
+                    } else {
+                        self.span_cap_reached = true;
+                    }
+                    true
+                })
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
             // A matched line with no enumerable submatch (e.g. zero-width or
             // multiline block) still yields one span: the whole line.
             if count == 0 {
@@ -236,13 +253,15 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             }
         } else if self.work.enumerate_submatches {
             let mut first_byte_col = None;
-            let _ = self.matcher.find_iter(bytes, |matched| {
-                count = count.saturating_add(1);
-                if first_byte_col.is_none() {
-                    first_byte_col = Some(matched.start());
-                }
-                true
-            });
+            self.matcher
+                .find_iter(bytes, |matched| {
+                    count = count.saturating_add(1);
+                    if first_byte_col.is_none() {
+                        first_byte_col = Some(matched.start());
+                    }
+                    true
+                })
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
             if self.work.materialize_line {
                 let line_cow = String::from_utf8_lossy(bytes);
                 let line_text = strip_trailing_newline(line_cow.into_owned());
@@ -400,6 +419,9 @@ fn collect<M: Matcher + Sync>(
     let files_searched = Arc::new(AtomicU32::new(0));
     let bytes_searched = Arc::new(AtomicU64::new(0));
     let capped = Arc::new(AtomicBool::new(false));
+    let span_capped = Arc::new(AtomicBool::new(false));
+    let error_count = Arc::new(AtomicU32::new(0));
+    let first_error = Arc::new(Mutex::new(None));
     let max_collected_files = opts
         .max_collected_files
         .map(|n| n as usize)
@@ -410,12 +432,18 @@ fn collect<M: Matcher + Sync>(
         let files_searched = Arc::clone(&files_searched);
         let bytes_searched = Arc::clone(&bytes_searched);
         let capped = Arc::clone(&capped);
+        let span_capped = Arc::clone(&span_capped);
+        let error_count = Arc::clone(&error_count);
+        let first_error = Arc::clone(&first_error);
         let mut searcher = build_searcher(opts, context_lines);
 
         Box::new(move |dent| {
             let dent = match dent {
                 Ok(d) => d,
-                Err(_) => return WalkState::Continue,
+                Err(error) => {
+                    record_collection_error(&error_count, &first_error, error.to_string());
+                    return WalkState::Continue;
+                }
             };
             if !dent.file_type().is_some_and(|t| t.is_file()) {
                 return WalkState::Continue;
@@ -432,12 +460,20 @@ fn collect<M: Matcher + Sync>(
                     work: match_work(mode, only_matching),
                     match_window,
                     om_matches: Vec::new(),
+                    span_cap_reached: false,
                 };
-                // Per-file IO errors (permission denied, mid-file invalid UTF-8
-                // under PCRE2 utf mode, etc.) just skip that file — rg behaves the
-                // same.
-                if searcher.search_path(matcher, path, &mut sink).is_err() {
+                // Keep successful files, but report incomplete coverage when
+                // traversal or matching fails. A skipped file proves no absence.
+                if let Err(error) = searcher.search_path(matcher, path, &mut sink) {
+                    record_collection_error(
+                        &error_count,
+                        &first_error,
+                        format!("{}: {error}", path.display()),
+                    );
                     return WalkState::Continue;
+                }
+                if sink.span_cap_reached {
+                    span_capped.store(true, Ordering::Relaxed);
                 }
                 (
                     sink.submatches,
@@ -479,14 +515,24 @@ fn collect<M: Matcher + Sync>(
         std::mem::take(&mut *guard)
     };
 
-    let was_capped = capped.load(Ordering::Relaxed);
+    let mut cap_reasons = Vec::new();
+    if capped.load(Ordering::Relaxed) {
+        cap_reasons.push("maxCollectedFiles");
+    }
+    if span_capped.load(Ordering::Relaxed) {
+        cap_reasons.push("maxOnlyMatchingPerLine");
+    }
+    let was_capped = !cap_reasons.is_empty();
+    let first_error = first_error.lock().map_err(to_napi_err)?.take();
     Ok(CollectResult {
         recs,
         files_searched: files_searched.load(Ordering::Relaxed),
         bytes_searched: bytes_searched.load(Ordering::Relaxed),
         elapsed: started.elapsed(),
         capped: was_capped,
-        cap_reason: was_capped.then(|| "maxCollectedFiles".to_owned()),
+        cap_reason: was_capped.then(|| cap_reasons.join(", ")),
+        error_count: error_count.load(Ordering::Relaxed),
+        first_error,
     })
 }
 
@@ -543,6 +589,8 @@ fn build_result(
         elapsed,
         capped,
         cap_reason,
+        error_count,
+        first_error,
     } = collected;
     sort_recs(opts, &mut recs);
 
@@ -600,47 +648,23 @@ fn build_result(
         classify::classify_ripgrep_files(&mut files, classify::DEFAULT_CLASSIFY_FILE_CAP);
     }
 
-    let stats = match mode {
-        Mode::Normal => RipgrepStats {
-            match_count: Some(total_submatches),
-            matched_lines: Some(total_matched_lines),
-            files_matched: Some(files_matched),
-            files_searched: Some(files_searched),
-            bytes_searched,
-            search_time,
-            capped: Some(capped),
-            cap_reason: cap_reason.clone(),
-        },
-        Mode::CountLines => RipgrepStats {
-            match_count: Some(total_matched_lines),
-            matched_lines: Some(total_matched_lines),
-            files_matched: Some(files_matched),
-            files_searched: Some(files_searched),
-            bytes_searched,
-            search_time,
-            capped: Some(capped),
-            cap_reason: cap_reason.clone(),
-        },
-        Mode::CountMatches => RipgrepStats {
-            match_count: Some(total_submatches),
-            matched_lines: Some(total_matched_lines),
-            files_matched: Some(files_matched),
-            files_searched: Some(files_searched),
-            bytes_searched,
-            search_time,
-            capped: Some(capped),
-            cap_reason: cap_reason.clone(),
-        },
-        Mode::FilesOnly | Mode::FilesWithoutMatch => RipgrepStats {
-            match_count: Some(total_submatches),
-            matched_lines: Some(total_matched_lines),
-            files_matched: Some(files_matched),
-            files_searched: Some(files_searched),
-            bytes_searched,
-            search_time,
-            capped: Some(capped),
-            cap_reason,
-        },
+    // Every view describes the same collection. Only count-lines changes the
+    // unit of match_count; completeness and resource evidence must stay shared.
+    let stats = RipgrepStats {
+        match_count: Some(if matches!(mode, Mode::CountLines) {
+            total_matched_lines
+        } else {
+            total_submatches
+        }),
+        matched_lines: Some(total_matched_lines),
+        files_matched: Some(files_matched),
+        files_searched: Some(files_searched),
+        bytes_searched,
+        search_time,
+        capped: Some(capped),
+        cap_reason,
+        error_count: Some(error_count),
+        first_error,
     };
 
     RipgrepParseResult { files, stats }

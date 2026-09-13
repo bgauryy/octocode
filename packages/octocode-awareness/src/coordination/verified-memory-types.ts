@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { MemoryRecallModeV1 } from '../memory-hardening.js';
 import type { AwarenessOperationCall } from '../schema/operation-types.js';
+import type { KnowledgeMetadata } from '../knowledge-contract.js';
 
 export type VerifiedMemoryPartialReason = 'limit' | 'terminal-limit' | 'snapshot_changed';
 
@@ -80,4 +81,7 @@ export interface VerifiedMemoryStoreParams {
   constraint?: string;
   historyRef?: string;
   supersedes?: string[];
+  /** Structured caller knowledge is recorded without asserting a verification receipt. */
+  knowledge?: KnowledgeMetadata;
+  references?: string[];
 }

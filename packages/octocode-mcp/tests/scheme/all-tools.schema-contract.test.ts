@@ -58,6 +58,7 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
   astRewrite: {
     path: './src',
     langType: 'typescript',
+    ruleKind: 'pattern',
     pattern: 'console.log($A)',
     rewrite: 'logger.info($A)',
   },

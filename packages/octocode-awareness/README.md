@@ -4,21 +4,21 @@
   <img src="assets/logo.png" alt="Octocode Awareness" width="300" />
 </p>
 
-Octocode Awareness is a local coordination ledger for coding agents. It combines shared Work, decision-changing Messages, verified Memory, and recoverable LocalGit evidence around one bounded Context read. SQLite is canonical. Source files and observed checks remain the authority for code and verification.
+Octocode Awareness gives coding agents a local ledger for self-observation and shared work. It combines attributed measurements and feedback, shared Work, decision-changing Messages, verified Memory, and recoverable LocalGit evidence around one bounded Context read. SQLite is canonical. Source files and observed checks remain the authority for code and verification.
 
 The package requires Node.js `^24.15.0`. It runs without a server or daemon.
 
 ## Routine surface
 
-The routine CLI has five concepts and nineteen operations:
+The routine CLI has five concepts:
 
 | Concept | Operations |
 |---|---|
-| Context | `context orient` |
+| Context | `context orient`, `context observe`, `context feedback` |
 | Work | `work create`, `work list`, `work show`, `work claim`, `work update`, `work depend`, `work protect`, `work verify` |
 | Message | `message list`, `message send`, `message reply`, `message resolve` |
-| Memory | `memory recall`, `memory record` |
-| History | `history status`, `history timeline`, `history read`, `history restore` |
+| Memory | `memory recall`, `memory record`, `memory set`, `memory get`, `memory revalidate` |
+| History | `history status`, `history timeline`, `history read`, `history restore`, `history experience` |
 
 Start with one orientation:
 
@@ -26,6 +26,7 @@ Start with one orientation:
 npx @octocodeai/octocode-awareness context orient \
     --workspace "$PWD" \
     --agent-id "awareness:session-1" \
+    --session-id "session-1" \
     --compact
 ```
 
@@ -37,6 +38,8 @@ npx @octocodeai/octocode-awareness schema command work verify --compact
 ```
 
 Unknown operation names fail. Host lifecycle integration and database migration are separate module subpaths, not additional model commands.
+
+Any agent can use the CLI or imported client to submit measurements with `context observe`, read assessed state and advice with `context orient`, and report its response with `context feedback`. This also works for solo agents. The host owns measurement and execution; Awareness records evidence and advises. Missing measurements remain unknown, and an action report alone does not prove improvement.
 
 ## Boundaries
 
@@ -52,13 +55,18 @@ For the complete workflow, see the [Awareness skill](skills/octocode-awareness/S
 
 ## API surfaces
 
-The package root exposes exactly five runtime exports:
+The package root exposes exactly eight runtime exports:
 
+- `AWARENESS_AGENT_INSTRUCTION_SECTIONS`
 - `AWARENESS_CONCEPTS`
+- `AWARENESS_MESSAGE_PARAMETER_GUIDANCE`
 - `ROUTINE_AWARENESS_OPERATIONS`
 - `createAwarenessClient`
+- `getAwarenessAgentInstructions`
 - `getAwarenessOperationDescriptor`
 - `listAwarenessOperationDescriptors`
+
+Import `getAwarenessAgentInstructions` to compose a host prompt from canonical guidance, or run `instructions` through the CLI. `AWARENESS_AGENT_INSTRUCTION_SECTIONS` lists the available sections; `AWARENESS_MESSAGE_PARAMETER_GUIDANCE` supplies the concise Message field contract for host tool prompts. See the [instruction API](docs/API.md#observations-and-feedback) for a selective import example.
 
 Create a bound client and execute the same operation contract as the CLI:
 
@@ -93,7 +101,7 @@ The default database is `$OCTOCODE_HOME/awareness/awareness-v4.sqlite3`. If `OCT
 
 All cooperating actors must resolve the same physical database and use distinct stable actor IDs. A scope change does not merge stores. Opening a store validates the canonical schema and does not mutate a predecessor schema.
 
-LocalGit stores optional recoverable file bytes under the workspace `.octocode/.localGit` boundary. Capture is host-owned. Routine agents inspect evidence with `history status`, `history timeline`, and `history read`; they do not create captures or checkpoints. See [storage scopes](docs/STORAGE_SCOPES.md), [database ownership](docs/DB.md), and [LocalGit history](docs/LOCAL_HISTORY.md).
+LocalGit stores optional recoverable evidence under the workspace `.octocode/.localGit` boundary. File capture is host-owned. Routine agents inspect file evidence with `history status`, `history timeline`, and `history read`; they do not create file captures or checkpoints. Agents can also record and seal non-file investigation traces with `history experience`, and preserve keyed lessons, rationale, and typed anchors with `memory set`. See [experience and memory](docs/EXPERIENCE_MEMORY.md), [storage scopes](docs/STORAGE_SCOPES.md), [database ownership](docs/DB.md), and [LocalGit history](docs/LOCAL_HISTORY.md).
 
 ## Host lifecycle
 
@@ -111,3 +119,5 @@ yarn workspace @octocodeai/octocode-awareness verify
 ```
 
 After source changes, verify the built CLI and the API subpaths, not only TypeScript compilation. The [verification guide](docs/VERIFY.md) lists the required checks.
+
+Builds emit stable, self-contained runtime entries. Lazy source modules are bundled into each entry, so rebuilding cannot remove a hashed executor file that a long-lived host has not imported yet.

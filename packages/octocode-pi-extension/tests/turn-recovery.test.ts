@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { createPiFlowHarness } from '@octocodeai/agent-testing';
 import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import extension from '../src/index.js';
@@ -13,12 +13,63 @@ import { hasPendingRehydration, rehydrateSession } from '../src/tools/rehydratio
 import { registerCurrentContextSource } from '../src/tools/context-source-registry.js';
 import { getCurrentPlanReadModel, renderPlanContext } from '../src/tools/plan-read-model.js';
 import { installAuthenticatedWorkerCapabilityView } from './helpers/worker-capabilities.js';
+import * as physiology from '../src/adapters/pi-physiology.js';
 
 const roots: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('failed prompt assembly leaves a runtime advisory available on the successful retry', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-advisory-retry-'));
+  roots.push(tmp);
+  vi.stubEnv('OCTOCODE_HOME', tmp);
+  vi.stubEnv('OCTOCODE_AGENT_DIR', tmp);
+  vi.stubEnv('OCTOCODE_PI_SUBAGENT', '0');
+  let observer: physiology.PiPhysiologyObserver | undefined;
+  const register = physiology.registerPiPhysiology;
+  vi.spyOn(physiology, 'registerPiPhysiology').mockImplementation((...args) => {
+    observer = register(...args);
+    return observer;
+  });
+  const flow = createPiFlowHarness({ cwd: tmp, sessionId: 'advisory-retry' });
+  await extension(flow.pi as unknown as PiInstance);
+  flow.pi.setActiveTools(['bash']);
+  const ctx = {
+    cwd: tmp, hasUI: false,
+    abort: vi.fn(),
+    model: { contextWindow: 100_000 },
+    getContextUsage: () => ({ tokens: 95_000, contextWindow: 100_000 }),
+    sessionManager: { getSessionId: () => 'advisory-retry', getBranch: () => [] },
+  } as unknown as PiContext;
+  assert.ok(observer, 'the production extension registered its observer');
+  await observer.sessionStart(ctx);
+  const handlers = flow.handlers as unknown as Map<string, Array<(event: unknown, context: unknown) => Promise<unknown>>>;
+  const invoke = async (systemPrompt: string) => await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt, systemPromptOptions: { skills: [] } }, ctx) as { message?: { content: string } } | undefined;
+  const abort = ctx.abort as ReturnType<typeof vi.fn>;
+  const start = async (context = ctx) => {
+    for (const handler of handlers.get('agent_start') ?? []) await handler({}, context);
+  };
+  try {
+    assert.equal(await invoke('oversized base prompt '.repeat(30_000)), undefined);
+    await start({ ...ctx, sessionManager: { getSessionId: () => 'other-session' } });
+    expect(abort).not.toHaveBeenCalled();
+    await start();
+    expect(abort).toHaveBeenCalledTimes(1);
+    assert.match((await invoke('Pi base prompt'))?.message?.content ?? '', /inspect_context_headroom/);
+    assert.doesNotMatch((await invoke('Pi base prompt'))?.message?.content ?? '', /inspect_context_headroom/);
+    await start();
+    expect(abort).toHaveBeenCalledTimes(1);
+    assert.equal(await invoke('oversized base prompt '.repeat(30_000)), undefined);
+    for (const handler of handlers.get('session_start') ?? []) await handler({ reason: 'resume' }, ctx);
+    await start();
+    expect(abort).toHaveBeenCalledTimes(1);
+  } finally {
+    await observer.sessionShutdown(ctx);
+    for (const handler of handlers.get('session_shutdown') ?? []) await handler({ reason: 'quit' }, ctx);
+  }
 });
 
 for (const worker of [false, true]) for (const firstTurn of [false, true]) for (const retained of worker ? [false] : [false, true]) {

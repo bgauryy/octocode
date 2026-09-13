@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
@@ -13,6 +12,7 @@ import {
 import type { PiContext, PiInstance } from '../types.js';
 import { openPersistentAwareness } from './storage-policy.js';
 import { notifyDesktopAttention } from './desktop-notify.js';
+import { resolveAwarenessSessionAgentId } from './awareness-shared.js';
 
 /** Render only current-drain delivery pressure; lifetime totals are diagnostic history. */
 export function awarenessEventStatusText(stats: AwarenessEventObservability): string | undefined {
@@ -42,10 +42,6 @@ interface RegisterAwarenessEventConsumerOptions {
   onDelivery?(message: AwarenessPeerDelivery, ctx: PiContext): void;
 }
 
-const nonEmptyString = (value: unknown): string | undefined => (
-  typeof value === 'string' && value.trim() ? value.trim() : undefined
-);
-
 function isPersistedPeerDelivery(entry: unknown, message: AwarenessPeerDelivery): boolean {
   if (!entry || typeof entry !== 'object') return false;
   const record = entry as Record<string, unknown>;
@@ -58,15 +54,6 @@ function isPersistedPeerDelivery(entry: unknown, message: AwarenessPeerDelivery)
 }
 
 const registeredAwarenessHosts = new WeakSet<object>();
-
-export function resolvePiEventConsumerId(ctx: PiContext): string | undefined {
-  const sessionId = nonEmptyString(ctx.sessionManager?.getSessionId?.());
-  const sessionFile = nonEmptyString(ctx.sessionManager?.getSessionFile?.());
-  if (sessionId) return `pi:${sessionId}`;
-  if (!sessionFile) return undefined;
-  const normalized = path.normalize(path.resolve(sessionFile));
-  return `pi:file:${createHash('sha256').update(normalized).digest('hex').slice(0, 24)}`;
-}
 
 /** Lifecycle and coalesced database hints wake bounded drains without idle polling. */
 export function registerAwarenessEventConsumer(pi: PiInstance, options: RegisterAwarenessEventConsumerOptions = {}): void {
@@ -115,11 +102,12 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
     if (shutdown || running) return;
     if (!options.openStore && !isPersistentStorageEnabled()) { stopWatching(); return; }
     const workspace = path.resolve(ctx.cwd ?? process.cwd());
-    const consumerId = resolvePiEventConsumerId(ctx);
-    if (!consumerId) {
-      observe({ ...createAwarenessEventObservability('unavailable'), errors: 1, drainErrors: 1 }, ctx);
-      return;
-    }
+    const consumerId = resolveAwarenessSessionAgentId(ctx);
+    // consumerId is undefined when both getSessionId() and getSessionFile() are
+    // falsy — the same 'session not yet established' state that the existsSync
+    // guard below handles silently. Return without error; delivery resumes once
+    // Pi assigns a session identity.
+    if (!consumerId) return;
     // Pi defers creating a new session file until its first assistant message.
     // getEntries() alone is only memory before that point (and in --no-session).
     // Leave shared events unread for the next durable turn rather than consume
@@ -257,12 +245,21 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
     // One host turn for the complete persisted batch, without duplicating peer bodies.
     // Re-arm only on external input: peer ping-pong cannot recursively spend turns.
     try {
-      pi.sendMessage?.({ customType: 'octocode-peer-wake', content: `Awareness: ${count} actionable peer messages were delivered. Inspect the attributed peer context and coordinate the next safe action.`, display: false }, { triggerTurn: true, deliverAs: 'followUp' });
+      if (!pi.sendMessage) throw new Error('Pi automatic wake delivery is unavailable');
+      pi.sendMessage({ customType: 'octocode-peer-wake', content: `Awareness: ${count} actionable peer messages were delivered. Inspect the attributed peer context and coordinate the next safe action.`, display: false }, { triggerTurn: true, deliverAs: 'followUp' });
     } catch {
       // The peer receipt remains durable. Do not loop retrying a failed host wake.
       pendingActionable = count;
-      const stats = scoped.consumer.snapshot();
-      observe({ ...stats, errors: stats.errors + 1, drainErrors: stats.drainErrors + 1 }, ctx);
+      try {
+        const stats = scoped.consumer.snapshot();
+        options.onObservability?.({ ...stats, errors: stats.errors + 1 }, ctx);
+      } catch { /* diagnostics cannot change durable delivery */ }
+      try {
+        if (ctx.hasUI) ctx.ui?.notify?.(
+          'Awareness: peer messages were delivered, but automatic wake-up is unavailable. Continue on the next authorized input.',
+          'warning',
+        );
+      } catch { /* UI is advisory */ }
     }
   };
 

@@ -9,6 +9,9 @@ import { appendDomainEvent, listOutboxEvents, type DomainEventInput, type Outbox
 import { connectDb, resolveDbPath } from './db-runtime.js';
 import type { AwarenessInsightCandidate, AwarenessInsightProvider, AwarenessOperationResult } from './operation-contracts.js';
 import { storageScopeForOperation } from './workspace-policy.js';
+import type { Regulation } from './attend-physiology.js';
+import type { assessContextRegulation, ContextObservation, ContextFeedback, ContextAdvisory } from './context-regulation.js';
+import type { RunState, ContextNudge } from './context-state.js';
 
 export interface AwarenessClientContext {
   database?: string;
@@ -54,6 +57,7 @@ export interface AwarenessItemSummary {
 }
 
 export interface AwarenessOrientation {
+  run_state: RunState;
   revision: string;
   unchanged: false;
   self: { actorId: string; sessionId?: string };
@@ -63,10 +67,13 @@ export interface AwarenessOrientation {
   verification: { pending: number; stale: number };
   continuation?: AwarenessItemSummary;
   recovery?: { degraded: boolean; pressure?: string };
+  operational: { unavailable: readonly string[]; runtime?: Omit<ReturnType<typeof assessContextRegulation>, 'advisories' | 'run_state'> };
+  regulation: Regulation & { next?: AwarenessExecutableCall; advisories?: ContextAdvisory[]; nudge?: ContextNudge };
   next: AwarenessExecutableCall[];
   partial: boolean;
   partialReasons: string[];
   insights?: { advisory: true; candidates: AwarenessInsightCandidate[] };
+  knowledge?: { advisory: true } & Awaited<ReturnType<typeof import('./knowledge-memory.js').getKnowledgeBriefing>>;
 }
 
 export interface AwarenessOrientationUnchanged {
@@ -79,6 +86,8 @@ export type AwarenessOrientationResult = AwarenessOrientation | AwarenessOrienta
 export interface AwarenessClient {
   readonly context: Readonly<AwarenessClientContext>;
   orient(params?: AwarenessOperationParams['context.orient']): Promise<AwarenessOrientationResult>;
+  observe(params: ContextObservation): Promise<AwarenessOperationResult>;
+  feedback(params: ContextFeedback): Promise<AwarenessOperationResult>;
   execute<K extends AwarenessOperation>(call: AwarenessExecutableCall<K>): Promise<AwarenessOperationResult>;
   operations(): readonly AwarenessOperationDescriptor[];
   recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }>;
@@ -181,6 +190,8 @@ export function createAwarenessClient(
   };
   return Object.freeze({
     context: bound,
+    observe: (params: ContextObservation) => execute({ operation: 'context.observe', params }),
+    feedback: (params: ContextFeedback) => execute({ operation: 'context.feedback', params }),
     operations: listAwarenessOperationDescriptors,
     async recordHostEvent(input: AwarenessHostEventInput): Promise<{ sequence: number }> {
       const scope = storageScopeForOperation('host.events.record', bound.workspace, bound.scope);

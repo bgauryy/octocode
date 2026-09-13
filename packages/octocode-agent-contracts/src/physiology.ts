@@ -41,18 +41,36 @@ const PiContextMeasurementSchema = z
   .strict()
   .refine(hasValidContextArithmetic, { message: 'Context token measurements are inconsistent.' });
 
+const toolMeasurementFields = {
+  window: z.literal(32),
+  observed: safeNonnegativeInteger.max(32),
+  failed: safeNonnegativeInteger,
+  cancelled: safeNonnegativeInteger,
+  blocked: safeNonnegativeInteger,
+} as const;
+
 const ToolMeasurementSchema = z
+  .object(toolMeasurementFields)
+  .strict()
+  .refine(
+    ({ observed, failed, cancelled, blocked }) => failed + cancelled + blocked <= observed,
+    { message: 'Tool outcome counts cannot exceed observed tools.' },
+  );
+
+const PiToolMeasurementSchema = z
   .object({
-    window: z.literal(32),
-    observed: safeNonnegativeInteger.max(32),
-    failed: safeNonnegativeInteger,
-    cancelled: safeNonnegativeInteger,
-    blocked: safeNonnegativeInteger,
+    ...toolMeasurementFields,
+    total_observed: safeNonnegativeInteger,
+    latest_outcome: z.enum(['succeeded', 'failed', 'cancelled', 'blocked']),
   })
   .strict()
   .refine(
     ({ observed, failed, cancelled, blocked }) => failed + cancelled + blocked <= observed,
     { message: 'Tool outcome counts cannot exceed observed tools.' },
+  )
+  .refine(
+    ({ observed, total_observed }) => total_observed >= observed,
+    { message: 'Total observed tools cannot be smaller than the rolling window.' },
   );
 
 export const NativeRuntimeObservationSchema = z
@@ -96,7 +114,7 @@ export const PiRuntimeObservationSchema = z
       })
       .strict(),
     context: PiContextMeasurementSchema.optional(),
-    tools: ToolMeasurementSchema.optional(),
+    tools: PiToolMeasurementSchema.optional(),
     compaction: z
       .object({
         owner: z.literal('pi'),

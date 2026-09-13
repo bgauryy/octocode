@@ -1,11 +1,32 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AwarenessExecutableCall } from '@octocodeai/octocode-awareness';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initCheckpointStore } from '../src/tools/checkpoints.js';
 
 const ok = (payload: unknown) => Promise.resolve({ exitCode: 0, payload: { ok: true, ...payload as object } });
 const params = (call: AwarenessExecutableCall): Record<string, unknown> => call.params as Record<string, unknown>;
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
 
 describe('Awareness-backed checkpoints', () => {
+  it('uses the inherited Awareness database for its default client', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-pi-checkpoints-'));
+    tempRoots.push(root);
+    const database = path.join(root, 'shared', 'awareness.sqlite3');
+    fs.mkdirSync(path.join(root, 'worktree'));
+    vi.stubEnv('OCTOCODE_AWARENESS_DB', database);
+
+    const engine = await initCheckpointStore(path.join(root, 'worktree'), { agentId: 'pi:test' });
+    await expect(engine.listCheckpoints(1)).resolves.toEqual({ checkpoints: [] });
+    expect(fs.existsSync(database)).toBe(true);
+  });
+
   it('maps the bounded timeline and selects before for edits and after for checkpoints', async () => {
     const calls: AwarenessExecutableCall[] = [];
     const engine = await initCheckpointStore('/tmp/work', { agentId: 'pi:test', run: async args => {
@@ -34,7 +55,7 @@ describe('Awareness-backed checkpoints', () => {
 
   it('executes the canonical continuation without dropping reachable history', async () => {
     const engine = await initCheckpointStore('/tmp/work', { agentId: 'pi:test', run: async args => {
-      if (args.params?.offset === 1) return ok({ operations: [{ operation_id: 'op-2', kind: 'edit', created_at: '2026-01-02T00:00:00Z', file_count: 1 }] });
+      if (params(args)?.offset === 1) return ok({ operations: [{ operation_id: 'op-2', kind: 'edit', created_at: '2026-01-02T00:00:00Z', file_count: 1 }] });
       return ok({ operations: [{ operation_id: 'op-1', kind: 'edit', created_at: '2026-01-01T00:00:00Z', file_count: 1 }], next: { operation: 'history.timeline', params: { limit: 1, offset: 1 } } });
     } });
     const first = await engine.listCheckpoints(1);

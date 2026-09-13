@@ -7,6 +7,14 @@
  */
 export { createAwarenessClient } from './client.js';
 export {
+  AWARENESS_AGENT_INSTRUCTION_SECTIONS,
+  AWARENESS_MESSAGE_PARAMETER_GUIDANCE,
+  getAwarenessAgentInstructions,
+} from './agent-instructions.js';
+export type { AwarenessAgentInstructionSection } from './agent-instructions.js';
+export type { ContextObservation, ContextFeedback, ContextAdvisory, ContextAdvisoryKind } from './context-regulation.js';
+export type { RunState, ContextNudge } from './context-state.js';
+export {
   AWARENESS_CONCEPTS,
   ROUTINE_AWARENESS_OPERATIONS,
   getAwarenessOperationDescriptor,

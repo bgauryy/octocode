@@ -41,6 +41,9 @@ export function mapFileContentProviderResult(
   return {
     path: data.path,
     content: data.content,
+    ...(data.sourceLineRanges?.length
+      ? { sourceLineRanges: data.sourceLineRanges }
+      : {}),
     returnedChars: data.returnedChars,
     returnedBytes: data.returnedBytes,
     returnedLines: data.returnedLines,

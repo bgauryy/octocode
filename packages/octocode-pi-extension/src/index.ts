@@ -7,7 +7,8 @@ import { getInternalErrorLogPath, logInternalError } from './internal-error-log.
 export { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
 export type { InternalErrorLogOptions } from './internal-error-log.js';
 import { DISABLED_BUILTIN_TOOL_NAMES, OVERRIDDEN_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from './constants.js';
-import { checkForCoreUpdate, readOwnVersion } from './core-update-check.js';
+import { checkForCoreUpdate } from './core-update-check.js';
+import { readOwnVersion } from './package-metadata.js';
 import { ensureAdaptiveThinkingCompatibility } from './model-compat.js';
 import {
   getAssetPaths,
@@ -45,7 +46,6 @@ import {
 } from './tools/compaction-hooks.js';
 import { collectPublicCommands, EXTENSION_COMMANDS } from './commands.js';
 import { bindExecutionJournal, emitExecution, restoreExecutionJournal } from './tools/execution-runtime.js';
-import { budgetToolResult } from './tools/tool-result-budget.js';
 import { cleanupSpawnedAgentsForShutdown } from './tools/agents/process.js';
 import { listWorkerLedgerEntries } from './tools/agents/ledger.js';
 import { isSubagentProcess, pruneDroppableAgentsForSession } from './tools/agents/registry.js';
@@ -67,7 +67,7 @@ import { registerBashTool } from './tools/bash-tool.js';
 import type { JobManager } from './tools/bash-bg-tool.js';
 import {
   INITIAL_CONTEXT_TOKEN_BUDGET,
-  PROVIDER_CONTEXT_TOKEN_BUDGET,
+  providerContextTokenBudget,
   assembleContextSegments,
   assertContextTokenBudget,
   estimateContextTokens,
@@ -193,6 +193,7 @@ import { collectPiRetainedContentDigests } from './adapters/pi-retained-context.
 import { pickProvider } from './web.js';
 import { createHookComposer, type HookMiddleware } from './hook-composer.js';
 import { registerPiPhysiology } from './adapters/pi-physiology.js';
+import { createPiAwarenessObservationSink } from './adapters/pi-awareness-observation.js';
 import { createPiHistoryAdapter } from './adapters/pi-history-adapter.js';
 import { createPiPhysiologyAdvisory } from './adapters/pi-physiology-regulation.js';
 import {
@@ -245,7 +246,7 @@ export function formatStatus(baseDir?: string): string {
     `system prompt: ${promptStatus}`,
     `skills: ${skills.length}${skills.length > 0 ? ` (${skills.join(', ')})` : ''}`,
     `octocode tools: ${formatOctocodeToolStatus()}`,
-    `awareness CLI: ${getAwarenessCLIPath(baseDir)} — user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
+    `awareness CLI: ${getAwarenessCLIPath()} — user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
     `management CLI: npx octocode skill | lsp-server | auth (no bundled CLI — use npx octocode for management tasks)`,
     `disabled/replaced built-ins: overridden: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}${DISABLED_BUILTIN_TOOL_NAMES.length ? `; removed: ${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}` : ''}`,
     `web search: ${searchStatus}`,
@@ -296,7 +297,7 @@ export function listExtensionHarness(baseDir?: string): ExtensionHarness {
     extensionCommands: Object.values(EXTENSION_COMMANDS).map(command => `/${command.name}`),
     skills: listBundledSkills(baseDir),
     cliNote: `management: npx octocode skill | lsp-server | auth (no bundled CLI — use npx octocode for management tasks)`,
-    awarenessCliNote: `Awareness CLI: ${getAwarenessCLIPath(baseDir)}; user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
+    awarenessCliNote: `Awareness CLI: ${getAwarenessCLIPath()}; user CLI: npx -p @octocodeai/octocode-awareness octocode-awareness <concept> <operation> --workspace "$PWD"`,
   };
 }
 
@@ -422,10 +423,10 @@ async function wireOctocodePiExtension(
   // One active session per extension instance. `session` is replaced wholesale on
   // session_start; see SessionScopedState for what that boundary guarantees.
   let session = freshSessionScopedState();
+  const pendingPromptPreparations = new WeakMap<object, Set<string>>();
   // Live footer ticker: while a turn is active, re-render the footer every second
-  // so `active`/`session` durations advance (they are otherwise only refreshed on
-  // turn/session events). Reads are in-memory only (no git/disk per tick); git
-  // state is refreshed separately on boundaries. Runs on the shared ui-ticker
+  // so `active`/`session` durations advance. Awareness refreshes asynchronously
+  // behind its own throttle; git is refreshed on boundaries. Runs on the shared ui-ticker
   // clock so this and the agent-ledger refresh never double-render the footer
   // from two out-of-phase timers.
   const METRICS_TICK_KEY = 'octocode-metrics';
@@ -434,7 +435,10 @@ async function wireOctocodePiExtension(
   // (turn_end, session_start, session_shutdown) also calls stopMetricsTicker, so
   // the ticker is never left subscribed against an inactive turn.
   const startMetricsTicker = (ctx: PiContext | undefined): void =>
-    setUiTickSubscriber(METRICS_TICK_KEY, () => updateOctocodeMetricsUi(ctx));
+    setUiTickSubscriber(METRICS_TICK_KEY, () => {
+      refreshAwarenessPanel(ctx);
+      updateOctocodeMetricsUi(ctx);
+    });
   const toolStartTimes = new Map<string, number>();
   const toolInputs = new Map<string, unknown>();
   let providerRequestStartedAt: number | undefined;
@@ -519,27 +523,20 @@ async function wireOctocodePiExtension(
       },
     });
 
+    const physiologyObservationSink = createPiAwarenessObservationSink({
+      onError: error => logInternalError('runtime-observation', error),
+    });
     const physiology = registerPiPhysiology({
       on(event, handler) { hooks.on(event, 'octocode-physiology', handler as HookMiddleware); },
-    });
+    }, { onObservation: physiologyObservationSink });
     const physiologyAdvisory = createPiPhysiologyAdvisory();
     const localHistory = createPiHistoryAdapter({ onError: error => logInternalError('local-history', error) });
 
-    hooks.on('tool_result', 'octocode-model-output-budget', async (event: {
-      toolCallId: string;
-      toolName: string;
-      content: import('./types.js').ContentPart[];
-      details?: unknown;
-      isError?: boolean;
-    }, ctx: PiContext | undefined) => budgetToolResult({
-      content: event.content,
-      details: event.details,
-      isError: event.isError,
-    }, {
-      ctx,
-      toolCallId: event.toolCallId,
-      toolName: event.toolName,
-    }));
+    hooks.on('agent_start', 'octocode-prompt-preflight', async (_event, ctx: PiContext | undefined) => {
+      // before_agent_start has no active abort signal and Pi catches its errors.
+      // agent_start has a live run signal, before any provider request is sent.
+      if (pendingPromptPreparations.get(session)?.has(activePlanScope(ctx))) ctx?.abort?.();
+    });
 
     hooks.on('resources_discover', 'bundled-skills', async () => {
       if (isSubagentProcess()) return {};
@@ -789,10 +786,7 @@ async function wireOctocodePiExtension(
       // Drop dead worker records so the agent ledger reflects only this session.
       pruneDroppableAgentsForSession();
       runtimeStore.getState().setFooter({
-        sessionStartedAt: Date.now(),
-        activeTurnStartedAt: undefined,
-        lastTurnMs: undefined,
-        completedTurns: 0,
+        // The execution journal already restored the session clock and counts.
         githubAuth: { status: 'checking' },
         usage: undefined,
         gitDirty: undefined,
@@ -1112,6 +1106,11 @@ async function wireOctocodePiExtension(
     let warnedContextDrift = false;
     let warnedSkillsDrift = false;
     hooks.on('before_agent_start', 'octocode-system-prompt', async (event: BeforeAgentStartEvent, ctx: PiContext | undefined) => {
+      const promptSession = session;
+      const promptScope = activePlanScope(ctx);
+      const pendingPromptScopes = pendingPromptPreparations.get(promptSession) ?? new Set<string>();
+      pendingPromptPreparations.set(promptSession, pendingPromptScopes);
+      pendingPromptScopes.add(promptScope);
       refreshCapabilityAdapters(ctx);
       // Custom Anthropic-compatible providers do not inherit Pi's built-in model
       // compatibility metadata. Normalize known adaptive models before Pi builds
@@ -1154,8 +1153,8 @@ async function wireOctocodePiExtension(
         'dynamic-tool-contracts': worker ? '' : getDynamicCapabilitiesAddendum(session.latestAvailableSkills?.map(skill => skill.name), { tools: hasCapability('callTool'), skills: hasCapability('skill') }),
         'available-skills': hasCapability('skill') ? renderAvailableSkillsAddendum(session.latestAvailableSkills) : '',
         'session-artifact-contract': session.sessionArtifactPathsContext,
-        'awareness-cli-runtime': hasCapability('awareness') || hasCapability('bash')
-          ? renderAwarenessCliContext(ctx, { nativeTool: hasCapability('awareness') })
+        'awareness-cli-runtime': !hasCapability('awareness') && hasCapability('bash')
+          ? renderAwarenessCliContext(ctx)
           : '',
       });
 
@@ -1221,9 +1220,10 @@ async function wireOctocodePiExtension(
       // Combine all per-turn context signals into one message (only one message
       // per turn is supported by BeforeAgentStartEventResult). The plan appears
       // only when first delivered, changed, or cleared.
+      const physiologyDelivery = physiologyAdvisory(ctx ? physiology.read(ctx) : undefined);
       const contextAssembly = assembleContextSegments([
         { id: 'user-request-history', content: userRequestContent, kind: 'user-request', origin: 'session-user:history', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: Math.ceil(USER_REQUEST_CONTEXT_MAX_CHARS / 4) },
-        { id: 'runtime-physiology', content: physiologyAdvisory(ctx ? physiology.read(ctx) : undefined), kind: 'tool-result', origin: 'pi-runtime-observation', authority: 'external-data', scope: 'turn', visibility: 'inspectable', rehydrate: 'never', tokenBudget: 128 },
+        { id: 'runtime-physiology', content: physiologyDelivery.content, kind: 'tool-result', origin: 'pi-runtime-observation', authority: 'external-data', scope: 'turn', visibility: 'inspectable', rehydrate: 'never', tokenBudget: 128 },
         { id: 'active-plan', content: planDeliveryContent, kind: 'plan', origin: 'plan-domain', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: 15_000 },
         { id: 'session-memory', content: sessionMemoryContent, kind: 'memory-lead', origin: 'session-memory', authority: 'external-data', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: Math.ceil(SESSION_MEMORY_MAX_BYTES / 4) },
       ]);
@@ -1277,7 +1277,7 @@ async function wireOctocodePiExtension(
       const estimatedProviderTokens = assertContextTokenBudget(
         'initial provider context',
         providerSubtotalChars,
-        PROVIDER_CONTEXT_TOKEN_BUDGET,
+        providerContextTokenBudget(ctx?.model?.contextWindow),
       );
       runtimeStoreFor(ctx)?.getState().setContext({
         status: 'ready',
@@ -1318,6 +1318,8 @@ async function wireOctocodePiExtension(
         pi.appendEntry?.(REHYDRATION_RECEIPT_ENTRY_TYPE, frozenRehydration.receipt);
         frozenRehydration.commit();
       }
+      physiologyDelivery.commit();
+      pendingPromptScopes.delete(promptScope);
       if (resolvedPrompt === event.systemPrompt && !stripped) {
         return contextMessage ? { message: contextMessage } : undefined;
       }

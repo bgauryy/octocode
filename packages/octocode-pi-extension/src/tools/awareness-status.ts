@@ -27,6 +27,7 @@ import { SEP_WIDE, paint } from '../tui/palette.js';
 import { renderInlineRows, type InlineSegment } from '../tui/components.js';
 
 import { capMapSize } from '../utils.js';
+import { buildAwarenessContext } from './awareness-context.js';
 
 /** True when there is any shared state worth showing a panel for. */
 export function hasAwarenessSignal(s: ExternalAwarenessStatus): boolean {
@@ -164,13 +165,11 @@ const cache = new Map<string, CacheEntry>();
 const generations = new Map<string, number>();
 
 /** Typed package reader; injectable without serializing through CLI JSON. */
-export type StatusRunner = (
-  cwd: string,
-  agentId?: string
-) => Promise<ExternalAwarenessStatus | null>;
-const defaultRunner: StatusRunner = async (cwd, agentId) => {
+export type StatusRunner = (ctx: PiContext) => Promise<ExternalAwarenessStatus | null>;
+const defaultRunner: StatusRunner = async ctx => {
   if (!isPersistentStorageEnabled()) return null;
-  return readExternalAwarenessStatus({ workspace: cwd, agentId });
+  const { workspace, database, scope, agentId } = buildAwarenessContext(ctx);
+  return readExternalAwarenessStatus({ workspace, dbPath: database, scope, agentId });
 };
 let runner: StatusRunner = defaultRunner;
 
@@ -253,7 +252,7 @@ export function refreshAwarenessPanel(ctx?: PiContext): void {
   if (entry.running || now - entry.lastRunAt < MIN_REFRESH_MS) return;
   entry.running = true;
   entry.lastRunAt = now;
-  void runner(cwd, process.env.OCTOCODE_AGENT_ID)
+  void runner(ctx)
     .then(status => {
       if (
         panelSuppressed ||

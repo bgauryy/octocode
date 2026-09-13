@@ -44,7 +44,7 @@ export type MutableTraversalBudget = TraversalBudget & {
   truncatedByBudget: boolean;
 };
 
-function createMutableBudget(
+export function createMutableBudget(
   budget: Partial<TraversalBudget> | undefined
 ): MutableTraversalBudget {
   return {

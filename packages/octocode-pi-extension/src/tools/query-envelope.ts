@@ -1,26 +1,11 @@
 import { z, type ZodTypeAny } from "zod";
 import type { PiContext, ToolCallResult } from "../types.js";
-import { budgetToolResult } from "./tool-result-budget.js";
 import { QueryBatchError } from './query-batch-error.js';
-export { QueryBatchError } from './query-batch-error.js';
 
-// Strip JS MAX_SAFE_INTEGER bounds that Zod v4 adds for .int() fields by default.
-const ZINT_MAX = 9007199254740991;
-const ZINT_MIN = -9007199254740991;
-
-/**
- * Convert a Zod schema to a plain JSON Schema (Draft 7) for tool registration.
- * Strips the $schema URI and the MAX_SAFE_INTEGER bounds Zod emits for integers.
- */
+/** Convert to Pi's Draft 7 schema without weakening the owning validators. */
 export function toToolSchema(schema: ZodTypeAny): Record<string, unknown> {
   const { $schema, ...rest } = z.toJSONSchema(schema, {
     target: 'jsonSchema7',
-    override(ctx) {
-      if ((ctx.jsonSchema as Record<string, unknown>)['maximum'] === ZINT_MAX)
-        delete (ctx.jsonSchema as Record<string, unknown>)['maximum'];
-      if ((ctx.jsonSchema as Record<string, unknown>)['minimum'] === ZINT_MIN)
-        delete (ctx.jsonSchema as Record<string, unknown>)['minimum'];
-    },
   }) as Record<string, unknown>;
   void $schema;
   return rest;
@@ -100,8 +85,7 @@ function errorRecovery(error: unknown): unknown {
 
 /**
  * Build the standard query-envelope JSON Schema from a Zod item schema.
- * The item schema should be z.looseObject({...}) so query items don't reject
- * extra fields the model sends. The reasoning field is injected automatically.
+ * The item schema owns unknown-field handling. Reasoning is added at this layer.
  */
 export function buildQueryEnvelopeSchema(
   itemSchema: ZodTypeAny,
@@ -125,7 +109,6 @@ export function buildQueryEnvelopeSchema(
         ? z.enum(['sequential', 'parallel'])
             .describe('Run policy: sequential is one-by-one; parallel overlaps independent queries.')
         : z.enum(['sequential'])
-            .describe('Run policy; sequential executes one-by-one.')
       ).default('sequential'),
     ),
   });
@@ -435,7 +418,7 @@ export async function executeQueryBatch(
     result: entry.result.details,
   }));
 
-  return budgetToolResult({
+  return {
     // Keep the compact receipt as a stable index for renderers, then append every
     // model-facing child block. Replacing child content with the receipt makes
     // successful batched reads invisible and drops non-text blocks such as images.
@@ -447,9 +430,5 @@ export async function executeQueryBatch(
       ...results.flatMap((entry) => entry.result.content),
     ],
     details: { queryRunType, results: summaries },
-  }, {
-    ctx: options.ctx,
-    toolCallId: options.toolCallId,
-    toolName: 'query-batch',
-  });
+  };
 }

@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import {
+  AWARENESS_HOST_PARAMETER_NAMES,
   getAwarenessOperationDescriptor,
   listAwarenessOperationDescriptors,
 } from '../src/schema/operation-catalog.js';
 
 describe('canonical operation registry contract', () => {
+  it('owns the host-injected parameter names shared by runtime adapters', () => {
+    expect(AWARENESS_HOST_PARAMETER_NAMES).toEqual([
+      'db', 'database', 'workspace', 'agent_id', 'lead_agent_id', 'session_id', 'compact',
+    ]);
+  });
+
   it('owns executable schema, validation, handler, effects, approval, bounds, and continuations', () => {
     for (const descriptor of listAwarenessOperationDescriptors()) {
       expect(() => z.fromJSONSchema(descriptor.inputSchema)).not.toThrow();
@@ -37,6 +44,46 @@ describe('canonical operation registry contract', () => {
     expect(protect.effect({
       action: 'acquire', target_file: ['src/a.ts'], rationale: 'sensitive edit', test_plan: 'test',
     })).toBe('coordination-write');
+  });
+
+  it('rejects route inputs that cannot satisfy their domain handler', () => {
+    const invalid: Array<[string, Record<string, unknown>]> = [
+      ['work.create', { kind: 'task', plan_id: 'plan', title: 'Task', reasoning: 'Reason', acceptance: 'Done' }],
+      ['work.create', { kind: 'standalone' }],
+      ['work.create', { kind: 'standalone', file: ['src/a.ts'] }],
+      ['work.claim', {}],
+      ['work.claim', { next: true }],
+      ['work.show', { kind: 'presence' }],
+      ['work.depend', { task_id: 'task' }],
+      ['work.protect', { action: 'release' }],
+      ['work.verify', { action: 'mark' }],
+      ['work.verify', { action: 'mark', run_id: ['run'] }],
+      ['work.verify', { action: 'mark', run_id: ['run'], status: 'SUCCESS' }],
+    ];
+    for (const [operation, params] of invalid) {
+      const descriptor = getAwarenessOperationDescriptor(operation)!;
+      expect(z.fromJSONSchema(descriptor.inputSchema).safeParse(params).success, `${operation} schema accepted ${JSON.stringify(params)}`).toBe(false);
+      expect(() => descriptor.validate(params), `${operation} validator accepted ${JSON.stringify(params)}`).toThrow();
+    }
+
+    const valid: Array<[string, Record<string, unknown>]> = [
+      ['work.create', { kind: 'task', plan_id: 'plan', title: 'Task', reasoning: 'Reason', acceptance: 'Done', path: ['src/a.ts'] }],
+      ['work.create', { kind: 'standalone', file: ['src/a.ts'], rationale: 'Edit', test_plan: 'Test' }],
+      ['work.create', { kind: 'standalone', file: ['src/a.ts'], run_id: 'run' }],
+      ['work.claim', { task_id: 'task' }],
+      ['work.claim', { next: true, plan_id: 'plan' }],
+      ['work.show', { kind: 'presence', file: ['src/a.ts'] }],
+      ['work.depend', { task_id: 'task', depends_on: ['dependency'] }],
+      ['work.protect', { action: 'release', run_id: 'run' }],
+      ['work.protect', { action: 'release', target_file: ['src/a.ts'] }],
+      ['work.verify', { action: 'mark', run_id: ['run'], status: 'FAILED' }],
+      ['work.verify', { action: 'mark', all_pending: true, message: 'Tests passed' }],
+    ];
+    for (const [operation, params] of valid) {
+      const descriptor = getAwarenessOperationDescriptor(operation)!;
+      expect(z.fromJSONSchema(descriptor.inputSchema).safeParse(params).success, `${operation} schema rejected ${JSON.stringify(params)}`).toBe(true);
+      expect(() => descriptor.validate(params), `${operation} validator rejected ${JSON.stringify(params)}`).not.toThrow();
+    }
   });
 
   it('has no parallel command registry, compatibility mapper, or generic dispatcher', () => {

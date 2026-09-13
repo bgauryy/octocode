@@ -133,6 +133,101 @@ describe('fetchCommit', () => {
     ]);
   });
 
+  it('bounds the default diff window across a full changed-file page', async () => {
+    const response = commitResponse();
+    response.data.files = Array.from({ length: 30 }, (_, index) => ({
+      filename: `src/${index}.ts`,
+      status: 'modified',
+      additions: 1,
+      deletions: 0,
+      patch: 'x'.repeat(1_000),
+    }));
+    mockGetOctokit.mockResolvedValue({
+      rest: { repos: { getCommit: vi.fn().mockResolvedValue(response) } },
+    } as never);
+
+    const result = await fetchCommit({
+      owner: 'octo',
+      repo: 'repo',
+      ref: 'abc123',
+      includeDiff: true,
+      itemsPerPage: 30,
+    });
+
+    expect(JSON.stringify(result.data).length).toBeLessThan(24_000);
+    expect(result.data.files).toHaveLength(30);
+    expect(result.data.files?.every(file => file.patch?.length === 400)).toBe(
+      true
+    );
+  });
+
+  it('keeps a single-file default patch unwindowed', async () => {
+    const response = commitResponse();
+    response.data.files = [
+      {
+        filename: 'src/only.ts',
+        status: 'modified',
+        additions: 1,
+        deletions: 0,
+        patch: 'x'.repeat(2_000),
+      },
+    ];
+    mockGetOctokit.mockResolvedValue({
+      rest: { repos: { getCommit: vi.fn().mockResolvedValue(response) } },
+    } as never);
+
+    const result = await fetchCommit({
+      owner: 'octo',
+      repo: 'repo',
+      ref: 'abc123',
+      includeDiff: true,
+    });
+
+    expect(result.data.files?.[0]).toMatchObject({
+      patch: 'x'.repeat(2_000),
+      patchPagination: { charLength: 2_000, hasMore: false },
+    });
+  });
+
+  it('reconstructs default patch windows without an explicit charLength', async () => {
+    const response = commitResponse();
+    response.data.files = Array.from({ length: 30 }, (_, index) => ({
+      filename: `src/${index}.ts`,
+      status: 'modified',
+      additions: 1,
+      deletions: 0,
+      patch: 'x'.repeat(1_000),
+    }));
+    mockGetOctokit.mockResolvedValue({
+      rest: { repos: { getCommit: vi.fn().mockResolvedValue(response) } },
+    } as never);
+
+    const reconstructed: Record<string, string> = {};
+    let charOffset: number | undefined;
+    for (let page = 0; page < 3; page++) {
+      const result = await fetchCommit({
+        owner: 'octo',
+        repo: 'repo',
+        ref: 'abc123',
+        includeDiff: true,
+        itemsPerPage: 30,
+        ...(charOffset === undefined ? {} : { charOffset }),
+      });
+      for (const file of result.data.files ?? []) {
+        reconstructed[file.filename] =
+          (reconstructed[file.filename] ?? '') + (file.patch ?? '');
+      }
+      charOffset = result.data.files?.[0]?.patchPagination?.nextCharOffset;
+    }
+
+    expect(charOffset).toBeUndefined();
+    expect(reconstructed).toEqual(
+      Object.fromEntries(
+        response.data.files.map(file => [file.filename, file.patch])
+      )
+    );
+  });
+
   it('reports the schema page limit instead of emitting file page 1001', async () => {
     const response = commitResponse();
     response.data.files = Array.from({ length: 1001 }, (_, index) => ({

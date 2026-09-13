@@ -1,14 +1,29 @@
-import { access, lstat, realpath } from 'node:fs/promises';
+import { access, lstat, readFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { delimiter, join } from 'node:path';
 import { spawnWithTimeout } from '../../utils/exec/spawn/wrappers.js';
 
-const MINIMUM_VERSION = [0, 30, 0] as const;
-const MAXIMUM_MAJOR_EXCLUSIVE = 1;
+const MINIMUM_VERSION = [0, 40, 0] as const;
+const MAXIMUM_VERSION = [0, 45, Number.MAX_SAFE_INTEGER] as const;
+const CAPABILITY_CONTRACT = 1;
+const REQUIRED_CAPABILITIES = [
+  'color',
+  'globs',
+  'json',
+  'lang',
+  'pattern',
+  'rewrite',
+  'threads',
+] as const;
 
 export interface AstGrepExecutable {
   path: string;
   version: string;
+  sha256: string;
+  capabilityContract: 1;
+  capabilityDigest: string;
+  capabilities: string[];
 }
 
 export type ExecutableResolution =
@@ -77,6 +92,22 @@ function versionAtLeast(
   return true;
 }
 
+function versionAtMost(
+  actual: readonly number[],
+  maximum: readonly number[]
+): boolean {
+  for (let index = 0; index < 3; index += 1) {
+    const left = actual[index] ?? 0;
+    const right = maximum[index] ?? 0;
+    if (left !== right) return left < right;
+  }
+  return true;
+}
+
+function sha256(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 export async function resolveAstGrepExecutable(options: {
   explicit?: string;
   timeoutMs: number;
@@ -105,14 +136,79 @@ export async function resolveAstGrepExecutable(options: {
     };
   }
   if (
-    parsed.tuple[0] >= MAXIMUM_MAJOR_EXCLUSIVE ||
-    !versionAtLeast(parsed.tuple, MINIMUM_VERSION)
+    !versionAtLeast(parsed.tuple, MINIMUM_VERSION) ||
+    !versionAtMost(parsed.tuple, MAXIMUM_VERSION)
   ) {
     return {
       ok: false,
       errorCode: 'ast.rewrite.version_incompatible',
-      error: `ast-grep ${parsed.raw} is incompatible; expected >=0.30.0 and <1.0.0.`,
+      error: `ast-grep ${parsed.raw} is outside the tested 0.40.x–0.45.x compatibility window.`,
     };
   }
-  return { ok: true, executable: { path, version: parsed.raw } };
+  const help = await spawnWithTimeout(path, ['run', '--help'], {
+    timeout: options.timeoutMs,
+    maxOutputSize: 256 * 1024,
+  });
+  if (!help.success) {
+    return {
+      ok: false,
+      errorCode: 'ast.rewrite.capability_unreadable',
+      error:
+        'The discovered ast-grep executable did not expose run capabilities.',
+    };
+  }
+  const helpText = `${help.stdout}\n${help.stderr}`;
+  const capabilities: string[] = REQUIRED_CAPABILITIES.filter(capability =>
+    helpText.includes(`--${capability}`)
+  );
+  const missing = REQUIRED_CAPABILITIES.filter(
+    capability => !capabilities.includes(capability)
+  );
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      errorCode: 'ast.rewrite.capability_incompatible',
+      error: `ast-grep ${parsed.raw} is missing required run capabilities: ${missing.join(', ')}.`,
+    };
+  }
+  const scanHelp = await spawnWithTimeout(path, ['scan', '--help'], {
+    timeout: options.timeoutMs,
+    maxOutputSize: 256 * 1024,
+  });
+  if (
+    scanHelp.success &&
+    `${scanHelp.stdout}\n${scanHelp.stderr}`.includes('--inline-rules')
+  ) {
+    capabilities.push('inline-rules');
+  }
+  let executableBytes: Buffer;
+  try {
+    executableBytes = await readFile(path);
+  } catch {
+    return {
+      ok: false,
+      errorCode: 'ast.rewrite.executable_unreadable',
+      error: 'The discovered ast-grep executable could not be attested.',
+    };
+  }
+  const executableSha256 = sha256(executableBytes);
+  const capabilityDigest = sha256(
+    JSON.stringify({
+      contract: CAPABILITY_CONTRACT,
+      version: parsed.raw,
+      executableSha256,
+      capabilities,
+    })
+  );
+  return {
+    ok: true,
+    executable: {
+      path,
+      version: parsed.raw,
+      sha256: executableSha256,
+      capabilityContract: CAPABILITY_CONTRACT,
+      capabilityDigest,
+      capabilities,
+    },
+  };
 }

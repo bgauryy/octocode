@@ -23,26 +23,10 @@ export type PaginationInfo = {
   snapshot?: string;
 };
 
-export function emptyCategoryForReason(
-  type: SemanticContentType,
-  reason: string
-): SemanticEmptyCategory {
-  // "unavailable" is no longer an empty category — no server now throws
-  // (errorCode lspServerUnavailable) rather than returning an empty envelope.
-  if (/unsupported/i.test(reason)) return 'unsupportedOperation';
-  if (/could not find symbol|symbol.*not found/i.test(reason)) {
-    return 'symbolNotFound';
-  }
-  if (/call/i.test(reason)) return 'noCalls';
-  if (type === 'references') return 'noReferences';
-  if (type === 'hover') return 'noHover';
-  if (type === 'documentSymbols') return 'anchorFailed';
-  return 'noLocations';
-}
-
 export function failedAnchorEnvelope(
   query: LspSearchQuery,
-  reason: string
+  reason: string,
+  category: 'anchorFailed' | 'symbolNotFound'
 ): LspSemanticEnvelope {
   const uri = query.uri ?? '';
   return {
@@ -51,7 +35,7 @@ export function failedAnchorEnvelope(
     lsp: {},
     payload: {
       kind: 'empty',
-      category: emptyCategoryForReason(query.operation, reason),
+      category,
       reason,
     },
   };
@@ -61,6 +45,7 @@ export function emptyEnvelope(
   type: SemanticContentType,
   anchor: SymbolAnchor,
   reason: string,
+  category: SemanticEmptyCategory,
   serverAvailable = false
 ): LspSemanticEnvelope {
   return {
@@ -70,7 +55,7 @@ export function emptyEnvelope(
     lsp: { serverAvailable },
     payload: {
       kind: 'empty',
-      category: emptyCategoryForReason(type, reason),
+      category,
       reason,
     },
   };

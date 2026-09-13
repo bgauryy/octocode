@@ -5,18 +5,12 @@ import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
-import { searchContentRipgrep } from '../local_ripgrep/searchContentRipgrep.js';
-import {
-  LocalRipgrepQuerySchema,
-  type RipgrepQuery,
-} from '@octocodeai/octocode-core/schema';
 import {
   LocalSearchQuerySchema,
-  type LocalTextResultView,
   type LocalSearchQuery,
 } from '@octocodeai/octocode-core/schema';
-import { toLegacyTextQuery } from './nativeQuery.js';
 import { LOCAL_SEARCH_TOOL_NAME } from '@octocodeai/octocode-core/schema';
+import { runTypedLexicalSearch } from './typedLexicalService.js';
 
 export async function executeLocalSearch(
   args: ToolExecutionArgs<LocalSearchQuery>
@@ -52,12 +46,7 @@ export async function executeLocalSearch(
 async function runOperation(
   query: LocalSearchQuery
 ): Promise<ProcessedBulkResult> {
-  const { resultView, ...input } = query;
-  return searchContentRipgrep(
-    LocalRipgrepQuerySchema.parse(
-      toLegacyTextQuery(input, resultView as LocalTextResultView)
-    ) as RipgrepQuery
-  );
+  return runTypedLexicalSearch(query);
 }
 
 function stripVolatileTelemetry<T>(value: T): T {

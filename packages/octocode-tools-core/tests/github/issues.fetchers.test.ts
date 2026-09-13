@@ -3,15 +3,16 @@ import { clearAllCache } from '../../src/utils/http/cache/management.js';
 
 const issueGet = vi.fn();
 const listComments = vi.fn();
+const getOctokit = vi.fn(async () => ({
+  rest: { issues: { get: issueGet, listComments } },
+}));
 
 vi.mock('../../src/github/client.js', () => ({
   resolveCacheAuthFingerprint: async () => 'issue-fetchers-test',
-  getOctokit: vi.fn(async () => ({
-    rest: { issues: { get: issueGet, listComments } },
-  })),
+  getOctokit,
 }));
 
-const { fetchIssueByNumber } =
+const { fetchIssueByNumber, searchIssues } =
   await import('../../src/github/issues/fetchers.js');
 
 describe('fetchIssueByNumber', () => {
@@ -19,6 +20,23 @@ describe('fetchIssueByNumber', () => {
     clearAllCache();
     issueGet.mockReset();
     listComments.mockReset();
+    getOctokit.mockClear();
+  });
+
+  it('rejects an unreachable search page before provider I/O', async () => {
+    const result = await searchIssues(
+      { owner: 'octocode-ai', repo: 'octocode', query: 'crash' },
+      {
+        owner: 'octocode-ai',
+        repo: 'octocode',
+        keywordsToSearch: ['crash'],
+        limit: 100,
+        page: 11,
+      }
+    );
+
+    expect(result).toMatchObject({ status: 400, type: 'http' });
+    expect(getOctokit).not.toHaveBeenCalled();
   });
 
   it('redirects pull requests with a runnable canonical tool continuation', async () => {

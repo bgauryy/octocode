@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness/host';
-import { awarenessEventStatusText, registerAwarenessEventConsumer, resolvePiEventConsumerId } from '../src/tools/awareness-event-consumer.js';
+import { awarenessEventStatusText, registerAwarenessEventConsumer } from '../src/tools/awareness-event-consumer.js';
+import { resolveAwarenessSessionAgentId } from '../src/tools/awareness-shared.js';
 import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness/host';
 import type { PiContext, PiInstance } from '../src/types.js';
 
@@ -147,6 +148,53 @@ describe('ordered Awareness event consumer', () => {
     await handlers.get('agent_end')?.({}, ctx);
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(wakes()).toHaveLength(2);
+  });
+
+  it('reports an automatic wake failure without claiming persisted peer delivery failed', async () => {
+    const fixture = fakeStore([peerEvent(1, {
+      payload: {
+        messageId: 'msg-1', fromAgentId: 'peer-a', toAgentId: 'pi:session-1',
+        signalKind: 'request', text: 'Inspect this request', files: [],
+      },
+    })]);
+    const handlers = new Map<string, (event: unknown, ctx: PiContext) => Promise<void>>();
+    const entries: object[] = [];
+    const notify = vi.fn();
+    const onObservability = vi.fn();
+    const sendMessage = vi.fn((message: object, options?: { triggerTurn?: boolean }) => {
+      if (options?.triggerTurn) throw new Error('wake unavailable');
+      entries.push({ type: 'custom_message', ...message });
+    });
+    const pi = {
+      on: (event: string, handler: (event: unknown, ctx: PiContext) => Promise<void>) => handlers.set(event, handler),
+      sendMessage,
+    } as unknown as PiInstance;
+    const ctx = {
+      hasUI: true,
+      ui: { notify },
+      cwd: workspace,
+      isProjectTrusted: () => true,
+      sessionManager: { ...persistedSession(), getSessionId: () => 'session-1', getEntries: () => entries },
+    } as PiContext;
+
+    registerAwarenessEventConsumer(pi, {
+      openStore: () => fixture.store,
+      resolveExpectedAgentId: () => 'pi:session-1',
+      onObservability,
+    });
+    await handlers.get('session_start')?.({}, ctx);
+
+    expect(fixture.acknowledgements).toEqual([{ eventId: 'evt-1', decision: 'accept' }]);
+    expect(notify).toHaveBeenCalledWith(
+      'Awareness: peer messages were delivered, but automatic wake-up is unavailable. Continue on the next authorized input.',
+      'warning',
+    );
+    expect(JSON.stringify(notify.mock.calls)).not.toContain('Peer message delivery is unavailable');
+    expect(onObservability.mock.calls.at(-1)?.[0]).toMatchObject({
+      errors: 1,
+      drainErrors: 0,
+      lastAcknowledgedSequence: 1,
+    });
   });
   it('delivers accepted peer data in sequence and never redelivers acknowledged events', async () => {
     const fixture = fakeStore([peerEvent(1), peerEvent(2)]);
@@ -319,10 +367,10 @@ describe('ordered Awareness event consumer', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-event-identity-'));
     tempRoots.push(root);
     const sessionFile = path.join(root, 'sessions', 'one.jsonl');
-    const first = resolvePiEventConsumerId({
+    const first = resolveAwarenessSessionAgentId({
       sessionManager: { getSessionFile: () => path.join(root, 'sessions', '..', 'sessions', 'one.jsonl') },
     } as PiContext);
-    const afterRestart = resolvePiEventConsumerId({
+    const afterRestart = resolveAwarenessSessionAgentId({
       sessionManager: { getSessionFile: () => sessionFile },
     } as PiContext);
 
@@ -350,10 +398,10 @@ describe('ordered Awareness event consumer', () => {
     });
     await handlers.get('session_start')?.[0]?.({}, ctx);
 
-    expect(resolvePiEventConsumerId(ctx)).toBeUndefined();
+    expect(resolveAwarenessSessionAgentId(ctx)).toBeUndefined();
     expect(openStore).not.toHaveBeenCalled();
     expect(pi.sendMessage).not.toHaveBeenCalled();
-    expect(observations).toEqual([expect.objectContaining({ consumerId: 'unavailable', errors: 1, lastAcknowledgedSequence: 0 })]);
+    // No observation emitted: the silent return is the same policy as the !sessionFile guard below it.
     expect(JSON.stringify(observations)).not.toContain('body');
   });
 

@@ -8,8 +8,8 @@ import {
   checkForCoreUpdate,
   isUpdateCheckDisabled,
   parseNpmViewVersion,
-  readOwnVersion,
 } from '../src/core-update-check.js';
+import { readOwnVersion } from '../src/package-metadata.js';
 
 // ─── isUpdateCheckDisabled ───────────────────────────────────────────────────
 

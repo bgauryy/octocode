@@ -388,7 +388,7 @@ test('plan detail projection renders compact progress and the running step activ
   const joined = lines.join('\n');
   assert.match(joined, /Plan.*1 done/, 'footer has compact progress');
   assert.doesNotMatch(joined, /Edit file/, 'completed detail stays out of the persistent panel');
-  assert.match(joined, /task 2 running: Run tests/, 'running task is explicit');
+  assert.match(joined, /running: Run tests/, 'running task is explicit');
   assert.deepEqual(calls.widget, [], 'the footer remains the only persistent state surface');
   clearPlan(cwd);
 });
@@ -1415,7 +1415,7 @@ test('the footer shows current work without discarding tasks from full inspectio
   const model = panelModel(steps);
   const lines = renderFooterView({ rows: [projectPlanStatus(model)] }, { width: 80 });
   assert.equal(lines.length, 1, 'footer keeps current work compact');
-  assert.match(lines[0]!, /Plan.*0 done.*task 1 running: Step 1/);
+  assert.match(lines[0]!, /Plan.*0 done.*running: Step 1/);
   assert.doesNotMatch(lines.join('\n'), /Step 4/);
   const full = renderPlanReadModel(model, 'terminal') as string;
   for (const step of steps) assert.ok(full.includes(step.text));

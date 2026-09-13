@@ -43,7 +43,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | `skill` | Load and manage installed skills. |
 | `plan` | Manage session and shared plans with verification receipts. |
 | `localServer` | Serve an inspected local directory on loopback for review. |
-| `awareness` | Discover, describe, and invoke the canonical Awareness command runtime without shell syntax. |
+| `awareness` | Invoke the canonical host-bound Awareness operations without shell syntax. |
 | `MCPTool` | Discover, describe, call, and manage MCP tools and servers. |
 | `askUser` | Request structured input through Pi's UI. |
 | `inspectMedia` | Inspect images, video, and audio. |
@@ -52,8 +52,8 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 
 The extension overrides `bash` with command and path guards. It removes Pi's public `read`, `edit`, `write`, `grep`, `find`, and `ls` tools; use Octocode research tools for reads and discovery, and `file` for mutations.
 
-Awareness coordination uses the native `awareness` facade for catalog discovery and
-host-bound command calls through the imported Awareness API. The bundled skill provides workflow guidance. Pi
+Awareness coordination uses the native `awareness` facade for direct, host-bound
+operation calls through the imported Awareness API. The bundled skill provides workflow guidance. Pi
 supplies the database, workspace and agent identity; native calls never launch the Awareness CLI. Signals,
 locks, memory, bookkeeping and maintenance share the same SQLite ledger as native
 Pi events and external CLI agents. Pi retains automatic registry/event delivery,

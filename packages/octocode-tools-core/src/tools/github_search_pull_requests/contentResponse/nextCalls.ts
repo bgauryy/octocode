@@ -57,13 +57,5 @@ export function nextCalls(
       : {
           getCommits: withTargetContent(target, { commits: {} }),
         }),
-    fullReview: withTargetContent(target, {
-      body: true,
-      changedFiles: true,
-      patches: { mode: 'all' },
-      comments: { discussion: true, reviewInline: true },
-      reviews: true,
-      commits: {},
-    }),
   };
 }

@@ -162,20 +162,22 @@ describe('astSearch native contracts and executable continuations', () => {
     await rm(path);
   });
   it('bounds malformed directory fact payloads instead of throwing', async () => {
-    const scan = vi.spyOn(contextUtils, 'scanGraphFacts').mockResolvedValueOnce({
-      schemaVersion: 1,
-      candidatePaths: ['malformed.ts'],
-      filesSkipped: 0,
-      truncated: false,
-      skipped: [],
-      entries: [
-        {
-          relativePath: 'malformed.ts',
-          factsJson: '{not-json',
-          referenceCounts: [],
-        },
-      ],
-    });
+    const scan = vi
+      .spyOn(contextUtils, 'scanGraphFacts')
+      .mockResolvedValueOnce({
+        schemaVersion: 1,
+        candidatePaths: ['malformed.ts'],
+        filesSkipped: 0,
+        truncated: false,
+        skipped: [],
+        entries: [
+          {
+            relativePath: 'malformed.ts',
+            factsJson: '{not-json',
+            referenceCounts: [],
+          },
+        ],
+      });
 
     const result = await run({ operation: 'symbols', path: root });
 
@@ -184,8 +186,7 @@ describe('astSearch native contracts and executable continuations', () => {
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
         path: expect.stringMatching(/malformed\.ts$/),
-        message:
-          'facts-decode-failed: native graph facts could not be decoded',
+        message: 'facts-decode-failed: native graph facts could not be decoded',
       })
     );
     scan.mockRestore();
@@ -195,7 +196,10 @@ describe('astSearch native contracts and executable continuations', () => {
       .spyOn(contextUtils, 'extractGraphFacts')
       .mockReturnValueOnce(JSON.stringify({ schemaVersion: 2 }));
 
-    const result = await run({ operation: 'symbols', path: join(root, 'a.ts') });
+    const result = await run({
+      operation: 'symbols',
+      path: join(root, 'a.ts'),
+    });
 
     expect(result.filesSkipped).toBe(1);
     expect(result.terminalLimit).toBe(true);
@@ -219,9 +223,9 @@ describe('astSearch native contracts and executable continuations', () => {
     const changed = await run(first.next.nextPage.query);
     expect(changed.errorCode).toBe('ast.snapshot.changed');
     expect(changed.declarations).toBeUndefined();
-    expect(AstSearchQuerySchema.safeParse(changed.next.restart.query).success).toBe(
-      true
-    );
+    expect(
+      AstSearchQuerySchema.safeParse(changed.next.restart.query).success
+    ).toBe(true);
     await rm(path);
   });
   it('does not emit a continuation for unsupported direct symbol files', async () => {
@@ -231,6 +235,25 @@ describe('astSearch native contracts and executable continuations', () => {
     expect(result.status).toBe('error');
     expect(result.errorCode).toBe('ast.symbols.unsupported');
     expect(result.next).toBeUndefined();
+    expect(result.meta.diagnostics).toEqual({
+      codes: ['ast.symbols.unsupported'],
+    });
+    expect(result.complete).toBeUndefined();
+    await rm(path);
+  });
+  it('reports unsupported syntax as a capability error, not a terminal result limit', async () => {
+    const path = join(root, 'unsupported.octocode_unknown');
+    await writeFile(path, 'unknown source');
+    const result = await run({ operation: 'tree', treeKind: 'syntax', path });
+    expect(result.status).toBe('error');
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'syntaxTree.language.unsupported' }),
+      ])
+    );
+    expect(result.meta.diagnostics).toEqual({ codes: ['ast.syntax.error'] });
+    expect(result.complete).toBeUndefined();
+    expect(result.terminalLimit).toBeUndefined();
     await rm(path);
   });
   it('requires an explicit grammar for directory matches', async () => {
@@ -303,9 +326,9 @@ describe('astSearch native contracts and executable continuations', () => {
     expect(first.status).not.toBe('error');
     expect(first.results).toBeDefined();
     expect(first.next?.nextPage?.tool).toBe('astSearch');
-    expect(AstSearchQuerySchema.safeParse(first.next.nextPage.query).success).toBe(
-      true
-    );
+    expect(
+      AstSearchQuerySchema.safeParse(first.next.nextPage.query).success
+    ).toBe(true);
     expect(first.next.nextPage.query).toMatchObject({
       operation: 'topology',
       analysis: 'reachability',
@@ -318,6 +341,8 @@ describe('astSearch native contracts and executable continuations', () => {
     });
     const results = await pages(query, 'results');
     expect(results.length).toBeGreaterThan(0);
-    expect(new Set(results.map(result => result.file)).size).toBe(results.length);
+    expect(new Set(results.map(result => result.file)).size).toBe(
+      results.length
+    );
   });
 });

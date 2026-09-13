@@ -81,6 +81,7 @@ const CASE_QUERIES: Readonly<
   astRewrite: {
     path: '/adapter-parity/fixture',
     langType: 'typescript',
+    ruleKind: 'pattern',
     pattern: 'oldName($A)',
     rewrite: 'newName($A)',
     pageSize: 1,

@@ -4,8 +4,8 @@ import {
   buildQueryEnvelopeSchema,
   executeQueryBatch,
   prepareQueryBatch,
-  QueryBatchError,
 } from "../src/tools/query-envelope.js";
+import { QueryBatchError } from '../src/tools/query-batch-error.js';
 import type { ToolCallResult } from "../src/types.js";
 
 function textResult(
@@ -23,6 +23,7 @@ describe("query envelope", () => {
     ) as {
       properties?: {
         queries?: {
+          description?: string;
           minItems?: number;
           maxItems?: number;
           items?: {
@@ -36,7 +37,6 @@ describe("query envelope", () => {
         queryRunType?: {
           default?: string;
           enum?: string[];
-          description?: string;
         };
       };
       required?: string[];
@@ -63,7 +63,7 @@ describe("query envelope", () => {
       default: "sequential",
       enum: ["sequential"],
     });
-    expect(schema.properties?.queryRunType?.description).toMatch(/one-by-one/i);
+    expect(schema.properties?.queries?.description).toMatch(/one-by-one/i);
   });
 
   it("exposes parallel execution only when the tool opts in", () => {
@@ -195,7 +195,7 @@ describe("query envelope", () => {
     ]);
   });
 
-  it("caps aggregate model-visible batch text instead of multiplying child limits", async () => {
+  it("preserves every complete child result in a large batch", async () => {
     const result = await executeQueryBatch({
       toolCallId: "call-large-batch",
       raw: {
@@ -204,12 +204,9 @@ describe("query envelope", () => {
       execute: async (_query, index) => textResult(`${index}:${"x".repeat(8_000)}`),
     });
 
-    const visibleChars = result.content.reduce(
-      (sum, part) => sum + (part.type === "text" ? part.text.length : 0),
-      0,
-    );
-    expect(visibleChars).toBeLessThanOrEqual(5_000);
-    expect((result.content.at(-1) as { text: string }).text).toMatch(/heavy tool output referenced/i);
+    expect(result.content.slice(1)).toEqual(Array.from({ length: 10 }, (_, index) => ({
+      type: 'text', text: `${index}:${'x'.repeat(8_000)}`,
+    })));
   });
 
   it("runs opted-in parallel queries concurrently while returning source-ordered receipts", async () => {

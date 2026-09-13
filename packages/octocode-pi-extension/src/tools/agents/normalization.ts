@@ -8,9 +8,9 @@ const DELTA_PREFIX = /^\s*\[(STATUS|ACTION|FINDING|METRIC|PLAN|BLOCKED|DONE|EVID
 const MAX_DELTA_SUMMARY_CHARS = 120;
 
 function normalizeConfidence(value: string | undefined): NormalizedWorkerConfidence {
-  const lower = String(value ?? '').toLowerCase();
-  if (lower.includes('confirmed')) return 'confirmed';
-  if (lower.includes('likely')) return 'likely';
+  const lower = String(value ?? '').trim().toLowerCase();
+  if (lower === 'confirmed') return 'confirmed';
+  if (lower === 'likely') return 'likely';
   return 'uncertain';
 }
 
@@ -34,6 +34,7 @@ export function normalizeWorkerOutput(output: string): NormalizedWorkerResult {
   // normalized handback instead of silently dropping to result:undefined.
   const result =
     last('RESULT')
+    ?? last('VERDICT')
     ?? last('FINDING')
     ?? last('ROOT')
     ?? last('FIX')
@@ -42,9 +43,13 @@ export function normalizeWorkerOutput(output: string): NormalizedWorkerResult {
     ?? last('IMPACT')
     ?? last('RISK')
     ?? last('GAP')
+    ?? last('GAPS')
     ?? last('ASSUMPTION')
     ?? last('QUERY')
     ?? last('METRIC')
+    ?? failed
+    ?? blocked
+    ?? done
     ?? undefined;
   const verification = last('VERIFICATION') ?? last('VERIFY') ?? undefined;
   const artifact = last('ARTIFACT') ?? last('HANDOFF') ?? undefined;

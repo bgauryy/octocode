@@ -1,14 +1,15 @@
-import { lstat, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute } from 'node:path';
+import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { spawnWithTimeout } from '../../utils/exec/spawn/wrappers.js';
+import { applyPreparedRewrite } from './apply.js';
 import { resolveAstGrepExecutable } from './executable.js';
-import { buildArgs, decodeMatches } from './astGrep.js';
-import { isWithin, prepareFiles, type PreparedFile } from './prepare.js';
+import { buildArgs, decodeMatches, scanSucceeded } from './astGrep.js';
+import { prepareFiles } from './prepare.js';
+import { publicFiles, rewriteError as error } from './result.js';
 import { createRewriteSnapshot } from './snapshot.js';
-import { applyTransaction, serializeApply } from './transaction.js';
+import { withAstRewriteSafety } from './safety.js';
 import type {
-  AstRewriteError,
-  AstRewriteFile,
   AstRewriteQuery,
   AstRewriteResult,
   AstRewriteRuntimeDeps,
@@ -29,47 +30,19 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_PATCH_BYTES = 512 * 1024;
 const DEFAULT_MAX_FILES = 2_000;
+const DEFAULT_MAX_MATCHES = 10_000;
 const DEFAULT_PAGE_SIZE = 100;
-
-function error(
-  errorCode: string,
-  message: string,
-  extra: Partial<AstRewriteError> = {}
-): AstRewriteError {
-  return {
-    status: 'error',
-    operation: 'rewrite',
-    errorCode,
-    error: message,
-    complete: false,
-    isPartial: true,
-    ...extra,
-  };
-}
-
-function publicFiles(files: PreparedFile[]): AstRewriteFile[] {
-  return files.map(
-    ({
-      before: _before,
-      after: _after,
-      mode: _mode,
-      matches: _matches,
-      ...file
-    }) => file
-  );
-}
+const ISOLATION_RECEIPT = {
+  workingDirectory: 'ephemeral' as const,
+  inheritedHome: false as const,
+  repositoryConfig: 'not-discovered' as const,
+};
 
 async function runAstRewriteUnlocked(
   query: AstRewriteQuery,
   deps: AstRewriteRuntimeDeps = {}
 ): Promise<AstRewriteResult> {
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (query.apply && !deps.allowApply) {
-    return error(
-      'ast.rewrite.apply_disabled',
-      'Applying rewrites requires the separate astRewrite apply capability.'
-    );
-  }
   if ((query.page ?? 1) < 1 || (query.pageSize ?? DEFAULT_PAGE_SIZE) < 1) {
     return error(
       'ast.rewrite.pagination_invalid',
@@ -83,6 +56,16 @@ async function runAstRewriteUnlocked(
   });
   if (resolvedExecutable.ok === false) {
     return error(resolvedExecutable.errorCode, resolvedExecutable.error);
+  }
+  if (
+    query.ruleKind !== 'pattern' &&
+    query.ruleKind !== undefined &&
+    !resolvedExecutable.executable.capabilities.includes('inline-rules')
+  ) {
+    return error(
+      'ast.rewrite.capability_incompatible',
+      'This ast-grep executable does not support isolated inline rules.'
+    );
   }
 
   let realRoot: string;
@@ -103,25 +86,32 @@ async function runAstRewriteUnlocked(
     );
   }
   const boundary = rootInfo.isDirectory() ? realRoot : dirname(realRoot);
-  const cwd = boundary;
-  const target = rootInfo.isDirectory() ? '.' : realRoot;
-  const execution = await spawnWithTimeout(
-    resolvedExecutable.executable.path,
-    buildArgs(query, target),
-    {
-      cwd,
-      timeout: timeoutMs,
-      maxOutputSize: deps.maxProcessOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
-    }
+  const isolationDirectory = await mkdtemp(
+    join(tmpdir(), 'octocode-ast-rewrite-run-')
   );
-  if (!execution.success) {
+  let execution: Awaited<ReturnType<typeof spawnWithTimeout>>;
+  try {
+    execution = await spawnWithTimeout(
+      resolvedExecutable.executable.path,
+      buildArgs(query, realRoot),
+      {
+        cwd: isolationDirectory,
+        timeout: timeoutMs,
+        maxOutputSize: deps.maxProcessOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
+      }
+    );
+  } finally {
+    await rm(isolationDirectory, { recursive: true, force: true });
+  }
+  if (!scanSucceeded(execution)) {
     return error(
       execution.timedOut
         ? 'ast.rewrite.timeout'
         : execution.outputLimitExceeded
           ? 'ast.rewrite.output_limit'
           : 'ast.rewrite.execution_failed',
-      execution.error?.message || execution.stderr.trim() || 'ast-grep failed.'
+      execution.error?.message || execution.stderr.trim() || 'ast-grep failed.',
+      execution.outputLimitExceeded ? { terminalLimit: true } : {}
     );
   }
   const rawMatches = decodeMatches(execution.stdout);
@@ -129,6 +119,17 @@ async function runAstRewriteUnlocked(
     return error(
       'ast.rewrite.output_invalid',
       'ast-grep returned output that does not match its versioned JSON contract.'
+    );
+  }
+  const maxMatches = query.maxMatches ?? DEFAULT_MAX_MATCHES;
+  if (rawMatches.length > maxMatches) {
+    return error(
+      'ast.rewrite.match_limit',
+      `The rewrite found ${rawMatches.length} matches, exceeding maxMatches=${maxMatches}. Narrow the scope.`,
+      {
+        terminalLimit: true,
+        details: { observed: rawMatches.length, maxMatches },
+      }
     );
   }
   if (rawMatches.length === 0) {
@@ -145,6 +146,8 @@ async function runAstRewriteUnlocked(
       const {
         snapshot: _snapshot,
         expectedHashes: _expectedHashes,
+        selectedMatchIds: _selectedMatchIds,
+        postconditions: _postconditions,
         ...scope
       } = query;
       return error(
@@ -168,6 +171,7 @@ async function runAstRewriteUnlocked(
       mode: query.apply ? 'apply' : 'preview',
       root: realRoot,
       executable: resolvedExecutable.executable,
+      isolation: ISOLATION_RECEIPT,
       totalMatches: 0,
       affectedFiles: 0,
       matches: [],
@@ -181,7 +185,7 @@ async function runAstRewriteUnlocked(
     rawMatches,
     realRoot,
     boundary,
-    cwd,
+    boundary,
     query.maxFiles ?? DEFAULT_MAX_FILES,
     deps.maxPatchBytes ?? DEFAULT_MAX_PATCH_BYTES
   );
@@ -200,6 +204,8 @@ async function runAstRewriteUnlocked(
     const {
       snapshot: _snapshot,
       expectedHashes: _expectedHashes,
+      selectedMatchIds: _selectedMatchIds,
+      postconditions: _postconditions,
       ...scope
     } = query;
     return error(
@@ -217,12 +223,8 @@ async function runAstRewriteUnlocked(
       }
     );
   }
-  const beforeHashes = Object.fromEntries(
-    prepared.files.map(file => [file.absolutePath, file.beforeHash])
-  );
-  const afterHashes = Object.fromEntries(
-    prepared.files.map(file => [file.absolutePath, file.afterHash])
-  );
+  let resultFiles = prepared.files;
+  let resultMatches = prepared.matches;
   let transaction:
     | {
         id: string;
@@ -235,114 +237,42 @@ async function runAstRewriteUnlocked(
     | undefined;
 
   if (query.apply) {
-    const normalizedExpected = new Map<string, string>();
-    for (const [path, expected] of Object.entries(query.expectedHashes ?? {})) {
-      if (!isAbsolute(path) || !/^[a-f0-9]{64}$/i.test(expected)) {
-        return error(
-          'ast.rewrite.expected_hash_invalid',
-          'Expected hash keys must be absolute paths and values must be SHA-256 hex digests.',
-          { details: { path } }
-        );
-      }
-      let canonical: string;
-      try {
-        canonical = await realpath(path);
-      } catch {
-        return error(
-          'ast.rewrite.expected_hash_invalid',
-          'An expected hash path could not be resolved.',
-          { details: { path } }
-        );
-      }
-      if (!isWithin(boundary, canonical)) {
-        return error(
-          'ast.rewrite.expected_hash_invalid',
-          'An expected hash path is outside the real requested root.',
-          { details: { path } }
-        );
-      }
-      normalizedExpected.set(canonical, expected.toLowerCase());
-    }
-    const currentPaths = new Set(prepared.files.map(file => file.absolutePath));
-    if (
-      normalizedExpected.size !== currentPaths.size ||
-      [...normalizedExpected.keys()].some(path => !currentPaths.has(path))
-    ) {
-      return error(
-        'ast.rewrite.expected_hash_set_mismatch',
-        'Apply requires exactly the affected file paths returned by the matching preview.',
-        {
-          details: {
-            expectedPaths: [...normalizedExpected.keys()].sort(),
-            actualPaths: [...currentPaths].sort(),
-          },
-        }
-      );
-    }
-    for (const file of prepared.files) {
-      const expected = normalizedExpected.get(file.absolutePath);
-      if (!expected) {
-        return error(
-          'ast.rewrite.expected_hash_missing',
-          'Apply requires the preview beforeHash for every affected absolute path.',
-          { details: { path: file.absolutePath } }
-        );
-      }
-      if (expected !== file.beforeHash) {
-        return error(
-          'ast.rewrite.hash_mismatch',
-          'An expected source hash no longer matches; preview again before applying.',
-          {
-            details: {
-              path: file.absolutePath,
-              expected,
-              actual: file.beforeHash,
-            },
-          }
-        );
-      }
-    }
-    const applied = await applyTransaction(
-      prepared.files.map(file => ({
-        absolutePath: file.absolutePath,
-        before: file.before,
-        after: file.after,
-        mode: file.mode,
-      })),
-      deps.rename
-    );
-    if (applied.ok === false) {
-      return error(
-        'ast.rewrite.transaction_failed',
-        'The rewrite could not be committed; staged changes were rolled back.',
-        { details: { cause: applied.error, rollback: applied.rollback } }
-      );
-    }
-    transaction = {
-      ...applied.receipt,
-      beforeHashes,
-      afterHashes,
-    };
+    const applied = await applyPreparedRewrite({
+      query,
+      files: prepared.files,
+      matches: prepared.matches,
+      boundary,
+      executable: resolvedExecutable.executable.path,
+      deps,
+      maxPatchBytes: deps.maxPatchBytes ?? DEFAULT_MAX_PATCH_BYTES,
+    });
+    if (!applied.ok) return applied.result;
+    resultFiles = applied.applied.files;
+    resultMatches = applied.applied.matches;
+    transaction = applied.applied.transaction;
   }
 
-  const page = query.page ?? 1;
-  const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
+  const page = query.apply ? 1 : (query.page ?? 1);
+  const pageSize = query.apply
+    ? resultMatches.length
+    : (query.pageSize ?? DEFAULT_PAGE_SIZE);
   const offset = (page - 1) * pageSize;
   const pageMatches = query.apply
-    ? prepared.matches
-    : prepared.matches.slice(offset, offset + pageSize);
-  const hasMore = !query.apply && offset + pageSize < prepared.matches.length;
-  const totalPages = Math.max(1, Math.ceil(prepared.matches.length / pageSize));
+    ? resultMatches
+    : resultMatches.slice(offset, offset + pageSize);
+  const hasMore = !query.apply && offset + pageSize < resultMatches.length;
+  const totalPages = Math.max(1, Math.ceil(resultMatches.length / pageSize));
   return {
     operation: 'rewrite',
     mode: query.apply ? 'apply' : 'preview',
     root: realRoot,
     snapshot,
     executable: resolvedExecutable.executable,
-    totalMatches: prepared.matches.length,
-    affectedFiles: prepared.files.length,
+    isolation: ISOLATION_RECEIPT,
+    totalMatches: resultMatches.length,
+    affectedFiles: resultFiles.length,
     matches: pageMatches,
-    files: publicFiles(prepared.files),
+    files: publicFiles(resultFiles),
     complete: !hasMore,
     isPartial: hasMore,
     pagination: {
@@ -382,14 +312,20 @@ export async function runAstRewrite(
       'Applying rewrites requires the separate astRewrite apply capability.'
     );
   }
-  if (query.apply) {
-    if (!query.snapshot) {
-      return error(
-        'ast.rewrite.snapshot_required',
-        'Apply requires the exact snapshot returned by preview.'
-      );
-    }
-    return serializeApply(() => runAstRewriteUnlocked(query, deps));
+  if (query.apply && !query.snapshot) {
+    return error(
+      'ast.rewrite.snapshot_required',
+      'Apply requires the exact snapshot returned by preview.'
+    );
   }
-  return runAstRewriteUnlocked(query, deps);
+
+  const result = await withAstRewriteSafety(
+    query.path,
+    query.apply === true,
+    deps,
+    () => runAstRewriteUnlocked(query, deps)
+  );
+  return result.ok
+    ? result.value
+    : error(result.errorCode, result.error, { details: result.details });
 }

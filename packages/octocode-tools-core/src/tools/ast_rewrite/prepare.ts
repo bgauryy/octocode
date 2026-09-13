@@ -4,37 +4,16 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { TextDecoder } from 'node:util';
 import type { AstGrepJsonMatch } from './astGrep.js';
 import { createUnifiedPatch } from './patch.js';
+import { rewriteError as error } from './result.js';
 import type {
+  AstRewriteCapture,
   AstRewriteError,
-  AstRewriteFile,
   AstRewriteMatch,
+  PreparedFile,
 } from './types.js';
-
-export interface PreparedFile extends AstRewriteFile {
-  before: Buffer;
-  after: Buffer;
-  mode: number;
-  matches: AstRewriteMatch[];
-}
 
 function hash(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
-}
-
-function error(
-  errorCode: string,
-  message: string,
-  extra: Partial<AstRewriteError> = {}
-): AstRewriteError {
-  return {
-    status: 'error',
-    operation: 'rewrite',
-    errorCode,
-    error: message,
-    complete: false,
-    isPartial: true,
-    ...extra,
-  };
 }
 
 export function isWithin(root: string, target: string): boolean {
@@ -170,12 +149,29 @@ function sortedMatches(
       range: raw.range,
       text: raw.text,
       replacement: raw.replacement,
+      captures: captures(raw),
     }))
     .sort(
       (left, right) =>
         left.byteRange.start - right.byteRange.start ||
         left.byteRange.end - right.byteRange.end
     );
+}
+
+function captures(raw: AstGrepJsonMatch): Record<string, AstRewriteCapture> {
+  const result: Record<string, AstRewriteCapture> = {};
+  for (const [name, value] of Object.entries(raw.metaVariables?.single ?? {})) {
+    result[name] = { kind: 'single', texts: [value.text] };
+  }
+  for (const [name, values] of Object.entries(raw.metaVariables?.multi ?? {})) {
+    result[name] = { kind: 'multi', texts: values.map(value => value.text) };
+  }
+  for (const [name, value] of Object.entries(
+    raw.metaVariables?.transformed ?? {}
+  )) {
+    result[name] = { kind: 'transformed', texts: [value] };
+  }
+  return result;
 }
 
 function findOverlap(matches: AstRewriteMatch[]): boolean {
@@ -306,4 +302,74 @@ export async function prepareFiles(
       left.byteRange.start - right.byteRange.start
   );
   return { ok: true, files, matches: allMatches };
+}
+
+export function selectPreparedMatches(
+  files: PreparedFile[],
+  selectedMatchIds: string[],
+  maxPatchBytes: number
+):
+  | { ok: true; files: PreparedFile[]; matches: AstRewriteMatch[] }
+  | { ok: false; result: AstRewriteError } {
+  const selected = new Set(selectedMatchIds);
+  const known = new Set(
+    files.flatMap(file => file.matches.map(match => match.id))
+  );
+  const unknown = selectedMatchIds.filter(id => !known.has(id));
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      result: error(
+        'ast.rewrite.selection_invalid',
+        'selectedMatchIds contains IDs that are not part of this snapshot.',
+        { details: { unknown } }
+      ),
+    };
+  }
+
+  const selectedFiles: PreparedFile[] = [];
+  const selectedMatches: AstRewriteMatch[] = [];
+  let totalPatchBytes = 0;
+  for (const file of files) {
+    const matches = file.matches.filter(match => selected.has(match.id));
+    if (matches.length === 0) continue;
+    const after = applyEdits(file.before, matches);
+    if (!after) {
+      return {
+        ok: false,
+        result: error(
+          'ast.rewrite.selection_invalid',
+          'The selected matches could not be composed safely.'
+        ),
+      };
+    }
+    const patch = createUnifiedPatch(
+      file.path,
+      file.before.toString('utf8'),
+      after.toString('utf8')
+    );
+    const patchBytes = Buffer.byteLength(patch);
+    totalPatchBytes += patchBytes;
+    if (totalPatchBytes > maxPatchBytes) {
+      return {
+        ok: false,
+        result: error(
+          'ast.rewrite.patch_limit',
+          `Selected patches exceed the ${maxPatchBytes}-byte response limit. Narrow the selection.`,
+          { terminalLimit: true }
+        ),
+      };
+    }
+    selectedFiles.push({
+      ...file,
+      after,
+      afterHash: hash(after),
+      matchCount: matches.length,
+      matches,
+      patch,
+      patchBytes,
+    });
+    selectedMatches.push(...matches);
+  }
+  return { ok: true, files: selectedFiles, matches: selectedMatches };
 }

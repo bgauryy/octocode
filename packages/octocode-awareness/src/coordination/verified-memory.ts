@@ -93,8 +93,9 @@ function assertHistoryReference(db: DatabaseSync, workspace: string, reference: 
 
 function verifiedReferences(params: VerifiedMemoryStoreParams, workspace: string): string[] {
   const historyRef = normalizeHistoryRef(params.historyRef);
-  const refs = [...normalizeFiles(params.file, workspace), ...(historyRef ? [historyRef] : [])];
+  const refs = [...normalizeFiles(params.file, workspace), ...(historyRef ? [historyRef] : []), ...(params.references ?? [])];
   if (refs.length > 20) throw new Error('verified memory references exceed the maximum of 20');
+  if (refs.some(ref => ref.length > 512)) throw new Error('memory reference exceeds the maximum length of 512');
   return normalizeReferences(refs);
 }
 
@@ -173,7 +174,7 @@ export function storeVerifiedMemory(host: VerifiedMemoryHost, params: VerifiedMe
   if (scope !== 'project' && scope !== 'artifact') throw new Error('scope must be project or artifact');
   const artifact = normalizeArtifact(params.artifact === undefined ? undefined : boundedText(params.artifact, 'artifact', 256));
   if (scope === 'artifact' && !artifact) throw new Error('artifact is required when scope is artifact');
-  if (containsSecretLikeText(`${label}\n${text}\n${params.why ?? ''}\n${params.constraint ?? ''}`)) throw new Error('memory rejected: secret-like content must never enter durable memory');
+  if (containsSecretLikeText(JSON.stringify(params))) throw new Error('memory rejected: secret-like content must never enter durable memory');
   const verifiedAt = canonicalMemoryInstant(params.verifiedAt ?? now(), 'verifiedAt')!;
   const validUntil = params.validUntil === undefined ? undefined : canonicalMemoryInstant(params.validUntil, 'validUntil');
   if (validUntil != null && validUntil <= verifiedAt) throw new Error('valid_until must be after verified_at');
@@ -187,6 +188,7 @@ export function storeVerifiedMemory(host: VerifiedMemoryHost, params: VerifiedMe
     ...(params.area ? { area: boundedText(params.area, 'area', 256) } : {}),
     ...(params.why ? { why: boundedText(params.why, 'why', 1000) } : {}),
     ...(params.constraint ? { constraint: boundedText(params.constraint, 'constraint', 1000) } : {}),
+    ...(params.knowledge ? { knowledge: params.knowledge } : {}),
   });
   const references = verifiedReferences(params, host.canonicalWorkspace);
   if (Buffer.byteLength(JSON.stringify({ observation, tags, references, sourceDigest }), 'utf8') > 8192) throw new Error('verified memory exceeds the 8192-byte evidence budget');
@@ -205,7 +207,7 @@ export function storeVerifiedMemory(host: VerifiedMemoryHost, params: VerifiedMe
     if (duplicate && normalizedSupersedes.length === 0) return { memory: toVerified(host.db, duplicate), inserted: false };
     const inserted = insertPreparedMemory(host.db, { agentId: 'awareness', taskContext: label, observation, importance, label, tags, references, supersedes: normalizedSupersedes, workspacePath: host.canonicalWorkspace, artifact, validFrom: verifiedAt, validTo: validUntil });
     host.db.prepare(`UPDATE awareness_memories SET scope_kind = ?, source_digest = ?, verified_at = ?, secret_scan_status = 'passed' WHERE memory_id = ?`)
-      .run(scope, sourceDigest, verifiedAt, inserted.memoryId);
+      .run(scope, sourceDigest, params.knowledge ? null : verifiedAt, inserted.memoryId);
     const row = host.db.prepare('SELECT * FROM awareness_memories WHERE memory_id = ?').get(inserted.memoryId) as Record<string, unknown>;
     return { memory: toVerified(host.db, row), inserted: true };
   });

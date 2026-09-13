@@ -2,7 +2,7 @@ import type {
   AwarenessHistoryCaptureInput,
   AwarenessHost,
 } from '@octocodeai/octocode-awareness/host';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createPiHistoryAdapter } from '../src/adapters/pi-history-adapter.js';
 
 type Capture = (input: AwarenessHistoryCaptureInput) => Promise<Record<string, unknown>>;
@@ -12,6 +12,8 @@ function hostWith(captureHistory: Capture): (context: AwarenessHost['context']) 
 }
 
 describe('Pi history adapter', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it('does not capture mutations under the default coordination profile', async () => {
     const capture = vi.fn<Capture>();
     const adapter = createPiHistoryAdapter({ createHost: hostWith(capture), agentId: () => 'pi:test' });
@@ -40,6 +42,32 @@ describe('Pi history adapter', () => {
     expect(calls[1]).toEqual(expect.objectContaining({ phase: 'after', outcome: 'success', session_id: 'unknown-session' }));
     expect(calls[1]?.operation_id).toBe(calls[0]?.operation_id);
     expect(adapter.pending()).toBe(0);
+  });
+
+  it('binds capture to the inherited Awareness database and canonical scope', async () => {
+    vi.stubEnv('OCTOCODE_AWARENESS_DB', '/shared/awareness.sqlite3');
+    let context: AwarenessHost['context'] | undefined;
+    const adapter = createPiHistoryAdapter({
+      enabled: () => true,
+      agentId: () => 'pi:test',
+      createHost: bound => {
+        context = bound;
+        return { context: bound, captureHistory: async () => ({ ok: true, operation: {} }) };
+      },
+    });
+
+    await adapter.before({
+      toolCallId: 'bound-history',
+      toolName: 'file',
+      input: { queries: [{ type: 'write', path: 'src/a.ts' }] },
+    }, { cwd: '/tmp/worktree' } as never);
+
+    expect(context).toEqual(expect.objectContaining({
+      workspace: '/tmp/worktree',
+      database: '/shared/awareness.sqlite3',
+      agentId: 'pi:test',
+    }));
+    expect(context?.scope).toBeDefined();
   });
 
   it('ignores paths from read, shell, MCP, and unknown tools', async () => {

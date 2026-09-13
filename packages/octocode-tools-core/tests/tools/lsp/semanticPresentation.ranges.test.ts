@@ -3,9 +3,23 @@ import {
   compactIncomingCall,
   compactOutgoingCall,
   formatCallRow,
+  formatLocationRow,
 } from '../../../src/tools/lsp/semantic_content/semanticPresentation.js';
 
 describe('lossless call-site presentation', () => {
+  it('retains exact location endpoints in the compact view', () => {
+    expect(
+      formatLocationRow({
+        uri: 'file:///project/unicode.ts',
+        range: {
+          start: { line: 1, character: 21 },
+          end: { line: 1, character: 26 },
+        },
+        displayRange: { startLine: 1, endLine: 4 },
+      })
+    ).toBe('file:///project/unicode.ts:2:21-2:26');
+  });
+
   const fromRanges = Array.from({ length: 12 }, (_, index) => ({
     start: { line: index, character: 2 },
     end: { line: index + 1, character: 8 },

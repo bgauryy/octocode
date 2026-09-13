@@ -3,9 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test, vi } from 'vitest';
-import type { AwarenessOperationResult } from '@octocodeai/octocode-awareness';
+import { getAwarenessAgentInstructions, ROUTINE_AWARENESS_OPERATIONS, type AwarenessOperationResult } from '@octocodeai/octocode-awareness';
 import { defaultDbPath } from '@octocodeai/octocode-awareness/host';
 import type { AwarenessOperationRunner } from '../src/tools/awareness-operation-runner.js';
+import { runAwarenessOperation } from '../src/tools/awareness-operation-runner.js';
 import { registerAwarenessTool } from '../src/tools/awareness-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { ToolResultError } from '../src/tools/tool-result-error.js';
@@ -52,7 +53,10 @@ test('exposes direct routine operations without list-describe-call ceremony', as
   const schemaText = JSON.stringify(tool.parameters);
   const promptText = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
   assert.ok(schemaText.includes('context.orient'), `baseline schema=${Buffer.byteLength(schemaText)} prompt=${Buffer.byteLength(promptText)}`);
+  assert.ok(schemaText.includes('context.observe'));
+  assert.ok(schemaText.includes('context.feedback'));
   assert.ok(schemaText.includes('message.send'));
+  assert.match(promptText, new RegExp(`\\b${ROUTINE_AWARENESS_OPERATIONS.length}\\b`));
   assert.ok(!schemaText.includes('legacy'));
   assert.ok(Buffer.byteLength(schemaText) < 2_000);
   assert.ok(Buffer.byteLength(promptText) < 1_200);
@@ -64,6 +68,60 @@ test('exposes direct routine operations without list-describe-call ceremony', as
   assert.equal(bindings?.workspace, root);
   assert.ok(bindings?.agentId);
   assert.equal(bindings?.database, defaultDbPath(root));
+});
+
+test('keeps Message guidance in the canonical instructions and native schema discovery on the tool', () => {
+  const tool = makeTool(async () => ({ exitCode: 0, payload: {} }));
+  const toolPrompt = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
+  assert.match(toolPrompt, /"describe":true/);
+  assert.doesNotMatch(toolPrompt, /API parameters use snake_case/i);
+  const promptText = getAwarenessAgentInstructions();
+  assert.match(promptText, /API parameters use snake_case/i);
+  assert.match(promptText, /message\.list.*include_bodies:true.*not bodies/is);
+  assert.match(promptText, /message\.send.*kind.*claim\|handoff\|question\|reply\|blocker\|request\|decision\|approval\|fyi/is);
+  assert.match(promptText, /to_agent.*array/i);
+  assert.match(promptText, /\bfile\b.*\bref_id\b/i);
+  assert.doesNotMatch(promptText, /to_agents/i);
+  assert.match(promptText, /message\.reply.*in_reply_to.*signal_id.*not notification_id/is);
+});
+
+test('executes the complete Context observation and feedback loop through Pi bindings', async () => {
+  const tool = makeTool(runAwarenessOperation);
+  const ctx = {
+    cwd: root,
+    sessionManager: { getSessionId: () => 'context-loop-session' },
+  } as PiContext;
+  const observedAt = new Date().toISOString();
+  const first = await run(tool, [{ operation: 'context.observe', params: {
+    observation_id: 'pressure-1', observed_at: observedAt, source: 'host', acquisition: 'passive',
+    context: { used: 95, limit: 100 },
+  } }], ctx);
+  assert.equal(first.isError, false);
+  const firstPayload = JSON.parse(String((first.content[0] as { text?: string }).text)) as {
+    nudge?: { advisory_id?: string };
+  };
+  assert.ok(firstPayload.nudge?.advisory_id);
+
+  const second = await run(tool, [{ operation: 'context.observe', params: {
+    observation_id: 'pressure-relieved', observed_at: observedAt, source: 'host',
+    context: { used: 40, limit: 100 },
+  } }], ctx);
+  assert.equal(second.isError, false);
+  const feedback = await run(tool, [{ operation: 'context.feedback', params: {
+    feedback_id: 'pressure-feedback', observed_at: observedAt,
+    advisory_id: firstPayload.nudge.advisory_id,
+    observation_id: 'pressure-relieved', action_taken: 'Host compacted context', outcome: 'helpful',
+  } }], ctx);
+  assert.equal(feedback.isError, false);
+
+  const orientation = await run(tool, [{ operation: 'context.orient' }], ctx);
+  assert.equal(orientation.isError, false);
+  const orientationPayload = JSON.parse(String((orientation.content[0] as { text?: string }).text)) as {
+    run_state?: { status?: string };
+    regulation?: { advisories?: unknown[] };
+  };
+  assert.equal(orientationPayload.run_state?.status, 'observed');
+  assert.deepEqual(orientationPayload.regulation?.advisories ?? [], []);
 });
 
 test('rejects removed command-dispatch fields', async () => {

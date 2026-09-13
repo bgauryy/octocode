@@ -326,7 +326,7 @@ export interface PiContext {
     complete?(
       model: PiModel,
       context: { systemPrompt?: string; messages: Array<{ role: 'user'; content: string; timestamp: number }> },
-      options?: { signal?: AbortSignal },
+      options?: { signal?: AbortSignal; maxTokens?: number; temperature?: number },
     ): Promise<unknown>;
   };
 }

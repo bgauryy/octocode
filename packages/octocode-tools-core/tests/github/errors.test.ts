@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RequestError } from 'octokit';
 
 import { handleGitHubAPIError } from '../../src/github/errors.js';
+import { recordRateLimit } from '../../src/session.js';
+
+vi.mock('../../src/session.js', () => ({ recordRateLimit: vi.fn() }));
 
 function makeRequestError(
   status: number,
@@ -57,6 +60,80 @@ describe('handleGitHubAPIError - 403 rate-limit header parsing', () => {
 });
 
 describe('handleGitHubAPIError — HTTP status routing', () => {
+  it.each([403, 429])(
+    'preserves secondary classification and HTTP %i',
+    status => {
+      const result = handleGitHubAPIError(
+        makeRequestError(status, 'You have exceeded a secondary rate limit', {
+          'retry-after': '90',
+          'x-ratelimit-remaining': '42',
+          'x-ratelimit-reset': '2000000000',
+        })
+      );
+      expect(result).toMatchObject({
+        status,
+        retryAfter: 90,
+        rateLimitRemaining: 42,
+        rateLimitReset: 2000000000000,
+        scopesSuggestion: 'Reduce request frequency to avoid abuse detection',
+      });
+      expect(result.error).toContain('secondary rate limit');
+      expect(recordRateLimit).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          limit_type: 'secondary',
+          retry_after_seconds: 90,
+        })
+      );
+    }
+  );
+
+  it('uses the secondary fallback delay for HTTP 429 without Retry-After', () => {
+    const result = handleGitHubAPIError(
+      makeRequestError(429, 'Secondary rate limit exceeded', {})
+    );
+    expect(result).toMatchObject({ status: 429, retryAfter: 60 });
+    expect(result.rateLimitRemaining).toBeUndefined();
+    expect(recordRateLimit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        limit_type: 'secondary',
+        retry_after_seconds: 60,
+      })
+    );
+  });
+
+  it('waits for the reset when a secondary limit also exhausts primary quota', () => {
+    const result = handleGitHubAPIError(
+      makeRequestError(429, 'Secondary rate limit exceeded', {
+        'x-ratelimit-remaining': '0',
+        'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 120),
+      })
+    );
+    expect(result.retryAfter).toBeGreaterThanOrEqual(120);
+    expect(result.retryAfter).toBeLessThanOrEqual(121);
+    expect(recordRateLimit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        limit_type: 'secondary',
+        rate_limit_remaining: 0,
+      })
+    );
+  });
+
+  it('keeps HTTP 429 primary quota errors classified as primary', () => {
+    const result = handleGitHubAPIError(
+      makeRequestError(429, 'API rate limit exceeded', {
+        'retry-after': '120',
+        'x-ratelimit-remaining': '0',
+      })
+    );
+    expect(result).toMatchObject({ status: 429, retryAfter: 120 });
+    expect(recordRateLimit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        limit_type: 'primary',
+        retry_after_seconds: 120,
+      })
+    );
+  });
+
   it('handles 404 Not Found', () => {
     const result = handleGitHubAPIError(makeRequestError(404, 'Not Found', {}));
     expect(result.error).toBeDefined();

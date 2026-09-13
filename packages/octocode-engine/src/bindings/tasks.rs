@@ -1,9 +1,79 @@
 use crate::search::ripgrep_search;
 use crate::types::{
     FileSystemQueryOptions, FileSystemQueryResult, GraphFactsScanOptions, GraphFactsScanResult,
-    MinifyResult, RipgrepParseResult, RipgrepSearchOptions,
+    IndexBuildRequest, IndexBuildResult, IndexQueryRequest, IndexQueryResult, IndexStatusRequest,
+    IndexStatusResult, MinifyResult, RipgrepParseResult, RipgrepSearchOptions,
 };
 use napi::{Env, Error, Result, Status, Task};
+
+pub struct BuildIndexTask {
+    pub options: Option<IndexBuildRequest>,
+}
+
+impl Task for BuildIndexTask {
+    type Output = IndexBuildResult;
+    type JsValue = IndexBuildResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "index build options already consumed",
+            )
+        })?;
+        crate::bindings::index::build_index_inner(options)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct QueryIndexTask {
+    pub options: Option<IndexQueryRequest>,
+}
+
+impl Task for QueryIndexTask {
+    type Output = IndexQueryResult;
+    type JsValue = IndexQueryResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "index query options already consumed",
+            )
+        })?;
+        crate::bindings::index::query_index_inner(options)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+pub struct IndexStatusTask {
+    pub options: Option<IndexStatusRequest>,
+}
+
+impl Task for IndexStatusTask {
+    type Output = IndexStatusResult;
+    type JsValue = IndexStatusResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "index status options already consumed",
+            )
+        })?;
+        crate::bindings::index::index_status_inner(options)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
 
 pub struct MinifyContentTask {
     pub content: String,

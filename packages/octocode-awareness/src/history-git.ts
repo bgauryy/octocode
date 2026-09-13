@@ -65,7 +65,7 @@ export interface OpenHistoryGitStoreOptions {
 }
 
 const OID = /^[0-9a-f]{40}$/;
-const HISTORY_REF = /^refs\/octocode\/[0-9a-f]{64}\/(before|after)$/;
+const HISTORY_REF = /^refs\/octocode\/(?:[0-9a-f]{64}\/(before|after)|experiences\/[0-9a-f]{64})$/;
 const initializationLocks = new Map<string, Promise<void>>();
 
 function validateIdentity(label: string, value: string): void {

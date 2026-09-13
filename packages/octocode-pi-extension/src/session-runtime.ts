@@ -103,8 +103,8 @@ export class SessionRuntime {
       this.controller.abort(new Error(`Session runtime disposed: ${reason}`));
       // Stop UI delivery before awaiting teardown: late MCP/task publications from
       // the retiring generation must never paint through a replaced Pi context.
-      this.rendererDisposer({ clearUi: reason === 'quit' });
       try {
+        await this.runCleanup(() => this.rendererDisposer({ clearUi: reason === 'quit' }), reason);
         while (this.cleanups.length > 0) {
           const cleanup = this.cleanups.pop();
           if (cleanup?.active) await this.runCleanup(cleanup.dispose, reason);

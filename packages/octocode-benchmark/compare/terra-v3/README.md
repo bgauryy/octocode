@@ -18,7 +18,10 @@ not a turnkey command. Comparative quality, performance, and token results remai
 
 The full preflight runs the repository build commands first, then resolves and hashes the
 workspace CLI, native addon, source state (including uncommitted bytes), dependency lock,
-and live tool catalog. Every Octocode invocation must begin with:
+and live tool catalog. It also requires the root resolution for canonical core to be a local
+file reference to the sibling source package and proves that the installed export fingerprint
+matches its freshly built exports. Published, missing, or stale canonical-core copies fail.
+Every Octocode invocation must begin with:
 
 ```text
 node <workspace>/packages/octocode/out/octocode.js
@@ -63,8 +66,11 @@ graders, Sourcegraph commit convergence, role receipts, and complete three-pass 
 
 The direct semantic control is [`terra_v3_lsp_client.py`](../bin/terra_v3_lsp_client.py), a
 minimal stdio JSON-RPC client that initializes the same frozen server used by Octocode,
-executes one request, shuts down, and emits the complete response. `terra_v3_arm.py` validates
-native CLI argv and tool/workspace/corpus receipts before dispatching the resource wrapper.
+executes one request, shuts down, and emits the complete response. Before a semantic trial,
+[`terra_v3_lsp_receipt.py`](../bin/terra_v3_lsp_receipt.py) resolves and probes the server,
+binding its exact replay argv, executable and package digests, configuration, workspace root,
+capabilities, and readiness. Bare command names in the arm catalog are not accepted.
+`terra_v3_arm.py` validates every receipt before dispatching the resource wrapper.
 
 ## Measurement and trajectory rules
 
@@ -86,11 +92,13 @@ relabels its schema-invalid or empty predecessor.
 [`suite/public-cases.json`](suite/public-cases.json) is frozen at v4 with 20 outcome-oriented
 public cases across all six taxonomies. The checked-in receipt materializes 16; semantic
 cases p09–p12 remain typed language-server gaps and keep the receipt incomplete.
-[`suite/private-manifest.json`](suite/private-manifest.json)
-contains 20 hash-only reserved slots across the same taxonomy. It intentionally contains no
-private prompt or answer key and remains `slots-reserved`; a separate curator must replace
-the envelope digests and mark it `sealed` outside implementation context before any private
-campaign is valid. This harness never treats reserved slots as held-out evidence.
+[`suite/private-manifest.json`](suite/private-manifest.json) contains 20 opaque case IDs and
+signed SHA-256 envelope commitments across the same taxonomy. The corresponding checked-in
+bundle is CMS-encrypted; prompts, anchors, and curator key material remain outside the
+repository. Its lifecycle is `curated:complete`, `sealed:complete`,
+`ready:private-suite-ready`, and `executed:not-executed`. See
+[`private/README.md`](private/README.md). Private-suite readiness does not override the public
+semantic-oracle gaps or make the complete campaign ready.
 
 ## Deterministic checks
 

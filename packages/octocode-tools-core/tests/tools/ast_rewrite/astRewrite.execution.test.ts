@@ -36,12 +36,14 @@ describe('executeAstRewrite path policy', () => {
         {
           path: '/private/secret',
           langType: 'ts',
+          ruleKind: 'pattern',
           pattern: 'oldCall($A)',
           rewrite: 'newCall($A)',
         },
       ],
     });
-    const row = (response.structuredContent as { results: unknown[] }).results[0];
+    const row = (response.structuredContent as { results: unknown[] })
+      .results[0];
 
     expect(row).toMatchObject({
       status: 'error',
@@ -80,6 +82,7 @@ describe('executeAstRewrite path policy', () => {
         {
           path: '/workspace/link',
           langType: 'ts',
+          ruleKind: 'pattern',
           pattern: 'oldCall($A)',
           rewrite: 'newCall($A)',
         },

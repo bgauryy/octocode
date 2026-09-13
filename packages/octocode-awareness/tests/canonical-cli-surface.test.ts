@@ -21,7 +21,7 @@ function workspace(): { root: string; db: string } {
 }
 
 describe('canonical Awareness CLI surface', () => {
-  it('discovers exactly five concepts and nineteen directly callable operations', async () => {
+  it('discovers the canonical concepts and directly callable operations', async () => {
     const result = await executeAwarenessCli(['schema', 'commands', '--compact']);
     expect(result.exitCode, JSON.stringify(result)).toBe(0);
     const payload = result.payload as {
@@ -32,7 +32,6 @@ describe('canonical Awareness CLI surface', () => {
     };
     expect(Object.keys(payload.concepts)).toEqual(AWARENESS_CONCEPTS);
     expect(payload.operations).toEqual(ROUTINE_AWARENESS_OPERATIONS);
-    expect(payload.operations).toHaveLength(19);
     expect(payload.call).toBe('<concept> <operation> [flags]');
     expect(payload.schema).toBe('schema command <concept> <operation>');
     expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(1_500);

@@ -55,7 +55,10 @@ def load_and_validate_contracts(root: Path) -> tuple[dict[str, object], list[str
         lanes = arm.get("lanes")
         if not isinstance(lanes, list) or not lanes or any(lane not in LANES for lane in lanes):
             errors.append(f"arm {arm_id} has invalid lanes")
-        if not isinstance(arm.get("versionCommand"), list) or not arm.get("versionCommand"):
+        if arm_id in {"lsp-pyright", "lsp-typescript"}:
+            if arm.get("entrypoint") != "resolved-language-server-receipt" or arm.get("resolvedReceiptRequired") is not True:
+                errors.append(f"arm {arm_id} must require a resolved language-server receipt")
+        elif not isinstance(arm.get("versionCommand"), list) or not arm.get("versionCommand"):
             errors.append(f"arm {arm_id} lacks a version command")
         if arm.get("allowsEmulation") is not False:
             errors.append(f"arm {arm_id} must forbid emulation")
@@ -95,11 +98,9 @@ def validate_arm_argv(arm: str, argv: list[str], workspace: Path) -> list[str]:
         if not any(value == "--json" or value.startswith("--json=") for value in argv):
             errors.append("ast-grep arm requires JSON output")
     elif arm == "lsp-pyright":
-        if executable not in {"pyright-langserver", "basedpyright-langserver"} or "--stdio" not in argv:
-            errors.append("Pyright lane must use a direct stdio language server")
+        errors.append("Pyright lane requires a validated resolved language-server receipt")
     elif arm == "lsp-typescript":
-        if executable != "typescript-language-server" or "--stdio" not in argv:
-            errors.append("TypeScript lane must use typescript-language-server --stdio")
+        errors.append("TypeScript lane requires a validated resolved language-server receipt")
     elif arm == "sourcegraph":
         if executable != "src" or argv[1:4] != ["search", "-json", "-stream"]:
             errors.append("Sourcegraph arm must use src search -json -stream")
@@ -396,6 +397,22 @@ def _validate_tool_receipt(value: object, arm: object, label: str) -> list[str]:
     errors: list[str] = []
     if value.get("arm") != arm:
         errors.append(f"{label} tool receipt arm mismatch")
+    if arm in {"lsp-pyright", "lsp-typescript"}:
+        for key in ("executableDigest", "packageDigest", "configFingerprint", "capabilitiesDigest", "receiptDigest"):
+            if not HEX64.fullmatch(str(value.get(key, ""))):
+                errors.append(f"{label} language-server receipt has invalid {key}")
+        command = value.get("resolvedCommand")
+        if not isinstance(command, list) or not command or not Path(str(command[0])).is_absolute():
+            errors.append(f"{label} language-server receipt lacks absolute resolvedCommand")
+        if not isinstance(value.get("workspaceRoot"), str) or not Path(str(value["workspaceRoot"])).is_absolute():
+            errors.append(f"{label} language-server receipt lacks workspaceRoot")
+        readiness = value.get("readiness")
+        if not isinstance(readiness, dict) or any(readiness.get(key) is not True for key in ("initializeSucceeded", "probeSucceeded", "shutdownSucceeded")):
+            errors.append(f"{label} language-server receipt is not ready")
+        unsigned = {key: item for key, item in value.items() if key != "receiptDigest"}
+        if value.get("receiptDigest") != digest_record(unsigned):
+            errors.append(f"{label} language-server receipt digest does not bind its contents")
+        return errors
     for key in ("executableDigest", "receiptDigest"):
         if not HEX64.fullmatch(str(value.get(key, ""))):
             errors.append(f"{label} tool receipt has invalid {key}")

@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from terra_v3_contracts import load_and_validate_contracts, validate_arm_argv, validate_sourcegraph_receipt
+from terra_v3_lsp_receipt import validate_language_server_receipt, validate_lsp_replay
 from terra_v3_preflight import _catalog, _sha256, digest_record, validate_workspace_receipt, verify_corpus_bytes
 
 
@@ -83,6 +84,7 @@ def main() -> int:
     parser.add_argument("--workspace-receipt", type=Path, required=True)
     parser.add_argument("--corpus-lock", type=Path, required=True)
     parser.add_argument("--sourcegraph-receipt", type=Path)
+    parser.add_argument("--language-server-receipt", type=Path)
     parser.add_argument("--contracts", type=Path, required=True)
     parser.add_argument("--fixture-manifest", type=Path, required=True)
     parser.add_argument("--log", type=Path, required=True)
@@ -102,10 +104,24 @@ def main() -> int:
     argv = args.command[1:] if args.command[:1] == ["--"] else args.command
     try:
         bundle, errors = load_and_validate_contracts(args.contracts)
-        errors.extend(validate_arm_argv(args.arm, argv, args.workspace))
+        language_server_receipt = None
+        if args.arm in LSP_ARMS:
+            if not args.language_server_receipt:
+                errors.append("direct-LSP arm requires --language-server-receipt")
+            elif not args.lsp_root:
+                errors.append("direct-LSP arm requires --lsp-root")
+            else:
+                language_server_receipt = json.loads(args.language_server_receipt.read_text(encoding="utf-8"))
+                errors.extend(validate_language_server_receipt(language_server_receipt, args.arm, args.lsp_root))
+                errors.extend(validate_lsp_replay(language_server_receipt, argv, args.lsp_root))
+        else:
+            errors.extend(validate_arm_argv(args.arm, argv, args.workspace))
         workspace_receipt = json.loads(args.workspace_receipt.read_text(encoding="utf-8"))
         catalog_bytes = _catalog(args.workspace) if args.arm == "octocode" else None
-        errors.extend(validate_workspace_receipt(workspace_receipt, args.workspace, catalog_bytes=catalog_bytes))
+        errors.extend(validate_workspace_receipt(
+            workspace_receipt, args.workspace, catalog_bytes=catalog_bytes,
+            require_canonical_core=True,
+        ))
         corpus_lock = json.loads(args.corpus_lock.read_text(encoding="utf-8"))
         errors.extend(verify_locked_corpus(corpus_lock))
         fixture_digest = _sha256(args.fixture_manifest.read_bytes())
@@ -127,9 +143,12 @@ def main() -> int:
         if errors:
             raise RuntimeError("; ".join(errors))
         arm_contract = bundle["arms"][args.arm]
-        version_command = [value.replace("{workspace}", str(args.workspace.resolve())) for value in arm_contract["versionCommand"]]
-        version_command[0] = argv[0]
-        tool_receipt = _receipt(args.arm, argv, version_command)
+        if args.arm in LSP_ARMS:
+            tool_receipt = language_server_receipt
+        else:
+            version_command = [value.replace("{workspace}", str(args.workspace.resolve())) for value in arm_contract["versionCommand"]]
+            version_command[0] = argv[0]
+            tool_receipt = _receipt(args.arm, argv, version_command)
         result = {
             "arm": args.arm, "argv": measured_argv, "toolReceipt": tool_receipt,
             "workspaceReceiptDigest": workspace_receipt["receiptDigest"],

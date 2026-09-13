@@ -150,28 +150,40 @@ export function selectItemMatchesFilter(item: SelectOverlayItem, filter: string)
   );
 }
 
+function overlayCompletion<T>(signal: AbortSignal | undefined, finish: (value: T | null) => void) {
+  let finished = false;
+  const dispose = (): void => signal?.removeEventListener('abort', abort);
+  const done = (value: T | null): void => {
+    if (finished) return;
+    finished = true;
+    dispose();
+    finish(value);
+  };
+  const abort = (): void => done(null);
+  signal?.addEventListener('abort', abort, { once: true });
+  // Pi must receive the component before done() dismisses it.
+  if (signal?.aborted) queueMicrotask(abort);
+  return { done, dispose };
+}
+
 export async function runSelectOverlay(
   ctx: PiContext | undefined,
   opts: SelectOverlayOptions,
 ): Promise<string | null | undefined> {
+  ctx?.signal?.throwIfAborted();
   if (ctx?.mode !== "tui" || !ctx?.hasUI || typeof ctx.ui?.custom !== "function") return undefined;
   const enableFilter = opts.filter ?? opts.items.length > 8;
 
-  // TODO(abort): the awaited custom() promise settles only on a user keypress
-  // (done() in onSelect/onCancel/empty-esc). If the surrounding tool turn is
-  // aborted while the overlay is open, this can hang. There is currently no safe
-  // wiring to force-dismiss it: PiContext exposes no AbortSignal or abort event
-  // (see PiContext in types.ts), and the custom() `onHandle` callback yields an
-  // untyped `handle: unknown` with no documented dismiss method — calling one
-  // would fabricate an API. Wiring a real abort path needs either a signal on
-  // PiContext or a typed dismiss handle, plus threading a signal from callers.
-  return ctx.ui.custom<string | null>(
+  let cleanup = (): void => {};
+  const result = await ctx.ui.custom<string | null>(
     (
       tui: any,
       theme: PiTheme,
       _kb: unknown,
-      done: (v: string | null) => void,
+      finish: (v: string | null) => void,
     ) => {
+      const { done, dispose } = overlayCompletion(ctx.signal, finish);
+      cleanup = dispose;
       const heading = overlayHeading(theme, opts.title);
       let filter = "";
 
@@ -207,6 +219,7 @@ export async function runSelectOverlay(
       const help = enableFilter ? OVERLAY_HELP_SELECT_FILTER : OVERLAY_HELP_SELECT;
 
       return {
+        dispose,
         render: (w: number) => {
           const lines: string[] = [heading];
           if (enableFilter && filter) {
@@ -243,7 +256,9 @@ export async function runSelectOverlay(
       };
     },
     { overlay: true, overlayOptions: OCTOCODE_OVERLAY_OPTIONS },
-  );
+  ).finally(() => cleanup());
+  ctx.signal?.throwIfAborted();
+  return result;
 }
 
 // ─── Multi-select overlay ─────────────────────────────────────────────────────
@@ -270,20 +285,19 @@ export async function runMultiSelectOverlay(
   ctx: PiContext | undefined,
   opts: MultiSelectOverlayOptions,
 ): Promise<string[] | undefined> {
+  ctx?.signal?.throwIfAborted();
   if (ctx?.mode !== "tui" || !ctx?.hasUI || typeof ctx.ui?.custom !== "function") return undefined;
 
-  // TODO(abort): same gap as runSelectOverlay — this awaited custom() promise
-  // settles only on a user keypress (done() in the confirm/cancel handlers), so
-  // an aborted tool turn can hang with the overlay open. No safe programmatic
-  // dismiss exists: PiContext carries no AbortSignal/abort event and custom()'s
-  // `onHandle` handle is untyped (`unknown`) with no documented dismiss API.
+  let cleanup = (): void => {};
   const result = await ctx.ui.custom<string[] | null>(
     (
       tui: any,
       theme: PiTheme,
       _kb: unknown,
-      done: (v: string[] | null) => void,
+      finish: (v: string[] | null) => void,
     ) => {
+      const { done, dispose } = overlayCompletion(ctx.signal, finish);
+      cleanup = dispose;
       const heading = overlayHeading(theme, opts.title);
       const help = OVERLAY_HELP_MULTI;
 
@@ -298,6 +312,7 @@ export async function runMultiSelectOverlay(
       );
 
       return {
+        dispose,
         render: (w: number) =>
           [heading, ...list.render(w, theme as unknown as MultiSelectTheme), ...overlayHelpLines(theme, help, w)].map(
             (line) => paintOverlayLine(line, w),
@@ -323,6 +338,7 @@ export async function runMultiSelectOverlay(
       };
     },
     { overlay: true, overlayOptions: OCTOCODE_OVERLAY_OPTIONS },
-  );
+  ).finally(() => cleanup());
+  ctx.signal?.throwIfAborted();
   return result ?? undefined;
 }

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export function mcpGatewayItemSchema() {
-  return z.looseObject({
+  return z.strictObject({
     action: z.enum([
       'list','describe','call','resources','read-resource','prompts','get-prompt',
       'complete','enable','disable','status','restart','stop','config','add','remove',
@@ -16,8 +16,8 @@ export function mcpGatewayItemSchema() {
     name: z.string().optional().describe('Prompt name for get-prompt.'),
     ref: z.record(z.string(), z.unknown()).optional().describe('Prompt or resource-template reference for complete.'),
     argument: z.record(z.string(), z.unknown()).optional().describe('Partial argument for complete.'),
-    arguments: z.record(z.string(), z.unknown()).optional().describe('Selected tool input for action:call. Put every target-tool field here, never beside action/server/tool. Octocode tool queries nest under arguments.queries[].'),
-    responseView: z.enum(['full', 'table']).optional().describe('call output: full evidence (default) or a compact table for large batches.'),
+    arguments: z.record(z.string(), z.unknown()).optional().describe('Input for action:call. Put every target-tool field here, never beside action/server/tool. Octocode inputs nest under arguments.queries[]; outer reasoning stays outside.'),
+    responseView: z.enum(['full', 'table']).optional().describe('call output: full evidence (default), optionally preceded by a batch summary table.'),
     config: z.record(z.string(), z.unknown()).optional().describe('Server config for add: stdio {command,args?,env?,cwd?} or HTTP {url,headers?}.'),
     scope: z.enum(['project', 'global']).optional().describe('add/remove target: project (.agents/mcp.json) or global ($OCTOCODE_HOME/mcp.json).'),
   });

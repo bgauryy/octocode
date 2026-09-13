@@ -9,9 +9,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
 
-// The outer verifier invokes yarn pack; its prepack recursively invokes this
-// script. The inner pass only needs the build, so stop before packing again.
-if (process.env.OCTOCODE_VERIFY_PACKAGE_INNER === '1') process.exit(0);
+// The outer verifier invokes yarn pack; its prepack rebuilds and recursively
+// invokes this script. Stop the inner invocation before packing recursively.
+if (process.env.OCTOCODE_VERIFY_PACKAGE_INNER === '1') {
+  process.exit(0);
+}
 
 // Same discovery rule as build.mjs — kept independent (not imported) so this
 // verification catches a real build-vs-source mismatch instead of trivially
@@ -52,7 +54,7 @@ function assert(condition, message) {
 }
 
 function assertStrictOperationSchema(schema, operation) {
-  const branches = schema?.type === 'object' ? [schema] : schema?.oneOf;
+  const branches = schema?.type === 'object' ? [schema] : schema?.oneOf ?? schema?.anyOf;
   assert(Array.isArray(branches) && branches.length > 0, `${operation} must expose an object schema`);
   for (const branch of branches) {
     assert(branch?.type === 'object' && branch.additionalProperties === false, `${operation} must expose only strict object-schema branches`);
@@ -183,11 +185,11 @@ try {
     }
     const runner = join(skill, 'scripts/awareness.mjs');
     const help = run(process.execPath, [runner, '--help'], installedOptions);
-    assert(help.includes('NINETEEN OPERATIONS'), `${tree} runner must expose only the canonical operation surface`);
+    assert(help.includes('instructions') && help.includes('context'), `${tree} runner must expose canonical agent discovery`);
   }
   const help = run(process.execPath, [cli, '--help'], installedOptions);
   assert(help.includes('octocode-awareness'), 'published CLI must name its bundled skill');
-  assert(help.includes('ONE SURFACE · FIVE CONCEPTS · NINETEEN OPERATIONS'), 'published CLI must advertise the exact canonical surface');
+  assert(help.includes('ONE SURFACE') && help.includes('FIVE CONCEPTS'), 'published CLI must advertise the canonical concepts');
   for (const removed of ['maintenance', 'docs list', 'skill install', 'refinement']) {
     assert(!help.includes(removed), `published CLI help still advertises removed surface: ${removed}`);
   }
@@ -195,7 +197,10 @@ try {
   const surface = JSON.parse(run(process.execPath, [cli, 'schema', 'commands', '--compact'], installedOptions));
   assert(surface.ok === true, 'schema commands failed');
   assert(Object.keys(surface.concepts ?? {}).join(',') === 'context,work,message,memory,history', 'schema commands returned the wrong concepts');
-  assert(Array.isArray(surface.operations) && surface.operations.length === 19, 'schema commands must return exactly nineteen operations');
+  assert(Array.isArray(surface.operations), 'schema commands must return an operation list');
+  for (const operation of ['context.observe', 'context.feedback', 'memory.set', 'memory.get', 'memory.revalidate', 'history.experience']) {
+    assert(surface.operations.includes(operation), `${operation} must be callable from the packed CLI`);
+  }
   for (const operation of surface.operations) {
     const [concept, action] = operation.split('.');
     const schema = JSON.parse(run(process.execPath, [cli, 'schema', 'command', concept, action, '--compact'], installedOptions));
@@ -229,14 +234,20 @@ try {
       const require = createRequire(entry);
       assert.throws(() => require.resolve('@octocodeai/octocode-extension-rust'), { code: 'MODULE_NOT_FOUND' });
       const root = await import(entry);
+      assert.deepEqual(root.ROUTINE_AWARENESS_OPERATIONS, ${JSON.stringify(surface.operations)}, 'packed CLI and root operation catalogs must agree');
+      assert.equal(new Set(root.ROUTINE_AWARENESS_OPERATIONS).size, root.ROUTINE_AWARENESS_OPERATIONS.length, 'operation catalog must not contain duplicates');
       assert.deepEqual(Object.keys(root).sort(), [
+        'AWARENESS_AGENT_INSTRUCTION_SECTIONS',
         'AWARENESS_CONCEPTS',
+        'AWARENESS_MESSAGE_PARAMETER_GUIDANCE',
         'ROUTINE_AWARENESS_OPERATIONS',
         'createAwarenessClient',
+        'getAwarenessAgentInstructions',
         'getAwarenessOperationDescriptor',
         'listAwarenessOperationDescriptors',
       ]);
       const schema = await import(${JSON.stringify(pathToFileURL(join(installed, 'out/schema-api.js')).href)});
+      assert.deepEqual(schema.ROUTINE_AWARENESS_OPERATIONS, root.ROUTINE_AWARENESS_OPERATIONS, 'schema and root operation catalogs must agree');
       assert.deepEqual(Object.keys(schema).sort(), [
         'AWARENESS_CONCEPTS',
         'ROUTINE_AWARENESS_OPERATIONS',

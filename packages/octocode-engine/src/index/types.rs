@@ -147,6 +147,8 @@ pub struct FreshnessReport {
     pub checked: usize,
     pub fresh: usize,
     pub generation_complete: bool,
+    pub traversal_complete: bool,
+    pub scanned_entries: usize,
     pub added: Vec<String>,
     pub dirty: Vec<String>,
     pub deleted: Vec<String>,
@@ -160,6 +162,10 @@ impl FreshnessReport {
             checked: count,
             fresh: count,
             generation_complete: true,
+            traversal_complete: true,
+            // Strict verification reads each indexed document and independently
+            // traverses the current tree to detect additions.
+            scanned_entries: count.saturating_mul(2),
             ..Self::default()
         }
     }
@@ -167,6 +173,7 @@ impl FreshnessReport {
     #[must_use]
     pub fn can_prove_absence(&self) -> bool {
         self.generation_complete
+            && self.traversal_complete
             && self.checked == self.fresh
             && self.added.is_empty()
             && self.dirty.is_empty()

@@ -16,6 +16,8 @@ import sys
 import time
 import uuid
 
+from response_summary import response_failure, summarize_response
+
 
 HEX64 = set("0123456789abcdef")
 
@@ -155,42 +157,7 @@ def _read_cgroup(group: Path) -> tuple[dict[str, object], dict[str, object], dic
 
 
 def _infer_result_count(raw: bytes) -> int | None:
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        try:
-            values = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return None
-        matched = [
-            item for item in values
-            if isinstance(item, dict) and item.get("type") in {"match", "content"}
-        ]
-        return len(matched) if matched or values else None
-    if isinstance(value, list):
-        return len(value)
-    if not isinstance(value, dict):
-        return None
-    for key in ("result_count", "resultCount", "count"):
-        count = value.get(key)
-        if isinstance(count, int) and count >= 0:
-            return count
-    for key in ("results", "items", "matches"):
-        items = value.get(key)
-        if isinstance(items, list):
-            return len(items)
-    data = value.get("data")
-    if isinstance(data, list):
-        return len(data)
-    if isinstance(data, dict):
-        for key in ("results", "items", "matches"):
-            items = data.get(key)
-            if isinstance(items, list):
-                return len(items)
-    response = value.get("response")
-    if isinstance(response, dict) and isinstance(response.get("result"), list):
-        return len(response["result"])
-    return None
+    return summarize_response(raw)["returned_result_count"]
 
 
 def _classify_outcome(
@@ -201,6 +168,11 @@ def _classify_outcome(
         lowered = raw.decode("utf-8", errors="replace").lower()
         if any(marker in lowered for marker in ("schema", "unknown field", "invalid_type", "validation error")):
             return "schema-invalid"
+        return "runtime-failed"
+    failure = response_failure(summarize_response(raw))
+    if failure:
+        return failure
+    if result_count is None:
         return "runtime-failed"
     if result_count == 0:
         return "expected-empty" if empty_classification == "expected-absence" else "unproductive-empty"
@@ -246,8 +218,11 @@ def _validate_v3(record: dict[str, object], strict: bool, *, platform_name: str 
         errors.append("missing complete process-tree I/O sensor")
     if not record.get("logical_call_id") or int(record.get("attempt_index", 0)) < 1:
         errors.append("missing logical call identity")
-    if record.get("exit_code") == 0 and not isinstance(record.get("result_count"), int):
-        errors.append("successful call has no machine-readable result count")
+    result_count = record.get("result_count")
+    if record.get("exit_code") == 0 and (
+        type(result_count) is not int or result_count < 0
+    ):
+        errors.append("successful call has no non-negative integer result count")
     return errors
 
 
@@ -358,7 +333,8 @@ def main() -> int:
 
     text = raw.decode("utf-8", errors="replace")
     signal_number = -process.returncode if process.returncode is not None and process.returncode < 0 else None
-    result_count = args.result_count if args.result_count is not None else _infer_result_count(raw)
+    response_summary = summarize_response(raw)
+    result_count = args.result_count if args.result_count is not None else response_summary["returned_result_count"]
     inferred_outcome = args.call_outcome or _classify_outcome(
         process.returncode, result_count, args.empty_classification,
         attempt_index=args.attempt_index, raw=raw,
@@ -381,6 +357,7 @@ def main() -> int:
         "logical_call_id": args.logical_call_id or args.label,
         "attempt_index": args.attempt_index, "call_outcome": inferred_outcome,
         "empty_classification": args.empty_classification, "result_count": result_count, "artifact": str(artifact),
+        "response_summary": response_summary,
     }
     record["sensor_validation_errors"] = _validate_v3(record, args.strict_v3)
     _append_json(Path(args.log), record)

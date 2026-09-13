@@ -14,6 +14,7 @@ mod types;
 // entry points reachable to Rust's dead-code analysis and the benchmark crates.
 pub use bindings::filesystem::query_file_system;
 pub use bindings::graph::scan_graph_facts;
+pub use bindings::index::{build_index, index_status, query_index};
 pub use bindings::lsp::{
     convert_symbol_kind, detect_language_id, from_uri, get_language_server_for_file,
     is_command_available, resolve_position, resolve_position_from_content,

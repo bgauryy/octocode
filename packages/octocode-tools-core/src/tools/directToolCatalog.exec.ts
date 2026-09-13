@@ -28,7 +28,9 @@ import {
 } from '@octocodeai/octocode-core/schema';
 
 type DirectToolRuntimeDefinition = DirectToolDefinition & {
-  execute: (input: DirectToolInput) => Promise<CallToolResult>;
+  execute: (
+    input: DirectToolInput & { renderText?: boolean }
+  ) => Promise<CallToolResult>;
   security: ToolConfig['direct']['security'];
   isLocal: boolean;
   isDefault: boolean;
@@ -69,12 +71,14 @@ export function _resetInitialize(): void {
 
 function wrapExecution(
   fn: ToolConfig['direct']['executionFn']
-): (input: DirectToolInput) => Promise<CallToolResult> {
+): (
+  input: DirectToolInput & { renderText?: boolean }
+) => Promise<CallToolResult> {
   // executionFn is typed as (input: never) so any specific tool function can be
   // assigned to it (contravariance). At the call site, the input has already been
   // parsed and validated by Zod's inputSchema — this cast reflects that invariant.
   const typedFn = fn as unknown as (
-    input: DirectToolInput
+    input: DirectToolInput & { renderText?: boolean }
   ) => Promise<CallToolResult>;
   return input => typedFn(input);
 }
@@ -231,10 +235,11 @@ async function runDirectTool(
   projection?: CallToolResultProjection
 ): Promise<CallToolResult> {
   try {
+    const renderText = projection !== 'structured';
     const result =
       tool.security === 'remote'
-        ? await runRemoteDirectTool(tool, input)
-        : await runBasicDirectTool(tool, input);
+        ? await runRemoteDirectTool(tool, input, renderText)
+        : await runBasicDirectTool(tool, input, renderText);
     return sanitizeCallToolResult(result, projection);
   } catch (error) {
     return buildToolErrorResult(tool.name, error);
@@ -243,13 +248,15 @@ async function runDirectTool(
 
 async function runRemoteDirectTool(
   tool: DirectToolRuntimeDefinition,
-  input: DirectToolInput
+  input: DirectToolInput,
+  renderText: boolean
 ): Promise<CallToolResult> {
   const handler = withSecurityValidation<DirectToolInput>(
     tool.name,
     async (sanitizedArgs, context) =>
       tool.execute({
         ...sanitizedArgs,
+        ...(renderText ? {} : { renderText: false }),
         authInfo: context.authInfo,
         sessionId: context.sessionId,
         signal: context.signal,
@@ -262,10 +269,15 @@ async function runRemoteDirectTool(
 
 async function runBasicDirectTool(
   tool: DirectToolRuntimeDefinition,
-  input: DirectToolInput
+  input: DirectToolInput,
+  renderText: boolean
 ): Promise<CallToolResult> {
   const handler = withBasicSecurityValidation<DirectToolInput>(
-    tool.execute,
+    sanitizedArgs =>
+      tool.execute({
+        ...sanitizedArgs,
+        ...(renderText ? {} : { renderText: false }),
+      }),
     tool.name,
     { timeoutMs: tool.timeoutMs }
   );

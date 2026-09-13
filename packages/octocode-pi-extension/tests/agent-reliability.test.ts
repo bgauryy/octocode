@@ -1,12 +1,3 @@
-/**
- * TDD tests for agent-tools.ts reliability fixes:
- * H4: sendRpc EPIPE must mark the agent as 'failed' and notify waiters immediately.
- * M7: Spawning more than MAX_AGENT_RECORDS active agents must throw a hard error.
- *
- * These tests are RED against the un-patched source because:
- * - H4: sendRpc currently swallows EPIPE without changing status or notifying waiters.
- * - M7: MAX_AGENT_RECORDS is not exported and no hard-cap guard exists.
- */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -741,7 +732,7 @@ test('SEV-1: an explicit model without provider does not inherit an unrelated pa
   );
 });
 
-test('SEV-1: OpenAI GPT-5 tool-calling workers force --thinking off to override inherited defaults', () => {
+test.each(['off', 'low', 'high', undefined] as const)('preserves the worker thinking selection %s without provider-name overrides', thinking => {
   if (isSubagentProcess()) return;
   const mock = makeMockAgentProcess({ stdinThrows: false, exitImmediately: false });
   setAgentProcessFactoryForTests(() => mock as never);
@@ -750,17 +741,20 @@ test('SEV-1: OpenAI GPT-5 tool-calling workers force --thinking off to override 
     resourceMode: 'octocode',
     model: 'gpt-5.4-mini',
     provider: 'guy-provider-openai',
-    thinking: 'low',
+    thinking,
     tools: ['web', 'MCPTool'],
   }, { hasUI: false, ui: { setStatus: () => {}, setWidget: () => {} } } as never);
 
   const thinkingIdx = record.args.indexOf('--thinking');
-  assert.ok(thinkingIdx >= 0, 'tool-calling OpenAI GPT-5 worker must override inherited thinking');
-  assert.equal(record.args[thinkingIdx + 1], 'off', 'the explicit override prevents reasoning_effort from reaching Chat Completions');
+  if (thinking === undefined) assert.equal(thinkingIdx, -1, 'unspecified thinking remains owned by Pi settings');
+  else {
+    assert.ok(thinkingIdx >= 0);
+    assert.equal(record.args[thinkingIdx + 1], thinking, 'explicit thinking reaches Pi unchanged');
+  }
   assert.ok(record.args.includes('--tools'), 'worker still receives its tool allowlist');
   assert.ok(
-    record.policyWarnings.some((warning) => /Forced --thinking off for OpenAI GPT-5 tool-calling worker/.test(warning)),
-    'spawn policy explains the compatibility override',
+    !record.policyWarnings.some((warning) => /Forced --thinking/.test(warning)),
+    'spawn policy does not invent provider compatibility restrictions',
   );
 });
 

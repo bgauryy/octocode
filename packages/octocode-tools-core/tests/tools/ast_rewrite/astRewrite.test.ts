@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { rename } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { recoverTransactions } from '../../../src/tools/ast_rewrite/transaction.js';
+import { buildToolResultMeta } from '../../../src/utils/response/bulk/response.js';
 import {
   runAstRewrite,
   type AstRewriteRuntimeDeps,
@@ -43,6 +45,8 @@ function mockExecutable(root: string, matches: unknown[], version = '0.40.1') {
   const program = `#!/usr/bin/env node
 if (process.argv[2] === '--version') {
   process.stdout.write(${JSON.stringify(`ast-grep ${version}\n`)});
+} else if (process.argv[2] === 'run' && process.argv[3] === '--help') {
+  process.stdout.write('--pattern --rewrite --lang --json --globs --threads --color');
 } else {
   process.stdout.write(${JSON.stringify(JSON.stringify(matches))});
 }
@@ -102,6 +106,32 @@ async function previewForApply(
 }
 
 describe('runAstRewrite', () => {
+  it('reports a process output cap as a terminal evidence limit without writing', async () => {
+    const { root, source } = fixture();
+    const start = source.indexOf('oldCall(1)');
+    const executable = mockExecutable(root, [
+      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
+    ]);
+    const result = await runAstRewrite(query(root), {
+      executable,
+      maxProcessOutputBytes: 1,
+    });
+    expect(result).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.output_limit',
+      complete: false,
+      isPartial: true,
+      terminalLimit: true,
+    });
+    expect(
+      buildToolResultMeta('astRewrite', query(root), result, 'error')
+        .diagnostics
+    ).toEqual({
+      codes: ['ast.rewrite.output_limit', 'terminalLimitReached'],
+      partial: true,
+    });
+    expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
+  });
   it('previews stable matches, hashes, bounded patches, and pagination without writing', async () => {
     const { root, source } = fixture();
     const first = source.indexOf('oldCall(1)');
@@ -116,10 +146,10 @@ describe('runAstRewrite', () => {
       { executable }
     );
 
-    expect(result.status).toBeUndefined();
+    expect(result.status, JSON.stringify(result)).toBeUndefined();
     if (result.status !== undefined) return;
     expect(result.mode).toBe('preview');
-    expect(result.executable).toEqual({
+    expect(result.executable).toMatchObject({
       path: realpathSync(executable),
       version: '0.40.1',
     });
@@ -230,7 +260,7 @@ describe('runAstRewrite', () => {
     expect(readFileSync(join(root, 'other.ts'), 'utf8')).toBe('oldCall(3);\n');
   });
 
-  it('atomically stages and applies all validated files', async () => {
+  it('stages all validated files and returns one complete apply receipt', async () => {
     const { root, source } = fixture();
     const other = 'oldCall(3);\n';
     writeFileSync(join(root, 'other.ts'), other);
@@ -239,12 +269,13 @@ describe('runAstRewrite', () => {
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
       match('other.ts', 0, 10, 'oldCall(3)', 'newCall(3)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root, executable, { pageSize: 1 });
 
     const result = await runAstRewrite(
       {
         ...query(root),
         apply: true,
+        pageSize: 1,
         ...preview,
       },
       { executable, allowApply: true }
@@ -254,6 +285,13 @@ describe('runAstRewrite', () => {
     if (result.status !== undefined) return;
     expect(result.mode).toBe('apply');
     expect(result.transaction).toMatchObject({ committed: true, files: 2 });
+    expect(result.pagination).toEqual({
+      currentPage: 1,
+      totalPages: 1,
+      pageSize: 2,
+      hasMore: false,
+    });
+    expect(result.matches).toHaveLength(2);
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toContain(
       'newCall(1)'
     );
@@ -382,6 +420,48 @@ describe('runAstRewrite', () => {
     });
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
     expect(readFileSync(join(root, 'other.ts'), 'utf8')).toBe(other);
+  });
+
+  it('reports incomplete recovery without claiming a concurrent edit was rolled back', async () => {
+    const { root, source } = fixture();
+    const sourcePath = realpathSync(join(root, 'source.ts'));
+    const start = source.indexOf('oldCall(1)');
+    const executable = mockExecutable(root, [
+      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
+    ]);
+    const preview = await previewForApply(root, executable);
+    const externalEdit = 'editorCall(99);\n';
+    const result = await runAstRewrite(
+      { ...query(root), apply: true, ...preview },
+      {
+        executable,
+        allowApply: true,
+        rename: async (from, to) => {
+          await rename(from, to);
+          if (basename(from).includes('.stage-') && to === sourcePath) {
+            writeFileSync(sourcePath, externalEdit);
+            throw new Error('promotion interrupted by concurrent edit');
+          }
+        },
+      }
+    );
+
+    try {
+      expect(result).toMatchObject({
+        status: 'error',
+        errorCode: 'ast.rewrite.transaction_failed',
+        details: { rollback: { restored: false } },
+      });
+      if (result.status !== 'error')
+        throw new Error('Expected transaction failure');
+      expect(result.error).toContain('recovery is incomplete');
+      expect(result.error).not.toContain('were rolled back');
+      expect(readFileSync(sourcePath, 'utf8')).toBe(externalEdit);
+    } finally {
+      // Resolve this test's deliberate conflict before removing its fixture.
+      writeFileSync(sourcePath, source);
+      expect(await recoverTransactions(root)).toMatchObject({ ok: true });
+    }
   });
 
   it('binds apply to the exact preview query including page size', async () => {
@@ -554,7 +634,7 @@ describe('runAstRewrite', () => {
     release();
     const [firstResult, secondResult] = await Promise.all([first, second]);
 
-    expect(firstResult.status).toBeUndefined();
+    expect(firstResult.status, JSON.stringify(firstResult)).toBeUndefined();
     expect(secondResult.status).toBe('error');
     expect(readFileSync(sourcePath, 'utf8')).toBe(
       source.replace('oldCall(1)', 'newCall(1)')
@@ -590,6 +670,7 @@ describe('runAstRewrite', () => {
       `#!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 if (process.argv[2] === '--version') process.stdout.write('ast-grep 0.40.1\\n');
+else if (process.argv[2] === 'run' && process.argv[3] === '--help') process.stdout.write('--pattern --rewrite --lang --json --globs --threads --color');
 else { writeFileSync(${JSON.stringify(argvLog)}, JSON.stringify(process.argv.slice(2))); process.stdout.write('[]'); }
 `
     );

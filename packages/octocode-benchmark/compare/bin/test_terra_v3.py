@@ -407,6 +407,50 @@ class TerraV3PreflightTests(unittest.TestCase):
             core.write_text("changed", encoding="utf-8")
             self.assertTrue(any("external source" in e for e in validate_workspace_receipt(receipt, root)))
 
+    def test_canonical_core_receipt_rejects_published_stale_and_export_drift(self) -> None:
+        from terra_v3_preflight import build_canonical_core_receipt, validate_canonical_core_receipt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            workspace = parent / "octocode"
+            canonical = parent / "octocode-mcp-host/packages/octocode-core"
+            installed = workspace / "node_modules/@octocodeai/octocode-core"
+            for root in (canonical, installed):
+                (root / "src").mkdir(parents=True)
+                (root / "dist").mkdir()
+                (root / "src/schema.ts").write_text("export const schema = 1\n", encoding="utf-8")
+                (root / "dist/schema.js").write_text("export const schema = 1\n", encoding="utf-8")
+                (root / "dist/mcp.js").write_text("export const mcp = 1\n", encoding="utf-8")
+                (root / "dist/index.js").write_text("export const index = 1\n", encoding="utf-8")
+                (root / "package.json").write_text(json.dumps({
+                    "name": "@octocodeai/octocode-core", "version": "1.0.0", "type": "module",
+                    "exports": {".": {"import": "./dist/index.js"}, "./schema": {"import": "./dist/schema.js"}, "./mcp": {"import": "./dist/mcp.js"}},
+                }), encoding="utf-8")
+            workspace.mkdir(exist_ok=True)
+            (workspace / "package.json").write_text(json.dumps({
+                "resolutions": {"@octocodeai/octocode-core": canonical.as_uri()}
+            }), encoding="utf-8")
+            now = time.time()
+            os.utime(canonical / "src/schema.ts", (now - 10, now - 10))
+            for path in (canonical / "dist").iterdir():
+                os.utime(path, (now, now))
+            receipt = build_canonical_core_receipt(workspace)
+            self.assertEqual(validate_canonical_core_receipt(receipt, workspace), [])
+
+            published = json.loads((workspace / "package.json").read_text())
+            published["resolutions"]["@octocodeai/octocode-core"] = "19.0.2"
+            (workspace / "package.json").write_text(json.dumps(published), encoding="utf-8")
+            self.assertTrue(any("local file" in error for error in validate_canonical_core_receipt(receipt, workspace)))
+            published["resolutions"]["@octocodeai/octocode-core"] = canonical.as_uri()
+            (workspace / "package.json").write_text(json.dumps(published), encoding="utf-8")
+
+            installed_schema = installed / "dist/schema.js"
+            installed_schema.write_text("export const schema = 2\n", encoding="utf-8")
+            self.assertTrue(any("export fingerprint" in error for error in validate_canonical_core_receipt(receipt, workspace)))
+            installed_schema.write_text("export const schema = 1\n", encoding="utf-8")
+            os.utime(canonical / "src/schema.ts", (now + 20, now + 20))
+            self.assertTrue(any("stale canonical core" in error for error in validate_canonical_core_receipt(receipt, workspace)))
+
 
 class TerraV3ContractTests(unittest.TestCase):
     _valid_campaign_contract = staticmethod(TerraV3PreflightTests._valid_campaign_contract)
@@ -423,6 +467,60 @@ class TerraV3ContractTests(unittest.TestCase):
         self.assertEqual(Path(argv[1]).name, "terra_v3_lsp_client.py")
         self.assertIn("pyright-langserver", argv)
         self.assertIn("textDocument/references", argv)
+
+    def test_language_server_receipt_replays_exact_resolved_command_and_fingerprints(self) -> None:
+        from terra_v3_lsp_receipt import (
+            build_language_server_receipt,
+            validate_language_server_receipt,
+            validate_lsp_replay,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "node_modules/pyright"
+            executable = package / "bin/pyright-langserver"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            (package / "package.json").write_text(json.dumps({"name": "pyright", "version": "1.2.3"}), encoding="utf-8")
+            config = root / "pyrightconfig.json"
+            config.write_text('{"typeCheckingMode":"basic"}\n', encoding="utf-8")
+            probe = {
+                "initialize": {"result": {"capabilities": {"definitionProvider": True}}},
+                "response": {"result": []}, "shutdown": {"result": None},
+            }
+            receipt = build_language_server_receipt(
+                "lsp-pyright", [str(executable), "--stdio"], root,
+                config_paths=[config], initialization_options={"pythonPath": "/frozen/python"},
+                probe=probe,
+            )
+            self.assertEqual(validate_language_server_receipt(receipt, "lsp-pyright", root), [])
+            self.assertEqual(validate_lsp_replay(receipt, receipt["resolvedCommand"], root), [])
+            self.assertTrue(validate_lsp_replay(receipt, [str(executable), "--stdio", "--changed"], root))
+            config.write_text('{"typeCheckingMode":"strict"}\n', encoding="utf-8")
+            self.assertTrue(any("config fingerprint" in error for error in validate_language_server_receipt(receipt, "lsp-pyright", root)))
+            config.write_text('{"typeCheckingMode":"basic"}\n', encoding="utf-8")
+            executable.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            self.assertTrue(any("executable digest" in error for error in validate_language_server_receipt(receipt, "lsp-pyright", root)))
+
+    def test_language_server_receipt_rejects_unready_or_wrong_workspace(self) -> None:
+        from terra_v3_lsp_receipt import build_language_server_receipt, validate_language_server_receipt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            executable = root / "typescript-language-server"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            (root / "package.json").write_text(json.dumps({"name": "typescript-language-server", "version": "4.0.0"}), encoding="utf-8")
+            probe = {"initialize": {"result": {"capabilities": {}}}, "response": {"error": {"code": -1}}, "shutdown": {"result": None}}
+            receipt = build_language_server_receipt(
+                "lsp-typescript", [str(executable), "--stdio"], root,
+                config_paths=[], initialization_options={}, probe=probe,
+            )
+            self.assertTrue(validate_language_server_receipt(receipt, "lsp-typescript", root))
+            ready = json.loads(json.dumps(receipt))
+            ready["readiness"]["probeSucceeded"] = True
+            self.assertTrue(validate_language_server_receipt(ready, "lsp-typescript", root / "other"))
 
     def test_direct_lsp_client_initializes_requests_and_shuts_down(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

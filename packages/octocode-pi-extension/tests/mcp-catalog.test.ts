@@ -23,6 +23,25 @@ import {
 
 const roots: string[] = [];
 
+test('compact catalog preserves complete schema semantics and long descriptions', () => {
+  const description = 'Source guidance. '.repeat(100);
+  const inputSchema = {
+    type: 'object',
+    properties: { value: { $ref: '#/$defs/value', description } },
+    $defs: { value: { anyOf: [{ type: 'string', pattern: 'x'.repeat(400) }, { type: 'null' }] } },
+    allOf: [{ if: { required: ['value'] }, then: { dependentRequired: { value: ['other'] } } }],
+    additionalProperties: false,
+  };
+  const snapshot = buildMcpCatalogSnapshot({
+    cwd: '/tmp/catalog-fidelity', sources: [], configSignatures: { example: 'config' },
+    servers: [{ name: 'example', tools: [{ name: 'read', description, inputSchema }] }],
+  });
+  const guide = renderMcpCatalogSchemaGuide(snapshot);
+  const schemaText = guide.split('inputSchema: ')[1]!.split('\n')[0]!;
+  assert.deepEqual(JSON.parse(schemaText), inputSchema);
+  assert.ok(guide.includes(description));
+});
+
 function tempRoot(prefix: string): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   roots.push(root);
@@ -130,11 +149,7 @@ test('explicit schema guide exposes complete nested discriminated query schemas'
   const rendered = renderMcpCatalogSchemaGuide(snapshot);
   assert.match(rendered, /MCPTool\(\{queries:\[\{reasoning:/);
   assert.match(rendered, /arguments:<object matching inputSchema>/);
-  assert.match(rendered, /operation="text"/);
-  assert.match(rendered, /searchText/);
-  assert.match(rendered, /regex.*smart.*fixed.*perl/);
-  assert.match(rendered, /operation="tree"/);
-  assert.match(rendered, /maxDepth.*minimum: 0.*maximum: 20/);
+  assert.deepEqual(JSON.parse(rendered.split('inputSchema: ')[1]!.split('\n')[0]!), snapshot.servers[0]!.tools[0]!.inputSchema);
 });
 
 test('exact catalog includes every enabled server tool description and normalized input schema', () => {
@@ -179,7 +194,7 @@ test('renders every union branch, required field, and optional field inline with
   const guide = renderMcpCatalogSchemaGuide(oversizedUnionSnapshot());
   const description = guide.split('description: ')[1]!;
   for (const [operation, required] of [['text', 'searchText'], ['structural', 'pattern'], ['structural', 'rule'], ['files', 'names'], ['tree', 'maxDepth']]) {
-    assert.ok(guide.includes(`operation="${operation}"`), operation);
+    assert.ok(guide.includes(`"const":"${operation}"`), operation);
     assert.ok(guide.includes(required!), required);
   }
   assert.ok(guide.includes('option0'), 'optional fields render inline');
@@ -199,7 +214,7 @@ test('renders the full schema inline even when optional field names are numerous
   const guide = renderMcpCatalogSchemaGuide(snapshot);
   assert.doesNotMatch(guide, /partial/i);
   assert.doesNotMatch(guide, /optional fields omitted/i);
-  for (const operation of ['text', 'structural', 'files', 'tree']) assert.ok(guide.includes(`operation="${operation}"`));
+  assert.deepEqual(JSON.parse(guide.split('inputSchema: ')[1]!.split('\n')[0]!), schema);
   assert.ok(guide.includes('additionalOption0'), 'first injected field renders');
   assert.ok(guide.includes('additionalOption199'), 'last injected field renders with no truncation');
 });
@@ -287,8 +302,8 @@ test('generated guide is accepted only when it covers every exact server and too
 
   const compiled = compileGeneratedMcpGuide(snapshot, response);
   assert.match(compiled!, /^<mcp_catalog_index>/);
-  assert.match(compiled!, /tool: read\ndescription: Read files\. Input: path \(string, required\)\./);
-  assert.match(compiled!, /inputSchema: Input: path \(string, required\)/);
+  assert.match(compiled!, /tool: read\ndescription: Read files\.\nroutingNote: Read files\. Input: path \(string, required\)\./);
+  assert.match(compiled!, /inputSchema: \{"properties":/);
 
   const incomplete = JSON.stringify({ servers: [{
     name: 'octocode',

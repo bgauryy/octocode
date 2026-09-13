@@ -157,12 +157,20 @@ describe('production LSP operation matrix', () => {
   it.each(operations)(
     '%s distinguishes missing servers from missing capabilities',
     async type => {
-      mocks.available.mockResolvedValue(false);
+      mocks.acquire.mockResolvedValue({
+        ok: false,
+        kind: 'unavailable',
+        message: 'No language server is available for this file.',
+        filePath: file,
+        workspaceRoot: dir,
+      });
       const unavailable = await execute(query(type));
       expect(unavailable.status).toBe('error');
       expect(unavailable.data.errorCode).toBe('lspServerUnavailable');
-      expect(mocks.acquire).not.toHaveBeenCalled();
-      mocks.available.mockResolvedValue(true);
+      expect(mocks.acquire).toHaveBeenCalledTimes(1);
+      expect(mocks.available).not.toHaveBeenCalled();
+      mocks.acquire.mockClear();
+      mocks.acquire.mockResolvedValue({ ok: true, client });
       client.hasCapability!.mockReturnValue(false);
       const unsupported = await execute(query(type));
       if (type === 'diagnostic') {

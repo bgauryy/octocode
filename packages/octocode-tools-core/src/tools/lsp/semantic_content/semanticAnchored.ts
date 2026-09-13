@@ -1,5 +1,7 @@
 import path from 'node:path';
-import { searchContentRipgrep } from '../../local_ripgrep/searchContentRipgrep.js';
+import { withReferenceAliasContinuations } from './referenceAliases.js';
+import { runTypedLexicalSearch } from '../../local_search/typedLexicalService.js';
+import { nativeSearchPartialReasons } from '../../local_ripgrep/searchCompleteness.js';
 import { acquirePooledClient } from '@octocodeai/octocode-engine/lsp/manager';
 import type { SymbolAnchor } from '../shared/resolveSymbolAnchor.js';
 import type {
@@ -46,6 +48,13 @@ export async function warmLikelyConsumers(
     skippedLarge: 0,
     possiblyTruncated: false,
   };
+  if (!anchor.resolvedSymbol.name) {
+    return {
+      ...stats,
+      possiblyTruncated: true,
+      incompleteReasons: ['anchorName'],
+    };
+  }
   const incomplete = new Set<
     NonNullable<ConsumerWarmupStats['incompleteReasons']>[number]
   >();
@@ -56,11 +65,11 @@ export async function warmLikelyConsumers(
     const baseQuery = {
       path: workspaceRoot,
       searchText: anchor.resolvedSymbol.name,
-      regex: 'fixed',
+      regex: 'literal' as const,
       wholeWord: true,
-      output: 'files',
+      resultView: 'files' as const,
       maxFiles: WARM_MAX_FILES,
-      itemsPerPage: WARM_MAX_FILES,
+      pageSize: WARM_MAX_FILES,
       sort: 'path',
       include: family.filter(Boolean).map(e => `*.${e}`),
     };
@@ -68,10 +77,10 @@ export async function warmLikelyConsumers(
     // Search pagination is independent of maxFiles. Follow explicit pages,
     // retaining a fixed file/request bound even if a backend returns small pages.
     for (let requests = 0; requests < WARM_MAX_FILES; requests += 1) {
-      const result = await searchContentRipgrep({
+      const result = await runTypedLexicalSearch({
         ...baseQuery,
         page,
-      } as Parameters<typeof searchContentRipgrep>[0]);
+      });
       if (result.status === 'error') {
         incomplete.add('search');
         break;
@@ -80,12 +89,17 @@ export async function warmLikelyConsumers(
         | { totalFiles?: number; hasMore?: boolean; nextPage?: number }
         | undefined;
       const searchStats = result.stats as
-        { filesMatched?: number; capped?: boolean } | undefined;
+        | { filesMatched?: number; capped?: boolean; errorCount?: number }
+        | undefined;
       const files = result.files ?? [];
       const reportedTotal = pagination?.totalFiles ?? searchStats?.filesMatched;
       if (typeof reportedTotal === 'number')
         stats.candidates = Math.max(stats.candidates, reportedTotal);
-      if (searchStats?.capped) incomplete.add('search');
+      if (
+        nativeSearchPartialReasons(searchStats).length > 0 ||
+        (result as { terminalLimit?: boolean }).terminalLimit === true
+      )
+        incomplete.add('search');
       for (const file of files) {
         const filePath = typeof file.path === 'string' ? file.path : undefined;
         if (!filePath) {
@@ -155,6 +169,7 @@ export async function dispatchAnchoredSemantic(
           query.operation,
           anchor,
           'definitionProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }
@@ -175,6 +190,7 @@ export async function dispatchAnchoredSemantic(
           query.operation,
           anchor,
           'typeDefinitionProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }
@@ -195,6 +211,7 @@ export async function dispatchAnchoredSemantic(
           query.operation,
           anchor,
           'implementationProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }
@@ -210,32 +227,37 @@ export async function dispatchAnchoredSemantic(
         ),
         warmupStats
       );
-    case 'references':
+    case 'references': {
       if (!client.hasCapability('referencesProvider')) {
         return emptyEnvelope(
           query.operation,
           anchor,
           'referencesProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }
-      return referencesEnvelope(
+      const references = await client.findReferences(
+        anchor.absolutePath,
+        anchor.resolvedSymbol.position,
+        query.includeDeclaration ?? true,
+        anchor.content
+      );
+      return withReferenceAliasContinuations(
         query,
         anchor,
-        await client.findReferences(
-          anchor.absolutePath,
-          anchor.resolvedSymbol.position,
-          query.includeDeclaration ?? true,
-          anchor.content
-        ),
-        warmupStats
+        client,
+        references,
+        referencesEnvelope(query, anchor, references, warmupStats)
       );
+    }
     case 'hover':
       if (!client.hasCapability('hoverProvider')) {
         return emptyEnvelope(
           query.operation,
           anchor,
           'hoverProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }
@@ -256,6 +278,7 @@ export async function dispatchAnchoredSemantic(
           query.operation,
           anchor,
           'callHierarchyProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }
@@ -267,6 +290,7 @@ export async function dispatchAnchoredSemantic(
           query.operation,
           anchor,
           'typeHierarchyProvider unsupported',
+          'unsupportedOperation',
           true
         );
       }

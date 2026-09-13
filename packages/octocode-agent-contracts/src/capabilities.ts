@@ -28,6 +28,12 @@ export type WorkerCapabilitySelection = z.infer<typeof WorkerCapabilitySelection
 export type CapabilitySkill = z.infer<typeof CapabilitySkillSchema>;
 export type CapabilityMcpTool = z.infer<typeof CapabilityMcpToolSchema>;
 
+/** Canonical worker-excluded tool names; matching is case-insensitive. */
+export const FORBIDDEN_WORKER_TOOL_NAMES = Object.freeze([
+  'agent', 'spawnAgent', 'spawnSubagent', 'callTool', 'callSkill', 'tool-smith', 'skill-smith',
+] as const);
+const forbiddenWorkerToolNamesLower = new Set(FORBIDDEN_WORKER_TOOL_NAMES.map(name => name.toLowerCase()));
+
 export function mcpToolIdentityKey(value: McpToolIdentity): string {
   return JSON.stringify([value.server, value.tool]);
 }
@@ -72,7 +78,7 @@ export type WorkerCapabilityGrant = z.infer<typeof WorkerCapabilityGrantSchema>;
 
 /** Dynamic tool/skill authoring can spawn smiths, so it is parent-owned too. */
 export function isForbiddenWorkerTool(name: string): boolean {
-  return ['agent', 'spawnagent', 'spawnsubagent', 'calltool', 'callskill', 'tool-smith', 'skill-smith'].includes(name.toLowerCase());
+  return forbiddenWorkerToolNamesLower.has(name.toLowerCase());
 }
 
 export function createWorkerCapabilityGrant(

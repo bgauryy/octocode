@@ -1,7 +1,7 @@
 /**
  * Entry-point declarations for @octocodeai/octocode-awareness.
  *
- * Imported by build.mjs (for esbuild) and by tests/build-config.test.ts
+ * Imported by build.mjs (for esbuild) and exercised by the build coherence test
  * (contract tests that verify the build surface hasn't drifted).
  * Importing this file has NO side effects.
  */

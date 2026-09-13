@@ -1,4 +1,5 @@
 import { commandSchemaProperties } from '../schema/command-properties.js';
+import { AWARENESS_AGENT_INSTRUCTION_SECTIONS, getAwarenessAgentInstructions } from '../agent-instructions.js';
 import {
   AWARENESS_CONCEPTS,
   getAwarenessOperationDescriptor,
@@ -17,9 +18,16 @@ export function helpFor(command: string | null, options: { compact?: boolean; ro
     if (noun === 'schema') {
       return [
         'usage: npx @octocodeai/octocode-awareness schema commands|command|entities [options]',
-        'commands: print all nineteen operations',
+        'commands: print all routine operations',
         'command: print one exact operation contract',
         'entities: print the canonical storage entity catalog',
+      ].join('\n');
+    }
+    if (noun === 'instructions') {
+      return [
+        'usage: npx @octocodeai/octocode-awareness instructions [--section <name>] [--compact]',
+        `sections: ${AWARENESS_AGENT_INSTRUCTION_SECTIONS.join('|')}; repeat --section to compose sections`,
+        'default: all sections; same content as getAwarenessAgentInstructions from @octocodeai/octocode-awareness',
       ].join('\n');
     }
     if ((AWARENESS_CONCEPTS as readonly string[]).includes(noun)) {
@@ -32,7 +40,7 @@ export function helpFor(command: string | null, options: { compact?: boolean; ro
       ].join('\n');
     }
   }
-  if (!command) return options.compact ? HELP_COMPACT : HELP;
+  if (!command) return options.compact ? HELP_COMPACT : `${HELP}\n\n${getAwarenessAgentInstructions({ sections: ['start'] })}`;
   const operation = getAwarenessOperationDescriptor(command.includes('.') ? command : command.trim().replace(/\s+/, '.'));
   if (!operation) return options.compact ? HELP_COMPACT : HELP;
   const display = operation.operation.replace('.', ' ');
@@ -53,6 +61,7 @@ export function commandFromHelpArgv(argv: string[]): { command: string | null; r
   const second = normalizeToken(filtered[1]);
   if (!first) return { command: null };
   if (first === 'schema') return { command: null, routeKey: 'noun:schema' };
+  if (first === 'instructions') return { command: null, routeKey: 'noun:instructions' };
   const operation = first && second ? `${first}.${second}` : undefined;
   if (operation && getAwarenessOperationDescriptor(operation)) return { command: operation, routeKey: `${first} ${second}` };
   if ((AWARENESS_CONCEPTS as readonly string[]).includes(first)) return { command: null, routeKey: `noun:${first}` };

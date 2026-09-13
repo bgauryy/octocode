@@ -1,8 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { utcNow, rowToMemory } from './helpers.js';
-import type { MemoryRow } from './types/work-maintenance.js';
-import type { MemoryRecord } from './types/identity-memory.js';
-import { attachMemoryReferences } from './memory-search.js';
+import { utcNow } from './helpers.js';
 import { cosineSimilarity } from '@octocodeai/agent-contracts/embed';
 
 export const EMBEDDING_CANDIDATE_LIMIT = 2_000;
@@ -99,22 +96,4 @@ export function searchByEmbedding(
   return results
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, limit);
-}
-
-/**
- * Load ACTIVE memory rows by id, preserving the caller order when possible.
- */
-export function loadMemoriesByIds(
-  db: DatabaseSync,
-  memoryIds: string[],
-): MemoryRecord[] {
-  const ids = [...new Set(memoryIds.filter(Boolean))];
-  if (ids.length === 0) return [];
-  const placeholders = ids.map(() => '?').join(', ');
-  const rows = db.prepare(
-    `SELECT * FROM awareness_memories WHERE memory_id IN (${placeholders}) AND state = 'ACTIVE'`
-  ).all(...ids) as unknown as MemoryRow[];
-  const byId = new Map(rows.map(row => [row.memory_id, rowToMemory(row)]));
-  attachMemoryReferences(db, [...byId.values()]);
-  return ids.map(id => byId.get(id)).filter((row): row is MemoryRecord => Boolean(row));
 }

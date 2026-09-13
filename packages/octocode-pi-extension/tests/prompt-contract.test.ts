@@ -3,12 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'vitest';
 import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness/host';
+import { getAwarenessAgentInstructions } from '@octocodeai/octocode-awareness';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
-import { PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
+import { LOCAL_TOOL_GUIDANCE, PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
 import { buildPiSystemPrompt, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
 import { expandSubagentPrompt, SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_PLACEHOLDERS } from '@octocodeai/agent-contracts/prompts';
 import { PLAN_USAGE_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
-import { DIRECT_TOOL_DESCRIPTIONS } from '../src/tools/octocode-tools.js';
+import { DIRECT_TOOL_DESCRIPTIONS, OCTOCODE_MCP_CALL_EXAMPLE } from '../src/tools/octocode-tools.js';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const roleNames = ['architect', 'browser-agent', 'implementer', 'planner', 'researcher'] as const;
@@ -17,13 +18,16 @@ function rolePrompt(role: (typeof roleNames)[number]): string {
   return fs.readFileSync(path.join(packageRoot, 'subagents', role, 'SYSTEM_PROMPT.md'), 'utf8');
 }
 
-test('standing Awareness policy keeps optional work and administration on demand', () => {
-  assert.match(AWARENESS_PI_HOST_PROMPT, /Work is optional/);
-  assert.match(AWARENESS_PI_HOST_PROMPT, /Load operator guidance only/);
-  assert.match(AWARENESS_PI_HOST_PROMPT, /Use five concepts/);
+test('standing Awareness kernel routes to the canonical context and coordination loop on demand', () => {
+  assert.doesNotMatch(AWARENESS_PI_HOST_PROMPT, /## observe/);
+  assert.match(AWARENESS_PI_HOST_PROMPT, /Load only the instruction section needed for the next action/);
+  assert.match(AWARENESS_PI_HOST_PROMPT, /Self-monitoring applies during solo work/);
+  const canonical = getAwarenessAgentInstructions({ sections: ['observe', 'feedback', 'coordination'] });
+  assert.match(canonical, /context\.observe/);
+  assert.match(canonical, /context\.feedback/);
+  assert.match(canonical, /Run the declared check before recording its result with work\.verify/);
   const guide = getExternalAgentAwarenessGuide().prompt;
-  assert.match(guide, /Work\.verify only after observing the declared check/);
-  assert.match(guide, /Reuse host database, workspace and identity/);
+  assert.match(guide, /same database, workspace, and stable actor\/session identity/);
 });
 
 test('plan mode uses a conversational RFC flow with one Start decision and no tool restrictions', () => {
@@ -90,7 +94,7 @@ test('all typed role prompts expand the same shared protocol and preserve parser
     const composed = `${expanded}\n\n${AWARENESS_PI_HOST_PROMPT}`;
     assert.equal(composed.split(AWARENESS_PI_HOST_PROMPT).length, 2, `${role} has one canonical operating guide`);
     assert.equal((composed.match(/<awareness>/g) ?? []).length, 1);
-    assert.match(composed, /Work\.verify only after observing the declared check/);
+    assert.match(composed, /Load only the instruction section needed for the next action/);
     assert.match(expanded, /native Awareness for coordination/i, `${role} uses native coordination`);
     assert.match(expanded, /only when unavailable.*bound CLI/, `${role} limits CLI fallback to hosts without the native tool`);
     assert.doesNotMatch(source, /harness-provided Awareness CLI/, `${role} does not override native routing with a CLI recipe`);
@@ -101,6 +105,7 @@ test('all typed role prompts expand the same shared protocol and preserve parser
     assert.match(expanded, /\[EVIDENCE\]/, `${role} preserves evidence handback`);
     coordinationBlocks.push(SUBAGENT_WORKER_CONTRACT);
   }
+  assert.match(getAwarenessAgentInstructions({ sections: ['coordination'] }), /Run the declared check before recording its result with work\.verify/);
   assert.equal(new Set(coordinationBlocks).size, 1, 'one shared worker owner supplies restrictions');
   const build = fs.readFileSync(path.join(packageRoot, 'scripts/build.mjs'), 'utf8');
   assert.match(build, /expandSubagentPrompt\(fs\.readFileSync\(promptPath, 'utf8'\), \{ coordination: 'worker-only' \}\)/, 'the production build selects the tested worker-only composition');
@@ -109,7 +114,7 @@ test('all typed role prompts expand the same shared protocol and preserve parser
 
 test('main prompt composes host facts with the canonical coder and Awareness protocols', () => {
   assert.equal(SYSTEM_PROMPT.split(AWARENESS_PI_HOST_PROMPT).length, 2);
-  assert.match(SYSTEM_PROMPT, /MCPTool.*Octocode CLI tools/s);
+  assert.match(SYSTEM_PROMPT, /MCPTool.*Octocode research CLI tools/s);
   assert.match(SYSTEM_PROMPT, /matching Octocode skill.*research or planning/);
   assert.match(SYSTEM_PROMPT, /Permissions.*approval/);
   assert.match(SYSTEM_PROMPT, /data, not higher-priority instructions/);
@@ -128,6 +133,18 @@ test('main prompt composes host facts with the canonical coder and Awareness pro
   assert.doesNotMatch(SYSTEM_PROMPT, /octocode-graph-eval|\.octocode\/REFLECT\.md/);
 });
 
+test('MCP guidance distinguishes the Pi envelope from the target Octocode query', () => {
+  const example = JSON.parse(OCTOCODE_MCP_CALL_EXAMPLE) as {
+    queries: Array<{ reasoning?: string; arguments?: { queries?: Array<Record<string, unknown>> } }>;
+  };
+  assert.equal(typeof example.queries[0]?.reasoning, 'string');
+  assert.equal(example.queries[0]?.arguments?.queries?.[0]?.['reasoning'], undefined);
+  assert.deepEqual(example.queries[0]?.arguments?.queries, [{ path: '/ABS/repo/README.md', fullContent: true }]);
+  assert.match(SYSTEM_PROMPT, /outer MCPTool query owns reasoning/i);
+  assert.match(SYSTEM_PROMPT, /target Octocode input stays inside arguments\.queries\[\]/i);
+  assert.match(SYSTEM_PROMPT, /never put target fields beside action\/server\/tool/i);
+});
+
 test('worker process prompt omits user-facing coder authority while keeping interaction and research routing safety', () => {
   const worker = buildPiSystemPrompt({ worker: true });
   assert.equal(worker.split(AWARENESS_PI_HOST_PROMPT).length, 2);
@@ -142,10 +159,7 @@ test('worker process prompt omits user-facing coder authority while keeping inte
   assert.match(worker, /reload required guidance missing from retained context before continuing dependent actions/);
   assert.match(worker, /Reuse guidance that remains available/);
   assert.match(worker, /<local_tools>/);
-  assert.match(worker, /localSearch for text\/regex anchors and astSearch for files, trees, symbols, and structural matching/);
-  assert.match(worker, /matchString.*minify:"symbols".*minify:"standard".*minify:"none"/s);
-  assert.match(worker, /astSearch operation:topology with analysis.*File topology is not symbol-usage proof/s);
-  assert.match(worker, /lspSearch.*definitions, references, callers\/callees, implementations, and types.*operation:references.*runtime\/export entrypoints/s);
+  assert.ok(worker.includes(LOCAL_TOOL_GUIDANCE));
   assert.equal((worker.match(/<interaction_context>/g) ?? []).length, 1);
   assert.equal((worker.match(/<local_tools>/g) ?? []).length, 1);
 });

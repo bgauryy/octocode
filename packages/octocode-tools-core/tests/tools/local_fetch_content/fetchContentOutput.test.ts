@@ -55,7 +55,9 @@ describe('localFetch direct text output', () => {
     expect(firstData<{ content?: string }>(result)?.content).toBe(source);
 
     const text = firstText(result);
-    expect(text).toContain(source);
+    expect(text).toContain(
+      '1: export function demo() {\n2:     const nested = 1;\n3:       return nested;\n4: }\n'
+    );
     expect(text).not.toContain('content: |');
     expect(text).not.toContain('\n        const nested = 1;');
     expect(text).not.toContain('\n          return nested;');

@@ -1,5 +1,6 @@
 pub(crate) mod filesystem;
 pub(crate) mod graph;
+pub(crate) mod index;
 pub(crate) mod lsp;
 pub(crate) mod minify;
 pub(crate) mod ripgrep;

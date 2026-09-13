@@ -6,11 +6,13 @@ The live CLI schema is the command reference. Run `npx @octocodeai/octocode-awar
 |---|---|
 | [API](API.md) | Runtime exports, subpaths, results, and continuations |
 | [How Awareness works](HOW_IT_WORKS.md) | Routine flow and trust boundaries |
+| [Integrating any agent](AGENT_INTEGRATION.md) | Host instructions, client binding, and the observation-feedback loop |
 | [Configuration](CONFIGURATION.md) | Workspace policy, storage scopes, and hook ownership |
 | [Database](DB.md) | Canonical SQLite ownership and copy-on-write migration |
 | [Entity links](ENTITY_LINKS.md) | Canonical entity families and relationships |
 | [Host hooks](HOOKS.md) | Native-versus-shell lifecycle ownership |
 | [LocalGit history](LOCAL_HISTORY.md) | Host-owned capture, inspection, and restore |
+| [Experience and anchored memory](EXPERIENCE_MEMORY.md) | Non-file traces, keyed lessons, rationale history, and applicability checks |
 | [Exclusive path protection](LOCKS.md) | Exceptional protection protocol |
 | [Efficient routine use](MEMORY_NAVIGATION.md) | Token budgets, bounded reads, and continuations |
 | [Storage scopes](STORAGE_SCOPES.md) | Global, repository, and explicit database selection |

@@ -28,16 +28,18 @@
     },
     "lsp-pyright": {
       "transport": "direct-json-rpc",
-      "entrypoint": ["pyright-langserver", "--stdio"],
-      "versionCommand": ["pyright-langserver", "--version"],
+      "entrypoint": "resolved-language-server-receipt",
+      "resolvedReceiptRequired": true,
+      "serverFamily": "pyright",
       "lanes": ["semantic", "end-to-end"],
       "allowsEmulation": false,
       "requirements": ["same server executable/config/dependency snapshot as Octocode", "initialize and shutdown receipts retained"]
     },
     "lsp-typescript": {
       "transport": "direct-json-rpc",
-      "entrypoint": ["typescript-language-server", "--stdio"],
-      "versionCommand": ["typescript-language-server", "--version"],
+      "entrypoint": "resolved-language-server-receipt",
+      "resolvedReceiptRequired": true,
+      "serverFamily": "typescript",
       "lanes": ["semantic", "end-to-end"],
       "allowsEmulation": false,
       "requirements": ["same server executable/config/dependency snapshot as Octocode", "initialize and shutdown receipts retained"]

@@ -6,8 +6,11 @@ import {
   getRawResponseChars,
 } from '../utils/response/charSavings.js';
 import { OctokitWithThrottling } from './client.js';
+import { fetchStructureViaGitTree } from './repoStructureTree.js';
+import { CONTENTS_DIRECTORY_LIMIT } from '../tools/github_view_repo_structure/constants.js';
 
 const RECURSIVE_FETCH_FAILURES = Symbol.for('octocode.recursiveFetchFailures');
+const CONTENTS_LIMIT_REACHED = Symbol.for('octocode.contentsLimitReached');
 
 /**
  * HTTP statuses that must propagate rather than be swallowed into a
@@ -16,14 +19,23 @@ const RECURSIVE_FETCH_FAILURES = Symbol.for('octocode.recursiveFetchFailures');
  */
 const PROPAGATE_STATUSES = new Set([401, 403, 429]);
 
-function shouldPropagate(error: unknown): boolean {
+export function shouldPropagateStructureError(error: unknown): boolean {
   return error instanceof RequestError && PROPAGATE_STATUSES.has(error.status);
 }
 
-function attachFailureCount<T extends object>(result: T, failures: number): T {
+function attachFailureCount<T extends object>(
+  result: T,
+  failures: number,
+  contentsLimitReached = false
+): T {
   try {
     Object.defineProperty(result, RECURSIVE_FETCH_FAILURES, {
       value: failures,
+      enumerable: false,
+      configurable: true,
+    });
+    Object.defineProperty(result, CONTENTS_LIMIT_REACHED, {
+      value: contentsLimitReached,
       enumerable: false,
       configurable: true,
     });
@@ -31,6 +43,58 @@ function attachFailureCount<T extends object>(result: T, failures: number): T {
     void 0;
   }
   return result;
+}
+
+export function hasRecursiveContentsLimit(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<typeof CONTENTS_LIMIT_REACHED, unknown>)[
+      CONTENTS_LIMIT_REACHED
+    ] === true
+  );
+}
+
+/** A saturated Contents response cannot prove completeness; try the existing tree reader. */
+export async function recoverContentsDirectory(
+  octokit: InstanceType<typeof OctokitWithThrottling>,
+  params: { owner: string; repo: string; branch: string; path: string },
+  rawEntryCount: number,
+  contentsItems: GitHubApiFileItem[]
+): Promise<{
+  items: GitHubApiFileItem[];
+  contentsLimitReached: boolean;
+  rawResponseChars: number;
+}> {
+  if (rawEntryCount < CONTENTS_DIRECTORY_LIMIT) {
+    return {
+      items: contentsItems,
+      contentsLimitReached: false,
+      rawResponseChars: 0,
+    };
+  }
+  let rawResponseChars = 0;
+  try {
+    const tree = await fetchStructureViaGitTree(octokit, {
+      owner: params.owner,
+      repo: params.repo,
+      workingBranch: params.branch,
+      pathPrefix: params.path,
+      maxDepth: 1,
+    });
+    rawResponseChars = tree.rawResponseChars;
+    if (!tree.truncated && !tree.notModified) {
+      return {
+        items: tree.items,
+        contentsLimitReached: false,
+        rawResponseChars,
+      };
+    }
+  } catch (error) {
+    if (shouldPropagateStructureError(error)) throw error;
+  }
+  // Retain every available Contents entry when recovery cannot prove completeness.
+  return { items: contentsItems, contentsLimitReached: true, rawResponseChars };
 }
 
 /**
@@ -54,7 +118,8 @@ export async function fetchDirectoryContentsRecursivelyAPI(
   path: string,
   currentDepth: number,
   maxDepth: number,
-  visitedPaths: Set<string> = new Set()
+  visitedPaths: Set<string> = new Set(),
+  preloaded?: { data: unknown }
 ): Promise<GitHubApiFileItem[]> {
   if (currentDepth > maxDepth || visitedPaths.has(path)) {
     return attachFailureCount(attachRawResponseChars([], 0), 0);
@@ -62,9 +127,9 @@ export async function fetchDirectoryContentsRecursivelyAPI(
 
   visitedPaths.add(path);
 
-  let result;
+  let result = preloaded;
   try {
-    result = await octokit.rest.repos.getContent({
+    result ??= await octokit.rest.repos.getContent({
       owner,
       repo,
       path: path || '',
@@ -73,7 +138,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
   } catch (error) {
     // Rate-limit / auth failures must propagate; other failures degrade to an
     // empty listing but are counted so callers can warn about a partial tree.
-    if (shouldPropagate(error)) {
+    if (shouldPropagateStructureError(error)) {
       throw error;
     }
     return attachFailureCount(attachRawResponseChars([], 0), 1);
@@ -84,7 +149,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
 
   // Narrow on the discriminant: only 'file' and 'dir' entries are real tree
   // nodes. Submodule/symlink entries must be dropped, not mislabeled as files.
-  const apiItems: GitHubApiFileItem[] = items
+  const mappedItems: GitHubApiFileItem[] = items
     .filter(item => item.type === 'file' || item.type === 'dir')
     .map(
       item =>
@@ -103,8 +168,17 @@ export async function fetchDirectoryContentsRecursivelyAPI(
         }) as GitHubApiFileItem
     );
 
+  const recovered = await recoverContentsDirectory(
+    octokit,
+    { owner, repo, branch, path },
+    items.length,
+    mappedItems
+  );
+  rawResponseChars += recovered.rawResponseChars;
+  const apiItems = recovered.items;
   const allItems: GitHubApiFileItem[] = [...apiItems];
   let failures = 0;
+  let contentsLimitReached = recovered.contentsLimitReached;
 
   if (currentDepth < maxDepth) {
     const directories = apiItems.filter(item => item.type === 'dir');
@@ -133,11 +207,12 @@ export async function fetchDirectoryContentsRecursivelyAPI(
           const subItems = outcome.value;
           rawResponseChars += getRawResponseChars(subItems) ?? 0;
           failures += getRecursiveFetchFailureCount(subItems);
+          contentsLimitReached ||= hasRecursiveContentsLimit(subItems);
           allItems.push(...subItems);
         } else {
           // Rate-limit / auth failures are real and must propagate so the
           // caller does not present a truncated tree as complete.
-          if (shouldPropagate(outcome.reason)) {
+          if (shouldPropagateStructureError(outcome.reason)) {
             throw outcome.reason;
           }
           failures += 1;
@@ -148,6 +223,7 @@ export async function fetchDirectoryContentsRecursivelyAPI(
 
   return attachFailureCount(
     attachRawResponseChars(allItems, rawResponseChars),
-    failures
+    failures,
+    contentsLimitReached
   );
 }

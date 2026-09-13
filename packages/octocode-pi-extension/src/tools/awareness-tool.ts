@@ -18,7 +18,6 @@ import {
   type AwarenessOperationRunner,
 } from './awareness-operation-runner.js';
 import { makeComponentRenderer } from './render-helpers.js';
-import { compileMcpSchemaValidator } from './mcp/schema-validator.js';
 import {
   AWARENESS_OUTPUT_MAX_CHARS,
   boundedOutput,
@@ -26,7 +25,6 @@ import {
   record,
   result,
   routineApproval,
-  routineEffect,
   validateRoutineParams,
 } from './awareness-tool-protocol.js';
 
@@ -40,14 +38,15 @@ function validateOperationQuery(query: Record<string, unknown>): void {
   const obsoleteField = ['action', 'command', 'noun', 'all', 'page', 'pageSize']
     .find(field => query[field] !== undefined);
   if (obsoleteField) throw new Error(`${obsoleteField} is not part of the canonical Awareness surface`);
+  if (query['describe'] === true) {
+    if (query['params'] !== undefined) throw new Error('Awareness describe cannot include params; describe reads only the operation schema');
+    return;
+  }
   const params = record(query['params']) ?? {};
-  validateRoutineParams(descriptor, params);
-  const validation = compileMcpSchemaValidator(descriptor.inputSchema).validate(params);
-  if (!validation.valid) {
-    throw new Error(
-      `Invalid parameters for Awareness ${operation}: ${validation.errors
-        .map(error => `${error.instancePath || '/'} ${error.message}`).join('; ')}`,
-    );
+  try {
+    validateRoutineParams(descriptor, params);
+  } catch (error) {
+    throw new Error(`Invalid parameters for Awareness ${operation}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -57,13 +56,18 @@ async function callOperation(
   signal?: AbortSignal,
   ctx?: PiContext,
 ): Promise<ToolCallResult> {
-  assertPersistentAwarenessEnabled();
   const operation = String(query['operation'] ?? '').trim();
   const descriptor = getAwarenessOperationDescriptor(operation);
   if (!descriptor)
     return result(`Unknown Awareness operation: "${operation}".`, { status: 'unknown', operation }, true);
+  if (query['describe'] === true) {
+    const payload = { operation, use: descriptor.use, inputSchema: descriptor.inputSchema, effects: descriptor.effects };
+    const bounded = boundedOutput(JSON.stringify(payload));
+    return result(bounded.text, { status: bounded.truncated ? 'partial' : 'ok', operation, effect: 'read', ...bounded });
+  }
+  assertPersistentAwarenessEnabled();
   const params = record(query['params']) ?? {};
-  const effect = routineEffect(descriptor, params);
+  const effect = descriptor.effect(params);
   const request = routineApproval(descriptor, params);
   if (request) {
     const approval = await requestApproval(ctx, request, signal);
@@ -137,13 +141,20 @@ async function callOperation(
   const diagnostics = execution.diagnostics?.join('\n');
   const readOnly = effect === 'read';
   const currentLimit = Number(params['limit'] ?? 0);
-  const canRetry = readOnly && rawText.length > AWARENESS_OUTPUT_MAX_CHARS && params['limit'] !== 1;
+  let canRetry = readOnly && rawText.length > AWARENESS_OUTPUT_MAX_CHARS && params['limit'] !== 1;
   const narrower = {
     ...params,
     limit: Number.isSafeInteger(currentLimit) && currentLimit > 1
       ? Math.max(1, Math.floor(currentLimit / 2))
-      : 8_192,
+      : 1,
   };
+  if (canRetry) {
+    try {
+      descriptor.validate(narrower);
+    } catch {
+      canRetry = false;
+    }
+  }
   const completedWrite = !readOnly && execution.exitCode === 0 && !execution.cancelled;
   const bounded = boundedOutput(
     rawText,
@@ -205,9 +216,12 @@ export function registerAwarenessTool(
   registerFn: RegisterFn,
   runner: AwarenessOperationRunner = runAwarenessOperation,
 ): void {
+  const operationCount = ROUTINE_AWARENESS_OPERATIONS.length;
   const itemSchema = z.strictObject({
     operation: z.enum(ROUTINE_AWARENESS_OPERATIONS)
-      .describe('One of 19 canonical Awareness operations.'),
+      .describe(`One of ${operationCount} canonical Awareness operations.`),
+    describe: z.boolean().optional()
+      .describe('Return the canonical operation schema without executing it. Do not include params.'),
     params: z.record(z.string(), z.unknown()).optional()
       .describe('Operation parameters. Pi binds database, workspace, session, and actor.'),
     timeoutMs: z.number().int().min(1).max(300_000).optional()
@@ -222,10 +236,11 @@ export function registerAwarenessTool(
     name: 'awareness',
     label: 'awareness',
     description: DIRECT_TOOL_DESCRIPTIONS.awareness!,
-    promptSnippet: 'Call one of 19 bound Awareness operations directly. Start with context.orient.',
+    promptSnippet: `Call one of ${operationCount} bound Awareness operations directly. Start with context.orient.`,
     promptGuidelines: [
       'Use queries[] with reasoning, operation, and optional params. Example: {"queries":[{"reasoning":"Orient once","operation":"context.orient"}]}.',
-      'Pi binds database, workspace, session, and actor. Follow executable next continuations; exit 2 means blocked.',
+      'Discover exact parameters without executing: {"queries":[{"reasoning":"Inspect operation schema","operation":"work.create","describe":true}]}. Do not include params with describe.',
+      'Pi binds database, workspace, session, and actor. Follow executable next continuations; exit 2 is partial for output-budget recovery, otherwise blocked.',
     ],
     parameters,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -246,10 +261,11 @@ export function registerAwarenessTool(
         },
         preflight: query => {
           validateOperationQuery(query);
+          if (query['describe'] === true) return;
           assertPersistentAwarenessEnabled();
           const descriptor = getAwarenessOperationDescriptor(String(query['operation']));
           if (!descriptor) return;
-          const effect = routineEffect(descriptor, record(query['params']) ?? {});
+          const effect = descriptor.effect(record(query['params']) ?? {});
           if (effect === 'read') return;
           stateChangingCalls += 1;
           if (batchSize > 1 || stateChangingCalls > 1) {

@@ -167,6 +167,74 @@ describe('executeBulkOperation batch correlation', () => {
     });
   });
 
+  it('omits unused text rendering without changing structured content', async () => {
+    const queries = [{ value: 'x'.repeat(200) }];
+    const defaultResult = await executeBulkOperation(
+      queries,
+      async query => query,
+      { toolName: 'testTool' }
+    );
+    const structuredOnly = await executeBulkOperation(
+      queries,
+      async query => query,
+      { toolName: 'testTool' },
+      { renderText: false }
+    );
+
+    expect(structuredOnly.content).toEqual([]);
+    expect(structuredOnly.structuredContent).toEqual(
+      defaultResult.structuredContent
+    );
+  });
+
+  it('keeps text rendering for explicit pagination and query errors', async () => {
+    const paginated = await executeBulkOperation(
+      [{ value: 'x'.repeat(200) }],
+      async query => query,
+      { toolName: 'testTool' },
+      { renderText: false, responseCharLength: 40 }
+    );
+    expect(paginated.content).toHaveLength(1);
+    expect(paginated.structuredContent).toMatchObject({
+      responsePagination: { scope: 'content.text' },
+    });
+
+    const failed = await executeBulkOperation(
+      [{ value: 'broken' }],
+      async () => {
+        throw new Error('isolated failure');
+      },
+      { toolName: 'testTool' },
+      { renderText: false }
+    );
+    expect(failed.content).toHaveLength(1);
+    expect(failed.structuredContent).toMatchObject({
+      results: [{ status: 'error', data: { error: 'isolated failure' } }],
+    });
+
+    const errorRow = await executeBulkOperation(
+      [{ value: 'error-row' }],
+      async () => ({ status: 'error' as const, error: 'returned failure' }),
+      { toolName: 'testTool' },
+      { renderText: false }
+    );
+    expect(errorRow.content).toHaveLength(1);
+
+    const finalizedError = await executeBulkOperation(
+      [{ value: 'finalized-error' }],
+      async query => query,
+      {
+        toolName: 'testTool',
+        finalize: ({ results }) => ({
+          structuredContent: { results },
+          isError: true,
+        }),
+      },
+      { renderText: false }
+    );
+    expect(finalizedError.content).toHaveLength(1);
+  });
+
   it('returns one ordered index row per query and isolates query failures', async () => {
     const result = await executeBulkOperation(
       [

@@ -86,5 +86,6 @@ export type { OutboxEventV1, StoredInteractionV1 } from './coordination/coordina
 export { assessRuntimeRegulation } from './attend-physiology.js';
 export { defaultDbPath } from './coordination/coordination-shared.js';
 export { claimNativeHookOwner, loadWorkspacePolicy, storageScopeForOperation } from './workspace-policy.js';
+export { AWARENESS_HOST_PARAMETER_NAMES } from './schema/operation-catalog.js';
 export type { AwarenessIntegrationHost, AwarenessHookOwner } from './workspace-policy.js';
 export type { AwarenessStorageScope } from './storage-scope.js';

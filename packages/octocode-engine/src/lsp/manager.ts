@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
 import { LSPClient } from './client.js';
 import { getLanguageServerForFile, resolveServerForFile } from './config.js';
 import { LspClientPool, type PoolKey, serializeKey } from './lspClientPool.js';
@@ -202,8 +205,42 @@ const sharedPool = new LspClientPool<LSPClient>({
 
 export type LspClientAcquireFailureKind = 'unavailable' | 'startupFailed';
 
+export type ResolvedLanguageServerArtifact = {
+  role: 'command' | 'argument';
+  path: string;
+  size: number;
+  sha256?: string;
+};
+
+export type ResolvedLanguageServerPackage = {
+  name?: string;
+  version?: string;
+  manifestPath: string;
+  manifestSha256: string;
+};
+
+/**
+ * The effective server invocation and observable semantic state for an LSP
+ * response. It records the post-resolution config, not an input preference.
+ */
+export type ResolvedLanguageServerReceipt = {
+  command: string;
+  /** Arguments passed to `command`, in their exact execution order. */
+  argv: string[];
+  source: Exclude<LspServerSource, 'unavailable'>;
+  workspaceRoot: string;
+  workspaceFingerprint: string;
+  configurationFingerprint: string;
+  capabilities: Record<string, boolean>;
+  readiness?: ReturnType<LSPClient['getReadiness']>;
+  identity: {
+    artifacts: ResolvedLanguageServerArtifact[];
+    packages: ResolvedLanguageServerPackage[];
+  };
+};
+
 export type LspClientAcquireResult =
-  | { ok: true; client: LSPClient }
+  | { ok: true; client: LSPClient; receipt: ResolvedLanguageServerReceipt }
   | {
       ok: false;
       kind: LspClientAcquireFailureKind;
@@ -217,8 +254,12 @@ export async function acquirePooledClientDetailed(
   filePath: string,
   rustContext?: RustBuildContext
 ): Promise<LspClientAcquireResult> {
-  const key = await poolKeyForFile(workspaceRoot, filePath, rustContext);
-  if (!key) {
+  const resolved = await resolvePooledServerForFile(
+    workspaceRoot,
+    filePath,
+    rustContext
+  );
+  if (!resolved) {
     return {
       ok: false,
       kind: 'unavailable',
@@ -228,7 +269,7 @@ export async function acquirePooledClientDetailed(
     };
   }
   try {
-    const client = await sharedPool.acquire(key);
+    const client = await sharedPool.acquire(resolved.key);
     if (!client) {
       return {
         ok: false,
@@ -238,7 +279,15 @@ export async function acquirePooledClientDetailed(
         workspaceRoot,
       };
     }
-    return { ok: true, client };
+    return {
+      ok: true,
+      client,
+      receipt: await resolvedLanguageServerReceipt(
+        resolved.serverConfig,
+        resolved.source,
+        client
+      ),
+    };
   } catch (error) {
     return {
       ok: false,
@@ -272,9 +321,13 @@ export async function releasePooledClientForFile(
   filePath: string,
   rustContext?: RustBuildContext
 ): Promise<boolean> {
-  const key = await poolKeyForFile(workspaceRoot, filePath, rustContext);
-  if (!key) return false;
-  await sharedPool.clear(key);
+  const resolved = await resolvePooledServerForFile(
+    workspaceRoot,
+    filePath,
+    rustContext
+  );
+  if (!resolved) return false;
+  await sharedPool.clear(resolved.key);
   return true;
 }
 
@@ -342,17 +395,20 @@ function synthesizeFilePathForKey(key: PoolKey): string {
   return key.filePath;
 }
 
-async function poolKeyForFile(
+type ResolvedPooledServer = {
+  key: PoolKey;
+  serverConfig: LanguageServerConfig;
+  source: Exclude<LspServerSource, 'unavailable'>;
+};
+
+async function resolvePooledServerForFile(
   workspaceRoot: string,
   filePath: string,
   rustContext?: RustBuildContext
-): Promise<PoolKey | null> {
-  const resolvedConfig = await getLanguageServerForFile(
-    filePath,
-    workspaceRoot
-  );
-  if (!resolvedConfig) return null;
-  const serverConfig = applyRustBuildContext(resolvedConfig, rustContext);
+): Promise<ResolvedPooledServer | null> {
+  const resolution = await resolveServerForFile(filePath, workspaceRoot);
+  if (!resolution || resolution.source === 'unavailable') return null;
+  const serverConfig = applyRustBuildContext(resolution.config, rustContext);
   const key: PoolKey = {
     workspaceRoot,
     filePath,
@@ -368,5 +424,130 @@ async function poolKeyForFile(
   if (!sharedPool.has(key)) {
     _pendingConfigs.set(serialized, serverConfig);
   }
-  return key;
+  return { key, serverConfig, source: resolution.source };
+}
+
+const RECEIPT_CAPABILITIES = [
+  'definitionProvider',
+  'typeDefinitionProvider',
+  'implementationProvider',
+  'referencesProvider',
+  'hoverProvider',
+  'callHierarchyProvider',
+  'typeHierarchyProvider',
+  'documentSymbolProvider',
+  'workspaceSymbolProvider',
+  'diagnosticProvider',
+] as const;
+const MAX_ARTIFACT_HASH_BYTES = 16 * 1024 * 1024;
+
+async function resolvedLanguageServerReceipt(
+  serverConfig: LanguageServerConfig,
+  source: Exclude<LspServerSource, 'unavailable'>,
+  client: LSPClient
+): Promise<ResolvedLanguageServerReceipt> {
+  const invocation = [serverConfig.command, ...(serverConfig.args ?? [])];
+  const artifacts = (
+    await Promise.all(
+      invocation.map((candidate, index) =>
+        artifactIdentity(candidate, index === 0 ? 'command' : 'argument')
+      )
+    )
+  ).filter(
+    (artifact): artifact is ResolvedLanguageServerArtifact => artifact != null
+  );
+  const packageRoots = new Set(
+    artifacts
+      .map(artifact => packageRootForArtifact(artifact.path))
+      .filter((root): root is string => root != null)
+  );
+  const packages = (
+    await Promise.all([...packageRoots].map(packageIdentity))
+  ).filter((pkg): pkg is ResolvedLanguageServerPackage => pkg != null);
+
+  return {
+    command: serverConfig.command,
+    argv: [...(serverConfig.args ?? [])],
+    source,
+    workspaceRoot: serverConfig.workspaceRoot,
+    workspaceFingerprint: fingerprint(path.resolve(serverConfig.workspaceRoot)),
+    configurationFingerprint: serverConfigurationFingerprint(serverConfig),
+    capabilities: Object.fromEntries(
+      RECEIPT_CAPABILITIES.map(capability => [
+        capability,
+        client.hasCapability(capability),
+      ])
+    ),
+    readiness: client.getReadiness(),
+    identity: { artifacts, packages },
+  };
+}
+
+function fingerprint(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+async function artifactIdentity(
+  candidate: string,
+  role: ResolvedLanguageServerArtifact['role']
+): Promise<ResolvedLanguageServerArtifact | null> {
+  if (!path.isAbsolute(candidate)) return null;
+  try {
+    const canonicalPath = await realpath(candidate);
+    const metadata = await stat(canonicalPath);
+    if (!metadata.isFile()) return null;
+    const artifact: ResolvedLanguageServerArtifact = {
+      role,
+      path: canonicalPath,
+      size: metadata.size,
+    };
+    if (metadata.size <= MAX_ARTIFACT_HASH_BYTES) {
+      artifact.sha256 = createHash('sha256')
+        .update(await readFile(canonicalPath))
+        .digest('hex');
+    }
+    return artifact;
+  } catch {
+    return null;
+  }
+}
+
+function packageRootForArtifact(filePath: string): string | null {
+  const marker = `${path.sep}node_modules${path.sep}`;
+  const markerIndex = filePath.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+  const packageSegments = filePath
+    .slice(markerIndex + marker.length)
+    .split(path.sep)
+    .filter(Boolean);
+  if (!packageSegments.length) return null;
+  const packageLength = packageSegments[0]?.startsWith('@') ? 2 : 1;
+  if (packageSegments.length < packageLength) return null;
+  return path.join(
+    filePath.slice(0, markerIndex + marker.length),
+    ...packageSegments.slice(0, packageLength)
+  );
+}
+
+async function packageIdentity(
+  packageRoot: string
+): Promise<ResolvedLanguageServerPackage | null> {
+  const manifestPath = path.join(packageRoot, 'package.json');
+  try {
+    const manifest = await readFile(manifestPath);
+    const parsed = JSON.parse(manifest.toString()) as {
+      name?: unknown;
+      version?: unknown;
+    };
+    return {
+      ...(typeof parsed.name === 'string' ? { name: parsed.name } : {}),
+      ...(typeof parsed.version === 'string'
+        ? { version: parsed.version }
+        : {}),
+      manifestPath,
+      manifestSha256: createHash('sha256').update(manifest).digest('hex'),
+    };
+  } catch {
+    return null;
+  }
 }

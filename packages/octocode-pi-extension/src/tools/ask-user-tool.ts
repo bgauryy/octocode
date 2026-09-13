@@ -41,6 +41,7 @@ import { CURSOR_MARKER, Input, Key, matchesKey, wrapTextWithAnsi } from '@earend
 import { answerPendingInteraction, createPendingInteraction, shouldBrokerInteraction } from './interaction-broker.js';
 
 import { z } from 'zod';
+import { normalizeFields, validateUniqueFieldNames, validateFieldValue, type AskField } from './ask-user/fields.js';
 type RegisterFn = typeof registerUniqueTool;
 
 export interface AskOption {
@@ -61,16 +62,6 @@ export interface AskOption {
   disabled?: boolean | string;
   /** Optional group heading for clustering related choices in the list. */
   group?: string;
-}
-
-interface AskField {
-  name: string;
-  label?: string;
-  placeholder?: string;
-  required?: boolean;
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
 }
 
 interface AskParams {
@@ -120,29 +111,6 @@ function cleanBullets(raw: unknown): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
-function normalizeFields(raw: AskParams['fields']): AskField[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((f): f is AskField => Boolean(f && typeof f.name === 'string' && f.name.length > 0))
-    .map((f) => ({
-      name: f.name,
-      label: f.label,
-      placeholder: f.placeholder,
-      required: f.required === true,
-      minLength: typeof f.minLength === 'number' && Number.isFinite(f.minLength) ? Math.max(0, Math.floor(f.minLength)) : undefined,
-      maxLength: typeof f.maxLength === 'number' && Number.isFinite(f.maxLength) ? Math.max(1, Math.floor(f.maxLength)) : undefined,
-      pattern: typeof f.pattern === 'string' && f.pattern.length > 0 ? f.pattern : undefined,
-    }));
-}
-
-function validateUniqueFieldNames(fields: readonly AskField[]): void {
-  const seen = new Set<string>();
-  for (const field of fields) {
-    if (seen.has(field.name)) throw new Error(`field names must be unique; duplicate "${field.name}".`);
-    seen.add(field.name);
-  }
-}
-
 function validateAskMode(params: AskParams, options: readonly AskOption[], fields: readonly AskField[]): void {
   validateUniqueFieldNames(fields);
   if (fields.length > 0 && (options.length > 0 || params.multiSelect || params.min !== undefined || params.max !== undefined)) {
@@ -165,22 +133,6 @@ function validateAskMode(params: AskParams, options: readonly AskOption[], field
 function disabledReason(option: Pick<AskOption, 'disabled'>): string | undefined {
   if (typeof option.disabled === 'string') return option.disabled;
   return option.disabled ? 'disabled' : undefined;
-}
-
-function validateFieldValue(field: AskField, raw: string): string | undefined {
-  const label = field.label || field.name;
-  const value = raw.trim();
-  if (field.required && !value) return `${label} is required.`;
-  if (field.minLength !== undefined && value.length < field.minLength) return `${label} must be at least ${field.minLength} character${field.minLength === 1 ? '' : 's'}.`;
-  if (field.maxLength !== undefined && value.length > field.maxLength) return `${label} must be at most ${field.maxLength} character${field.maxLength === 1 ? '' : 's'}.`;
-  if (field.pattern) {
-    try {
-      if (!new RegExp(field.pattern).test(value)) return `${label} has the wrong format.`;
-    } catch {
-      return `${label} validation pattern is invalid.`;
-    }
-  }
-  return undefined;
 }
 
 function matchesQuery(option: AskOption, query: string): boolean {
@@ -550,6 +502,8 @@ export async function runAskPrompt(
     kind?: 'question' | 'authorization';
   },
 ): Promise<AskOutcome | undefined> {
+  const signal = ctx.signal;
+  signal?.throwIfAborted();
   return observeExecutionQuestion(ctx, `prompt:${randomUUID()}`, params.question, async (): Promise<AskOutcome | undefined> => {
   const request = params.durable !== false && shouldBrokerInteraction(ctx)
     ? createPendingInteraction(ctx, {
@@ -567,7 +521,11 @@ export async function runAskPrompt(
   if (!supportsAskOverlay(ctx)) {
     return request ? { status: 'pending', interaction: request } : { status: 'unavailable' };
   }
-  const outcome = await runAskOverlay(ctx, params);
+  const outcome = await runAskOverlay(ctx, params, signal);
+  if (signal?.aborted) {
+    if (request) answerPendingInteraction(request, { status: 'cancelled' });
+    signal.throwIfAborted();
+  }
   if (request && outcome && outcome.status !== 'timed_out') answerPendingInteraction(request, outcome);
   return outcome;
   }, params.kind === 'authorization' ? 'permission' : 'question');
@@ -589,7 +547,9 @@ async function runAskOverlay(
     pagination?: { current: number; total: number };
     timeoutMs?: number;
   },
+  signal = ctx.signal,
 ): Promise<AskOutcome | undefined> {
+  signal?.throwIfAborted();
   if (!supportsAskOverlay(ctx)) return undefined;
 
   const options = params.options.map((o) => ({ ...o, label: o.label ?? o.value }));
@@ -602,7 +562,8 @@ async function runAskOverlay(
   // remains in the scrollback. The free-text "type my own answer" row is always
   // appended AFTER the listed options so the user can redirect instead of being
   // boxed into the choices.
-  return ctx.ui!.custom!<AskOutcome>(
+  let cleanup = (): void => {};
+  const outcome = await ctx.ui!.custom!<AskOutcome>(
     (tuiRaw: unknown, theme: PiTheme, _kb: unknown, done: (o: AskOutcome) => void) => {
       if (!params.pagination || params.pagination.current === 1) {
         notifyDesktopAttention(ctx, 'Octocode needs your input. See the decision widget.');
@@ -632,9 +593,14 @@ async function runAskOverlay(
           : 'text';
 
       let timeout: ReturnType<typeof setTimeout> | undefined;
+      const onAbort = (): void => finish({ status: 'cancelled' });
+      cleanup = (): void => {
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener('abort', onAbort);
+      };
       const finish = (outcome: AskOutcome): void => {
         if (finished) return;
-        if (timeout) clearTimeout(timeout);
+        cleanup();
         finalOutcome = outcome;
         finished = true;
         rerender();
@@ -959,6 +925,7 @@ async function runAskOverlay(
         render: (w: number) => string[];
         invalidate: () => void;
         handleInput: (data: string) => void;
+        dispose: () => void;
       } = {
         get focused(): boolean { return componentFocused; },
         set focused(value: boolean) {
@@ -969,11 +936,14 @@ async function runAskOverlay(
           line.includes(CURSOR_MARKER) ? line : truncateToWidth(line, w)),
         invalidate: () => textInput.invalidate(),
         handleInput: (data: string) => handle(data),
+        dispose: cleanup,
       };
       if (params.timeoutMs !== undefined) {
         timeout = setTimeout(() => finish({ status: 'timed_out' }), params.timeoutMs);
         timeout.unref?.();
       }
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) queueMicrotask(onAbort);
       return comp;
     },
     // No overlay options: a non-overlay component renders inline in the message
@@ -981,7 +951,8 @@ async function runAskOverlay(
     // automatically owns input focus while active, so the prompt appears in the
     // message list rather than as a floating modal. pi sets `comp.focused` for
     // the active inline component, which drives the IME cursor marker.
-  );
+  ).finally(() => cleanup());
+  return outcome;
 }
 
 export function registerAskUserTool(
@@ -1038,10 +1009,13 @@ export function registerAskUserTool(
     })(),
 
     async execute(id: string, raw: Record<string, unknown>, signal, onUpdate, ctx?: PiContext): Promise<ToolCallResult> {
+      const operationSignal = signal ?? ctx?.signal;
+      operationSignal?.throwIfAborted();
       const queries = Array.isArray(raw.queries)
         ? raw.queries as Record<string, unknown>[]
         : [];
       const executeQuestion = async (query: Record<string, unknown>): Promise<ToolCallResult> => {
+      operationSignal?.throwIfAborted();
       const p = query as unknown as AskParams;
       const question = String(p.question ?? '').trim();
       if (!question) {
@@ -1113,9 +1087,14 @@ export function registerAskUserTool(
           max: p.max,
           fields,
           timeoutMs: p.timeoutMs,
-        })) ?? { status: 'cancelled' };
+        }, operationSignal)) ?? { status: 'cancelled' };
+        if (operationSignal?.aborted) {
+          if (interaction) answerPendingInteraction(interaction, { status: 'cancelled' });
+          operationSignal.throwIfAborted();
+        }
         if (interaction && outcome.status !== 'timed_out') answerPendingInteraction(interaction, outcome);
       } catch (err) {
+        operationSignal?.throwIfAborted();
         return {
           content: [{ type: 'text', text: `[askUser] UI error: ${err instanceof Error ? err.message : String(err)}. Ask the user inline instead.` }],
           isError: true,
@@ -1194,7 +1173,7 @@ export function registerAskUserTool(
       return executeQueryBatch({
         toolCallId: id,
         raw,
-        signal,
+        signal: operationSignal,
         onUpdate: typeof onUpdate === 'function' ? onUpdate as (update: ToolCallResult) => void : undefined,
         ctx,
         preflight(query) {

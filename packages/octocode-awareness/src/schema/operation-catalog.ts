@@ -1,5 +1,9 @@
 import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
 import { z } from 'zod';
+import { contextObservationSchema, contextFeedbackSchema, contextObservationJsonSchema, contextFeedbackJsonSchema } from '../context-regulation.js';
+import { knowledgeSetSchema, knowledgeGetSchema, knowledgeRevalidateSchema } from '../knowledge-contract.js';
+import { experienceInputSchema } from '../experience-contract.js';
+import type { KnowledgeOperation } from '../knowledge-executor.js';
 import type {
   AwarenessOperationEffect,
   AwarenessOperationResult,
@@ -24,6 +28,7 @@ export {
 } from './operation-types.js';
 
 type Params = Record<string, unknown>;
+const BOUNDED_ROUTINE_OUTPUT_BYTES = 32 * 1024;
 
 export interface AwarenessOperationExecutionContext {
   database?: string;
@@ -54,7 +59,16 @@ interface Route extends Omit<CanonicalRouteBinding, 'schema'> {
   selector?: readonly [key: string, value: string];
   default?: boolean;
 }
-const HOST_FIELDS = new Set(['db', 'database', 'workspace', 'agent_id', 'lead_agent_id', 'session_id', 'compact']);
+export const AWARENESS_HOST_PARAMETER_NAMES = Object.freeze([
+  'db',
+  'database',
+  'workspace',
+  'agent_id',
+  'lead_agent_id',
+  'session_id',
+  'compact',
+] as const);
+const HOST_FIELDS = new Set<string>(AWARENESS_HOST_PARAMETER_NAMES);
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 
@@ -166,10 +180,12 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     continuations: (payload: unknown) => canonicalizeContinuation(payload),
     handler: async (context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]) => {
       const selected = resolve(params);
-      const executor = await import('../operation-executor.js');
-      return input.operation === 'context.orient'
-        ? executor.executeContextOrient(context, selected.params as AwarenessOperationParams['context.orient'])
-        : executor.executeCanonicalRoute(input.operation, {
+      if (input.operation === 'context.orient') {
+        const { executeContextOrient } = await import('../context-regulation-executor.js');
+        return executeContextOrient(context, selected.params as AwarenessOperationParams['context.orient']);
+      }
+      const { executeCanonicalRoute } = await import('../operation-executor.js');
+      return executeCanonicalRoute(input.operation, {
           command: selected.route.command,
           schema: projectCommandInput(selected.route.command, schemas[selected.route.schemaName]),
           handler: selected.route.handler,
@@ -193,10 +209,51 @@ const choice = (
   ...binding, selector: [key, value] as const, ...(value === defaultValue ? { default: true } : {}),
 }));
 
+function contextWriteDescriptor<K extends 'context.observe' | 'context.feedback'>(
+  operation: K, use: string, schema: z.ZodType, inputSchema: Record<string, unknown>,
+): AwarenessOperationDescriptor<K> {
+  const validate = (params?: unknown) => schema.parse(params) as AwarenessOperationParams[K];
+  return Object.freeze({
+    operation, concept: 'context', use, visibility: 'routine',
+    effects: ['coordination-write'] as const,
+    inputSchema: Object.freeze(inputSchema),
+    validate, effect: () => 'coordination-write' as const, approval: () => undefined,
+    outputBudget: 1_500, continuations: canonicalizeContinuation,
+    handler: async (context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]) => {
+      const { executeContextReport } = await import('../context-regulation-executor.js');
+      return executeContextReport(operation, context, validate(params));
+    },
+  });
+}
+
+function knowledgeDescriptor(
+  operation: KnowledgeOperation, use: string, schema: z.ZodType,
+): AwarenessOperationDescriptor {
+  const validate = (params?: unknown) => schema.parse(params ?? {}) as Params;
+  const effect = (params?: Params): AwarenessOperationEffect => {
+    const input = validate(params);
+    return operation === 'memory.set' || (operation === 'history.experience' && ['record', 'seal'].includes(String(input.action)))
+      ? 'coordination-write' : 'read';
+  };
+  return Object.freeze({
+    operation, concept: operation.startsWith('memory.') ? 'memory' : 'history', use, visibility: 'routine',
+    effects: operation === 'history.experience' ? ['read', 'coordination-write'] as const
+      : operation === 'memory.set' ? ['coordination-write'] as const : ['read'] as const,
+    inputSchema: Object.freeze(z.toJSONSchema(schema, { io: 'input' })),
+    validate, effect, approval: () => undefined,
+    outputBudget: operation === 'history.experience' ? BOUNDED_ROUTINE_OUTPUT_BYTES : 32_000,
+    continuations: canonicalizeContinuation,
+    handler: async (context: AwarenessOperationExecutionContext, params?: Params) => {
+      const { executeKnowledgeOperation } = await import('../knowledge-executor.js');
+      return executeKnowledgeOperation(operation, context, validate(params));
+    },
+  });
+}
+
 const operationDescriptors = Object.freeze([
   descriptor({
     operation: 'context.orient',
-    use: 'Read bounded decision-changing context; reuse the revision on the next call.',
+    use: 'Actively read interpreted run state, nudges and shared context; reuse the revision on the next relevant call.',
     routes: [route('attend', 'attend', 'query', 'read')],
     inputSchema: {
       $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -210,11 +267,15 @@ const operationDescriptors = Object.freeze([
           { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 1024 } },
         ] },
         query: { type: 'string', minLength: 1, maxLength: 500 },
+        flow: { type: 'string', minLength: 1, maxLength: 400 },
+        failure_signature: { type: 'string', minLength: 1, maxLength: 400 },
       },
       additionalProperties: false,
     },
-    outputBudget: 1_500,
+    outputBudget: 6_000,
   }),
+  contextWriteDescriptor('context.observe', 'Record a session observation. Passive acquisition offers a brief new-episode nudge; retry with the same observation ID.', contextObservationSchema, contextObservationJsonSchema),
+  contextWriteDescriptor('context.feedback', 'Link an advisory to an action and reported outcome; helpful outcomes require subsequent evidence.', contextFeedbackSchema, contextFeedbackJsonSchema),
   descriptor({ operation: 'work.create', use: 'Create a plan, task, or standalone work declaration.', routes: choice('kind', {
     plan: route('plan create', 'plan', 'plan', 'coordination-write', 'create'),
     task: route('task create', 'task', 'task', 'coordination-write', 'create'),
@@ -248,13 +309,16 @@ const operationDescriptors = Object.freeze([
   descriptor({
     operation: 'message.list', use: 'Read decision-changing messages.',
     routes: [route('signal list', 'agent_signal', 'signal', 'read', 'list')],
-    outputBudget: 256_000,
+    outputBudget: BOUNDED_ROUTINE_OUTPUT_BYTES,
   }),
   descriptor({ operation: 'message.send', use: 'Send a decision-changing message.', routes: [route('signal publish', 'agent_signal', 'signal', 'coordination-write', 'publish')] }),
   descriptor({ operation: 'message.reply', use: 'Reply in an existing message thread.', routes: [route('signal reply', 'agent_signal', 'signal', 'coordination-write', 'reply')] }),
   descriptor({ operation: 'message.resolve', use: 'Resolve a handled message thread.', routes: [route('signal resolve', 'agent_signal', 'signal', 'coordination-write', 'resolve')] }),
   descriptor({ operation: 'memory.recall', use: 'Recall scoped reusable learning.', routes: [route('memory recall', 'memory_recall', 'memory-recall', 'read')] }),
   descriptor({ operation: 'memory.record', use: 'Record reusable evidence-linked learning.', routes: [route('memory record', 'memory_record', 'memory-record', 'coordination-write')] }),
+  knowledgeDescriptor('memory.set', 'Create or revise a keyed, attributed lesson with typed anchors; compare-and-set protects existing revisions.', knowledgeSetSchema),
+  knowledgeDescriptor('memory.get', 'Read an exact lesson revision or discover scoped path, flow, and failure knowledge with evidence and continuations.', knowledgeGetSchema),
+  knowledgeDescriptor('memory.revalidate', 'Review declared evidence freshness; unchanged bytes never verify the lesson itself.', knowledgeRevalidateSchema),
   descriptor({ operation: 'history.status', use: 'Inspect LocalGit availability and durability.', routes: [route('history status', 'history_status', 'history', 'read', 'history_status')] }),
   descriptor({ operation: 'history.timeline', use: 'List bounded recoverable file history.', routes: [route('history timeline', 'history_timeline', 'history', 'read', 'history_timeline')] }),
   descriptor({ operation: 'history.read', use: 'Read one recoverable historical version.', routes: [route('history read', 'history_read', 'history', 'read', 'history_read')] }),
@@ -262,9 +326,10 @@ const operationDescriptors = Object.freeze([
     preview: route('history restore-preview', 'history_restore_preview', 'history', 'read', 'history_restore_preview'),
     apply: route('history restore-apply', 'history_restore_apply', 'history', 'workspace-write', 'history_restore_apply', 'fs-delete'),
   }, 'preview') }),
+  knowledgeDescriptor('history.experience', 'Record meaningful attempts and decisions, inspect traces, archive selected evidence, compare outcomes, or recover unfinished work.', experienceInputSchema),
 ] as const);
 
-if (operationDescriptors.length > 19) throw new Error('Routine Awareness surface exceeds the nineteen-operation budget');
+if (operationDescriptors.length > 25) throw new Error('Routine Awareness surface exceeds the twenty-five-operation budget');
 const byOperation = new Map<AwarenessOperation, AwarenessOperationDescriptor>(operationDescriptors.map(row => [row.operation, row]));
 export function listAwarenessOperationDescriptors(): readonly AwarenessOperationDescriptor[] { return operationDescriptors; }
 export function getAwarenessOperationDescriptor(operation: string): AwarenessOperationDescriptor | undefined { return byOperation.get(operation as AwarenessOperation); }

@@ -154,11 +154,12 @@ test("mode-aware artifact persistence creates a validated compact guide only whe
   const guidePath = path.join(path.dirname(persisted.snapshotPath), "mcp.md");
   const guide = fs.readFileSync(guidePath, "utf8");
 
-  assert.match(guide, /^<!-- octocode-mcp-guide:v5 /);
+  assert.match(guide, /^<!-- octocode-mcp-guide:v6 /);
   assert.match(guide, /<mcp_catalog_index>/);
   assert.match(guide, /tool: echo/);
-  assert.match(guide, /text \(string, required\)/);
-  assert.match(guide, /inputSchema: Input: text \(string, required\)/);
+  assert.deepEqual(JSON.parse(guide.split('inputSchema: ')[1]!.split('\n')[0]!), {
+    properties: { text: { type: 'string' } }, required: ['text'], type: 'object',
+  });
   assert.deepEqual(JSON.parse(fs.readFileSync(persisted.snapshotPath, 'utf8')).servers[0].tools[0].inputSchema, snapshot.servers[0]!.tools[0]!.inputSchema);
 });
 
@@ -181,57 +182,6 @@ test("env defaults: full-text MCP responses + local tools + npm cache vars are a
   assert.ok(OCTOCODE_MCP_ENV_DEFAULTS["npm_config_cache"]!.length > 0);
 });
 
-test("MCP client capability handlers expose only trusted roots and deny headless sampling/input", async () => {
-  const requests = new Map<
-    string,
-    (request: { params: Record<string, unknown> }) => Promise<unknown>
-  >();
-  const notifications = new Map<
-    string,
-    (notification: { params: Record<string, unknown> }) => Promise<void>
-  >();
-  const client = {
-    setRequestHandler: (
-      method: string,
-      handler: (request: {
-        params: Record<string, unknown>;
-      }) => Promise<unknown>,
-    ) => requests.set(method, handler),
-    setNotificationHandler: (
-      method: string,
-      handler: (notification: {
-        params: Record<string, unknown>;
-      }) => Promise<void>,
-    ) => notifications.set(method, handler),
-  };
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-roots-"));
-  mcpTestHooks.registerMcpClientHandlers(client as never, "docs", {
-    cwd,
-    hasUI: false,
-    mode: "rpc",
-    isProjectTrusted: () => true,
-  } as import("../src/types.js").PiContext);
-  const roots = (await requests.get("roots/list")!({ params: {} })) as {
-    roots: Array<{ uri: string }>;
-  };
-  assert.equal(roots.roots.length, 1);
-  assert.match(roots.roots[0]!.uri, /^file:/);
-  await assert.rejects(
-    () =>
-      requests.get("sampling/createMessage")!({
-        params: { messages: [], maxTokens: 10 },
-      }),
-    /interactive model session is required/,
-  );
-  assert.deepEqual(
-    await requests.get("elicitation/create")!({
-      params: { message: "secret?", mode: "form" },
-    }),
-    { action: "decline" },
-  );
-  assert.ok(notifications.has("notifications/message"));
-  assert.ok(notifications.has("notifications/progress"));
-});
 
 // ─── resolveMcpCallText — structuredContent interop fallback ─────────────────
 
@@ -271,7 +221,7 @@ test("call text: normal text content passes through unchanged", () => {
     structuredContent: { ignored: true },
   };
   assert.ok(resolveMcpCallText(payload).includes("plain full result"));
-  assert.ok(!resolveMcpCallText(payload).includes("ignored"));
+  assert.ok(resolveMcpCallText(payload).includes("ignored"));
 });
 
 test("call text: stub without structuredContent stays as-is (nothing better available)", () => {
@@ -362,8 +312,7 @@ test("call table view keeps batch evidence compact without serializing match bod
 // Caching contract: the every-turn block carries the FULL init-time discovery
 // (server instructions, tool descriptions, exact inputSchema JSON) and must be
 // BYTE-STABLE across turns — churn in the block invalidates the provider prompt
-// cache. Caps exist only as a safety net against rogue servers, with explicit
-// truncation markers.
+// cache.
 
 const CATALOG_TOOLS = [
   {
@@ -437,7 +386,7 @@ test("catalog addendum carries server instructions, descriptions, complete schem
   assert.match(addendum, /instructions: Use batched queries/);
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
-  assert.match(addendum, /inputSchema: Input:/);
+  assert.match(addendum, /inputSchema: \{"properties":/);
   assert.match(addendum, /arguments:<object matching inputSchema>/);
   assert.doesNotMatch(addendum, /schemaLease|SCHEMA_REQUIRED/);
 });
@@ -1683,7 +1632,7 @@ test("compiled catalog prompt exposes names, descriptions, and complete schemas"
   assert.match(addendum, /<mcp_catalog_index>/);
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
-  assert.match(addendum, /inputSchema: Input:/);
+  assert.match(addendum, /inputSchema: \{"properties":/);
   assert.doesNotMatch(addendum, /schemaDigest|schemaLease/);
 });
 

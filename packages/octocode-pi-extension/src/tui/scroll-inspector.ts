@@ -9,7 +9,7 @@ export async function openScrollInspector(
   title: string,
   lines: readonly string[]
 ): Promise<void> {
-  if (!ctx.hasUI || !ctx.ui?.custom) {
+  if (ctx.mode !== 'tui' || !ctx.hasUI || !ctx.ui?.custom) {
     ctx.ui?.notify?.('This view needs an interactive terminal.', 'warning');
     return;
   }

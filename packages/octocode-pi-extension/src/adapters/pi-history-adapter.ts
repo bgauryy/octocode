@@ -7,9 +7,8 @@ import {
 } from '@octocodeai/octocode-awareness/host';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
 import type { PiContext } from '../types.js';
+import { buildAwarenessContext } from '../tools/awareness-context.js';
 import { getAwarenessAgentId } from '../tools/awareness-shared.js';
-
-
 
 interface ToolCallEvent {
   toolCallId: string;
@@ -73,7 +72,7 @@ export function createPiHistoryAdapter(options: PiHistoryAdapterOptions = {}): P
       const session = sessionId(ctx);
       const id = operationId(workspace, agentId, session, event.toolCallId);
       try {
-        const host = createHost({ workspace, agentId, sessionId: session });
+        const host = createHost({ ...buildAwarenessContext(ctx), agentId, sessionId: session });
         const payload = await host.captureHistory({
           phase: 'before', operation_id: id, session_id: session, host: 'pi', label: `${event.toolName} mutation ${id}`, file: [...effect.files],
         });

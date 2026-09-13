@@ -96,4 +96,18 @@ describe('PR search canonical repository resolution', () => {
       mergedAt: '2026-06-17T23:07:24Z',
     });
   });
+
+  it('rejects an unreachable search page before canonicalization or search I/O', async () => {
+    const result = await searchGitHubPullRequestsAPI({
+      owner: 'facebook',
+      repo: 'react',
+      query: 'compiler',
+      limit: 100,
+      page: 11,
+    });
+
+    expect(result.error).toContain('at most 1000 matches');
+    expect(mocks.reposGet).not.toHaveBeenCalled();
+    expect(mocks.searchIssuesAndPullRequests).not.toHaveBeenCalled();
+  });
 });

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CapabilitySnapshotSchema,
   createWorkerCapabilityGrant,
+  FORBIDDEN_WORKER_TOOL_NAMES,
+  isForbiddenWorkerTool,
   projectWorkerCapabilitySnapshot,
 } from '../src/capabilities.js';
 
@@ -25,6 +27,16 @@ describe('worker capability contracts', () => {
     expect(grant).toMatchObject({ nativeTools: [], skills: [], mcpTools: [] });
     expect(() => createWorkerCapabilityGrant(snapshot, { workerId: 'worker-1', selection: { skills: ['missing'] } })).toThrow(/unavailable/i);
     expect(() => createWorkerCapabilityGrant({ ...snapshot, nativeTools: ['agent'] }, { workerId: 'worker-1', selection: { nativeTools: ['agent'] } })).toThrow(/recursive/i);
+  });
+
+  it('keeps the canonical forbidden names and rejects case variants', () => {
+    expect(FORBIDDEN_WORKER_TOOL_NAMES).toEqual([
+      'agent', 'spawnAgent', 'spawnSubagent', 'callTool', 'callSkill', 'tool-smith', 'skill-smith',
+    ]);
+    for (const name of FORBIDDEN_WORKER_TOOL_NAMES) {
+      expect(isForbiddenWorkerTool(name)).toBe(true);
+      expect(isForbiddenWorkerTool(name.toUpperCase())).toBe(true);
+    }
   });
 
   it('projects only granted identities and intersects with current enablement', () => {

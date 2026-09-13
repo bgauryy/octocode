@@ -472,7 +472,7 @@ async function executePlanQuery(p: PlanParams, ctx: PiContext | undefined): Prom
       auditPlanEvent(ctx, scope, 'propose');
       const proposeOutcome = ctx
         ? await runAskPrompt(ctx, {
-            question: `${steps.length} step${steps.length === 1 ? '' : 's'} in the panel below — ${PLAN_PROPOSE_HINT}`,
+            question: `${steps.length} step${steps.length === 1 ? '' : 's'} ready for review — ${PLAN_PROPOSE_HINT}`,
             headerLabel: PLAN_APPROVAL_HEADER,
             options: [
               {
@@ -896,7 +896,7 @@ export function registerPlanTool(
         return buildToolView({
           name: 'plan',
           state: 'error',
-          segments: [{ text: resultText || 'plan operation failed', token: 'error' }],
+          segments: [{ text: (resultText || 'plan operation failed').split('\n')[0]!.trim(), token: 'error' }],
         }, theme);
       }
       if (Array.isArray(r?.details?.results)) {

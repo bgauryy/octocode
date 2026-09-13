@@ -2,6 +2,8 @@ import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { StructuralSearchFileResult } from '@octocodeai/octocode-engine';
 import { readFile, stat } from 'node:fs/promises';
+import { ToolErrors } from '../../errors/errorFactories.js';
+import { isToolError } from '../../errors/ToolError.js';
 
 import { contextUtils } from '../../utils/contextUtils.js';
 import {
@@ -59,7 +61,12 @@ async function searchSingleFile(
   path: string,
   query: RipgrepQuery
 ): Promise<Awaited<ReturnType<typeof contextUtils.structuralSearchFiles>>> {
-  const content = await readFile(path, 'utf8');
+  const content = await readFile(path, 'utf8').catch((error: unknown) => {
+    throw ToolErrors.fileReadFailed(
+      path,
+      error instanceof Error ? error : undefined
+    );
+  });
   const matches = await contextUtils.structuralSearch(
     content,
     path,
@@ -129,6 +136,27 @@ export async function searchContentStructural(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const nativeCode = /^\[(structural\.[A-Za-z.]+)\]/.exec(message)?.[1];
+    if (isToolError(error)) {
+      return createErrorResult(error, query, {
+        toolName: TOOL_NAMES.LOCAL_RIPGREP,
+        ...(error.errorCode === 'fileReadFailed'
+          ? {
+              extra: {
+                hints: ['Check that the source file exists and is readable.'],
+              },
+            }
+          : {}),
+      }) as LocalSearchCodeToolResult;
+    }
+    if (message.startsWith('Cannot access structural search path ')) {
+      return createErrorResult(new Error(message), query, {
+        toolName: TOOL_NAMES.LOCAL_RIPGREP,
+        extra: {
+          errorCode: 'fileAccessFailed',
+          hints: ['Verify the search path exists and is readable.'],
+        },
+      }) as LocalSearchCodeToolResult;
+    }
     if (nativeCode === 'structural.language.unsupported') {
       return createErrorResult(
         `${message}. Use localSearch to search this file.`,
@@ -152,15 +180,33 @@ export async function searchContentStructural(
         [diagnostic]
       );
     }
+    // Only query compilation failures establish invalid authoring. Filesystem,
+    // parser initialization, and unexpected runtime failures do not justify
+    // changing the requested syntax or adding a body to the pattern.
+    const invalidQuery =
+      nativeCode === 'structural.query.compileFailed' ||
+      nativeCode === 'structural.query.invalid' ||
+      /^invalid structural (?:pattern|rule)\b/i.test(message);
     const langType = query.langType || 'source';
     return createErrorResult(
       new Error(
-        `Invalid structural ${query.rule ? 'rule' : 'pattern'}: ${message} — use valid ${langType} and match a complete node; a class/def usually needs a body (add \`$$$BODY\`). Run \`octocode tools localSearch --scheme\` for the live schema.`
+        invalidQuery
+          ? `Invalid structural ${query.rule ? 'rule' : 'pattern'}: ${message} — use valid ${langType} and match a complete node; a class/def usually needs a body (add \`$$$BODY\`). Run \`octocode tools astSearch --scheme\` for the live schema.`
+          : message
       ),
       query,
       {
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
-        ...(nativeCode ? { extra: { errorCode: nativeCode } } : {}),
+        extra: {
+          ...(nativeCode ? { errorCode: nativeCode } : {}),
+          ...(!invalidQuery
+            ? {
+                hints: [
+                  'Check the native engine error details and retry the unchanged query.',
+                ],
+              }
+            : {}),
+        },
       }
     ) as LocalSearchCodeToolResult;
   }

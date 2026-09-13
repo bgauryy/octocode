@@ -10,8 +10,10 @@ import type { PiContext, PiInstance } from '../src/types.js';
 import { disableBuiltinTools, formatStatus, formatPromptBudget, getInternalErrorLogPath, listExtensionHarness } from '../src/index.js';
 import { MANAGED_BLOCK_END, MANAGED_BLOCK_START, SYSTEM_PROMPT_MARKER, DISABLED_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
 import { applyOctocodeUi, getThinkingStatus } from '../src/extension-ui.js';
-import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCliInvocation, getInstallSource, listBundledSkills, readTextIfExists, resolveAwarenessCoordinationScope } from '../src/assets.js';
+import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCliInvocation, getInstallSource, listBundledSkills, readTextIfExists } from '../src/assets.js';
+import { resolveAwarenessCoordinationScope } from '../src/tools/awareness-context.js';
 import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
+import { ROUTINE_AWARENESS_OPERATIONS } from '@octocodeai/octocode-awareness';
 import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '@octocodeai/agent-contracts/prompts';
 import { getAppendSystemTarget, parseSetupScope, splitArgs, truncateUserVisibleToolOutput } from '../src/utils.js';
 import { mergeManagedAppendSystem } from '../src/prompt.js';
@@ -435,7 +437,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
     'retired split tools do not leak into the executable catalog',
   );
   assert.match(
-    getAwarenessCLIPath(distDir),
+    getAwarenessCLIPath(),
     /octocode-awareness.*octocode-awareness\.js/,
     'Awareness CLI resolves to the installed scoped package runtime'
   );
@@ -458,11 +460,17 @@ test('build copies bundled Octocode skills without secret env files', () => {
     operations: string[];
   };
   assert.deepEqual(Object.keys(commandSchema.concepts), ['context', 'work', 'message', 'memory', 'history']);
-  assert.equal(commandSchema.operations.length, 19);
+  assert.deepEqual(
+    [...commandSchema.operations].sort(),
+    [...ROUTINE_AWARENESS_OPERATIONS].sort(),
+    'packaged Awareness CLI exposes the complete canonical operation catalog',
+  );
   const operations = new Set(commandSchema.operations);
   for (const operation of [
-    'context.orient', 'work.create', 'work.claim', 'work.protect', 'work.update',
+    'context.orient', 'context.observe', 'context.feedback',
+    'work.create', 'work.claim', 'work.protect', 'work.update',
     'work.verify', 'memory.recall', 'message.send', 'history.restore',
+    'memory.set', 'memory.get', 'memory.revalidate', 'history.experience',
   ]) {
     assert.equal(operations.has(operation), true, `Awareness schema includes ${operation}`);
   }
@@ -616,9 +624,9 @@ test('workers project granted research tools and skills with one Awareness guide
 
     assert.ok(result?.systemPrompt?.startsWith('typed specialist prompt from --append-system-prompt'));
     assert.match(result!.systemPrompt!, /<awareness>/);
-    assert.match(result!.systemPrompt!, /Start with context\.orient once/);
-    assert.match(result!.systemPrompt!, /Use Memory only when prior learning can change the decision/);
-    assert.match(result!.systemPrompt!, /solo work needs no record/);
+    assert.match(result!.systemPrompt!, /Start with context\.orient, or reuse the host briefing/);
+    assert.match(result!.systemPrompt!, /Load only the instruction section needed for the next action/);
+    assert.match(result!.systemPrompt!, /Self-monitoring applies during solo work/);
     assert.match(result!.systemPrompt!, /lacks the native facade[\s\S]*bound CLI/);
     assert.doesNotMatch(result!.systemPrompt!, /highest-ROI command|Essential loop/);
     assert.match(result!.systemPrompt!, /<awareness_cli_runtime>/);
@@ -2496,7 +2504,7 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.match(cachedPrompt, /instructions: Use echo only for MCP bridge smoke tests\./);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /description: Echo text/);
-    assert.match(cachedPrompt, /inputSchema: Input: text \(string, required\)/);
+    assert.match(cachedPrompt, /inputSchema: \{"properties":\{"text":\{"type":"string"\}\},"required":\["text"\],"type":"object"\}/);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /<runtime_capabilities>/);
     assert.match(cachedPrompt, /effective_inline_images: false/);
@@ -2640,7 +2648,7 @@ test('re-exports the extracted Octocode UI implementation from the package entry
 test('Octocode metrics footer updates on session and turn lifecycle (single surface, no status dup)', async () => {
   setFooterDensity('default');
   const { handlers, pi } = await captureExtensions();
-  pi.execResults.set('octocode auth status --json', {
+  pi.execResults.set('-y octocode auth status --json', {
     stdout: JSON.stringify({ authenticated: true, tokenSource: 'octocode', tokenExpired: false }),
     code: 0,
   });
@@ -2692,7 +2700,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   );
   const initial = renderFooter();
   assert.doesNotMatch(initial, /◆ Octocode/, 'footer does not repeat the app brand');
-  assert.match(initial, /ctx 50\.0k\/100k 50%/, 'footer shows measured context use and capacity');
+  assert.match(initial, /context 50\.0k\/100k 50%/, 'footer shows measured context use and capacity');
   // Pre-first-turn footer carries no `turns 0` / `last —` placeholders.
   assert.doesNotMatch(initial, /turns 0/);
   assert.doesNotMatch(initial, /last —/);
@@ -2703,7 +2711,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   assert.doesNotMatch(initial, /\/harness inspect|\/now snapshot|\/status dash/);
   assert.doesNotMatch(initial, /github ✓/i, 'healthy authentication does not occupy the activity footer');
   assert.ok(
-    pi.execCalls.some((call) => call.command === 'npx' && call.args.join(' ') === 'octocode auth status --json'),
+    pi.execCalls.some((call) => call.command === 'npx' && call.args.join(' ') === '-y octocode auth status --json'),
     'session_start checks GitHub auth through the Octocode CLI',
   );
 
@@ -3054,31 +3062,25 @@ test('model-callable context controls are retired while automatic compaction hoo
   assert.ok((handlers.get('session_compact')?.length ?? 0) > 0);
 });
 
-test('the activated extension bounds every provider-visible tool result', withTempMemoryHome(async (tmp) => {
+test('the activated extension preserves provider-visible content through result hooks', withTempMemoryHome(async (tmp) => {
   const { handlers } = await captureExtensions();
-  const handler = handlers.get('tool_result')?.[0];
-  assert.ok(handler, 'global tool_result budget hook registered');
-  const result = await handler!(
-    {
-      toolCallId: 'third-party-call',
-      toolName: 'third_party_tool',
-      content: [{ type: 'text', text: 'x'.repeat(80_000) }],
-      details: { preserved: true },
-      isError: false,
-    },
-    {
-      cwd: tmp,
-      sessionManager: { getSessionId: () => 'tool-budget-integration' },
-    },
-  ) as { content: Array<{ type: string; text?: string }>; details?: unknown };
-  const visibleText = result.content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text ?? '')
-    .join('');
-
-  assert.ok(visibleText.length <= 5_000);
-  assert.match(visibleText, /heavy tool output referenced/);
-  assert.deepEqual(result.details, { preserved: true });
+  const content = [
+    { type: 'text' as const, text: 'x'.repeat(80_000) },
+    ...Array.from({ length: 4 }, () => ({ type: 'image' as const, data: 'aGVsbG8=', mimeType: 'image/png' })),
+  ];
+  const event = {
+    toolCallId: 'third-party-call', toolName: 'third_party_tool',
+    content, details: { preserved: true }, isError: false,
+  };
+  let delivered = event;
+  for (const handler of handlers.get('tool_result') ?? []) {
+    const update = await handler(delivered, {
+      cwd: tmp, sessionManager: { getSessionId: () => 'tool-content-integration' },
+    });
+    if (update) delivered = { ...delivered, ...update };
+  }
+  assert.deepEqual(delivered.content, content);
+  assert.deepEqual(delivered.details, event.details);
 }));
 
 test('session_before_compact provides the deterministic checkpoint ONLY on overflow, including written files', async () => {

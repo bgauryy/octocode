@@ -6,11 +6,11 @@ Awareness exposes one routine operation contract through the CLI and a host-boun
 
 | Concept | Operations |
 |---|---|
-| Context | `context.orient` |
+| Context | `context.orient`, `context.observe`, `context.feedback` |
 | Work | `work.create`, `work.list`, `work.show`, `work.claim`, `work.update`, `work.depend`, `work.protect`, `work.verify` |
 | Message | `message.list`, `message.send`, `message.reply`, `message.resolve` |
-| Memory | `memory.recall`, `memory.record` |
-| History | `history.status`, `history.timeline`, `history.read`, `history.restore` |
+| Memory | `memory.recall`, `memory.record`, `memory.set`, `memory.get`, `memory.revalidate` |
+| History | `history.status`, `history.timeline`, `history.read`, `history.restore`, `history.experience` |
 
 The descriptor for each operation owns its validation schema, effect, optional approval class, output budget, continuation conversion, and handler. Host fields such as database, workspace, actor, session, and cancellation signal are bound by the client or CLI context instead of model parameters.
 
@@ -23,13 +23,16 @@ npx @octocodeai/octocode-awareness schema command history restore --compact
 
 ## Package root
 
-The root has exactly five runtime exports:
+The root has exactly eight runtime exports:
 
 | Export | Purpose |
 |---|---|
+| `AWARENESS_AGENT_INSTRUCTION_SECTIONS` | Available reusable agent instruction sections |
 | `AWARENESS_CONCEPTS` | Ordered concept names |
-| `ROUTINE_AWARENESS_OPERATIONS` | Ordered nineteen-operation inventory |
+| `AWARENESS_MESSAGE_PARAMETER_GUIDANCE` | Concise canonical Message field guidance for host prompts |
+| `ROUTINE_AWARENESS_OPERATIONS` | Ordered routine operation inventory |
 | `createAwarenessClient` | Creates a client with trusted bindings |
+| `getAwarenessAgentInstructions` | Builds canonical agent guidance for host prompts |
 | `getAwarenessOperationDescriptor` | Returns one descriptor or `undefined` |
 | `listAwarenessOperationDescriptors` | Returns every routine descriptor |
 
@@ -60,7 +63,27 @@ const result = await client.execute({
 
 Do not discard a bounded result's `partial`, `partialReasons`, omission counts, terminal limit, or executable `next` calls. Execute a continuation with the same bindings and reject repeated pages in one read chain.
 
+## Observations and feedback
+
+`context.observe` records attributed measurements for the bound actor and session. `context.orient` projects available measurements, workspace signals, and advisory regulation. `context.feedback` records the response to advice and links outcome evidence. All three are callable through `execute` or the CLI; no particular agent runtime is required.
+
+Discover their exact input fields with `schema command context observe` and `schema command context feedback`. Supply measured values only. Missing or expired sensors remain unavailable and do not imply degraded recovery. An action report alone does not prove improvement. Observations and feedback use the existing event outbox without a database schema change.
+
+Import `getAwarenessAgentInstructions` to obtain package-owned operating guidance for a host prompt. `AWARENESS_AGENT_INSTRUCTION_SECTIONS` lists the available sections. Hosts that need only the failure-sensitive Message field summary can reuse `AWARENESS_MESSAGE_PARAMETER_GUIDANCE`. This keeps agent guidance aligned with the operation catalog instead of requiring each host to maintain its own explanation.
+
+```ts
+import { getAwarenessAgentInstructions } from '@octocodeai/octocode-awareness';
+
+const instructions = getAwarenessAgentInstructions({
+  sections: ['start', 'observe', 'advise', 'feedback', 'trust'],
+});
+```
+
+The CLI equivalent is `instructions`; repeat `--section <name>` to compose selected sections. Omitting sections returns all guidance. The instruction builder does not open a store.
+
 ## Discovery subpath
+
+Keyed lessons, applicability checks, and non-file investigation traces use the same client and bindings. See [Experience and anchored memory](EXPERIENCE_MEMORY.md) for their lifecycle, examples, and limits.
 
 `@octocodeai/octocode-awareness/schema` exports the same four catalog and descriptor runtime values as the root, without creating a store. Tooling can inspect operation contracts without importing host or administration code.
 

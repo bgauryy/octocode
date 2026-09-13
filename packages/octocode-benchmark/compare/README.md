@@ -1,43 +1,29 @@
-# Comparisons
+# Benchmark comparisons
 
-The benchmark runs as **pairwise matchups**: Octocode (the anchor) is compared against two
-`gh`-based baselines on the same questions, then blind-judged. Each folder here **defines
-one baseline arm**; Octocode is the constant anchor across all of them.
+[Terra v3](terra-v3/README.md) is the active benchmark: its locked corpus,
+contracts, and execution steps are in the [runbook](terra-v3/RUNBOOK.md).
+[Advanced research v1](advanced-research-v1/README.md) is a separate controlled
+local/GitHub pilot with its own eligibility and receipt rules.
 
-- `octocode-vs-gh/` — baseline: **plain `gh`**.
-- `octocode-vs-gh-rtk/` — **`gh` + RTK** (transport/filter; not an extra source).
-- `octocode-vs-gh-headroom/` — **`gh` + Headroom** (compression; `bin/` wrappers).
+## Historical GitHub arms
 
-Each folder's `README.md` gives that arm's exact allowed read-only surface and how its
-characters are measured. All GitHub arms run one canonical question set in
-[`github-questions/`](github-questions/) — edit a question there and every arm sees it. A
-corpus-local matchup keeps its own `questions/`.
+The legacy GitHub campaign compares the same Octocode anchor with one baseline at a
+time. Every arm uses the shared [GitHub questions](github-questions/), while a
+corpus-local matchup owns its `questions/` directory.
 
-Flow, phases, and fairness rule: [`BENCHMARK.md`](../skills/octocode-benchmark/references/BENCHMARK.md) ·
-[`INSTRUCTIONS.md`](../skills/octocode-benchmark/references/INSTRUCTIONS.md).
+- [Plain gh](octocode-vs-gh/README.md)
+- [gh + RTK](octocode-vs-gh-rtk/README.md)
+- [gh + Headroom](octocode-vs-gh-headroom/README.md)
 
-## Add a question
+The historical protocol and fairness rule are in
+[BENCHMARK.md](../skills/octocode-benchmark/references/BENCHMARK.md). Results are
+preserved in [../results/](../results/README.md); do not compare or pool their
+character measurements with Terra metrics.
 
-GitHub question → shared [`github-questions/`](github-questions/) (applies to all arms);
-corpus-local → that matchup's own `questions/`. Create `Q<n>.md` with exactly three parts:
+## Maintain a historical arm
 
-```markdown
-# Q<n> — Short title
-
-**id:** `unique-kebab-id`
-
-## Question
-
-Self-contained, objectively-checkable prompt naming the repo(s)/ref(s) or
-$CORPUS path and exactly what to report.
-```
-
-No scope, budget, hints, claims, or reference — those bias the benchmark. Add a row to that
-set's `README.md` index.
-
-## Add an arm
-
-Create `compare/octocode-vs-<baseline>/README.md` following the **matchup README
-convention** in [`../skills/octocode-benchmark/references/matchup-readme.md`](../skills/octocode-benchmark/references/matchup-readme.md):
-its allowed read-only surface, exact invocations, the wrapper that measures its chars, and
-any version/SHA to pin.
+Add a GitHub question to the shared set, or a corpus-local question to that matchup.
+Each question contains only a title, id, and self-contained checkable prompt. An arm
+README documents its permitted read-only surface, exact invocations, measurement
+wrapper, and pinned version or SHA; follow the
+[matchup convention](../skills/octocode-benchmark/references/matchup-readme.md).

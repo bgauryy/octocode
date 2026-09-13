@@ -2,6 +2,8 @@ use super::*;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+mod runtime;
+
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
 
 struct TestDir(std::path::PathBuf);
@@ -95,7 +97,10 @@ fn commits_versioned_generation_and_reopens_content_and_symbols() {
     assert_eq!(reader.documents().len(), 1);
     assert_eq!(reader.documents()[0].content, "fn answer() -> u8 { 42 }\n");
     assert_eq!(reader.documents()[0].symbols[0].name, "answer");
-    assert_eq!(reader.verify_strict(&root), FreshnessReport::fresh(1));
+    let freshness = reader.verify_strict(&root);
+    assert_eq!(freshness.checked, 1);
+    assert_eq!(freshness.fresh, 1);
+    assert!(freshness.can_prove_absence());
 }
 
 #[test]

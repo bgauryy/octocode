@@ -18,6 +18,7 @@ export function transformFileContentResult(
   return {
     path: data.path || query.path,
     content: data.content || '',
+    sourceLineRanges: data.sourceLineRanges,
     encoding: 'utf-8',
     size: data.sourceBytes ?? Buffer.byteLength(data.content ?? ''),
     totalLines: data.totalLines,

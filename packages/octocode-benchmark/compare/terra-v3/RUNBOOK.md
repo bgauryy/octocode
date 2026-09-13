@@ -23,11 +23,13 @@ Run a publishable campaign only on Linux with:
 Do not publish measurements from macOS. macOS is useful for unit tests and diagnostic
 smoke runs, but it cannot provide the required isolated cgroup sensors.
 
-The checked-in private manifest is deliberately unsealed. A full campaign must fail until
-an independent curator supplies and seals the private envelopes. Public suite v4 is frozen
+The independently curated private suite is sealed: the repository contains only opaque case
+IDs, signed SHA-256 commitments, and a CMS-encrypted envelope bundle. Curator key material and
+plaintext stay outside the repository. This makes the private suite ready for a future run, not
+executed and not sufficient to make the overall campaign ready. Public suite v4 is frozen
 against the two receipt commits: 16 cases are materialized, while p09–p12 remain typed gaps
 until frozen Pyright and TypeScript language servers reproduce their semantic oracles. See
-[ORACLE_AUDIT.md](ORACLE_AUDIT.md).
+[ORACLE_AUDIT.md](ORACLE_AUDIT.md) and [private/README.md](private/README.md).
 
 ## 1. Verify the harness
 
@@ -49,8 +51,10 @@ Development resolution must point at the local packages, including the sibling c
 core. Do not benchmark `npx octocode`, a global binary, or a published dependency standing
 in for a changed workspace package.
 
-The `prepare` command below builds the sibling canonical core when present, then the native
-engine, tools-core, and workspace CLI. If local development resolutions are not already
+The `prepare` command below builds the sibling canonical core, then the native engine,
+tools-core, and workspace CLI. Preflight rejects a published/semver canonical-core resolution,
+a local resolution aimed anywhere except the sibling source package, stale sibling exports,
+or an installed export fingerprint that differs from that build. If local development resolutions are not already
 active, follow the repository's `yarn devScript` and `yarn install` development setup before
 preflight.
 
@@ -122,14 +126,18 @@ python3 packages/octocode-benchmark/compare/bin/terra_v3_arm.py
   --cgroup-parent <delegated-cgroup-v2-parent>
   [--empty-classification <classification>]
   [--sourcegraph-receipt <receipt>]
+  [--language-server-receipt <receipt>]
   [--dry-run]
   -- <native executable and arguments>
 ```
 
-Semantic trials additionally provide `--lsp-root`, `--lsp-method`, and
-`--lsp-params-json` before the separator. After the separator, pass the real server only:
-`pyright-langserver --stdio` or `typescript-language-server --stdio`. The harness wraps it
-with the direct JSON-RPC client; a Python or Node imitation is rejected.
+Before semantic trials, create an immutable resolved-server receipt with
+`terra_v3_lsp_receipt.py`. It launches the resolved server, records initialization
+capabilities and a readiness probe, and binds executable/package digests, configuration,
+and the exact repository workspace root. Semantic trials additionally provide that receipt,
+`--lsp-root`, `--lsp-method`, and `--lsp-params-json`. After the separator, replay the
+receipt's absolute `resolvedCommand` exactly. Changed arguments, a bare executable lookup,
+changed config/package bytes, a different workspace, or an unready server fails preflight.
 
 Every measured arm rehashes the exact corpus bytes and validates workspace, fixture,
 contract, tool, and Sourcegraph receipts before starting the resource sensor.

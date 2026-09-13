@@ -21,12 +21,6 @@ export interface PruneStaleResult {
   locks?: FileLock[];
 }
 
-export interface NotifyGetResult {
-  ok: true;
-  count: 0;
-  notifications: [];
-}
-
 export interface SessionCaptureResult {
   ok: true;
   captured: boolean;
@@ -162,19 +156,4 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
   }
 
   return { pruned_locks: staleLocks.length };
-}
-
-// ─── Smart briefing ─────────────────────────────────────────────────────────
-
-export interface BriefItem {
-  kind: 'memory' | 'weakness' | 'notification';
-  text: string;
-  importance?: number;
-}
-
-export interface NotifyGetBriefResult {
-  ok: true;
-  count: number;
-  notifications: BriefItem[];
-  additionalContext?: string;  // set when format:hook is requested
 }

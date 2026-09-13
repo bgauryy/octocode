@@ -4,6 +4,7 @@ import {
   type AwarenessExecutableCall,
   type AwarenessOperationResult,
 } from '@octocodeai/octocode-awareness';
+import { resolveAwarenessStorageBindings } from './awareness-context.js';
 
 export interface CheckpointInfo { id: string; label: string; ts: number; filesChanged: number; kind?: 'edit'|'checkpoint'|'restore'; side?: 'before'|'after' }
 export interface DiffStatEntry { status: string; path: string }
@@ -11,7 +12,7 @@ export interface CheckpointPage { checkpoints: CheckpointInfo[]; nextCall?: Awar
 export interface RestoreResult { verificationRunId: string }
 export interface CheckpointEngine {
   listCheckpoints(limit?: number, nextCall?: AwarenessExecutableCall): Promise<CheckpointPage>;
-  restoreFiles(id: string, paths?: string[]): Promise<RestoreResult>;
+  restoreFiles(id: string): Promise<RestoreResult>;
   diffStat(id: string): Promise<DiffStatEntry[]>;
 }
 export type HistoryOperationRunner = (request: AwarenessExecutableCall) => Promise<AwarenessOperationResult>;
@@ -29,7 +30,7 @@ async function invoke(run: HistoryOperationRunner, request: AwarenessExecutableC
 export async function initCheckpointStore(cwd: string, opts: CheckpointStoreOptions = {}): Promise<CheckpointEngine> {
   const workspace = path.resolve(cwd); const agentId = opts.agentId ?? process.env['OCTOCODE_AGENT_ID'];
   if (!agentId) throw new Error('OCTOCODE_AGENT_ID is required for local history');
-  const run = opts.run ?? createAwarenessClient({ workspace, agentId }).execute;
+  const run = opts.run ?? createAwarenessClient({ ...resolveAwarenessStorageBindings(workspace), agentId }).execute;
   const previews = new Map<string, string>();
   const observed = new Map<string, CheckpointInfo>();
   const list = async (limit = 30, nextCall?: AwarenessExecutableCall): Promise<CheckpointPage> => {
@@ -50,8 +51,8 @@ export async function initCheckpointStore(cwd: string, opts: CheckpointStoreOpti
   };
   return {
     listCheckpoints: list,
-    async restoreFiles(id, paths) {
-      const key = `${id}\0${[...(paths ?? [])].sort().join('\0')}`;
+    async restoreFiles(id) {
+      const key = `${id}\0`;
       const previewId = previews.get(key);
       if (!previewId) throw new Error('Preview this restore before applying it.');
       const applied = await invoke(run, { operation: 'history.restore', params: { action: 'apply', preview_id: previewId } });

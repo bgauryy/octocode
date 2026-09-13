@@ -1,9 +1,16 @@
 import { acquirePooledClient } from '@octocodeai/octocode-engine/lsp/manager';
-import type { OutgoingCall } from '@octocodeai/octocode-engine/lsp/types';
+import type {
+  CallHierarchyItem,
+  IncomingCall,
+  OutgoingCall,
+} from '@octocodeai/octocode-engine/lsp/types';
 import {
   gatherIncomingCallsRecursive,
   gatherOutgoingCallsRecursive,
   createCallItemKey,
+  createMutableBudget,
+  type MutableTraversalBudget,
+  type TraversalResult,
 } from '../../shared/callHierarchyTraversal.js';
 import {
   compactResolvedSymbol,
@@ -28,6 +35,74 @@ function isTypeScriptStdlibTarget(call: OutgoingCall): boolean {
   return /node_modules\/typescript\/lib\/lib\.[^/]*\.d\.ts$/.test(call.to.uri);
 }
 
+function callIdentity(call: IncomingCall | OutgoingCall): string {
+  const target = 'from' in call ? call.from : call.to;
+  const rangeKey = (range: CallHierarchyItem['range']) => [
+    range.start.line,
+    range.start.character,
+    range.end.line,
+    range.end.character,
+  ];
+  return JSON.stringify([
+    target.uri,
+    target.name,
+    rangeKey(target.range),
+    call.fromRanges.map(rangeKey).sort(),
+  ]);
+}
+
+function typeIdentity(item: unknown): string {
+  const value = item as Partial<CallHierarchyItem> | null;
+  const range = value?.range;
+  return value?.uri && range?.start && range.end
+    ? JSON.stringify([
+        value.uri,
+        value.name,
+        range.start.line,
+        range.start.character,
+        range.end.line,
+        range.end.character,
+      ])
+    : (JSON.stringify(item) ?? String(item));
+}
+
+async function gatherPreparedRoots<T extends IncomingCall | OutgoingCall>(
+  roots: CallHierarchyItem[],
+  gather: (
+    root: CallHierarchyItem,
+    visited: Set<string>,
+    budget: MutableTraversalBudget
+  ) => Promise<TraversalResult<T>>
+): Promise<TraversalResult<T>> {
+  const budget = createMutableBudget(undefined);
+  const visited = new Set(roots.map(createCallItemKey));
+  const results: Array<TraversalResult<T>> = [];
+  for (const root of roots) {
+    results.push(await gather(root, visited, budget));
+    if (budget.truncatedByBudget) break;
+  }
+  const calls = new Map<string, T>();
+  for (const result of results) {
+    for (const call of result.calls) calls.set(callIdentity(call), call);
+  }
+  return {
+    calls: [...calls.values()],
+    truncatedByDepth: results.some(result => result.truncatedByDepth),
+    truncatedByBudget: budget.truncatedByBudget,
+    visitedNodeCount: budget.visitedNodeCount,
+    requestCount: budget.requestCount,
+    cycleCount: results.reduce((total, result) => total + result.cycleCount, 0),
+    failedRequestCount: results.reduce(
+      (total, result) => total + result.failedRequestCount,
+      0
+    ),
+    excludedCallCount: results.reduce(
+      (total, result) => total + (result.excludedCallCount ?? 0),
+      0
+    ),
+  };
+}
+
 export async function callsEnvelope(
   query: SymbolAnchoredSemanticQuery,
   anchor: SymbolAnchor,
@@ -45,9 +120,15 @@ export async function callsEnvelope(
       query.operation,
       anchor,
       'No callable symbol found',
+      'noCalls',
       true
     );
   }
+
+  // Every prepared root can expose distinct relationships. Bound root fanout
+  // with the existing request budget and report omitted roots explicitly.
+  const roots = items.slice(0, createMutableBudget(undefined).maxRequests);
+  const rootsTruncated = roots.length < items.length;
 
   const depth = query.depth ?? 1;
   const emptyTraversal = {
@@ -62,24 +143,29 @@ export async function callsEnvelope(
   } as const;
   const incomingResult =
     query.operation === 'callers' || query.operation === 'callHierarchy'
-      ? await gatherIncomingCallsRecursive(
-          client,
-          root,
-          depth,
-          new Set([createCallItemKey(root)]),
-          query.contextLines ?? 0
+      ? await gatherPreparedRoots(roots, (prepared, visited, budget) =>
+          gatherIncomingCallsRecursive(
+            client,
+            prepared,
+            depth,
+            visited,
+            query.contextLines ?? 0,
+            budget
+          )
         )
       : emptyTraversal;
   const outgoingResult =
     query.operation === 'callees' || query.operation === 'callHierarchy'
-      ? await gatherOutgoingCallsRecursive(
-          client,
-          root,
-          depth,
-          new Set([createCallItemKey(root)]),
-          query.contextLines ?? 0,
-          undefined,
-          isTypeScriptStdlibTarget
+      ? await gatherPreparedRoots(roots, (prepared, visited, budget) =>
+          gatherOutgoingCallsRecursive(
+            client,
+            prepared,
+            depth,
+            visited,
+            query.contextLines ?? 0,
+            budget,
+            isTypeScriptStdlibTarget
+          )
         )
       : emptyTraversal;
 
@@ -114,6 +200,7 @@ export async function callsEnvelope(
         ? 'outgoing'
         : 'both';
   const traversalComplete =
+    !rootsTruncated &&
     !incomingResult.truncatedByDepth &&
     !outgoingResult.truncatedByDepth &&
     !incomingResult.truncatedByBudget &&
@@ -124,9 +211,15 @@ export async function callsEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'callHierarchyProvider' },
+    ...(incomingResult.failedRequestCount + outgoingResult.failedRequestCount >
+    0
+      ? { incompleteResults: true }
+      : {}),
     payload: {
       kind: query.operation as 'callers' | 'callees' | 'callHierarchy',
-      root: compactCallItem(root),
+      ...(items.length === 1
+        ? { root: compactCallItem(root) }
+        : { roots: roots.map(compactCallItem) }),
       direction,
       calls: pageItems,
       incomingCalls: incomingResult.calls.length,
@@ -134,13 +227,16 @@ export async function callsEnvelope(
       ...(warmupStats ? { warmup: warmupStats } : {}),
       completeness: {
         complete: traversalComplete && !warmupStats?.possiblyTruncated,
+        ...(items.length > 1 ? { preparedRootCount: items.length } : {}),
         ...(warmupStats?.possiblyTruncated
           ? { consumerWarmupIncomplete: true as const }
           : {}),
         truncatedByDepth:
           incomingResult.truncatedByDepth || outgoingResult.truncatedByDepth,
         truncatedByBudget:
-          incomingResult.truncatedByBudget || outgoingResult.truncatedByBudget,
+          rootsTruncated ||
+          incomingResult.truncatedByBudget ||
+          outgoingResult.truncatedByBudget,
         visitedNodeCount:
           incomingResult.visitedNodeCount + outgoingResult.visitedNodeCount,
         requestCount: incomingResult.requestCount + outgoingResult.requestCount,
@@ -182,16 +278,32 @@ export async function typeHierarchyEnvelope(
       query.operation,
       anchor,
       'No type-hierarchy item found at position',
+      'noTypeHierarchy',
       true
     );
   }
 
   const direction =
     query.operation === 'supertypes' ? 'supertypes' : 'subtypes';
-  const relatives =
-    direction === 'supertypes'
-      ? await client.typeHierarchySupertypes(root)
-      : await client.typeHierarchySubtypes(root);
+  const roots = items.slice(0, createMutableBudget(undefined).maxRequests);
+  const truncatedByBudget = roots.length < items.length;
+  let failedRequestCount = 0;
+  const uniqueRelatives = new Map<string, unknown>();
+  for (const prepared of roots) {
+    try {
+      const related =
+        direction === 'supertypes'
+          ? await client.typeHierarchySupertypes(prepared)
+          : await client.typeHierarchySubtypes(prepared);
+      for (const relative of related) {
+        uniqueRelatives.set(typeIdentity(relative), relative);
+      }
+    } catch {
+      failedRequestCount++;
+    }
+  }
+  const relatives = [...uniqueRelatives.values()];
+  const complete = !truncatedByBudget && failedRequestCount === 0;
 
   const { pageItems, pagination } = paginateItems(
     relatives,
@@ -205,14 +317,37 @@ export async function typeHierarchyEnvelope(
     uri: anchor.uri,
     resolvedSymbol: compactResolvedSymbol(anchor.resolvedSymbol),
     lsp: { serverAvailable: true, provider: 'typeHierarchyProvider' },
+    ...(!complete ? { incompleteResults: true } : {}),
+    ...(truncatedByBudget
+      ? { terminalLimit: true, partialReasons: ['budget' as const] }
+      : {}),
     payload:
-      relatives.length > 0
+      relatives.length > 0 || items.length > 1 || !complete
         ? {
             kind: 'typeHierarchy',
             direction,
-            root,
+            ...(items.length === 1 ? { root } : { roots }),
             items: pageItems,
             totalItems: relatives.length,
+            completeness: {
+              complete,
+              preparedRootCount: items.length,
+              requestCount: roots.length,
+              failedRequestCount,
+              truncatedByBudget,
+            },
+            ...(relatives.length === 0
+              ? {
+                  empty: {
+                    category: complete
+                      ? ('noTypeHierarchy' as const)
+                      : ('possiblyIncomplete' as const),
+                    reason: complete
+                      ? `typeHierarchyProvider returned no ${direction} for these roots`
+                      : 'Some prepared roots could not be queried; missing types are not proof of absence.',
+                  },
+                }
+              : {}),
           }
         : {
             kind: 'empty',

@@ -95,8 +95,7 @@ export async function inspectSyntax(query: SyntaxQuery) {
       ? { status: undefined }
       : { status: 'error' as const, errorCode: `ast.syntax.${result.status}` }),
     snapshot,
-    complete,
-    isPartial: !complete,
+    ...(result.status !== 'error' ? { complete, isPartial: !complete } : {}),
     ...(hasMore
       ? {
           next: {
@@ -108,7 +107,7 @@ export async function inspectSyntax(query: SyntaxQuery) {
           },
         }
       : {}),
-    ...(!complete && !hasMore ? { terminalLimit: true } : {}),
+    ...(result.status === 'partial' && !hasMore ? { terminalLimit: true } : {}),
   };
 }
 
@@ -127,7 +126,6 @@ export async function inspectSymbols(query: SymbolsQuery) {
         status: 'error' as const,
         errorCode: 'ast.symbols.unsupported',
         path: query.path,
-        complete: false,
         error:
           'No native declaration extractor supports this source. Inspect its syntax tree or exact content.',
       };

@@ -9,8 +9,9 @@ import { applyHintPolicy, type HintPolicyContext } from './hintPolicy.js';
 export function buildResponseChannels<T extends object>(
   responseData: T,
   keysPriority: readonly string[],
-  hintContext: HintPolicyContext = {}
-): { text: string; structuredContent: T } {
+  hintContext: HintPolicyContext = {},
+  options: { renderText?: boolean } = {}
+): { text?: string; structuredContent: T } {
   const responseRecord = responseData as Record<string, unknown>;
   let effectiveKeys = keysPriority;
   const rows = (responseData as { results?: unknown }).results;
@@ -32,10 +33,14 @@ export function buildResponseChannels<T extends object>(
   }
 
   return {
-    text: createResponseFormat(
-      responseRecord as Parameters<typeof createResponseFormat>[0],
-      [...effectiveKeys]
-    ),
+    ...(options.renderText === false
+      ? {}
+      : {
+          text: createResponseFormat(
+            responseRecord as Parameters<typeof createResponseFormat>[0],
+            [...effectiveKeys]
+          ),
+        }),
     structuredContent: sanitizeStructuredContent(
       cleanJsonObject(responseRecord) ?? {}
     ) as T,

@@ -185,6 +185,34 @@ describe('resolveContentWithBranchFallback', () => {
     expect((result as { error: string }).error).toBeDefined();
   });
 
+  it('preserves default-branch rate-limit guidance without fetching content', async () => {
+    mockResolveDefaultBranch.mockRejectedValueOnce(
+      new RequestError('Secondary rate limit exceeded', 429, {
+        request: {
+          method: 'GET',
+          url: 'https://api.github.com/x',
+          headers: {},
+        },
+        response: {
+          status: 429,
+          url: 'https://api.github.com/x',
+          headers: { 'retry-after': '90' },
+          data: {},
+        },
+      })
+    );
+    const getContent = vi.fn(async () => ({}));
+    const result = await resolveContentWithBranchFallback(
+      makeOctokit(getContent),
+      'owner',
+      'repo',
+      '',
+      undefined
+    );
+    expect(result).toMatchObject({ status: 429, retryAfter: 90 });
+    expect(getContent).not.toHaveBeenCalled();
+  });
+
   it('returns notModified:true on HTTP 304', async () => {
     mockResolveDefaultBranch.mockResolvedValue('main');
     const req304 = new RequestError('Not Modified', 304, {

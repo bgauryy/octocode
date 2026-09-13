@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { computeEffectiveExcludeDirs } from './defaults.js';
 import {
   validateToolPath,
@@ -92,6 +94,17 @@ export async function findFiles(
       nativeEntryToFindFile(entry, collectModified)
     );
     const sort = query.sort || 'modified';
+    // Line counts are needed when sorting by lines or showing detail:full.
+    // Cap at 2000 files to keep latency bounded.
+    if ((sort === 'lines' || details) && files.length <= 2000) {
+      for (const file of files) {
+        if (file.type !== 'directory') {
+          file.lineCount = countFileLines(
+            resolve(queryWithSanitizedPath.path, file.path)
+          );
+        }
+      }
+    }
     sortFileEntries(files, sort, collectModified);
 
     const limitedFiles = files.slice(0, requestedLimit);
@@ -236,6 +249,20 @@ function nativeEntryToFindFile(
   return file;
 }
 
+/** Count newlines in a file; returns undefined on any read error. */
+function countFileLines(absPath: string): number | undefined {
+  try {
+    const buf = readFileSync(absPath);
+    let count = 1;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] === 10) count++; // 0x0A = '\n'
+    }
+    return count;
+  } catch {
+    return undefined;
+  }
+}
+
 function sortFileEntries(
   files: AstFilesEntry[],
   sort: string,
@@ -243,6 +270,8 @@ function sortFileEntries(
 ): void {
   files.sort((a, b) => {
     switch (sort) {
+      case 'lines':
+        return (b.lineCount ?? 0) - (a.lineCount ?? 0);
       case 'size':
         return (b.size ?? 0) - (a.size ?? 0);
       case 'name':
@@ -275,6 +304,8 @@ function formatForOutput(
       if (details) result.size = f.size;
       else result.sizeFormatted = formatFileSize(f.size);
     }
+    if (details && f.lineCount !== undefined && f.type !== 'directory')
+      result.lineCount = f.lineCount;
     if (details && f.permissions) result.permissions = f.permissions;
     if (f.modified) result.modified = f.modified;
     return result;

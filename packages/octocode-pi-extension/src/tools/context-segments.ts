@@ -28,6 +28,13 @@ export interface AssembledContextV1 {
 export const INITIAL_CONTEXT_TOKEN_BUDGET = 80_000;
 export const PROVIDER_CONTEXT_TOKEN_BUDGET = 120_000;
 
+/** Bound estimated prompt/tool overhead; Pi owns retained messages and output allocation. */
+export function providerContextTokenBudget(contextWindow?: number): number {
+  return typeof contextWindow === 'number' && Number.isSafeInteger(contextWindow) && contextWindow > 0
+    ? Math.min(PROVIDER_CONTEXT_TOKEN_BUDGET, contextWindow)
+    : PROVIDER_CONTEXT_TOKEN_BUDGET;
+}
+
 export function estimateContextTokens(content: string): number {
   return Math.ceil(content.length / 4);
 }

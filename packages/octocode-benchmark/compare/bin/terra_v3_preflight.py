@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 from typing import Iterable
+from urllib.parse import unquote, urlparse
 
 
 LOCK_VERSION = 3
@@ -91,6 +92,157 @@ def _canonical_bytes(value: object) -> bytes:
 
 def digest_record(value: object) -> str:
     return _sha256(_canonical_bytes(value))
+
+
+def _local_resolution_path(value: object, workspace: Path) -> Path | None:
+    if not isinstance(value, str):
+        return None
+    if value.startswith("file:"):
+        parsed = urlparse(value)
+        raw = unquote(parsed.path) if parsed.scheme == "file" else value[5:]
+        return Path(raw).resolve() if Path(raw).is_absolute() else (workspace / raw).resolve()
+    candidate = Path(value)
+    return candidate.resolve() if candidate.is_absolute() else None
+
+
+def _export_fingerprint(package_root: Path) -> tuple[dict[str, str], str]:
+    manifest_path = package_root / "package.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    exports = manifest.get("exports")
+    if not isinstance(exports, dict):
+        raise PreflightError(f"canonical core package has no exports map: {manifest_path}")
+    files: dict[str, str] = {"package.json": _sha256(manifest_path.read_bytes())}
+    for subpath, target in sorted(exports.items()):
+        conditions = target if isinstance(target, dict) else {"default": target}
+        for condition, relative in sorted(conditions.items()):
+            if not isinstance(relative, str):
+                continue
+            path = (package_root / relative).resolve()
+            if not path.is_relative_to(package_root.resolve()) or not path.is_file():
+                raise PreflightError(f"missing or escaping canonical-core export {subpath}:{condition}: {relative}")
+            files[f"{subpath}:{condition}"] = _sha256(path.read_bytes())
+    for required in (".", "./schema", "./mcp"):
+        if required not in exports:
+            raise PreflightError(f"canonical core lacks required export {required}")
+    return files, digest_record(files)
+
+
+def _resolve_core_exports(workspace: Path) -> tuple[Path, dict[str, dict[str, str]]]:
+    specs = ["@octocodeai/octocode-core", "@octocodeai/octocode-core/schema", "@octocodeai/octocode-core/mcp"]
+    parent = workspace / "packages/octocode-tools-core/src/index.ts"
+    script = (
+        "import {pathToFileURL} from 'node:url';"
+        "const parent=pathToFileURL(process.argv[1]).href;"
+        "const specs=JSON.parse(process.argv[2]);const out={};"
+        "for(const spec of specs)out[spec]=import.meta.resolve(spec,parent);"
+        "process.stdout.write(JSON.stringify(out));"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script, str(parent), json.dumps(specs)],
+        cwd=workspace, text=True, capture_output=True, check=False,
+    )
+    if result.returncode != 0:
+        raise PreflightError(f"cannot resolve canonical-core exports from tools-core: {result.stderr.strip()}")
+    try:
+        resolved_urls = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise PreflightError("canonical-core export resolver returned invalid JSON") from exc
+    resolved: dict[str, dict[str, str]] = {}
+    package_roots: set[Path] = set()
+    for spec in specs:
+        url = resolved_urls.get(spec)
+        parsed = urlparse(url) if isinstance(url, str) else None
+        if not parsed or parsed.scheme != "file":
+            raise PreflightError(f"canonical-core export {spec} did not resolve to a local file")
+        path = Path(unquote(parsed.path)).resolve()
+        if not path.is_file():
+            raise PreflightError(f"resolved canonical-core export is missing: {path}")
+        package_root = next(
+            (
+                candidate for candidate in (path.parent, *path.parents)
+                if (candidate / "package.json").is_file()
+                and json.loads((candidate / "package.json").read_text(encoding="utf-8")).get("name") == "@octocodeai/octocode-core"
+            ),
+            None,
+        )
+        if package_root is None:
+            raise PreflightError(f"resolved canonical-core export is outside its package: {path}")
+        package_roots.add(package_root.resolve())
+        resolved[spec] = {"path": str(path), "sha256": _sha256(path.read_bytes())}
+    if len(package_roots) != 1:
+        raise PreflightError("canonical-core exports resolve from different package roots")
+    return next(iter(package_roots)), resolved
+
+
+def _canonical_core_state(workspace: Path) -> tuple[dict[str, object], list[str]]:
+    workspace = workspace.resolve()
+    errors: list[str] = []
+    root_manifest = workspace / "package.json"
+    canonical = _canonical_core_root(workspace).resolve()
+    if not root_manifest.is_file():
+        return {}, ["workspace root package.json is required for canonical-core resolution"]
+    try:
+        root_data = json.loads(root_manifest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, [f"workspace package.json is invalid: {exc}"]
+    declared = root_data.get("resolutions", {}).get("@octocodeai/octocode-core")
+    declared_path = _local_resolution_path(declared, workspace)
+    if declared_path is None:
+        errors.append("canonical core resolution must be a local file path, never a published version")
+    elif declared_path != canonical:
+        errors.append(f"canonical core local file resolution must target {canonical}, got {declared_path}")
+    if not canonical.is_dir():
+        errors.append(f"canonical core source root is missing: {canonical}")
+    if errors:
+        return {}, errors
+    try:
+        installed, runtime_resolved_exports = _resolve_core_exports(workspace)
+        canonical_exports, canonical_fingerprint = _export_fingerprint(canonical)
+        resolved_exports, resolved_fingerprint = _export_fingerprint(installed)
+    except (OSError, json.JSONDecodeError, PreflightError) as exc:
+        return {}, [str(exc)]
+    source_files = [path for path in (canonical / "src").rglob("*") if path.is_file() and not path.is_symlink()]
+    exported_files = [
+        (canonical / relative).resolve()
+        for target in json.loads((canonical / "package.json").read_text(encoding="utf-8"))["exports"].values()
+        for relative in ((target.values() if isinstance(target, dict) else [target]))
+        if isinstance(relative, str)
+    ]
+    if source_files and exported_files and min(path.stat().st_mtime_ns for path in exported_files) < max(path.stat().st_mtime_ns for path in source_files):
+        errors.append("stale canonical core exports predate canonical source")
+    if canonical_fingerprint != resolved_fingerprint:
+        errors.append("resolved canonical core export fingerprint differs from canonical local build")
+    state: dict[str, object] = {
+        "declaredResolution": declared,
+        "canonicalRoot": str(canonical),
+        "resolvedPackageRoot": str(installed.resolve()),
+        "canonicalExports": canonical_exports,
+        "resolvedExports": resolved_exports,
+        "runtimeResolvedExports": runtime_resolved_exports,
+        "canonicalExportFingerprint": canonical_fingerprint,
+        "resolvedExportFingerprint": resolved_fingerprint,
+        "sourceStateDigest": _digest_paths(canonical, sorted(source_files)),
+    }
+    state["receiptDigest"] = digest_record(state)
+    return state, errors
+
+
+def build_canonical_core_receipt(workspace: Path) -> dict[str, object]:
+    state, errors = _canonical_core_state(workspace)
+    if errors:
+        raise PreflightError("; ".join(errors))
+    return state
+
+
+def validate_canonical_core_receipt(receipt: dict[str, object], workspace: Path) -> list[str]:
+    current, errors = _canonical_core_state(workspace)
+    if errors:
+        return errors
+    if receipt.get("receiptDigest") != digest_record({key: value for key, value in receipt.items() if key != "receiptDigest"}):
+        errors.append("canonical core receipt digest mismatch")
+    if current.get("receiptDigest") != receipt.get("receiptDigest"):
+        errors.append("canonical core resolution or export fingerprint drift")
+    return errors
 
 
 def _iter_content_entries(root: Path, exclusions: Iterable[str] = EXCLUSIONS):
@@ -392,7 +544,9 @@ def _native_artifacts(workspace: Path) -> list[Path]:
     return sorted({path for root in roots if root.is_dir() for path in root.rglob("*.node") if path.is_file()})
 
 
-def build_workspace_receipt(workspace: Path, *, catalog_bytes: bytes) -> dict[str, object]:
+def build_workspace_receipt(
+    workspace: Path, *, catalog_bytes: bytes, require_canonical_core: bool = False
+) -> dict[str, object]:
     workspace = workspace.resolve()
     sources = _workspace_sources(workspace)
     cli = workspace / "packages/octocode/out/octocode.js"
@@ -407,6 +561,7 @@ def build_workspace_receipt(workspace: Path, *, catalog_bytes: bytes) -> dict[st
         raise PreflightError("missing workspace inputs: " + ", ".join(missing))
     source_digest = _digest_paths(workspace, sources)
     external_sources = _external_source_receipts(workspace)
+    canonical_core = build_canonical_core_receipt(workspace) if require_canonical_core else None
     native_entries = [
         {"path": path.relative_to(workspace).as_posix(), "sha256": _sha256(path.read_bytes())}
         for path in natives
@@ -420,6 +575,7 @@ def build_workspace_receipt(workspace: Path, *, catalog_bytes: bytes) -> dict[st
         "sourceMaxMtimeNs": max(path.stat().st_mtime_ns for path in sources),
         "externalSources": external_sources,
         "externalSourceDigest": digest_record(external_sources),
+        "canonicalCore": canonical_core,
         "dependencyLockDigest": _sha256(dependency_lock.read_bytes()),
         "nativeArtifacts": native_entries,
         "nativeArtifactDigest": digest_record(native_entries),
@@ -440,7 +596,8 @@ def build_workspace_receipt(workspace: Path, *, catalog_bytes: bytes) -> dict[st
 
 
 def validate_workspace_receipt(
-    receipt: dict[str, object], workspace: Path, *, catalog_bytes: bytes | None = None
+    receipt: dict[str, object], workspace: Path, *, catalog_bytes: bytes | None = None,
+    require_canonical_core: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     workspace = workspace.resolve()
@@ -457,6 +614,12 @@ def validate_workspace_receipt(
     external_sources = _external_source_receipts(workspace)
     if digest_record(external_sources) != receipt.get("externalSourceDigest"):
         errors.append("external source state digest mismatch")
+    canonical_core = receipt.get("canonicalCore")
+    if require_canonical_core:
+        if not isinstance(canonical_core, dict):
+            errors.append("canonical core resolution receipt is missing")
+        else:
+            errors.extend(validate_canonical_core_receipt(canonical_core, workspace))
     cli = workspace / str(receipt.get("cliArtifactPath", "packages/octocode/out/octocode.js"))
     if not cli.is_file() or _sha256(cli.read_bytes()) != receipt.get("cliArtifactDigest"):
         errors.append("cli artifact digest mismatch")
@@ -582,7 +745,7 @@ def main() -> int:
             for command, cwd in _build_commands(workspace):
                 subprocess.run(command, cwd=cwd, check=True)
             catalog = _catalog(workspace)
-            workspace_receipt = build_workspace_receipt(workspace, catalog_bytes=catalog)
+            workspace_receipt = build_workspace_receipt(workspace, catalog_bytes=catalog, require_canonical_core=True)
             expected_commits = frozen_oracle_commits(args.public_oracles)
             prepare_repositories(args.corpus_root, expected_commits=expected_commits)
             fixture_digest = _sha256(args.fixture_manifest.read_bytes())
@@ -610,7 +773,10 @@ def main() -> int:
         else:
             workspace_receipt = json.loads(args.workspace_receipt.read_text(encoding="utf-8"))
             corpus_lock = json.loads(args.corpus_lock.read_text(encoding="utf-8"))
-            errors = validate_workspace_receipt(workspace_receipt, args.workspace, catalog_bytes=_catalog(args.workspace))
+            errors = validate_workspace_receipt(
+                workspace_receipt, args.workspace, catalog_bytes=_catalog(args.workspace),
+                require_canonical_core=True,
+            )
             errors.extend(verify_corpus_bytes(corpus_lock, args.corpus_root))
             print(json.dumps({"valid": not errors, "errors": errors}, indent=2))
             return 1 if errors else 0

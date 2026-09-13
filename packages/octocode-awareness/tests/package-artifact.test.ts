@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROUTINE_AWARENESS_OPERATIONS } from '../src/schema/operation-types.js';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tempRoots: string[] = [];
@@ -59,7 +60,7 @@ describe('published package artifact', () => {
     });
     expect(listed.status, listed.stderr || listed.stdout).toBe(0);
     const names = (JSON.parse(listed.stdout) as { operations: string[] }).operations;
-    expect(names).toHaveLength(19);
+    expect(names).toEqual(ROUTINE_AWARENESS_OPERATIONS);
 
     for (const name of names) {
       const jsonSchema = spawnSync(process.execPath, [cli, 'schema', 'command', ...name.split('.'), '--compact'], {

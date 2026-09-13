@@ -166,6 +166,7 @@ describe('directToolCatalog', () => {
     expect(buildDirectToolExampleQuery(LOCAL_SEARCH_TOOL_NAME)).toEqual({
       path: '/ABS/repo/src',
       searchText: 'buildDirectToolCommandPatterns',
+      regex: 'literal',
       maxFiles: 20,
     });
     expect(
@@ -173,7 +174,9 @@ describe('directToolCatalog', () => {
     ).toEqual({ owner: 'bgauryy', repo: 'octocode' });
     expect(buildDirectToolExampleQuery(LSP_SEARCH_TOOL_NAME)).toEqual({
       uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
-      operation: 'documentSymbols',
+      operation: 'definition',
+      symbolName: 'buildNextPageContinuation',
+      lineHint: 72,
     });
     expect(buildDirectToolExampleQuery('missingTool')).toEqual({});
   });
@@ -340,7 +343,13 @@ describe('directToolCatalog', () => {
   it('reports direct tool input errors without CLI-owned parsing logic', () => {
     expect(() =>
       prepareDirectToolInputFromJsonText(LOCAL_SEARCH_TOOL_NAME, '{not-json')
-    ).toThrow(new DirectToolInputError('Tool input must be valid JSON.'));
+    ).toThrow(
+      expect.objectContaining({
+        name: DirectToolInputError.name,
+        message: 'Tool input must be valid JSON.',
+        details: [expect.stringContaining('tools localSearch --queries')],
+      })
+    );
     expect(() => prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, 42)).toThrow(
       'Tool input must be a JSON object'
     );

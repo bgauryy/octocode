@@ -8,10 +8,10 @@ Awareness exposes one routine operation model through both the CLI and `createAw
 
 ```text
 Context -> Work -> Message -> Memory -> History
-   1         8         4          2          4
+   3         8         4          5          5
 ```
 
-The package root intentionally has five runtime exports: the client factory, two operation catalogs, and two descriptor lookups. Side-effect-free discovery is also available from `/schema`. Host integration is isolated under `/host`; copy-on-write database migration is isolated under `/admin`.
+The package root has eight runtime exports: the client factory, two operation catalogs, two descriptor lookups, the agent instruction section catalog, the agent instruction builder, and the shared Message parameter guidance. Side-effect-free discovery is also available from `/schema`. Host integration is isolated under `/host`; copy-on-write database migration is isolated under `/admin`.
 
 The CLI parses shell input and renders results. It does not own domain behavior. Operation descriptors validate parameters, select one domain route, execute it with trusted host bindings, canonicalize continuations, and enforce output budgets. Unknown operations fail instead of entering a compatibility dispatcher.
 
@@ -40,11 +40,19 @@ The domain owners are:
 
 - Work: plans, tasks, attempts, dependencies, file presence, exceptional protection, and verification.
 - Message: addressed threads, replies, delivery state, and resolution.
-- Memory: scoped evidence-linked lessons and their references.
-- History: SQLite metadata and private LocalGit objects for exact file bytes.
-- Context: a bounded projection over decision-changing state; it does not create a second source of truth.
+- Memory: scoped evidence-linked lessons, keyed revisions with caller rationale, and typed anchors. Knowledge reuses the memory relations; native fingerprints assess declared file applicability without certifying a lesson.
+- History: SQLite metadata and private LocalGit objects for exact file bytes and non-file experience evidence. Experience events and archive receipts remain in the existing event outbox and are excluded from ordinary delivery pruning.
+- Context: attributed observations and intervention feedback, plus a bounded projection over decision-changing state. Observations and feedback use the existing event outbox; assessment does not create a second source of truth.
 
 SQL stays with the module that owns each relation. Interface code must not duplicate schemas, query strings, lifecycle policy, or history writers.
+
+## Agent-independent regulation
+
+Any agent can submit measurements with `context.observe`, read assessed state and advisory actions with `context.orient`, and report its response with `context.feedback`. CLI and imported clients use the same validated operations. The Context domain owns observation validation, assessment, and feedback evidence; the host owns measurement, execution, compaction, and model selection.
+
+Observations and feedback are attributed to the bound workspace, actor, and session. They reuse `event_outbox` without changing database DDL or introducing a second telemetry store. Missing or expired measurements remain unavailable; they do not indicate recovery failure. Advice is advisory, and reporting an action is not proof that it improved an outcome.
+
+Reusable agent instructions are package-owned exports. Hosts import the instruction builder instead of duplicating operating guidance; CLI discovery and bundled skills direct agents to the same contract.
 
 ## Trust and evidence
 
@@ -71,7 +79,7 @@ Opening a store accepts the exact canonical fingerprint. Migration code recogniz
 
 History metadata lives in SQLite. File bytes live in a private store under `<workspace>/.octocode/.localGit`, partitioned by store and physical workspace identity. `history status` reports resolved storage paths; callers must not construct them.
 
-Capture is a host responsibility exposed through `/host`. Routine operations only report status, list a bounded timeline, read one version, and preview or apply one bound restore. The LocalGit backend does not change the repository index, `HEAD`, branches, remotes, or hooks.
+File capture is a host responsibility exposed through `/host`. Routine file operations report status, list a bounded timeline, read one version, and preview or apply one bound restore. `history.experience` also records attributed investigation events without requiring source changes. Sealing freezes the canonical SQLite trace before publishing an optional immutable archive under its own LocalGit ref namespace; failed archival can be retried. The LocalGit backend does not change the repository index, `HEAD`, branches, remotes, or hooks.
 
 Restore is deliberately not proof of correctness. Preview binds the intended operation, side, paths, digests, and expiry. Apply rechecks those bindings, acquires protection, records undo evidence, and returns verification debt.
 
@@ -87,9 +95,10 @@ Ordered event consumers acknowledge only after the host persistence boundary acc
 
 - Do not import the Agent runtime, Pi UI, or model execution policy into Awareness.
 - Keep `bin/` responsible for argv, stdout, stderr, and process exit only.
-- Keep routine discovery limited to the nineteen canonical operations.
+- Keep routine discovery limited to the canonical operation catalog.
 - Keep host-only capabilities under `/host` and migration under `/admin`.
 - Treat executable continuations as part of every bounded result contract.
+- Emit stable, self-contained runtime entries so a rebuild cannot strand a live host on a removed lazy chunk.
 - Treat ordinary overlap as advisory and exclusive protection as exceptional.
 - Record only observed verification results.
 - Build the package before verifying its CLI, subpaths, or generated skill assets.

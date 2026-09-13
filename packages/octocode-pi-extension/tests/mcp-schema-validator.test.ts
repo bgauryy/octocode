@@ -73,6 +73,41 @@ test('validator rejects unsupported dialects and oversized schemas before valida
   );
 });
 
+test('legacy dialects are rejected instead of silently weakening their constraints', () => {
+  for (const schema of [
+    { $schema: 'http://json-schema.org/draft-04/schema#', type: 'number', minimum: 5, exclusiveMinimum: true },
+    { $schema: 'http://json-schema.org/draft-03/schema#', type: 'object', properties: { name: { type: 'string', required: true } } },
+    ...['06', '07'].map(draft => ({
+      $schema: `http://json-schema.org/draft-${draft}/schema#`,
+      definitions: { base: { type: 'number' } },
+      $ref: '#/definitions/base',
+      minimum: 10,
+    })),
+  ]) {
+    assert.throws(() => compileMcpSchemaValidator(schema), McpSchemaUnsupportedError);
+  }
+  const modern = compileMcpSchemaValidator({
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    type: 'number',
+    exclusiveMinimum: 5,
+  });
+  assert.equal(modern.validate(5).valid, false);
+  assert.equal(modern.validate(6).valid, true);
+});
+
+test('modern dialect constructs retain tuple, dependency, and unevaluated-property validation', () => {
+  const cases: Array<[unknown, unknown, unknown]> = [
+    [{ $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'array', prefixItems: [{ type: 'string' }, { type: 'number' }], items: false }, ['ok', 3], ['ok', 'bad']],
+    [{ $schema: 'https://json-schema.org/draft/2019-09/schema', type: 'object', dependentRequired: { a: ['b'] } }, { a: 1, b: 2 }, { a: 1 }],
+    [{ $schema: 'https://json-schema.org/draft/2019-09/schema', type: 'object', allOf: [{ properties: { a: { type: 'string' } } }], unevaluatedProperties: false }, { a: 'ok' }, { a: 'ok', b: 3 }],
+  ];
+  for (const [schema, valid, invalid] of cases) {
+    const validator = compileMcpSchemaValidator(schema);
+    assert.equal(validator.validate(valid).valid, true);
+    assert.equal(validator.validate(invalid).valid, false);
+  }
+});
+
 test('union diagnostics report the selected operation before applying the error limit', () => {
   const branch = (operation: string, properties: Record<string, unknown>, required: string[] = []) => ({
     type: 'object',

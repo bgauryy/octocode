@@ -4,6 +4,28 @@ import type { PlanReadModelV1 } from '../src/tools/plan-read-model.js';
 import type { RuntimeState } from '../src/tools/runtime-store.js';
 import { deriveUxSnapshot } from '../src/tools/ux-snapshot.js';
 
+test('missing session timestamps cannot become epoch-sized elapsed times', () => {
+  const state = runtime();
+  state.footer.sessionStartedAt = 0;
+  const snapshot = deriveUxSnapshot({ now: 1_789_232_000_000, runtime: state, agents: [] });
+  assert.equal(snapshot.session.elapsedMs, 0);
+});
+
+test('task completion alone is not a verification receipt', () => {
+  const snapshot = deriveUxSnapshot({ runtime: runtime(), plan: plan(), agents: [] });
+  assert.equal(snapshot.tasks[0]?.status, 'done');
+  assert.equal(snapshot.tasks[0]?.verification, 'unverified');
+});
+
+test('stale coordination uses human durations and an executable details command', () => {
+  const snapshot = deriveUxSnapshot({ now: 100_000, runtime: runtime(), agents: [],
+    awareness: { unread: 0, observedAt: 1_331, staleAfterMs: 16_000 } });
+  const warning = snapshot.attention.find(item => item.kind === 'stale_source')!;
+  assert.match(warning.reason, /1m 39s/);
+  assert.doesNotMatch(warning.reason, /ms/);
+  assert.equal(warning.detailRoute, '/octocode-status');
+});
+
 test('worker updates prefer live tools and fresh output over old messages', () => {
   const worker = {
     agentId: 'worker', name: 'atlas', status: 'running',

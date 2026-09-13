@@ -1,9 +1,10 @@
 /** Selected reasoning shares the existing observation column; no second store. */
-export interface MemoryContent { text: string; area?: string; why?: string; constraint?: string }
+import { knowledgeMetadataSchema, type KnowledgeMetadata } from './knowledge-contract.js';
+export interface MemoryContent { text: string; area?: string; why?: string; constraint?: string; knowledge?: KnowledgeMetadata }
 const marker = 'awareness-file-context/v1';
 
 export function encodeMemoryContent(content: MemoryContent): string {
-  return content.area || content.why || content.constraint
+  return content.area || content.why || content.constraint || content.knowledge
     ? JSON.stringify({ $awareness: marker, ...content }) : content.text;
 }
 
@@ -12,7 +13,8 @@ export function decodeMemoryContent(value: string): MemoryContent {
     try {
       const parsed = JSON.parse(value) as Record<string, unknown>;
       if (typeof parsed.text === 'string' && ['area', 'why', 'constraint'].every(key => parsed[key] === undefined || typeof parsed[key] === 'string')) {
-        return { text: parsed.text, ...(parsed.area ? { area: String(parsed.area) } : {}),
+        const knowledge = knowledgeMetadataSchema.safeParse(parsed.knowledge);
+        return { text: parsed.text, ...(knowledge.success ? { knowledge: knowledge.data } : {}), ...(parsed.area ? { area: String(parsed.area) } : {}),
           ...(parsed.why ? { why: String(parsed.why) } : {}), ...(parsed.constraint ? { constraint: String(parsed.constraint) } : {}) };
       }
     } catch { /* An ordinary observation may contain incomplete JSON. */ }

@@ -1,4 +1,5 @@
 import type { LocalTextResultView } from '@octocodeai/octocode-core/schema';
+import { LOCAL_DEFAULT_FILES_PER_PAGE } from '@octocodeai/octocode-core/schema';
 
 const REGEX_TO_NATIVE = {
   literal: 'fixed',
@@ -19,7 +20,9 @@ export function toLegacyTextQuery(
       : 'paginated';
   return {
     ...input,
-    ...(pageSize !== undefined ? { itemsPerPage: pageSize } : {}),
+    ...(pageSize !== undefined
+      ? { itemsPerPage: pageSize }
+      : { itemsPerPage: LOCAL_DEFAULT_FILES_PER_PAGE }),
     ...(reverse !== undefined ? { sortReverse: reverse } : {}),
     ...(regex !== undefined
       ? { regex: REGEX_TO_NATIVE[regex as keyof typeof REGEX_TO_NATIVE] }

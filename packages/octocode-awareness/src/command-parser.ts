@@ -1,7 +1,7 @@
 // Tokenization for the canonical shell adapter.
 import type { ParsedArgs } from './commands/args.js';
 
-export const ARRAY_FLAGS = new Set(['tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);
+export const ARRAY_FLAGS = new Set(['section', 'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const result: ParsedArgs = { _: [] };
@@ -59,10 +59,6 @@ function parseFlagValue(key: string, value: string | boolean): string | boolean 
   if (['true', '1', 'yes'].includes(normalized)) return true;
   return value; // validateFlagValues rejects unknown Boolean tokens.
 }
-
-// Per-command flag allowlist. Documented flags that the runtime silently
-// ignored were the #1 source of doc drift — unknown flags are now hard errors.
-export const GLOBAL_FLAGS = ['db', 'db_scope', 'compact', 'help'];
 
 // Flags whose value must parse to an integer. Without this, `--limit abc` (NaN)
 // or `--limit --smart` (boolean-coerced) silently fell back to a default and

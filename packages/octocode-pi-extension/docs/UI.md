@@ -39,6 +39,8 @@ The live footer names the active operation, such as `Bash yarn test auth` or `Re
 
 The session row uses spare footer space for model, elapsed time, tool count, branch, permission mode, and configuration access. Context shows measured used/limit tokens and utilization; unavailable measurements are not presented as zero. Git line totals describe the working tree, including pre-existing edits; file-operation events separately record successful native file mutations. Provider input, output, and cache usage are session totals in the status inspector, distinct from context occupancy.
 
+Durations use seconds, minutes, and hours, such as `6s` or `1m 39s`. An unknown session start displays `—`, never elapsed time since the Unix epoch. GitHub status distinguishes `signed in`, `not signed in`, `checking`, and `status unavailable`; a failed check does not prove that credentials are missing. These diagnostics use available footer space and remain inspectable through `/octocode-status`.
+
 ## Plan and worker flows
 
 Use a plan only for complex work with coupled dependencies, coordinated owners,
@@ -49,6 +51,8 @@ delegation need no plan or task records.
 The plan tool presents its own progress, overview, and review once. **Approve & start** binds the displayed revision and begins implementation. **Request revision** and **Reject plan** require explanatory feedback; **Send comment only** is non-authorizing. Reopen a review through **/configuration → Review plan**. The agent consumes the returned decision; it does not open a second approval prompt. Every checklist row carries its stable task ID so comments and later revisions have a durable anchor.
 
 Linear plans can show completed/total steps. Graph and changing plans show state counts and the current task. Plan/task state comes from the canonical plan read model; presentation never marks a task complete or creates an approval.
+
+Completed task counts mean `done`, not passed verification checks. The UX projection reports completion without a check receipt as `unverified`. Completed plans remain available for inspection.
 
 The footer lists live workers by name and state with their current tool or latest update. Rows keep a stable order while updates arrive. Blocked or failed workers take priority; completed and killed workers remain in the inbox. Explicit `cohortId` values produce bounded, redacted fleet summaries in agent inspection. The viewport bounds the list and exposes overflow through `/octocode-inbox`. The picker offers output, steer, and stop actions according to process liveness. Execution events retain the parent run relationship. The inspector does not create, restart, or stop workers.
 
@@ -68,7 +72,7 @@ shared UI clock, without adding model messages or another polling loop.
 | Command | Result |
 |---|---|
 | `/configuration` | Browser configuration for MCP, skills, permissions, theme, effort, footer density, and plan review |
-| `/octocode-status` | Session, usage, tool outcomes, skills, plan, workers, file operations, and pending decisions |
+| `/octocode-status` | Session, usage, GitHub status, Awareness freshness and shared work, tool outcomes, skills, plan, workers, file operations, and pending decisions |
 | `/octocode-status events` | Semantic events for the selected branch, displayed as JSONL |
 | `/octocode-status export` | Write `execution-events.jsonl` in the session artifact directory and report its path |
 | `/octocode-inbox` | Inspect, steer, or stop a selected worker |
@@ -82,15 +86,26 @@ Questions appear inline and require an explicit answer. The card budgets physica
 
 Only focused options expand their details. The option window shrinks on short terminals; arrow navigation reaches all choices and the custom-answer row. A recommendation is a starting cursor position, not consent. Cancellation, timeout, and unavailable interaction never authorize a default. Full question and answer text remain in the tool result for later context recovery.
 
+Operation cancellation closes active question cards and selection overlays through
+Pi's completion callback. Question cancellation also removes its durable pending
+interaction, so a late answer cannot authorize a cancelled operation. Scroll
+inspectors require TUI mode; RPC receives an explanatory notification instead of
+calling the unsupported custom-component surface.
+
 ## Width, attention, and lifecycle
 
 Automatic density uses up to 15% of terminal height, capped at six rows. Compact density uses up to two rows; expanded density uses up to ten. Pending decisions and blocked or failed workers outrank ordinary activity and session metadata. Metadata has no reserved row. Worker state is a separate token before the name, so shortening a long name does not erase `blocked`, `failed`, or `error`. Narrow layouts reserve room for the detail route.
 
 Every selected footer row occupies one physical line. Renderers use cell-width-aware truncation for ANSI, CJK, emoji, and combining characters. [The palette](../src/tui/palette.ts) owns semantic colors; text and state labels remain understandable without color. The working spinner is the only animated decoration.
 
-The footer registers once per session and repaints through `requestRender`. Render closures perform no I/O or session scans. Octocode places no mutable header above the transcript, because repainting old scrollback can cause a terminal redraw. Session replacement disposes subscriptions; `/tree` restores the selected ancestry before publishing subsequent observations.
+The footer registers once per session runtime and repaints through `requestRender`. Runtime bindings use Pi's stable session manager; fresh callback context objects share the same clock, tool counts, login state, and footer registration. Render closures perform no I/O or session scans. Octocode places no mutable header above the transcript, because repainting old scrollback can cause a terminal redraw. Session replacement disposes subscriptions; `/tree` restores the selected ancestry before publishing subsequent observations.
 
-Awareness freshness uses the timestamp of the last successful source read. A footer tick or cached repaint does not renew that timestamp. Context recovery validates and assembles sources only when a recovery is pending; ordinary turns reuse the frozen policy and deliver changed task context.
+Working-indicator initialization follows runtime identity and rendered theme output,
+so fresh event contexts do not restart the spinner. Theme changes and replacement
+runtimes refresh it. Renderer teardown errors are recorded without skipping the
+remaining session resource cleanups.
+
+Awareness means shared work, verification checks, and messages. The footer reader uses the same database, workspace, and actor bindings as Pi's native Awareness tool. During active turns the existing UI clock requests a throttled refresh, at most once every eight seconds. Freshness uses the last successful source read; a cached repaint does not renew that timestamp. Stale or unavailable state links to `/octocode-status` for its age and cached details. Context recovery validates and assembles sources only when a recovery is pending; ordinary turns reuse the frozen policy and deliver changed task context.
 
 Persistence failures produce an explicit status warning while live execution remains usable. Invalid event records fail replay explicitly and mark startup as failed. Export failures report an error. None of these operations authorize a tool, answer a question, or change the plan.
 

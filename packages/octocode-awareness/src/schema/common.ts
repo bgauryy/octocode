@@ -37,14 +37,3 @@ export const NOTIFICATION_KINDS = NOTIFICATION_KIND_VALUES;
 export const notificationKind = z.enum(NOTIFICATION_KINDS);
 export const fileList = z.array(z.string().trim().min(1).max(1024)).max(200).default([]).describe('Related files.');
 export const refIds = z.array(z.string().trim().min(1).max(128)).max(50).default([]).describe('Related ids.');
-export const evalFailure = z
-  .object({
-    id: z.string().trim().min(1).max(128).describe('Eval id.'),
-    dimension: z.string().trim().min(1).max(128).optional().describe('Eval dimension.'),
-    failure_signature: z.string().trim().min(1).max(256).optional().describe('Failure cluster key.'),
-    suggested_lesson: z.string().trim().min(1).max(1000).optional().describe('Eval lesson.'),
-  })
-  .strict()
-  .refine((d) => d.failure_signature !== undefined || d.suggested_lesson !== undefined, {
-    message: 'eval failure needs failure_signature or suggested_lesson.',
-  });

@@ -29,8 +29,8 @@ export function registerLifecycleUi(
     }
   };
   pi.on('session_start', async (_event, ctx) => {
-    calls.delete(ctx);
-    warnedTools.delete(ctx);
+    const store = runtimeStoreFor(ctx);
+    if (store) { calls.delete(store); warnedTools.delete(store); }
     refresh(ctx);
   });
   pi.on('turn_start', async (_event, ctx) => {
@@ -38,10 +38,11 @@ export function registerLifecycleUi(
     refresh(ctx);
   });
   pi.on('tool_execution_start', async (event, ctx) => {
-    if (!event.toolCallId || !runtimeStoreFor(ctx)) return;
+    const store = runtimeStoreFor(ctx);
+    if (!event.toolCallId || !store) return;
     const tool = executionLabel(event.toolName || 'tool', 64);
-    const input = calls.get(ctx) ?? new Map();
-    calls.set(ctx, input);
+    const input = calls.get(store) ?? new Map();
+    calls.set(store, input);
     input.set(event.toolCallId, {
       tool,
       queries: executionQueries(event.args),
@@ -54,11 +55,13 @@ export function registerLifecycleUi(
     refresh(ctx);
   });
   pi.on('tool_execution_end', async (event, ctx) => {
-    const stored = calls.get(ctx)?.get(event.toolCallId);
+    const store = runtimeStoreFor(ctx);
+    if (!store) return;
+    const stored = calls.get(store)?.get(event.toolCallId);
     const tool =
       runtimeStoreFor(ctx)?.getState().execution.tools[event.toolCallId];
     if (!tool || tool.status !== 'running') return;
-    calls.get(ctx)?.delete(event.toolCallId);
+    calls.get(store)?.delete(event.toolCallId);
     const failed = event.isError || record(event.result).isError === true;
     emitExecution(
       ctx,
@@ -116,8 +119,8 @@ export function registerLifecycleUi(
       }
     }
     if (failed && ctx.hasUI) {
-      const warned = warnedTools.get(ctx) ?? new Set<string>();
-      warnedTools.set(ctx, warned);
+      const warned = warnedTools.get(store) ?? new Set<string>();
+      warnedTools.set(store, warned);
       if (!warned.has(tool.tool)) {
         warned.add(tool.tool);
         try {
@@ -184,8 +187,8 @@ export function registerLifecycleUi(
       },
       'debug'
     );
-    calls.delete(ctx);
-    warnedTools.delete(ctx);
+    const store = runtimeStoreFor(ctx);
+    if (store) { calls.delete(store); warnedTools.delete(store); }
     refresh(ctx);
   });
   pi.on('agent_settled', async (_event, ctx) => {

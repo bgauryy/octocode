@@ -48,7 +48,7 @@ export const DEFAULT_WORKSPACE_POLICY: WorkspaceAwarenessPolicy = Object.freeze(
   hooks: Object.freeze({ profile: 'coordination', owners: DEFAULT_HOOK_OWNERS }),
 });
 
-const MEMORY_OPERATIONS = new Set(['memory.record', 'memory.recall']);
+const MEMORY_OPERATIONS = new Set(['memory.record', 'memory.recall', 'memory.set', 'memory.get', 'memory.revalidate']);
 
 const PROFILE_COMMANDS: Record<AwarenessHookProfile, ReadonlySet<string>> = {
   guard: new Set(['pre-edit', 'post-edit', 'stop-verify']),

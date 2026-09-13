@@ -18,6 +18,7 @@ import {
   MAX_PAGE_NUMBER,
 } from '@octocodeai/octocode-core/schema';
 import type { FetchIssuesParams, IssueRow, IssuesResult } from './types.js';
+import { rejectUnreachableSearchPage } from '../searchWindow.js';
 import {
   createIssueError,
   firstString,
@@ -155,6 +156,13 @@ export async function searchIssues(
 ): Promise<GitHubAPIResponse<IssuesResult>> {
   const owner = firstString(params.owner) ?? '';
   const repo = firstString(params.repo) ?? '';
+  const perPage = Math.min(
+    params.limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
+    GITHUB_SEARCH_MAX_LIMIT
+  );
+  const currentPage = params.page ?? 1;
+  const windowError = rejectUnreachableSearchPage(currentPage, perPage);
+  if (windowError) return windowError;
   const octokit = await getOctokit(authInfo);
   // GitHub's Search API does not follow repo renames, so a search scoped to a
   // stale owner/repo silently returns 0 (false absence). Resolve the canonical
@@ -180,11 +188,6 @@ export async function searchIssues(
     }
   }
   const q = buildIssueSearchQuery(effectiveSearchParams);
-  const perPage = Math.min(
-    params.limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
-    GITHUB_SEARCH_MAX_LIMIT
-  );
-  const currentPage = params.page ?? 1;
   const sortValue =
     params.sort && params.sort !== 'best-match' ? params.sort : undefined;
 

@@ -15,12 +15,13 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 | Awareness mutation integration | [`src/adapters/pi-awareness-mutation.ts`](src/adapters/pi-awareness-mutation.ts) owns mutation presence, registry updates, and host-gate adaptation |
 | Internal error logging | [`src/internal-error-log.ts`](src/internal-error-log.ts) owns private paths, redaction, formatting, and best-effort append behavior |
 | Direct tool names | [`src/constants.ts`](src/constants.ts); registration in `registerSupportToolPhase` |
-| Query execution and partial receipts | [`src/tools/query-envelope.ts`](src/tools/query-envelope.ts) owns ordering, preflight, concurrency, and cancellation. [`src/tools/query-batch-error.ts`](src/tools/query-batch-error.ts) preserves completed evidence in bounded thrown errors, with artifact references for oversized text and images. Registration preserves Pi's thrown-error failure contract. Operation-specific validation stays with each tool. |
-| Host tool failure adaptation | [`src/tools/tool-result-error.ts`](src/tools/tool-result-error.ts) converts internal error results into bounded thrown errors at registration. Success result shapes remain unchanged; original error diagnostics stay available on the exception. |
+| Query execution and partial receipts | [`src/tools/query-envelope.ts`](src/tools/query-envelope.ts) owns ordering, preflight, concurrency, and cancellation. Schema conversion preserves the owning validator's constraints. [`src/tools/query-batch-error.ts`](src/tools/query-batch-error.ts) preserves complete evidence from successful and failed rows, including a first-item failure. Operation-specific validation stays with each tool. |
+| Host tool failure adaptation | [`src/tools/tool-result-error.ts`](src/tools/tool-result-error.ts) converts internal error results into Pi's thrown-error channel without clipping content. Images are serialized as JSON in that text-only channel. Success result shapes remain unchanged. |
 | File mutations | [`docs/FILE_MUTATIONS.md`](docs/FILE_MUTATIONS.md) defines the dedicated `@octocodeai/octocode-extension-rust` boundary: native snapshots, mutations, sync and diff; TypeScript owns text semantics, path policy, batches and receipts. |
 | Synchronous state publication | [`src/tools/atomic-state-file.ts`](src/tools/atomic-state-file.ts) owns atomic private-state and rebuildable-workspace publication; registries, MCP configuration, and discovery use that boundary |
 | MCP discovery and execution | [`src/tools/mcp-tool.ts`](src/tools/mcp-tool.ts) and [`src/tools/mcp/config.ts`](src/tools/mcp/config.ts). [`src/tools/mcp/catalog-model.ts`](src/tools/mcp/catalog-model.ts) owns snapshot types and stable identity; [`src/tools/mcp/catalog-execution.ts`](src/tools/mcp/catalog-execution.ts) owns exact-schema freshness, single-flight discovery, and invalidation fencing; [`src/tools/mcp/presentation.ts`](src/tools/mcp/presentation.ts) owns Pi rendering and schema diagnostics. Persistence and paging depend on the neutral catalog model without a runtime cycle. |
 | Skill discovery | [`src/tools/skill-discovery.ts`](src/tools/skill-discovery.ts); the `skill` tool consumes that inventory from [`src/tools/skill-tool.ts`](src/tools/skill-tool.ts) |
+| MCP client requests | [`src/tools/mcp/client-handlers.ts`](src/tools/mcp/client-handlers.ts) owns roots, sampling, elicitation, and request-scoped cancellation. Sampling sends complete message payloads; display previews never become model input. The gateway owns catalog invalidation through a callback. |
 | Worker spawning and waits | [`src/tools/agents/tool.ts`](src/tools/agents/tool.ts), [`src/tools/agents/lifecycle.ts`](src/tools/agents/lifecycle.ts), and [`src/tools/agents/wait.ts`](src/tools/agents/wait.ts) |
 | Capability sources and review | `@octocodeai/agent-contracts/capability-sources`, `agent-skills`, and `capability-state`; Pi applies host trust and enablement through the skill/MCP adapters |
 | Model and command-hook adapters | [`src/adapters/pi-capability-adapters.ts`](src/adapters/pi-capability-adapters.ts) owns initialization, refresh, and disposal; [capability reference](docs/CAPABILITIES.md) owns source and execution contracts |
@@ -30,6 +31,9 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 | Plan projection | [`src/tools/plan-read-model.ts`](src/tools/plan-read-model.ts) |
 
 This reference does not assign quality grades or claim token savings without a measured baseline.
+
+The [runtime audit](docs/RUNTIME_AUDIT.md) records implementation repairs, upstream
+comparisons, and validation limits for the September 13, 2026 review.
 
 ---
 
@@ -62,18 +66,30 @@ previously resolved inventory that could introduce a second source identity.
 |---|---|---|
 | `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 20k tokens |
 | `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 2k tokens |
-| `mcp-tool-contracts` | `<mcp_catalog_index>` (schema-aware, default) or `<mcp_catalog>` (unoptimized, `OCTOCODE_COMPACT_MCP=0`) | 30k tokens |
+| `mcp-tool-contracts` | Complete schemas in `<mcp_catalog_index>` (default) or `<mcp_catalog>` (`OCTOCODE_COMPACT_MCP=0`) | Shared initial-context allowance; no smaller catalog cap |
 | `runtime-tool-contracts` | `<runtime_capabilities>` and current `capability_revision` | 10k tokens |
 | `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 20k tokens |
 | `available-skills` | `<available_skills>` — discovered skill list | 20k tokens |
 | `session-artifact-contract` | Session memory and audit paths | 1k tokens |
 | `agents-protocol` | Exact native `AGENTS.md` content, attributed as user-authority project instructions | 20k tokens |
 
+These are per-segment estimated maxima, not reserved allocations. Initial segments
+also share an 80k aggregate ceiling. The final prompt, direct tool contracts, and
+new turn context must fit the smaller of 120k estimated tokens and the selected
+model's valid declared context window. Missing model metadata retains the 120k
+fallback. Overflow fails preparation without clipping content. Estimates use
+`ceil(UTF-16 characters / 4)`; they are not tokenizer counts or provider usage.
+Pi owns retained conversation, output allocation, and automatic compaction.
+
 Workers receive only segments supported by their grant of native tools, exact
 skill IDs, and MCP server/tool pairs. Their role prompt remains caller-owned;
 MCP/skill catalogs and host bindings use the shared attribution and token budgets.
 Native project instruction discovery is suppressed for workers, whose task context
 comes from the explicit worker packet.
+
+Explicit worker thinking levels pass to Pi unchanged; omitted levels use Pi's
+settings. Pi's model/provider adapter owns reasoning compatibility, not model-name
+heuristics in the extension.
 
 The active plan is a separate attributed turn-context segment, budgeted at 15k
 tokens. After compaction or resume, its current full content is delivered when
@@ -84,7 +100,7 @@ tokens and never rehydrated as current state. It carries changed advisory action
 from fresh host receipts; unavailable sensors do not establish recovery. The
 shared Zod observation contract belongs to `agent-contracts`, thresholds belong to
 Awareness, and actual compaction/retry control remains with Pi. The observer uses
-the same hook composer as output-budget and prompt middleware, retains only a
+the same hook composer as lifecycle and prompt middleware, retains only a
 bounded numeric tool-outcome window, and exposes `readPiPhysiology(ctx)` to trusted
 integrations. It adds no model-facing tool or shared SQLite state.
 
@@ -111,6 +127,16 @@ including the original request and recent amendments. This history explicitly
 preserves completion and supersession; it does not create a new work queue.
 Recovery is committed only after prompt assembly succeeds, so a budget failure
 can retry it. Compaction leaves Pi's current tool selection intact.
+
+Prompt preparation remains pending until the complete assembly succeeds. If it
+fails, the `agent_start` hook aborts before provider dispatch. This uses Pi's
+active-run cancellation boundary: `before_agent_start` has no active run signal,
+and Pi catches errors from that hook. The guard belongs to the session-state
+identity and exact scope; replacement sessions do not inherit a failed preparation.
+Physiology advisories also commit only after successful assembly, so a failed
+attempt cannot consume a warning that never reached model context. Passive tool
+observations include their monotonic tool counter in their identity, preserving
+distinct same-millisecond outcomes while deduplicating terminal-event replays.
 
 Execution also validates current enablement at use time. A changed MCP or skill
 source updates the next prompt projection. Bounded MCP list → describe and skill
@@ -143,6 +169,8 @@ OVERRIDDEN_BUILTIN_TOOL_NAMES = ['bash']
 ### 3.2 Direct Pi tools (15 including the `bash` override)
 
 Registered in `registerSupportToolPhase` in [`src/index.ts`](src/index.ts):
+
+[`registerUniqueTool`](src/tools/octocode-tools.ts) preserves tool-owned schemas and input preparation, adapts failures, and prefixes prompt guidelines with the owning tool name because Pi combines those guidelines into a flat section.
 
 | Tool | Source file | Purpose |
 |---|---|---|
@@ -180,9 +208,9 @@ tool palette. Measure the live contracts before estimating context savings.
 
 | Tool | Field gotcha |
 |---|---|
-| `localSearch` | `searchText` for text search (not `query`) |
-| `localFetch` | Standard |
-| `astSearch` | `operation` selects match/files/tree/symbols/topology |
+| `localSearch` | `searchText` for text search; `include` and `exclude` accept globs |
+| `localFetch` | `fullContent`, `matchString`, and `startLine` plus `endLine` are exclusive extraction modes |
+| `astSearch` | `files` uses `names`, `pathPattern`, or `pathRegex`; `pattern` and `rule` belong to `match` |
 | `lspSearch` | `operation` selects semantic query |
 | `ghSearch` | Standard |
 | `ghGetFileContent` | Standard |
@@ -191,7 +219,7 @@ tool palette. Measure the live contracts before estimating context savings.
 | `ghCloneRepo` | Standard |
 | `artifactSearch` | Standard |
 
-**Protocol**: The prompt publishes every enabled tool's complete input contract. Call it as `MCPTool({queries:[{reasoning, action:"call", server:"octocode", tool:"<name>", arguments:<schema-shaped input>} ]})`; target-tool fields never sit beside `action`/`server`/`tool`. Use `action:"describe"` only to return one selected exact JSON schema.
+**Protocol**: The prompt publishes every enabled tool's complete input contract. Call it as `MCPTool({queries:[{reasoning, action:"call", server:"octocode", tool:"localFetch", arguments:{queries:[{path:"/ABS/repo/README.md", fullContent:true}]}}]})`. The outer Pi query owns `reasoning`, `action`, `server`, and `tool`; target-tool fields stay in `arguments.queries[]`. Omit target `goal` and `reasoning` when the Octocode schema marks them auto-filled. Use `action:"describe"` only to return one selected exact JSON schema.
 
 ### 3.4 MCP binary resolution (`mcp/config.ts`)
 
@@ -199,15 +227,14 @@ tool palette. Measure the live contracts before estimating context savings.
 resolveLocalOctocodeMcpBin():
   1. import.meta.resolve('octocode-mcp')  → fileURLToPath → local binary
      (requires ESM context; package.json: "type":"module" ✓)
-  2. fallback: npx -y octocode-mcp@<fallback-version-range>
+  2. fallback: npx -y octocode-mcp@<declared-dependency-version>
 
 buildDefaultOctocodeMcpServer():
   { command: process.execPath, args: [localBin] }  ← preferred
-  { command: 'npx', args: ['-y', `octocode-mcp@${OCTOCODE_MCP_FALLBACK_VERSION}`] }
+  { command: 'npx', args: ['-y', `octocode-mcp@${version}`] }
 ```
 
-The fallback range is owned by `OCTOCODE_MCP_FALLBACK_VERSION` in
-[`src/tools/mcp/config.ts`](src/tools/mcp/config.ts); it is not `latest` or an exact version pin.
+[`src/package-metadata.ts`](src/package-metadata.ts) reads the fallback version from the extension manifest's `dependencies.octocode-mcp`. It also supplies the extension version to MCP client identification, update checks, and the UI. No separate version pin needs synchronization.
 
 ### 3.5 Discovery ownership
 
@@ -555,5 +582,4 @@ Never reimplement — import from `@octocodeai/config`.
 |---|---|---|
 | A source can change after a page or prompt was generated | Revision boundary | Execution revalidates access; stale browser mutations are rejected and the next turn projects current capabilities. Restart list paging with its returned continuation. |
 | Skill loading returns a bounded first page and supporting-file preview | Recovery contract | `src/tools/skill-tool.ts` reports typed partial reasons and executable `MCPTool` continuations. Follow content pages before acting; merge file discovery results with the preview and follow their continuations. |
-| Schema field name surprises (`searchText`, `type` for lsp) | Medium | `MCPTool action:"describe"` exposes the current schema before execution |
 | Plan HTML uses meta-refresh (3s) | Transport constraint | Refresh behavior is separate from the plan state and review transaction |

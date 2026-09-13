@@ -107,6 +107,10 @@ struct GraphImport {
     local_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imported_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imported_range: Option<Range>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_range: Option<Range>,
 }
 
 #[derive(Serialize)]
@@ -547,7 +551,7 @@ fn collect_import_declaration(
     let specifier = decl.source.value.as_str().to_string();
     if let Some(specifiers) = &decl.specifiers {
         for (index, item) in specifiers.iter().enumerate() {
-            let (local_name, imported_name, import_kind) = match item {
+            let (local_name, imported_name, import_kind, imported_range, local_range) = match item {
                 ImportDeclarationSpecifier::ImportSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     module_export_name(&spec.imported),
@@ -556,16 +560,22 @@ fn collect_import_declaration(
                     } else {
                         spec.import_kind
                     }),
+                    Some(li.range(spec.imported.span())),
+                    Some(li.range(spec.local.span)),
                 ),
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     Some("default".to_string()),
                     import_export_kind(decl.import_kind),
+                    None,
+                    Some(li.range(spec.local.span)),
                 ),
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     Some("*".to_string()),
                     import_export_kind(decl.import_kind),
+                    None,
+                    Some(li.range(spec.local.span)),
                 ),
             };
             out.push(GraphImport {
@@ -575,6 +585,8 @@ fn collect_import_declaration(
                 import_kind,
                 local_name,
                 imported_name,
+                imported_range,
+                local_range,
             });
         }
     } else {
@@ -585,6 +597,8 @@ fn collect_import_declaration(
             import_kind: import_export_kind(decl.import_kind),
             local_name: None,
             imported_name: None,
+            imported_range: None,
+            local_range: None,
         });
     }
 }
@@ -751,6 +765,40 @@ fn flatten_symbols(
 
 #[cfg(test)]
 mod graph_occurrence_tests {
+    #[test]
+    fn import_ranges_do_not_invent_synthetic_name_tokens() {
+        let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("import value from './a'; import * as namespace from './b'; import { plain } from './c'; import './side';", "imports.ts").unwrap()).unwrap();
+        let imports = value["imports"].as_array().unwrap();
+        for import in &imports[..2] {
+            assert!(import.get("importedRange").is_none());
+            assert!(import.get("localRange").is_some());
+        }
+        assert_eq!(imports[2]["localRange"], imports[2]["importedRange"]);
+        assert!(imports[3].get("importedRange").is_none());
+        assert!(imports[3].get("localRange").is_none());
+    }
+
+    #[test]
+    fn named_import_binding_ranges_are_exact_utf16() {
+        let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("const marker = \"😀\"; import { target as first, target as second } from './origin';\nimport {\n target as third\n} from './origin';\n", "aliases.ts").unwrap()).unwrap();
+        let imports = value["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 3);
+        for (index, (line, imported, local, length)) in
+            [(0, 30, 40, 5), (0, 47, 57, 6), (2, 1, 11, 5)]
+                .into_iter()
+                .enumerate()
+        {
+            assert_eq!(
+                imports[index]["importedRange"],
+                serde_json::json!({"start":{"line":line,"character":imported},"end":{"line":line,"character":imported+6}})
+            );
+            assert_eq!(
+                imports[index]["localRange"],
+                serde_json::json!({"start":{"line":line,"character":local},"end":{"line":line,"character":local+length}})
+            );
+        }
+    }
+
     use super::extract_graph_facts;
 
     fn common_js(source: &str) -> serde_json::Value {

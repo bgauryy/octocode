@@ -13,10 +13,11 @@ export { formatMcpSchemaValidationErrors };
 import { isWorkerCapabilityClient, dispatchWorkerMcpAction, getCurrentWorkerCapabilities } from './worker-capabilities.js';
 import { readMcpCatalogPage } from './mcp/catalog-pages.js';
 import { workerMcpCatalogSnapshot } from './mcp/worker-catalog.js';
-import { DIRECT_TOOL_DESCRIPTIONS, MCP_SCHEMA_DISCOVERY_EXAMPLE } from './octocode-tools.js';
+import { DIRECT_TOOL_DESCRIPTIONS, MCP_SCHEMA_DISCOVERY_EXAMPLE, OCTOCODE_MCP_CALL_EXAMPLE } from './octocode-tools.js';
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { registerMcpClientHandlers } from './mcp/client-handlers.js';
+import { readOwnVersion } from '../package-metadata.js';
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -65,9 +66,9 @@ import { assertPathAllowed } from "./path-guard.js";
 import {
   buildQueryEnvelopeSchema,
   executeQueryBatch,
-  QueryBatchError,
   type QueryRecord,
 } from "./query-envelope.js";
+import { QueryBatchError } from './query-batch-error.js';
 import { runSelectOverlay } from "./ui-overlays.js";
 import {
   publishMcpRuntimeState,
@@ -104,6 +105,7 @@ import {
 import { isCompactMcpEnabled, isMcpAiGuideEnabled } from "./mcp/env.js";
 import { collectMcpPages, type McpCursorPage } from "./mcp/pagination.js";
 import {
+  assistantText,
   resolveMcpCallContent,
   resolveMcpCallTable,
   summarizeMcpCallDetails,
@@ -276,7 +278,7 @@ async function connectServer(
     stderr = stdio.stderr;
   }
   const client = new Client(
-    { name: "octocode-pi-extension", version: "1.5.0" },
+    { name: "octocode-pi-extension", version: readOwnVersion() ?? "unknown" },
     {
       capabilities: {
         roots: { listChanged: true },
@@ -292,7 +294,11 @@ async function connectServer(
       },
     },
   );
-  registerMcpClientHandlers(client, name, ctx, signal);
+  registerMcpClientHandlers(client, name, ctx, () => {
+    invalidateServerCache(name);
+    markMcpPromptStale(ctx);
+    queueMcpCatalogRefresh(ctx);
+  });
   const connection: McpConnection = {
     name,
     config,
@@ -352,166 +358,6 @@ function refreshChangedMcpServer(name: string, ctx?: PiContext): void {
       "info",
     );
   queueMcpCatalogRefresh(ctx);
-}
-
-function requestSummary(value: unknown, max = 1_200): string {
-  const text = JSON.stringify(value)?.replace(/\s+/g, " ") ?? String(value);
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
-function registerMcpClientHandlers(
-  client: Client,
-  serverName: string,
-  ctx?: PiContext,
-  signal?: AbortSignal,
-): void {
-  client.setRequestHandler("roots/list", async () => {
-    const trusted = ctx?.isProjectTrusted
-      ? Boolean(await ctx.isProjectTrusted())
-      : false;
-    if (!trusted || !ctx?.cwd) return { roots: [] };
-    return {
-      roots: [
-        {
-          uri: pathToFileURL(path.resolve(ctx.cwd)).href,
-          name: path.basename(path.resolve(ctx.cwd)) || "workspace",
-        },
-      ],
-    };
-  });
-  client.setRequestHandler("sampling/createMessage", async (request) => {
-    const params = request.params as Record<string, unknown>;
-    if (
-      !ctx?.hasUI ||
-      !ctx.ui?.confirm ||
-      !ctx.model ||
-      !ctx.modelRegistry?.complete
-    ) {
-      throw new Error(
-        `MCP ${serverName} sampling denied: an interactive model session is required`,
-      );
-    }
-    const approved = await ctx.ui.confirm(
-      `Allow MCP sampling from ${serverName}?`,
-      `${requestSummary(params["messages"])}\nmaxTokens: ${String(params["maxTokens"] ?? "server default")}`,
-      { signal },
-    );
-    if (!approved) throw new Error(`MCP ${serverName} sampling denied by user`);
-    const response = await ctx.modelRegistry.complete(
-      ctx.model,
-      {
-        systemPrompt:
-          typeof params["systemPrompt"] === "string"
-            ? params["systemPrompt"]
-            : undefined,
-        messages: [
-          {
-            role: "user",
-            content: requestSummary(params["messages"], 24_000),
-            timestamp: Date.now(),
-          },
-        ],
-      },
-      { signal },
-    );
-    const text = assistantText(response);
-    if (!text) throw new Error(`MCP ${serverName} sampling returned no text`);
-    return {
-      role: "assistant" as const,
-      content: { type: "text" as const, text },
-      model: ctx.model.id ?? "octocode-active-model",
-      stopReason: "endTurn" as const,
-    };
-  });
-  client.setRequestHandler("elicitation/create", async (request) => {
-    const params = request.params as Record<string, unknown>;
-    if (!ctx?.hasUI || !ctx.ui?.confirm) return { action: "decline" as const };
-    const message =
-      typeof params["message"] === "string"
-        ? params["message"]
-        : `MCP ${serverName} requests input.`;
-    const approved = await ctx.ui.confirm(
-      `MCP input request from ${serverName}`,
-      message,
-      { signal },
-    );
-    if (!approved) return { action: "decline" as const };
-    if (params["mode"] === "url") {
-      const url = typeof params["url"] === "string" ? params["url"] : undefined;
-      if (url)
-        ctx.ui.notify?.(
-          `Open this approved MCP URL to continue: ${url}`,
-          "info",
-        );
-      return { action: "accept" as const };
-    }
-    if (!ctx.ui.editor) return { action: "decline" as const };
-    const value = await ctx.ui.editor(`Input for ${serverName}`, "{}");
-    if (value === undefined) return { action: "cancel" as const };
-    let content: Record<string, string | number | boolean | string[]>;
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      if (!isPlainRecord(parsed))
-        throw new Error("input must be a JSON object");
-      content = {};
-      for (const [key, raw] of Object.entries(parsed)) {
-        if (
-          typeof raw === "string" ||
-          typeof raw === "number" ||
-          typeof raw === "boolean"
-        )
-          content[key] = raw;
-        else if (
-          Array.isArray(raw) &&
-          raw.every((item) => typeof item === "string")
-        )
-          content[key] = raw;
-        else
-          throw new Error(
-            `${key} must be a string, number, boolean, or string array`,
-          );
-      }
-    } catch (error) {
-      ctx.ui.notify?.(
-        `MCP input rejected: ${(error as Error).message}`,
-        "warning",
-      );
-      return { action: "cancel" as const };
-    }
-    return { action: "accept" as const, content };
-  });
-  client.setNotificationHandler(
-    "notifications/message",
-    async (notification) => {
-      const params = notification.params as Record<string, unknown>;
-      const level =
-        params["level"] === "error"
-          ? "error"
-          : params["level"] === "warning"
-            ? "warning"
-            : "info";
-      runtimeStoreFor(ctx)
-        ?.getState()
-        .announce(
-          `MCP ${serverName}: ${requestSummary(params["data"])}`,
-          level,
-        );
-    },
-  );
-  client.setNotificationHandler(
-    "notifications/progress",
-    async (notification) => {
-      const params = notification.params as Record<string, unknown>;
-      publishMcpRuntimeState(ctx, {
-        message: `progress ${String(params["progress"] ?? "")}${params["total"] !== undefined ? `/${String(params["total"])}` : ""}`,
-      });
-    },
-  );
-  client.setNotificationHandler('notifications/tools/list_changed', () => {
-    invalidateServerCache(serverName);
-    markMcpPromptStale(ctx);
-    queueMcpCatalogRefresh(ctx);
-  });
 }
 
 async function stopConnection(name: string): Promise<boolean> {
@@ -903,19 +749,6 @@ function notifyMcpWarm(
   }
 }
 
-function assistantText(message: unknown): string | undefined {
-  if (!isPlainRecord(message) || !Array.isArray(message["content"]))
-    return undefined;
-  const text = message["content"]
-    .filter(isPlainRecord)
-    .filter(
-      (part) => part["type"] === "text" && typeof part["text"] === "string",
-    )
-    .map((part) => String(part["text"]))
-    .join("\n")
-    .trim();
-  return text || undefined;
-}
 
 export async function generateMcpCatalogGuide(
   snapshot: McpCatalogSnapshotV1,
@@ -1482,7 +1315,7 @@ export async function getMcpDiscoverySnapshot(
         name: String(tool["name"] ?? ""),
         description:
           typeof tool["description"] === "string"
-            ? capCatalogText(tool["description"], 300)
+            ? tool["description"]
             : "",
       }));
       return {
@@ -2387,6 +2220,7 @@ export function registerMcpTool(
       "Gateway to connected MCP servers, including the built-in octocode research catalog in <mcp_catalog_index>.",
     promptGuidelines: [
       `Describe example: MCPTool(${MCP_SCHEMA_DISCOVERY_EXAMPLE}). Substitute the selected catalog name; reuse its schema afterward.`,
+      `Octocode call example: MCPTool(${OCTOCODE_MCP_CALL_EXAMPLE}). reasoning belongs to the outer MCPTool query; target fields belong only in arguments.queries[]. Omit auto-filled target goal/reasoning.`,
       "Use responseView:\"table\" for large count/reference batches.",
       "Use resources/read-resource and prompts/get-prompt/complete for the non-tool core MCP primitives.",
       "add/remove changes $OCTOCODE_HOME/extension/mcp/servers.json or trusted workspace config; restart/stop manages connections. Config changes reload automatically. The built-in octocode server cannot be removed.",

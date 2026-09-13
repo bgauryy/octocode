@@ -38,6 +38,10 @@ export interface SearchStats {
   capped?: boolean;
   /** Native diagnostic naming the fixed safety ceiling that was reached. */
   capReason?: string;
+  /** Native traversal/matching failures leave coverage incomplete. */
+  errorCount?: number;
+  /** Bounded first failure detail; successful files remain available. */
+  firstError?: string;
 }
 
 export interface CacheStats {

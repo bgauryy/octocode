@@ -120,7 +120,7 @@ test('automatic footer lists active workers with updates beside the running plan
   const text = renderFooterView({ rows:selected.rows }, { width:120 }).join('\n');
   assert.match(text, /running.*atlas.*tool localSearch/);
   assert.match(text, /queued.*nova.*follow-up ready/);
-  assert.match(text, /Plan 1\/4.*task 2 running.*Implementing/);
+  assert.match(text, /Plan 1\/4.*running: Implementing/);
   assert.doesNotMatch(text, /old-worker|stopped-worker/);
   assert.equal(selected.rows.length, 3);
 });
@@ -129,15 +129,15 @@ test('compact plan keeps the current task while a tool is running', () => {
   const source = snapshot({ session: { ...snapshot().session, activity: { kind:'working', label:'MCPTool localSearch' } } });
   const selected = selectStatusRows(source, { width:100, height:24, density:'compact' });
   const text = renderFooterView({ rows:selected.rows }, { width:100 }).join('\n');
-  assert.match(text, /Plan 1\/4.*task 2 running.*Implementing/);
-  assert.match(text, /MCPTool localSearch/);
+  assert.match(text, /Plan 1\/4.*running: Implementing/);
+  assert.doesNotMatch(text, /MCPTool localSearch/, 'compact mode merges activity into the current plan row');
 });
 
 test('compact worker overflow stays on the roster without displacing plan and task state', () => {
   const source = snapshot({ agents:[{...agent(1),label:'atlas'}, {...agent(2),label:'nova'}] });
   const selected = selectStatusRows(source, { width:52, height:24, density:'compact' });
   const lines = renderFooterView({ rows:selected.rows }, { width:52 });
-  assert.match(lines[0]!, /Plan 1\/4.*task 2 running/);
+  assert.match(lines[0]!, /Plan 1\/4.*running: Implementing/);
   assert.doesNotMatch(lines[0]!, /inbox/);
   assert.match(lines[1]!, /running.*atlas.*\+1 agent.*inbox/);
 });
@@ -163,7 +163,7 @@ test('plan phases distinguish review from execution and retain the verifying tas
   }
   const selected = selectStatusRows({ ...source, plan:{...source.plan!,phase:'verifying'} }, { width:100, height:40 });
   const text = selected.rows[selected.rowIds.indexOf('plan:progress')]!.map(segment => segment.text).join(' ');
-  assert.match(text, /Plan verifying.*task 2 verifying: Implementing/);
+  assert.match(text, /Plan verifying.*verifying: Implementing/);
 });
 
 test('recent completed workers remain briefly visible, then leave the footer for the inbox', () => {
@@ -320,7 +320,7 @@ test('one-row automatic footer exposes urgent context and its route without coun
   assert.equal(result.rows.length, 1);
   assert.equal(result.maxRows, 1);
   assert.ok(result.omitted > 0);
-  assert.match(text, /ctx 96%.*\/configuration/);
+  assert.match(text, /context 96%.*\/configuration/);
   assert.doesNotMatch(
     text,
     /hidden|more/i,
@@ -464,7 +464,7 @@ test('dynamic progress reports state counts without a fixed denominator', () => 
     segment => segment.text
   ).join(' ');
   assert.match(text, /3 done.*2 active.*scope changing/);
-  assert.match(text, /task 2 running: Implementing/);
+  assert.match(text, /running: Implementing/);
   assert.doesNotMatch(text, /3\/8|%/);
 });
 

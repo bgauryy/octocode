@@ -47,7 +47,7 @@ function getOutputMode(args: ParsedArgs): OutputMode {
   if (args.options.yaml === true || args.options.text === true) {
     return 'text';
   }
-  if (args.options.json === true) {
+  if (args.options.json === true && args.options.compact !== true) {
     return 'json';
   }
 

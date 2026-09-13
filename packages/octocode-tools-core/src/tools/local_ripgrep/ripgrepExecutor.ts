@@ -13,9 +13,21 @@ import type { LocalSearchCodeFile } from '@octocodeai/octocode-core/types';
 import type { LocalSearchCodeToolResult } from '@octocodeai/octocode-core/extra-types';
 import { buildSearchResult } from './ripgrepResultBuilder/buildResult.js';
 import { preflightValidateRipgrepPattern } from './patternValidation.js';
+import { regexErrorRecovery } from './regexErrorRecovery.js';
 import { attachRawResponseChars } from '../../utils/response/charSavings.js';
 import { contextUtils } from '../../utils/contextUtils.js';
 import type { RipgrepSearchOptions } from '@octocodeai/octocode-engine';
+import {
+  canSnapshotLexicalQuery,
+  captureLexicalSource,
+  loadLexicalPageManifest,
+  saveLexicalPageManifest,
+  fingerprintLexicalResult,
+} from './pageManifest.js';
+import {
+  nativeSearchPartialReasons,
+  staleSearchSnapshotResult,
+} from './searchCompleteness.js';
 
 /** Filesystem sorts the native engine understands. */
 type EngineSort = 'path' | 'created' | 'modified' | 'accessed';
@@ -173,6 +185,35 @@ export async function executeRipgrepSearchInternal(
 
   const chunkingWarnings: string[] = [...patternCheck.warnings];
 
+  const liveSnapshot = /^lexical-live-v1:[a-f0-9]{64}$/.test(
+    queryForExec.snapshot ?? ''
+  );
+  if (queryForExec.snapshot && !liveSnapshot) {
+    const manifest = await loadLexicalPageManifest({
+      query: queryForExec,
+      root: queryForExec.path,
+    });
+    if (manifest.status === 'loaded') {
+      return attachRawResponseChars(
+        await buildSearchResult(
+          manifest.files,
+          query,
+          'rg',
+          [...validationWarnings, ...chunkingWarnings],
+          manifest.stats
+        ),
+        estimateResponseChars(manifest.files)
+      );
+    }
+    return staleSearchSnapshotResult(query, manifest.reason);
+  }
+  // Capture before scanning as well as before persistence, so a mutation during
+  // the native search cannot acquire a valid continuation snapshot.
+  const source =
+    !liveSnapshot && canSnapshotLexicalQuery(queryForExec)
+      ? await captureLexicalSource(queryForExec.path)
+      : undefined;
+
   // Native, in-process ripgrep: no `rg` binary, no spawn. The walk runs on the
   // libuv thread pool, returning the same `{ files, stats }` shape the old
   // `rg --json` + parser path produced.
@@ -187,6 +228,7 @@ export async function executeRipgrepSearchInternal(
         toolName: TOOL_NAMES.LOCAL_RIPGREP,
         extra: {
           warnings: [...validationWarnings, ...chunkingWarnings],
+          ...regexErrorRecovery(error, query),
         },
       }
     ) as LocalSearchCodeToolResult;
@@ -218,7 +260,19 @@ export async function executeRipgrepSearchInternal(
     searchTime: parsed.stats.searchTime,
     capped: parsed.stats.capped ?? undefined,
     capReason: parsed.stats.capReason ?? undefined,
+    errorCount: parsed.stats.errorCount || undefined,
+    firstError: parsed.stats.firstError ?? undefined,
   };
+  const snapshot = fingerprintLexicalResult({
+    query: queryForExec,
+    root: queryForExec.path,
+    files,
+    stats,
+  });
+  if (liveSnapshot && queryForExec.snapshot !== snapshot) {
+    return staleSearchSnapshotResult(query, 'resultsChanged');
+  }
+  const partialReasons = nativeSearchPartialReasons(stats);
 
   if (parsed.stats.capped) {
     chunkingWarnings.push(
@@ -243,14 +297,18 @@ export async function executeRipgrepSearchInternal(
         status: 'empty',
         searchEngine: 'rg',
         stats,
-        ...(parsed.stats.capped
+        ...(partialReasons.length > 0
           ? {
               terminalLimit: true,
               truncated: true,
-              partialReasons: ['nativeResultCap'],
+              partialReasons,
             }
           : {}),
-        hints: broadenHints,
+        hints: parsed.stats.errorCount
+          ? [
+              'Check stats.firstError and file access; incomplete search coverage cannot establish absence.',
+            ]
+          : broadenHints,
         warnings: [...validationWarnings, ...chunkingWarnings],
       } as LocalSearchCodeToolResult,
       responseChars
@@ -266,12 +324,57 @@ export async function executeRipgrepSearchInternal(
     );
   }
 
-  const searchResult = await buildSearchResult(
+  let searchResult = await buildSearchResult(
     files,
     query,
     'rg',
     [...validationWarnings, ...chunkingWarnings],
     stats
   );
+  if (
+    source &&
+    searchResult.next &&
+    typeof searchResult.next === 'object' &&
+    ('nextPage' in searchResult.next || 'nextMatchPage' in searchResult.next)
+  ) {
+    const saved = await saveLexicalPageManifest({
+      root: queryForExec.path,
+      query: queryForExec,
+      files,
+      stats,
+      source,
+    });
+    if (saved.status === 'saved') {
+      searchResult = await buildSearchResult(
+        saved.files,
+        { ...query, snapshot: saved.snapshot },
+        'rg',
+        [...validationWarnings, ...chunkingWarnings],
+        stats
+      );
+    }
+  }
+  // Live continuations re-run native search and check result identity. No disk
+  // snapshot or additional filesystem inventory is needed for ignored scopes.
+  if (
+    partialReasons.length === 0 &&
+    searchResult.pagination &&
+    searchResult.next &&
+    typeof searchResult.next === 'object' &&
+    !searchResult.pagination.snapshot
+  ) {
+    const next = searchResult.next as Record<
+      string,
+      { query?: Record<string, unknown> }
+    >;
+    if ('nextPage' in next || 'nextMatchPage' in next) {
+      searchResult.pagination = { ...searchResult.pagination, snapshot };
+      for (const name of ['nextPage', 'nextMatchPage']) {
+        const continuation = next[name];
+        if (continuation?.query)
+          continuation.query = { ...continuation.query, snapshot };
+      }
+    }
+  }
   return attachRawResponseChars(searchResult, responseChars);
 }

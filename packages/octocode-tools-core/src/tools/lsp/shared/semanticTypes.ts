@@ -5,6 +5,37 @@ import type {
 } from '@octocodeai/octocode-engine/lsp/types';
 import type { CompactCall, CompactCallTarget } from './semanticCallTypes.js';
 
+export type ResolvedLanguageServerReceipt = {
+  command: string;
+  argv: string[];
+  source:
+    | 'path'
+    | 'bundled'
+    | 'project-local'
+    | 'ecosystem'
+    | 'managed-cache'
+    | 'ide-bridge';
+  workspaceRoot: string;
+  workspaceFingerprint: string;
+  configurationFingerprint: string;
+  capabilities: Record<string, boolean>;
+  readiness?: 'progressIdle' | 'settledFallback' | 'timeout';
+  identity: {
+    artifacts: Array<{
+      role: 'command' | 'argument';
+      path: string;
+      size: number;
+      sha256?: string;
+    }>;
+    packages: Array<{
+      name?: string;
+      version?: string;
+      manifestPath: string;
+      manifestSha256: string;
+    }>;
+  };
+};
+
 export const SEMANTIC_CONTENT_TYPES = [
   'definition',
   'references',
@@ -76,7 +107,8 @@ export type LspSearchQuery =
   | DiagnosticSemanticQuery;
 
 export type ResolvedSymbol = {
-  name: string;
+  /** Discovery hint, absent for positions outside identifier-shaped text. */
+  name?: string;
   uri: string;
   range: LSPRange;
   foundAtLine: number;
@@ -89,7 +121,8 @@ export type ResolvedSymbol = {
 };
 
 export type CompactResolvedSymbol = {
-  name: string;
+  name?: string;
+  position?: ExactPosition;
   uri: string;
   foundAtLine: number;
   orderHint?: number;
@@ -101,7 +134,8 @@ export function compactResolvedSymbol(
   symbol: ResolvedSymbol
 ): CompactResolvedSymbol {
   return {
-    name: symbol.name,
+    ...(symbol.name !== undefined && { name: symbol.name }),
+    position: symbol.position,
     uri: symbol.uri,
     foundAtLine: symbol.foundAtLine,
     ...(symbol.orderHint !== undefined && { orderHint: symbol.orderHint }),
@@ -114,6 +148,8 @@ export function compactResolvedSymbol(
 
 export type CompactLocation = {
   uri: string;
+  /** Exact provider location: zero-based lines and UTF-16 characters. */
+  range?: LSPRange;
   content?: string;
   displayRange?: { startLine: number; endLine: number };
   isDefinition?: boolean;
@@ -139,6 +175,7 @@ export function compactLocation(snippet: {
       : undefined);
   return {
     uri: snippet.uri,
+    ...(snippet.range && { range: snippet.range }),
     ...(snippet.content !== undefined && { content: snippet.content }),
     ...(displayRange && { displayRange }),
     ...(snippet.isDefinition && { isDefinition: true }),
@@ -170,7 +207,16 @@ export type ConsumerWarmupStats = {
   warmedFiles: number;
   skippedLarge: number;
   possiblyTruncated: boolean;
-  incompleteReasons?: Array<'fileCap' | 'fileRead' | 'search'>;
+  incompleteReasons?: Array<'fileCap' | 'fileRead' | 'search' | 'anchorName'>;
+};
+
+export type ReferenceCoverage = {
+  scope: 'languageServer';
+  exhaustive: false;
+  verifiedAliasBindings?: number;
+  unverifiedAliasBindings?: number;
+  uninspectedFiles?: number;
+  deferredAliasInspection?: true;
 };
 
 export type LspSemanticEnvelope = {
@@ -183,6 +229,8 @@ export type LspSemanticEnvelope = {
     serverAvailable?: boolean;
     provider?: string;
     source?: string;
+    /** Present only when a resolved language server served this response. */
+    receipt?: ResolvedLanguageServerReceipt;
   };
   summary?: unknown;
   payload:
@@ -192,6 +240,7 @@ export type LspSemanticEnvelope = {
         locations?: Array<CompactLocation | string>;
         byFile?: unknown[];
         totalReferences: number;
+        coverage?: ReferenceCoverage;
         totalFiles: number;
         definitionOnly?: boolean;
         warmup?: ConsumerWarmupStats;
@@ -201,12 +250,14 @@ export type LspSemanticEnvelope = {
         kind: 'callers' | 'callees' | 'callHierarchy';
         direction: 'incoming' | 'outgoing' | 'both';
         root?: CompactCallTarget | string;
+        roots?: Array<CompactCallTarget | string>;
         calls: Array<CompactCall | string>;
         incomingCalls?: number;
         outgoingCalls?: number;
         warmup?: ConsumerWarmupStats;
         completeness: {
           complete: boolean;
+          preparedRootCount?: number;
           consumerWarmupIncomplete?: true;
           truncatedByDepth: boolean;
           truncatedByBudget?: boolean;
@@ -229,6 +280,7 @@ export type LspSemanticEnvelope = {
     | {
         kind: 'documentSymbols';
         symbols: unknown[];
+        diagnostics?: Array<{ code: 'parseRecovery'; message: string }>;
         totalSymbols?: number;
         topLevelSymbols?: number;
         empty?: SemanticEmptyState;
@@ -244,8 +296,16 @@ export type LspSemanticEnvelope = {
         kind: 'typeHierarchy';
         direction: 'supertypes' | 'subtypes';
         root?: unknown;
+        roots?: unknown[];
         items: unknown[];
         totalItems: number;
+        completeness?: {
+          complete: boolean;
+          preparedRootCount: number;
+          requestCount: number;
+          failedRequestCount: number;
+          truncatedByBudget: boolean;
+        };
         empty?: SemanticEmptyState;
       }
     | {
@@ -270,11 +330,13 @@ export type LspSemanticEnvelope = {
   incompleteResults?: boolean;
   partialReasons?: Array<
     | 'warmupCap'
+    | 'aliasReferences'
     | 'warmupIncomplete'
     | 'depth'
     | 'budget'
     | 'readinessUnconfirmed'
     | 'pushDiagnosticsRetentionCap'
+    | 'parseRecovery'
   >;
   next?: Record<
     string,

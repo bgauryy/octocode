@@ -56,16 +56,18 @@ describe('shared prompts', () => {
     expect(prompt).toContain('Reuse an observed schema');
     expect(prompt).toContain('A catalog selects a tool; its exact schema defines a valid call');
     expect(prompt).toContain('describe an unfamiliar contract once');
-    expect(prompt).toContain('Guessing fields or absent names produces invalid calls');
-    expect(prompt).toContain('localSearch for text/regex anchors and astSearch for files, trees, symbols, and structural matching');
-    expect(prompt).toContain('unique matchString with bounded context');
-    for (const minify of ['minify:"symbols"', 'minify:"standard"', 'minify:"none"']) {
-      expect(prompt).toContain(minify);
-    }
-    expect(prompt).toContain('dependencies, dependents, paths, cycles/SCCs, reachability, and dead-code candidates');
-    expect(prompt).toContain('definitions, references, callers/callees, implementations, and types');
+    expect(prompt).toContain(sharedPrompts.LOCAL_TOOL_GUIDANCE);
+    expect(prompt.match(/<local_tools>/g)).toHaveLength(1);
     expect(sharedPrompts).toHaveProperty('LOCAL_TOOL_GUIDANCE');
     expect(prompt).not.toContain('localSearch operation:');
+  });
+
+  it('defers parameter contracts to live schemas rather than duplicating them in policy', () => {
+    const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
+    expect(prompt).toContain('live contract owns field names');
+    expect(prompt).toContain('next.* continuations unchanged');
+    expect(prompt).toContain('incomplete or unsupported searches cannot prove absence');
+    expect(prompt).not.toMatch(/fullContent|matchString|namePattern|pathRegex/);
   });
 
   it('keeps plan goals bounded and centralizes atomic Start semantics behind a host adapter', () => {
@@ -123,7 +125,7 @@ describe('shared prompts', () => {
 
   it('routes worker coordination through the five-concept client vocabulary', () => {
     const prompt = expandSubagentPrompt('{{OCTOCODE_COORDINATION}}');
-    for (const text of ['context.orient', 'Work', 'Message.send', 'Message.reply', 'exact message ID', 'Memory', 'History']) {
+    for (const text of ['context.orient', 'Work', 'message.send', 'message.reply', 'exact message ID', 'Memory', 'History']) {
       expect(prompt).toContain(text);
     }
     expect(prompt).not.toMatch(/signal publish|signal reply|signal ack|attend/i);

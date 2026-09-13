@@ -635,6 +635,136 @@ export declare function queryFileSystem(
   options: FileSystemQueryOptions
 ): Promise<FileSystemQueryResult>;
 
+export interface IndexStoreOptions {
+  home: string;
+  rootId: string;
+  rootPath: string;
+  sourceCommit?: string;
+  sourceTree?: string;
+  indexSchemaVersion: number;
+  parserSchemaVersion: number;
+  toolVersion: string;
+  maxGenerations?: number;
+  maxBytes?: number;
+}
+
+export interface IndexBuildRequest {
+  store: IndexStoreOptions;
+  exclusions?: Array<string>;
+  maxFiles?: number;
+  maxEntries?: number;
+  maxDepth?: number;
+  maxFileBytes?: number;
+  maxSourceBytes?: number;
+}
+
+export interface IndexQueryRequest {
+  store: IndexStoreOptions;
+  text: string;
+  /** `content` or `symbol`. */
+  kind: string;
+  caseSensitive?: boolean;
+  offset?: number;
+  limit?: number;
+  /** Bind continuation pages to the generation returned by the first page. */
+  expectedGeneration?: number;
+  freshnessMaxEntries?: number;
+  freshnessMaxDepth?: number;
+}
+
+export interface IndexStatusRequest {
+  store: IndexStoreOptions;
+  freshnessMaxEntries?: number;
+  freshnessMaxDepth?: number;
+}
+
+export interface IndexFreshnessResult {
+  checked: number;
+  fresh: number;
+  generationComplete: boolean;
+  traversalComplete: boolean;
+  scannedEntries: number;
+  added: Array<string>;
+  dirty: Array<string>;
+  deleted: Array<string>;
+  unverifiable: Array<string>;
+  canProveAbsence: boolean;
+}
+
+export interface IndexBuildResult {
+  generation: number;
+  rootId: string;
+  canonicalRoot: string;
+  snapshot: string;
+  documentCount: number;
+  indexedSourceBytes: number;
+  symbolCount: number;
+  complete: boolean;
+  truncated: boolean;
+  limitReason?: string;
+  excludedPaths: Array<string>;
+  skippedBinary: Array<string>;
+  skippedTooLarge: Array<string>;
+  skippedSymlinks: Array<string>;
+  unverifiable: Array<string>;
+  freshness: IndexFreshnessResult;
+  usable: boolean;
+}
+
+export interface IndexQueryMatchResult {
+  path: string;
+  line: number;
+  column: number;
+  startByte: number;
+  endByte: number;
+  value: string;
+  symbolKind?: string;
+}
+
+export interface IndexQueryResult {
+  generation: number;
+  rootId: string;
+  canonicalRoot: string;
+  snapshot: string;
+  matches: Array<IndexQueryMatchResult>;
+  totalMatches: number;
+  nextOffset?: number;
+  exclusions: Array<string>;
+  freshness: IndexFreshnessResult;
+  usable: boolean;
+  absenceProven: boolean;
+  diagnostic?: string;
+}
+
+export interface IndexStatusResult {
+  indexed: boolean;
+  usable: boolean;
+  rootId: string;
+  canonicalRoot: string;
+  generation?: number;
+  snapshot?: string;
+  documentCount: number;
+  indexedSourceBytes: number;
+  exclusions: Array<string>;
+  freshness?: IndexFreshnessResult;
+  diagnostic?: string;
+}
+
+/** Build and atomically activate one bounded persistent-index generation. */
+export declare function buildIndex(
+  options: IndexBuildRequest
+): Promise<IndexBuildResult>;
+
+/** Query a strictly fresh generation; stale indexes return no payload. */
+export declare function queryIndex(
+  options: IndexQueryRequest
+): Promise<IndexQueryResult>;
+
+/** Inspect active-generation identity and strict freshness. */
+export declare function indexStatus(
+  options: IndexStatusRequest
+): Promise<IndexStatusResult>;
+
 /**
  * Resolve a fuzzy symbol position (name + optional line hint) to an exact
  * line/character position inside the file at `file_path`.
@@ -788,6 +918,10 @@ export interface RipgrepStats {
   searchTime?: string;
   capped?: boolean;
   capReason?: string;
+  /** Traversal or per-file failures: nonzero means incomplete search coverage. */
+  errorCount?: number;
+  /** First collection failure, bounded to 512 characters. */
+  firstError?: string;
 }
 
 /**

@@ -55,7 +55,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     } as LspSearchQuery;
     const result = failedAnchorEnvelope(
       query,
-      'Could not find symbol "doThing"'
+      'Could not find symbol "doThing"',
+      'symbolNotFound'
     );
     expect(result.payload).toMatchObject({
       kind: 'empty',
@@ -222,7 +223,7 @@ describe('withSemanticNext — empty-state fallback', () => {
       operation: 'documentSymbols',
       uri: 'src/foo.ts',
     } as LspSearchQuery;
-    const result = failedAnchorEnvelope(query, 'anchor failed');
+    const result = failedAnchorEnvelope(query, 'anchor failed', 'anchorFailed');
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
     expect(withNext.next).toBeUndefined();
   });
@@ -376,6 +377,36 @@ describe('withSemanticNext — empty-state fallback', () => {
         },
       },
     });
+  });
+
+  it('reports a terminal warmup limitation when an exact position has no name', () => {
+    const query: LspSearchQuery = {
+      operation: 'references',
+      uri: '/repo/source.ts',
+      position: { line: 0, character: 3 },
+    };
+    const result: LspSemanticEnvelope = {
+      type: 'references',
+      uri: query.uri!,
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'references',
+        locations: [],
+        totalReferences: 0,
+        totalFiles: 0,
+        warmup: {
+          candidates: 0,
+          warmedFiles: 0,
+          skippedLarge: 0,
+          possiblyTruncated: true,
+          incompleteReasons: ['anchorName'],
+        },
+      },
+    };
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    expect(withNext.terminalLimit).toBe(true);
+    expect(withNext.partialReasons).toEqual(['warmupIncomplete']);
+    expect(withNext.next?.verifyCompleteness).toBeUndefined();
   });
 
   it('expands call depth below the schema maximum and terminalizes fixed budgets', () => {

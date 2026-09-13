@@ -1,16 +1,9 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { TOOL_NAMES } from '../toolMetadata/names.js';
 import { executeBulkOperation } from '../../utils/response/bulk/response.js';
-import {
-  createResponseFormat,
-  sanitizeStructuredContent,
-} from '../../responses.js';
+import { createResponseFormat } from '../../responses.js';
 import type { BulkFinalizer, BulkToolResponse } from '../../types/bulk.js';
 import type { FlatQueryResult } from '../../types/toolResults.js';
-import {
-  hoistSharedFields,
-  relativizeResultPaths,
-} from '../../utils/response/pathRelativize.js';
 import { fetchContent } from './fetchContent.js';
 import {
   LocalFetchContentQuerySchema,
@@ -20,6 +13,7 @@ import { safeParseOrError } from '../utils.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
 import { classifyFileType } from '../../utils/file/configFiles.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
+import { renderSourceLines } from '../../utils/file/sourceCitations.js';
 
 type LocalFetchContentResponse = BulkToolResponse & Record<string, unknown>;
 
@@ -63,16 +57,8 @@ function buildLocalFetchContentFinalizer<
       results: cloneFlatResults(results),
     };
 
-    const dataBase = relativizeResultPaths(responseData.results);
-    if (dataBase) responseData.base = dataBase;
-
-    const shared = hoistSharedFields(responseData.results);
-    if (shared) responseData.shared = shared;
-
     return {
-      structuredContent: sanitizeStructuredContent(
-        responseData
-      ) as LocalFetchContentResponse,
+      structuredContent: responseData as LocalFetchContentResponse,
       renderText: structuredContent =>
         formatLocalFetchContentText(
           structuredContent as unknown as BulkToolResponse
@@ -142,7 +128,13 @@ function formatLocalFetchContentText(responseData: BulkToolResponse): string {
     if (metadata) lines.push(metadata);
 
     if (content !== undefined) {
-      lines.push('content (copy-safe):', content);
+      const numbered = renderSourceLines(content, data.sourceLineRanges);
+      lines.push(
+        numbered === undefined
+          ? 'content (copy-safe):'
+          : 'content (source lines):',
+        numbered ?? content
+      );
     }
     lines.push('');
   }

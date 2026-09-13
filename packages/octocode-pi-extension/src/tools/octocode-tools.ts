@@ -12,7 +12,7 @@
 import { withOctocodeRender } from '../branding/renderers.js';
 import type { ToolDefinition } from '../types.js';
 import { PLAN_USAGE_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
-import { QueryBatchError } from './query-envelope.js';
+import { QueryBatchError } from './query-batch-error.js';
 import { ToolResultError } from './tool-result-error.js';
 
 // ─── Registration helper ─────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
 
 /** One executable discovery recipe; workers inherit it through the MCP gateway. */
 export const MCP_SCHEMA_DISCOVERY_EXAMPLE = '{"queries":[{"reasoning":"Read the selected tool schema","server":"octocode","action":"describe","tool":"<catalog-tool-name>"}]}';
+/** One executable Octocode call recipe showing the outer and target query boundaries. */
+export const OCTOCODE_MCP_CALL_EXAMPLE = '{"queries":[{"reasoning":"Read the known file","action":"call","server":"octocode","tool":"localFetch","arguments":{"queries":[{"path":"/ABS/repo/README.md","fullContent":true}]}}]}';
 
 export interface DirectToolContractStats {
   tools: number;
@@ -103,15 +105,20 @@ export function registerUniqueTool(
     ...toolDefinition,
     description,
     parameters,
-    prepareArguments: (args: unknown) => prepareQueryEnvelope(toolDefinition.name, args),
+    // Pi flattens guidelines from active tools into one unlabelled section.
+    promptGuidelines: toolDefinition.promptGuidelines?.map(guideline => `${toolDefinition.name}: ${guideline}`),
+    prepareArguments: (args: unknown) => prepareQueryEnvelope(
+      toolDefinition.name,
+      toolDefinition.prepareArguments ? toolDefinition.prepareArguments(args) : args,
+    ),
     async execute(id, args, signal, onUpdate, ctx) {
       try {
         const result = await toolDefinition.execute(id, args, signal, onUpdate, ctx);
-        if (result.isError) throw new ToolResultError(result, ctx, id, toolDefinition.name);
+        if (result.isError) throw new ToolResultError(result, toolDefinition.name);
         return result;
       }
       catch (error) {
-        if (error instanceof QueryBatchError && error.completedCount > 0) throw error.withHostReceipt(ctx, id);
+        if (error instanceof QueryBatchError) throw error.withHostReceipt();
         throw error;
       }
     },

@@ -8,12 +8,11 @@ import type {
 } from '../../../types/toolResults.js';
 import type {
   BulkResponseConfig,
-  BulkResponsePagination,
+  BulkResponseExecutionOptions,
   BulkToolResponse,
 } from '../../../types/bulk.js';
 import { countSerializedChars, getRawResponseChars } from '../charSavings.js';
 import { buildResponseChannels } from '../responseChannels.js';
-
 import {
   paginateBulkText,
   appendResponsePagination,
@@ -34,7 +33,7 @@ export async function executeBulkOperation<
   queries: Array<TQuery>,
   processor: (query: TQuery, index: number) => Promise<ProcessedBulkResult>,
   config: BulkResponseConfig<TQuery, TOutput>,
-  pagination?: BulkResponsePagination
+  execution?: BulkResponseExecutionOptions
 ): Promise<CallToolResult> {
   const concurrency = config.concurrency ?? DEFAULT_BULK_CONCURRENCY;
   const { results, errors } = await processBulkQueries<TQuery>(
@@ -48,7 +47,7 @@ export async function executeBulkOperation<
     results,
     errors,
     queries,
-    pagination
+    execution
   );
 }
 
@@ -64,7 +63,7 @@ function createBulkResponse<
   }>,
   errors: QueryError[],
   queries: Array<TQuery>,
-  pagination?: BulkResponsePagination
+  execution?: BulkResponseExecutionOptions
 ): CallToolResult {
   const topLevelFields = ['results', 'base', 'shared'];
   const resultFields = [
@@ -120,91 +119,77 @@ function createBulkResponse<
   const flatQueries = orderedQueries.filter(
     (query): query is FlatQueryResult => query !== undefined
   );
-
-  if (config.finalize) {
-    const finalized = config.finalize({
-      queries,
-      results: flatQueries,
-      config,
-    });
-    const finalizedContent = attachFinalizedResultMeta(
-      finalized.structuredContent,
-      flatQueries
-    );
-    const responseChannels = buildResponseChannels(
-      finalizedContent,
-      finalized.keysPriority ?? fullKeysPriority,
-      { toolName: config.toolName, queries }
-    );
-    const finalizedText = finalized.renderText
-      ? finalized.renderText(responseChannels.structuredContent)
-      : responseChannels.text;
-    const paginated = paginateBulkText(finalizedText, pagination);
-    const structuredContent = appendResponsePagination(
-      responseChannels.structuredContent as unknown as Record<string, unknown>,
-      paginated.pagination,
-      buildResponsePaginationContinuation(
-        config.toolName,
-        queries,
-        pagination,
-        paginated.pagination
-      )
-    );
-    recordBulkCharSavings(
-      config.toolName,
-      results,
-      errors,
-      paginated.text.length
-    );
-    return {
-      content: [{ type: 'text' as const, text: paginated.text }],
-      structuredContent,
-      isError:
-        finalized.isError ??
-        (flatQueries.length > 0 &&
-          flatQueries.every(queryResult => queryResult.status === 'error')),
-    };
-  }
-
-  const responseData: BulkToolResponse = { results: flatQueries };
-
+  const finalized = config.finalize?.({
+    queries,
+    results: flatQueries,
+    config,
+  });
+  const responseData: Record<string, unknown> = finalized
+    ? attachFinalizedResultMeta(finalized.structuredContent, flatQueries)
+    : ({ results: flatQueries } satisfies BulkToolResponse);
+  const renderText = shouldRenderText(
+    execution,
+    flatQueries,
+    finalized?.isError === true
+  );
   const responseChannels = buildResponseChannels(
     responseData,
-    fullKeysPriority,
-    { toolName: config.toolName, queries }
+    finalized?.keysPriority ?? fullKeysPriority,
+    { toolName: config.toolName, queries },
+    { renderText: renderText && !finalized?.renderText }
   );
-  const formattedText = responseChannels.text;
-  const paginated = paginateBulkText(formattedText, pagination);
-  const structuredContent = appendResponsePagination(
-    responseChannels.structuredContent as unknown as Record<string, unknown>,
-    paginated.pagination,
-    buildResponsePaginationContinuation(
-      config.toolName,
-      queries,
-      pagination,
-      paginated.pagination
-    )
-  );
+  const text = renderText
+    ? finalized?.renderText
+      ? finalized.renderText(responseChannels.structuredContent)
+      : responseChannels.text!
+    : undefined;
+  const paginated =
+    text === undefined ? undefined : paginateBulkText(text, execution);
+  const structuredContent = paginated
+    ? appendResponsePagination(
+        responseChannels.structuredContent,
+        paginated.pagination,
+        buildResponsePaginationContinuation(
+          config.toolName,
+          queries,
+          execution,
+          paginated.pagination
+        )
+      )
+    : responseChannels.structuredContent;
   recordBulkCharSavings(
     config.toolName,
     results,
     errors,
-    paginated.text.length
+    paginated?.text.length ?? countSerializedChars(structuredContent)
   );
-  const text = paginated.text;
-
   return {
-    content: [
-      {
-        type: 'text' as const,
-        text,
-      },
-    ],
+    content: paginated ? [{ type: 'text' as const, text: paginated.text }] : [],
     structuredContent,
     isError:
-      flatQueries.length > 0 &&
-      flatQueries.every(queryResult => queryResult.status === 'error'),
+      finalized?.isError ??
+      (flatQueries.length > 0 &&
+        flatQueries.every(queryResult => queryResult.status === 'error')),
   };
+}
+
+function shouldRenderText(
+  execution: BulkResponseExecutionOptions | undefined,
+  results: FlatQueryResult[],
+  finalizedIsError: boolean = false
+): boolean {
+  if (
+    execution?.renderText !== false ||
+    finalizedIsError ||
+    results.some(result => result.status === 'error')
+  ) {
+    return true;
+  }
+  return (
+    execution.responseCharLength !== undefined ||
+    execution.responseCharOffset !== undefined ||
+    execution.responseSnapshot !== undefined
+  );
 }
 
 function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
@@ -354,13 +339,11 @@ function extractToolData(result: ProcessedBulkResult): Record<string, unknown> {
   if (result.status !== 'error') {
     excludedKeys.add('error');
   }
-
   const toolData: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(result)) {
     if (!excludedKeys.has(key)) {
       toolData[key] = value;
     }
   }
-
   return toolData;
 }

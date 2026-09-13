@@ -179,7 +179,7 @@ export function compactRow(row: AwarenessQueryRow): AwarenessQueryRow {
   if (row['item_type'] === 'file') {
     // Compact lobby: path + peer pressure + exclusivity only (drill with work list/show).
     return Object.fromEntries([
-      'path', 'peer_count', 'omitted_peer_count', 'locked', 'lock_agent',
+      'path', 'agents', 'peer_count', 'omitted_peer_count', 'locked', 'lock_agent',
     ].flatMap(key => row[key] == null ? [] : [[key, row[key]]])) as AwarenessQueryRow;
   }
   const next: AwarenessQueryRow = {};

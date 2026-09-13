@@ -155,10 +155,40 @@ describe("Pi production scenario probe", () => {
     expect(receipt.observations).toEqual([
       {
         kind: "persistence.durable-entry-count",
-        data: { count: 8, recoveredCustomEntry: true },
+        data: { count: 14, recoveredCustomEntry: true },
       },
     ]);
   }, 20_000);
+
+  it.each([
+    ["streaming-tool-flow", ["stream.tool-update", "stream.tool-result"]],
+    ["policy-denial-matrix", ["policy.denied"]],
+    ["tool-failure-matrix", ["tool.failure"]],
+    ["steer-and-follow-up", ["control.queued", "control.delivered"]],
+    ["session-lifecycle", ["session.lifecycle"]],
+    ["compaction-matrix", ["compaction.completed", "compaction.failed-retry"]],
+    ["ui-semantics", ["ui.select", "ui.headless"]],
+    ["cancellation-boundaries", ["cancellation.model-stream", "cancellation.tool-work"]],
+  ] as const)("composes %s with the production extension", async (id, expectedEvents) => {
+    const suite = createProductionPiScenarioSuite(fixture());
+    const receipt = await suite.scenarioProbes[id]!({
+      scenario: { id },
+      signal: new AbortController().signal,
+    });
+    expect(receipt.source).toBe("installed-pi-sdk");
+    expect(receipt.events.map(({ kind }) => kind)).toEqual(
+      expect.arrayContaining([...expectedEvents]),
+    );
+    expect(receipt.events).not.toContainEqual(
+      expect.objectContaining({ kind: "scenario.difference" }),
+    );
+    expect(receipt.observations ?? []).not.toContainEqual(
+      expect.objectContaining({
+        kind: "ui.host-notification",
+        data: expect.objectContaining({ type: "error" }),
+      }),
+    );
+  }, 30_000);
 
   it("rejects an already-aborted conformance signal before opening a Pi session", async () => {
     const root = fixture();

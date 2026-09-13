@@ -3,15 +3,13 @@ import { executeBulkOperation } from '../../../utils/response/bulk/response.js';
 import type { ToolExecutionArgs } from '../../../types/execution.js';
 import { executeWithToolBoundary } from '../../executionGuard.js';
 import { safeParseOrError } from '../../utils.js';
-import {
-  acquirePooledClientDetailed,
-  isLanguageServerAvailable,
-} from '@octocodeai/octocode-engine/lsp/manager';
+import { acquirePooledClientDetailed } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import { LSP_SEARCH_TOOL_NAME } from '@octocodeai/octocode-core/schema';
 import {
   type LspSearchQuery,
   type LspSemanticEnvelope,
+  type ResolvedLanguageServerReceipt,
 } from '../shared/semanticTypes.js';
 import { attachReadinessWarning } from '../shared/readiness.js';
 import { resolveSymbolAnchor } from '../shared/resolveSymbolAnchor.js';
@@ -100,22 +98,18 @@ async function getSemanticContent(
       typeof anchor.error.error === 'string'
         ? anchor.error.error
         : 'Symbol anchor resolution failed';
-    return failedAnchorEnvelope(query, message);
+    return failedAnchorEnvelope(
+      query,
+      message,
+      anchor.error.errorType === 'symbol_not_found'
+        ? 'symbolNotFound'
+        : 'anchorFailed'
+    );
   }
 
   const workspaceRoot =
     query.workspaceRoot ??
     (await resolveWorkspaceRootForFile(anchor.value.absolutePath));
-  const serverAvailable = await isLanguageServerAvailable(
-    anchor.value.absolutePath,
-    workspaceRoot
-  );
-  if (!serverAvailable) {
-    // No server → throw, so the agent pivots to text search. We never return a
-    // same-file-only or syntactic approximation dressed up as a semantic answer.
-    throwLspUnavailable(anchor.value.uri, query.operation);
-  }
-
   const clientResult = await acquirePooledClientDetailed(
     workspaceRoot,
     anchor.value.absolutePath,
@@ -125,6 +119,11 @@ async function getSemanticContent(
     throwLspUnavailable(anchor.value.uri, query.operation, clientResult);
   }
   const client = clientResult.client;
+  const receipt = (
+    clientResult as typeof clientResult & {
+      receipt: ResolvedLanguageServerReceipt;
+    }
+  ).receipt;
 
   const consumerProvider = CONSUMER_SCOPED_PROVIDERS[query.operation];
   const warmupStats =
@@ -142,5 +141,15 @@ async function getSemanticContent(
     client,
     warmupStats
   );
-  return attachReadinessWarning({ ...envelope, workspaceRoot }, readiness);
+  return attachReadinessWarning(
+    {
+      ...envelope,
+      workspaceRoot,
+      lsp: {
+        ...envelope.lsp,
+        receipt,
+      },
+    },
+    readiness
+  );
 }

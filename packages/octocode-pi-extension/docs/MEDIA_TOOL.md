@@ -64,13 +64,7 @@ All output paths are workspace guarded. Existing destinations require `overwrite
 
 ## Agent-contract budget
 
-The runtime registration layer owns concise descriptions for every direct tool and recursively compacts schema descriptions. Contract tests enforce:
-
-- at most 360 characters per top-level tool description;
-- at most 180 characters per schema description;
-- at most 45,000 combined description-and-schema characters across the entire direct palette.
-
-Detailed operational guidance remains in prompt guidelines and documentation, so it is available when relevant without inflating every tool declaration.
+The [registration layer](../src/tools/octocode-tools.ts) owns concise direct-tool descriptions and preserves supplied schemas unchanged. Keep schema descriptions concise at their source; do not truncate constraints, examples, or defaults during registration. Detailed operational guidance belongs in prompt guidelines and documentation.
 
 ## Acceptance criteria
 

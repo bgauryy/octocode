@@ -14,6 +14,15 @@ describe('Awareness session identity', () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  it('derives the one restart-stable Pi identity used by routing and event cursors', async () => {
+    const { resolveAwarenessSessionAgentId } = await import('../src/tools/awareness-shared.js');
+    expect(resolveAwarenessSessionAgentId(context('session-1'))).toBe('pi:session-1');
+    expect(resolveAwarenessSessionAgentId({
+      sessionManager: { getSessionFile: () => '/tmp/sessions/../sessions/one.jsonl' },
+    } as PiContext)).toMatch(/^pi:file:[a-f0-9]{24}$/);
+    expect(resolveAwarenessSessionAgentId({ sessionManager: {} } as PiContext)).toBeUndefined();
+  });
+
   it('refreshes generated identities for new and forked sessions and restores resumed identity', async () => {
     const { getAwarenessAgentId } = await import('../src/tools/awareness-shared.js');
     expect(getAwarenessAgentId(context('first'))).toBe('pi:first');
@@ -22,6 +31,12 @@ describe('Awareness session identity', () => {
     expect(process.env.OCTOCODE_AGENT_ID).toBe('pi:second');
     expect(getAwarenessAgentId(context('fork'))).toBe('pi:fork');
     expect(getAwarenessAgentId(context('first'))).toBe('pi:first');
+  });
+
+  it('replaces the process fallback once Pi establishes a session', async () => {
+    const { getAwarenessAgentId } = await import('../src/tools/awareness-shared.js');
+    expect(getAwarenessAgentId()).toBe(`pi:${process.pid}`);
+    expect(getAwarenessAgentId(context('established'))).toBe('pi:established');
   });
 
   it('preserves explicit user and inherited worker identities across sessions', async () => {

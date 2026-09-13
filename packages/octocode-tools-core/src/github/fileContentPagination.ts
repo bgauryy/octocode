@@ -8,6 +8,7 @@ import {
   fullContentLimit,
 } from '../utils/file/contentPagination.js';
 import { OctokitWithThrottling } from './client.js';
+import { sourcePageRanges } from '../utils/file/sourceCitations.js';
 
 interface FileTimestampInfo {
   lastModified: string;
@@ -40,9 +41,26 @@ export async function applyContentPagination(
     page.firstViewLine - 1,
     page.lastViewLine
   );
+  const sourceLineRanges =
+    data.contentView === 'none'
+      ? data.sourceLineOffset !== undefined
+        ? sourcePageRanges(page).map(range => ({
+            start: range.start + data.sourceLineOffset!,
+            end: range.end + data.sourceLineOffset!,
+          }))
+        : data.sourceLines !== undefined
+          ? sourcePageRanges(page, data.sourceLines)
+          : []
+      : [];
+  const {
+    sourceLines: _sourceLines,
+    sourceLineOffset: _sourceLineOffset,
+    ...pageData
+  } = data;
   return {
-    ...data,
+    ...pageData,
     ...pageFields(page),
+    ...(sourceLineRanges.length ? { sourceLineRanges } : {}),
     ...(data.matchedLines
       ? {
           matchedLines: data.matchedLines.filter(line =>

@@ -93,8 +93,7 @@ pub struct NativeLspClient {
     /// The `positionEncoding` the server selected in its `InitializeResult`
     /// (LSP 3.17). We advertise UTF-16 only, so this should be `utf-16` or absent
     /// (absent ⇒ utf-16 by spec). Any other value means the server ignored our
-    /// capability and our offsets may be misaligned on non-ASCII lines — surfaced
-    /// as a stderr warning at start time.
+    /// capability. Startup rejects it before serving positions in the wrong units.
     position_encoding: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
     /// Open-document lifecycle state: `uri -> last sent version`. Drives the
@@ -212,25 +211,23 @@ impl NativeLspClient {
                 return Err(error);
             }
         };
-        if let Ok(mut capabilities) = self.capabilities.lock() {
-            *capabilities = initialize_result.get("capabilities").cloned();
-        }
-        // Reconcile the negotiated position encoding (LSP 3.17). We only emit
-        // UTF-16, so anything else means the server ignored our advertised
-        // capability and our offsets may be wrong on non-ASCII lines — make that
-        // observable instead of silently returning mis-positioned results.
+        // Positions are UTF-16 throughout the tool contract. A server that
+        // ignores our advertised encoding cannot supply trustworthy locations.
         let negotiated_encoding = extract_position_encoding(&initialize_result);
         if let Some(encoding) = negotiated_encoding.as_deref() {
             if encoding != "utf-16" {
-                push_stderr_line(
-                    &self.stderr_lines,
+                cleanup_failed_start(&mut child, stderr_task).await;
+                return Err(Error::new(
+                    Status::GenericFailure,
                     format!(
-                        "[octocode] WARNING: language server negotiated positionEncoding \
-                         '{encoding}' but octocode only emits utf-16; positions on lines with \
-                         non-ASCII characters may be misaligned"
+                        "Unsupported language server positionEncoding '{encoding}': \
+                         octocode advertises utf-16; semantic positions cannot be resolved safely"
                     ),
-                );
+                ));
             }
+        }
+        if let Ok(mut capabilities) = self.capabilities.lock() {
+            *capabilities = initialize_result.get("capabilities").cloned();
         }
         if let Ok(mut encoding) = self.position_encoding.lock() {
             *encoding = negotiated_encoding;

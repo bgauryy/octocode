@@ -9,9 +9,8 @@
  *   - SYSTEM_PROMPT.md path loaded at runtime from dist/subagents/<name>/
  *   - Focused role skills, plus any subagent-local skill dirs
  *
- * The spawnSubagent tool reads this registry, loads the system prompt,
- * and calls spawnRpcAgent (same internal fn as spawnAgent, same agents Map →
- * AgentMessage works on anything spawned here).
+ * The agent tool reads this registry and starts a worker through spawnRpcAgent.
+ * All profiles share the same lifecycle registry for inspect, message, and wait.
  */
 
 import fs from 'node:fs';
@@ -24,15 +23,15 @@ import { discoverSkills } from './tools/skill-discovery.js';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface SubagentConfig {
-  /** Unique id — used as the spawnSubagent `agent` param value. */
+  /** Role identifier selected by the agent tool's profile mapping. */
   name: SubagentName;
-  /** Human label shown in AgentMessage list output. */
+  /** Human label shown in agent inspection output. */
   label: string;
   /** One-line description of what this subagent does. */
   description: string;
   /**
-   * Tool allowlist for the subprocess. spawnAgent/AgentMessage are always
-   * excluded by Pi regardless.
+   * Requested tools; the effective parent grant bounds availability and excludes
+   * recursive agent and tool/skill-authoring tools.
    */
   tools: string[];
   /**

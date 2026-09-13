@@ -13,6 +13,10 @@ async function withMockedManager(
       : vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     isAlive: vi.fn().mockResolvedValue(true),
+    hasCapability: vi.fn(
+      (capability: string) => capability === 'definitionProvider'
+    ),
+    getReadiness: vi.fn(() => 'progressIdle'),
   };
   const LSPClient = vi.fn(function LSPClient() {
     return client;
@@ -128,6 +132,43 @@ describe('manager wrapper flow', () => {
       },
       { startError: new Error('boom from server') }
     );
+  });
+
+  it('returns a resolved-server receipt with invocation, provenance, and semantic state', async () => {
+    await withMockedManager(async () => {
+      const manager = await import('../../src/lsp/manager.js');
+
+      const result = await manager.acquirePooledClientDetailed(
+        '/workspace',
+        '/workspace/a.ts'
+      );
+
+      expect(result).toMatchObject({
+        ok: true,
+        receipt: {
+          command: process.execPath,
+          argv: [],
+          source: 'path',
+          workspaceRoot: '/workspace',
+          configurationFingerprint: expect.any(String),
+          workspaceFingerprint: expect.any(String),
+          readiness: 'progressIdle',
+          capabilities: {
+            definitionProvider: true,
+            referencesProvider: false,
+          },
+          identity: {
+            artifacts: [
+              expect.objectContaining({
+                role: 'command',
+                path: process.execPath,
+                size: expect.any(Number),
+              }),
+            ],
+          },
+        },
+      });
+    });
   });
 
   it('parses invalid pool idle timeout env values back to default', async () => {

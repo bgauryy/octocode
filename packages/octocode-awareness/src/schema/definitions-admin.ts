@@ -55,23 +55,3 @@ export const adminSchemas = {
   schema_example: z.object({ schema_name: text }),
   schema_validate: z.object({ schema_name: text, input: z.unknown().describe('JSON value or serialized JSON to validate. The CLI accepts a JSON file path or stdin marker instead.') }),
 };
-
-export const adminExamples = {
-  skill_install: { platform: 'codex', project_dir: '.', mode: 'symlink', dry_run: true },
-  skill_list: {},
-  skill_check: { platform: 'codex', project_dir: '.' },
-  skill_remove: { platform: 'codex', project_dir: '.', dry_run: true },
-  maintenance_init: {},
-  maintenance_self_test: {},
-  hooks_install: { host: 'codex', project_dir: '.', dry_run: true },
-  hooks_check: { host: 'codex', project_dir: '.', strict: true },
-  hooks_remove: { host: 'codex', project_dir: '.', dry_run: true },
-  hook_run: { event: 'pre-edit', payload: { cwd: '.', tool_name: 'file', tool_input: { path: 'src/a.ts' } } },
-  schema_commands: { all: true },
-  schema_command: { noun: 'signal', subcommand: 'list' },
-  schema_entities: { all: true },
-  schema_list: {},
-  schema_json_schema: { schema_name: 'memory_recall' },
-  schema_example: { schema_name: 'memory_recall' },
-  schema_validate: { schema_name: 'memory_recall', input: { query: 'current task' } },
-} as const;

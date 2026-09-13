@@ -1,6 +1,127 @@
 import { z } from 'zod';
 import { CLI_REQUIRED, projectCliProperties } from './cli-contract.js';
 
+type JsonSchema = Record<string, unknown>;
+
+function objectBranch(
+  output: JsonSchema,
+  required: string[],
+  overrides: Record<string, JsonSchema> = {},
+): JsonSchema {
+  const properties = output.properties as Record<string, JsonSchema> | undefined;
+  return {
+    type: 'object',
+    properties: Object.fromEntries([...new Set([...required, ...Object.keys(overrides)])].flatMap(field => {
+      const property = properties?.[field];
+      if (!property && !overrides[field]) return [];
+      const projected = { ...(property ?? {}), ...(overrides[field] ?? {}) };
+      if (Object.hasOwn(overrides[field] ?? {}, 'const')) {
+        delete projected.default;
+        delete projected.enum;
+      }
+      return [[field, projected]];
+    })),
+    ...(required.length ? { required } : {}),
+  };
+}
+
+const requireFields = (output: JsonSchema, ...fields: string[]): JsonSchema => objectBranch(output, fields);
+const requireNonEmptyArray = (output: JsonSchema, field: string): JsonSchema =>
+  objectBranch(output, [field], { [field]: { minItems: 1 } });
+
+function constrainArray(output: JsonSchema, field: string, minItems: number, maxItems?: number): void {
+  const properties = output.properties as Record<string, JsonSchema> | undefined;
+  const property = properties?.[field];
+  if (!property) return;
+  delete property.default;
+  property.minItems = minItems;
+  if (maxItems !== undefined) property.maxItems = maxItems;
+}
+
+function replaceWithVariants(
+  output: JsonSchema,
+  variants: Array<{ required?: string[]; overrides: Record<string, JsonSchema> }>,
+): void {
+  const rootSchema = output.$schema;
+  const variantSchemas = variants.map(({ required = [], overrides }) => {
+    const variant = structuredClone(output);
+    delete variant.$schema;
+    const properties = variant.properties as Record<string, JsonSchema>;
+    for (const [field, override] of Object.entries(overrides)) {
+      properties[field] = { ...(properties[field] ?? {}), ...override };
+      if (Object.hasOwn(override, 'const')) {
+        delete properties[field]!.default;
+        delete properties[field]!.enum;
+      }
+    }
+    const baseRequired = Array.isArray(variant.required) ? variant.required as string[] : [];
+    variant.required = [...new Set([...baseRequired, ...required])];
+    return variant;
+  });
+  for (const key of Object.keys(output)) delete output[key];
+  if (rootSchema !== undefined) output.$schema = rootSchema;
+  output.oneOf = variantSchemas;
+}
+
+/** Preserve handler-only refinements that Zod cannot emit as JSON Schema. */
+function applyCommandConstraints(output: JsonSchema, commandName: string): void {
+  const allOf: JsonSchema[] = [];
+  switch (commandName) {
+    case 'task create':
+      constrainArray(output, 'path', 1);
+      break;
+    case 'task claim':
+      allOf.push({ anyOf: [
+        {
+          ...objectBranch(output, ['task_id'], { next: { const: false } }),
+        },
+        {
+          ...objectBranch(output, ['plan_id', 'next'], { next: { const: true } }),
+        },
+      ] });
+      break;
+    case 'task depend':
+      constrainArray(output, 'depends_on', 1);
+      break;
+    case 'work start':
+      constrainArray(output, 'file', 1);
+      allOf.push({ anyOf: [requireFields(output, 'run_id'), requireFields(output, 'rationale', 'test_plan')] });
+      break;
+    case 'work show':
+      constrainArray(output, 'file', 1, 1);
+      break;
+    case 'lock release':
+      allOf.push({ anyOf: [requireFields(output, 'run_id'), requireNonEmptyArray(output, 'target_file')] });
+      break;
+    case 'verify mark':
+      constrainArray(output, 'run_id', 1);
+      allOf.push(
+        { anyOf: [
+          requireNonEmptyArray(output, 'run_id'),
+          objectBranch(output, ['all_pending'], { all_pending: { const: true } }),
+        ] },
+        { anyOf: [
+          objectBranch(output, ['status'], { status: { const: 'FAILED' } }),
+          requireFields(output, 'message'),
+        ] },
+      );
+      break;
+    case 'history recovery':
+      replaceWithVariants(output, [
+        { overrides: { action: { const: 'report' } } },
+        { required: ['action', 'confirm'], overrides: { action: { const: 'reconcile' }, confirm: { const: 'reconcile' } } },
+      ]);
+      return;
+    case 'history evidence':
+      replaceWithVariants(output, [
+        { overrides: { action: { const: 'report' } } },
+        { required: ['action', 'confirm'], overrides: { action: { const: 'reclaim' }, confirm: { const: 'reclaim' } } },
+      ]);
+      return;
+  }
+  if (allOf.length) output.allOf = [...(Array.isArray(output.allOf) ? output.allOf : []), ...allOf];
+}
+
 /** Exact command fields, shared by execution, discovery and host binding metadata. */
 export function projectCommandInput(commandName: string, schema: z.ZodType): Record<string, unknown> {
   const output = structuredClone(z.toJSONSchema(schema)) as Record<string, unknown>;
@@ -23,5 +144,6 @@ export function projectCommandInput(commandName: string, schema: z.ZodType): Rec
   const required = [...new Set([...existingRequired, ...(CLI_REQUIRED[commandName] ?? [])])];
   if (required.length > 0) output.required = required;
   else delete output.required;
+  applyCommandConstraints(output, commandName);
   return output;
 }

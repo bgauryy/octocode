@@ -23,6 +23,7 @@ import { registerAwarenessEventConsumer } from '../src/tools/awareness-event-con
 import type { PiInstance } from '../src/types.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { executeQueryBatch } from '../src/tools/query-envelope.js';
+import { createExecutionState, isExecutionEvent, reduceExecutionEvent } from '../src/tools/execution-events.js';
 
 const PROVIDER = 'octocode-real-runtime-test';
 const API = 'octocode-real-runtime-test-api';
@@ -435,6 +436,18 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       expect(providerPrompts[0]).toContain(path.resolve(workspace));
       expect(providerPrompts[0]).toContain(octocodeHome);
       const toolResultsBeforeCompact = JSON.stringify(created.session.sessionManager.getEntries());
+      // The real SDK creates new context wrappers between these events. All
+      // tool/session receipts must still land in the same runtime and journal.
+      const executionEvents = created.session.sessionManager.getEntries().flatMap(entry =>
+        entry.type === 'custom' && isExecutionEvent(entry.data) ? [entry.data] : []);
+      const execution = executionEvents.reduce(reduceExecutionEvent, createExecutionState());
+      expect(execution.startedAt).toBeGreaterThan(0);
+      expect(execution.toolCount).toBe(4);
+      expect(Object.keys(execution.tools).sort()).toEqual([
+        'awareness-schema', 'business-failure', 'native-file-write', 'skill-load',
+      ]);
+      expect(execution.completedTurns).toBeGreaterThan(0);
+      expect(Object.values(execution.tools).every(tool => tool.status !== 'running')).toBe(true);
       expect(toolResultsBeforeCompact).toContain('# Awareness');
       expect(toolResultsBeforeCompact).toContain('work verify');
       expect(lifecycle).toEqual(expect.arrayContaining(['before_agent_start', 'turn_start', 'turn_end']));
@@ -450,7 +463,15 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
         current_tokens: measuredUsage.tokens,
         input_limit_tokens: measuredUsage.contextWindow,
       }));
-      expect(physiologyBeforeCompact?.tools).toEqual({ window: 32, observed: 3, failed: 1, cancelled: 0, blocked: 0 });
+      expect(physiologyBeforeCompact?.tools).toEqual({
+        window: 32,
+        observed: 3,
+        total_observed: 3,
+        latest_outcome: 'succeeded',
+        failed: 1,
+        cancelled: 0,
+        blocked: 0,
+      });
       expect(fs.readFileSync(path.join(workspace, 'history-fixture.txt'), 'utf8')).toBe('captured by real Pi SDK\n');
       const historyClient = createAwarenessClient({ workspace, agentId: 'pi:real-runtime-test' });
       const history = await historyClient.execute({ operation: 'history.timeline', params: { limit: 10 } });
@@ -481,7 +502,15 @@ describe('real Pi runtime contract', { concurrent: false }, () => {
       const physiologyAfterCompact = readPiPhysiology(activeContext!);
       expect(physiologyAfterCompact?.context).toBeUndefined();
       expect(physiologyAfterCompact).toEqual(expect.objectContaining({
-        tools: { window: 32, observed: 3, failed: 1, cancelled: 0, blocked: 0 },
+        tools: {
+          window: 32,
+          observed: 3,
+          total_observed: 3,
+          latest_outcome: 'succeeded',
+          failed: 1,
+          cancelled: 0,
+          blocked: 0,
+        },
         compaction: { owner: 'pi', committed: 1, failed: 0 },
       }));
 

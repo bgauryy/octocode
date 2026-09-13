@@ -4,6 +4,8 @@ Missing workspace configuration uses package defaults. Create or change configur
 
 Workspace policy lives at `.octocode/awareness.json` and owns two decisions:
 
+When validating policy fields, read the [configuration schema](awareness-config.schema.json) for the accepted structure.
+
 - `storage.repository` and `storage.memory` select the database scope.
 - `hooks.profile` selects lifecycle breadth, while `hooks.owners` selects `shell` or `native` per host.
 

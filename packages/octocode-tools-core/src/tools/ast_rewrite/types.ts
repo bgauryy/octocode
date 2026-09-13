@@ -1,18 +1,10 @@
-export interface AstRewriteQuery {
-  path: string;
-  langType: string;
-  pattern: string;
-  rewrite: string;
-  include?: string[];
-  exclude?: string[];
-  apply?: boolean;
-  expectedHashes?: Record<string, string>;
-  maxFiles?: number;
-  page?: number;
-  pageSize?: number;
-  snapshot?: string;
-  goal?: string;
-  reasoning?: string;
+import type { AstRewriteQuery as PublicAstRewriteQuery } from '@octocodeai/octocode-core/schema';
+
+export type AstRewriteQuery = PublicAstRewriteQuery;
+
+export interface AstRewriteCapture {
+  kind: 'single' | 'multi' | 'transformed';
+  texts: string[];
 }
 
 export interface AstRewriteMatch {
@@ -25,6 +17,7 @@ export interface AstRewriteMatch {
   };
   text: string;
   replacement: string;
+  captures: Record<string, AstRewriteCapture>;
 }
 
 export interface AstRewriteFile {
@@ -37,13 +30,21 @@ export interface AstRewriteFile {
   patchBytes: number;
 }
 
+export interface PreparedFile extends AstRewriteFile {
+  before: Buffer;
+  after: Buffer;
+  mode: number;
+  matches: AstRewriteMatch[];
+}
+
 export interface AstRewriteSuccess {
   status?: undefined;
   operation: 'rewrite';
   mode: 'preview' | 'apply';
   root: string;
   snapshot: string;
-  executable: { path: string; version: string };
+  executable: AstRewriteExecutableReceipt;
+  isolation: AstRewriteIsolationReceipt;
   totalMatches: number;
   affectedFiles: number;
   matches: AstRewriteMatch[];
@@ -78,7 +79,8 @@ export interface AstRewriteEmpty {
   operation: 'rewrite';
   mode: 'preview' | 'apply';
   root: string;
-  executable: { path: string; version: string };
+  executable: AstRewriteExecutableReceipt;
+  isolation: AstRewriteIsolationReceipt;
   totalMatches: 0;
   affectedFiles: 0;
   matches: [];
@@ -92,8 +94,8 @@ export interface AstRewriteError {
   operation: 'rewrite';
   errorCode: string;
   error: string;
-  complete: false;
-  isPartial: true;
+  complete?: false;
+  isPartial?: true;
   terminalLimit?: boolean;
   details?: Record<string, unknown>;
   next?: {
@@ -115,4 +117,21 @@ export interface AstRewriteRuntimeDeps {
   maxProcessOutputBytes?: number;
   maxPatchBytes?: number;
   rename?: (from: string, to: string) => Promise<void>;
+  lockTimeoutMs?: number;
+  lockPollMs?: number;
+}
+
+export interface AstRewriteExecutableReceipt {
+  path: string;
+  version: string;
+  sha256: string;
+  capabilityContract: 1;
+  capabilityDigest: string;
+  capabilities: string[];
+}
+
+export interface AstRewriteIsolationReceipt {
+  workingDirectory: 'ephemeral';
+  inheritedHome: false;
+  repositoryConfig: 'not-discovered';
 }

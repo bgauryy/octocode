@@ -16,6 +16,7 @@ export type PartialFileContentQuery = WithOptionalMeta<FileContentQuery> &
 export type FileEntry = {
   path: string;
   content: string;
+  sourceLineRanges?: Array<{ start: number; end: number }>;
   /** Coarse file bucket to guide how bytes are read; omitted when uncertain. */
   fileType?: 'code' | 'config' | 'lock' | 'doc';
   contentView?: 'none' | 'standard' | 'symbols';

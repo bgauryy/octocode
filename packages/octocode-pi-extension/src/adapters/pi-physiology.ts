@@ -9,7 +9,7 @@ type ToolEvent = { toolCallId?: unknown; toolName?: unknown; args?: unknown; [ke
 
 export interface PiPhysiologyOptions {
   now?: () => number;
-  onObservation?: (observation: PiRuntimeObservation) => void | Promise<void>;
+  onObservation?: (observation: PiRuntimeObservation, ctx: PiContext) => void | Promise<void>;
   isInternalTool?: (event: Readonly<ToolEvent>) => boolean;
 }
 
@@ -32,6 +32,7 @@ interface ActiveSession {
   observedAt: number;
   context?: PiRuntimeObservation['context'];
   outcomes: ToolOutcome[];
+  totalToolsObserved: number;
   compactionsCommitted: number;
   compactionsFailed: number;
   hasCompactionMeasurement: boolean;
@@ -149,7 +150,13 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
       },
       ...(active.context === undefined ? {} : { context: active.context }),
       ...(active.outcomes.length === 0 ? {} : {
-        tools: { window: 32, observed: active.outcomes.length, ...counts },
+        tools: {
+          window: 32,
+          observed: active.outcomes.length,
+          total_observed: active.totalToolsObserved,
+          latest_outcome: active.outcomes.at(-1),
+          ...counts,
+        },
       }),
       ...(active.hasCompactionMeasurement ? {
         compaction: {
@@ -161,12 +168,12 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
     });
   };
 
-  const emit = (signal?: AbortSignal): Promise<void> => {
-    if (signal?.aborted) return Promise.resolve();
+  const emit = (ctx: PiContext): Promise<void> => {
+    if (ctx.signal?.aborted) return Promise.resolve();
     const observation = snapshot();
     if (!observation || !options.onObservation) return Promise.resolve();
     try {
-      void Promise.resolve(options.onObservation(observation)).catch(() => undefined);
+      void Promise.resolve(options.onObservation(observation, ctx)).catch(() => undefined);
     } catch {
       // Host observation callbacks cannot interrupt Pi lifecycle delivery.
     }
@@ -227,6 +234,7 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
         generation,
         observedAt: parsed.data.observed_at,
         outcomes: [],
+        totalToolsObserved: 0,
         compactionsCommitted: 0,
         compactionsFailed: 0,
         hasCompactionMeasurement: false,
@@ -235,7 +243,7 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
       contextGenerations.set(ctx as object, generation);
       if (ctx.sessionManager) contextGenerations.set(ctx.sessionManager as object, generation);
       sample(ctx);
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     async sessionShutdown(ctx) {
@@ -251,14 +259,14 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
       if (!matches(ctx)) return;
       touch();
       sample(ctx);
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     async invalidateContext(ctx) {
       if (!matches(ctx) || !active) return;
       active.context = undefined;
       touch();
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     async toolStart(event, ctx) {
@@ -294,11 +302,12 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
       if (!outcome) return;
       pendingTools.delete(id);
       boundedSetAdd(terminalToolIds, id);
+      active.totalToolsObserved = Math.min(Number.MAX_SAFE_INTEGER, active.totalToolsObserved + 1);
       active.outcomes.push(outcome);
       if (active.outcomes.length > 32) active.outcomes.shift();
       touch();
       sample(ctx);
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     async compactionStart(_event, ctx) {
@@ -309,7 +318,7 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
         active.activeCompaction = `attempt:${active.compactionSequence}`;
       }
       touch();
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     async compactionSucceeded(event, ctx) {
@@ -323,7 +332,7 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
       active.context = undefined;
       touch();
       sample(ctx);
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     async compactionFailed(_event, ctx) {
@@ -336,7 +345,7 @@ export function createPiPhysiologyObserver(options: PiPhysiologyOptions = {}): P
       active.hasCompactionMeasurement = true;
       active.context = undefined;
       touch();
-      await emit(ctx.signal);
+      await emit(ctx);
     },
 
     read(ctx) {

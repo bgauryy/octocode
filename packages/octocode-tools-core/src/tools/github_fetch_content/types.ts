@@ -38,6 +38,9 @@ export interface GitHubFileContentApiData {
   returnedLines?: number;
   selectedMatchCount?: number;
   sourceLines?: number[];
+  /** Internal contiguous-view origin; present only for unchanged exact source. */
+  sourceLineOffset?: number;
+  sourceLineRanges?: Array<{ start: number; end: number }>;
   next?: Record<string, ToolContinuation>;
   minifyFallback?: {
     requested: MinifyMode;

@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { assertKnownOptions } from './helpers.js';
 import { AWARENESS_QUERY_VIEWS, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, AwarenessQuerySection, AwarenessQueryView, boundedRows, limitOf, normalizeFormat, normalizeView, stringList, utcNow } from './repo-model.js';
@@ -8,7 +7,6 @@ import { agentRows, lockRows, signalRows } from './repo-coordination.js';
 import { workboardRows } from './repo-workboard.js';
 import { scopeFromParams, withScope } from './repo-scope.js';
 import { completenessText, escapeHtml, renderHtmlSection, toCsv, toMarkdown, toTable } from './repo-formats.js';
-import { atomicWriteText, resolveWorkspaceOutputPath } from './repo-projection.js';
 import { queryContinuation } from './repo-continuations.js';
 import { getDatabasePath } from './db-runtime.js';
 
@@ -16,7 +14,6 @@ const QUERY_OPTION_KEYS = [
   'view', 'workspacePath', 'artifact', 'repo', 'ref', 'query', 'limit', 'agentId',
   'preferAgentId', 'preferFiles', 'state', 'label', 'file', 'since', 'includeBodies', 'cwd',
   'recipientAgentId',
-  'out', 'format',
 ] as const;
 
 export function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: AwarenessQueryParams): AwarenessQueryRow[] {
@@ -245,24 +242,4 @@ export function renderAwarenessHtml(result: AwarenessQueryResult): string {
 </body>
 </html>
 `;
-}
-
-export function writeAwarenessView(
-  db: DatabaseSync,
-  params: AwarenessQueryParams & { out?: string | null; format?: string | null } = {},
-): { ok: true; path: string; view: AwarenessQueryView; count: number; total: number | null; omitted_count: number | null; is_partial: boolean; continuation: string | null } {
-  const result = queryAwareness(db, params);
-  const workspacePath = scopeFromParams(params).workspacePath ?? process.cwd();
-  const outPath = resolveWorkspaceOutputPath(params.out, workspacePath, join(workspacePath, '.octocode', 'awareness', 'index.html'));
-  atomicWriteText(outPath, renderAwarenessHtml(result));
-  return {
-    ok: true,
-    path: outPath,
-    view: result.view,
-    count: result.count,
-    total: result.total,
-    omitted_count: result.omitted_count,
-    is_partial: result.is_partial,
-    continuation: result.continuation,
-  };
 }

@@ -46,7 +46,15 @@ const piObservation = {
     remaining_input_tokens: 100,
     saturation_basis_points: 9_000,
   },
-  tools: { window: 32, observed: 7, failed: 1, cancelled: 1, blocked: 2 },
+  tools: {
+    window: 32,
+    observed: 7,
+    total_observed: 41,
+    latest_outcome: 'blocked',
+    failed: 1,
+    cancelled: 1,
+    blocked: 2,
+  },
   compaction: { owner: 'pi', committed: 2, failed: 1 },
 } as const;
 
@@ -118,6 +126,8 @@ describe('runtime observation contracts', () => {
     { ...piObservation, context: { ...piObservation.context, measurement: 'tokenizer_exact' } },
     { ...piObservation, context: { ...piObservation.context, measurement: undefined } },
     { ...piObservation, tools: { ...piObservation.tools, observed: 3 } },
+    { ...piObservation, tools: { ...piObservation.tools, total_observed: 6 } },
+    { ...piObservation, tools: { ...piObservation.tools, latest_outcome: 'unknown' } },
     { ...piObservation, compaction: { ...piObservation.compaction, owner: 'agent_core' } },
     { ...piObservation, session: { ...piObservation.session, session_id: '' } },
   ])('rejects invalid Pi ownership, timing, identity, and counts', (value) => {

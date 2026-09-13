@@ -24,6 +24,6 @@ describe('work read selectors and acting identity', () => {
       kind: 'standalone', agent_id: 'peer', file: ['other.ts'], rationale: 'Peer spoof', test_plan: 'must fail',
     } });
     expect(denied.exitCode).toBe(1);
-    expect(JSON.stringify(denied.payload)).toContain('invalid parameters');
+    expect(JSON.stringify(denied.payload)).toContain('agent_id conflicts with the host binding');
   });
 });

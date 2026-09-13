@@ -103,6 +103,7 @@ export function buildStructureResult(args: {
   allItems: GitHubApiFileItem[];
   partialTreeFailures: number;
   incompleteTree: boolean;
+  contentsLimitReached?: boolean;
   rawResponseChars: number;
   includeSizes: boolean;
   itemsPerPage?: number;
@@ -118,6 +119,7 @@ export function buildStructureResult(args: {
     depth,
     partialTreeFailures,
     incompleteTree,
+    contentsLimitReached = false,
     rawResponseChars,
     includeSizes,
     extraHints = [],
@@ -190,8 +192,14 @@ export function buildStructureResult(args: {
   for (const hint of extraHints) {
     hints.unshift(hint);
   }
+  if (contentsLimitReached) {
+    hints.unshift(
+      "A Contents directory listing reached GitHub's 1000-entry limit and Git Trees could not establish completeness. Exactly 1000 entries may be complete; additional entries are unknown. Paging covers the available entries only."
+    );
+  }
   const partialReasons: GitHubRepositoryStructureResult['partialReasons'] = [
     ...(incompleteTree ? (['providerTreeTruncated'] as const) : []),
+    ...(contentsLimitReached ? (['providerContentsLimit'] as const) : []),
     ...(partialTreeFailures > 0 ? (['partialTreeFailures'] as const) : []),
   ];
 
@@ -219,7 +227,7 @@ export function buildStructureResult(args: {
     }),
     pagination: paginationInfo,
     ...(partialReasons.length > 0 ? { isPartial: true, partialReasons } : {}),
-    ...(incompleteTree ? { terminalLimit: true } : {}),
+    ...(incompleteTree || contentsLimitReached ? { terminalLimit: true } : {}),
     hints,
     rawResponseChars,
     _cachedItems: filteredItems.map(item => ({

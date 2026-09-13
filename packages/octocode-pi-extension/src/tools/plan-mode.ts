@@ -216,6 +216,10 @@ export function getToolEffect(toolName: string | undefined, input?: Record<strin
       if (typeof query['operation'] !== 'string') return undefined;
       const descriptor = getAwarenessOperationDescriptor(query['operation']);
       if (!descriptor) return undefined;
+      if (query['describe'] === true) {
+        if (query['params'] !== undefined) return undefined;
+        continue;
+      }
       const params = query['params'] && typeof query['params'] === 'object' && !Array.isArray(query['params'])
         ? query['params'] as Record<string, unknown>
         : {};

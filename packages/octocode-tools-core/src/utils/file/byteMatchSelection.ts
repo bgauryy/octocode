@@ -31,24 +31,36 @@ export function selectMatchingBytes(
   );
   const anchorsPreserved =
     countLines(content) === countLines(sanitized.content);
+  // A separator appended after a newline-terminated chunk creates a new blank
+  // view line with no source coordinate. Preserve the selected bytes, but omit
+  // the complete view map rather than assigning that line to the next source row.
+  const hasSyntheticSeparatorLine = chunks
+    .slice(0, -1)
+    .some(chunk => chunk.endsWith('\n'));
   return {
     content: securityLimited ? '' : chunks.join('\n'),
     matchCount: result.matchCount,
     matchingLines: anchorsPreserved ? result.matchingLines : [],
     matchRanges: anchorsPreserved ? result.matchRanges : [],
-    sourceLines: anchorsPreserved
-      ? chunks.flatMap((chunk, index) =>
-          chunk
-            .split('\n')
-            .map((_, line) => result.matchRanges[index]!.start + line)
-        )
-      : undefined,
+    sourceLines:
+      anchorsPreserved && !hasSyntheticSeparatorLine
+        ? chunks.flatMap((chunk, index) =>
+            chunk
+              .split('\n')
+              .map((_, line) => result.matchRanges[index]!.start + line)
+          )
+        : undefined,
     securityLimited,
     warnings: [
       ...sanitized.warnings,
       ...(!anchorsPreserved
         ? [
             'Source line anchors omitted because redaction changed the line layout.',
+          ]
+        : []),
+      ...(hasSyntheticSeparatorLine
+        ? [
+            'Source line map omitted because separated byte windows contain synthetic separator lines.',
           ]
         : []),
     ],

@@ -8,6 +8,7 @@ import { readExternalAwarenessStatus } from '../src/coordination/external-status
 import { createAwarenessClient, type AwarenessExecutableCall } from '../src/client.js';
 import { connectDb } from '../src/db-runtime.js';
 import { agentSignal } from '../src/notifications-signals.js';
+import { getAwarenessOperationDescriptor } from '../src/schema/operation-catalog.js';
 
 let root: string;
 let previousHome: string | undefined;
@@ -38,6 +39,50 @@ function fixture(count: number) {
 }
 
 describe('lossless recipient inbox pagination', () => {
+  it('bounds full-body reads and recovers every message through executable continuations', async () => {
+    const store = openAwarenessStore({ workspace: root });
+    try {
+      const sender = createAwarenessClient({ database: store.dbPath, workspace: root, agentId: 'sender' });
+      const reader = createAwarenessClient({ database: store.dbPath, workspace: root, agentId: 'reader' });
+      const expected: string[] = [];
+      for (let index = 0; index < 20; index++) {
+        const sent = await sender.execute({ operation: 'message.send', params: {
+          kind: 'fyi', subject: `Large message ${index}`, body: `${index}:`.padEnd(4000, 'x'), to_agent: ['reader'],
+        } });
+        expect(sent.exitCode, JSON.stringify(sent.payload)).toBe(0);
+        expected.push(String((sent.payload as { signal_id: string }).signal_id));
+      }
+
+      expect(getAwarenessOperationDescriptor('message.list')?.outputBudget).toBeLessThanOrEqual(32 * 1024);
+      const oversized = await reader.execute({
+        operation: 'message.list', params: { include_bodies: true, limit: 20 },
+      });
+      expect(oversized).toMatchObject({ exitCode: 2, payload: {
+        error_code: 'OUTPUT_BUDGET_EXCEEDED',
+        budget_bytes: 32 * 1024,
+        next: { retry: { operation: 'message.list', params: { include_bodies: true, limit: 1 } } },
+      } });
+
+      let call = (oversized.payload as { next: { retry: AwarenessExecutableCall<'message.list'> } }).next.retry;
+      const seen: string[] = [];
+      for (let page = 0; page < 25; page++) {
+        const execution = await reader.execute(call);
+        expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
+        expect(Buffer.byteLength(JSON.stringify(execution.payload))).toBeLessThanOrEqual(32 * 1024);
+        const result = execution.payload as {
+          signals: Array<{ signal_id: string }>;
+          partial?: boolean;
+          next?: { list: AwarenessExecutableCall<'message.list'> };
+        };
+        seen.push(...result.signals.map(signal => signal.signal_id));
+        if (!result.partial) break;
+        call = result.next!.list;
+      }
+      expect(new Set(seen).size).toBe(seen.length);
+      expect([...seen].sort()).toEqual([...expected].sort());
+    } finally { store.close(); }
+  });
+
   it('counts the entire unread inbox instead of the capped preview', () => {
     const { store, ids } = fixture(125);
     try {
@@ -80,7 +125,7 @@ describe('lossless recipient inbox pagination', () => {
       const selected = ids.slice(0, 111);
       const client = createAwarenessClient({ database: store.dbPath, workspace: root, agentId: 'reader' });
       let call: AwarenessExecutableCall<'message.list'> = {
-        operation: 'message.list', params: { signal_id: selected, limit: 50 },
+        operation: 'message.list', params: { signal_id: selected, limit: 25 },
       };
       const seen: string[] = [];
       for (let page = 0; page < 5; page++) {

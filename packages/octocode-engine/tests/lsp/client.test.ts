@@ -21,7 +21,7 @@ function progress(kind) {
 }
 function handle(msg) {
   if (msg.method === 'initialize') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } });
+    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: process.env.POSITION_ENCODING ? { positionEncoding: process.env.POSITION_ENCODING } : {} } });
   } else if (msg.method === 'initialized') {
     progress('begin');
     if (delay >= 0) setTimeout(() => progress('end'), delay);
@@ -101,6 +101,45 @@ async function progressFixture(progressDelayMs: number): Promise<{
 }
 
 describe('LSPClient native wrapper', () => {
+  it.each([undefined, 'utf-16'])(
+    'accepts the supported position encoding %s',
+    async encoding => {
+      const { config } = await progressFixture(0);
+      const client = new LSPClient({
+        ...config,
+        env: {
+          ...config.env,
+          ...(encoding ? { POSITION_ENCODING: encoding } : {}),
+        },
+      });
+      try {
+        await expect(client.start()).resolves.toBeUndefined();
+        expect(await client.isAlive()).toBe(true);
+      } finally {
+        await client.stop();
+      }
+    }
+  );
+
+  it.each(['utf-8', 'utf-32'])(
+    'rejects incompatible %s positions before serving semantic results',
+    async encoding => {
+      const { config } = await progressFixture(0);
+      const client = new LSPClient({
+        ...config,
+        env: { ...config.env, POSITION_ENCODING: encoding },
+      });
+      try {
+        await expect(client.start()).rejects.toThrow(
+          `Unsupported language server positionEncoding '${encoding}'`
+        );
+        expect(await client.isAlive()).toBe(false);
+      } finally {
+        await client.stop();
+      }
+    }
+  );
+
   it('constructs and exposes lifecycle methods without TypeScript JSON-RPC internals', async () => {
     const { config } = await fixture();
     const client = new LSPClient(config);

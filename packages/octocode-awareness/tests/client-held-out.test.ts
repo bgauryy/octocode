@@ -3,7 +3,8 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAwarenessClient, type AwarenessExecutableCall } from '../src/client.js';
-import { executeCanonicalRoute, executeContextOrient } from '../src/operation-executor.js';
+import { executeCanonicalRoute } from '../src/operation-executor.js';
+import { executeContextOrient } from '../src/context-regulation-executor.js';
 import { connectDb } from '../src/db-runtime.js';
 import { workspaceEventHighWater } from '../src/event-outbox.js';
 import {

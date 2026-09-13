@@ -121,9 +121,21 @@ export async function processFileContentAPI(
       partialReasons: ['security-selected-view-size-limit'],
     };
   }
+  const { sourceLines, ...selectionFields } = selection;
+  // Only unchanged exact views retain source coordinates. Byte selection may
+  // already have discarded its map after redaction or synthetic separators;
+  // never substitute an identity map for that missing selected-view evidence.
+  const exactSource = contentView === 'none' && sanitized.content === content;
   return {
     ...base,
-    ...selection,
+    ...selectionFields,
+    ...(exactSource
+      ? matchString !== undefined && !fullContent
+        ? sourceLines !== undefined
+          ? { sourceLines }
+          : {}
+        : { sourceLineOffset: (selection.startLine ?? 1) - 1 }
+      : {}),
     content: sanitized.content,
     contentView,
     ...(minifyFallback ? { minifyFallback } : {}),

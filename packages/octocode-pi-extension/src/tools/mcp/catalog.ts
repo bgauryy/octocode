@@ -40,7 +40,7 @@ const MAX_INSTRUCTIONS_CHARS = 64_000;
 const MAX_DESCRIPTION_CHARS = 32_000;
 const MAX_GUIDE_CHARS = 16 * 1024 * 1024;
 const MAX_GENERATED_DESCRIPTION_CHARS = 4_000;
-const GUIDE_HEADER_VERSION = 5;
+const GUIDE_HEADER_VERSION = 6;
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const KEY_PATTERN = /^[a-f0-9]{32}$/;
@@ -182,127 +182,6 @@ export function parseMcpCatalogSnapshot(
   };
 }
 
-function cap(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit)}…`;
-}
-
-function schemaType(schema: Record<string, unknown>): string {
-  const type = schema['type'];
-  if (typeof type === 'string') return type;
-  if (Array.isArray(type)) return type.filter((item): item is string => typeof item === 'string').join('|') || 'value';
-  if (Array.isArray(schema['enum'])) return 'enum';
-  return 'value';
-}
-
-function schemaConstraints(schema: Record<string, unknown>): string[] {
-  const keys = [
-    'const', 'format', 'pattern', 'minLength', 'maxLength', 'minimum', 'maximum',
-    'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minItems', 'maxItems',
-    'uniqueItems', 'minProperties', 'maxProperties', 'additionalProperties',
-  ];
-  return keys.flatMap((key) => Object.hasOwn(schema, key) ? [`${key}: ${stableJson(schema[key])}`] : []);
-}
-
-function schemaRequiredFields(schema: Record<string, unknown>): Set<string> {
-  return new Set(
-    Array.isArray(schema['required'])
-      ? schema['required'].filter((item): item is string => typeof item === 'string')
-      : [],
-  );
-}
-
-function schemaVariants(schema: Record<string, unknown>): Record<string, unknown>[] {
-  const variants = Array.isArray(schema['oneOf'])
-    ? schema['oneOf']
-    : Array.isArray(schema['anyOf'])
-      ? schema['anyOf']
-      : [];
-  return variants.filter(isRecord);
-}
-
-function variantLabel(schema: Record<string, unknown>, index: number): string {
-  const properties = isRecord(schema['properties']) ? schema['properties'] : {};
-  const discriminators = Object.entries(properties).flatMap(([name, value]) =>
-    isRecord(value) && Object.hasOwn(value, 'const')
-      ? [`${name}=${JSON.stringify(value['const'])}`]
-      : []
-  );
-  if (discriminators.length > 0) return discriminators.join(', ');
-  const required = [...schemaRequiredFields(schema)];
-  return required.length > 0 ? `required ${required.join('+')}` : `variant ${index + 1}`;
-}
-
-function summarizeObjectFields(
-  schema: Record<string, unknown>,
-  includeDescriptions: boolean,
-  depth: number,
-): string[] {
-  const properties = isRecord(schema['properties']) ? schema['properties'] : {};
-  const required = schemaRequiredFields(schema);
-  return Object.entries(properties)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, value]) => summarizeSchemaField(name, value, required.has(name), includeDescriptions, depth));
-}
-
-function summarizeSchemaField(
-  name: string,
-  value: unknown,
-  required: boolean,
-  includeDescription: boolean,
-  depth: number,
-): string {
-  if (!isRecord(value)) return `${name} (${required ? 'required' : 'optional'})`;
-  const details = [schemaType(value), required ? 'required' : 'optional'];
-  if (Array.isArray(value['enum'])) details.push(`enum: ${value['enum'].map((item) => JSON.stringify(item)).join('|')}`);
-  if (Object.hasOwn(value, 'default')) details.push(`default: ${JSON.stringify(value['default'])}`);
-  details.push(...schemaConstraints(value));
-
-  const description = includeDescription && typeof value['description'] === 'string'
-    ? cap(value['description'].replace(/\s+/g, ' ').trim(), 180)
-    : '';
-  const nested: string[] = [];
-  if (depth < 3) {
-    const objectFields = summarizeObjectFields(value, false, depth + 1);
-    if (objectFields.length > 0) nested.push(`fields: ${objectFields.join('; ')}`);
-
-    const items = isRecord(value['items']) ? value['items'] : undefined;
-    if (items) {
-      const variants = schemaVariants(items);
-      if (variants.length > 0) {
-        nested.push(`items by variant: ${variants.map((variant, index) => {
-          const fields = summarizeObjectFields(variant, false, depth + 1);
-          return `${variantLabel(variant, index)} {${fields.join('; ')}}`;
-        }).join('; ')}`);
-      } else {
-        const itemFields = summarizeObjectFields(items, false, depth + 1);
-        nested.push(itemFields.length > 0
-          ? `item fields: ${itemFields.join('; ')}`
-          : `items: ${schemaType(items)}`);
-      }
-    }
-  }
-
-  return `${name} (${details.join(', ')})${description ? ` — ${description}` : ''}${nested.length ? `. ${nested.join('. ')}` : ''}`;
-}
-
-function summarizeInputSchema(schema: unknown): string {
-  if (!isRecord(schema)) return 'Input: exact schema is validated internally.';
-  const fields = summarizeObjectFields(schema, true, 0);
-  const rootDescription = typeof schema['description'] === 'string'
-    ? cap(schema['description'].replace(/\s+/g, ' ').trim(), 240)
-    : '';
-  const rootConstraints = schemaConstraints(schema);
-  const variants = schemaVariants(schema);
-  const variantSummary = variants.length > 0
-    ? [`variants: ${variants.map((variant, index) => `${variantLabel(variant, index)} {${summarizeObjectFields(variant, false, 1).join('; ')}}`).join('; ')}`]
-    : [];
-  const relationKeys = ['allOf', 'not', 'if', 'then', 'else', 'dependentRequired'];
-  const relations = relationKeys.flatMap((key) => Object.hasOwn(schema, key) ? [`${key}: ${cap(stableJson(schema[key]), 320)}`] : []);
-  const suffix = [...rootConstraints, ...(rootDescription ? [rootDescription] : []), ...variantSummary, ...relations];
-  if (fields.length === 0) return suffix.length ? `Input: ${suffix.join('; ')}` : 'Input: no declared fields.';
-  return `Input: ${fields.join('; ')}${suffix.length ? `. Relations: ${suffix.join('; ')}` : ''}`;
-}
-
 function renderGuide(
   snapshot: McpCatalogSnapshotV1,
   generated?: Map<string, string>,
@@ -312,18 +191,15 @@ function renderGuide(
     const escapedServer = escapePromptMetadata(server.name);
     const lines = [`server: ${escapedServer}`];
     if (server.instructions) {
-      lines.push(`instructions: ${escapePromptMetadata(server.instructions.replace(/\s+/g, ' ').trim())}`);
+      lines.push(`instructions: ${escapePromptMetadata(server.instructions)}`);
     }
     for (const tool of [...server.tools].sort((left, right) => left.name.localeCompare(right.name))) {
       lines.push(`tool: ${escapePromptMetadata(tool.name)}`);
-      const description = generated?.get(`${server.name}\0${tool.name}`) ?? tool.description ?? 'Use MCPTool action:"describe" for this tool.';
+      const description = tool.description ?? 'Use MCPTool action:"describe" for this tool.';
       lines.push(`description: ${escapePromptMetadata(description)}`);
-      if (includeSchema) {
-        // The complete deterministic contract keeps exact field names, variants,
-        // required/optional state, enums, bounds, defaults, and relationships while
-        // avoiding the duplicate JSON syntax cost in every provider request.
-        lines.push(`inputSchema: ${escapePromptMetadata(summarizeInputSchema(tool.inputSchema))}`);
-      }
+      const routingNote = generated?.get(`${server.name}\0${tool.name}`);
+      if (routingNote) lines.push(`routingNote: ${escapePromptMetadata(routingNote)}`);
+      if (includeSchema) lines.push(`inputSchema: ${escapePromptMetadata(stableJson(tool.inputSchema))}`);
     }
     return lines.join('\n');
   });
@@ -445,7 +321,7 @@ export function renderMcpCatalogExact(snapshot: McpCatalogSnapshotV1): string {
     for (const tool of [...server.tools].sort((left, right) => left.name.localeCompare(right.name))) {
       lines.push(`tool: ${escapePromptMetadata(tool.name)}`);
       if (tool.description) lines.push(`description: ${escapePromptMetadata(tool.description)}`);
-      lines.push(`inputSchema: ${escapePromptMetadata(stableJson(normalizeSchemaForCatalog(tool.inputSchema)))}`);
+      lines.push(`inputSchema: ${escapePromptMetadata(stableJson(tool.inputSchema))}`);
     }
   }
   lines.push('</mcp_catalog>');

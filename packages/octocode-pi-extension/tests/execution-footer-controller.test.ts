@@ -109,13 +109,17 @@ it('samples external facts on updates and never reads them during redraws or res
     usage,
   ];
   const before = reads.map(read => read.mock.calls.length);
+  updateOctocodeMetricsUi({ ...ctx }, 10000);
+  expect(host.footer).toHaveBeenCalledOnce();
+  const afterFreshContext = reads.map(read => read.mock.calls.length);
   for (const width of [36, 80, 120, 36]) {
     component.invalidate();
     expect(component.render(width).join('\n')).toContain('24%');
   }
   subscription?.();
   component.render(80);
-  expect(reads.map(read => read.mock.calls.length)).toEqual(before);
+  expect(reads.map(read => read.mock.calls.length)).toEqual(afterFreshContext);
+  expect(afterFreshContext.every((count, index) => count > before[index]!)).toBe(true);
   usage.mockReturnValue({ tokens: 100000, contextWindow: 200000 });
   updateOctocodeMetricsUi(ctx, 11000);
   component.invalidate();

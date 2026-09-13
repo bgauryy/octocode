@@ -52,6 +52,23 @@ class InstrumentationTests(unittest.TestCase):
         self.assertTrue(any("complete process-tree I/O" in error for error in errors))
         self.assertTrue(any("complete process-tree CPU" in error for error in errors))
 
+    def test_v3_strict_rejects_non_integer_or_negative_result_counts(self) -> None:
+        from instrument_command import _validate_v3
+
+        record = {
+            "corpus_digest": "a" * 64, "workspace_receipt_digest": "b" * 64,
+            "fixture_manifest_digest": "c" * 64, "contracts_digest": "d" * 64,
+            "logical_call_id": "case:arm:pass", "attempt_index": 1, "exit_code": 0,
+            "memory": {"peak_process_tree_rss_bytes": 1, "cgroup_v2": {"isolated": True}},
+            "cpu": {"user_ms": 1.0, "system_ms": 1.0, "complete_process_tree": True},
+            "io": {"complete_process_tree": True},
+        }
+        for count in (True, -1, None):
+            with self.subTest(count=count):
+                record["result_count"] = count
+                self.assertTrue(any("non-negative integer" in error for error in
+                                    _validate_v3(record, True, platform_name="linux")))
+
     def test_v3_outcome_is_derived_from_result_count(self) -> None:
         from instrument_command import _classify_outcome, _infer_result_count
 

@@ -1,6 +1,6 @@
 import { getAssetPaths } from '../assets.js';
 import { renderBannerWithTagline, type BannerSessionInfo, type BannerTheme } from '../branding/banner.js';
-import { readOwnVersion } from '../core-update-check.js';
+import { readOwnVersion } from '../package-metadata.js';
 import { OCTOCODE_BANNER_ENTRY_TYPE, updateOctocodeMetricsUi } from '../extension-ui.js';
 import { registerRuntimeInspectors } from '../tui/runtime-inspector.js';
 import type { NotifyFn, PiInstance } from '../types.js';

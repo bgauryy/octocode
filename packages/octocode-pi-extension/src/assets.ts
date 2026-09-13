@@ -2,13 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import {
-  runPreEditLockGate,
-  storageScopeForOperation,
-  type AwarenessStorageScope,
-  type PreEditHookResult,
-  type PreEditHookOptions,
-} from '@octocodeai/octocode-awareness/host';
 
 const extensionDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultAssetDir =
@@ -39,15 +32,6 @@ export function buildAwarenessCliInvocation(args: string[] = []): AwarenessCliIn
   return { cmd: process.execPath, args: [resolveAwarenessCliPath(), ...args] };
 }
 
-/** Run the Awareness pre-edit lock gate in-process (library call, no spawn). */
-export function runAwarenessPreEdit(options: PreEditHookOptions): PreEditHookResult {
-  return runPreEditLockGate(options);
-}
-
-export function resolveAwarenessCoordinationScope(workspace: string): AwarenessStorageScope {
-  return storageScopeForOperation('context.orient', workspace);
-}
-
 export interface AssetPaths {
   baseDir: string;
   docsDir: string;
@@ -63,7 +47,7 @@ export function getAssetPaths(baseDir = defaultAssetDir): AssetPaths {
     docsDir: path.join(baseDir, 'docs'),
     skillsDir: path.join(baseDir, 'skills'),
     systemPrompt: path.join(baseDir, 'system', 'SYSTEM_PROMPT.md'),
-    awarenessCliPath: getAwarenessCLIPath(baseDir),
+    awarenessCliPath: getAwarenessCLIPath(),
   };
 }
 
@@ -74,7 +58,7 @@ export function getAssetPaths(baseDir = defaultAssetDir): AssetPaths {
  * env var carries the bare script path (see index.ts). Falls back to the npx
  * form when the package cannot be resolved so status surfaces never crash.
  */
-export function getAwarenessCLIPath(_baseDir = extensionDir): string {
+export function getAwarenessCLIPath(): string {
   try {
     return `${process.execPath} ${resolveAwarenessCliPath()}`;
   } catch {

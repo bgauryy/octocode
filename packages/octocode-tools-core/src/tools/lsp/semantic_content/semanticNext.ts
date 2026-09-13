@@ -177,6 +177,7 @@ export function withSemanticNext(
     query.workspaceRoot ??
     (semanticResult.uri ? localPathFromUri(semanticResult.uri) : undefined);
   const partialReasons = [
+    ...(semanticResult.partialReasons ?? []),
     ...(warmupTruncated
       ? ([
           payload.warmup?.incompleteReasons &&
@@ -193,7 +194,9 @@ export function withSemanticNext(
       ...semanticResult,
       truncated: true,
       partialReasons,
-      ...((budgetTruncated || (depthTruncated && !depthExpandable)) && {
+      ...((budgetTruncated ||
+        (depthTruncated && !depthExpandable) ||
+        (warmupTruncated && !symbolName)) && {
         terminalLimit: true,
       }),
     };

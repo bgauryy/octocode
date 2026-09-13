@@ -35,6 +35,12 @@ attaches runtime behavior to core's canonical catalog.
 - **LSP**: `lspSearch`; its engine-managed local client pool does not initialize
   GitHub providers or the server runtime.
 
+Exact LSP positions bypass fuzzy name resolution. Native import token ranges
+schedule alias checks on individual reference pages; tools-core verifies identity
+through matching language-server definitions and owns executable follow-ups.
+Grouped pages that exceed the inspection budget offer ungrouped pagination.
+Parser coordinates identify candidates; they never replace semantic evidence.
+
 Each tool lives in `src/tools/<tool_name>/` with `execution.ts` (the bulk-loop
 `executionFn`), plus `finalizer.ts` / `types.ts` and helper modules as needed.
 Handlers import the canonical executable schemas from core. The public
@@ -56,6 +62,29 @@ topology analyses, dead-code policy, pagination, and response shaping are owned
 by `src/tools/ast_search/topology/`. `astSearch` is the public graph surface;
 private graph helpers and harnesses are implementation details and are not
 separate catalog tools.
+
+### Lexical continuation snapshots
+
+`src/tools/local_ripgrep/pageManifest.ts` owns optional immutable result manifests.
+Explicit `noIgnore:true` searches can return an opaque `pagination.snapshot` and
+carry it on executable file/match continuations. Default ignore-aware searches
+remain live: their ancestor/global ignore dependencies are not exposed by the
+native contract. Access-time sorts and scopes containing symlinks, unreadable
+entries, inventory caps, or native search errors also remain live. Live pagination
+carries a result fingerprint and rescans normally; a changed result/order/coverage
+returns a restart before mixing pages. Volatile scan timings and byte counts are
+excluded from this fingerprint.
+
+Eligible searches validate two complete native filesystem inventories before
+searching and again before saving sanitized results. Continuations recheck the
+full scope, including previously unmatched files, using nanosecond file metadata.
+This avoids repeating native content scans at the cost of filesystem metadata
+work; it is not an unconditional latency improvement. Single-page eligible calls
+perform the initial check but do not persist a manifest. Storage is private,
+content-addressed, limited to 1 MiB per manifest, and pruned toward 64 entries
+when writing. Manifests expire after 60 seconds. A supplied token that is expired,
+evicted, changed, corrupt, or unsafe fails closed with `staleSnapshot` and a
+schema-valid `next.restart`; it never silently rescans or serves stale snippets.
 
 ## Execution flow
 
@@ -86,6 +115,12 @@ Input preparation rejects unknown fields by default with a correction hint;
 adapters must explicitly opt into field filtering. Valid batches isolate runtime
 query failures and retain one indexed result per query; they are not transactions.
 
+Handlers distinguish failed execution from incomplete evidence. `status: 'error'`
+and domain receipts describe validation, provider, or recovery failures. Emit
+`complete:false` / `isPartial:true` only for incomplete result evidence, with an
+executable continuation or an explicit terminal limit. Shared response diagnostics
+check those flags even on error rows; handlers must not attach them to every failure.
+
 ## Providers
 
 GitHub-only today, behind an `ICodeHostProvider` abstraction so the surface stays
@@ -106,6 +141,10 @@ structure, history) lives in `src/github/`.
   cursors, token-budget warnings, structure hints) + `src/utils/response/` — the
   single lossless char-pagination flow and YAML/JSON result rendering shared by
   text + `structuredContent`.
+- Direct structured projections carry an internal per-execution render flag to
+  skip unused text rendering after response normalization. Text still renders
+  for pagination and errors; structured-content sanitization remains mandatory
+  before egress.
 - `src/utils/{http,exec,file,package,parsers}/` — fetch+retry+cache+circuit
   breaker, safe `spawn`, file helpers, npm, ripgrep/diff parsers.
 - `src/errors/` — `ToolError` hierarchy and domain/local error factories.

@@ -61,6 +61,10 @@ pub enum IndexError {
         expected: String,
         actual: String,
     },
+    GenerationMismatch {
+        expected: u64,
+        actual: u64,
+    },
     LayoutMismatch {
         expected: u32,
         actual: u32,
@@ -155,6 +159,10 @@ impl fmt::Display for IndexError {
             Self::ToolVersionMismatch { expected, actual } => write!(
                 formatter,
                 "index tool version mismatch: expected {expected}, got {actual}; rebuild required"
+            ),
+            Self::GenerationMismatch { expected, actual } => write!(
+                formatter,
+                "index generation mismatch: expected {expected}, got {actual}; restart pagination"
             ),
             Self::LayoutMismatch { expected, actual } => write!(
                 formatter,
@@ -606,6 +614,53 @@ impl IndexStore {
     }
 }
 
+pub(super) struct CapturedSource {
+    pub content: String,
+    identity: SourceFileIdentity,
+}
+
+impl CapturedSource {
+    pub(super) fn new(content: String, metadata: &fs::Metadata) -> Self {
+        let identity = SourceFileIdentity {
+            size: content.len() as u64,
+            modified_nanos: modified_nanos(metadata),
+            content_digest: sha256(content.as_bytes()),
+        };
+        Self { content, identity }
+    }
+}
+
+/// Capture at most one sentinel byte beyond the caller's byte budget.
+pub(super) fn read_source_bytes(
+    root: &Path,
+    relative_path: &Path,
+    max_bytes: u64,
+) -> Result<(Vec<u8>, fs::Metadata)> {
+    let path = secure_source_path(root, relative_path)?;
+    let file = File::open(&path).map_err(|source| IndexError::Io {
+        operation: "open index source",
+        path: path.clone(),
+        source,
+    })?;
+    let metadata = file.metadata().map_err(|source| IndexError::Io {
+        operation: "read index source metadata",
+        path: path.clone(),
+        source,
+    })?;
+    if !metadata.is_file() {
+        return Err(IndexError::NonFileSource { path });
+    }
+    let mut bytes = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|source| IndexError::Io {
+            operation: "read index source",
+            path,
+            source,
+        })?;
+    Ok((bytes, metadata))
+}
+
 pub struct GenerationWriter {
     store: IndexStore,
     spec: GenerationSpec,
@@ -625,6 +680,34 @@ impl GenerationWriter {
         language: &str,
         symbols: Vec<SymbolRecord>,
     ) -> Result<()> {
+        let normalized = self.validate_source(root, relative_path.as_ref())?;
+        let (bytes, metadata) = read_source_bytes(root, Path::new(&normalized), u64::MAX)?;
+        let content = String::from_utf8(bytes).map_err(|source| {
+            IndexError::InvalidSourceIdentity(format!("source {normalized} is not UTF-8: {source}"))
+        })?;
+        self.insert_source(
+            normalized,
+            language,
+            CapturedSource::new(content, &metadata),
+            symbols,
+        );
+        Ok(())
+    }
+
+    pub(super) fn add_captured_file(
+        &mut self,
+        root: &Path,
+        relative_path: impl AsRef<Path>,
+        language: &str,
+        source: CapturedSource,
+        symbols: Vec<SymbolRecord>,
+    ) -> Result<()> {
+        let normalized = self.validate_source(root, relative_path.as_ref())?;
+        self.insert_source(normalized, language, source, symbols);
+        Ok(())
+    }
+
+    fn validate_source(&self, root: &Path, relative_path: &Path) -> Result<String> {
         let canonical_root = root.canonicalize().map_err(|source| IndexError::Io {
             operation: "canonicalize index source root",
             path: root.to_path_buf(),
@@ -636,46 +719,31 @@ impl GenerationWriter {
                 actual: canonical_root,
             });
         }
-        let normalized = normalize_relative_path(relative_path.as_ref())?;
+        let normalized = normalize_relative_path(relative_path)?;
         if self.documents.contains_key(&normalized) {
             return Err(IndexError::DuplicateDocument(normalized));
         }
-        let path = secure_source_path(root, Path::new(&normalized))?;
-        let metadata = fs::metadata(&path).map_err(|source| IndexError::Io {
-            operation: "read index source metadata",
-            path: path.clone(),
-            source,
-        })?;
-        if !metadata.is_file() {
-            return Err(IndexError::NonFileSource { path });
-        }
-        let bytes = fs::read(&path).map_err(|source| IndexError::Io {
-            operation: "read index source",
-            path: path.clone(),
-            source,
-        })?;
-        let content = String::from_utf8(bytes.clone()).map_err(|source| {
-            IndexError::InvalidSourceIdentity(format!(
-                "source {} is not UTF-8: {source}",
-                path.display()
-            ))
-        })?;
-        let identity = SourceFileIdentity {
-            size: metadata.len(),
-            modified_nanos: modified_nanos(&metadata),
-            content_digest: sha256(&bytes),
-        };
+        secure_source_path(root, Path::new(&normalized))?;
+        Ok(normalized)
+    }
+
+    fn insert_source(
+        &mut self,
+        normalized: String,
+        language: &str,
+        source: CapturedSource,
+        symbols: Vec<SymbolRecord>,
+    ) {
         self.documents.insert(
             normalized.clone(),
             ContentRecord {
                 path: normalized,
                 language: language.to_owned(),
-                content,
-                identity,
+                content: source.content,
+                identity: source.identity,
                 symbols,
             },
         );
-        Ok(())
     }
 
     pub fn add_graph_fact_sidecar(
@@ -832,6 +900,16 @@ impl GenerationReader {
 
     #[must_use]
     pub fn verify_strict(&self, root: &Path) -> FreshnessReport {
+        self.verify_strict_bounded(root, usize::MAX, usize::MAX)
+    }
+
+    #[must_use]
+    pub fn verify_strict_bounded(
+        &self,
+        root: &Path,
+        max_entries: usize,
+        max_depth: usize,
+    ) -> FreshnessReport {
         let canonical_root = match root.canonicalize() {
             Ok(value) if value == self.manifest.root.canonical_root => value,
             _ => {
@@ -849,9 +927,16 @@ impl GenerationReader {
         let mut report = FreshnessReport {
             checked: self.documents.len(),
             generation_complete: self.manifest.complete,
+            traversal_complete: true,
             ..FreshnessReport::default()
         };
-        for document in &self.documents {
+        for (index, document) in self.documents.iter().enumerate() {
+            if index >= max_entries {
+                report.traversal_complete = false;
+                report.unverifiable.push(document.path.clone());
+                continue;
+            }
+            report.scanned_entries += 1;
             let path = canonical_root.join(&document.path);
             let metadata = match fs::symlink_metadata(&path) {
                 Ok(metadata) => metadata,
@@ -882,13 +967,18 @@ impl GenerationReader {
             .map(|document| document.path.as_str())
             .collect::<BTreeSet<_>>();
         let mut current_paths = Vec::new();
-        collect_current_paths(
-            &canonical_root,
+        let mut traversal_entries = 0_usize;
+        let traversal_complete = collect_current_paths_bounded(
             &canonical_root,
             &self.manifest.exclusions,
+            max_entries,
+            max_depth,
             &mut current_paths,
             &mut report.unverifiable,
+            &mut traversal_entries,
         );
+        report.scanned_entries = report.scanned_entries.saturating_add(traversal_entries);
+        report.traversal_complete &= traversal_complete;
         for current_path in current_paths {
             if !indexed_paths.contains(current_path.as_str()) {
                 report.added.push(current_path);
@@ -1066,6 +1156,16 @@ fn secure_source_path(root: &Path, relative_path: &Path) -> Result<PathBuf> {
         return Err(IndexError::PathEscapesRoot {
             path: canonical_path,
             root: canonical_root,
+        });
+    }
+    let metadata = fs::metadata(&canonical_path).map_err(|source| IndexError::Io {
+        operation: "read index source metadata",
+        path: canonical_path.clone(),
+        source,
+    })?;
+    if !metadata.is_file() {
+        return Err(IndexError::NonFileSource {
+            path: canonical_path,
         });
     }
     Ok(canonical_path)
@@ -1341,50 +1441,80 @@ fn directory_size(path: &Path) -> Result<u64> {
     Ok(bytes)
 }
 
-fn collect_current_paths(
+fn collect_current_paths_bounded(
     root: &Path,
-    directory: &Path,
     exclusions: &[String],
+    max_entries: usize,
+    max_depth: usize,
     files: &mut Vec<String>,
     unverifiable: &mut Vec<String>,
-) {
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(_) => {
-            unverifiable.push(relative_display(root, directory));
-            return;
+    scanned_entries: &mut usize,
+) -> bool {
+    let mut pending = std::collections::VecDeque::from([(root.to_path_buf(), 0_usize)]);
+    let mut scanned = 0_usize;
+    let mut complete = true;
+    while let Some((directory, depth)) = pending.pop_front() {
+        let remaining = max_entries.saturating_sub(scanned);
+        if remaining == 0 {
+            return false;
         }
-    };
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
+        let mut entries = Vec::new();
+        let read = match fs::read_dir(&directory) {
+            Ok(read) => read,
             Err(_) => {
-                unverifiable.push(relative_display(root, directory));
+                unverifiable.push(relative_display(root, &directory));
+                complete = false;
                 continue;
             }
         };
-        let path = entry.path();
-        let relative = relative_display(root, &path);
-        if path_is_excluded(&relative, exclusions) {
-            continue;
+        for entry in read {
+            match entry {
+                Ok(entry) => entries.push(entry.path()),
+                Err(_) => {
+                    unverifiable.push(relative_display(root, &directory));
+                    complete = false;
+                }
+            }
+            if entries.len() > remaining {
+                return false;
+            }
         }
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(_) => {
+        entries.sort();
+        scanned = scanned.saturating_add(entries.len());
+        *scanned_entries = scanned;
+        for path in entries {
+            let relative = relative_display(root, &path);
+            if path_is_excluded(&relative, exclusions) {
+                continue;
+            }
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(_) => {
+                    unverifiable.push(relative);
+                    complete = false;
+                    continue;
+                }
+            };
+            if metadata.file_type().is_symlink() {
                 unverifiable.push(relative);
-                continue;
+                complete = false;
+            } else if metadata.is_dir() {
+                if depth >= max_depth {
+                    unverifiable.push(relative);
+                    complete = false;
+                } else {
+                    pending.push_back((path, depth + 1));
+                }
+            } else if metadata.is_file() {
+                files.push(relative);
+            } else {
+                unverifiable.push(relative);
+                complete = false;
             }
-        };
-        if metadata.file_type().is_symlink() {
-            unverifiable.push(relative);
-        } else if metadata.is_dir() {
-            collect_current_paths(root, &path, exclusions, files, unverifiable);
-        } else if metadata.is_file() {
-            files.push(relative);
-        } else {
-            unverifiable.push(relative);
         }
     }
+    files.sort();
+    complete
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {

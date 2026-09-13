@@ -8,36 +8,13 @@ import { extractGlobalDb, validateFlagValues } from './cli-adapter/cli-routing.j
 import { commandFromHelpArgv, helpFor } from './cli-adapter/cli-help.js';
 import { AwarenessInputError, commandOutput } from './command-output.js';
 import type { AwarenessOperationResult } from './operation-contracts.js';
+import { getAwarenessAgentInstructions, type AwarenessAgentInstructionSection } from './agent-instructions.js';
+import { coerceFlag } from './cli-adapter/cli-coercion.js';
 
 const IDENTITY_OPTIONAL_OPERATIONS = new Set([
-  'work.list', 'work.show', 'memory.recall',
+  'work.list', 'work.show', 'memory.recall', 'memory.get', 'memory.revalidate',
   'history.status', 'history.timeline', 'history.read', 'history.restore',
 ]);
-
-function coerce(value: unknown, schema: Record<string, unknown>): unknown {
-  const variants = [schema, ...(Array.isArray(schema.anyOf) ? schema.anyOf as Record<string, unknown>[] : [])];
-  if (Array.isArray(value)) {
-    const array = variants.find(candidate => candidate.type === 'array');
-    if (array) return value.map(item => coerce(item, array.items as Record<string, unknown> ?? {}));
-    if (value.length === 1) return coerce(value[0], schema);
-    return value;
-  }
-  if (variants.some(candidate => candidate.type === 'array') && !variants.some(candidate => candidate.type === typeof value)) {
-    const array = variants.find(candidate => candidate.type === 'array')!;
-    return [coerce(value, array.items as Record<string, unknown> ?? {})];
-  }
-  if (typeof value === 'string') {
-    if (variants.some(candidate => candidate.type === 'integer' || candidate.type === 'number') && value.trim()) {
-      const number = Number(value);
-      if (Number.isFinite(number)) return number;
-    }
-    if (variants.some(candidate => candidate.type === 'boolean')) {
-      if (['true', 'yes', '1'].includes(value.toLowerCase())) return true;
-      if (['false', 'no', '0'].includes(value.toLowerCase())) return false;
-    }
-  }
-  return value;
-}
 
 /** Shell adapter for the canonical operation surface and its schema introspection. */
 export async function executeAwarenessCli(
@@ -58,6 +35,18 @@ export async function executeAwarenessCli(
       if (tokens.length !== globals.filtered.length) parsed.compact = true;
       validateFlagValues(parsed);
       const words = parsed._;
+
+      if (words[0] === 'instructions') {
+        const { _: _words, compact: _compact, section, ...unexpected } = parsed;
+        if (words.length !== 1 || Object.keys(unexpected).length) {
+          throw new AwarenessInputError('Use instructions [--section <name>] [--compact]');
+        }
+        const selected = section === undefined ? undefined : (Array.isArray(section) ? section : [section]);
+        if (selected?.some(value => typeof value !== 'string')) throw new AwarenessInputError('--section requires a section name');
+        return { exitCode: 0, payload: null, text: getAwarenessAgentInstructions({
+          ...(selected ? { sections: selected as AwarenessAgentInstructionSection[] } : {}),
+        }) };
+      }
 
       if (words[0] === 'schema') {
         const action = words[1];
@@ -94,7 +83,7 @@ export async function executeAwarenessCli(
       const properties = commandSchemaProperties(descriptor.inputSchema);
       const unknown = Object.keys(params).find(field => !Object.hasOwn(properties, field));
       if (unknown) throw new AwarenessInputError(`Unknown flag --${unknown.replaceAll('_', '-')}`);
-      const input = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, coerce(value, properties[key] ?? {})]));
+      const input = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, coerceFlag(value, properties[key] ?? {})]));
       const actorId = typeof agent_id === 'string' ? agent_id : process.env.OCTOCODE_AGENT_ID?.trim();
       if (!actorId && !IDENTITY_OPTIONAL_OPERATIONS.has(descriptor.operation)) {
         throw new AwarenessInputError('Awareness operations require --agent-id or OCTOCODE_AGENT_ID');

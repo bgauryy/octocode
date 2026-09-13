@@ -1,9 +1,8 @@
 /**
- * repo-context.ts - generated repo-readable projections over awareness data.
+ * Presentation helpers for repository-readable Awareness query results.
  *
- * The SQLite store remains canonical. This module only reads it into lean views
- * for agents/humans and writes optional `.octocode/*` snapshots for workspaces
- * that choose to share or keep a local generated context folder.
+ * The SQLite store remains canonical. This module only renders lean views for
+ * agents and humans; persistence belongs to the command adapter.
  */
 import { AwarenessQueryResult, AwarenessQueryRow } from './repo-model.js';
 

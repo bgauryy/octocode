@@ -2,7 +2,8 @@
 /**
  * @octocodeai/octocode-awareness build script.
  *
- * Builds directly to out/ (no atomic staging).
+ * Builds self-contained stable entries directly to out/. Lazy source modules
+ * stay inside each entry so a rebuild cannot remove a file a live host needs.
  * Package-owned esbuild settings keep builds independent of the host repository.
  * Run `yarn typecheck` for a type-only check without rebuilding.
  */
@@ -10,12 +11,12 @@ import * as esbuild from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import {
   chmodSync, cpSync, existsSync, mkdirSync,
-  readFileSync, readdirSync, rmSync, writeFileSync,
+  readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { baseOptions } from './build-options.mjs';
+import { baseOptions, coreBundleOptions } from './build-options.mjs';
 import { coreEntryPoints, skillScriptEntries } from './build.entries.mjs';
 
 const packageRoot = dirname(fileURLToPath(import.meta.url));
@@ -56,17 +57,13 @@ function makeExecutable(filePath, banner = '#!/usr/bin/env node') {
 process.chdir(packageRoot);
 rmSync(outDir, { recursive: true, force: true });
 rmSync(join(packageRoot, 'dist'), { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
 
-// ── Core bundle (code-split) ──────────────────────────────────────────────────
+// ── Core bundles (stable, standalone entries) ─────────────────────────────────
 
 await esbuild.build({
-  ...baseOptions,
+  ...coreBundleOptions,
   entryPoints:  coreEntryPoints,
   outdir:       outDir,
-  entryNames:   '[name]',
-  chunkNames:   'chunks/[name]-[hash]',
-  splitting:    true,
   minify:       true,
 });
 
@@ -136,8 +133,7 @@ for (const { name, source } of skillSources) {
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 
-const chunkCount = readdirSync(join(outDir, 'chunks')).length;
 console.log('✓ @octocodeai/octocode-awareness built → out/');
-console.log(`✓ Awareness CLI → out/octocode-awareness.js (${chunkCount} shared chunks)`);
+console.log('✓ Awareness CLI → out/octocode-awareness.js (stable standalone entry)');
 console.log('✓ schemas served dynamically by the CLI (no static schema files)');
 console.log(`✓ bundled skills → out/skills/ (${skillSources.map(({ name }) => name).join(', ')})`);

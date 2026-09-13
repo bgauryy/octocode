@@ -5,7 +5,7 @@ This skill ships with `@octocodeai/octocode-awareness`. `SKILL.md` is the operat
 The routine flow is:
 
 ```text
-ORIENT -> ACT -> COORDINATE WHEN DECISION-CHANGING -> VERIFY -> RECOVER IF NEEDED
+OBSERVE -> ORIENT -> ACT -> FEEDBACK -> COORDINATE WHEN DECISION-CHANGING
 ```
 
 Use the host-bound Awareness tool when available. Otherwise call the public CLI with the same database, workspace, and stable actor identity supplied by the host:
@@ -14,6 +14,7 @@ Use the host-bound Awareness tool when available. Otherwise call the public CLI 
 npx @octocodeai/octocode-awareness context orient \
     --workspace "$PWD" \
     --agent-id "awareness:session-1" \
+    --session-id "session-1" \
     --compact
 ```
 
@@ -24,7 +25,7 @@ npx @octocodeai/octocode-awareness schema commands --compact
 npx @octocodeai/octocode-awareness schema command context orient --compact
 ```
 
-The CLI exposes exactly nineteen operations across Context, Work, Message, Memory, and History. Unknown operation names fail.
+The live catalog exposes operations across Context, Work, Message, Memory, and History, including keyed memory and non-file experience traces. Unknown operation names fail.
 
 ## Reference map
 

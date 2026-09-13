@@ -356,10 +356,59 @@ describe('searchContentStructural', () => {
     expect(result.error).toContain('match a complete node');
     expect(result.error).toContain('$$$BODY');
     expect(result.error).toContain('valid py');
-    expect(result.error).toContain('tools localSearch --scheme');
+    expect(result.error).toContain('tools astSearch --scheme');
     expect(result.error).not.toContain('local.text');
     expect(result.hints).toBeUndefined();
   });
+
+  it('preserves native path failures without pattern repair', async () => {
+    const message =
+      "Cannot access structural search path '/repo/missing': No such file or directory (os error 2)";
+    mocks.structuralSearchFiles.mockRejectedValue(new Error(message));
+    const result = await searchContentStructural(makeQuery());
+    expect(result).toMatchObject({
+      status: 'error',
+      errorCode: 'fileAccessFailed',
+      error: message,
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /Invalid structural|\$\$\$BODY|localSearch --scheme/
+    );
+  });
+
+  it.each(['ENOENT', 'EACCES', 'EIO'])(
+    'preserves %s file-read errors without syntax repair',
+    async code => {
+      mocks.stat.mockResolvedValue({ isFile: () => true });
+      mocks.readFile.mockRejectedValue(
+        Object.assign(new Error('read failed'), { code })
+      );
+      const result = await searchContentStructural(makeQuery());
+      expect(result).toMatchObject({
+        status: 'error',
+        errorCode: 'fileReadFailed',
+      });
+      expect(JSON.stringify(result)).not.toMatch(
+        /Invalid structural|\$\$\$BODY|--scheme/
+      );
+    }
+  );
+
+  it.each([
+    '[structural.parse.failed] Parser initialization failed',
+    'native worker unavailable',
+  ])(
+    'does not classify runtime failures as authoring errors: %s',
+    async message => {
+      mocks.structuralSearchFiles.mockRejectedValue(new Error(message));
+      const result = await searchContentStructural(makeQuery());
+      expect(result.status).toBe('error');
+      expect(result.error).toContain(message);
+      expect(JSON.stringify(result)).not.toMatch(
+        /Invalid structural|\$\$\$BODY|--scheme/
+      );
+    }
+  );
 
   it.each([
     'structural.query.compileFailed',

@@ -12,9 +12,6 @@ import {
   DEFAULT_SPAWN_POLICY,
 } from './types.js';
 
-/** Recursive-agent tool denied for all spawned workers. */
-export const FORBIDDEN_WORKER_TOOLS = new Set(['agent', 'spawnAgent', 'spawnSubagent', 'callTool', 'callSkill', 'tool-smith', 'skill-smith']);
-
 const SPAWN_POLICY_MAX_ACTIVE_ENV = 'OCTOCODE_AGENT_MAX_ACTIVE';
 const SPAWN_POLICY_WARNING_ACTIVE_ENV = 'OCTOCODE_AGENT_WARNING_ACTIVE';
 const SPAWN_POLICY_MAX_STEPS_ENV = 'OCTOCODE_AGENT_MAX_STEPS';
@@ -60,19 +57,6 @@ export function evaluateStepBudget(
 function looksLikeProviderScopedModel(model: string): boolean {
   return /\//.test(model)
     || /^(?:claude|gpt|llama|mistral|gemini|qwen|zai|deepseek|kimi|codestral)[-_:/.]/i.test(model);
-}
-
-function isOpenAiGpt5Worker(params: SpawnAgentParams): boolean {
-  const provider = String(params.provider ?? '').toLowerCase();
-  const model = String(params.model ?? '').toLowerCase();
-  return provider.includes('openai') && /^gpt-5(?:[._-]|$)/.test(model);
-}
-
-export function shouldForceThinkingOffForToolCallingWorker(params: SpawnAgentParams, workerTools: string[]): boolean {
-  // OpenAI's Chat Completions endpoint rejects function tools when reasoning_effort
-  // is present for GPT-5-series models. Omitting --thinking can inherit a parent or
-  // configured default, so tool-calling subagents must explicitly disable it.
-  return workerTools.length > 0 && isOpenAiGpt5Worker(params);
 }
 
 export function getWorkerTools(params: SpawnAgentParams): string[] {
@@ -159,9 +143,6 @@ export function evaluateSpawnPolicy(
   const model = String(params.model ?? '');
   if (model && looksLikeProviderScopedModel(model) && !params.provider) {
     warnings.push('Model looks provider-scoped or custom-provider-hosted; pass provider from `pi -ne --list-models` when required.');
-  }
-  if (shouldForceThinkingOffForToolCallingWorker(params, getWorkerTools(params))) {
-    warnings.push('Forced --thinking off for OpenAI GPT-5 tool-calling worker because Chat Completions rejects reasoning_effort with function tools.');
   }
   const strippedTools = (params.tools ?? []).filter(isForbiddenWorkerTool);
   if (strippedTools.length > 0) {

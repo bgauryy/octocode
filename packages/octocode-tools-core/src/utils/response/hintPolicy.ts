@@ -90,15 +90,6 @@ function hasRecovery(value: unknown): boolean {
 const ACTIONABLE_ERROR =
   /\b(?:broaden|check|choose|correct|disable|enable|pass|provide|refresh|remove|retry|run|select|set|specify|supply|try|use|verify|wait)\b/i;
 
-function hasActionableError(value: unknown): boolean {
-  const node = record(value);
-  if (!node) return false;
-  const error = node.error;
-  if (typeof error === 'string' && ACTIONABLE_ERROR.test(error)) return true;
-  const nested = record(error)?.error;
-  return typeof nested === 'string' && ACTIONABLE_ERROR.test(nested);
-}
-
 function fallbackHint(
   toolName: string | undefined,
   queryValue: unknown
@@ -151,9 +142,8 @@ function addFallbackHint(
   context: HintPolicyContext
 ): void {
   const row = record(value);
-  if (!row || (row.status !== 'empty' && row.status !== 'error')) return;
+  if (!row || row.status !== 'empty') return;
   if (hasRecovery(row)) return;
-  if (row.status === 'error' && hasActionableError(row.data)) return;
   const data = record(row.data);
   if (!data) return;
   const queryIndex = typeof row.index === 'number' ? row.index : position;

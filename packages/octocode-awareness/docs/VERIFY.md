@@ -16,7 +16,7 @@ Do not lower coverage thresholds to pass a change. Rebuild before testing the ge
 
 ## Built surface gate
 
-Verify the built CLI reports five concepts and nineteen operations:
+Verify the built CLI reports five concepts and the same operations as `ROUTINE_AWARENESS_OPERATIONS`:
 
 ```bash
 node packages/octocode-awareness/out/octocode-awareness.js --help
@@ -27,8 +27,11 @@ node packages/octocode-awareness/out/octocode-awareness.js \
 Verify an unknown or removed operation fails. Import the built package root and assert that its runtime keys are exactly:
 
 - `AWARENESS_CONCEPTS`
+- `AWARENESS_AGENT_INSTRUCTION_SECTIONS`
+- `AWARENESS_MESSAGE_PARAMETER_GUIDANCE`
 - `ROUTINE_AWARENESS_OPERATIONS`
 - `createAwarenessClient`
+- `getAwarenessAgentInstructions`
 - `getAwarenessOperationDescriptor`
 - `listAwarenessOperationDescriptors`
 
@@ -46,8 +49,13 @@ Use a disposable database and workspace to verify:
 6. Restore preview detects drift; authorized apply returns verification debt.
 7. A real exclusive protection blocks a conflicting host write.
 8. Infrastructure failure records a degraded hook receipt without mislabeling a real conflict.
+9. Keyed memory preserves historical rationale, rejects competing revisions, and returns bounded anchor matches.
+10. Changed declared file evidence becomes stale without certifying a lesson; scoped orientation refreshes its revision.
+11. Non-file experiences paginate without loss, seal durably when LocalGit is available, and remain readable after delivery pruning.
 
 Execute every continuation in the fixture and verify that the union of pages covers the expected rows.
+
+Run the build-generation coherence test. Runtime entries must remain self-contained and keep already-loaded lazy modules usable across a rebuild; hashed executor chunks must not be emitted.
 
 ## Host gate
 

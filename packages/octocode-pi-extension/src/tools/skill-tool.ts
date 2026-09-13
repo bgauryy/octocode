@@ -8,7 +8,6 @@ import { DIRECT_TOOL_DESCRIPTIONS, type registerUniqueTool } from './octocode-to
 import { makeComponentRenderer } from './render-helpers.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
 import { orchestrate } from './call-skill.js';
-import { MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS } from './tool-result-budget.js';
 import { discoverSkills, type DiscoveredSkill } from './skill-discovery.js';
 import { readSkillPage } from './skill-pages.js';
 import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
@@ -17,8 +16,7 @@ import { isWorkerCapabilityClient, getCurrentWorkerCapabilities, refreshCurrentW
 import { z } from 'zod';
 type RegisterFn = typeof registerUniqueTool;
 
-// Leave room for identity, file discovery, and recovery calls inside the current
-// model-visible tool-result budget; otherwise the initial page itself spills.
+// Page long instructions with an executable continuation.
 const SKILL_CONTENT_CAP = 8_000;
 
 const SKILL_FILE_LIST_CAP = 30;
@@ -137,14 +135,7 @@ function loadSkill(skill: DiscoveredSkill): ToolCallResult {
       ...(isPartial ? { next } : {}),
     });
   };
-  let page = buildPage();
-  let pageChars = (page.content[0] as { text: string }).text.length;
-  while (returnedChars > 0 && pageChars > MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) {
-    returnedChars = Math.max(0, returnedChars - (pageChars - MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS));
-    if (returnedChars > 0 && returnedChars < text.length && (text.charCodeAt(returnedChars - 1) & 0xFC00) === 0xD800) returnedChars -= 1;
-    page = buildPage();
-    pageChars = (page.content[0] as { text: string }).text.length;
-  }
+  const page = buildPage();
   recordSkillLoad(skill.name);
   return page;
 }

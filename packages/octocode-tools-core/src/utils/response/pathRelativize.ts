@@ -152,6 +152,8 @@ const HOIST_EXCLUDED_KEYS = new Set<string>([
   // Source anchors and declaration facts must be independently usable per row.
   'startLine',
   'endLine',
+  'start',
+  'end',
   'startColumn',
   'endColumn',
   'startByte',
