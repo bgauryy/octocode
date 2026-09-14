@@ -2,13 +2,14 @@ use std::{
     future::Future,
     pin::Pin,
     process::{Command, Stdio},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use crate::config::ConfigOutput;
 use aes_gcm::{AesGcm, KeyInit, aead::AeadInPlace, aead::consts::U16, aes::Aes256};
 use secrecy::{ExposeSecret, SecretString};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -156,38 +157,99 @@ fn gh_cli_token(host: &str) -> Option<SecretString> {
     (!token.is_empty()).then(|| SecretString::from(token))
 }
 
-pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
-    use keyring_core::api::CredentialStoreApi;
-    #[cfg(target_os = "macos")]
-    let store = apple_native_keyring_store::keychain::Store::new();
-    #[cfg(target_os = "linux")]
-    let store = zbus_secret_service_keyring_store::Store::new();
-    #[cfg(windows)]
-    let store = windows_native_keyring_store::Store::new();
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    {
-        let _ = host;
-        return Ok(());
+const KEYCHAIN_SERVICE: &str = "octocode";
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredCredentials {
+    pub hostname: String,
+    pub username: String,
+    pub token: OAuthToken,
+    pub git_protocol: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl Zeroize for StoredCredentials {
+    fn zeroize(&mut self) {
+        self.hostname.zeroize();
+        self.username.zeroize();
+        self.token.zeroize();
+        self.git_protocol.zeroize();
+        self.created_at.zeroize();
+        self.updated_at.zeroize();
     }
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-    {
-        let store = match store {
-            Ok(store) => store,
-            Err(_) => return Ok(()),
-        };
-        let entry = match store.build("octocode", host, None) {
-            Ok(entry) => entry,
-            Err(_) => return Ok(()),
-        };
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
-            Err(error) => Err(map_store_error(error)),
+}
+
+impl Drop for StoredCredentials {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthToken {
+    pub token: String,
+    pub token_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_expires_at: Option<String>,
+}
+
+impl Zeroize for OAuthToken {
+    fn zeroize(&mut self) {
+        self.token.zeroize();
+        self.token_type.zeroize();
+        if let Some(scopes) = self.scopes.as_mut() {
+            for scope in scopes.iter_mut() {
+                scope.zeroize();
+            }
+            scopes.clear();
+        }
+        if let Some(value) = self.refresh_token.as_mut() {
+            value.zeroize();
+        }
+        if let Some(value) = self.expires_at.as_mut() {
+            value.zeroize();
+        }
+        if let Some(value) = self.refresh_token_expires_at.as_mut() {
+            value.zeroize();
         }
     }
 }
 
+impl Drop for OAuthToken {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+pub fn store_platform_credential(credentials: &StoredCredentials) -> Result<(), ProviderError> {
+    store_in(&platform_store()?, credentials)
+}
+
+pub fn load_stored_credential(host: &str) -> Result<Option<StoredCredentials>, ProviderError> {
+    load_stored_from(&platform_store()?, host)
+}
+
+pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
+    let Ok(store) = platform_store() else {
+        return Ok(());
+    };
+    delete_in(&store, host)
+}
+
 fn load_platform_credential(host: &str) -> Result<Option<SecretString>, ProviderError> {
-    use keyring_core::api::CredentialStoreApi;
+    load_http_from(&platform_store()?, host)
+}
+
+fn platform_store() -> Result<Arc<keyring_core::CredentialStore>, ProviderError> {
     #[cfg(target_os = "macos")]
     let store = apple_native_keyring_store::keychain::Store::new();
     #[cfg(target_os = "linux")]
@@ -195,27 +257,130 @@ fn load_platform_credential(host: &str) -> Result<Option<SecretString>, Provider
     #[cfg(windows)]
     let store = windows_native_keyring_store::Store::new();
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    return Err(ProviderError::new(
-        super::ProviderErrorKind::CredentialStoreUnavailable,
+    return Err(store_unavailable(
         "no secure credential store is available on this platform",
     ));
     #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
-        let store = store.map_err(|_| {
-            ProviderError::new(
-                super::ProviderErrorKind::CredentialStoreUnavailable,
-                "secure credential store is unavailable",
-            )
-        })?;
-        let entry = store
-            .build("octocode", host, None)
-            .map_err(map_store_error)?;
-        match entry.get_password() {
-            Ok(secret) if !secret.trim().is_empty() => Ok(Some(SecretString::from(secret))),
-            Ok(_) | Err(keyring_core::Error::NoEntry) => Ok(None),
-            Err(error) => Err(map_store_error(error)),
+        store
+            .map(|store| store as Arc<keyring_core::CredentialStore>)
+            .map_err(|_| store_unavailable("secure credential store is unavailable"))
+    }
+}
+
+fn store_in(
+    store: &Arc<keyring_core::CredentialStore>,
+    credentials: &StoredCredentials,
+) -> Result<(), ProviderError> {
+    let host = normalize_host(&credentials.hostname);
+    let blob = Zeroizing::new(serde_json::to_string(credentials).map_err(|_| {
+        ProviderError::new(
+            super::ProviderErrorKind::Decode,
+            "failed to encode stored credentials",
+        )
+    })?);
+    let entry = store
+        .build(KEYCHAIN_SERVICE, &host, None)
+        .map_err(map_store_error)?;
+    entry.set_password(&blob).map_err(map_store_error)
+}
+
+fn load_http_from(
+    store: &Arc<keyring_core::CredentialStore>,
+    host: &str,
+) -> Result<Option<SecretString>, ProviderError> {
+    Ok(read_entry_password(store, host)?.and_then(|secret| http_token_from_blob(&secret)))
+}
+
+fn load_stored_from(
+    store: &Arc<keyring_core::CredentialStore>,
+    host: &str,
+) -> Result<Option<StoredCredentials>, ProviderError> {
+    Ok(read_entry_password(store, host)?.and_then(|secret| stored_from_blob(host, &secret)))
+}
+
+fn delete_in(store: &Arc<keyring_core::CredentialStore>, host: &str) -> Result<(), ProviderError> {
+    let Ok(entry) = store.build(KEYCHAIN_SERVICE, host, None) else {
+        return Ok(());
+    };
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(error) => Err(map_store_error(error)),
+    }
+}
+
+fn read_entry_password(
+    store: &Arc<keyring_core::CredentialStore>,
+    host: &str,
+) -> Result<Option<Zeroizing<String>>, ProviderError> {
+    let entry = store
+        .build(KEYCHAIN_SERVICE, host, None)
+        .map_err(map_store_error)?;
+    match entry.get_password() {
+        Ok(secret) => {
+            let secret = Zeroizing::new(secret);
+            if secret.trim().is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(secret))
+            }
+        }
+        Err(keyring_core::Error::NoEntry) => Ok(None),
+        Err(error) => Err(map_store_error(error)),
+    }
+}
+
+fn http_token_from_blob(secret: &str) -> Option<SecretString> {
+    let trimmed = secret.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed)
+        && let Some(token) = value
+            .pointer("/token/token")
+            .and_then(serde_json::Value::as_str)
+    {
+        let token = token.trim();
+        if !token.is_empty() {
+            return Some(SecretString::from(token));
         }
     }
+    // Pre-JSON keychain secrets are a raw token.
+    Some(SecretString::from(trimmed))
+}
+
+fn stored_from_blob(host: &str, secret: &str) -> Option<StoredCredentials> {
+    let trimmed = secret.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(stored) = serde_json::from_str::<StoredCredentials>(trimmed)
+        && !stored.token.token.trim().is_empty()
+    {
+        return Some(stored);
+    }
+    Some(StoredCredentials {
+        hostname: normalize_host(host),
+        username: String::new(),
+        token: OAuthToken {
+            token: trimmed.to_owned(),
+            token_type: "oauth".to_owned(),
+            scopes: None,
+            refresh_token: None,
+            expires_at: None,
+            refresh_token_expires_at: None,
+        },
+        git_protocol: String::new(),
+        created_at: String::new(),
+        updated_at: String::new(),
+    })
+}
+
+fn store_unavailable(message: &str) -> ProviderError {
+    ProviderError::new(
+        super::ProviderErrorKind::CredentialStoreUnavailable,
+        message,
+    )
 }
 
 fn map_store_error(error: keyring_core::Error) -> ProviderError {
@@ -468,5 +633,150 @@ impl CredentialResolver for StaticCredentialResolver {
             }
             Ok(self.token.clone())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use secrecy::ExposeSecret;
+
+    fn mock_store() -> Arc<keyring_core::CredentialStore> {
+        keyring_core::mock::Store::new()
+            .map(|store| store as Arc<keyring_core::CredentialStore>)
+            .expect("in-memory credential store")
+    }
+
+    fn sample_credentials(token: &str) -> StoredCredentials {
+        StoredCredentials {
+            hostname: "github.com".to_owned(),
+            username: "alice".to_owned(),
+            token: OAuthToken {
+                token: token.to_owned(),
+                token_type: "oauth".to_owned(),
+                scopes: Some(vec![
+                    "repo".to_owned(),
+                    "read:org".to_owned(),
+                    "gist".to_owned(),
+                ]),
+                refresh_token: Some("refresh_secret".to_owned()),
+                expires_at: Some("2026-01-01T00:00:00Z".to_owned()),
+                refresh_token_expires_at: Some("2026-02-01T00:00:00Z".to_owned()),
+            },
+            git_protocol: "https".to_owned(),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-02T00:00:00Z".to_owned(),
+        }
+    }
+
+    #[test]
+    fn stored_credentials_json_is_node_shaped() {
+        let json = serde_json::to_value(sample_credentials("gho_inner")).expect("json");
+        assert_eq!(json["hostname"], "github.com");
+        assert_eq!(json["username"], "alice");
+        assert_eq!(json["gitProtocol"], "https");
+        assert_eq!(json["createdAt"], "2026-01-01T00:00:00Z");
+        assert_eq!(json["updatedAt"], "2026-01-02T00:00:00Z");
+        assert_eq!(json["token"]["token"], "gho_inner");
+        assert_eq!(json["token"]["tokenType"], "oauth");
+        assert_eq!(json["token"]["refreshToken"], "refresh_secret");
+        assert_eq!(json["token"]["expiresAt"], "2026-01-01T00:00:00Z");
+        assert_eq!(
+            json["token"]["refreshTokenExpiresAt"],
+            "2026-02-01T00:00:00Z"
+        );
+        assert!(json.get("git_protocol").is_none());
+        assert!(json["token"].get("token_type").is_none());
+    }
+
+    #[test]
+    fn store_json_http_credential_is_inner_token_not_blob() {
+        let store = mock_store();
+        store_in(&store, &sample_credentials("gho_inner")).expect("store");
+        let blob = store
+            .build(KEYCHAIN_SERVICE, "github.com", None)
+            .expect("entry")
+            .get_password()
+            .expect("blob");
+        assert!(blob.contains("gho_inner"), "blob should be the JSON object");
+        assert!(blob.contains("hostname"), "blob should be the JSON object");
+
+        let http = load_http_from(&store, "github.com")
+            .expect("load")
+            .expect("token");
+        assert_eq!(http.expose_secret(), "gho_inner");
+        assert!(
+            !http.expose_secret().contains("hostname"),
+            "HTTP credential must not be the JSON blob"
+        );
+
+        let resolved = ResolvedCredential::new(http, CredentialSource::Storage);
+        assert_eq!(format!("Bearer {}", resolved.expose()), "Bearer gho_inner");
+
+        let stored = load_stored_from(&store, "github.com")
+            .expect("load stored")
+            .expect("credentials");
+        assert_eq!(stored.username, "alice");
+        assert_eq!(stored.token.token, "gho_inner");
+        assert_eq!(stored.token.token_type, "oauth");
+        assert_eq!(stored.git_protocol, "https");
+    }
+
+    #[test]
+    fn raw_blob_still_resolves_as_http_token() {
+        let store = mock_store();
+        store
+            .build(KEYCHAIN_SERVICE, "github.com", None)
+            .expect("entry")
+            .set_password("gho_raw")
+            .expect("set raw");
+
+        let http = load_http_from(&store, "github.com")
+            .expect("load")
+            .expect("token");
+        assert_eq!(http.expose_secret(), "gho_raw");
+        assert_eq!(
+            format!(
+                "Bearer {}",
+                ResolvedCredential::new(http, CredentialSource::Storage).expose()
+            ),
+            "Bearer gho_raw"
+        );
+
+        let stored = load_stored_from(&store, "github.com")
+            .expect("load stored")
+            .expect("credentials");
+        assert_eq!(stored.token.token, "gho_raw");
+        assert_eq!(stored.token.token_type, "oauth");
+        assert_eq!(stored.username, "");
+        assert_eq!(stored.created_at, "");
+        assert_eq!(stored.updated_at, "");
+    }
+
+    #[test]
+    fn empty_inner_token_falls_back_to_raw_blob() {
+        let store = mock_store();
+        let blob = r#"{"hostname":"github.com","username":"alice","token":{"token":"","tokenType":"oauth"},"gitProtocol":"https","createdAt":"","updatedAt":""}"#;
+        store
+            .build(KEYCHAIN_SERVICE, "github.com", None)
+            .expect("entry")
+            .set_password(blob)
+            .expect("set");
+        let http = load_http_from(&store, "github.com")
+            .expect("load")
+            .expect("token");
+        assert_eq!(http.expose_secret(), blob);
+    }
+
+    #[test]
+    fn trimmed_json_blob_yields_inner_token() {
+        let json = serde_json::to_string(&sample_credentials("gho_pad")).expect("json");
+        let padded = format!("\n{json}\n");
+        assert_eq!(
+            http_token_from_blob(&padded)
+                .expect("token")
+                .expose_secret(),
+            "gho_pad"
+        );
     }
 }

@@ -13,8 +13,9 @@ mod tree;
 pub use auth::{
     ChainedCredentialSource, ConfigCredentialResolver, CredentialRequest,
     CredentialResolutionHandle, CredentialResolver, CredentialSource, CredentialSourceProvider,
-    GhCliCredentialSource, LegacyCredentialStore, OwnedCredentialRequest, PlatformCredentialStore,
-    ResolvedCredential, StaticCredentialResolver, delete_platform_credential,
+    GhCliCredentialSource, LegacyCredentialStore, OAuthToken, OwnedCredentialRequest,
+    PlatformCredentialStore, ResolvedCredential, StaticCredentialResolver, StoredCredentials,
+    delete_platform_credential, load_stored_credential, store_platform_credential,
 };
 pub use budget::{GitHubBudget, GitHubResource, session_snapshot};
 pub use content::{
