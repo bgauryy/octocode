@@ -1,4 +1,5 @@
 mod human;
+mod mcp_install;
 mod search;
 use clap::{Parser, Subcommand};
 use octocode_engine_tools_core::config::RuntimeSurface;
@@ -130,24 +131,31 @@ enum Command {
     Logout,
     /// Inspect or clear native GitHub caches.
     Cache { action: String },
+    /// Install octocode-mcp into an IDE MCP JSON config.
+    Install(mcp_install::InstallArgs),
     /// Skill catalog pointer.
     Skill { action: Option<String> },
 }
 
 pub async fn run(args: Args) -> u8 {
-    let runtime = match ToolRuntime::from_host(HostOptions {
-        surface: RuntimeSurface::Cli,
-        ..HostOptions::default()
-    }) {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            eprintln!("{}: {}", error.code, error.message);
-            return 5;
+    match args.command {
+        Command::Install(install) => mcp_install::run(install),
+        command => {
+            let runtime = match ToolRuntime::from_host(HostOptions {
+                surface: RuntimeSurface::Cli,
+                ..HostOptions::default()
+            }) {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    eprintln!("{}: {}", error.code, error.message);
+                    return 5;
+                }
+            };
+            let result = dispatch(command, &runtime).await;
+            runtime.close().await;
+            result
         }
-    };
-    let result = dispatch(args.command, &runtime).await;
-    runtime.close().await;
-    result
+    }
 }
 
 async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
@@ -335,6 +343,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
         Command::Login => human::login(),
         Command::Logout => human::logout(runtime),
         Command::Cache { action } => human::cache(runtime, &action),
+        Command::Install(install) => mcp_install::run(install),
         Command::Skill { action } => human::skill(action.as_deref()),
     }
 }

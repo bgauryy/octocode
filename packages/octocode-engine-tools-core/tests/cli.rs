@@ -125,3 +125,124 @@ fn read_pages_and_next_reconstructs_source() {
     assert!(drained.status.success(), "{}", stderr(&drained));
     assert_eq!(stdout(&drained), content);
 }
+
+fn install_server(home: &std::path::Path, ide: &str) -> serde_json::Value {
+    let path = match ide {
+        "cursor" => home.join(".cursor").join("mcp.json"),
+        other => panic!("test helper covers cursor, got {other}"),
+    };
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("{}", path.display()));
+    assert!(
+        !text.contains("\"command\": \"octo\"") && !text.contains("\"command\":\"octo\""),
+        "written JSON must not use command octo: {text}"
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&text).expect("installed JSON");
+    let server = parsed["mcpServers"]["octocode"].clone();
+    let args = server["args"].as_array().expect("args");
+    assert_eq!(server["command"], "npx");
+    assert_eq!(server["type"], "stdio");
+    assert_eq!(
+        server["args"],
+        serde_json::json!(["-y", "octocode-mcp@latest"])
+    );
+    assert!(
+        args.iter()
+            .all(|arg| arg.as_str() != Some("mcp") && arg.as_str() != Some("octo")),
+        "written args must not contain octo or mcp: {args:?}"
+    );
+    server
+}
+
+#[test]
+fn install_without_ide_is_usage() {
+    let workspace = Workspace::new();
+    let output = workspace.cli().arg("install").output().expect("install");
+    assert_eq!(output.status.code(), Some(2));
+    let combined = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        combined.contains("Missing required option: --ide") || combined.contains("--ide"),
+        "{combined}"
+    );
+}
+
+#[test]
+fn install_unknown_and_toml_ides_are_usage() {
+    let workspace = Workspace::new();
+    let unknown = workspace
+        .cli()
+        .args(["install", "--ide", "notepad"])
+        .output()
+        .expect("unknown");
+    assert_eq!(unknown.status.code(), Some(2));
+    let codex = workspace
+        .cli()
+        .args(["install", "--ide", "codex"])
+        .output()
+        .expect("codex");
+    assert_eq!(codex.status.code(), Some(2));
+    assert!(
+        stderr(&codex).contains("TOML/YAML") || stdout(&codex).contains("TOML/YAML"),
+        "{}",
+        stderr(&codex)
+    );
+}
+
+#[test]
+fn install_writes_npx_stdio_server_and_rejects_octo_mcp() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["install", "--ide", "cursor", "--json"])
+        .output()
+        .expect("install");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let server = install_server(&workspace.home, "cursor");
+    assert_eq!(server["command"], "npx");
+    assert_eq!(server["args"][0], "-y");
+}
+
+#[test]
+fn install_already_installed_without_force_exits_1() {
+    let workspace = Workspace::new();
+    let first = workspace
+        .cli()
+        .args(["install", "--ide", "cursor", "--json"])
+        .output()
+        .expect("first");
+    assert_eq!(first.status.code(), Some(0), "{}", stderr(&first));
+    let second = workspace
+        .cli()
+        .args(["install", "--ide", "cursor", "--json"])
+        .output()
+        .expect("second");
+    assert_eq!(second.status.code(), Some(1), "{}", stderr(&second));
+    let payload: serde_json::Value =
+        serde_json::from_str(stdout(&second)).expect("alreadyInstalled json");
+    assert_eq!(payload["alreadyInstalled"], true);
+    assert_eq!(payload["success"], false);
+}
+
+#[test]
+fn install_dry_run_does_not_write() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["install", "--ide", "cursor", "--dry-run", "--json"])
+        .output()
+        .expect("dry-run");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(!workspace.home.join(".cursor").join("mcp.json").exists());
+}
+
+#[test]
+fn help_lists_install_not_mcp_subcommand() {
+    let workspace = Workspace::new();
+    let output = workspace.cli().arg("--help").output().expect("help");
+    assert!(output.status.success());
+    let text = stdout(&output);
+    assert!(text.contains("install"), "{text}");
+    assert!(
+        !text.contains("  mcp ") && !text.to_lowercase().contains("\n  mcp\n"),
+        "native Command must not grow an mcp subcommand: {text}"
+    );
+}
