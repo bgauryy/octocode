@@ -62,6 +62,66 @@ fn looks_like_iso(value: &str) -> bool {
     value.len() >= 10 && value.as_bytes()[4] == b'-' && value.as_bytes().get(7) == Some(&b'-')
 }
 
+pub(crate) fn rfc3339_from_epoch_secs(epoch: i64) -> String {
+    iso8601(epoch)
+}
+
+pub(crate) fn epoch_secs_from_rfc3339(value: &str) -> Option<i64> {
+    let value = value.trim();
+    if value.len() < 10 {
+        return None;
+    }
+    let year: i64 = value.get(0..4)?.parse().ok()?;
+    if value.as_bytes().get(4) != Some(&b'-') {
+        return None;
+    }
+    let month: u32 = value.get(5..7)?.parse().ok()?;
+    if value.as_bytes().get(7) != Some(&b'-') {
+        return None;
+    }
+    let day: u32 = value.get(8..10)?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let rest = value.get(10..).unwrap_or("");
+    let (hour, minute, second) = if rest.is_empty() {
+        (0_u32, 0_u32, 0_u32)
+    } else {
+        let rest = rest.strip_prefix('T').or_else(|| rest.strip_prefix(' '))?;
+        let hour: u32 = rest.get(0..2)?.parse().ok()?;
+        if rest.as_bytes().get(2) != Some(&b':') {
+            return None;
+        }
+        let minute: u32 = rest.get(3..5)?.parse().ok()?;
+        if rest.as_bytes().get(5) != Some(&b':') {
+            return None;
+        }
+        let second: u32 = rest.get(6..8)?.parse().ok()?;
+        let mut idx = 8;
+        let bytes = rest.as_bytes();
+        if bytes.get(idx) == Some(&b'.') {
+            idx += 1;
+            while bytes.get(idx).is_some_and(u8::is_ascii_digit) {
+                idx += 1;
+            }
+        }
+        let tz = rest.get(idx..)?;
+        if !matches!(tz, "Z" | "z" | "+00:00" | "-00:00" | "+0000" | "-0000") {
+            return None;
+        }
+        if hour > 23 || minute > 59 || second > 60 {
+            return None;
+        }
+        (hour, minute, second)
+    };
+    Some(
+        days_from_civil(year, month, day) * 86_400
+            + i64::from(hour) * 3_600
+            + i64::from(minute) * 60
+            + i64::from(second),
+    )
+}
+
 fn iso8601(epoch: i64) -> String {
     let epoch = epoch.max(0) as u64;
     let days = epoch / 86400;
@@ -85,6 +145,20 @@ fn civil_from_days(mut z: i64) -> (i64, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m as u32, d as u32)
+}
+
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let mp = if m > 2 {
+        u64::from(m) - 3
+    } else {
+        u64::from(m) + 9
+    };
+    let doy = (153 * mp + 2) / 5 + u64::from(d) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe as i64 - 719_468
 }
 
 pub fn quote_search_keyword(keyword: &str) -> String {
@@ -121,5 +195,16 @@ mod tests {
     fn quotes_multiword_keywords() {
         assert_eq!(quote_search_keyword("fix login"), "\"fix login\"");
         assert_eq!(quote_search_keyword("already"), "already");
+    }
+
+    #[test]
+    fn rfc3339_round_trips_unix_seconds() {
+        let stamp = "2026-01-01T00:00:00Z";
+        let epoch = epoch_secs_from_rfc3339(stamp).expect("parse");
+        assert_eq!(rfc3339_from_epoch_secs(epoch), stamp);
+        assert_eq!(
+            epoch_secs_from_rfc3339("2026-01-01T00:00:00.000Z"),
+            Some(epoch)
+        );
     }
 }

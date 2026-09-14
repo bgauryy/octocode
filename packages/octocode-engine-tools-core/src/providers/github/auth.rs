@@ -2,18 +2,21 @@ use std::{
     future::Future,
     pin::Pin,
     process::{Command, Stdio},
-    sync::Arc,
-    time::{Duration, Instant},
+    sync::{Arc, OnceLock},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::config::ConfigOutput;
 use aes_gcm::{AesGcm, KeyInit, aead::AeadInPlace, aead::consts::U16, aes::Aes256};
+use regex::Regex;
+use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use zeroize::{Zeroize, Zeroizing};
 
-use super::ProviderError;
+use super::{ProviderError, ProviderErrorKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialSource {
@@ -158,6 +161,9 @@ fn gh_cli_token(host: &str) -> Option<SecretString> {
 }
 
 const KEYCHAIN_SERVICE: &str = "octocode";
+pub const OCTOCODE_GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
+const DEFAULT_HOSTNAME: &str = "github.com";
+const TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,6 +249,82 @@ pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
         return Ok(());
     };
     delete_in(&store, host)
+}
+
+pub fn store_credentials_value(value: Value) -> Result<Value, ProviderError> {
+    store_platform_credential(&credentials_from_value(value)?)?;
+    Ok(json!({ "success": true }))
+}
+
+pub fn get_credentials_value(hostname: Option<&str>) -> Result<Value, ProviderError> {
+    match load_stored_credential(&credential_hostname(hostname))? {
+        Some(stored) => serde_json::to_value(&stored).map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::Decode,
+                "failed to encode stored credentials",
+            )
+        }),
+        None => Ok(Value::Null),
+    }
+}
+
+pub fn delete_credentials_value(hostname: Option<&str>) -> Result<Value, ProviderError> {
+    delete_platform_credential(&credential_hostname(hostname))?;
+    Ok(json!({ "success": true, "deletedFromFile": false }))
+}
+
+pub async fn refresh_auth_token(
+    host: &str,
+    client_id: &str,
+) -> Result<StoredCredentials, ProviderError> {
+    let store = platform_store()?;
+    let client = oauth_http_client()?;
+    refresh_auth_token_with(
+        &store,
+        &client,
+        &web_origin_for_host(host),
+        host,
+        client_id,
+        SystemTime::now(),
+    )
+    .await
+}
+
+pub async fn refresh_auth_token_value(hostname: Option<&str>) -> Result<Value, ProviderError> {
+    let host = credential_hostname(hostname);
+    match refresh_auth_token(&host, OCTOCODE_GITHUB_APP_CLIENT_ID).await {
+        Ok(stored) => Ok(json!({
+            "success": true,
+            "username": stored.username,
+            "hostname": stored.hostname,
+        })),
+        Err(error) => Ok(json!({
+            "success": false,
+            "error": mask_credential_text(error.message.as_ref()),
+        })),
+    }
+}
+
+pub async fn get_token_with_refresh(host: &str, client_id: &str) -> Result<Value, ProviderError> {
+    let store = platform_store()?;
+    let client = oauth_http_client()?;
+    get_token_with_refresh_with(
+        &store,
+        &client,
+        &web_origin_for_host(host),
+        host,
+        client_id,
+        SystemTime::now(),
+    )
+    .await
+}
+
+pub async fn get_token_with_refresh_value(hostname: Option<&str>) -> Result<Value, ProviderError> {
+    get_token_with_refresh(
+        &credential_hostname(hostname),
+        OCTOCODE_GITHUB_APP_CLIENT_ID,
+    )
+    .await
 }
 
 fn load_platform_credential(host: &str) -> Result<Option<SecretString>, ProviderError> {
@@ -534,6 +616,277 @@ fn normalize_host(host: &str) -> String {
         .unwrap_or(&lower)
         .trim_end_matches('/')
         .to_owned()
+}
+
+fn credential_hostname(hostname: Option<&str>) -> String {
+    let normalized = normalize_host(hostname.unwrap_or(DEFAULT_HOSTNAME));
+    if normalized.is_empty() {
+        DEFAULT_HOSTNAME.to_owned()
+    } else {
+        normalized
+    }
+}
+
+fn web_origin_for_host(host: &str) -> String {
+    let host = credential_hostname(Some(host));
+    let host = if host == "api.github.com" {
+        DEFAULT_HOSTNAME
+    } else {
+        host.as_str()
+    };
+    format!("https://{host}")
+}
+
+fn credentials_from_value(value: Value) -> Result<StoredCredentials, ProviderError> {
+    let credentials: StoredCredentials = serde_json::from_value(value).map_err(|_| {
+        ProviderError::new(ProviderErrorKind::Validation, "invalid stored credentials")
+    })?;
+    if credentials.token.token.trim().is_empty() {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Validation,
+            "stored credentials require token.token",
+        ));
+    }
+    Ok(credentials)
+}
+
+fn oauth_http_client() -> Result<reqwest::Client, ProviderError> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::Configuration,
+                "failed to initialize GitHub OAuth HTTP client",
+            )
+        })
+}
+
+fn now_epoch_secs(now: SystemTime) -> i64 {
+    now.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64
+}
+
+fn is_token_expired(credentials: &StoredCredentials, now: SystemTime) -> bool {
+    let Some(expires_at) = credentials.token.expires_at.as_deref() else {
+        return false;
+    };
+    let Some(epoch) = super::dates::epoch_secs_from_rfc3339(expires_at) else {
+        return true;
+    };
+    epoch.saturating_sub(now_epoch_secs(now)) < TOKEN_REFRESH_SKEW.as_secs() as i64
+}
+
+fn is_refresh_token_expired(credentials: &StoredCredentials, now: SystemTime) -> bool {
+    let Some(expires_at) = credentials.token.refresh_token_expires_at.as_deref() else {
+        return false;
+    };
+    let Some(epoch) = super::dates::epoch_secs_from_rfc3339(expires_at) else {
+        return true;
+    };
+    now_epoch_secs(now) >= epoch
+}
+
+fn mask_credential_text(message: &str) -> String {
+    static GITHUB_TOKEN: OnceLock<Regex> = OnceLock::new();
+    static LONG_SECRET: OnceLock<Regex> = OnceLock::new();
+    let github_token = GITHUB_TOKEN.get_or_init(|| {
+        Regex::new(r"\b(ghp_|gho_|ghu_|ghs_|ghr_)[a-zA-Z0-9]{36,}\b")
+            .expect("static GitHub token mask")
+    });
+    let long_secret = LONG_SECRET
+        .get_or_init(|| Regex::new(r"\b[a-zA-Z0-9]{40,}\b").expect("static long-secret mask"));
+    let masked = github_token.replace_all(message, "***MASKED***");
+    long_secret
+        .replace_all(masked.as_ref(), "***MASKED***")
+        .into_owned()
+}
+
+async fn refresh_auth_token_with(
+    store: &Arc<keyring_core::CredentialStore>,
+    client: &reqwest::Client,
+    web_origin: &str,
+    host: &str,
+    client_id: &str,
+    now: SystemTime,
+) -> Result<StoredCredentials, ProviderError> {
+    let host = credential_hostname(Some(host));
+    let mut stored = load_stored_from(store, &host)?.ok_or_else(|| {
+        ProviderError::new(
+            ProviderErrorKind::NotFound,
+            format!("Not logged in to {host}"),
+        )
+    })?;
+    let refresh_token = stored
+        .token
+        .refresh_token
+        .clone()
+        .filter(|token| !token.trim().is_empty());
+    let Some(refresh_token) = refresh_token else {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Validation,
+            "Token does not support refresh (OAuth App tokens do not expire)",
+        ));
+    };
+    if is_refresh_token_expired(&stored, now) {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Authentication,
+            "Refresh token has expired. Please login again.",
+        ));
+    }
+    let url = format!(
+        "{}/login/oauth/access_token",
+        web_origin.trim_end_matches('/')
+    );
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("grant_type", "refresh_token")
+        .append_pair("client_id", client_id)
+        .append_pair("client_secret", "")
+        .append_pair("refresh_token", &refresh_token)
+        .finish();
+    let response = client
+        .post(&url)
+        .header(ACCEPT, "application/json")
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(USER_AGENT, "octocode")
+        .body(body)
+        .send()
+        .await
+        .map_err(|error| {
+            ProviderError::new(
+                ProviderErrorKind::Transport,
+                mask_credential_text(&error.to_string()),
+            )
+        })?;
+    let status = response.status();
+    let payload = response.text().await.map_err(|error| {
+        ProviderError::new(
+            ProviderErrorKind::Transport,
+            mask_credential_text(&error.to_string()),
+        )
+    })?;
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        let mut error = ProviderError::new(
+            ProviderErrorKind::Authentication,
+            "Token refresh failed. Please login again.",
+        );
+        error.status = Some(status.as_u16());
+        return Err(error);
+    }
+    if !status.is_success() {
+        let mut error = ProviderError::new(
+            ProviderErrorKind::Server,
+            mask_credential_text(&format!("Token refresh failed ({status})")),
+        );
+        error.status = Some(status.as_u16());
+        return Err(error);
+    }
+    let parsed: OauthRefreshResponse = serde_json::from_str(&payload).map_err(|_| {
+        ProviderError::new(
+            ProviderErrorKind::Decode,
+            "invalid GitHub OAuth refresh response",
+        )
+    })?;
+    if let Some(error) = parsed.error.as_deref().filter(|value| !value.is_empty()) {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Authentication,
+            mask_credential_text(
+                parsed
+                    .error_description
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(error),
+            ),
+        ));
+    }
+    let access_token = parsed
+        .access_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorKind::Decode,
+                "GitHub OAuth refresh response did not include access_token",
+            )
+        })?;
+    let now_secs = now_epoch_secs(now);
+    stored.token.token = access_token.to_owned();
+    stored.token.token_type = "oauth".to_owned();
+    if let Some(refresh) = parsed
+        .refresh_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        stored.token.refresh_token = Some(refresh.to_owned());
+    }
+    stored.token.expires_at = parsed.expires_in.map(|seconds| {
+        super::dates::rfc3339_from_epoch_secs(now_secs.saturating_add(seconds as i64))
+    });
+    stored.token.refresh_token_expires_at = parsed.refresh_token_expires_in.map(|seconds| {
+        super::dates::rfc3339_from_epoch_secs(now_secs.saturating_add(seconds as i64))
+    });
+    stored.updated_at = super::dates::rfc3339_from_epoch_secs(now_secs);
+    store_in(store, &stored)?;
+    Ok(stored)
+}
+
+async fn get_token_with_refresh_with(
+    store: &Arc<keyring_core::CredentialStore>,
+    client: &reqwest::Client,
+    web_origin: &str,
+    host: &str,
+    client_id: &str,
+    now: SystemTime,
+) -> Result<Value, ProviderError> {
+    let host = credential_hostname(Some(host));
+    let Some(stored) = load_stored_from(store, &host)? else {
+        return Ok(json!({ "token": Value::Null, "source": "none" }));
+    };
+    if stored.token.token.trim().is_empty() {
+        return Ok(json!({ "token": Value::Null, "source": "none" }));
+    }
+    if !is_token_expired(&stored, now) {
+        return Ok(json!({
+            "token": stored.token.token,
+            "source": "stored",
+            "username": stored.username,
+        }));
+    }
+    if stored
+        .token
+        .refresh_token
+        .as_deref()
+        .is_none_or(|token| token.trim().is_empty())
+    {
+        return Ok(json!({
+            "token": Value::Null,
+            "source": "none",
+            "refreshError": "Token expired and no refresh token available",
+        }));
+    }
+    match refresh_auth_token_with(store, client, web_origin, &host, client_id, now).await {
+        Ok(updated) => Ok(json!({
+            "token": updated.token.token,
+            "source": "refreshed",
+            "username": updated.username,
+        })),
+        Err(error) => Ok(json!({
+            "token": Value::Null,
+            "source": "none",
+            "refreshError": mask_credential_text(error.message.as_ref()),
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct OauthRefreshResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+    refresh_token_expires_in: Option<u64>,
+    error: Option<String>,
+    error_description: Option<String>,
 }
 impl<S> ConfigCredentialResolver<S> {
     pub fn new(config: std::sync::Arc<ConfigOutput>, secure_storage: S) -> Self {
@@ -851,5 +1204,183 @@ mod tests {
                 .expose_secret(),
             "gho_pad"
         );
+    }
+
+    #[test]
+    fn get_credentials_json_includes_full_secret() {
+        let store = mock_store();
+        store_in(&store, &sample_credentials("gho_full")).expect("store");
+        let stored = load_stored_from(&store, "github.com")
+            .expect("load")
+            .expect("credentials");
+        let json = serde_json::to_value(&stored).expect("json");
+        assert_eq!(
+            json.pointer("/token/token").and_then(Value::as_str),
+            Some("gho_full")
+        );
+        assert_eq!(json["username"], "alice");
+        assert!(json.get("scopes").is_none());
+    }
+
+    #[test]
+    fn credentials_from_value_rejects_empty_token() {
+        let value = serde_json::to_value(sample_credentials("")).expect("json");
+        let error = match credentials_from_value(value) {
+            Err(error) => error,
+            Ok(_) => panic!("empty token should be rejected"),
+        };
+        assert_eq!(error.kind, ProviderErrorKind::Validation);
+    }
+
+    #[test]
+    fn web_origin_never_uses_api_github_dot_com() {
+        assert_eq!(web_origin_for_host("github.com"), "https://github.com");
+        assert_eq!(
+            web_origin_for_host("https://api.github.com/"),
+            "https://github.com"
+        );
+        assert_eq!(
+            web_origin_for_host("ghe.example.com"),
+            "https://ghe.example.com"
+        );
+    }
+
+    #[test]
+    fn mask_credential_text_redacts_tokens() {
+        assert_eq!(
+            mask_credential_text("failed gho_abcdefghijklmnopqrstuvwxyz0123456789 extra"),
+            "failed ***MASKED*** extra"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_posts_empty_secret_and_stores_rotated_token() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/login/oauth/access_token"))
+            .and(wiremock::matchers::header("accept", "application/json"))
+            .and(wiremock::matchers::body_string_contains("grant_type=refresh_token"))
+            .and(wiremock::matchers::body_string_contains("client_secret="))
+            .and(wiremock::matchers::body_string_contains("refresh_token=refresh_secret"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_raw(
+                    r#"{"access_token":"gho_rotated","refresh_token":"refresh_new","expires_in":28800,"refresh_token_expires_in":15897600,"token_type":"bearer"}"#,
+                    "application/json",
+                ),
+            )
+            .mount(&server)
+            .await;
+
+        let store = mock_store();
+        store_in(&store, &sample_credentials("gho_old")).expect("store");
+        let client = oauth_http_client().expect("client");
+        let now = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let updated = refresh_auth_token_with(
+            &store,
+            &client,
+            &server.uri(),
+            "github.com",
+            OCTOCODE_GITHUB_APP_CLIENT_ID,
+            now,
+        )
+        .await
+        .expect("refresh");
+        assert_eq!(updated.token.token, "gho_rotated");
+        assert_eq!(updated.token.refresh_token.as_deref(), Some("refresh_new"));
+        assert_eq!(updated.token.token_type, "oauth");
+        let stored = load_stored_from(&store, "github.com")
+            .expect("load")
+            .expect("credentials");
+        assert_eq!(stored.token.token, "gho_rotated");
+    }
+
+    #[tokio::test]
+    async fn refresh_401_keeps_stored_token() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/login/oauth/access_token"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(401)
+                    .set_body_raw(r#"{"error":"bad_refresh_token"}"#, "application/json"),
+            )
+            .mount(&server)
+            .await;
+        let store = mock_store();
+        let mut credentials = sample_credentials("gho_keep");
+        credentials.token.refresh_token_expires_at = Some("2099-01-01T00:00:00Z".to_owned());
+        store_in(&store, &credentials).expect("store");
+        let client = oauth_http_client().expect("client");
+        let error = match refresh_auth_token_with(
+            &store,
+            &client,
+            &server.uri(),
+            "github.com",
+            OCTOCODE_GITHUB_APP_CLIENT_ID,
+            SystemTime::now(),
+        )
+        .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("401 should not refresh"),
+        };
+        assert_eq!(error.kind, ProviderErrorKind::Authentication);
+        assert_eq!(error.status, Some(401));
+        let stored = load_stored_from(&store, "github.com")
+            .expect("load")
+            .expect("credentials");
+        assert_eq!(stored.token.token, "gho_keep");
+    }
+
+    #[tokio::test]
+    async fn get_token_with_refresh_returns_stored_when_unexpired() {
+        let store = mock_store();
+        let mut credentials = sample_credentials("gho_live");
+        credentials.token.expires_at = Some("2099-01-01T00:00:00Z".to_owned());
+        store_in(&store, &credentials).expect("store");
+        let client = oauth_http_client().expect("client");
+        let value = get_token_with_refresh_with(
+            &store,
+            &client,
+            "https://example.invalid",
+            "github.com",
+            OCTOCODE_GITHUB_APP_CLIENT_ID,
+            SystemTime::now(),
+        )
+        .await
+        .expect("token");
+        assert_eq!(value["token"], "gho_live");
+        assert_eq!(value["source"], "stored");
+        assert_eq!(value["username"], "alice");
+    }
+
+    #[tokio::test]
+    async fn get_token_with_refresh_refreshes_expired_token() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/login/oauth/access_token"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_raw(
+                r#"{"access_token":"gho_fresh","refresh_token":"refresh_new","expires_in":28800}"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+        let store = mock_store();
+        let mut credentials = sample_credentials("gho_stale");
+        credentials.token.expires_at = Some("2020-01-01T00:00:00Z".to_owned());
+        credentials.token.refresh_token_expires_at = Some("2099-01-01T00:00:00Z".to_owned());
+        store_in(&store, &credentials).expect("store");
+        let client = oauth_http_client().expect("client");
+        let value = get_token_with_refresh_with(
+            &store,
+            &client,
+            &server.uri(),
+            "github.com",
+            OCTOCODE_GITHUB_APP_CLIENT_ID,
+            SystemTime::now(),
+        )
+        .await
+        .expect("token");
+        assert_eq!(value["token"], "gho_fresh");
+        assert_eq!(value["source"], "refreshed");
     }
 }

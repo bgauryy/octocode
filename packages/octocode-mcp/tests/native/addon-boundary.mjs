@@ -10,7 +10,7 @@ const runtime = new NativeRuntime({
   cwd: process.cwd(),
 });
 try {
-  assert.equal(runtime.abiVersion, 1);
+  assert.equal(runtime.abiVersion, 2);
   assert.equal(runtime.closed, false);
   await assert.rejects(
     runtime.execute('typed-error', 'localFetch', { queries: [{}] }),

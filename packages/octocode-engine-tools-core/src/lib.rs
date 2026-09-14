@@ -18,4 +18,12 @@ pub mod security;
 pub mod tools;
 
 /// Identifies the native boundary independently of generated tool contracts.
-pub const NATIVE_ABI_VERSION: u32 = 1;
+pub const NATIVE_ABI_VERSION: u32 = 2;
+
+#[cfg(test)]
+mod abi_tests {
+    #[test]
+    fn native_abi_version_is_2() {
+        assert_eq!(super::NATIVE_ABI_VERSION, 2);
+    }
+}

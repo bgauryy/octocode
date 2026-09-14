@@ -1,3 +1,5 @@
+import { createRequire } from 'node:module';
+
 import type { StoredCredentials, StoreResult, DeleteResult } from './types.js';
 
 import {
@@ -41,6 +43,84 @@ import {
   isRefreshTokenExpired,
 } from './credentialUtils.js';
 
+const require = createRequire(import.meta.url);
+
+type NativeCredentialApi = {
+  storeCredentials(value: StoredCredentials): { success?: boolean } | void;
+  getCredentials(hostname?: string | null): StoredCredentials | null;
+  deleteCredentials(
+    hostname?: string | null
+  ): { success?: boolean; deletedFromFile?: boolean } | void;
+};
+
+let nativeOverride: NativeCredentialApi | null | undefined;
+let nativeCache: NativeCredentialApi | null | undefined;
+
+export function _setNativeCredentialsForTesting(
+  api: NativeCredentialApi | null | undefined
+): void {
+  nativeOverride = api;
+  nativeCache = undefined;
+}
+
+function nativeCredentials(): NativeCredentialApi | null {
+  if (nativeOverride !== undefined) {
+    return nativeOverride;
+  }
+  if (nativeCache !== undefined) {
+    return nativeCache;
+  }
+  nativeCache = loadNativeCredentials();
+  return nativeCache;
+}
+
+function loadNativeCredentials(): NativeCredentialApi | null {
+  const bindingPath = process.env.OCTOCODE_NATIVE_BINDING;
+  if (!bindingPath) {
+    return null;
+  }
+  try {
+    const binding = require(bindingPath) as {
+      NativeRuntime?: new (options?: Record<string, unknown>) => {
+        abiVersion?: number;
+        storeCredentials?: NativeCredentialApi['storeCredentials'];
+        getCredentials?: NativeCredentialApi['getCredentials'];
+        deleteCredentials?: NativeCredentialApi['deleteCredentials'];
+      };
+    };
+    if (typeof binding.NativeRuntime !== 'function') {
+      return null;
+    }
+    const runtime = new binding.NativeRuntime();
+    if (
+      (runtime.abiVersion ?? 0) < 2 ||
+      typeof runtime.storeCredentials !== 'function' ||
+      typeof runtime.getCredentials !== 'function' ||
+      typeof runtime.deleteCredentials !== 'function'
+    ) {
+      return null;
+    }
+    return runtime as NativeCredentialApi;
+  } catch {
+    return null;
+  }
+}
+
+function asStoredCredentials(value: unknown): StoredCredentials | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const credentials = value as StoredCredentials;
+  if (
+    !credentials.token ||
+    typeof credentials.token.token !== 'string' ||
+    credentials.token.token.length === 0
+  ) {
+    return null;
+  }
+  return credentials;
+}
+
 export async function storeCredentials(
   credentials: StoredCredentials
 ): Promise<StoreResult> {
@@ -52,6 +132,13 @@ export async function storeCredentials(
   };
 
   try {
+    const native = nativeCredentials();
+    if (native) {
+      native.storeCredentials(normalizedCredentials);
+      invalidateCredentialsCache(hostname);
+      return { success: true };
+    }
+
     const store = readCredentialsStore();
     store.credentials[hostname] = normalizedCredentials;
     writeCredentialsStore(store);
@@ -81,6 +168,15 @@ export async function getCredentials(
     }
   }
 
+  const native = nativeCredentials();
+  if (native) {
+    const credentials = asStoredCredentials(
+      native.getCredentials(normalizedHostname)
+    );
+    setCachedCredentials(normalizedHostname, credentials);
+    return credentials;
+  }
+
   const store = readCredentialsStore();
   const credentials = store.credentials[normalizedHostname] || null;
 
@@ -93,6 +189,10 @@ export function getCredentialsSync(
   hostname: string = 'github.com'
 ): StoredCredentials | null {
   const normalizedHostname = normalizeHostname(hostname);
+  const native = nativeCredentials();
+  if (native) {
+    return asStoredCredentials(native.getCredentials(normalizedHostname));
+  }
   const store = readCredentialsStore();
   return store.credentials[normalizedHostname] || null;
 }
@@ -101,6 +201,15 @@ export async function deleteCredentials(
   hostname: string = 'github.com'
 ): Promise<DeleteResult> {
   const normalizedHostname = normalizeHostname(hostname);
+  const native = nativeCredentials();
+  if (native) {
+    const result = native.deleteCredentials(normalizedHostname);
+    invalidateCredentialsCache(normalizedHostname);
+    return {
+      success: result?.success !== false,
+      deletedFromFile: false,
+    };
+  }
   let deletedFromFile = false;
 
   const store = readCredentialsStore();

@@ -3095,4 +3095,64 @@ describe('Token Storage', () => {
       expect(result.error).toContain('Not logged in');
     });
   });
+
+  describe('native credential delegation', () => {
+    it('hydrates getCredentials from NAPI including token.token', async () => {
+      const nativeCredentials = createMockCredentials({
+        token: {
+          token: 'gho_native_secret',
+          tokenType: 'oauth' as const,
+        },
+      });
+      const native = {
+        storeCredentials: vi.fn(),
+        getCredentials: vi.fn().mockReturnValue(nativeCredentials),
+        deleteCredentials: vi.fn(),
+      };
+
+      const { getCredentials, _setNativeCredentialsForTesting } =
+        await import('../../../src/shared/credentials/storage.js');
+      _setNativeCredentialsForTesting(native);
+
+      const result = await getCredentials('github.com');
+
+      expect(result?.token.token).toBe('gho_native_secret');
+      expect(native.getCredentials).toHaveBeenCalledWith('github.com');
+      expect(fs.readFileSync).not.toHaveBeenCalled();
+    });
+
+    it('stores and deletes through NAPI without writing the file store', async () => {
+      const native = {
+        storeCredentials: vi.fn().mockReturnValue({ success: true }),
+        getCredentials: vi.fn().mockReturnValue(null),
+        deleteCredentials: vi.fn().mockReturnValue({ success: true }),
+      };
+
+      const {
+        storeCredentials,
+        deleteCredentials,
+        _setNativeCredentialsForTesting,
+      } = await import('../../../src/shared/credentials/storage.js');
+      _setNativeCredentialsForTesting(native);
+
+      const stored = await storeCredentials(createMockCredentials());
+      const deleted = await deleteCredentials('github.com');
+
+      expect(stored).toEqual({ success: true });
+      expect(deleted).toEqual({ success: true, deletedFromFile: false });
+      expect(native.storeCredentials).toHaveBeenCalled();
+      expect(native.deleteCredentials).toHaveBeenCalledWith('github.com');
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the file store when the addon is absent', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+
+      const { getCredentials, _setNativeCredentialsForTesting } =
+        await import('../../../src/shared/credentials/storage.js');
+      _setNativeCredentialsForTesting(null);
+
+      expect(await getCredentials('github.com')).toBeNull();
+    });
+  });
 });
