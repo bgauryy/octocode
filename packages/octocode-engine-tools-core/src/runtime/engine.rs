@@ -481,10 +481,13 @@ impl ToolRuntime {
                                 Some(&lsp_pool),
                             )) {
                                 Ok(data) => Ok(super::dispatch::value_result(data)),
-                                Err(message) => Ok(super::dispatch::provider_failure(
-                                    message,
-                                    "lspUnavailable".into(),
-                                    vec!["Use localSearch or astSearch, then localFetch.".into()],
+                                Err(error) => Ok(super::dispatch::domain_error(
+                                    json!({
+                                        "error": error.message,
+                                        "errorCode": error.code,
+                                        "hints": error.hints
+                                    }),
+                                    error.next,
                                 )),
                             }
                         })

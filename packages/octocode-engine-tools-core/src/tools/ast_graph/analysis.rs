@@ -44,6 +44,24 @@ pub(crate) fn analyze(
     base.insert("results".into(), Value::Array(page));
     base.insert("pagination".into(), pagination);
     base.insert("summary".into(), summary);
+    let has_parse = b.diagnostics.iter().any(|d| d.code == "parse-recovery");
+    let has_unresolved = b
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "unresolved-internal");
+    let has_unsupported = b
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "unsupported-linking");
+    let rust_unlinked = b.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "unsupported-linking" && diagnostic.message.contains("unsupported Rust")
+    });
+    if rust_unlinked && !matches!(q.rust_workspace.as_deref(), Some("cargo")) {
+        const CARGO_HINT: &str = "Pass rustWorkspace:\"cargo\" for workspace metadata linking. syntax graphs leave macro-generated imports unlinked; cargo executes workspace metadata.";
+        if !warnings.iter().any(|warning| warning == CARGO_HINT) {
+            warnings.push(CARGO_HINT.into());
+        }
+    }
     if !warnings.is_empty() {
         base.insert("warnings".into(), json!(warnings));
     }
@@ -61,15 +79,6 @@ pub(crate) fn analyze(
     if b.files_skipped > 0 {
         reasons.push("filesSkipped".into());
     }
-    let has_parse = b.diagnostics.iter().any(|d| d.code == "parse-recovery");
-    let has_unresolved = b
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "unresolved-internal");
-    let has_unsupported = b
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "unsupported-linking");
     if has_parse {
         reasons.push("parseRecovery".into())
     }
@@ -1050,6 +1059,7 @@ fn dominators(g: &BTreeMap<String, Node>, source: &str) -> BTreeMap<String, Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn node(edges: &[&str]) -> Node {
         Node {
@@ -1080,5 +1090,88 @@ mod tests {
         assert_eq!(actual["right.ts"].as_deref(), Some("entry.ts"));
         assert_eq!(actual["shared.ts"].as_deref(), Some("entry.ts"));
         assert_eq!(actual["deep.ts"].as_deref(), Some("shared.ts"));
+    }
+
+    fn cargo_hint_query(rust_workspace: Option<&str>) -> AstGraphQuery {
+        let mut value = json!({
+            "analysis": "cycles",
+            "path": "/tmp/proj"
+        });
+        if let Some(mode) = rust_workspace {
+            value["rustWorkspace"] = json!(mode);
+        }
+        serde_json::from_value(value).expect("query")
+    }
+
+    fn rust_unlinked_graph() -> BuiltGraph {
+        BuiltGraph {
+            display_path: "/tmp/proj".into(),
+            diagnostics: vec![
+                Diagnostic {
+                    file: "src/lib.rs".into(),
+                    line: None,
+                    code: "unsupported-linking".into(),
+                    message:
+                        "unsupported Rust macro expansion: macro-generated imports are not linked"
+                            .into(),
+                },
+                Diagnostic {
+                    file: "src/macros.rs".into(),
+                    line: None,
+                    code: "unsupported-linking".into(),
+                    message:
+                        "unsupported Rust macro expansion: macro-generated imports are not linked"
+                            .into(),
+                },
+            ],
+            nodes: BTreeMap::from([("src/lib.rs".into(), node(&[]))]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rust_syntax_workspace_emits_one_cargo_hint() {
+        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
+            crate::security::SecurityRegistry::default(),
+        ));
+        let omitted = analyze(
+            rust_unlinked_graph(),
+            &cargo_hint_query(None),
+            &security,
+            &crate::tools::local_fetch::NeverCancel,
+        )
+        .expect("analyze");
+        let syntax = analyze(
+            rust_unlinked_graph(),
+            &cargo_hint_query(Some("syntax")),
+            &security,
+            &crate::tools::local_fetch::NeverCancel,
+        )
+        .expect("analyze");
+        let cargo = analyze(
+            rust_unlinked_graph(),
+            &cargo_hint_query(Some("cargo")),
+            &security,
+            &crate::tools::local_fetch::NeverCancel,
+        )
+        .expect("analyze");
+        let hint = "Pass rustWorkspace:\"cargo\" for workspace metadata linking. syntax graphs leave macro-generated imports unlinked; cargo executes workspace metadata.";
+        let omitted_warnings = omitted["warnings"].as_array().expect("warnings");
+        assert_eq!(
+            omitted_warnings
+                .iter()
+                .filter(|warning| warning.as_str() == Some(hint))
+                .count(),
+            1
+        );
+        assert_eq!(syntax["warnings"], omitted["warnings"]);
+        assert!(
+            cargo["warnings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|warning| warning.as_str() != Some(hint))
+        );
+        assert!(omitted.get("next").is_none() || omitted["next"].get("nextDiagnostics").is_none());
     }
 }

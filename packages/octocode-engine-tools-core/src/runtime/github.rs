@@ -17,7 +17,7 @@ use crate::{
 use futures_util::{StreamExt, TryStreamExt, stream};
 use serde_json::{Value, json};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -385,7 +385,7 @@ impl GitHubServices {
 }
 
 fn file_error(error: ProviderError, query: &Value) -> DomainResult {
-    let mut message = match error.kind {
+    let message = match error.kind {
         ProviderErrorKind::Authentication => "GitHub authentication required".into(),
         ProviderErrorKind::Permission => "Access forbidden - insufficient permissions".into(),
         ProviderErrorKind::NotFound => "Repository, resource, or path not found".into(),
@@ -402,17 +402,48 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     };
     let owner = query["owner"].as_str().unwrap_or_default();
     let repo = query["repo"].as_str().unwrap_or_default();
+    let mut data = json!({"owner":owner,"repo":repo,"path":query["path"],"error":message});
     if error.kind == ProviderErrorKind::NotFound {
-        message.push_str(&format!(" — verify the path (exact case, no leading slash) and branch; use ghSearch with operation:\"tree\", owner:\"{owner}\", repo:\"{repo}\""));
+        data["hints"] = json!([format!(
+            "verify the path (exact case, no leading slash) and branch; use ghSearch with operation:\"tree\", owner:\"{owner}\", repo:\"{repo}\""
+        )]);
+        let mut tree_query = json!({
+            "operation": "tree",
+            "owner": owner,
+            "repo": repo,
+            "path": parent_tree_path(query["path"].as_str().unwrap_or("")),
+        });
+        if let Some(branch) = query
+            .get("branch")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+        {
+            tree_query["branch"] = json!(branch);
+        }
+        data["next"] = json!({
+            "viewTree": {
+                "tool": "ghSearch",
+                "query": tree_query,
+                "confidence": "low"
+            }
+        });
     }
     DomainResult {
         diagnostics: Default::default(),
-        data: json!({"owner":owner,"repo":repo,"path":query["path"],"error":message}),
+        data,
         status: Some("error"),
         source_digest: None,
         cache: false,
         failure: Some(failure_kind(error.kind)),
     }
+}
+
+fn parent_tree_path(path: &str) -> String {
+    Path::new(path)
+        .parent()
+        .map(|parent| parent.to_string_lossy().replace('\\', "/"))
+        .filter(|parent| !parent.is_empty())
+        .unwrap_or_else(|| ".".into())
 }
 
 pub(super) fn provider_error(error: ProviderError) -> DomainResult {
@@ -519,5 +550,70 @@ fn history_error(error: ProviderError) -> DomainResult {
         source_digest: None,
         cache: false,
         failure: Some(failure),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn file_not_found_emits_view_tree_for_parent_path() {
+        let result = file_error(
+            ProviderError::new(ProviderErrorKind::NotFound, "missing"),
+            &json!({
+                "owner": "octo",
+                "repo": "code",
+                "path": "src/lib.rs",
+                "branch": "main"
+            }),
+        );
+        assert_eq!(result.status, Some("error"));
+        assert_eq!(
+            result.data["error"],
+            "Repository, resource, or path not found"
+        );
+        assert_eq!(
+            result.data["hints"][0],
+            "verify the path (exact case, no leading slash) and branch; use ghSearch with operation:\"tree\", owner:\"octo\", repo:\"code\""
+        );
+        assert_eq!(result.data["next"]["viewTree"]["tool"], "ghSearch");
+        assert_eq!(result.data["next"]["viewTree"]["confidence"], "low");
+        assert_eq!(
+            result.data["next"]["viewTree"]["query"],
+            json!({
+                "operation": "tree",
+                "owner": "octo",
+                "repo": "code",
+                "path": "src",
+                "branch": "main"
+            })
+        );
+    }
+
+    #[test]
+    fn file_not_found_at_repo_root_uses_dot_path_without_invented_branch() {
+        let result = file_error(
+            ProviderError::new(ProviderErrorKind::NotFound, "missing"),
+            &json!({
+                "owner": "octo",
+                "repo": "code",
+                "path": "README.md"
+            }),
+        );
+        assert_eq!(result.data["next"]["viewTree"]["query"]["path"], ".");
+        assert!(
+            result.data["next"]["viewTree"]["query"]
+                .get("branch")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn parent_tree_path_never_emits_empty_string() {
+        assert_eq!(parent_tree_path("lib.rs"), ".");
+        assert_eq!(parent_tree_path(""), ".");
+        assert_eq!(parent_tree_path("a/b/c.ts"), "a/b");
     }
 }

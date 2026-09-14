@@ -48,24 +48,64 @@ struct RustBuildContext {
     proc_macros: Option<bool>,
 }
 
+#[derive(Clone, Debug)]
+pub struct LspError {
+    pub code: &'static str,
+    pub message: String,
+    pub hints: Vec<String>,
+    pub next: Option<Box<Value>>,
+}
+
+impl LspError {
+    fn with_query(code: &'static str, message: impl Into<String>, query: &LspSearchQuery) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            hints: vec![
+                "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code.".into(),
+            ],
+            next: Some(Box::new(recovery_next(query, code))),
+        }
+    }
+
+    fn invalid(message: impl Into<String>) -> Self {
+        Self {
+            code: "lsp.invalidInput",
+            message: message.into(),
+            hints: vec![],
+            next: None,
+        }
+    }
+}
+
 pub async fn execute(
     query: Value,
     cancel: &dyn CancellationCheck,
     pool: Option<&LspPool>,
-) -> Result<Value, String> {
-    cancel.check()?;
+) -> Result<Value, LspError> {
+    cancel.check().map_err(LspError::invalid)?;
     let mut query = query;
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
         object.remove("reasoning");
     }
-    let query: LspSearchQuery = serde_json::from_value(query).map_err(|error| error.to_string())?;
+    let query: LspSearchQuery =
+        serde_json::from_value(query).map_err(|error| LspError::invalid(error.to_string()))?;
+    if let Some(root) = query.workspace_root.as_deref()
+        && !Path::new(root).is_dir()
+    {
+        return Err(LspError::with_query(
+            "lsp.workspaceRootInvalid",
+            format!("Invalid workspaceRoot: {root}"),
+            &query,
+        ));
+    }
     let path = query
         .uri
         .as_deref()
         .map(uri_to_path)
         .or_else(|| query.workspace_root.clone())
-        .ok_or_else(|| "lspSearch requires uri or workspaceRoot".to_owned())?;
+        .ok_or_else(|| LspError::invalid("lspSearch requires uri or workspaceRoot"))?;
     let workspace = query
         .workspace_root
         .clone()
@@ -77,20 +117,19 @@ pub async fn execute(
                 .unwrap_or_else(|| ".".into())
         });
     let Some(mut config) = default_server_for_file(path.clone(), workspace) else {
-        return Ok(empty(
-            &query,
-            "unsupportedOperation",
+        return Err(LspError::with_query(
+            "lsp.serverUnavailable",
             "No language server is configured for this file.",
-            false,
+            &query,
         ));
     };
-    apply_rust_context(&mut config, &query)?;
+    apply_rust_context(&mut config, &query).map_err(LspError::invalid)?;
     let client = match pool {
         Some(pool) => pool.get_or_insert(config),
         None => std::sync::Arc::new(NativeLspClient::new(config)),
     };
     if let Err(error) = ensure_ready(client.as_ref()).await {
-        return Ok(empty(&query, "unsupportedOperation", &error, false));
+        return Err(ready_error(&query, error));
     }
     if Path::new(&path).is_file()
         && let Ok(content) = fs::read_to_string(&path)
@@ -103,21 +142,27 @@ pub async fn execute(
             &query,
             "definition",
             "definitionProvider",
-            client
-                .get_definition(path.clone(), line, character)
-                .await
-                .map_err(|error| error.to_string())?,
+            map_server(
+                &query,
+                client
+                    .get_definition(path.clone(), line, character)
+                    .await
+                    .map_err(|error| error.to_string()),
+            )?,
         ),
         "references" => {
-            let snippets = client
-                .get_references(
-                    path.clone(),
-                    line,
-                    character,
-                    Some(query.include_declaration.unwrap_or(true)),
-                )
-                .await
-                .map_err(|error| error.to_string())?;
+            let snippets = map_server(
+                &query,
+                client
+                    .get_references(
+                        path.clone(),
+                        line,
+                        character,
+                        Some(query.include_declaration.unwrap_or(true)),
+                    )
+                    .await
+                    .map_err(|error| error.to_string()),
+            )?;
             let recovered =
                 recover_aliases(client.as_ref(), &query, &path, line, character, &snippets).await;
             let mut all = snippets;
@@ -128,60 +173,78 @@ pub async fn execute(
             "type": query.operation,
             "uri": query.uri,
             "lsp": { "serverAvailable": true, "source": "native", "provider": "hoverProvider" },
-            "payload": { "kind": "hover", "hover": client.get_hover(path.clone(), line, character).await.map_err(|error| error.to_string())? }
+            "payload": { "kind": "hover", "hover": map_server(&query, client.get_hover(path.clone(), line, character).await.map_err(|error| error.to_string()))? }
         }),
         "typeDefinition" => locations(
             &query,
             "typeDefinition",
             "typeDefinitionProvider",
-            client
-                .get_type_definition(path.clone(), line, character)
-                .await
-                .map_err(|error| error.to_string())?,
+            map_server(
+                &query,
+                client
+                    .get_type_definition(path.clone(), line, character)
+                    .await
+                    .map_err(|error| error.to_string()),
+            )?,
         ),
         "implementation" => locations(
             &query,
             "implementation",
             "implementationProvider",
-            client
-                .get_implementation(path.clone(), line, character)
-                .await
-                .map_err(|error| error.to_string())?,
+            map_server(
+                &query,
+                client
+                    .get_implementation(path.clone(), line, character)
+                    .await
+                    .map_err(|error| error.to_string()),
+            )?,
         ),
         "documentSymbols" => items_payload(
             &query,
             "symbols",
-            client
-                .get_document_symbols(path.clone())
-                .await
-                .map_err(|error| error.to_string())?,
+            map_server(
+                &query,
+                client
+                    .get_document_symbols(path.clone())
+                    .await
+                    .map_err(|error| error.to_string()),
+            )?,
         ),
         "workspaceSymbol" => {
             let name = query
                 .symbol_name
                 .clone()
-                .ok_or_else(|| "workspaceSymbol requires symbolName".to_owned())?;
+                .ok_or_else(|| LspError::invalid("workspaceSymbol requires symbolName"))?;
             items_payload(
                 &query,
                 "symbols",
-                client
-                    .workspace_symbol(name)
-                    .await
-                    .map_err(|error| error.to_string())?,
+                map_server(
+                    &query,
+                    client
+                        .workspace_symbol(name)
+                        .await
+                        .map_err(|error| error.to_string()),
+                )?,
             )
         }
         "diagnostic" => items_payload(
             &query,
             "diagnostics",
-            client
-                .get_diagnostics(path.clone())
-                .await
-                .map_err(|error| error.to_string())?,
+            map_server(
+                &query,
+                client
+                    .get_diagnostics(path.clone())
+                    .await
+                    .map_err(|error| error.to_string()),
+            )?,
         ),
-        "callers" | "callees" | "callHierarchy" => {
-            hierarchy(&client, &query, &path, line, character).await?
+        "callers" | "callees" | "callHierarchy" => map_server(
+            &query,
+            hierarchy(&client, &query, &path, line, character).await,
+        )?,
+        "supertypes" | "subtypes" => {
+            map_server(&query, types(&client, &query, &path, line, character).await)?
         }
-        "supertypes" | "subtypes" => types(&client, &query, &path, line, character).await?,
         other => empty(
             &query,
             "unsupportedOperation",
@@ -223,10 +286,7 @@ async fn ensure_ready(client: &NativeLspClient) -> Result<(), String> {
         return Ok(());
     }
     match client.start().await {
-        Ok(()) => {
-            let _ = client.wait_for_ready(Some(LSP_READY_TIMEOUT_MS)).await;
-            Ok(())
-        }
+        Ok(()) => wait_ready(client).await,
         Err(error) => {
             let message = error.to_string();
             match lsp_prepare_plan(client.is_alive().await, already_started(&message)) {
@@ -235,12 +295,32 @@ async fn ensure_ready(client: &NativeLspClient) -> Result<(), String> {
                 LspPreparePlan::Recover => {
                     let _ = client.stop().await;
                     client.start().await.map_err(|error| error.to_string())?;
-                    let _ = client.wait_for_ready(Some(LSP_READY_TIMEOUT_MS)).await;
-                    Ok(())
+                    wait_ready(client).await
                 }
             }
         }
     }
+}
+
+async fn wait_ready(client: &NativeLspClient) -> Result<(), String> {
+    match client.wait_for_ready(Some(LSP_READY_TIMEOUT_MS)).await {
+        Ok(state) if state == "timeout" => Err("timeout".into()),
+        Ok(_) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn ready_error(query: &LspSearchQuery, error: String) -> LspError {
+    let code = if error.to_ascii_lowercase().contains("timeout") {
+        "lsp.timeout"
+    } else {
+        "lsp.serverUnavailable"
+    };
+    LspError::with_query(code, error, query)
+}
+
+fn map_server<T>(query: &LspSearchQuery, result: Result<T, String>) -> Result<T, LspError> {
+    result.map_err(|error| ready_error(query, error))
 }
 
 fn apply_rust_context(
@@ -285,7 +365,7 @@ fn apply_rust_context(
     Ok(())
 }
 
-fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), String> {
+fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), LspError> {
     if let Some(line) = query.line {
         return Ok((line, query.character.unwrap_or(0)));
     }
@@ -298,7 +378,7 @@ fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), Stri
                 order_hint: query.order_hint,
             },
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| LspError::with_query("lsp.anchorUnresolved", error.to_string(), query))?;
         return Ok((resolved.position.line, resolved.position.character));
     }
     Ok((query.line_hint.unwrap_or(0), query.character.unwrap_or(0)))
@@ -327,16 +407,10 @@ fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
             "query": next_query,
             "confidence": "exact"
         });
-    } else if value.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
-        let path = query.uri.clone().unwrap_or_default();
-        value["next"]["searchText"] = json!({
-            "tool": "localSearch",
-            "query": {
-                "path": uri_to_path(&path),
-                "searchText": query.symbol_name.clone().unwrap_or_default()
-            },
-            "confidence": "exact"
-        });
+    } else if value.pointer("/payload/kind").and_then(Value::as_str) == Some("empty")
+        && let Some(search) = recovery_next(query, "empty").get("searchText").cloned()
+    {
+        value["next"]["searchText"] = search;
     }
     if let Some(context) = &query.rust_context {
         value["rustContext"] = json!({
@@ -676,6 +750,7 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
 
 fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available: bool) -> Value {
     json!({
+        "status": "empty",
         "type": query.operation,
         "uri": query.uri,
         "lsp": { "serverAvailable": server_available, "source": "native" },
@@ -684,6 +759,43 @@ fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available:
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
         ]
     })
+}
+
+fn recovery_next(query: &LspSearchQuery, code: &str) -> Value {
+    let path = query
+        .uri
+        .as_deref()
+        .map(uri_to_path)
+        .or_else(|| query.workspace_root.clone())
+        .unwrap_or_default();
+    let search_text = query.symbol_name.clone().unwrap_or_default();
+    let mut next = serde_json::Map::new();
+    next.insert(
+        "searchText".into(),
+        json!({
+            "tool": "localSearch",
+            "query": {
+                "path": path,
+                "searchText": search_text
+            },
+            "confidence": "medium"
+        }),
+    );
+    if matches!(code, "lsp.serverUnavailable" | "lsp.anchorUnresolved") && !search_text.is_empty() {
+        next.insert(
+            "syntax".into(),
+            json!({
+                "tool": "astSearch",
+                "query": {
+                    "operation": "match",
+                    "path": path,
+                    "pattern": search_text
+                },
+                "confidence": "medium"
+            }),
+        );
+    }
+    Value::Object(next)
 }
 
 fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value>, Value) {
@@ -750,7 +862,31 @@ fn percent_decode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LspPreparePlan, already_started, lsp_prepare_plan};
+    use super::{
+        LspPreparePlan, LspSearchQuery, already_started, empty, lsp_prepare_plan, ready_error,
+        recovery_next, with_next,
+    };
+    use serde_json::json;
+
+    fn query() -> LspSearchQuery {
+        LspSearchQuery {
+            operation: "definition".into(),
+            uri: Some("/tmp/src/lib.rs".into()),
+            workspace_root: Some("/tmp".into()),
+            symbol_name: Some("needle".into()),
+            line: None,
+            character: None,
+            line_hint: Some(4),
+            order_hint: None,
+            include_declaration: None,
+            group_by_file: None,
+            format: None,
+            depth: None,
+            page: None,
+            page_size: None,
+            rust_context: None,
+        }
+    }
 
     #[test]
     fn warm_alive_client_is_reused_without_start_or_wait() {
@@ -766,7 +902,76 @@ mod tests {
     #[test]
     fn dead_already_started_client_is_recovered() {
         assert!(already_started("LSP client already started"));
-        assert!(!already_started("Failed to start language server: No such file"));
+        assert!(!already_started(
+            "Failed to start language server: No such file"
+        ));
         assert_eq!(lsp_prepare_plan(false, true), LspPreparePlan::Recover);
+    }
+
+    #[test]
+    fn empty_locations_set_row_status_and_medium_search_text() {
+        let value = with_next(&query(), empty(&query(), "noLocations", "none", true));
+        assert_eq!(value["status"], "empty");
+        assert_eq!(value["next"]["searchText"]["tool"], "localSearch");
+        assert_eq!(value["next"]["searchText"]["confidence"], "medium");
+        assert!(value.get("errorCode").is_none());
+        assert_eq!(value["lsp"]["source"], "native");
+    }
+
+    #[test]
+    fn start_failure_is_server_unavailable_with_recovery_next() {
+        let error = ready_error(&query(), "Failed to start language server".into());
+        assert_eq!(error.code, "lsp.serverUnavailable");
+        let next = error.next.expect("next");
+        assert_eq!(next["searchText"]["confidence"], "medium");
+        assert_eq!(next["syntax"]["tool"], "astSearch");
+        assert_eq!(next["syntax"]["query"]["operation"], "match");
+        assert_eq!(next["syntax"]["confidence"], "medium");
+        assert_ne!(error.code, "lsp.nativeFallback");
+    }
+
+    #[test]
+    fn timeout_and_anchor_codes() {
+        assert_eq!(ready_error(&query(), "timeout".into()).code, "lsp.timeout");
+        let next = recovery_next(&query(), "lsp.anchorUnresolved");
+        assert_eq!(next["searchText"]["tool"], "localSearch");
+        assert_eq!(next["syntax"]["query"]["pattern"], "needle");
+    }
+
+    #[tokio::test]
+    async fn missing_server_and_invalid_workspace_are_typed_errors() {
+        let missing = super::execute(
+            json!({
+                "operation": "definition",
+                "uri": "/tmp/no-server.unknownext",
+                "symbolName": "x",
+                "lineHint": 1
+            }),
+            &crate::tools::local_fetch::NeverCancel,
+            None,
+        )
+        .await
+        .expect_err("no server");
+        assert_eq!(missing.code, "lsp.serverUnavailable");
+        assert!(missing.next.is_some());
+
+        let invalid = super::execute(
+            json!({
+                "operation": "definition",
+                "uri": "/tmp/lib.rs",
+                "workspaceRoot": "/tmp/octocode-missing-workspace-root",
+                "symbolName": "x",
+                "lineHint": 1
+            }),
+            &crate::tools::local_fetch::NeverCancel,
+            None,
+        )
+        .await
+        .expect_err("invalid workspace");
+        assert_eq!(invalid.code, "lsp.workspaceRootInvalid");
+        assert_eq!(
+            invalid.next.expect("next")["searchText"]["confidence"],
+            "medium"
+        );
     }
 }

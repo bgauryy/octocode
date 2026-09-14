@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
+const MAX_PAGE: u32 = 1000;
+
 pub fn execute_local_search(
     query: &LocalSearchRequest,
     paths: &PathPolicy,
@@ -278,6 +280,10 @@ pub fn execute_local_search(
         &parsed.files,
         snapshot.as_deref(),
     );
+    let remaining_matches = parsed
+        .files
+        .iter()
+        .any(|file| file.matches.len() as u32 > match_page.saturating_mul(matches_per));
     let files = parsed
         .files
         .into_iter()
@@ -312,7 +318,8 @@ pub fn execute_local_search(
                         matches_per_page: Some(matches_per),
                         total_matches: total,
                         has_more: match_page < total.div_ceil(matches_per),
-                        next_match_page: (match_page < total.div_ceil(matches_per))
+                        next_match_page: (match_page < total.div_ceil(matches_per)
+                            && match_page < MAX_PAGE)
                             .then_some(match_page + 1),
                         out_of_range: ms >= total as usize && total > 0,
                     }),
@@ -331,12 +338,18 @@ pub fn execute_local_search(
         error_count: parsed.stats.error_count.filter(|n| *n > 0),
         first_error: parsed.stats.first_error,
     };
+    let has_more = page < total_pages;
+    let status = classify_search_status(
+        empty,
+        stats.capped == Some(true),
+        has_more,
+        remaining_matches,
+        stats.error_count,
+        files.len(),
+    );
+    let terminal_limit = terminal_limit_reached(status, has_more, &next);
     Ok(LocalSearchResult {
-        status: if empty {
-            SearchStatus::Empty
-        } else {
-            SearchStatus::Success
-        },
+        status,
         search_engine: "rg".into(),
         stats,
         files,
@@ -351,8 +364,8 @@ pub fn execute_local_search(
                 ResultView::Files | ResultView::FilesWithout | ResultView::Discovery
             ))
             .then_some(total_matches),
-            has_more: page < total_pages,
-            next_page: (page < total_pages).then_some(page + 1),
+            has_more,
+            next_page: (has_more && page < MAX_PAGE).then_some(page + 1),
             out_of_range: start >= total_files as usize && total_files > 0,
         }),
         hints: if empty {
@@ -365,6 +378,7 @@ pub fn execute_local_search(
         },
         next,
         warnings: vec![],
+        terminal_limit,
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
     })
@@ -388,6 +402,32 @@ fn cancelled(message: String) -> LocalSearchError {
         hints: vec![],
         next: None,
     }
+}
+
+fn classify_search_status(
+    empty: bool,
+    capped: bool,
+    has_more: bool,
+    remaining_matches: bool,
+    error_count: Option<u32>,
+    files_returned: usize,
+) -> SearchStatus {
+    if empty {
+        SearchStatus::Empty
+    } else if capped
+        || has_more
+        || remaining_matches
+        || (error_count.is_some_and(|count| count > 0) && files_returned > 0)
+    {
+        SearchStatus::Partial
+    } else {
+        SearchStatus::Success
+    }
+}
+
+fn terminal_limit_reached(status: SearchStatus, has_more: bool, next: &Option<Value>) -> bool {
+    (status == SearchStatus::Partial || (status == SearchStatus::Success && has_more))
+        && next.is_none()
 }
 
 fn rank_relevance(
@@ -538,7 +578,7 @@ fn build_next(
 ) -> Option<Value> {
     let mut map = serde_json::Map::new();
     let base = normalized_query(q);
-    if page < total_pages {
+    if page < total_pages && page < MAX_PAGE {
         let mut n = base.clone();
         n["page"] = json!(page + 1);
         if let Some(s) = snapshot {
@@ -549,9 +589,10 @@ fn build_next(
             json!({"tool":"localSearch","query":n,"confidence":"exact"}),
         );
     }
-    if files
-        .iter()
-        .any(|f| f.matches.len() as u32 > match_page * matches_per)
+    if match_page < MAX_PAGE
+        && files
+            .iter()
+            .any(|f| f.matches.len() as u32 > match_page * matches_per)
     {
         let mut n = base;
         n["matchPage"] = json!(match_page + 1);
@@ -706,6 +747,7 @@ fn fingerprint(
         Sha256::digest(serde_json::to_vec(&canonical).unwrap_or_default())
     )
 }
+
 fn canonicalize(value: Value) -> Value {
     match value {
         Value::Object(map) => {
@@ -723,5 +765,72 @@ fn canonicalize(value: Value) -> Value {
         }
         Value::Array(a) => Value::Array(a.into_iter().map(canonicalize).collect()),
         v => v,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use octocode_engine::types::RipgrepFile;
+    use serde_json::json;
+
+    #[test]
+    fn classify_search_status_sets_internal_partial() {
+        assert_eq!(
+            classify_search_status(true, false, false, false, None, 0),
+            SearchStatus::Empty
+        );
+        assert_eq!(
+            classify_search_status(false, true, false, false, None, 1),
+            SearchStatus::Partial
+        );
+        assert_eq!(
+            classify_search_status(false, false, true, false, None, 1),
+            SearchStatus::Partial
+        );
+        assert_eq!(
+            classify_search_status(false, false, false, true, None, 1),
+            SearchStatus::Partial
+        );
+        assert_eq!(
+            classify_search_status(false, false, false, false, Some(2), 1),
+            SearchStatus::Partial
+        );
+        assert_eq!(
+            classify_search_status(false, false, false, false, Some(2), 0),
+            SearchStatus::Success
+        );
+        assert_eq!(
+            classify_search_status(false, false, false, false, None, 1),
+            SearchStatus::Success
+        );
+    }
+
+    #[test]
+    fn terminal_limit_when_partial_and_next_is_none() {
+        assert!(terminal_limit_reached(SearchStatus::Partial, true, &None));
+        assert!(!terminal_limit_reached(
+            SearchStatus::Partial,
+            true,
+            &Some(json!({"nextPage":{}}))
+        ));
+        assert!(!terminal_limit_reached(SearchStatus::Success, false, &None));
+        assert!(!terminal_limit_reached(SearchStatus::Empty, false, &None));
+    }
+
+    #[test]
+    fn build_next_stops_at_schema_page_ceiling() {
+        let files = [RipgrepFile {
+            path: "a.rs".into(),
+            match_count: 1,
+            matches: vec![],
+        }];
+        let query = LocalSearchRequest {
+            search_text: "needle".into(),
+            path: "/tmp".into(),
+            ..Default::default()
+        };
+        assert!(build_next(&query, 999, 1001, 1, 20, &files, None).is_some());
+        assert!(build_next(&query, 1000, 1001, 1, 20, &files, None).is_none());
     }
 }

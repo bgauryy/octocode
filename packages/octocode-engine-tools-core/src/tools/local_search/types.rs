@@ -213,6 +213,8 @@ pub struct LocalSearchResult {
     pub next: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub terminal_limit: bool,
     #[serde(skip)]
     pub source_snapshot: Option<String>,
     #[serde(skip)]

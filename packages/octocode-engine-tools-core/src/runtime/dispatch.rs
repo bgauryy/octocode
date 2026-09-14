@@ -82,7 +82,10 @@ pub(super) fn execute_local(
                             .to_string_lossy()
                             .into_owned();
                     }
-                    let status = (result.status == SearchStatus::Empty).then_some("empty");
+                    let status = match result.status {
+                        SearchStatus::Empty => Some("empty"),
+                        SearchStatus::Partial | SearchStatus::Success => None,
+                    };
                     let data =
                         serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
                     Ok(DomainResult {
@@ -154,7 +157,7 @@ fn domain_value(data: Value, status: Option<&'static str>) -> DomainResult {
     }
 }
 
-fn domain_error(mut data: Value, next: Option<Box<Value>>) -> DomainResult {
+pub(super) fn domain_error(mut data: Value, next: Option<Box<Value>>) -> DomainResult {
     if let Some(next) = next {
         data["next"] = *next;
     }

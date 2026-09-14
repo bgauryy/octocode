@@ -149,4 +149,77 @@ mod tests {
         );
         fs::remove_dir_all(root).expect("cleanup");
     }
+
+    #[test]
+    fn paged_results_are_internally_partial_without_serialized_status() {
+        let root = std::env::temp_dir().join(format!(
+            "local-search-partial-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("fixture dir");
+        fs::write(root.join("a.txt"), "needle\n").expect("a");
+        fs::write(root.join("b.txt"), "needle\n").expect("b");
+        fs::write(root.join("c.txt"), "needle\n").expect("c");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.to_string_lossy().into_owned(),
+            search_text: "needle".into(),
+            page_size: Some(1),
+            sort: Some(SortMode::Path),
+            ..Default::default()
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        assert_eq!(result.status, SearchStatus::Partial);
+        assert!(!result.terminal_limit);
+        assert!(result.next.is_some());
+        let value = serde_json::to_value(&result).expect("json");
+        assert!(value.get("status").is_none());
+        assert!(value.get("terminalLimit").is_none());
+        assert_eq!(value["pagination"]["hasMore"], true);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn remaining_per_file_matches_are_internally_partial() {
+        let root = std::env::temp_dir().join(format!(
+            "local-search-matches-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("fixture dir");
+        fs::write(
+            root.join("source.txt"),
+            "needle one\nneedle two\nneedle three\n",
+        )
+        .expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.to_string_lossy().into_owned(),
+            search_text: "needle".into(),
+            max_matches_per_file: Some(1),
+            ..Default::default()
+        };
+        let result =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("search");
+        assert_eq!(result.status, SearchStatus::Partial);
+        assert!(!result.terminal_limit);
+        assert!(result.next.is_some());
+        fs::remove_dir_all(root).expect("cleanup");
+    }
 }
