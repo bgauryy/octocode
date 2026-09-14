@@ -2,8 +2,8 @@
 use super::execute;
 use clap::Args;
 use octocode_engine_tools_core::providers::github::{
-    DeviceClient, GITHUB_APP_CLIENT_ID, LoginOrigins, PlatformIo, ProviderError, open_url,
-    parse_scopes,
+    DeviceClient, GITHUB_APP_CLIENT_ID, LoginOrigins, PlatformIo, ProviderError,
+    load_stored_credential, open_url, parse_scopes,
 };
 use octocode_engine_tools_core::runtime::ToolRuntime;
 use serde_json::{Value, json};
@@ -315,14 +315,7 @@ pub async fn status(runtime: &ToolRuntime, json_out: bool) -> u8 {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let token = ["GITHUB_TOKEN", "GH_TOKEN", "OCTOCODE_TOKEN"]
-        .iter()
-        .any(|key| {
-            runtime
-                .config()
-                .env_value(key)
-                .is_some_and(|value| !value.is_empty())
-        });
+    let token = github_auth_present(runtime);
     if json_out {
         return super::write_json(
             &json!({
@@ -345,14 +338,7 @@ pub async fn status(runtime: &ToolRuntime, json_out: bool) -> u8 {
 }
 
 pub fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
-    let token = ["GITHUB_TOKEN", "GH_TOKEN", "OCTOCODE_TOKEN"]
-        .iter()
-        .any(|key| {
-            runtime
-                .config()
-                .env_value(key)
-                .is_some_and(|value| !value.is_empty())
-        });
+    let token = github_auth_present(runtime);
     if json_out {
         return super::write_json(&json!({"authenticated": token}), true);
     }
@@ -365,6 +351,24 @@ pub fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
         }
     );
     if token { 0 } else { 1 }
+}
+
+fn github_auth_present(runtime: &ToolRuntime) -> bool {
+    if ["GITHUB_TOKEN", "GH_TOKEN", "OCTOCODE_TOKEN"]
+        .iter()
+        .any(|key| {
+            runtime
+                .config()
+                .env_value(key)
+                .is_some_and(|value| !value.is_empty())
+        })
+    {
+        return true;
+    }
+    login_origins(runtime, None)
+        .ok()
+        .and_then(|origins| load_stored_credential(&origins.hostname).ok().flatten())
+        .is_some()
 }
 
 #[derive(Args, Debug)]
@@ -401,21 +405,12 @@ pub async fn login(runtime: &ToolRuntime, args: LoginArgs) -> u8 {
     let mut open_warning = None;
     let result = client
         .login(&PlatformIo, &scopes, &mut |verification| {
-            if json_out {
-                let _ = super::write_json(
-                    &json!({
-                        "userCode": verification.user_code,
-                        "verificationUri": verification.verification_uri,
-                    }),
-                    true,
-                );
-            } else {
-                println!(
-                    "First copy your one-time code: {}\n\nOpening {} in your browser...\n\nWaiting for authentication...",
-                    verification.user_code, verification.verification_uri
-                );
-                let _ = io::stdout().flush();
-            }
+            print_device_challenge(
+                json_out,
+                args.no_open,
+                &verification.user_code,
+                &verification.verification_uri,
+            );
             if args.no_open {
                 return;
             }
@@ -462,6 +457,25 @@ fn login_fail(json_out: bool, message: &str) -> u8 {
         eprintln!("{message}");
     }
     1
+}
+
+fn print_device_challenge(json_out: bool, no_open: bool, user_code: &str, uri: &str) {
+    if json_out {
+        let payload = json!({"userCode": user_code, "verificationUri": uri});
+        if let Ok(text) = serde_json::to_string(&payload) {
+            let _ = writeln!(io::stderr(), "{text}");
+        }
+        return;
+    }
+    let browser = if no_open {
+        format!("Open {uri} in your browser and paste the code.")
+    } else {
+        format!("Opening {uri} in your browser...")
+    };
+    println!(
+        "First copy your one-time code: {user_code}\n\n{browser}\n\nWaiting for authentication..."
+    );
+    let _ = io::stdout().flush();
 }
 
 pub fn logout(runtime: &ToolRuntime) -> u8 {

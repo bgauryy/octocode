@@ -1,6 +1,8 @@
 //! GitHub device-flow HTTP and empty-secret GitHub App token refresh.
 use std::{
+    collections::BTreeMap,
     process::Command,
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -18,11 +20,15 @@ use super::{
 
 pub const GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
 pub const DEFAULT_SCOPES: &[&str] = &["repo", "read:org", "gist"];
+pub const AUTH_LOGIN_HINT: &str = "octocode login, or set GITHUB_TOKEN / GH_TOKEN";
 const DEFAULT_HOSTNAME: &str = "github.com";
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const USER_AGENT_VALUE: &str = "octocode-native";
 const ACCESS_SKEW: Duration = Duration::from_secs(5 * 60);
 const SLOW_DOWN_INCREMENT: Duration = Duration::from_secs(5);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const RELLOGIN: &str = "Run `octocode login`.";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoginOrigins {
@@ -118,6 +124,8 @@ impl DeviceClient {
         Ok(Self {
             http: Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(CONNECT_TIMEOUT)
+                .timeout(REQUEST_TIMEOUT)
                 .build()
                 .map_err(|_| config_error("failed to build HTTP client"))?,
             origins,
@@ -178,14 +186,14 @@ impl DeviceClient {
             return Err(typed(
                 "credential.refreshUnsupported",
                 ProviderErrorKind::Authentication,
-                "Token does not support refresh. Run `octo login`.",
+                format!("Token does not support refresh. {RELLOGIN}"),
             ));
         };
         if refresh_token_expired(&stored) {
             return Err(typed(
                 "credential.refreshExpired",
                 ProviderErrorKind::Authentication,
-                "Refresh token has expired. Run `octo login`.",
+                format!("Refresh token has expired. {RELLOGIN}"),
             ));
         }
         let token = match self.refresh_access_token(&refresh_token).await {
@@ -198,7 +206,7 @@ impl DeviceClient {
                 return Err(typed(
                     "credential.refreshFailed",
                     ProviderErrorKind::Authentication,
-                    "Token refresh failed. Run `octo login`.",
+                    format!("Token refresh failed. {RELLOGIN}"),
                 ));
             }
             Err(error) => return Err(error),
@@ -216,7 +224,7 @@ impl DeviceClient {
                 url,
                 json!({
                     "client_id": self.client_id,
-                    "scope": scopes.join(","),
+                    "scope": scopes.join(" "),
                 }),
             )
             .await?;
@@ -239,9 +247,9 @@ impl DeviceClient {
         loop {
             if Instant::now() >= deadline {
                 return Err(typed(
-                    "credential.refreshFailed",
+                    "credential.deviceTimeout",
                     ProviderErrorKind::Timeout,
-                    "Device authorization timed out. Run `octo login`.",
+                    format!("Device authorization timed out. {RELLOGIN}"),
                 ));
             }
             let value = self
@@ -267,19 +275,33 @@ impl DeviceClient {
                     }
                     "expired_token" => {
                         return Err(typed(
-                            "credential.refreshFailed",
+                            "credential.deviceExpired",
                             ProviderErrorKind::Authentication,
-                            "Device code expired. Run `octo login`.",
+                            format!("Device code expired. {RELLOGIN}"),
                         ));
                     }
                     "access_denied" => {
                         return Err(typed(
-                            "credential.refreshFailed",
+                            "credential.deviceDenied",
                             ProviderErrorKind::Authentication,
-                            "Device authorization was denied. Run `octo login`.",
+                            format!("Device authorization was denied. {RELLOGIN}"),
                         ));
                     }
-                    other => return Err(oauth_named(other, &value)),
+                    other => {
+                        return Err(typed(
+                            "credential.deviceFailed",
+                            ProviderErrorKind::Authentication,
+                            format!(
+                                "{}. {RELLOGIN}",
+                                mask_secrets(
+                                    value
+                                        .get("error_description")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or(other)
+                                )
+                            ),
+                        ));
+                    }
                 }
             }
             return parse_access_token(&value);
@@ -449,28 +471,44 @@ pub async fn refresh_auth_token(
 pub async fn refresh_storage_if_needed(
     origins: &LoginOrigins,
     client_id: &str,
+    io: &dyn CredentialIo,
     current: Option<ResolvedCredential>,
-) -> Option<ResolvedCredential> {
-    let current = current?;
+) -> Result<Option<ResolvedCredential>, ProviderError> {
+    let Some(current) = current else {
+        return Ok(None);
+    };
     if current.source != CredentialSource::Storage {
-        return Some(current);
+        return Ok(Some(current));
     }
-    let Ok(Some(stored)) = load_stored_credential(&origins.hostname) else {
-        return Some(current);
+    let refresh_lock = host_refresh_lock(&origins.hostname);
+    let _guard = refresh_lock.lock().await;
+    let stored = match io.load(&origins.hostname)? {
+        Some(stored) => stored,
+        None => return Ok(Some(current)),
     };
     if !access_token_expired(&stored) {
-        return Some(current);
-    }
-    let Ok(client) = DeviceClient::new(origins.clone(), client_id) else {
-        return Some(current);
-    };
-    match client.refresh(&PlatformIo).await {
-        Ok(updated) => Some(ResolvedCredential::new(
-            updated.token.token.clone(),
+        return Ok(Some(ResolvedCredential::new(
+            stored.token.token.clone(),
             CredentialSource::Storage,
-        )),
-        Err(_) => Some(current),
+        )));
     }
+    let client = DeviceClient::new(origins.clone(), client_id)?;
+    let updated = client.refresh(io).await?;
+    Ok(Some(ResolvedCredential::new(
+        updated.token.token.clone(),
+        CredentialSource::Storage,
+    )))
+}
+
+fn host_refresh_lock(host: &str) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<BTreeMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
+    let mut map = LOCKS
+        .get_or_init(|| Mutex::new(BTreeMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.entry(host.to_owned())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
 }
 
 pub fn parse_scopes(raw: Option<&str>) -> Vec<String> {
@@ -925,7 +963,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/login/device/code"))
             .and(body_string_contains(GITHUB_APP_CLIENT_ID))
-            .and(body_string_contains("repo,read:org,gist"))
+            .and(body_string_contains("repo read:org gist"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "device_code": "device-secret",
                 "user_code": "ABCD-1234",
@@ -1167,5 +1205,83 @@ mod tests {
         let masked = mask_secrets("failed gho_shouldmaskshouldmaskshouldmaskshould12 extra");
         assert!(!masked.contains("gho_shouldmaskshouldmaskshouldmaskshould12"));
         assert!(masked.contains("***MASKED***"));
+    }
+
+    #[tokio::test]
+    async fn implicit_refresh_replaces_expired_storage_token() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/oauth/access_token"))
+            .and(body_string_contains("\"client_secret\":\"\""))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "gho_newtokennewtokennewtokennewtokennew12",
+                "refresh_token": "ghr_newrefreshnewrefreshnewrefreshnew1",
+                "expires_in": 28800,
+                "refresh_token_expires_in": 15811200,
+                "token_type": "bearer"
+            })))
+            .mount(&server)
+            .await;
+        let client = client_for(&server).await;
+        let io = MemoryIo::new();
+        io.store(&sample_stored(
+            &client.origins().hostname,
+            Some("ghr_refreshrefreshrefreshrefreshrefresh1"),
+            Some("2099-01-01T00:00:00Z"),
+        ))
+        .expect("seed");
+        let current = Some(ResolvedCredential::new(
+            "gho_oldtokenoldtokenoldtokenoldtokenold12",
+            CredentialSource::Storage,
+        ));
+        let refreshed =
+            refresh_storage_if_needed(client.origins(), GITHUB_APP_CLIENT_ID, &io, current)
+                .await
+                .expect("implicit refresh")
+                .expect("token");
+        assert_eq!(
+            refreshed.expose(),
+            "gho_newtokennewtokennewtokennewtokennew12"
+        );
+        assert_eq!(
+            io.stored().token.token,
+            "gho_newtokennewtokennewtokennewtokennew12"
+        );
+    }
+
+    #[tokio::test]
+    async fn implicit_refresh_propagates_failure_and_keeps_store() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/login/oauth/access_token"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "error": "bad_refresh_token"
+            })))
+            .mount(&server)
+            .await;
+        let client = client_for(&server).await;
+        let io = MemoryIo::new();
+        io.store(&sample_stored(
+            &client.origins().hostname,
+            Some("ghr_refreshrefreshrefreshrefreshrefresh1"),
+            Some("2099-01-01T00:00:00Z"),
+        ))
+        .expect("seed");
+        let current = Some(ResolvedCredential::new(
+            "gho_oldtokenoldtokenoldtokenoldtokenold12",
+            CredentialSource::Storage,
+        ));
+        let error =
+            match refresh_storage_if_needed(client.origins(), GITHUB_APP_CLIENT_ID, &io, current)
+                .await
+            {
+                Err(error) => error,
+                Ok(_) => panic!("expected typed refresh failure"),
+            };
+        assert!(error.message.contains("credential.refreshFailed"));
+        assert_eq!(
+            io.stored().token.token,
+            "gho_oldtokenoldtokenoldtokenoldtokenold12"
+        );
     }
 }

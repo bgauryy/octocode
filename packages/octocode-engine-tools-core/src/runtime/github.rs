@@ -95,11 +95,26 @@ impl GitHubServices {
             Ok(value) => {
                 if let Ok(origins) = LoginOrigins::from_endpoint(self.provider.transport.endpoint())
                 {
-                    handle.block_on(refresh_storage_if_needed(
+                    match handle.block_on(refresh_storage_if_needed(
                         &origins,
                         GITHUB_APP_CLIENT_ID,
+                        &PlatformIo,
                         value,
-                    ))
+                    )) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            return Ok(queries
+                                .iter()
+                                .map(|query| {
+                                    if tool == "ghGetFileContent" {
+                                        file_error(error.clone(), query)
+                                    } else {
+                                        history_error(error.clone())
+                                    }
+                                })
+                                .collect());
+                        }
+                    }
                 } else {
                     value
                 }
@@ -397,7 +412,9 @@ impl GitHubServices {
 
 fn file_error(error: ProviderError, query: &Value) -> DomainResult {
     let message = match error.kind {
-        ProviderErrorKind::Authentication => "GitHub authentication required".into(),
+        ProviderErrorKind::Authentication => {
+            format!("GitHub authentication required — {AUTH_LOGIN_HINT}")
+        }
         ProviderErrorKind::Permission => "Access forbidden - insufficient permissions".into(),
         ProviderErrorKind::NotFound => "Repository, resource, or path not found".into(),
         ProviderErrorKind::Validation => "Invalid search query or request parameters".into(),
@@ -438,6 +455,9 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
                 "confidence": "low"
             }
         });
+    }
+    if error.kind == ProviderErrorKind::Authentication {
+        data["scopesSuggestion"] = json!(AUTH_LOGIN_HINT);
     }
     DomainResult {
         diagnostics: Default::default(),
@@ -482,10 +502,9 @@ fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
 fn history_error(error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
     let (message, suggestion) = match error.kind {
-        ProviderErrorKind::Authentication => (
-            "GitHub authentication required",
-            Some("octo login, or set GITHUB_TOKEN / GH_TOKEN"),
-        ),
+        ProviderErrorKind::Authentication => {
+            ("GitHub authentication required", Some(AUTH_LOGIN_HINT))
+        }
         ProviderErrorKind::Permission => (
             "Access forbidden - insufficient permissions",
             Some("Check repository permissions or authentication"),
