@@ -191,7 +191,7 @@ pub fn current_tree_snapshot(cache_root: &Path) -> Option<PathBuf> {
     root.is_dir().then_some(root)
 }
 
-pub fn publish_tree_snapshot(
+pub async fn publish_tree_snapshot(
     home: &Path,
     cache_root: &Path,
     owner: &str,
@@ -200,7 +200,7 @@ pub fn publish_tree_snapshot(
     commit_sha: &str,
     write: impl FnOnce(&Path) -> Result<(), ProviderError>,
 ) -> Result<PathBuf, ProviderError> {
-    let _lock = TreeLock::acquire(home, cache_root)?;
+    let _lock = TreeLock::acquire(home, cache_root).await?;
     let previous = current_tree_snapshot(cache_root);
     let staging_base = home.join("tmp").join("tree-staging");
     create_private_dir(&staging_base)?;
@@ -240,6 +240,9 @@ pub fn publish_tree_snapshot(
         write_private(&pointer, &bytes).map_err(tree_io)?;
         fs::rename(&pointer, cache_root.join(META_FILE)).map_err(tree_io)?;
         published = true;
+        if let Some(previous) = previous.as_ref() {
+            remove_dir(previous);
+        }
         Ok(destination.clone())
     })();
     let _ = fs::remove_dir_all(&stage);
@@ -342,7 +345,7 @@ struct TreeLock {
 }
 
 impl TreeLock {
-    fn acquire(home: &Path, cache_root: &Path) -> Result<Self, ProviderError> {
+    async fn acquire(home: &Path, cache_root: &Path) -> Result<Self, ProviderError> {
         let mut digest = Sha256::new();
         digest.update(cache_root.to_string_lossy().as_bytes());
         let path = home
@@ -366,7 +369,7 @@ impl TreeLock {
                             "Timed out waiting for tree materialization lock.",
                         ));
                     }
-                    std::thread::sleep(Duration::from_millis(25));
+                    tokio::time::sleep(Duration::from_millis(25)).await;
                 }
                 Err(error) => return Err(tree_io(error)),
             }
@@ -520,8 +523,8 @@ mod tests {
         assert!(safe_snapshot_path(&root, "ok/file.rs").is_ok());
     }
 
-    #[test]
-    fn publish_copies_previous_generation() {
+    #[tokio::test]
+    async fn publish_copies_previous_generation() {
         let home = temp_home();
         let cache = tree_cache_root(&home, "o", "r", "0123456789abcdef0123456789abcdef01234567");
         let first = publish_tree_snapshot(
@@ -536,6 +539,7 @@ mod tests {
                 Ok(())
             },
         )
+        .await
         .expect("first generation");
         let second = publish_tree_snapshot(
             &home,
@@ -549,17 +553,18 @@ mod tests {
                 Ok(())
             },
         )
+        .await
         .expect("second generation");
         assert_ne!(first, second);
-        assert_eq!(fs::read(first.join("a.rs")).expect("first a"), b"one");
+        assert!(!first.exists());
         assert_eq!(fs::read(second.join("a.rs")).expect("copied a"), b"one");
         assert_eq!(fs::read(second.join("b.rs")).expect("new b"), b"two");
-        assert!(!first.join("b.rs").exists());
+        assert_eq!(current_tree_snapshot(&cache), Some(second.clone()));
         let _ = fs::remove_dir_all(&home);
     }
 
-    #[test]
-    fn failed_publish_keeps_previous_generation() {
+    #[tokio::test]
+    async fn failed_publish_keeps_previous_generation() {
         let home = temp_home();
         let cache = tree_cache_root(&home, "o", "r", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let first = publish_tree_snapshot(
@@ -574,6 +579,7 @@ mod tests {
                 Ok(())
             },
         )
+        .await
         .expect("first");
         let error = publish_tree_snapshot(
             &home,
@@ -589,6 +595,7 @@ mod tests {
                 ))
             },
         )
+        .await
         .expect_err("failed publish");
         assert_eq!(error.message.as_ref(), "forced failure");
         assert_eq!(current_tree_snapshot(&cache), Some(first.clone()));

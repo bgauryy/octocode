@@ -651,20 +651,23 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         .validate_output(&cache_root)
         .map_err(|error| ProviderError::new(ProviderErrorKind::Validation, error.message))?;
     let mut plan = plan_materialize(page_entries, offset);
-    let selected: Vec<(usize, TreeEntry)> = plan
-        .selected
-        .iter()
-        .filter_map(|index| {
-            page_entries
-                .get(*index)
-                .cloned()
-                .map(|entry| (*index, entry))
-        })
-        .collect();
-    let fetched = stream::iter(selected)
+    let mut written: Vec<(usize, String, Vec<u8>)> = Vec::new();
+    let mut bytes_this_call = 0_u64;
+    let mut bound = MaterializeBound::Listing;
+    let mut resume_offset = offset.min(page_entries.len());
+    let mut stop = false;
+    for chunk in plan.selected.chunks(MATERIALIZE_CONCURRENCY) {
+        if stop {
+            break;
+        }
+        let fetched = stream::iter(
+            chunk
+                .iter()
+                .copied()
+                .filter_map(|index| page_entries.get(index).cloned().map(|entry| (index, entry))),
+        )
         .map(|(index, entry)| async move {
-            let sha = entry.sha.clone();
-            let result = match sha.as_deref() {
+            let result = match entry.sha.as_deref() {
                 Some(sha) => provider.transport.get_blob(owner, repo, sha, context).await,
                 None => Err(ProviderError::new(
                     ProviderErrorKind::Decode,
@@ -676,46 +679,47 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         .buffered(MATERIALIZE_CONCURRENCY)
         .collect::<Vec<_>>()
         .await;
-    let mut written: Vec<(usize, String, Vec<u8>)> = Vec::new();
-    let mut bytes_this_call = 0_u64;
-    let mut bound = MaterializeBound::Listing;
-    let mut resume_offset = offset.min(page_entries.len());
-    for (index, entry, result) in fetched {
-        let bytes = match result {
-            Ok(bytes) if bytes.len() as u64 > MAX_FILE_SIZE => {
-                plan.skipped_too_large += 1;
-                resume_offset = index + 1;
-                continue;
+        for (index, entry, result) in fetched {
+            match result {
+                Ok(bytes) if bytes.len() as u64 > MAX_FILE_SIZE => {
+                    plan.skipped_too_large += 1;
+                    resume_offset = index + 1;
+                }
+                Ok(bytes) => {
+                    let size = bytes.len() as u64;
+                    if bytes_this_call.saturating_add(size) > MAX_TOTAL_SIZE {
+                        bound = MaterializeBound::TotalSize;
+                        resume_offset = index;
+                        stop = true;
+                        break;
+                    }
+                    bytes_this_call += size;
+                    written.push((index, entry.path, bytes));
+                    resume_offset = index + 1;
+                    if written.len() >= MAX_DIRECTORY_FILES {
+                        bound = MaterializeBound::WriteCap;
+                        resume_offset = plan.next_offset;
+                        stop = true;
+                        break;
+                    }
+                }
+                Err(error) if error.message.as_ref() == "binary files are not supported" => {
+                    plan.skipped_binary += 1;
+                    resume_offset = index + 1;
+                }
+                Err(error) if error.message.as_ref() == "tree entry is missing a blob SHA" => {
+                    plan.skipped_limit += 1;
+                    resume_offset = index + 1;
+                }
+                Err(error) => return Err(error),
             }
-            Ok(bytes) => bytes,
-            Err(error) if error.message.as_ref() == "binary files are not supported" => {
-                plan.skipped_binary += 1;
-                resume_offset = index + 1;
-                continue;
-            }
-            Err(_) => {
-                plan.skipped_limit += 1;
-                resume_offset = index + 1;
-                continue;
-            }
-        };
-        let size = bytes.len() as u64;
-        if bytes_this_call.saturating_add(size) > MAX_TOTAL_SIZE {
-            bound = MaterializeBound::TotalSize;
-            resume_offset = index;
-            break;
-        }
-        bytes_this_call += size;
-        written.push((index, entry.path, bytes));
-        resume_offset = index + 1;
-        if written.len() >= MAX_DIRECTORY_FILES {
-            bound = MaterializeBound::WriteCap;
-            resume_offset = plan.next_offset;
-            break;
         }
     }
-    if resume_offset < page_entries.len() && matches!(bound, MaterializeBound::Listing) {
-        bound = MaterializeBound::WriteCap;
+    if !matches!(bound, MaterializeBound::TotalSize) {
+        resume_offset = plan.next_offset;
+        if written.len() >= MAX_DIRECTORY_FILES && !plan.listing_exhausted {
+            bound = MaterializeBound::WriteCap;
+        }
     }
     let page_done = resume_offset >= page_entries.len();
     if page_done {
@@ -738,7 +742,8 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
             }
             Ok(())
         },
-    )?;
+    )
+    .await?;
     env.paths
         .validate_output(&snapshot)
         .map_err(|error| ProviderError::new(ProviderErrorKind::Validation, error.message))?;
@@ -764,7 +769,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         "source": "github",
         "cached": false,
         "commitSha": commit_sha,
-        "verified": true,
+        "verified": complete,
         "complete": complete,
         "resolvedBranch": resolved_branch,
         "requestedPath": requested_path,
@@ -783,7 +788,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
     value["pagination"] = json!({
         "hasMore": has_more,
         "reason": reason,
-        "page": page,
+        "page": if has_more { continue_page } else { page },
         "pageSize": page_size,
         "materializeOffset": if has_more { continue_offset } else { resume_offset },
         "written": written.len(),
@@ -1299,6 +1304,8 @@ mod tests {
         assert_eq!(first.data["pagination"]["materializeOffset"], 50);
         assert_eq!(first.data["pagination"]["reason"], "writeCap");
         assert_eq!(first.data["pagination"]["hasMore"], true);
+        assert_eq!(first.data["location"]["verified"], false);
+        assert_eq!(first.data["location"]["complete"], false);
         assert!(first.data["next"]["nextPage"].is_null());
         assert!(first.data["next"]["searchLocal"].is_null());
         assert_eq!(
@@ -1325,7 +1332,8 @@ mod tests {
         let second = execute(&provider, &second_query, &context, &env)
             .await
             .expect("second materialize");
-        assert_eq!(second.data["pagination"]["page"], 1);
+        assert_eq!(second.data["pagination"]["page"], 2);
+        assert_eq!(second.data["pagination"]["materializeOffset"], 0);
         assert_eq!(second.data["pagination"]["written"], 50);
         assert_eq!(
             second.data["next"]["continueMaterialize"]["query"]["page"],
@@ -1346,5 +1354,219 @@ mod tests {
             assert_eq!(body, format!("blob-{index:03}\n"), "{}", path.display());
         }
         assert!(!Path::new(&second_path).join("f100.rs").exists());
+        assert!(!Path::new(&first_path).exists());
+    }
+
+    fn materialize_provider(
+        server: &wiremock::MockServer,
+    ) -> (
+        crate::providers::github::GitHubProvider<
+            crate::providers::github::StaticCredentialResolver,
+            crate::providers::github::NoCache,
+        >,
+        tempfile::TempDir,
+        crate::policy::path::PathPolicy,
+    ) {
+        use crate::policy::path::{PathPolicy, PathPolicyConfig};
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, GitHubProvider, NoCache, RetryPolicy,
+            StaticCredentialResolver,
+        };
+        use std::sync::Arc;
+        use std::time::Duration;
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+                .expect("endpoint");
+        let transport = crate::providers::github::GitHubTransport::new(
+            endpoint,
+            Arc::new(StaticCredentialResolver::new(
+                "secret",
+                CredentialSource::Environment,
+            )),
+            RetryPolicy {
+                max_attempts: 1,
+                base_delay: Duration::from_millis(1),
+                max_retry_after: Duration::from_secs(1),
+            },
+        )
+        .expect("transport");
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: None,
+            additional_roots: vec![home.path().to_path_buf()],
+            include_home: true,
+            home_dir: Some(home.path().to_path_buf()),
+        })
+        .expect("policy");
+        (
+            GitHubProvider {
+                transport,
+                cache: NoCache,
+            },
+            home,
+            paths,
+        )
+    }
+
+    #[tokio::test]
+    async fn materialize_total_size_keeps_page_and_retries_overflow() {
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::time::Duration;
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let file_size = 280 * 1024_u64;
+        let count = 20_usize;
+        let entries = (0..count)
+            .map(|index| {
+                json!({
+                    "name": format!("f{index:03}.rs"),
+                    "path": format!("f{index:03}.rs"),
+                    "type": "file",
+                    "size": file_size,
+                    "sha": blob_sha(index)
+                })
+            })
+            .collect::<Vec<_>>();
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/commits/main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": commit})))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/contents"))
+            .and(query_param("ref", "main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!(entries)))
+            .mount(&server)
+            .await;
+        let body = vec![b'x'; file_size as usize];
+        let encoded = STANDARD.encode(&body);
+        for index in 0..count {
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/api/v3/repos/o/r/git/blobs/{}",
+                    blob_sha(index)
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "encoding": "base64",
+                    "content": encoded,
+                    "sha": blob_sha(index)
+                })))
+                .mount(&server)
+                .await;
+        }
+        let (provider, home, paths) = materialize_provider(&server);
+        let env = super::super::MaterializeEnv {
+            home: home.path(),
+            persistent: true,
+            paths: &paths,
+        };
+        let context = RequestContext::with_timeout(Duration::from_secs(30), 16 * 1024 * 1024);
+        let query = serde_json::from_value::<super::super::GhSearchQuery>(json!({
+            "operation": "tree",
+            "owner": "o",
+            "repo": "r",
+            "branch": "main",
+            "materialize": true
+        }))
+        .expect("query");
+        let result = execute(&provider, &query, &context, &env)
+            .await
+            .expect("totalSize materialize");
+        let written = result.data["pagination"]["written"]
+            .as_u64()
+            .expect("written");
+        let offset = result.data["pagination"]["materializeOffset"]
+            .as_u64()
+            .expect("offset");
+        assert_eq!(result.data["pagination"]["page"], 1);
+        assert_eq!(
+            result.data["next"]["continueMaterialize"]["query"]["page"],
+            1
+        );
+        assert_eq!(result.data["pagination"]["reason"], "totalSize");
+        assert!(written < 50, "size cap should fire before 50 files");
+        assert!(offset > 0);
+        assert_eq!(offset, written);
+        assert_eq!(
+            result.data["next"]["continueMaterialize"]["query"]["materializeOffset"],
+            offset
+        );
+        let local = result.data["location"]["localPath"]
+            .as_str()
+            .expect("localPath");
+        assert!(
+            std::path::Path::new(local)
+                .join(format!("f{:03}.rs", written - 1))
+                .is_file()
+        );
+        assert!(
+            !std::path::Path::new(local)
+                .join(format!("f{offset:03}.rs"))
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn materialize_fatal_blob_error_does_not_publish() {
+        use crate::providers::github::{current_tree_snapshot, tree_cache_root};
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::time::Duration;
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let entries = (0..2).map(listing_entry).collect::<Vec<_>>();
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/commits/main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": commit})))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/contents"))
+            .and(query_param("ref", "main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!(entries)))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/r/git/blobs/{}", blob_sha(0))))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "encoding": "base64",
+                "content": STANDARD.encode("ok\n"),
+                "sha": blob_sha(0)
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/r/git/blobs/{}", blob_sha(1))))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({"message":"bad creds"})))
+            .mount(&server)
+            .await;
+        let (provider, home, paths) = materialize_provider(&server);
+        let env = super::super::MaterializeEnv {
+            home: home.path(),
+            persistent: true,
+            paths: &paths,
+        };
+        let context = RequestContext::with_timeout(Duration::from_secs(30), 16 * 1024 * 1024);
+        let query = serde_json::from_value::<super::super::GhSearchQuery>(json!({
+            "operation": "tree",
+            "owner": "o",
+            "repo": "r",
+            "branch": "main",
+            "materialize": true
+        }))
+        .expect("query");
+        let error = execute(&provider, &query, &context, &env)
+            .await
+            .expect_err("fatal blob");
+        assert_eq!(error.kind, ProviderErrorKind::Authentication);
+        assert_eq!(
+            current_tree_snapshot(&tree_cache_root(home.path(), "o", "r", commit)),
+            None
+        );
     }
 }

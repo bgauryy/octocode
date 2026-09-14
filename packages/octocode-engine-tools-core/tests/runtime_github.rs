@@ -184,6 +184,8 @@ async fn tree_materialize_120_blobs_copy_forwards_previous_snapshot() {
     assert_eq!(first_data["pagination"]["materializeOffset"], 50);
     assert_eq!(first_data["pagination"]["reason"], "writeCap");
     assert_eq!(first_data["pagination"]["hasMore"], true);
+    assert_eq!(first_data["location"]["verified"], false);
+    assert_eq!(first_data["location"]["complete"], false);
     assert!(first_data["next"]["nextPage"].is_null());
     assert!(first_data["next"]["searchLocal"].is_null());
     assert_eq!(
@@ -221,7 +223,8 @@ async fn tree_materialize_120_blobs_copy_forwards_previous_snapshot() {
         .await
         .expect("second materialize");
     let second_data = row_data(&second);
-    assert_eq!(second_data["pagination"]["page"], 1);
+    assert_eq!(second_data["pagination"]["page"], 2);
+    assert_eq!(second_data["pagination"]["materializeOffset"], 0);
     assert_eq!(second_data["pagination"]["written"], 50);
     assert_eq!(second_data["pagination"]["reason"], "listing");
     assert_eq!(
@@ -244,8 +247,7 @@ async fn tree_materialize_120_blobs_copy_forwards_previous_snapshot() {
         assert_eq!(body, format!("blob-{index:03}\n"), "{}", path.display());
     }
     assert!(!Path::new(&second_path).join("f100.rs").exists());
-    assert!(Path::new(&first_path).join("f000.rs").is_file());
-    assert!(!Path::new(&first_path).join("f050.rs").exists());
+    assert!(!Path::new(&first_path).exists());
     assert!(
         max.load(Ordering::SeqCst) <= 5,
         "blob fetch concurrency was {}",
