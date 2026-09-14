@@ -1829,11 +1829,14 @@ mod graphql_tests {
         CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
     };
     use std::{
-        sync::{Arc, Mutex},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
         time::Duration,
     };
     use wiremock::{
-        Match, Mock, MockServer, Request, ResponseTemplate,
+        Match, Mock, MockServer, Request, Respond, ResponseTemplate,
         matchers::{method, path, query_param},
     };
 
@@ -1864,6 +1867,21 @@ mod graphql_tests {
             !body.contains("first: 0")
                 && !body.contains("first:0")
                 && !body.contains("reviewThreads")
+        }
+    }
+
+    struct GraphQlThenOk {
+        hits: Arc<AtomicUsize>,
+        first: ResponseTemplate,
+        rest: ResponseTemplate,
+    }
+    impl Respond for GraphQlThenOk {
+        fn respond(&self, _: &Request) -> ResponseTemplate {
+            if self.hits.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.first.clone()
+            } else {
+                self.rest.clone()
+            }
         }
     }
 
@@ -1978,6 +1996,25 @@ mod graphql_tests {
     }
 
     async fn transport(server: &MockServer) -> GitHubTransport<StaticCredentialResolver> {
+        transport_with_retry(server, RetryPolicy::default()).await
+    }
+
+    async fn transport_once(server: &MockServer) -> GitHubTransport<StaticCredentialResolver> {
+        transport_with_retry(
+            server,
+            RetryPolicy {
+                max_attempts: 1,
+                base_delay: Duration::from_millis(1),
+                max_retry_after: Duration::from_millis(1),
+            },
+        )
+        .await
+    }
+
+    async fn transport_with_retry(
+        server: &MockServer,
+        retry: RetryPolicy,
+    ) -> GitHubTransport<StaticCredentialResolver> {
         let endpoint =
             GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).unwrap())
                 .unwrap();
@@ -1987,7 +2024,7 @@ mod graphql_tests {
                 "secret",
                 CredentialSource::Override,
             )),
-            RetryPolicy::default(),
+            retry,
         )
         .unwrap()
     }
@@ -2299,5 +2336,100 @@ mod graphql_tests {
             .collect();
         assert!(types.contains(&"review_inline".into()));
         assert!(types.contains(&"discussion".into()));
+    }
+
+    #[tokio::test]
+    async fn secondary_graphql_rate_limit_does_not_skip_later_queries() {
+        let server = MockServer::start().await;
+        let hits = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(GraphQlThenOk {
+                hits: hits.clone(),
+                first: ResponseTemplate::new(403)
+                    .insert_header("x-ratelimit-remaining", "21")
+                    .set_body_string(
+                        "You have exceeded a secondary rate limit. Please wait a few minutes",
+                    ),
+                rest: ResponseTemplate::new(200).set_body_json(graphql_pr(false, true)),
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        let t = transport_once(&server).await;
+        let first = run(&t, &eligible_query()).await;
+        assert_eq!(first["pullRequests"][0]["title"], "T");
+        let second = run(&t, &eligible_query()).await;
+        assert_eq!(second["pullRequests"][0]["changedFiles"][0]["path"], "a.rs");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert!(!t.budget().circuit_is_open());
+    }
+
+    #[tokio::test]
+    async fn primary_graphql_remaining_zero_skips_later_queries_without_opening_circuit() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-ratelimit-remaining", "0")
+                    .set_body_json(json!({"message": "API rate limit exceeded"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        let t = transport_once(&server).await;
+        let first = run(&t, &eligible_query()).await;
+        assert_eq!(first["pullRequests"][0]["title"], "T");
+        assert!(!t.budget().circuit_is_open());
+        let second = run(&t, &eligible_query()).await;
+        assert_eq!(second["pullRequests"][0]["title"], "T");
+        assert!(!t.budget().circuit_is_open());
+    }
+
+    #[tokio::test]
+    async fn graphql_rate_limited_error_payload_skips_later_queries() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": null,
+                "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        let t = transport_once(&server).await;
+        let first = run(&t, &eligible_query()).await;
+        assert_eq!(first["pullRequests"][0]["title"], "T");
+        let second = run(&t, &eligible_query()).await;
+        assert_eq!(second["pullRequests"][0]["title"], "T");
+        assert!(!t.budget().circuit_is_open());
+    }
+
+    #[tokio::test]
+    async fn graphql_502_does_not_skip_later_queries() {
+        let server = MockServer::start().await;
+        let hits = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(GraphQlThenOk {
+                hits: hits.clone(),
+                first: ResponseTemplate::new(502).set_body_string("bad gateway"),
+                rest: ResponseTemplate::new(200).set_body_json(graphql_pr(false, true)),
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        let t = transport_once(&server).await;
+        let first = run(&t, &eligible_query()).await;
+        assert_eq!(first["pullRequests"][0]["title"], "T");
+        let second = run(&t, &eligible_query()).await;
+        assert_eq!(second["pullRequests"][0]["changedFiles"][0]["path"], "a.rs");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
     }
 }

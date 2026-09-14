@@ -70,6 +70,11 @@ fn mark_graphql_skipped(transport: &GitHubTransport<impl CredentialResolver>) {
     }
 }
 
+fn is_primary_graphql_http_limit(error: &ProviderError) -> bool {
+    error.kind == ProviderErrorKind::RateLimited
+        && error.rate_limit.as_ref().and_then(|limit| limit.remaining) == Some(0)
+}
+
 fn graphql_rate_limited(page: &GraphQlPage) -> bool {
     page.errors.iter().any(|error| {
         error.type_name.as_deref() == Some("RATE_LIMITED")
@@ -252,10 +257,15 @@ fn map_graphql_discussion(conn: &Value) -> GraphqlCollection {
 
 fn map_graphql_reviews(conn: &Value) -> GraphqlCollection {
     connection_complete(conn, |node| {
+        let id = node.get("databaseId").filter(|value| !value.is_null())?;
+        let state = node
+            .get("state")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())?;
         Some(json!({
-            "id": node.get("databaseId").cloned().unwrap_or(Value::Null),
+            "id": id,
             "user": { "login": node.pointer("/author/login").and_then(Value::as_str).unwrap_or("unknown") },
-            "state": node.get("state").and_then(Value::as_str).unwrap_or(""),
+            "state": state,
             "body": node.get("body").and_then(Value::as_str).unwrap_or(""),
             "submitted_at": node.get("submittedAt"),
         }))
@@ -438,7 +448,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         let page = match self.execute_graphql(&query, variables, context).await {
             Ok(page) => page,
             Err(error) => {
-                if error.kind == ProviderErrorKind::RateLimited {
+                if is_primary_graphql_http_limit(&error) {
                     mark_graphql_skipped(self);
                 }
                 return Err(error);
@@ -532,5 +542,45 @@ mod tests {
         assert!(variables.get("discussion").is_none());
         assert!(variables.get("reviews").is_none());
         assert!(variables.get("commits").is_none());
+    }
+
+    #[test]
+    fn review_decode_holes_are_incomplete() {
+        let missing_id = json!({
+            "pageInfo": { "hasNextPage": false },
+            "nodes": [{
+                "author": {"login": "alice"},
+                "state": "APPROVED",
+                "body": "ok"
+            }]
+        });
+        let mapped = map_graphql_reviews(&missing_id);
+        assert!(!mapped.complete);
+        assert!(mapped.nodes.is_empty());
+
+        let missing_state = json!({
+            "pageInfo": { "hasNextPage": false },
+            "nodes": [{
+                "databaseId": 7,
+                "author": {"login": "alice"},
+                "body": "ok"
+            }]
+        });
+        let mapped = map_graphql_reviews(&missing_state);
+        assert!(!mapped.complete);
+
+        let complete = json!({
+            "pageInfo": { "hasNextPage": false },
+            "nodes": [{
+                "databaseId": 7,
+                "author": {"login": "alice"},
+                "state": "APPROVED",
+                "body": "ok"
+            }]
+        });
+        let mapped = map_graphql_reviews(&complete);
+        assert!(mapped.complete);
+        assert_eq!(mapped.nodes[0]["id"], 7);
+        assert_eq!(mapped.nodes[0]["state"], "APPROVED");
     }
 }

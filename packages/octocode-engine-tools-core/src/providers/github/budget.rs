@@ -36,8 +36,8 @@ pub enum GitHubResource {
 
 impl GitHubResource {
     pub fn classify(url: &Url) -> Self {
-        let path = url.path();
-        if path.contains("/graphql") {
+        let path = url.path().trim_end_matches('/');
+        if path == "/graphql" || path.ends_with("/api/graphql") {
             Self::Graphql
         } else if path.contains("/search/code") {
             Self::CodeSearch
@@ -158,6 +158,18 @@ impl GitHubBudget {
                 circuit.opened_at = Some(Instant::now());
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn circuit_is_open(&self) -> bool {
+        let circuit = self
+            .inner
+            .circuit
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        circuit
+            .opened_at
+            .is_some_and(|opened| opened.elapsed() < CIRCUIT_OPEN)
     }
 
     fn check_circuit(&self) -> Result<(), ProviderError> {
@@ -313,6 +325,12 @@ mod tests {
         );
         assert_eq!(GitHubResource::Graphql.per_minute(), 30);
         assert_eq!(GitHubResource::Core.per_minute(), usize::MAX);
+        assert_eq!(
+            GitHubResource::classify(
+                &Url::parse("https://api.github.com/repos/octocat/graphql").unwrap()
+            ),
+            GitHubResource::Core
+        );
     }
 
     #[test]

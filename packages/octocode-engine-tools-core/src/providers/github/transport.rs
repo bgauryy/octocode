@@ -216,6 +216,10 @@ impl<R: CredentialResolver> GitHubTransport<R> {
     pub fn graphql_enabled(&self) -> bool {
         self.graphql_enabled
     }
+    #[cfg(test)]
+    pub(crate) fn budget(&self) -> &GitHubBudget {
+        &self.budget
+    }
     pub fn endpoint(&self) -> &GitHubEndpoint {
         &self.endpoint
     }
