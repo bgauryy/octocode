@@ -3,8 +3,10 @@ use super::execute;
 use clap::Args;
 use octocode_engine_tools_core::runtime::ToolRuntime;
 use serde_json::{Value, json};
+use std::ffi::OsString;
+use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Args, Debug)]
@@ -418,34 +420,153 @@ pub fn cache(runtime: &ToolRuntime, action: &str) -> u8 {
 }
 
 pub fn skill(args: &[String]) -> u8 {
-    match Command::new("octocode").arg("skill").args(args).status() {
-        Ok(status) => status
-            .code()
-            .and_then(|code| u8::try_from(code).ok())
-            .unwrap_or(1),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+    match resolve_node_octocode() {
+        None => {
             eprintln!("{}", missing_octocode_message(args));
             1
         }
-        Err(error) => {
-            eprintln!("failed to spawn octocode skill: {error}");
-            1
+        Some(program) => match Command::new(program).arg("skill").args(args).status() {
+            Ok(status) => status
+                .code()
+                .and_then(|code| u8::try_from(code).ok())
+                .unwrap_or(1),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                eprintln!("{}", missing_octocode_message(args));
+                1
+            }
+            Err(error) => {
+                eprintln!("failed to spawn octocode skill: {error}");
+                1
+            }
+        },
+    }
+}
+
+fn resolve_node_octocode() -> Option<PathBuf> {
+    let self_exe = std::env::current_exe().ok();
+    let directories = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    resolve_node_octocode_from(directories, self_exe.as_deref())
+}
+
+fn resolve_node_octocode_from(
+    directories: impl IntoIterator<Item = PathBuf>,
+    self_exe: Option<&Path>,
+) -> Option<PathBuf> {
+    for directory in directories {
+        for name in octocode_path_names() {
+            let candidate = directory.join(name);
+            if !is_runnable(&candidate) {
+                continue;
+            }
+            if self_exe.is_some_and(|exe| same_executable(&candidate, exe)) {
+                continue;
+            }
+            return Some(candidate);
         }
+    }
+    None
+}
+
+fn octocode_path_names() -> Vec<OsString> {
+    let mut names = Vec::new();
+    if cfg!(windows) {
+        let pathext =
+            std::env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
+        for ext in pathext.to_string_lossy().split(';') {
+            let ext = ext.trim();
+            if ext.is_empty() {
+                continue;
+            }
+            let mut name = OsString::from("octocode");
+            if !ext.starts_with('.') {
+                name.push(".");
+            }
+            name.push(ext);
+            names.push(name);
+        }
+    }
+    names.push(OsString::from("octocode"));
+    names
+}
+
+fn is_runnable(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn same_executable(left: &Path, right: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(left_meta) = fs::metadata(left) else {
+            return false;
+        };
+        let Ok(right_meta) = fs::metadata(right) else {
+            return false;
+        };
+        left_meta.dev() == right_meta.dev() && left_meta.ino() == right_meta.ino()
+    }
+    #[cfg(windows)]
+    {
+        let Ok(left) = fs::canonicalize(left) else {
+            return false;
+        };
+        let Ok(right) = fs::canonicalize(right) else {
+            return false;
+        };
+        left.as_os_str().eq_ignore_ascii_case(right.as_os_str())
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        fs::canonicalize(left).ok() == fs::canonicalize(right).ok()
+            && fs::canonicalize(left).is_ok()
     }
 }
 
 fn missing_octocode_message(args: &[String]) -> String {
-    let invoked = if args.is_empty() {
-        "octocode skill".to_owned()
-    } else {
-        format!("octocode skill {}", args.join(" "))
-    };
+    let invoked = format_skill_command(args);
     format!(
         "octo skill requires the Node CLI (`octocode`) on PATH.\n\
          Install: npm i -g octocode\n\
          Then:    {invoked}\n\
          Or:      npx -y {invoked}"
     )
+}
+
+fn format_skill_command(args: &[String]) -> String {
+    let mut command = String::from("octocode skill");
+    for arg in args {
+        command.push(' ');
+        command.push_str(&quote_cli_arg(arg));
+    }
+    command
+}
+
+fn quote_cli_arg(arg: &str) -> String {
+    if !arg.is_empty()
+        && arg.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '=' | ':' | '+')
+        })
+    {
+        arg.to_owned()
+    } else {
+        format!("'{}'", arg.replace('\'', r#"'\''"#))
+    }
 }
 
 fn lang_from_path(path: &str) -> Option<&'static str> {
@@ -517,6 +638,67 @@ mod tests {
              Install: npm i -g octocode\n\
              Then:    octocode skill\n\
              Or:      npx -y octocode skill"
+        );
+    }
+
+    #[test]
+    fn missing_octocode_message_quotes_args_with_spaces() {
+        assert_eq!(super::quote_cli_arg("my skill"), "'my skill'");
+        assert_eq!(super::quote_cli_arg("it's"), r#"'it'\''s'"#);
+        assert_eq!(
+            super::missing_octocode_message(&["install".into(), "my skill".into()]),
+            "octo skill requires the Node CLI (`octocode`) on PATH.\n\
+             Install: npm i -g octocode\n\
+             Then:    octocode skill install 'my skill'\n\
+             Or:      npx -y octocode skill install 'my skill'"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_skips_self_and_uses_a_later_path_entry() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().expect("tmp");
+        let native_dir = root.path().join("native");
+        let node_dir = root.path().join("node");
+        std::fs::create_dir_all(&native_dir).expect("native dir");
+        std::fs::create_dir_all(&node_dir).expect("node dir");
+        let native_bin = native_dir.join("octocode");
+        let node_bin = node_dir.join("octocode");
+        std::fs::write(&native_bin, b"native").expect("native bin");
+        std::fs::write(&node_bin, b"node").expect("node bin");
+        std::fs::set_permissions(&native_bin, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod native");
+        std::fs::set_permissions(&node_bin, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod node");
+        assert_eq!(
+            super::resolve_node_octocode_from(vec![native_dir.clone()], Some(&native_bin)),
+            None
+        );
+        assert_eq!(
+            super::resolve_node_octocode_from(vec![native_dir, node_dir], Some(&native_bin)),
+            Some(node_bin)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_path_names_include_cmd_and_exe() {
+        let names: Vec<String> = super::octocode_path_names()
+            .into_iter()
+            .map(|name| name.to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("octocode.cmd")),
+            "{names:?}"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("octocode.exe")),
+            "{names:?}"
         );
     }
 }

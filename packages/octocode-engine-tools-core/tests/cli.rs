@@ -66,6 +66,29 @@ fn skill_without_octocode_prints_node_command_and_exits_1() {
     );
 }
 
+#[test]
+fn skill_does_not_reenter_native_octocode_on_path() {
+    let workspace = Workspace::new();
+    let native = std::path::PathBuf::from(env!("CARGO_BIN_EXE_octocode"));
+    let native_dir = native.parent().expect("native dir");
+    let output = workspace
+        .cli()
+        .env("PATH", native_dir)
+        .args(["skill", "list"])
+        .output()
+        .expect("skill");
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert!(
+        stderr(&output).starts_with("octo skill requires the Node CLI (`octocode`) on PATH."),
+        "{}",
+        stderr(&output)
+    );
+    assert!(
+        !workspace.home.join("skills").exists(),
+        "native must not create $OCTOCODE_HOME/skills"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn skill_spawns_octocode_with_skill_and_user_args() {
@@ -128,6 +151,38 @@ exit 0
         stdout(&help).contains("usage: octocode skill list|install|remove|check|info|help"),
         "{}",
         stdout(&help)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn skill_skips_native_and_spawns_later_node_octocode() {
+    let workspace = Workspace::new();
+    let native = std::path::PathBuf::from(env!("CARGO_BIN_EXE_octocode"));
+    let native_dir = native.parent().expect("native dir");
+    let node_dir = workspace.home.join("node-bin");
+    std::fs::create_dir_all(&node_dir).expect("node dir");
+    let argv_file = workspace.home.join("octocode-argv.txt");
+    write_unix_script(
+        &node_dir.join("octocode"),
+        &format!(
+            r#"printf '%s\n' "$@" > "{}"
+exit 0
+"#,
+            argv_file.display()
+        ),
+    );
+    let path = std::env::join_paths([native_dir.as_os_str(), node_dir.as_os_str()]).expect("PATH");
+    let output = workspace
+        .cli()
+        .env("PATH", &path)
+        .args(["skill", "install", "--all"])
+        .output()
+        .expect("skill");
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read_to_string(&argv_file).expect("argv"),
+        "skill\ninstall\n--all\n"
     );
 }
 
