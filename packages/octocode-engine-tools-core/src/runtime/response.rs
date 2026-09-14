@@ -315,19 +315,62 @@ pub(super) fn sanitize_fields(
     context: &super::ExecutionContext,
 ) -> Result<(), super::ExecutionError> {
     context.check()?;
+    sanitize_value(value, security)
+}
+
+pub(crate) fn sanitize_value(
+    value: &mut Value,
+    security: &crate::security::ContentSecurity,
+) -> Result<(), super::ExecutionError> {
+    sanitize_walk(value, &|text| {
+        Ok(security.sanitize_text(text, None).content)
+    })
+}
+
+pub(crate) fn sanitize_walk<E>(
+    value: &mut Value,
+    sanitize_text: &impl Fn(&str) -> Result<String, E>,
+) -> Result<(), E> {
     match value {
-        Value::String(text) => *text = security.sanitize_text(text, None).content,
+        Value::String(text) => {
+            *text = sanitize_text(text)?;
+            Ok(())
+        }
         Value::Array(values) => {
             for value in values {
-                sanitize_fields(value, security, context)?;
+                sanitize_walk(value, sanitize_text)?;
             }
+            Ok(())
         }
-        Value::Object(values) => {
-            for value in values.values_mut() {
-                sanitize_fields(value, security, context)?;
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                match key.as_str() {
+                    "location" => {}
+                    "next" => sanitize_next_map(child, sanitize_text)?,
+                    _ => sanitize_walk(child, sanitize_text)?,
+                }
             }
+            Ok(())
         }
-        _ => {}
+        _ => Ok(()),
+    }
+}
+
+fn sanitize_next_map<E>(
+    next: &mut Value,
+    sanitize_text: &impl Fn(&str) -> Result<String, E>,
+) -> Result<(), E> {
+    let Some(map) = next.as_object_mut() else {
+        return sanitize_walk(next, sanitize_text);
+    };
+    for call in map.values_mut() {
+        let Some(fields) = call.as_object_mut() else {
+            continue;
+        };
+        // Skip tool + query (and confidence: catalog enum). Sanitize why only.
+        if let Some(why) = fields.get_mut("why") {
+            sanitize_walk(why, sanitize_text)?;
+        }
     }
     Ok(())
 }
@@ -706,6 +749,51 @@ mod tests {
         assert_eq!(
             output.pointer("/results/0/meta/diagnostics"),
             Some(&json!({"partial":true}))
+        );
+    }
+    #[test]
+    fn sanitize_fields_preserves_next_query_and_location() {
+        use crate::security::{ContentSecurity, SecurityRegistry};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+        use tokio_util::sync::CancellationToken;
+
+        let token = format!("ghp_{}", "a".repeat(37));
+        let path = format!("/repo/{token}/src/a.ts");
+        let mut value = json!({
+            "title": format!("leak {token}"),
+            "location": {"localPath": path},
+            "next": {
+                "continue": {
+                    "tool": "localFetch",
+                    "query": {"path": path},
+                    "why": format!("read {token}")
+                }
+            }
+        });
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let context = super::super::ExecutionContext {
+            cancellation: CancellationToken::new(),
+            deadline: Instant::now() + Duration::from_secs(60),
+            output_bytes: 16_000,
+        };
+        sanitize_fields(&mut value, &security, &context).expect("sanitize_fields");
+        assert!(
+            !value["title"].as_str().expect("title").contains("ghp_"),
+            "content strings must still be sanitized"
+        );
+        assert_eq!(value["location"]["localPath"], json!(path));
+        assert_eq!(
+            value.pointer("/next/continue/query/path"),
+            Some(&json!(path))
+        );
+        assert_eq!(value["next"]["continue"]["tool"], "localFetch");
+        assert!(
+            !value["next"]["continue"]["why"]
+                .as_str()
+                .expect("why")
+                .contains("ghp_"),
+            "why under an executable call must still be sanitized"
         );
     }
     #[test]

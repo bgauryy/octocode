@@ -1587,21 +1587,7 @@ fn sanitize_all_strings(
     value: &mut Value,
     security: &impl ContentScan,
 ) -> Result<(), ProviderError> {
-    match value {
-        Value::String(v) => *v = sanitize_text(v, security)?,
-        Value::Array(values) => {
-            for v in values {
-                sanitize_all_strings(v, security)?
-            }
-        }
-        Value::Object(map) => {
-            for v in map.values_mut() {
-                sanitize_all_strings(v, security)?
-            }
-        }
-        _ => {}
-    }
-    Ok(())
+    crate::runtime::response::sanitize_walk(value, &|text| sanitize_text(text, security))
 }
 
 #[cfg(test)]
@@ -1659,8 +1645,8 @@ mod tests {
         sanitize_all_strings(&mut value, &ReplacingScan).unwrap();
         assert_eq!(value["title"], "[MASKED]");
         assert_eq!(value["nested"][0]["body"], "a [MASKED] value");
-        assert_eq!(value["next"]["tool"], "[MASKED]-tool");
-        assert_eq!(value["next"]["query"]["path"], "[MASKED].rs");
+        assert_eq!(value["next"]["tool"], "secret-tool");
+        assert_eq!(value["next"]["query"]["path"], "secret.rs");
     }
 
     #[test]
