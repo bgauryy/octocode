@@ -937,18 +937,21 @@ fn validate_object(
     }
     if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
         for key in object.keys() {
-            if !properties.is_some_and(|known| known.contains_key(key)) {
-                let mut field_path = path.clone();
-                field_path.push(key.clone());
-                issues.extend(
-                    issue(
-                        "schema.unknown-field",
-                        field_path,
-                        format!("Unknown field: {key}"),
-                    )
-                    .issues,
-                );
+            if properties.is_some_and(|known| known.contains_key(key))
+                || allows_tree_materialize_field(schema, key)
+            {
+                continue;
             }
+            let mut field_path = path.clone();
+            field_path.push(key.clone());
+            issues.extend(
+                issue(
+                    "schema.unknown-field",
+                    field_path,
+                    format!("Unknown field: {key}"),
+                )
+                .issues,
+            );
         }
     }
     if let Some(additional) = schema
@@ -1283,8 +1286,53 @@ fn validate_github_search_queries(input: &Value) -> Result<(), ContractValidatio
                 ),
             ));
         }
+        if operation != Some("tree") {
+            for field in ["materialize", "materializeOffset"] {
+                if query.get(field).is_some() {
+                    return Err(issue(
+                        "gh-search.materialize-tree-only",
+                        vec!["queries".into(), index.to_string(), field.into()],
+                        "materialize and materializeOffset are only valid on operation:\"tree\"",
+                    ));
+                }
+            }
+        } else {
+            if let Some(value) = query.get("materialize")
+                && !value.is_boolean()
+            {
+                return Err(issue(
+                    "gh-search.materialize-type",
+                    vec!["queries".into(), index.to_string(), "materialize".into()],
+                    "materialize must be a boolean",
+                ));
+            }
+            if let Some(value) = query.get("materializeOffset") {
+                let valid = value.as_u64().is_some()
+                    || value.as_i64().is_some_and(|n| n >= 0)
+                    || value.as_f64().is_some_and(|n| n >= 0.0 && n.fract() == 0.0);
+                if !valid {
+                    return Err(issue(
+                        "gh-search.materialize-offset",
+                        vec![
+                            "queries".into(),
+                            index.to_string(),
+                            "materializeOffset".into(),
+                        ],
+                        "materializeOffset must be a non-negative integer",
+                    ));
+                }
+            }
+        }
     }
     Ok(())
+}
+
+fn allows_tree_materialize_field(schema: &Value, key: &str) -> bool {
+    matches!(key, "materialize" | "materializeOffset")
+        && schema
+            .pointer("/properties/operation/const")
+            .and_then(Value::as_str)
+            == Some("tree")
 }
 
 fn validate_ast_rewrite_queries(input: &Value) -> Result<(), ContractValidationError> {

@@ -1,14 +1,27 @@
 //! GitHub repository tree and independently paged metadata execution.
-use super::GhSearchQuery;
+use super::{GhSearchQuery, MaterializeEnv};
 use crate::{
     providers::github::{
         ContentsEntry, CredentialResolver, GitHubProvider, GitHubTransport, ProviderError,
-        ProviderErrorKind, RequestContext, TreeRequest,
+        ProviderErrorKind, RequestContext, TreeRequest, ensure_snapshot_directory,
+        publish_tree_snapshot, tree_cache_root, write_snapshot_file,
     },
     tools::result::ToolData,
 };
+use futures_util::{StreamExt, stream};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
+
+const MAX_DIRECTORY_FILES: usize = 50;
+const MAX_TOTAL_SIZE: u64 = 5 * 1024 * 1024;
+const MAX_FILE_SIZE: u64 = 300 * 1024;
+const MATERIALIZE_CONCURRENCY: usize = 5;
+const BINARY_EXTENSIONS: &[&str] = &[
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".mp3", ".mp4", ".wav", ".avi",
+    ".mov", ".mkv", ".webm", ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".exe", ".dll",
+    ".so", ".dylib", ".bin", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".woff",
+    ".woff2", ".ttf", ".eot", ".otf", ".pyc", ".class", ".o", ".obj",
+];
 
 const DEFAULT_PAGE_SIZE: usize = 100;
 const MAX_PAGE: usize = 1000;
@@ -19,6 +32,7 @@ struct TreeEntry {
     path: String,
     kind: EntryKind,
     size: Option<u64>,
+    sha: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum EntryKind {
@@ -39,6 +53,7 @@ pub(super) async fn execute<
     provider: &GitHubProvider<R, C>,
     query: &GhSearchQuery,
     context: &RequestContext,
+    materialize_env: &MaterializeEnv<'_>,
 ) -> Result<ToolData, ProviderError> {
     let transport = &provider.transport;
     let GhSearchQuery::Tree {
@@ -51,6 +66,8 @@ pub(super) async fn execute<
         page_size,
         metadata_page,
         include,
+        materialize,
+        materialize_offset,
     } = query
     else {
         return Err(ProviderError::new(
@@ -58,6 +75,7 @@ pub(super) async fn execute<
             "expected tree query",
         ));
     };
+    let want_materialize = *materialize == Some(true);
     let requested_branch = branch.clone();
     let mut resolved_branch = match branch {
         Some(branch) => branch.clone(),
@@ -159,7 +177,7 @@ pub(super) async fn execute<
         "summary": {"totalFiles": total_files, "totalFolders": total_folders},
         "resolvedBranch": resolved_branch,
     });
-    if total_pages > 1 {
+    if !want_materialize && total_pages > 1 {
         value["pagination"] = json!({
             "currentPage": current_page,
             "totalPages": total_pages,
@@ -240,9 +258,29 @@ pub(super) async fn execute<
         query,
         current_page,
         per_page,
-        has_more,
+        has_more && !want_materialize,
         traversal.failed_subtrees > 0,
     )?;
+    if want_materialize {
+        materialize_tree(
+            provider,
+            query,
+            materialize_env,
+            owner,
+            repo,
+            &resolved_branch,
+            &clean_path,
+            &page_entries,
+            current_page,
+            per_page,
+            has_more,
+            materialize_offset.unwrap_or(0),
+            context,
+            &mut value,
+            &mut output,
+        )
+        .await?;
+    }
     if structure_is_empty(&value)
         && value.get("languages").is_none()
         && ["contributors", "branches", "tags"].iter().all(|key| {
@@ -362,6 +400,7 @@ async fn traverse<R: CredentialResolver, C: crate::providers::github::Conditiona
                 path: child_path.clone(),
                 kind,
                 size: entry.size,
+                sha: entry.sha,
             });
             if kind == EntryKind::Dir && depth < max_depth {
                 pending.push((child_path, depth + 1, false));
@@ -413,6 +452,7 @@ fn traversal_from_git_tree(
             },
             kind,
             size: entry.size,
+            sha: entry.sha,
         });
     }
     traversal
@@ -517,6 +557,259 @@ fn relative(path: &str, root: &str) -> String {
             .trim_start_matches('/')
             .to_owned()
     }
+}
+
+#[derive(Clone, Copy)]
+enum MaterializeBound {
+    WriteCap,
+    TotalSize,
+    Listing,
+}
+
+struct MaterializePlan {
+    selected: Vec<usize>,
+    next_offset: usize,
+    skipped_binary: usize,
+    skipped_too_large: usize,
+    skipped_limit: usize,
+    listing_exhausted: bool,
+}
+
+fn is_binary_name(name: &str) -> bool {
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, ext)| format!(".{}", ext.to_ascii_lowercase()))
+        .unwrap_or_default();
+    BINARY_EXTENSIONS.contains(&ext.as_str())
+}
+
+fn plan_materialize(entries: &[TreeEntry], offset: usize) -> MaterializePlan {
+    let mut plan = MaterializePlan {
+        selected: Vec::new(),
+        next_offset: offset.min(entries.len()),
+        skipped_binary: 0,
+        skipped_too_large: 0,
+        skipped_limit: 0,
+        listing_exhausted: false,
+    };
+    let mut index = offset.min(entries.len());
+    while index < entries.len() && plan.selected.len() < MAX_DIRECTORY_FILES {
+        let entry = &entries[index];
+        if entry.kind == EntryKind::Dir {
+            index += 1;
+            continue;
+        }
+        let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+        if is_binary_name(name) {
+            plan.skipped_binary += 1;
+            index += 1;
+            continue;
+        }
+        if entry.size.is_some_and(|size| size > MAX_FILE_SIZE) {
+            plan.skipped_too_large += 1;
+            index += 1;
+            continue;
+        }
+        plan.selected.push(index);
+        index += 1;
+    }
+    plan.next_offset = index;
+    plan.listing_exhausted = index >= entries.len();
+    plan
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<R, C>,
+    query: &GhSearchQuery,
+    env: &MaterializeEnv<'_>,
+    owner: &str,
+    repo: &str,
+    resolved_branch: &str,
+    clean_path: &str,
+    page_entries: &[TreeEntry],
+    page: usize,
+    page_size: usize,
+    listing_has_more: bool,
+    offset: usize,
+    context: &RequestContext,
+    value: &mut Value,
+    output: &mut ToolData,
+) -> Result<(), ProviderError> {
+    if !env.persistent {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Configuration,
+            "Tree materialization requires persistent local storage. Set storage.mode=\"persistent\" or OCTOCODE_STORAGE_MODE=persistent.",
+        ));
+    }
+    let commit_sha = provider
+        .transport
+        .resolve_commit_sha(owner, repo, resolved_branch, context)
+        .await?;
+    let cache_root = tree_cache_root(env.home, owner, repo, &commit_sha);
+    env.paths
+        .validate_output(&cache_root)
+        .map_err(|error| ProviderError::new(ProviderErrorKind::Validation, error.message))?;
+    let mut plan = plan_materialize(page_entries, offset);
+    let selected: Vec<(usize, TreeEntry)> = plan
+        .selected
+        .iter()
+        .filter_map(|index| {
+            page_entries
+                .get(*index)
+                .cloned()
+                .map(|entry| (*index, entry))
+        })
+        .collect();
+    let fetched = stream::iter(selected)
+        .map(|(index, entry)| async move {
+            let sha = entry.sha.clone();
+            let result = match sha.as_deref() {
+                Some(sha) => provider.transport.get_blob(owner, repo, sha, context).await,
+                None => Err(ProviderError::new(
+                    ProviderErrorKind::Decode,
+                    "tree entry is missing a blob SHA",
+                )),
+            };
+            (index, entry, result)
+        })
+        .buffered(MATERIALIZE_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    let mut written: Vec<(usize, String, Vec<u8>)> = Vec::new();
+    let mut bytes_this_call = 0_u64;
+    let mut bound = MaterializeBound::Listing;
+    let mut resume_offset = offset.min(page_entries.len());
+    for (index, entry, result) in fetched {
+        let bytes = match result {
+            Ok(bytes) if bytes.len() as u64 > MAX_FILE_SIZE => {
+                plan.skipped_too_large += 1;
+                resume_offset = index + 1;
+                continue;
+            }
+            Ok(bytes) => bytes,
+            Err(error) if error.message.as_ref() == "binary files are not supported" => {
+                plan.skipped_binary += 1;
+                resume_offset = index + 1;
+                continue;
+            }
+            Err(_) => {
+                plan.skipped_limit += 1;
+                resume_offset = index + 1;
+                continue;
+            }
+        };
+        let size = bytes.len() as u64;
+        if bytes_this_call.saturating_add(size) > MAX_TOTAL_SIZE {
+            bound = MaterializeBound::TotalSize;
+            resume_offset = index;
+            break;
+        }
+        bytes_this_call += size;
+        written.push((index, entry.path, bytes));
+        resume_offset = index + 1;
+        if written.len() >= MAX_DIRECTORY_FILES {
+            bound = MaterializeBound::WriteCap;
+            resume_offset = plan.next_offset;
+            break;
+        }
+    }
+    if resume_offset < page_entries.len() && matches!(bound, MaterializeBound::Listing) {
+        bound = MaterializeBound::WriteCap;
+    }
+    let page_done = resume_offset >= page_entries.len();
+    if page_done {
+        bound = MaterializeBound::Listing;
+        resume_offset = page_entries.len();
+    }
+    let complete = page_done && !listing_has_more;
+    let has_more = !complete;
+    let snapshot = publish_tree_snapshot(
+        env.home,
+        &cache_root,
+        owner,
+        repo,
+        resolved_branch,
+        &commit_sha,
+        |root| {
+            ensure_snapshot_directory(root, clean_path)?;
+            for (_, path, bytes) in &written {
+                write_snapshot_file(root, path, bytes)?;
+            }
+            Ok(())
+        },
+    )?;
+    env.paths
+        .validate_output(&snapshot)
+        .map_err(|error| ProviderError::new(ProviderErrorKind::Validation, error.message))?;
+    let local_path = if clean_path.is_empty() {
+        snapshot
+    } else {
+        snapshot.join(clean_path)
+    };
+    let requested_path = if clean_path.is_empty() {
+        ".".to_owned()
+    } else {
+        clean_path.to_owned()
+    };
+    let reason = match bound {
+        MaterializeBound::WriteCap if has_more => "writeCap",
+        MaterializeBound::TotalSize if has_more => "totalSize",
+        _ if has_more => "listing",
+        _ => "listing",
+    };
+    value["location"] = json!({
+        "kind": "tree",
+        "localPath": local_path.to_string_lossy(),
+        "source": "github",
+        "cached": false,
+        "commitSha": commit_sha,
+        "verified": true,
+        "complete": complete,
+        "resolvedBranch": resolved_branch,
+        "requestedPath": requested_path,
+    });
+    value["skipped"] = json!({
+        "binary": plan.skipped_binary,
+        "tooLarge": plan.skipped_too_large,
+        "limit": plan.skipped_limit,
+    });
+    let continue_offset = if page_done { 0 } else { resume_offset };
+    let continue_page = if page_done && listing_has_more {
+        page + 1
+    } else {
+        page
+    };
+    value["pagination"] = json!({
+        "hasMore": has_more,
+        "reason": reason,
+        "page": page,
+        "pageSize": page_size,
+        "materializeOffset": if has_more { continue_offset } else { resume_offset },
+        "written": written.len(),
+    });
+    if has_more {
+        let mut next_query = public_query(query)?;
+        next_query["page"] = json!(continue_page);
+        next_query["pageSize"] = json!(page_size);
+        next_query["materialize"] = json!(true);
+        next_query["materializeOffset"] = json!(continue_offset);
+        value["next"]["continueMaterialize"] = continuation(
+            next_query,
+            "Continue writing this tree listing page under location.localPath.",
+            "exact",
+        );
+        output.diagnostics.add(
+            "partialTreeMaterialize",
+            "Copy location.localPath into localSearch.path",
+            true,
+        );
+        output.diagnostics.partial = true;
+    } else if let Some(next) = value.get_mut("next").and_then(Value::as_object_mut) {
+        next.remove("continueMaterialize");
+        next.remove("nextPage");
+    }
+    Ok(())
 }
 
 async fn fetch_metadata<R: CredentialResolver>(
@@ -837,11 +1130,13 @@ mod tests {
                     path: "src/lib.rs".into(),
                     kind: EntryKind::File,
                     size: Some(1),
+                    sha: None,
                 },
                 TreeEntry {
                     path: "src/nested".into(),
                     kind: EntryKind::Dir,
                     size: None,
+                    sha: None,
                 },
             ],
             "src",
@@ -850,5 +1145,206 @@ mod tests {
             rows[0],
             json!({"dir":".","files":["lib.rs"],"folders":["nested"]})
         );
+    }
+
+    fn file_entry(path: &str, size: u64) -> TreeEntry {
+        TreeEntry {
+            path: path.into(),
+            kind: EntryKind::File,
+            size: Some(size),
+            sha: Some("a".repeat(40)),
+        }
+    }
+
+    #[test]
+    fn plan_stops_at_fifty_files_and_keeps_listing_offset() {
+        let entries = (0..120)
+            .map(|index| file_entry(&format!("f{index:03}.rs"), 1024))
+            .collect::<Vec<_>>();
+        let first = plan_materialize(&entries[..100], 0);
+        assert_eq!(first.selected.len(), 50);
+        assert_eq!(first.next_offset, 50);
+        assert!(!first.listing_exhausted);
+        let second = plan_materialize(&entries[..100], 50);
+        assert_eq!(second.selected, (50..100).collect::<Vec<_>>());
+        assert!(second.listing_exhausted);
+    }
+
+    #[test]
+    fn plan_skips_directories_binaries_and_oversize_but_consumes_offset() {
+        let entries = vec![
+            TreeEntry {
+                path: "src".into(),
+                kind: EntryKind::Dir,
+                size: None,
+                sha: None,
+            },
+            file_entry("a.rs", 10),
+            file_entry("photo.png", 10),
+            file_entry("huge.rs", MAX_FILE_SIZE + 1),
+            file_entry("b.rs", 10),
+        ];
+        let plan = plan_materialize(&entries, 0);
+        assert_eq!(plan.selected, vec![1, 4]);
+        assert_eq!(plan.skipped_binary, 1);
+        assert_eq!(plan.skipped_too_large, 1);
+        assert!(plan.listing_exhausted);
+    }
+
+    fn blob_sha(index: usize) -> String {
+        format!("{:040x}", index + 1)
+    }
+
+    fn listing_entry(index: usize) -> serde_json::Value {
+        json!({
+            "name": format!("f{index:03}.rs"),
+            "path": format!("f{index:03}.rs"),
+            "type": "file",
+            "size": 16,
+            "sha": blob_sha(index)
+        })
+    }
+
+    #[tokio::test]
+    async fn materialize_120_blobs_copy_forwards_and_keeps_page() {
+        use crate::policy::path::{PathPolicy, PathPolicyConfig};
+        use crate::providers::github::{
+            CredentialSource, GitHubEndpoint, GitHubProvider, NoCache, RetryPolicy,
+            StaticCredentialResolver,
+        };
+        use base64::{Engine as _, engine::general_purpose::STANDARD};
+        use std::fs;
+        use std::path::Path;
+        use std::sync::Arc;
+        use std::time::Duration;
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let commit = "0123456789abcdef0123456789abcdef01234567";
+        let entries = (0..120).map(listing_entry).collect::<Vec<_>>();
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/commits/main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": commit})))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/contents"))
+            .and(query_param("ref", "main"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!(entries)))
+            .mount(&server)
+            .await;
+        for index in 0..120 {
+            let body = format!("blob-{index:03}\n");
+            Mock::given(method("GET"))
+                .and(path(format!(
+                    "/api/v3/repos/o/r/git/blobs/{}",
+                    blob_sha(index)
+                )))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "encoding": "base64",
+                    "content": STANDARD.encode(&body),
+                    "sha": blob_sha(index)
+                })))
+                .mount(&server)
+                .await;
+        }
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+                .expect("endpoint");
+        let transport = crate::providers::github::GitHubTransport::new(
+            endpoint,
+            Arc::new(StaticCredentialResolver::new(
+                "secret",
+                CredentialSource::Environment,
+            )),
+            RetryPolicy {
+                max_attempts: 1,
+                base_delay: Duration::from_millis(1),
+                max_retry_after: Duration::from_secs(1),
+            },
+        )
+        .expect("transport");
+        let provider = GitHubProvider {
+            transport,
+            cache: NoCache,
+        };
+        let home = tempfile::TempDir::new().expect("home");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: None,
+            additional_roots: vec![home.path().to_path_buf()],
+            include_home: true,
+            home_dir: Some(home.path().to_path_buf()),
+        })
+        .expect("policy");
+        let env = super::super::MaterializeEnv {
+            home: home.path(),
+            persistent: true,
+            paths: &paths,
+        };
+        let context = RequestContext::with_timeout(Duration::from_secs(30), 16 * 1024 * 1024);
+        let first_query = serde_json::from_value::<super::super::GhSearchQuery>(json!({
+            "operation": "tree",
+            "owner": "o",
+            "repo": "r",
+            "branch": "main",
+            "materialize": true
+        }))
+        .expect("query");
+        let first = execute(&provider, &first_query, &context, &env)
+            .await
+            .expect("first materialize");
+        assert_eq!(first.data["pagination"]["page"], 1);
+        assert_eq!(first.data["pagination"]["written"], 50);
+        assert_eq!(first.data["pagination"]["materializeOffset"], 50);
+        assert_eq!(first.data["pagination"]["reason"], "writeCap");
+        assert_eq!(first.data["pagination"]["hasMore"], true);
+        assert!(first.data["next"]["nextPage"].is_null());
+        assert!(first.data["next"]["searchLocal"].is_null());
+        assert_eq!(
+            first.data["next"]["continueMaterialize"]["query"]["page"],
+            1
+        );
+        assert_eq!(
+            first.data["next"]["continueMaterialize"]["query"]["materializeOffset"],
+            50
+        );
+        let first_path = first.data["location"]["localPath"]
+            .as_str()
+            .expect("localPath")
+            .to_owned();
+        assert!(Path::new(&first_path).is_absolute());
+        assert!(Path::new(&first_path).join("f000.rs").is_file());
+        assert!(Path::new(&first_path).join("f049.rs").is_file());
+        assert!(!Path::new(&first_path).join("f050.rs").exists());
+
+        let second_query = serde_json::from_value::<super::super::GhSearchQuery>(
+            first.data["next"]["continueMaterialize"]["query"].clone(),
+        )
+        .expect("continue query");
+        let second = execute(&provider, &second_query, &context, &env)
+            .await
+            .expect("second materialize");
+        assert_eq!(second.data["pagination"]["page"], 1);
+        assert_eq!(second.data["pagination"]["written"], 50);
+        assert_eq!(
+            second.data["next"]["continueMaterialize"]["query"]["page"],
+            2
+        );
+        assert_eq!(
+            second.data["next"]["continueMaterialize"]["query"]["materializeOffset"],
+            0
+        );
+        let second_path = second.data["location"]["localPath"]
+            .as_str()
+            .expect("second path")
+            .to_owned();
+        assert_ne!(first_path, second_path);
+        for index in 0..100 {
+            let path = Path::new(&second_path).join(format!("f{index:03}.rs"));
+            let body = fs::read_to_string(&path).unwrap_or_else(|_| "missing".into());
+            assert_eq!(body, format!("blob-{index:03}\n"), "{}", path.display());
+        }
+        assert!(!Path::new(&second_path).join("f100.rs").exists());
     }
 }

@@ -4,7 +4,7 @@ use super::{
     github_cache::GitHubContentCache,
 };
 use crate::{
-    config::ConfigOutput,
+    config::{self, ConfigOutput},
     policy::path::PathPolicy,
     providers::github::*,
     security::ContentSecurity,
@@ -32,6 +32,7 @@ pub(super) struct GitHubServices {
     provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
     timeout: Duration,
     home: PathBuf,
+    persistent: bool,
 }
 
 impl GitHubServices {
@@ -55,6 +56,7 @@ impl GitHubServices {
         )?
         .with_graphql_enabled(graphql_enabled);
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
+        let persistent = config::is_persistent_storage_enabled(&config.resolved);
         let credentials = Arc::new(ConfigCredentialResolver::new(
             config,
             ChainedCredentialSource::new(
@@ -70,6 +72,7 @@ impl GitHubServices {
             provider: GitHubProvider { transport, cache },
             timeout,
             home,
+            persistent,
         })
     }
 
@@ -178,7 +181,7 @@ impl GitHubServices {
                     .await
             }
             "ghSearch" => {
-                self.execute_search_resolved(query, request_context, context, security)
+                self.execute_search_resolved(query, request_context, context, security, paths)
                     .await
             }
             "ghSearchHistory" => {
@@ -234,11 +237,23 @@ impl GitHubServices {
         request_context: &RequestContext,
         context: &ExecutionContext,
         security: &ContentSecurity,
+        paths: &PathPolicy,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let query: gh_search::GhSearchQuery =
             serde_json::from_value(query.clone()).map_err(|_| ExecutionError::WorkerFailed)?;
-        let result = gh_search::execute(&self.provider, &query, request_context, security).await;
+        let result = gh_search::execute(
+            &self.provider,
+            &query,
+            request_context,
+            security,
+            &gh_search::MaterializeEnv {
+                home: &self.home,
+                persistent: self.persistent,
+                paths,
+            },
+        )
+        .await;
         context.check()?;
         Ok(match result {
             Ok(output) => DomainResult {

@@ -3,15 +3,23 @@ mod fragments;
 mod queries;
 mod ranking;
 mod tree;
+use crate::policy::path::PathPolicy;
 use crate::tools::result::ToolData;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::path::Path;
 
 use crate::providers::github::{
     CodeSearchRequest, CredentialResolver, ProviderError, ProviderErrorKind, RepositorySearchPage,
     RepositorySearchRequest, RequestContext,
 };
 use crate::tools::local_fetch::ContentScan;
+
+pub struct MaterializeEnv<'a> {
+    pub home: &'a Path,
+    pub persistent: bool,
+    pub paths: &'a PathPolicy,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(
@@ -65,6 +73,10 @@ pub enum GhSearchQuery {
         page_size: Option<usize>,
         metadata_page: Option<usize>,
         include: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        materialize: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        materialize_offset: Option<usize>,
     },
 }
 
@@ -73,6 +85,7 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
     query: &GhSearchQuery,
     context: &RequestContext,
     security: &impl ContentScan,
+    materialize: &MaterializeEnv<'_>,
 ) -> Result<ToolData, ProviderError> {
     let transport = &provider.transport;
     match query {
@@ -270,7 +283,7 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             );
             Ok(value.into())
         }
-        GhSearchQuery::Tree { .. } => tree::execute(provider, query, context).await,
+        GhSearchQuery::Tree { .. } => tree::execute(provider, query, context, materialize).await,
     }
 }
 
@@ -357,6 +370,20 @@ mod tests {
         ] {
             serde_json::from_str::<GhSearchQuery>(raw).unwrap();
         }
+        let tree = serde_json::from_str::<GhSearchQuery>(
+            r#"{"operation":"tree","owner":"o","repo":"r","materialize":true,"materializeOffset":50}"#,
+        )
+        .unwrap();
+        let GhSearchQuery::Tree {
+            materialize,
+            materialize_offset,
+            ..
+        } = tree
+        else {
+            panic!("expected tree");
+        };
+        assert_eq!(materialize, Some(true));
+        assert_eq!(materialize_offset, Some(50));
     }
     #[test]
     fn incomplete_and_cap_are_losslessly_typed() {

@@ -48,7 +48,10 @@ pub use transport::{
     GitHubTransport, GraphQlError, GraphQlPage, HttpMethod, RequestContext, RequestSpec,
     ResponsePage, RetryPolicy,
 };
-pub use tree::{ContentsEntry, ContentsListing};
+pub use tree::{
+    ContentsEntry, ContentsListing, current_tree_snapshot, ensure_snapshot_directory,
+    publish_tree_snapshot, safe_snapshot_path, tree_cache_root, write_snapshot_file,
+};
 
 #[cfg(test)]
 mod tests;

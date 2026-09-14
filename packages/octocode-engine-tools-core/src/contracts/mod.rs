@@ -106,4 +106,38 @@ mod contract_owner_tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn gh_search_tree_accepts_materialize_fields() {
+        let prepared = prepare_and_validate(
+            "ghSearch",
+            json!({
+                "operation": "tree",
+                "owner": "o",
+                "repo": "r",
+                "materialize": true,
+                "materializeOffset": 50
+            }),
+            PrepareOptions::default(),
+        )
+        .expect("tree materialize fields are additive");
+        assert_eq!(prepared["queries"][0]["materialize"], json!(true));
+        assert_eq!(prepared["queries"][0]["materializeOffset"], json!(50));
+    }
+
+    #[test]
+    fn gh_search_rejects_materialize_on_code() {
+        assert!(
+            prepare_and_validate(
+                "ghSearch",
+                json!({
+                    "operation": "code",
+                    "keywords": ["x"],
+                    "materialize": true
+                }),
+                PrepareOptions::default(),
+            )
+            .is_err()
+        );
+    }
 }
