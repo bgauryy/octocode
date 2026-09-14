@@ -307,8 +307,11 @@ pub(super) fn apply_hint_policy(rows: &mut [Value], tool: &str, queries: &[Value
     }
 }
 
-/// Sanitize every string field, including provider diagnostics and metadata.
-/// Domain content scans alone cannot protect errors returned by a remote server.
+/// Sanitize strings, including provider diagnostics and metadata.
+/// Executable `next.*` calls keep `tool`/`query` so agents can copy them, and
+/// `location` is skipped; other strings, including `why` and domain content,
+/// are still sanitized. Domain content scans alone cannot protect errors
+/// returned by a remote server.
 pub(super) fn sanitize_fields(
     value: &mut Value,
     security: &crate::security::ContentSecurity,
@@ -367,7 +370,7 @@ fn sanitize_next_map<E>(
         let Some(fields) = call.as_object_mut() else {
             continue;
         };
-        // Skip tool + query (and confidence: catalog enum). Sanitize why only.
+        // Agents copy tool/query verbatim.
         if let Some(why) = fields.get_mut("why") {
             sanitize_walk(why, sanitize_text)?;
         }

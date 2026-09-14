@@ -1636,7 +1636,7 @@ mod tests {
     }
 
     #[test]
-    fn sanitizes_every_nested_returned_string() {
+    fn sanitizes_domain_strings_but_preserves_next_tool_and_query() {
         let mut value = json!({
             "title": "secret",
             "nested": [{"body": "a secret value"}],
