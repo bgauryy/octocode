@@ -6,10 +6,11 @@ use super::types::*;
 use super::validation::validate_config;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-const SOURCE_KEYS: [&str; 15] = [
+const SOURCE_KEYS: [&str; 16] = [
     "GITHUB_API_URL",
     "ENABLE_LOCAL",
     "ENABLE_CLONE",
+    "ENABLE_AST_REWRITE_APPLY",
     "ALLOWED_PATHS",
     "WORKSPACE_ROOT",
     "TOOLS_TO_RUN",

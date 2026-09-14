@@ -1,3 +1,4 @@
+use futures_util::FutureExt;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -76,6 +77,13 @@ pub struct RequestRuntime {
 struct RequestGuard {
     inner: Arc<Inner>,
     id: String,
+}
+
+/// Synchronous admission closes the gap between an interface call and first poll.
+/// Dropping an unstarted admission releases its bounded slot immediately.
+pub struct RequestAdmission {
+    guard: RequestGuard,
+    context: ExecutionContext,
 }
 
 impl Drop for RequestGuard {
@@ -166,6 +174,74 @@ impl RequestRuntime {
         }
     }
 
+    pub fn admit(&self, request_id: String) -> Result<RequestAdmission, ExecutionError> {
+        let token = CancellationToken::new();
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if state.closed {
+            return Err(ExecutionError::Closed);
+        }
+        if state.requests.contains_key(&request_id) {
+            return Err(ExecutionError::DuplicateRequest);
+        }
+        if state.requests.len() >= self.inner.limits.pending {
+            return Err(ExecutionError::Busy);
+        }
+        state.requests.insert(request_id.clone(), token.clone());
+        Ok(RequestAdmission {
+            guard: RequestGuard {
+                inner: self.inner.clone(),
+                id: request_id,
+            },
+            context: ExecutionContext {
+                cancellation: token,
+                deadline: Instant::now() + self.inner.limits.timeout,
+                output_bytes: self.inner.limits.output_bytes,
+            },
+        })
+    }
+
+    /// Async work owns its resources in the future; cancellation drops that future
+    /// before releasing admission. Spawned child tasks must be joined by their owner.
+    pub async fn execute_async<T, F, Fut>(
+        &self,
+        request_id: String,
+        work: F,
+    ) -> Result<T, ExecutionError>
+    where
+        F: FnOnce(ExecutionContext) -> Fut,
+        Fut: std::future::Future<Output = Result<T, ExecutionError>>,
+    {
+        let RequestAdmission {
+            guard: _guard,
+            context,
+        } = self.admit(request_id)?;
+        let token = context.cancellation.clone();
+        let _cancel_on_drop = token.clone().drop_guard();
+        let deadline = tokio::time::Instant::from_std(context.deadline);
+        let _permit = tokio::select! {
+            biased;
+            _ = token.cancelled() => return Err(ExecutionError::Cancelled),
+            _ = tokio::time::sleep_until(deadline) => return Err(ExecutionError::Timeout),
+            permit = self.inner.slots.clone().acquire_owned() => permit.map_err(|_| ExecutionError::Closed)?,
+        };
+        context.check()?;
+        let future =
+            std::panic::AssertUnwindSafe(async { work(context.clone()).await }).catch_unwind();
+        tokio::pin!(future);
+        let result = tokio::select! {
+            biased;
+            _ = token.cancelled() => Err(ExecutionError::Cancelled),
+            _ = tokio::time::sleep_until(deadline) => Err(ExecutionError::Timeout),
+            result = &mut future => result.map_err(|_| ExecutionError::WorkerFailed)?,
+        };
+        context.check()?;
+        result
+    }
+
     pub async fn execute_blocking<T, F>(
         &self,
         request_id: String,
@@ -175,34 +251,25 @@ impl RequestRuntime {
         T: Send + 'static,
         F: FnOnce(ExecutionContext) -> Result<T, ExecutionError> + Send + 'static,
     {
-        let token = CancellationToken::new();
+        self.execute_blocking_admitted(self.admit(request_id)?, work)
+            .await
+    }
+
+    pub async fn execute_blocking_admitted<T, F>(
+        &self,
+        admission: RequestAdmission,
+        work: F,
+    ) -> Result<T, ExecutionError>
+    where
+        T: Send + 'static,
+        F: FnOnce(ExecutionContext) -> Result<T, ExecutionError> + Send + 'static,
+    {
+        if !Arc::ptr_eq(&self.inner, &admission.guard.inner) {
+            return Err(ExecutionError::WorkerFailed);
+        }
+        let RequestAdmission { guard, context } = admission;
+        let token = context.cancellation.clone();
         let _cancel_on_drop = token.clone().drop_guard();
-        let guard = {
-            let mut state = self
-                .inner
-                .state
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-            if state.closed {
-                return Err(ExecutionError::Closed);
-            }
-            if state.requests.contains_key(&request_id) {
-                return Err(ExecutionError::DuplicateRequest);
-            }
-            if state.requests.len() >= self.inner.limits.pending {
-                return Err(ExecutionError::Busy);
-            }
-            state.requests.insert(request_id.clone(), token.clone());
-            RequestGuard {
-                inner: self.inner.clone(),
-                id: request_id,
-            }
-        };
-        let context = ExecutionContext {
-            cancellation: token.clone(),
-            deadline: Instant::now() + self.inner.limits.timeout,
-            output_bytes: self.inner.limits.output_bytes,
-        };
         let deadline = tokio::time::Instant::from_std(context.deadline);
         let permit = tokio::select! {
             biased;

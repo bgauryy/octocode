@@ -8,9 +8,7 @@ use crate::response::{
     TextContent,
 };
 use crate::security::{ContentSecurity, SecurityRegistry};
-use crate::tools::local_fetch::{
-    CancellationCheck, LocalFetchRegex, LocalFetchRequest, execute_local_fetch_with_regex,
-};
+use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -33,7 +31,9 @@ pub struct RuntimeError {
     pub code: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload: Option<Value>,
+    pub payload: Option<Box<Value>>,
+    #[serde(skip)]
+    pub validation_issues: Option<Vec<contracts::ValidationIssue>>,
 }
 impl RuntimeError {
     fn new(code: &str, message: impl Into<String>) -> Self {
@@ -41,6 +41,7 @@ impl RuntimeError {
             code: code.into(),
             message: message.into(),
             payload: None,
+            validation_issues: None,
         }
     }
 }
@@ -52,12 +53,33 @@ pub struct ToolRuntime {
     paths: Arc<PathPolicy>,
     security: Arc<ContentSecurity>,
     regex: Option<Arc<IsolatedRegexEngine>>,
+    github_cache: super::github_cache::GitHubContentCache,
+    github_services: Arc<
+        std::sync::OnceLock<
+            Result<super::github::GitHubServices, crate::providers::github::ProviderError>,
+        >,
+    >,
+    lsp_pool: Arc<crate::lsp::LspPool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FailureKind {
     NotFound,
+    Authentication,
+    Permission,
+    RateLimited,
     Execution,
+}
+
+impl FailureKind {
+    fn priority(self) -> u8 {
+        match self {
+            Self::Execution | Self::Authentication => 0,
+            Self::NotFound => 1,
+            Self::Permission => 2,
+            Self::RateLimited => 3,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -86,6 +108,7 @@ impl ToolRuntime {
             1,
         );
         let mut runtime = Self::new(input)?;
+        super::maintenance::run_if_due(&runtime.inspect_config().home);
         let worker_path = options.regex_worker_path.or_else(|| {
             (options.surface == RuntimeSurface::Cli)
                 .then(|| std::env::current_exe().ok())
@@ -112,9 +135,13 @@ impl ToolRuntime {
     pub fn new(input: ConfigInput) -> Result<Self, RuntimeError> {
         let config = Arc::new(config::resolve_config(&input));
         let local = &config.resolved.local;
+        let octocode_home = config::octocode_home(&input.env, &input.cwd, &input.os_home);
+        let mut additional_roots: Vec<PathBuf> =
+            local.allowed_paths.iter().map(PathBuf::from).collect();
+        additional_roots.push(octocode_home.clone());
         let paths = PathPolicy::new(PathPolicyConfig {
             workspace_root: local.workspace_root.as_ref().map(PathBuf::from),
-            additional_roots: local.allowed_paths.iter().map(PathBuf::from).collect(),
+            additional_roots,
             include_home: true,
             home_dir: Some(input.os_home.clone()),
         })
@@ -124,6 +151,12 @@ impl ToolRuntime {
         let security = ContentSecurity::new(Arc::new(registry));
         let requests = RequestRuntime::new(RuntimeLimits::default())
             .map_err(|e| RuntimeError::new("runtime", format!("{e:?}")))?;
+        let github_cache = super::github_cache::GitHubContentCache::new(
+            crate::cache::CacheConfig::default(),
+            config.revision,
+            config::is_persistent_storage_enabled(&config.resolved)
+                .then_some(octocode_home.join("tmp").join("response")),
+        );
         Ok(Self {
             requests,
             input,
@@ -131,6 +164,9 @@ impl ToolRuntime {
             paths: Arc::new(paths),
             security: Arc::new(security),
             regex: None,
+            github_cache,
+            github_services: Arc::new(std::sync::OnceLock::new()),
+            lsp_pool: Arc::new(crate::lsp::LspPool::default()),
         })
     }
 
@@ -146,9 +182,14 @@ impl ToolRuntime {
     pub async fn close(&self) {
         self.begin_close();
         self.requests.close().await;
+        self.github_cache.clear();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
         config::inspector_data(&self.input, &self.config)
+    }
+
+    pub fn clear_github_cache(&self) {
+        self.github_cache.clear();
     }
 
     fn cursor_scope(&self) -> Result<String, RuntimeError> {
@@ -159,8 +200,15 @@ impl ToolRuntime {
     pub fn continuation_token(
         &self,
         call: &Value,
-        source_sha256: &str,
+        source_sha256: Option<&str>,
     ) -> Result<String, RuntimeError> {
+        if call["tool"] == "localSearch" {
+            return super::cursor::ReadCursor::create_search(
+                call["query"].clone(),
+                self.cursor_scope()?,
+            )
+            .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")));
+        }
         if call["tool"] != "localFetch" {
             return Err(RuntimeError::new(
                 "invalidCursor",
@@ -193,19 +241,34 @@ impl ToolRuntime {
         let path = cursor.query["path"]
             .as_str()
             .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation path"))?;
-        let validated = self
-            .paths
-            .validate_read(path)
-            .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
-        cursor
-            .verify_source(&validated.canonical)
-            .map_err(|error| RuntimeError::new("staleCursor", format!("{error:?}")))?;
+        let validated = if cursor.tool == "localFetch" {
+            self.paths.validate_read(path)
+        } else {
+            self.paths.validate(path)
+        }
+        .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
+        if cursor.tool == "localFetch" {
+            cursor
+                .verify_source(&validated.canonical)
+                .map_err(|error| RuntimeError::new("staleCursor", format!("{error:?}")))?;
+        }
         Ok((cursor.tool, cursor.query, cursor.source_sha256))
     }
 
     pub fn is_available(&self, tool: &str) -> bool {
-        tool == "localFetch"
-            && self.config.resolved.local.enabled
+        let local = self.config.resolved.local.enabled;
+        let clone = self.config.resolved.local.enable_clone
+            && self.config.resolved.storage.mode == "persistent";
+        let github = matches!(
+            tool,
+            "ghGetFileContent" | "ghGetHistoryItem" | "ghSearch" | "ghSearchHistory"
+        );
+        let local_tools = local
+            && matches!(
+                tool,
+                "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch"
+            );
+        (github || local_tools || (tool == "ghCloneRepo" && clone) || tool == "artifactSearch")
             && self
                 .config
                 .resolved
@@ -223,8 +286,21 @@ impl ToolRuntime {
     }
 
     pub fn catalog(&self) -> Result<Value, RuntimeError> {
-        let mut catalog: Value = serde_json::from_str(contracts::contract_json())
+        let contract = contracts::parsed_contract()
             .map_err(|_| RuntimeError::new("contract", "Embedded contract is invalid"))?;
+        let instructions = contracts::mcp_instructions(contract, |name| self.is_available(name))
+            .map_err(|message| RuntimeError::new("contract", message))?;
+        let fields = contract
+            .as_object()
+            .ok_or_else(|| RuntimeError::new("contract", "Embedded catalog is invalid"))?;
+        let mut catalog = Value::Object(
+            fields
+                .iter()
+                .filter(|(key, _)| key.as_str() != "mcpInstructionTable")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        );
+        catalog["mcpInstructions"] = Value::String(instructions);
         if let Some(tools) = catalog.get_mut("tools").and_then(Value::as_array_mut) {
             for tool in tools {
                 let available = tool
@@ -243,7 +319,23 @@ impl ToolRuntime {
         tool: String,
         input: Value,
     ) -> Result<ToolOutcome, RuntimeError> {
-        self.execute_channel(request_id, tool, input, false).await
+        let admission = self.admit(request_id)?;
+        self.execute_admitted(admission, tool, input).await
+    }
+
+    pub fn admit(&self, request_id: String) -> Result<super::RequestAdmission, RuntimeError> {
+        self.requests
+            .admit(request_id)
+            .map_err(runtime_execution_error)
+    }
+
+    pub async fn execute_admitted(
+        &self,
+        admission: super::RequestAdmission,
+        tool: String,
+        input: Value,
+    ) -> Result<ToolOutcome, RuntimeError> {
+        self.execute_channel(admission, tool, input, false).await
     }
 
     pub async fn execute_mcp(
@@ -252,8 +344,21 @@ impl ToolRuntime {
         tool: String,
         input: Value,
     ) -> Result<Value, RuntimeError> {
+        let admission = self.admit(request_id)?;
+        self.execute_mcp_admitted(admission, tool, input).await
+    }
+
+    pub async fn execute_mcp_admitted(
+        &self,
+        admission: super::RequestAdmission,
+        tool: String,
+        input: Value,
+    ) -> Result<Value, RuntimeError> {
+        if let Some(result) = super::error::mcp_envelope_error(&tool, &input) {
+            return Ok(result);
+        }
         let result = match self
-            .execute_channel(request_id, tool.clone(), input.clone(), true)
+            .execute_channel(admission, tool.clone(), input.clone(), true)
             .await
         {
             Ok(result) => result,
@@ -269,7 +374,7 @@ impl ToolRuntime {
 
     async fn execute_channel(
         &self,
-        request_id: String,
+        admission: super::RequestAdmission,
         tool: String,
         input: Value,
         mcp: bool,
@@ -284,7 +389,8 @@ impl ToolRuntime {
             .map_err(|error| RuntimeError {
                 code: "invalidInput".into(),
                 message: error.to_string(),
-                payload: Some(contracts::format_input_error(&tool, &error)),
+                payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
+                validation_issues: Some(error.issues),
             })?;
         let checked = self.security.validate_input_parameters(&prepared);
         if !checked.is_valid {
@@ -307,67 +413,129 @@ impl ToolRuntime {
         let paths = self.paths.clone();
         let security = self.security.clone();
         let regex = LocalFetchRegex::new(self.regex.clone());
+        let github_services = self.github_services.clone();
+        let github_cache = self.github_cache.clone();
+        let config = self.config.clone();
+        let home = self.inspect_config().home;
+        let handle = tokio::runtime::Handle::current();
+        let allow_ast_rewrite_apply = self.config.resolved.local.enable_ast_rewrite_apply;
+        let lsp_pool = self.lsp_pool.clone();
         self.requests
-            .execute_blocking(request_id, move |context| {
+            .execute_blocking_admitted(admission, move |context| {
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digests = Vec::with_capacity(queries.len());
                 let mut failure = None;
-                for (index, query) in queries.iter().enumerate() {
+                let results = if matches!(
+                    tool.as_str(),
+                    "ghGetFileContent"
+                        | "ghGetHistoryItem"
+                        | "ghSearch"
+                        | "ghSearchHistory"
+                        | "ghCloneRepo"
+                ) {
+                    let _enter = handle.enter();
+                    match github_services.get_or_init(|| {
+                        super::github::GitHubServices::new(
+                            config.clone(),
+                            home.clone(),
+                            github_cache.clone(),
+                        )
+                    }) {
+                        Ok(services) => services.execute_queries(
+                            &tool, &queries, &context, &security, &regex, &handle, &paths,
+                        )?,
+                        Err(error) => queries
+                            .iter()
+                            .map(|_| super::github::provider_error(error.clone()))
+                            .collect(),
+                    }
+                } else if tool == "artifactSearch" {
+                    let _enter = handle.enter();
+                    queries
+                        .iter()
+                        .map(|query| {
+                            context.check()?;
+                            match handle.block_on(crate::tools::artifact_search::execute(
+                                query,
+                                context.deadline,
+                                context.cancellation.clone(),
+                            )) {
+                                Ok(data) => Ok(super::dispatch::value_result(data)),
+                                Err(error) => Ok(super::dispatch::provider_failure(
+                                    error.message,
+                                    error.code,
+                                    error.hints,
+                                )),
+                            }
+                        })
+                        .collect::<Result<Vec<_>, ExecutionError>>()?
+                } else if tool == "lspSearch" {
+                    let _enter = handle.enter();
+                    queries
+                        .iter()
+                        .map(|query| {
+                            context.check()?;
+                            match handle.block_on(crate::tools::lsp_search::execute(
+                                query.clone(),
+                                &context,
+                                Some(&lsp_pool),
+                            )) {
+                                Ok(data) => Ok(super::dispatch::value_result(data)),
+                                Err(message) => Ok(super::dispatch::provider_failure(
+                                    message,
+                                    "lspUnavailable".into(),
+                                    vec!["Use localSearch or astSearch, then localFetch.".into()],
+                                )),
+                            }
+                        })
+                        .collect::<Result<Vec<_>, ExecutionError>>()?
+                } else {
+                    queries
+                        .iter()
+                        .map(|query| {
+                            context.check()?;
+                            super::dispatch::execute_local(
+                                &tool,
+                                query,
+                                &paths,
+                                &security,
+                                &context,
+                                &regex,
+                                allow_ast_rewrite_apply,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, ExecutionError>>()?
+                };
+                for (index, (query, result)) in queries.iter().zip(results).enumerate() {
                     context.check()?;
-                    let mut domain_query = query.clone();
-                    if let Some(object) = domain_query.as_object_mut() {
-                        object.remove("goal");
-                        object.remove("reasoning");
-                    }
-                    let request: LocalFetchRequest = serde_json::from_value(domain_query)
-                        .map_err(|_| ExecutionError::WorkerFailed)?;
-                    let result = execute_local_fetch_with_regex(
-                        &request,
-                        paths.as_ref(),
-                        security.as_ref(),
-                        &context,
-                        &regex,
-                    );
-                    let status = match result.status.as_str() {
-                        "error" => Some("error"),
-                        "empty" => Some("empty"),
-                        _ => None,
-                    };
-                    source_digests.push(result.source_sha256.clone());
-                    if status == Some("error") {
-                        failure = Some(
-                            if result.resource_missing && failure != Some(FailureKind::Execution) {
-                                FailureKind::NotFound
-                            } else {
-                                FailureKind::Execution
-                            },
-                        );
-                    }
-                    let mut data =
-                        serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
-                    if status != Some("error")
-                        && let Some(kind) = crate::content::classify_file_type(&result.path)
+                    source_digests.push(result.source_digest);
+                    if let Some(kind) = result.failure
+                        && failure
+                            .is_none_or(|current: FailureKind| kind.priority() > current.priority())
                     {
-                        use crate::content::FileType;
-                        data["fileType"] = json!(match kind {
-                            FileType::Code => "code",
-                            FileType::Config => "config",
-                            FileType::Lock => "lock",
-                            FileType::Doc => "doc",
-                        });
+                        failure = Some(kind);
                     }
-                    rows.push(response::result_row(&tool, index, query, data, status));
+                    let mut row =
+                        response::result_row(&tool, index, query, result.data, result.status);
+                    response::attach_diagnostics(&mut row, result.diagnostics);
+                    if result.cache {
+                        row["cache"] = json!(1);
+                    }
+                    rows.push(row);
                 }
+                response::apply_hint_policy(&mut rows, &tool, &queries);
                 let all_failed =
                     !rows.is_empty() && rows.iter().all(|row| row["status"] == "error");
-                let structured = response::envelope(rows);
+                let mut structured = response::envelope(rows);
+                response::sanitize_fields(&mut structured, &security, &context)?;
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)
                     || failure.is_some()
                     || options.response_char_length.is_some()
                     || options.response_char_offset.is_some()
                     || options.response_snapshot.is_some();
-                let rendered_text = render.then(|| super::render::render_local_fetch(&structured));
+                let rendered_text =
+                    render.then(|| super::render::render_tool(&tool, &structured, &queries));
                 context.check()?;
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
@@ -392,20 +560,22 @@ impl ToolRuntime {
                 })
             })
             .await
-            .map_err(|error| {
-                RuntimeError::new(
-                    match error {
-                        ExecutionError::Closed => "closed",
-                        ExecutionError::Busy => "busy",
-                        ExecutionError::DuplicateRequest => "duplicateRequest",
-                        ExecutionError::Cancelled => "cancelled",
-                        ExecutionError::Timeout => "timeout",
-                        _ => "executionFailed",
-                    },
-                    format!("{error:?}"),
-                )
-            })
+            .map_err(runtime_execution_error)
     }
+}
+
+fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
+    RuntimeError::new(
+        match error {
+            ExecutionError::Closed => "closed",
+            ExecutionError::Busy => "busy",
+            ExecutionError::DuplicateRequest => "duplicateRequest",
+            ExecutionError::Cancelled => "cancelled",
+            ExecutionError::Timeout => "timeout",
+            _ => "executionFailed",
+        },
+        format!("{error:?}"),
+    )
 }
 
 impl CancellationCheck for ExecutionContext {

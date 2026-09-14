@@ -55,6 +55,17 @@ describe('task-specific worker runtime', () => {
     expect(() => configureWorkerCapabilities('lean', { snapshotRevision: snapshot.revision, selection: { nativeTools: ['MCPTool'] } })).toThrow(/Lean workers/);
   });
 
+  it('rejects resource grants whose native gateway is absent', () => {
+    expect(() => resolveWorkerCapabilitySelection({
+      resourceMode: 'octocode', capabilityProfile: 'researcher', tools: ['skill'],
+      capabilities: { nativeTools: [], skills: ['research-id'] },
+    }, snapshot)).toThrow(/skill grants require the native tool "skill"/i);
+    expect(() => resolveWorkerCapabilitySelection({
+      resourceMode: 'octocode', capabilityProfile: 'researcher', tools: ['MCPTool'],
+      capabilities: { nativeTools: [], mcpTools: [{ server: 'octocode', tool: 'localSearch' }] },
+    }, snapshot)).toThrow(/MCP grants require the native tool "MCPTool"/i);
+  });
+
   it('accepts exact skill identities and keeps binding credentials out of public records', () => {
     const child = bindSpawnedWorkerCapabilities('one', {
       resourceMode: 'octocode', tools: ['skill'], capabilities: { skills: ['finance-id'] },
@@ -71,6 +82,11 @@ describe('task-specific worker runtime', () => {
     const child = bindSpawnedWorkerCapabilities('worker-one', { resourceMode: 'octocode', tools: ['MCPTool', 'skill'], capabilityProfile: 'implementer' });
     const client = createWorkerBrokerClient(JSON.parse(child.env[WORKER_CAPABILITY_BINDING_ENV]!));
     await client.readCapabilities(true);
+    expect(() => configureWorkerCapabilities('worker-one', {
+      snapshotRevision: snapshot.revision,
+      selection: { nativeTools: [], mcpTools: [{ server: 'octocode', tool: 'localSearch' }] },
+    })).toThrow(/MCP grants require the native tool "MCPTool"/i);
+    expect(getParentWorkerCapabilities('worker-one')?.grant.revision).toBe(child.grant!.revision);
     const updated = configureWorkerCapabilities('worker-one', { snapshotRevision: snapshot.revision, selection: { nativeTools: ['skill'], skills: ['finance-id'] } });
     expect(updated.revision).toBeGreaterThan(child.grant!.revision);
     await expect(client.dispatch({ action: 'call', server: 'octocode', tool: 'localSearch' })).rejects.toThrow(/not granted/);

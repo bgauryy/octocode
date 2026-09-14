@@ -12,7 +12,7 @@ import {
 import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
 import { withSqliteBusyRetry } from '@octocodeai/agent-contracts/sqlite';
 import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from './storage-scope.js';
-import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL, SIGNALS_EXPIRES_NOT_NULL_UPGRADE_DDL } from './db-schema.js';
 import { hasFts, rebuildFts } from './db-maintenance.js';
 import { HISTORY_CAPTURE_DURABILITY_DDL } from './db-history-schema.js';
 import { utcNow } from './helpers.js';
@@ -49,7 +49,13 @@ export function initDb(db: DatabaseSync, knownState?: SchemaState): void {
     began = true;
     const lockedState = inspectSchemaState(db);
     if (lockedState === 'fresh') initializeFreshDb(db);
-    else if (lockedState === 'history-durability-upgrade') {
+    else if (lockedState === 'signals-expires-not-null-upgrade') {
+      // Convert signals.expires_at from nullable TEXT to TEXT NOT NULL via table recreation.
+      db.exec(SIGNALS_EXPIRES_NOT_NULL_UPGRADE_DDL);
+      assertCanonicalSchemaFingerprint(db);
+      assertDatabaseIntegrity(db);
+      readAwarenessMeta(db);
+    } else if (lockedState === 'history-durability-upgrade') {
       // Absent evidence stays unknown; never backfill a durability claim.
       db.exec(HISTORY_CAPTURE_DURABILITY_DDL);
       assertCanonicalSchemaFingerprint(db);

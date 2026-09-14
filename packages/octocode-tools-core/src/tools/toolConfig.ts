@@ -189,6 +189,8 @@ function attachRuntimeConfiguration(
     name: specification.name,
     title: specification.title,
     description: specification.description,
+    outputSchema: specification.outputSchema,
+    annotations: specification.annotations,
     ...runtime,
     direct: {
       schema: specification.schema,

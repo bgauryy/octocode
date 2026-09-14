@@ -35,6 +35,16 @@ use crate::types::{
     RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions, RipgrepStats,
 };
 
+pub trait RipgrepPathFilter: Send + Sync {
+    fn allows(&self, path: &Path, is_dir: bool) -> bool;
+}
+struct AllowAll;
+impl RipgrepPathFilter for AllowAll {
+    fn allows(&self, _: &Path, _: bool) -> bool {
+        true
+    }
+}
+
 const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
 
 /// Cap on emitted spans per line in only-matching mode, so a pathological
@@ -403,6 +413,7 @@ fn collect<M: Matcher + Sync>(
     opts: &RipgrepSearchOptions,
     matcher: &M,
     mode: Mode,
+    path_filter: Arc<dyn RipgrepPathFilter>,
 ) -> Result<CollectResult> {
     let started = Instant::now();
     let only_matching = opts.only_matching.unwrap_or(false);
@@ -428,6 +439,7 @@ fn collect<M: Matcher + Sync>(
         .filter(|n| *n > 0);
 
     build_walk_builder(opts)?.build_parallel().run(|| {
+        let path_filter = Arc::clone(&path_filter);
         let recs = Arc::clone(&recs);
         let files_searched = Arc::clone(&files_searched);
         let bytes_searched = Arc::clone(&bytes_searched);
@@ -445,6 +457,14 @@ fn collect<M: Matcher + Sync>(
                     return WalkState::Continue;
                 }
             };
+            let is_dir = dent.file_type().is_some_and(|kind| kind.is_dir());
+            if !path_filter.allows(dent.path(), is_dir) {
+                return if is_dir {
+                    WalkState::Skip
+                } else {
+                    WalkState::Continue
+                };
+            }
             if !dent.file_type().is_some_and(|t| t.is_file()) {
                 return WalkState::Continue;
             }
@@ -537,6 +557,9 @@ fn collect<M: Matcher + Sync>(
 }
 
 fn sort_recs(opts: &RipgrepSearchOptions, recs: &mut [FileRec]) {
+    if preserves_traversal_order(opts) {
+        return;
+    }
     match opts.sort.as_deref() {
         Some("modified") | Some("accessed") | Some("created") => {
             recs.sort_by_key(|r| r.sort_time);
@@ -548,6 +571,10 @@ fn sort_recs(opts: &RipgrepSearchOptions, recs: &mut [FileRec]) {
     if opts.sort_reverse.unwrap_or(false) {
         recs.reverse();
     }
+}
+
+fn preserves_traversal_order(opts: &RipgrepSearchOptions) -> bool {
+    opts.sort.as_deref() == Some("traversal")
 }
 
 fn collapse_unique_matches(matches: Vec<RipgrepMatch>, include_counts: bool) -> Vec<RipgrepMatch> {
@@ -675,6 +702,13 @@ fn build_result(
 /// engine; the CLI gave `-F` precedence over `-P`, so PCRE2 only applies when
 /// `fixed_string` is not set.
 pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
+    search_filtered(opts, Arc::new(AllowAll))
+}
+
+pub(crate) fn search_filtered(
+    opts: RipgrepSearchOptions,
+    path_filter: Arc<dyn RipgrepPathFilter>,
+) -> Result<RipgrepParseResult> {
     let mode = resolve_mode(&opts);
 
     if (opts.unique.unwrap_or(false) || opts.count_unique.unwrap_or(false))
@@ -709,7 +743,7 @@ pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
             .jit_if_available(true)
             .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
         let matcher = b.build(&opts.pattern).map_err(to_napi_err)?;
-        let collected = collect(&opts, &matcher, mode)?;
+        let collected = collect(&opts, &matcher, mode, path_filter)?;
         Ok(build_result(&opts, mode, collected))
     } else {
         let mut b = RegexMatcherBuilder::new();
@@ -724,7 +758,7 @@ pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
             opts.pattern.clone()
         };
         let matcher = b.build(&pattern).map_err(to_napi_err)?;
-        let collected = collect(&opts, &matcher, mode)?;
+        let collected = collect(&opts, &matcher, mode, path_filter)?;
         Ok(build_result(&opts, mode, collected))
     }
 }

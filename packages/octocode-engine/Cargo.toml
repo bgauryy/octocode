@@ -80,6 +80,9 @@ oxc_semantic  = "0.149"   # real ECMAScript scopes/bindings/in-file refs — nat
 
 # ── tree-sitter core ─────────────────────────────────────────────────────────
 tree-sitter          = "0.27"
+ast-grep-core        = { version = "0.45.3", optional = true }
+ast-grep-config      = { version = "0.45.3", optional = true }
+ast-grep-language    = { version = "0.45.3", optional = true }
 
 # ── Grammar dependencies ─────────────────────────────────────────────────────
 tree-sitter-typescript = "0.23"   # covers .ts / .tsx
@@ -115,6 +118,7 @@ default = ["portable-default", "napi-addon"]
 portable-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
 napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 napi-test = ["napi-addon", "napi/noop"]
+embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config", "dep:ast-grep-language"]
 tree-sitter-cpp     = ["dep:tree-sitter-cpp"]
 tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
 tree-sitter-swift   = ["dep:tree-sitter-swift"]

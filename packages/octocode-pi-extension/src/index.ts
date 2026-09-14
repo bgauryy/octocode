@@ -34,6 +34,7 @@ try {
 // env vars are inherited. Respect an explicit override.
 process.env.OCTOCODE_AGENT_HOST ||= 'octo';
 import { resolvePromptMode, composeSystemPrompt, renderSystemPromptAddendum, stripProjectContext, stripPiSkillsSection, adaptPiResearchGuidance } from './prompt.js';
+import { projectPiSystemPromptCapabilities } from './prompts/system-prompt.js';
 import { assembleSessionPromptContext } from './tools/session-prompt-context.js';
 import { registerSkillTool } from './tools/skill-tool.js';
 import { discoverSkills, discoverSkillStates, type DiscoveredSkill } from './tools/skill-discovery.js';
@@ -1147,7 +1148,7 @@ async function wireOctocodePiExtension(
       if (ctx) session.latestAvailableSkills?.forEach(skill => registerSkillContext(ctx, skill));
       const collectPromptContext = (policy: string) => assembleSessionPromptContext({
         'agents-protocol': renderAgentsProtocolInstructions(ctx, event.systemPromptOptions?.contextFiles, worker || noContext),
-        'octocode-product-policy': policy,
+        'octocode-product-policy': projectPiSystemPromptCapabilities(policy, { mcpTool: hasCapability('MCPTool'), skill: hasCapability('skill') }),
         'mcp-tool-contracts': hasCapability('MCPTool') ? getCachedMcpCatalogAddendum(ctx) : '',
         'runtime-tool-contracts': [renderRuntimeCapabilitiesAddendum(ctx), session.capabilityRevision ? `<capability_revision>${session.capabilityRevision}</capability_revision>` : ''].filter(Boolean).join('\n'),
         'dynamic-tool-contracts': worker ? '' : getDynamicCapabilitiesAddendum(session.latestAvailableSkills?.map(skill => skill.name), { tools: hasCapability('callTool'), skills: hasCapability('skill') }),

@@ -3,7 +3,7 @@ mod extraction;
 mod pagination;
 mod types;
 mod validation;
-pub use executor::{execute_local_fetch, execute_local_fetch_with_regex};
+pub use executor::{execute_local_fetch, execute_local_fetch_with_regex, process_fetched_content};
 pub use types::*;
 pub use validation::validate_request;
 

@@ -1,18 +1,17 @@
 # Octocode engine tools core
 
-Rust implementation of Octocode's tool runtime and native `octo` CLI, developed
+Rust implementation of Octocode's tool runtime and native `octocode` CLI, developed
 beside the frozen Node reference. Node is retained only for the thin MCP
 interface calling the optional NAPI addon.
 
 Implementation is in progress. Native configuration, request lifecycle, security,
-file reads and MCP addon execution are implemented. The first localFetch suites
-match the frozen reference in 18 CLI cases and 16 MCP cases. Expanded feature
-coverage and performance gates remain open; the other tools are unavailable.
-The binary never falls back to Node.
+file reads and MCP addon execution are implemented. Crate tests are Tokio
+`cargo test` against `ToolRuntime` and the `octocode` binary. The binary never
+falls back to Node.
 
 ```sh
 cargo build --manifest-path packages/octocode-engine-tools-core/Cargo.toml --bins --no-default-features
-cargo run --manifest-path packages/octocode-engine-tools-core/Cargo.toml --bin octo -- read src/index.ts --lines 20:60
+cargo run --manifest-path packages/octocode-engine-tools-core/Cargo.toml --bin octocode -- read src/index.ts --lines 20:60
 cargo build --manifest-path packages/octocode-engine-tools-core/Cargo.toml --lib --features napi-addon
 cargo test --manifest-path packages/octocode-engine-tools-core/Cargo.toml --no-default-features
 ```

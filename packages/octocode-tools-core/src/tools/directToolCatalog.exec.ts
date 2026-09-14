@@ -91,6 +91,8 @@ function createDirectTool(tool: ToolConfig): DirectToolRuntimeDefinition {
     description: tool.description,
     schema: direct.schema,
     inputSchema: direct.inputSchema,
+    outputSchema: tool.outputSchema,
+    annotations: tool.annotations,
     execute: wrapExecution(direct.executionFn),
     security: direct.security,
     isLocal: tool.isLocal,

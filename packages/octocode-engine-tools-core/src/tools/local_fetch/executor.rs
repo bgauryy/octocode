@@ -102,13 +102,38 @@ pub fn execute_local_fetch_with_regex(
         Ok(b) => b,
         Err(e) => return LocalFetchResult::error(q.path.clone(), "fileReadFailed", e.to_string()),
     };
-    let source_sha256 = format!("{:x}", Sha256::digest(&bytes));
+    process_fetched_content(
+        q,
+        &bytes,
+        &path,
+        meta.modified().ok().and_then(system_time_iso),
+        security,
+        cancel,
+        regex,
+    )
+}
+
+/// Shared post-acquisition content processing. Performs no filesystem access;
+/// callers own source authorization, binary/transport limits and provenance.
+pub fn process_fetched_content(
+    q: &LocalFetchRequest,
+    bytes: &[u8],
+    source_path: &std::path::Path,
+    modified: Option<String>,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+    regex: &impl RegexMatch,
+) -> LocalFetchResult {
+    if let Err(error) = validate_request(q) {
+        return LocalFetchResult::error(q.path.clone(), "invalidQuery", error);
+    }
+    let source_sha256 = format!("{:x}", Sha256::digest(bytes));
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(q.path.clone(), "cancelled", e);
     }
     // Node's UTF-8 decoder replaces malformed sequences; binary detection is a
     // separate heuristic and must not turn an otherwise textual file into an error.
-    let raw = String::from_utf8_lossy(&bytes).into_owned();
+    let raw = String::from_utf8_lossy(bytes).into_owned();
     let source_chars = raw.encode_utf16().count();
     let source_bytes = raw.len();
     let total_lines = line_count(&raw);
@@ -194,7 +219,7 @@ pub fn execute_local_fetch_with_regex(
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(q.path.clone(), "cancelled", e);
     }
-    let (safe, security_warnings) = match security.sanitize(&selected, &path) {
+    let (safe, security_warnings) = match security.sanitize(&selected, source_path) {
         Ok(x) => x,
         Err((c, _)) if c == "contentSecurityLimit" => {
             let mut result = LocalFetchResult::error(
@@ -273,7 +298,6 @@ pub fn execute_local_fetch_with_regex(
     } else {
         vec![]
     };
-    let modified = meta.modified().ok().and_then(system_time_iso);
     let matched_lines = ext
         .matched_lines
         .into_iter()

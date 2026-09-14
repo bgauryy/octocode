@@ -6,7 +6,7 @@ import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octoc
 import { getAwarenessAgentInstructions } from '@octocodeai/octocode-awareness';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
 import { LOCAL_TOOL_GUIDANCE, PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
-import { buildPiSystemPrompt, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
+import { buildPiSystemPrompt, projectPiSystemPromptCapabilities, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
 import { expandSubagentPrompt, SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_PLACEHOLDERS } from '@octocodeai/agent-contracts/prompts';
 import { PLAN_USAGE_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
 import { DIRECT_TOOL_DESCRIPTIONS, OCTOCODE_MCP_CALL_EXAMPLE } from '../src/tools/octocode-tools.js';
@@ -131,6 +131,15 @@ test('main prompt composes host facts with the canonical coder and Awareness pro
   assert.match(SYSTEM_PROMPT, /bash for builds\/tests\/packages\/debugging/);
   assert.doesNotMatch(SYSTEM_PROMPT, /Bash is for[^\n]*mechanical edits/);
   assert.doesNotMatch(SYSTEM_PROMPT, /octocode-graph-eval|\.octocode\/REFLECT\.md/);
+});
+
+test('product policy only advertises MCP and skill gateways that are active', () => {
+  const projected = projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: false, skill: false });
+  assert.doesNotMatch(projected, /Use MCPTool \(server:"octocode"\)/);
+  assert.doesNotMatch(projected, /The outer MCPTool query owns reasoning/);
+  assert.doesNotMatch(projected, /Load a matching Octocode skill/);
+  assert.match(projected, /Permissions and approval are host-enforced/);
+  assert.equal(projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: true, skill: true }), SYSTEM_PROMPT);
 });
 
 test('MCP guidance distinguishes the Pi envelope from the target Octocode query', () => {

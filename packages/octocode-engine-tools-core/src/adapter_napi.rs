@@ -1,10 +1,12 @@
 use crate::runtime::{HostOptions, RuntimeError, ToolRuntime};
+use napi::{Env, bindgen_prelude::PromiseRaw};
 use napi_derive::napi;
 use serde_json::Value;
+use std::sync::Arc;
 
 #[napi]
 pub struct NativeRuntime {
-    runtime: ToolRuntime,
+    runtime: Arc<ToolRuntime>,
 }
 
 fn boundary_error(error: RuntimeError) -> napi::Error {
@@ -38,7 +40,7 @@ impl NativeRuntime {
             None => HostOptions::default(),
         };
         Ok(Self {
-            runtime: ToolRuntime::from_host(options).map_err(boundary_error)?,
+            runtime: Arc::new(ToolRuntime::from_host(options).map_err(boundary_error)?),
         })
     }
 
@@ -55,33 +57,43 @@ impl NativeRuntime {
         self.runtime.catalog().map_err(boundary_error)
     }
     #[napi]
-    pub async fn execute(
+    pub fn execute<'env>(
         &self,
+        env: &'env Env,
         request_id: String,
         tool: String,
         input: Value,
-    ) -> napi::Result<Value> {
-        self.runtime
-            .execute(request_id, tool, input)
-            .await
-            .map(|outcome| outcome.structured_content)
-            .map_err(boundary_error)
+    ) -> napi::Result<PromiseRaw<'env, Value>> {
+        let admission = self.runtime.admit(request_id).map_err(boundary_error)?;
+        let runtime = self.runtime.clone();
+        env.spawn_future(async move {
+            runtime
+                .execute_admitted(admission, tool, input)
+                .await
+                .map(|outcome| outcome.structured_content)
+                .map_err(boundary_error)
+        })
     }
     #[napi]
     pub fn cancel(&self, request_id: String) -> bool {
         self.runtime.requests.cancel(&request_id)
     }
     #[napi]
-    pub async fn execute_mcp(
+    pub fn execute_mcp<'env>(
         &self,
+        env: &'env Env,
         request_id: String,
         tool: String,
         input: Value,
-    ) -> napi::Result<Value> {
-        self.runtime
-            .execute_mcp(request_id, tool, input)
-            .await
-            .map_err(boundary_error)
+    ) -> napi::Result<PromiseRaw<'env, Value>> {
+        let admission = self.runtime.admit(request_id).map_err(boundary_error)?;
+        let runtime = self.runtime.clone();
+        env.spawn_future(async move {
+            runtime
+                .execute_mcp_admitted(admission, tool, input)
+                .await
+                .map_err(boundary_error)
+        })
     }
     #[napi]
     pub async fn close(&self) {

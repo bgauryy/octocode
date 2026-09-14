@@ -49,9 +49,7 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
   };
   const server = new Server(implementation, {
     capabilities: { tools: { listChanged: false } },
-    instructions: availableTools.length === 1 && availableTools[0].name === 'localFetch'
-      ? catalog.mcpInstructionsByEnabledSet?.localFetch ?? catalog.mcpInstructions
-      : catalog.mcpInstructions,
+    instructions: catalog.mcpInstructions,
   });
 
   server.setRequestHandler('tools/list', () => ({
@@ -61,10 +59,10 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
   server.setRequestHandler('tools/call', async (request, context = {}) => {
     const signal = context.signal ?? context.mcpReq?.signal;
     const requestId = String(context.requestId ?? context.mcpReq?.id ?? randomUUID());
+    signal?.throwIfAborted();
     const cancel = () => runtime.cancel(requestId);
     signal?.addEventListener('abort', cancel, { once: true });
     try {
-      if (signal?.aborted) runtime.cancel(requestId);
       return await runtime.executeMcp(
         requestId,
         request.params.name,

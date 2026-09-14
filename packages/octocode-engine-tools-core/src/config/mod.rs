@@ -149,7 +149,8 @@ mod tests {
         let only = BTreeMap::from([("ENABLE_AST_REWRITE_APPLY".into(), "true".into())]);
         assert_eq!(
             resolve_config(&input(only, None)).source,
-            ConfigSource::Defaults
+            ConfigSource::Env,
+            "ENABLE_AST_REWRITE_APPLY is a frozen source key"
         )
     }
     #[test]

@@ -188,7 +188,7 @@ pub fn search_files(
                     Err(error) => {
                         return SearchOutcome::Incomplete(
                             error.diagnostic(&file_path.to_string_lossy()),
-                        )
+                        );
                     }
                 };
                 if matches.is_empty() {
@@ -313,6 +313,16 @@ pub fn search_files(
 pub fn search_files_detailed(
     options: StructuralSearchFilesOptions,
 ) -> Result<StructuralSearchFilesDetailedResult, String> {
+    search_files_detailed_filtered(options, &|_| Ok(true))
+}
+
+/// Detailed structural search with caller-owned descendant policy and
+/// cancellation. The callback runs before candidate accounting, literal
+/// prefilter reads, metadata reads, and source reads.
+pub fn search_files_detailed_filtered(
+    options: StructuralSearchFilesOptions,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<StructuralSearchFilesDetailedResult, String> {
     let StructuralSearchFilesOptions {
         path,
         pattern,
@@ -360,6 +370,9 @@ pub fn search_files_detailed(
     };
 
     let root = PathBuf::from(&path);
+    if !allow_path(&root)? {
+        return Err("Structural search root is denied by path policy".to_owned());
+    }
     check_root_exists(&root)?;
     let include = include.unwrap_or_default();
     let exclude = exclude.unwrap_or_default();
@@ -370,7 +383,7 @@ pub fn search_files_detailed(
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
     let overrides = build_overrides(&root, &include, &exclude)?;
-    let mut candidate_files = collect_files(
+    let mut candidate_files = collect_files_filtered(
         &root,
         overrides,
         &exclude_dir,
@@ -379,30 +392,11 @@ pub fn search_files_detailed(
         hidden,
         no_ignore,
         max_depth,
+        allow_path,
     )?;
     let scan_truncated = candidate_files.len() > max_files;
     candidate_files.truncate(max_files);
-    let matching_paths: Option<HashSet<String>> = match &prefilter {
-        Prefilter::None => None,
-        Prefilter::Single(anchor) => Some(matching_anchor_paths(
-            &root,
-            &include,
-            &exclude_dir,
-            hidden,
-            no_ignore,
-            max_depth,
-            anchor,
-        )?),
-        Prefilter::Union(anchors) => Some(matching_anchor_union_paths(
-            &root,
-            &include,
-            &exclude_dir,
-            hidden,
-            no_ignore,
-            max_depth,
-            anchors,
-        )?),
-    };
+    let matching_paths = matching_prefilter_paths(&candidate_files, &prefilter, allow_path)?;
 
     let mut matchers = BTreeMap::new();
     let mut files = Vec::new();
@@ -415,6 +409,9 @@ pub fn search_files_detailed(
     let mut compile_failures = 0u32;
 
     for file_path in candidate_files {
+        if !allow_path(&file_path)? {
+            continue;
+        }
         let path_string = file_path.to_string_lossy().to_string();
         if matching_paths
             .as_ref()
@@ -687,34 +684,37 @@ pub fn search_files_detailed(
     })
 }
 
-fn matching_anchor_paths(
-    root: &Path,
-    include: &[String],
-    exclude_dir: &[String],
-    hidden: Option<bool>,
-    no_ignore: Option<bool>,
-    max_depth: Option<u32>,
-    anchor: &str,
-) -> Result<HashSet<String>, String> {
-    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
-        path: root.to_string_lossy().into_owned(),
-        pattern: anchor.to_owned(),
-        fixed_string: Some(true),
-        case_sensitive: Some(true),
-        files_only: Some(true),
-        include: (!include.is_empty()).then(|| include.to_vec()),
-        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
-        hidden,
-        no_ignore,
-        // Structural depth counts root files as 1; ripgrep's public option
-        // counts them as 0 and adds one when configuring its walker.
-        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
-        sort: Some("path".to_owned()),
-        ..RipgrepSearchOptions::default()
-    })
-    .map_err(|err| format!("literal prefilter failed for anchor '{anchor}': {err}"))?;
+fn matching_prefilter_paths(
+    candidates: &[PathBuf],
+    prefilter: &Prefilter,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<Option<HashSet<String>>, String> {
+    let anchors = match prefilter {
+        Prefilter::None => return Ok(None),
+        Prefilter::Single(anchor) => std::slice::from_ref(anchor),
+        Prefilter::Union(anchors) => anchors.as_slice(),
+    };
+    let mut matching = HashSet::new();
+    for path in candidates {
+        if !allow_path(path)? {
+            continue;
+        }
+        let Ok(bytes) = fs::read(path) else { continue };
+        if anchors
+            .iter()
+            .any(|anchor| contains_bytes(&bytes, anchor.as_bytes()))
+        {
+            matching.insert(path.to_string_lossy().into_owned());
+        }
+    }
+    Ok(Some(matching))
+}
 
-    Ok(result.files.into_iter().map(|file| file.path).collect())
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|candidate| candidate == needle)
 }
 
 // Both anchor-prefilter helpers thread the six local-search scope fields
@@ -781,36 +781,6 @@ fn matching_anchor_candidate_files(
         .saturating_sub(matched_supported)
         .saturating_sub(matched_unsupported);
     Ok((out, skipped_by_pre_filter, matched_unsupported))
-}
-
-/// Union prefilter variant of [`matching_anchor_paths`]: a file qualifies if it
-/// contains ANY of `anchors` (regex alternation with escaped literals).
-fn matching_anchor_union_paths(
-    root: &Path,
-    include: &[String],
-    exclude_dir: &[String],
-    hidden: Option<bool>,
-    no_ignore: Option<bool>,
-    max_depth: Option<u32>,
-    anchors: &[String],
-) -> Result<HashSet<String>, String> {
-    let pattern = anchors_to_regex(anchors);
-    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
-        path: root.to_string_lossy().into_owned(),
-        pattern,
-        fixed_string: None, // regex alternation — not fixed-string
-        case_sensitive: Some(true),
-        files_only: Some(true),
-        include: (!include.is_empty()).then(|| include.to_vec()),
-        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
-        hidden,
-        no_ignore,
-        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
-        sort: Some("path".to_owned()),
-        ..RipgrepSearchOptions::default()
-    })
-    .map_err(|err| format!("union prefilter failed for anchors {anchors:?}: {err}"))?;
-    Ok(result.files.into_iter().map(|f| f.path).collect())
 }
 
 /// Union prefilter variant of [`matching_anchor_candidate_files`].
@@ -992,6 +962,34 @@ fn collect_files(
     no_ignore: Option<bool>,
     max_depth: Option<u32>,
 ) -> Result<Vec<PathBuf>, String> {
+    collect_files_filtered(
+        root,
+        overrides,
+        exclude_dir,
+        max_files,
+        supported_only,
+        hidden,
+        no_ignore,
+        max_depth,
+        &|_| Ok(true),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_files_filtered(
+    root: &Path,
+    overrides: Override,
+    exclude_dir: &[String],
+    max_files: usize,
+    supported_only: bool,
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    max_depth: Option<u32>,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<Vec<PathBuf>, String> {
+    if !allow_path(root)? {
+        return Err("Structural search root is denied by path policy".to_owned());
+    }
     let metadata = fs::metadata(root).map_err(|err| {
         format!(
             "Cannot access structural search path '{}': {err}",
@@ -1039,6 +1037,9 @@ fn collect_files(
             break;
         }
         let Ok(entry) = result else { continue };
+        if !allow_path(entry.path())? {
+            continue;
+        }
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }

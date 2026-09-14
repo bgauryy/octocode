@@ -883,6 +883,15 @@ describe('spawn: typed profiles', () => {
     expect(spawnCall.tools).toEqual([]);
   });
 
+  it('profile:custom rejects a second native-tool selector before spawning', async () => {
+    await expect(run(
+      tools.get('agent')!,
+      batch({ type: 'spawn', profile: 'custom', task: 'custom job', tools: ['MCPTool'], capabilities: { nativeTools: [] } }),
+    )).rejects.toThrow(/custom profile uses tools\[\] as its native-tool selector/i);
+    expect(vi.mocked(agentProcess.prepareSpawnAgentParams)).not.toHaveBeenCalled();
+    expect(vi.mocked(agentProcess.spawnRpcAgent)).not.toHaveBeenCalled();
+  });
+
   it('surfaces policyWarnings from the spawn record in the output', async () => {
     vi.mocked(agentProcess.spawnRpcAgent).mockReturnValue({
       ...MOCK_RECORD,

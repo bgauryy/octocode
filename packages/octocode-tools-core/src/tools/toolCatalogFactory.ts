@@ -22,9 +22,15 @@ export interface ToolConfig {
   description: string;
   isDefault: boolean;
   isLocal: boolean;
-
   isClone?: boolean;
   type: 'search' | 'content' | 'history' | 'debug';
-
+  outputSchema: z.ZodType;
+  annotations: Readonly<{
+    title: string;
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+  }>;
   direct: ToolDirectExecutionConfig;
 }

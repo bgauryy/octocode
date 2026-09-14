@@ -61,13 +61,15 @@ async function collect(client) {
 const reference = await connect(referenceServer);
 const native = await connect(nativeServer);
 try {
-  assert.equal(native.getInstructions(), buildMcpInstructions(['localFetch']));
   const nativeTools = await native.listTools();
-  assert.deepEqual(nativeTools.tools.map(tool => tool.name), ['localFetch']);
-  assert.ok(nativeTools.tools[0].title);
-  assert.ok(nativeTools.tools[0].outputSchema);
-  assert.deepEqual(nativeTools.tools[0].annotations, {
-    title: nativeTools.tools[0].title,
+  const nativeToolNames = nativeTools.tools.map(tool => tool.name);
+  assert.equal(native.getInstructions(), buildMcpInstructions(nativeToolNames));
+  const localFetch = nativeTools.tools.find(tool => tool.name === 'localFetch');
+  assert.ok(localFetch, 'native catalog must advertise localFetch');
+  assert.ok(localFetch.title);
+  assert.ok(localFetch.outputSchema);
+  assert.deepEqual(localFetch.annotations, {
+    title: localFetch.title,
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,

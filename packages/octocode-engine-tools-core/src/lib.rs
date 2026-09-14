@@ -5,11 +5,12 @@
 mod adapter_napi;
 
 pub mod cache;
-pub mod cli;
 pub mod config;
 pub mod content;
 pub mod contracts;
+pub mod lsp;
 pub mod policy;
+pub mod providers;
 pub mod regex;
 pub mod response;
 pub mod runtime;

@@ -540,26 +540,22 @@ export function registerCallTool(
     name: 'callTool',
     label: 'Call Tool',
     description: DIRECT_TOOL_DESCRIPTIONS.callTool!,
-    promptSnippet: 'Reuse, propose, or maintain a verified dynamic tool for a requested capability',
+    promptSnippet: 'Reuse, propose, or maintain a verified dynamic tool for a requested capability.',
     promptGuidelines: [
-      'auto reuses or proposes; run only reuses. Before authorized create/enhance/fix, check existing capabilities and supply metadata.reason. Generated tests gate registration; they do not prove every use case.',
-      'metadata carries runtime args plus intent, reason, _allow, _approveCreate, _force, and _sandboxed. Approval flags attest user authorization; they never grant it.',
-      '_allow grants only approved net/fs/exec capabilities. _force bypasses the triviality heuristic, not permissions; _sandboxed:false requires explicit broad-access approval.',
-      'Each call prunes missing or repeatedly failing entries. Use list for inventory and delete only for intended removal.',
+      'auto reuses or proposes; run only reuses. Supply metadata.reason for create/enhance/fix. Approval flags attest user authorization; they never grant it.',
+      '_allow grants only approved capabilities. _force bypasses triviality only, not permissions.',
     ],
     parameters: buildQueryEnvelopeSchema(
       z.looseObject({
-        toolType: z.string().describe(
-          'Exact reusable capability key, e.g. "summarizeCoverageReport". Routine time/UUID/slug operations need no persisted tool.',
-        ),
+        toolType: z.string().describe('Capability key. Routine ops need no persisted tool.'),
         metadata: z.record(z.string(), z.unknown()).optional().describe(
-          'Runtime args plus intent/reason. _allow and _approveCreate attest user authorization; _force only bypasses triviality; _sandboxed:false requests broad-access approval.',
+          'Runtime args. _allow/_approveCreate attest authorization; _force bypasses triviality; _sandboxed:false needs approval.',
         ),
         mode: z.enum(['auto', 'run', 'create', 'enhance', 'fix', 'list', 'delete']).optional().describe(
-          'auto: reuse or propose creation on a miss. run: reuse only. create/enhance/fix: authorized generation with reason. list: inventory. delete: remove the named entry.',
+          'auto\xb7run\xb7create\xb7enhance\xb7fix\xb7list\xb7delete',
         ),
       }),
-      { reasoningDescription: 'Concise reason this dynamic tool operation is necessary.' },
+      { reasoningDescription: 'Why.' },
     ),
 
     async execute(id: string, rawParams: Record<string, unknown>, signal, onUpdate, ctx?: PiContext) {

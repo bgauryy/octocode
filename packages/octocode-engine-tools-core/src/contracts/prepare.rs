@@ -44,7 +44,8 @@ pub struct PreparedBatch {
 }
 
 /// Applies the canonical envelope and meta-field defaults. Shape and relation
-/// validation is intentionally a later stage and must never delegate to Node.
+/// validation is a later stage and must never rewrite tool fields or delegate
+/// to Node.
 pub fn prepare(
     tool_name: &str,
     input: Value,
@@ -145,5 +146,17 @@ mod tests {
     fn rejects_empty_or_non_object_queries() {
         assert!(prepare("localFetch", json!([]), PrepareOptions::default()).is_err());
         assert!(prepare("localFetch", json!([1]), PrepareOptions::default()).is_err());
+    }
+
+    #[test]
+    fn does_not_rewrite_tool_fields() {
+        let prepared = prepare(
+            "astSearch",
+            json!({"operation":"syntax","path":"/tmp/lib.rs"}),
+            PrepareOptions::default(),
+        )
+        .expect("envelope only");
+        assert_eq!(prepared.queries[0]["operation"], "syntax");
+        assert!(prepared.queries[0].get("treeKind").is_none());
     }
 }

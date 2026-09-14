@@ -1217,7 +1217,7 @@ test('production composition records canonical receipts for every registered Pi 
   assert.ok(receipts.every((receipt) => receipt.canonicalRegistered && receipt.hostRegistered));
 });
 
-test('all 16 public direct tools enter the shared query executor', async () => {
+test('every public direct tool enters the shared query executor', async () => {
   const { tools } = await captureExtensions();
   for (const name of [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash']) {
     const outcome = await Promise.resolve(
@@ -2447,7 +2447,8 @@ test('mcp initialization reads canonical project config before the agent calls t
   assert.match(mcpTool.description!, /input in queries\[\]\.arguments/i);
   assert.doesNotMatch(mcpTool.description!, /prepare/i);
   const mcpGuidelines = mcpTool.promptGuidelines?.join('\n') ?? '';
-  assert.match(mcpGuidelines, /\$OCTOCODE_HOME\/extension\/mcp\/servers\.json/);
+  assert.match(mcpGuidelines, /\$OCTOCODE_HOME\/mcp\.json/);
+  assert.match(mcpGuidelines, /\.agents\/mcp\.json/);
   assert.match(mcpGuidelines, /restart\/stop manages connections/i);
   assert.match(mcpGuidelines, /built-in octocode server cannot be removed/i);
 

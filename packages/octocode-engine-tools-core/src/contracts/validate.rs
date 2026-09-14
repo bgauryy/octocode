@@ -1,16 +1,20 @@
+mod content;
+mod union;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt::{Display, Formatter};
 use url::Url;
 
-use super::generated::CONTRACT_JSON;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationIssue {
     pub rule_id: String,
     pub path: Vec<String>,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,8 +86,7 @@ impl std::error::Error for ContractValidationError {}
 /// Validates and applies JSON-Schema defaults from the generated canonical
 /// contract. Runtime-only relation rules are applied after structural parsing.
 pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractValidationError> {
-    let contract: Value =
-        serde_json::from_str(CONTRACT_JSON).map_err(|error| internal(error.to_string()))?;
+    let contract = super::parsed_contract().map_err(|error| internal(error.to_string()))?;
     let tool = contract["tools"]
         .as_array()
         .and_then(|tools| tools.iter().find(|tool| tool["name"] == tool_name))
@@ -95,17 +98,39 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
             )
         })?;
     apply_normalization_rules(&tool["rules"], &mut input)?;
-    apply_validation_rules(&tool["rules"], &input)?;
+    let mut issues = Vec::new();
+    let item_schema = tool["inputSchema"]
+        .pointer("/properties/queries/items")
+        .unwrap_or(&tool["querySchema"]);
     if let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) {
         for (index, query) in queries.iter_mut().enumerate() {
             apply_observed_defaults(&tool["defaults"], query);
-            validate_schema(
-                &tool["querySchema"],
-                &tool["querySchema"],
-                query,
-                &mut vec!["queries".to_owned(), index.to_string()],
-            )?;
+            let mut path = vec!["queries".to_owned(), index.to_string()];
+            let parsed =
+                validate_schema(&tool["querySchema"], &tool["querySchema"], query, &mut path)
+                    .and_then(|()| {
+                        validate_schema(&tool["inputSchema"], item_schema, query, &mut path)
+                    });
+            if let Err(error) = parsed {
+                issues.extend(error.issues);
+                continue;
+            }
+            let scoped = serde_json::json!({"queries":[query]});
+            if let Err(mut error) = apply_validation_rules(&tool["rules"], &scoped) {
+                for issue in &mut error.issues {
+                    if issue.path.first().is_some_and(|part| part == "queries")
+                        && issue.path.get(1).is_some_and(|part| part == "0")
+                    {
+                        issue.path[1] = index.to_string();
+                    }
+                }
+                issues.extend(error.issues);
+            }
         }
+    }
+    if !issues.is_empty() {
+        issues.dedup();
+        return Err(ContractValidationError { issues });
     }
     validate_schema(
         &tool["inputSchema"],
@@ -199,24 +224,24 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
     let rules = rules
         .as_array()
         .ok_or_else(|| internal("rules must be an array".into()))?;
+    let mut issues = Vec::new();
     for rule in rules.iter().filter(|rule| rule["phase"] == "validate") {
-        match rule["opcode"].as_str() {
-            Some("content_extraction_mode") | Some("content_controls") => {
-                validate_content_queries(input)?
-            }
+        let result = match rule["opcode"].as_str() {
+            Some("content_extraction_mode") => content::validate(input, true),
+            Some("content_controls") => content::validate(input, false),
             Some("artifact_mode") | Some("artifact_registry_url") => {
-                validate_artifact_queries(input)?
+                validate_artifact_queries(input)
             }
-            Some("schema_union") | Some("json_schema") => {}
-            Some("github_search_runnable") => validate_github_search_queries(input)?,
-            Some("ast_rewrite_apply") => validate_ast_rewrite_queries(input)?,
-            Some("local_search_mode") => validate_local_search_queries(input)?,
-            Some("disabled_field") => validate_disabled_field(input, &rule["args"], &rule["id"])?,
-            Some("ast_topology") => validate_topology_queries(input)?,
-            Some("history_keyword_scope") => validate_history_keyword_scope(input)?,
-            Some("lsp_rust_context") => validate_lsp_queries(input)?,
-            Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input)?,
-            Some("history_content_selection") => validate_history_content_selection(input)?,
+            Some("schema_union") | Some("json_schema") => Ok(()),
+            Some("github_search_runnable") => validate_github_search_queries(input),
+            Some("ast_rewrite_apply") => validate_ast_rewrite_queries(input),
+            Some("local_search_mode") => validate_local_search_queries(input),
+            Some("disabled_field") => validate_disabled_field(input, &rule["args"], &rule["id"]),
+            Some("ast_topology") => validate_topology_queries(input),
+            Some("history_keyword_scope") => validate_history_keyword_scope(input),
+            Some("lsp_rust_context") => validate_lsp_queries(input),
+            Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
+            Some("history_content_selection") => validate_history_content_selection(input),
             Some(opcode) => {
                 return Err(issue(
                     "contract.unsupported-validator",
@@ -225,9 +250,17 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
                 ));
             }
             None => return Err(internal("validation rule opcode must be a string".into())),
+        };
+        if let Err(error) = result {
+            issues.extend(error.issues);
         }
     }
-    Ok(())
+    issues.dedup();
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(ContractValidationError { issues })
+    }
 }
 
 fn validate_history_content_selection(input: &Value) -> Result<(), ContractValidationError> {
@@ -392,6 +425,9 @@ fn validate_history_keyword_scope(input: &Value) -> Result<(), ContractValidatio
             .and_then(Value::as_array)
             .is_some_and(|v| !v.is_empty());
         if !has_keywords {
+            continue;
+        }
+        if query.get("operation").and_then(Value::as_str) != Some("commits") {
             continue;
         }
         for field in ["path", "branch", "base", "head", "includeDiff"] {
@@ -574,9 +610,9 @@ fn validate_local_search_queries(input: &Value) -> Result<(), ContractValidation
                     "searchText is required unless structural mode",
                 ));
             }
-            if query.get("matchWindow").is_some()
-                && query.get("output").and_then(Value::as_str) != Some("matchOnly")
-            {
+            let is_match_only = query.get("output").and_then(Value::as_str) == Some("matchOnly")
+                || query.get("resultView").and_then(Value::as_str) == Some("matchOnly");
+            if query.get("matchWindow").is_some() && !is_match_only {
                 return Err(issue(
                     "local-search.match-window",
                     prefix("matchWindow"),
@@ -586,7 +622,7 @@ fn validate_local_search_queries(input: &Value) -> Result<(), ContractValidation
             if matches!(
                 query.get("unique").and_then(Value::as_str),
                 Some("list" | "count")
-            ) && query.get("output").and_then(Value::as_str) != Some("matchOnly")
+            ) && !is_match_only
             {
                 return Err(issue(
                     "local-search.unique",
@@ -817,45 +853,29 @@ fn validate_schema(
                 .map(|branches| (branches, false))
         });
     if let Some((branches, exclusive)) = union {
-        let mut successes = Vec::new();
-        let mut failures = Vec::new();
-        for branch in branches {
-            let mut candidate = value.clone();
-            match validate_schema(root, branch, &mut candidate, &mut path.clone()) {
-                Ok(()) => successes.push(candidate),
-                Err(error) => failures.push(error.issues[0].message.clone()),
-            }
-        }
-        if successes.is_empty() || (exclusive && successes.len() != 1) {
-            return Err(issue(
-                "schema.union",
-                path.clone(),
-                format!(
-                    "Input must match exactly one schema branch; matched {}; {}",
-                    successes.len(),
-                    failures.join(" | ")
-                ),
-            ));
-        }
-        *value = successes.remove(0);
-        return Ok(());
+        return union::validate(root, branches, exclusive, value, path);
     }
+
     if let Some(constant) = schema.get("const")
         && value != constant
     {
-        return Err(issue(
+        return Err(schema_issue(
             "schema.const",
             path.clone(),
             "Unexpected constant value",
+            schema,
+            value,
         ));
     }
     if let Some(values) = schema.get("enum").and_then(Value::as_array)
         && !values.contains(value)
     {
-        return Err(issue(
+        return Err(schema_issue(
             "schema.enum",
             path.clone(),
             "Value is outside the allowed enum",
+            schema,
+            value,
         ));
     }
     match schema.get("type").and_then(Value::as_str) {
@@ -864,12 +884,20 @@ fn validate_schema(
         Some("string") => validate_string(schema, value, path),
         Some("integer") => validate_number(schema, value, path, true),
         Some("number") => validate_number(schema, value, path, false),
-        Some("boolean") if !value.is_boolean() => {
-            Err(issue("schema.type", path.clone(), "Expected boolean"))
-        }
-        Some("null") if !value.is_null() => {
-            Err(issue("schema.type", path.clone(), "Expected null"))
-        }
+        Some("boolean") if !value.is_boolean() => Err(schema_issue(
+            "schema.type",
+            path.clone(),
+            "Expected boolean",
+            schema,
+            value,
+        )),
+        Some("null") if !value.is_null() => Err(schema_issue(
+            "schema.type",
+            path.clone(),
+            "Expected null",
+            schema,
+            value,
+        )),
         Some("boolean" | "null") | None => Ok(()),
         Some(other) => Err(issue(
             "schema.unsupported-type",
@@ -885,16 +913,26 @@ fn validate_object(
     value: &mut Value,
     path: &mut Vec<String>,
 ) -> Result<(), ContractValidationError> {
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| issue("schema.type", path.clone(), "Expected object"))?;
+    let received = value.clone();
+    let object = value.as_object_mut().ok_or_else(|| {
+        schema_issue(
+            "schema.type",
+            path.clone(),
+            "Expected object",
+            schema,
+            &received,
+        )
+    })?;
     let properties = schema.get("properties").and_then(Value::as_object);
+    let mut issues = Vec::new();
     if let Some(name_schema) = schema.get("propertyNames") {
         for key in object.keys() {
             let mut name = Value::String(key.clone());
             let mut name_path = path.clone();
             name_path.push(key.clone());
-            validate_schema(root, name_schema, &mut name, &mut name_path)?;
+            if let Err(error) = validate_schema(root, name_schema, &mut name, &mut name_path) {
+                issues.extend(error.issues);
+            }
         }
     }
     if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
@@ -902,11 +940,14 @@ fn validate_object(
             if !properties.is_some_and(|known| known.contains_key(key)) {
                 let mut field_path = path.clone();
                 field_path.push(key.clone());
-                return Err(issue(
-                    "schema.unknown-field",
-                    field_path,
-                    format!("Unknown field: {key}"),
-                ));
+                issues.extend(
+                    issue(
+                        "schema.unknown-field",
+                        field_path,
+                        format!("Unknown field: {key}"),
+                    )
+                    .issues,
+                );
             }
         }
     }
@@ -921,7 +962,9 @@ fn validate_object(
             path.push(key.clone());
             let result = validate_schema(root, additional, field, path);
             path.pop();
-            result?;
+            if let Err(error) = result {
+                issues.extend(error.issues);
+            }
         }
     }
     for required in schema
@@ -934,11 +977,18 @@ fn validate_object(
         if !object.contains_key(required) {
             let mut field_path = path.clone();
             field_path.push(required.to_owned());
-            return Err(issue(
-                "schema.required",
-                field_path,
-                format!("Missing required field: {required}"),
-            ));
+            issues.extend(
+                schema_issue(
+                    "schema.required",
+                    field_path,
+                    format!("Missing required field: {required}"),
+                    properties
+                        .and_then(|items| items.get(required))
+                        .unwrap_or(&Value::Null),
+                    &Value::Null,
+                )
+                .issues,
+            );
         }
     }
     if let Some(properties) = properties {
@@ -952,11 +1002,17 @@ fn validate_object(
                 path.push(name.clone());
                 let result = validate_schema(root, field_schema, field, path);
                 path.pop();
-                result?;
+                if let Err(error) = result {
+                    issues.extend(error.issues);
+                }
             }
         }
     }
-    Ok(())
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(ContractValidationError { issues })
+    }
 }
 
 fn validate_array(
@@ -965,19 +1021,35 @@ fn validate_array(
     value: &mut Value,
     path: &mut Vec<String>,
 ) -> Result<(), ContractValidationError> {
-    let array = value
-        .as_array_mut()
-        .ok_or_else(|| issue("schema.type", path.clone(), "Expected array"))?;
-    check_size(schema, array.len(), path)?;
+    let received = value.clone();
+    let array = value.as_array_mut().ok_or_else(|| {
+        schema_issue(
+            "schema.type",
+            path.clone(),
+            "Expected array",
+            schema,
+            &received,
+        )
+    })?;
+    let mut issues = Vec::new();
+    if let Err(error) = check_size(schema, array.len(), path) {
+        issues.extend(error.issues);
+    }
     if let Some(items) = schema.get("items") {
         for (index, item) in array.iter_mut().enumerate() {
             path.push(index.to_string());
             let result = validate_schema(root, items, item, path);
             path.pop();
-            result?;
+            if let Err(error) = result {
+                issues.extend(error.issues);
+            }
         }
     }
-    Ok(())
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(ContractValidationError { issues })
+    }
 }
 
 fn validate_string(
@@ -985,9 +1057,15 @@ fn validate_string(
     value: &Value,
     path: &[String],
 ) -> Result<(), ContractValidationError> {
-    let string = value
-        .as_str()
-        .ok_or_else(|| issue("schema.type", path.to_vec(), "Expected string"))?;
+    let string = value.as_str().ok_or_else(|| {
+        schema_issue(
+            "schema.type",
+            path.to_vec(),
+            "Expected string",
+            schema,
+            value,
+        )
+    })?;
     check_size(schema, string.chars().count(), path)?;
     if let Some(pattern) = schema.get("pattern").and_then(Value::as_str) {
         let regex = Regex::new(pattern).map_err(|error| {
@@ -1017,9 +1095,15 @@ fn validate_number(
     path: &[String],
     integer: bool,
 ) -> Result<(), ContractValidationError> {
-    let number = value
-        .as_f64()
-        .ok_or_else(|| issue("schema.type", path.to_vec(), "Expected number"))?;
+    let number = value.as_f64().ok_or_else(|| {
+        schema_issue(
+            "schema.type",
+            path.to_vec(),
+            "Expected number",
+            schema,
+            value,
+        )
+    })?;
     if integer && number.fract() != 0.0 {
         return Err(issue("schema.integer", path.to_vec(), "Expected integer"));
     }
@@ -1032,10 +1116,12 @@ fn validate_number(
             .and_then(Value::as_f64)
             .is_some_and(|maximum| number > maximum)
     {
-        return Err(issue(
+        return Err(schema_issue(
             "schema.range",
             path.to_vec(),
             "Number is outside the allowed range",
+            schema,
+            value,
         ));
     }
     Ok(())
@@ -1062,88 +1148,6 @@ fn check_size(
             path.to_vec(),
             "Value length is outside the allowed range",
         ));
-    }
-    Ok(())
-}
-
-fn validate_content_queries(input: &Value) -> Result<(), ContractValidationError> {
-    let queries = input["queries"].as_array().ok_or_else(|| {
-        issue(
-            "schema.queries",
-            vec!["queries".into()],
-            "Expected queries array",
-        )
-    })?;
-    for (index, query) in queries.iter().enumerate() {
-        let prefix = vec!["queries".into(), index.to_string()];
-        let full = query.get("fullContent") == Some(&Value::Bool(true));
-        let matched = query.get("matchString").is_some();
-        let ranged = query.get("startLine").is_some() || query.get("endLine").is_some();
-        if usize::from(full) + usize::from(matched) + usize::from(ranged) > 1 {
-            return Err(issue(
-                "content.extraction-mode",
-                prefix,
-                "Choose at most one extraction mode",
-            ));
-        }
-        if query.get("startLine").is_some() != query.get("endLine").is_some() {
-            return Err(issue(
-                "content.range-pair",
-                prefix,
-                "Set startLine and endLine together",
-            ));
-        }
-        if let (Some(start), Some(end)) = (
-            query.get("startLine").and_then(Value::as_i64),
-            query.get("endLine").and_then(Value::as_i64),
-        ) && end < start
-        {
-            return Err(issue(
-                "content.range-order",
-                [prefix.clone(), vec!["endLine".into()]].concat(),
-                "Set endLine greater than or equal to startLine.",
-            ));
-        }
-        if full
-            && ["offset", "limit", "chunkType"]
-                .iter()
-                .any(|field| query.get(field).is_some())
-        {
-            return Err(issue(
-                "content.full-controls",
-                prefix,
-                "Choose fullContent or chunk controls",
-            ));
-        }
-        if !matched
-            && [
-                "matchStringIsRegex",
-                "matchStringCaseSensitive",
-                "contextBytes",
-            ]
-            .iter()
-            .any(|field| query.get(field).is_some())
-        {
-            return Err(issue(
-                "content.match-controls",
-                prefix,
-                "Match options require matchString",
-            ));
-        }
-        if query.get("contextBytes").is_some() && query.get("contextLines").is_some() {
-            return Err(issue(
-                "content.context-unit",
-                prefix,
-                "contextBytes is exclusive with contextLines",
-            ));
-        }
-        if query.get("minify") == Some(&Value::String("symbols".into())) && (matched || ranged) {
-            return Err(issue(
-                "content.symbol-selector",
-                prefix,
-                "minify symbols cannot accompany a source selector",
-            ));
-        }
     }
     Ok(())
 }
@@ -1336,8 +1340,23 @@ fn issue(
             rule_id: rule_id.into(),
             path,
             message: message.into(),
+            schema: None,
+            received: None,
         }],
     }
+}
+
+fn schema_issue(
+    rule_id: impl Into<String>,
+    path: Vec<String>,
+    message: impl Into<String>,
+    schema: &Value,
+    received: &Value,
+) -> ContractValidationError {
+    let mut error = issue(rule_id, path, message);
+    error.issues[0].schema = Some(schema.clone());
+    error.issues[0].received = Some(received.clone());
+    error
 }
 
 fn internal(message: String) -> ContractValidationError {
@@ -1364,7 +1383,14 @@ mod tests {
             json!({"queries":[{"path":"/tmp/a","fullContent":true,"limit":2}]}),
         )
         .expect_err("invalid relation");
-        assert_eq!(relation.issues[0].rule_id, "content.full-controls");
+        assert_eq!(
+            format_input_error("localFetch", &relation),
+            json!({
+                "kind":"octocode.toolError", "version":1, "tool":"localFetch",
+                "error":"Check the query fields.",
+                "details":["queries.0: Unrecognized key: \"limit\""]
+            })
+        );
         assert!(
             validate(
                 "localFetch",
@@ -1372,6 +1398,31 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn aggregates_schema_violations_across_fields_and_queries() {
+        let error = validate(
+            "localFetch",
+            json!({
+                "queries": [
+                    {"wat": true, "alsoWat": 1},
+                    {"path": 7, "startLine": "bad", "fullContent": "bad"}
+                ]
+            }),
+        )
+        .expect_err("invalid fields");
+        let keys = error
+            .issues
+            .iter()
+            .map(|issue| (issue.rule_id.as_str(), issue.path.join(".")))
+            .collect::<Vec<_>>();
+        assert!(keys.contains(&("schema.unknown-field", "queries.0.wat".into())));
+        assert!(keys.contains(&("schema.unknown-field", "queries.0.alsoWat".into())));
+        assert!(keys.contains(&("schema.required", "queries.0.path".into())));
+        assert!(keys.contains(&("schema.type", "queries.1.path".into())));
+        assert!(keys.contains(&("schema.type", "queries.1.startLine".into())));
+        assert!(keys.contains(&("schema.type", "queries.1.fullContent".into())));
     }
 
     #[test]

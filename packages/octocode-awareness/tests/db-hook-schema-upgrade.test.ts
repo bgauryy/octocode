@@ -31,6 +31,46 @@ describe('canonical schema consolidation', () => {
     } finally { db.close(); }
   });
 
+  it('upgrades signals.expires_at from nullable TEXT to NOT NULL, backfilling any NULL rows', () => {
+    const db = new DatabaseSync(':memory:');
+    try {
+      // Start with a canonical database, then downgrade signals to the intermediate v5 state
+      initDb(db);
+      db.exec('PRAGMA foreign_keys = OFF');
+      // Recreate signals with nullable expires_at and restore all its indexes
+      db.exec(`
+        DROP TABLE signals;
+        CREATE TABLE signals (
+          signal_id TEXT PRIMARY KEY, workspace_path TEXT NOT NULL, artifact TEXT,
+          repo TEXT, ref TEXT, from_agent TEXT NOT NULL, to_agent TEXT,
+          kind TEXT NOT NULL, subject TEXT NOT NULL, body TEXT,
+          files_json TEXT NOT NULL DEFAULT '[]', refs_json TEXT NOT NULL DEFAULT '[]',
+          thread_id TEXT NOT NULL, reply_to TEXT, importance INTEGER NOT NULL DEFAULT 5,
+          status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','resolved')),
+          resolved_at TEXT, created_at TEXT NOT NULL, expires_at TEXT
+        );
+        INSERT INTO signals
+          (signal_id, workspace_path, from_agent, kind, subject, files_json, refs_json, thread_id, created_at)
+          VALUES ('sig-null-expiry', '/ws', 'agent-1', 'fyi', 'test', '[]', '[]', 'thread-1', '2026-01-01T00:00:00.000Z');
+        CREATE INDEX idx_signals_status         ON signals(status);
+        CREATE INDEX idx_signals_to_agent       ON signals(to_agent);
+        CREATE INDEX idx_signals_workspace_path ON signals(workspace_path);
+        CREATE INDEX idx_signals_scope          ON signals(workspace_path, artifact);
+        CREATE INDEX idx_signals_created_at     ON signals(created_at);
+        CREATE INDEX idx_signals_expires_at     ON signals(expires_at);
+        CREATE INDEX idx_signals_thread         ON signals(thread_id);
+      `);
+      db.exec('PRAGMA foreign_keys = ON');
+      // initDb must detect the nullable expires_at and upgrade it
+      initDb(db);
+      const cols = db.prepare('PRAGMA table_info(signals)').all() as Array<{ name: string; notnull: number }>;
+      expect(cols.find(c => c.name === 'expires_at')?.notnull).toBe(1);
+      const { expires_at } = db.prepare("SELECT expires_at FROM signals WHERE signal_id = 'sig-null-expiry'")
+        .get() as { expires_at: string };
+      expect(expires_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    } finally { db.close(); }
+  });
+
   it('rejects the former host-enum schema without publishing or changing the source', () => {
     const { source, destination } = paths();
     const db = new DatabaseSync(source);

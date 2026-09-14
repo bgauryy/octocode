@@ -58,13 +58,13 @@ export function registerUnifiedAgentTool(
     returnShape: z.string().min(1),
     task: z.string().optional(),
     name: z.string().optional(),
-    model: z.string().optional().describe('Model id from `pi -ne --list-models`.'),
+    model: z.string().optional().describe('Model override.'),
     provider: z.string().optional(),
     thinking: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
     noSession: z.boolean().optional(),
     isolation: z.enum(['shared', 'worktree']).optional(),
     includeUncommitted: z.boolean().optional(),
-    planStep: z.string().optional().describe('Plan task ID only; omit for standalone delegation.'),
+    planStep: z.string().optional().describe('Plan task ID; omit for standalone.'),
     cohortId: z.string().min(1).max(80).optional(),
     capabilities: WorkerCapabilitySelectionSchema.optional(),
     snapshotRevision: z.string().min(1).optional(),
@@ -109,7 +109,7 @@ export function registerUnifiedAgentTool(
   const kill = z.strictObject({ reasoning, type: z.enum(['kill']), agentId: z.string().min(1), remove: z.boolean().optional(), full: z.boolean().optional() });
   const query = z.union([typedSpawn, browserSpawn, customSpawn, inspect, configure, wait, message, steer, abort, kill]);
   const parameters = toToolSchema(z.strictObject({
-    queries: z.array(query).min(1).max(100).describe('Operations run one-by-one in source order.'),
+    queries: z.array(query).min(1).max(100).describe('Operations, sequential.'),
     queryRunType: z.enum(['sequential']).default('sequential').optional(),
   }));
   // One shared definition preserves strict branch validation without repeating
@@ -125,17 +125,11 @@ export function registerUnifiedAgentTool(
     label: 'Agent',
     description: DIRECT_TOOL_DESCRIPTIONS.agent!,
 
-    promptSnippet:
-      'Spawn or manage bounded workers. Every spawn requires Goal, Context, Scope, Ownership, Acceptance, and Return; the parent must verify and integrate the handback.',
+    promptSnippet: 'Spawn or manage bounded workers. Every spawn needs Goal, Context, Scope, Ownership, Acceptance, Return.',
     promptGuidelines: [
-      'Delegate when two or more bounded lanes are independent with disjoint ownership, or a specialist materially improves coverage. Keep dependent/shared-file work serial.',
-      'Route evidence→researcher, dependency plan→planner, root cause/design→architect, owned code+check→implementer, independent acceptance check→reviewer, CDP evidence→browser; custom requires explicit least-capability tools and systemPrompt.',
-      'The tool rejects incomplete packets before creating a worker. Wrong: spawn and reference its unknown agentId in one batch. Right: spawn first; use inspect, wait, message, steer, abort, or kill later.',
-      'After spawning, continue non-overlapping parent work; use type:wait to collect results. Verify findings/checks, reconcile an existing plan if present, kill or reuse the worker, and continue the user request. Never trust or persist a raw handback as verified memory.',
-      'Standalone delegation needs no plan: omit planStep. Include planStep only when an executing parent plan already owns the work, and copy its exact stable task id; never invent one.',
-      'Grant enabled parent identities only. Workers request missing access; configure with snapshotRevision replaces selected arrays. Removals apply now; additions before the next turn.',
-      'Discover skill IDs with skill action:list and server/tool pairs with MCPTool action:list. Get the current snapshotRevision with agent type:inspect (no agentId) or capability_revision.',
-      'Lean workers expose selected Pi builtins and keep skill/MCP grants empty; use resourceMode:"octocode" for extension tools.',
+      'Delegate when lanes are independent with disjoint ownership or a specialist improves coverage. Route: evidence→researcher, plan→planner, design→architect, code→implementer, review→reviewer, CDP→browser. Custom needs tools+systemPrompt.',
+      'Spawn first; reference agentId only in later calls. After spawning continue non-overlapping work; type:wait collects results. Verify handbacks; never persist raw output as memory.',
+      'Standalone needs no planStep. Grant only enabled parent identities; lean workers keep skill/MCP grants empty; use resourceMode:"octocode" for extension tools.',
     ],
 
     parameters,
@@ -177,6 +171,10 @@ export function registerUnifiedAgentTool(
             }
             if (profile === 'custom') {
               if (!Array.isArray(query['tools'])) throw new Error(`queries[${index}]: custom profile requires tools[].`);
+              const capabilities = query['capabilities'];
+              if (capabilities && typeof capabilities === 'object' && Object.hasOwn(capabilities, 'nativeTools')) {
+                throw new Error(`queries[${index}]: custom profile uses tools[] as its native-tool selector; omit capabilities.nativeTools.`);
+              }
               if (!String(query['systemPrompt'] ?? '').trim()) throw new Error(`queries[${index}]: custom profile requires a non-empty systemPrompt.`);
             }
             return;

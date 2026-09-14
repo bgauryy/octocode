@@ -2130,6 +2130,126 @@
     "accepted": false
   },
   {
+    "id": "local-search.public-match-window",
+    "tool": "localSearch",
+    "input": {
+      "path": "/r",
+      "searchText": "x",
+      "resultView": "matchOnly",
+      "matchWindow": 2
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute localSearch via fixture",
+          "reasoning": "Executed via fixture tool command",
+          "searchText": "x",
+          "path": "/r",
+          "caseMode": "smart",
+          "matchContentLength": 500,
+          "multiline": "off",
+          "sort": "relevance",
+          "rankingProfile": "auto",
+          "unique": "off",
+          "matchWindow": 2,
+          "page": 1,
+          "regex": "rust",
+          "resultView": "matchOnly"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.public-unique-list",
+    "tool": "localSearch",
+    "input": {
+      "path": "/r",
+      "searchText": "x",
+      "resultView": "matchOnly",
+      "unique": "list"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute localSearch via fixture",
+          "reasoning": "Executed via fixture tool command",
+          "searchText": "x",
+          "path": "/r",
+          "caseMode": "smart",
+          "matchContentLength": 500,
+          "multiline": "off",
+          "sort": "relevance",
+          "rankingProfile": "auto",
+          "unique": "list",
+          "page": 1,
+          "regex": "rust",
+          "resultView": "matchOnly"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.public-unique-count",
+    "tool": "localSearch",
+    "input": {
+      "path": "/r",
+      "searchText": "x",
+      "resultView": "matchOnly",
+      "unique": "count"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute localSearch via fixture",
+          "reasoning": "Executed via fixture tool command",
+          "searchText": "x",
+          "path": "/r",
+          "caseMode": "smart",
+          "matchContentLength": 500,
+          "multiline": "off",
+          "sort": "relevance",
+          "rankingProfile": "auto",
+          "unique": "count",
+          "page": 1,
+          "regex": "rust",
+          "resultView": "matchOnly"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.public-traversal-sort",
+    "tool": "localSearch",
+    "input": {
+      "path": "/r",
+      "searchText": "x",
+      "sort": "traversal"
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute localSearch via fixture",
+          "reasoning": "Executed via fixture tool command",
+          "searchText": "x",
+          "path": "/r",
+          "caseMode": "smart",
+          "matchContentLength": 500,
+          "multiline": "off",
+          "sort": "traversal",
+          "rankingProfile": "auto",
+          "unique": "off",
+          "page": 1,
+          "regex": "rust",
+          "resultView": "paginated"
+        }
+      ]
+    }
+  },
+  {
     "id": "gh-search.no-constraint",
     "tool": "ghSearch",
     "input": {
@@ -2232,6 +2352,16 @@
       "path": "/r",
       "searchText": "x",
       "unique": "list"
+    },
+    "accepted": false
+  },
+  {
+    "id": "local-search.match-window-view",
+    "tool": "localSearch",
+    "input": {
+      "path": "/r",
+      "searchText": "x",
+      "matchWindow": 2
     },
     "accepted": false
   },
