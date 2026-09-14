@@ -121,6 +121,8 @@ pub struct ResponsePage {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct GraphQlError {
     pub message: String,
+    #[serde(default, rename = "type")]
+    pub type_name: Option<String>,
     #[serde(default)]
     pub path: Vec<Value>,
     #[serde(default)]
@@ -140,6 +142,7 @@ pub struct GitHubTransport<R> {
     credentials: Arc<R>,
     retry: RetryPolicy,
     budget: Arc<GitHubBudget>,
+    graphql_enabled: bool,
 }
 impl<R> Clone for GitHubTransport<R> {
     fn clone(&self) -> Self {
@@ -149,6 +152,7 @@ impl<R> Clone for GitHubTransport<R> {
             credentials: self.credentials.clone(),
             retry: self.retry.clone(),
             budget: self.budget.clone(),
+            graphql_enabled: self.graphql_enabled,
         }
     }
 }
@@ -202,7 +206,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             credentials,
             retry,
             budget,
+            graphql_enabled: true,
         })
+    }
+    pub fn with_graphql_enabled(mut self, enabled: bool) -> Self {
+        self.graphql_enabled = enabled;
+        self
+    }
+    pub fn graphql_enabled(&self) -> bool {
+        self.graphql_enabled
     }
     pub fn endpoint(&self) -> &GitHubEndpoint {
         &self.endpoint

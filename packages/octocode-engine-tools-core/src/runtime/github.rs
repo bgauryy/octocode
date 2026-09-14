@@ -44,6 +44,7 @@ impl GitHubServices {
             GitHubEndpoint::new(url::Url::parse(&config.resolved.github.api_url).map_err(
                 |_| ProviderError::new(ProviderErrorKind::Configuration, "Invalid GitHub API URL"),
             )?)?;
+        let graphql_enabled = config.resolved.github.graphql_enabled;
         let transport = GitHubTransport::new(
             endpoint,
             Arc::new(StaticCredentialResolver::anonymous()),
@@ -51,7 +52,8 @@ impl GitHubServices {
                 max_attempts: (config.resolved.network.max_retries as u8).saturating_add(1),
                 ..Default::default()
             },
-        )?;
+        )?
+        .with_graphql_enabled(graphql_enabled);
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
         let credentials = Arc::new(ConfigCredentialResolver::new(
             config,

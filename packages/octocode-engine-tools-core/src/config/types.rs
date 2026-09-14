@@ -108,6 +108,8 @@ pub struct ResolvedConfig {
 pub struct GitHubConfig {
     #[serde(rename = "apiUrl")]
     pub api_url: String,
+    #[serde(rename = "graphqlEnabled")]
+    pub graphql_enabled: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LocalConfig {

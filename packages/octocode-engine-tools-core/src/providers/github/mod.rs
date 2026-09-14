@@ -36,7 +36,10 @@ pub use error::{ProviderError, ProviderErrorKind, RateLimit};
 pub use history::{
     CommitListRequest, HistoryPage, HistoryRequest, IssueListRequest, PullListRequest,
 };
-pub use history_item::HistoryItemResponse;
+pub use history_item::{
+    GraphqlCollection, GraphqlHistoryItem, GraphqlHistoryWanted, GraphqlItemKind,
+    HistoryItemResponse,
+};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchPage,
     RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,

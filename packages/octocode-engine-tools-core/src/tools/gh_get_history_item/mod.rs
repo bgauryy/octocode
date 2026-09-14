@@ -1,5 +1,6 @@
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
+    CredentialResolver, GitHubTransport, GraphqlCollection, GraphqlHistoryWanted, GraphqlItemKind,
+    ProviderError, ProviderErrorKind, RequestContext,
 };
 use crate::tools::local_fetch::ContentScan;
 use serde::{Deserialize, Serialize};
@@ -183,13 +184,6 @@ async fn pull_request<R: CredentialResolver>(
         .number
         .ok_or_else(|| validation("number is required"))?
         .to_string();
-    let (raw, _) = fetch(
-        transport,
-        &["repos", &query.owner, &query.repo, "pulls", &number],
-        &[],
-        context,
-    )
-    .await?;
     let content = query.content.as_ref().and_then(Value::as_object);
     let want_body = content_flag(content, "body");
     let patch_selector = content
@@ -211,6 +205,33 @@ async fn pull_request<R: CredentialResolver>(
         .and_then(|c| c.get("commits"))
         .and_then(Value::as_object);
     let want_commits = commits_selector.is_some();
+    let wanted = GraphqlHistoryWanted {
+        body: want_body,
+        files: content_flag(content, "changedFiles"),
+        discussion: want_discussion,
+        reviews: want_reviews,
+        commits: want_commits,
+    };
+    let graphql = try_history_graphql(
+        transport,
+        query,
+        GraphqlItemKind::PullRequest,
+        wanted,
+        context,
+    )
+    .await;
+    let raw = if let Some(item) = &graphql {
+        item.raw.clone()
+    } else {
+        fetch(
+            transport,
+            &["repos", &query.owner, &query.repo, "pulls", &number],
+            &[],
+            context,
+        )
+        .await?
+        .0
+    };
     let mut states = Map::new();
     let mut files = Vec::new();
     let mut comments = Vec::new();
@@ -220,8 +241,9 @@ async fn pull_request<R: CredentialResolver>(
 
     if want_files {
         let provider_page = collection_page(query, "changedFiles", 1);
-        let (value, more) = fetch_collection(
+        let (value, more, used_page) = graphql_or_rest_collection(
             transport,
+            graphql.as_ref().and_then(|item| item.files.as_ref()),
             &[
                 "repos",
                 &query.owner,
@@ -235,16 +257,17 @@ async fn pull_request<R: CredentialResolver>(
             context,
         )
         .await?;
-        files = array(value);
+        files = value;
         states.insert(
             "changedFiles".into(),
-            json!({"page":provider_page,"hasMore":more}),
+            json!({"page":used_page,"hasMore":more}),
         );
     }
     if want_discussion {
         let provider_page = collection_page(query, "discussion", 1);
-        let (value, more) = fetch_collection(
+        let (values, more, used_page) = graphql_or_rest_collection(
             transport,
+            graphql.as_ref().and_then(|item| item.discussion.as_ref()),
             &[
                 "repos",
                 &query.owner,
@@ -258,7 +281,6 @@ async fn pull_request<R: CredentialResolver>(
             context,
         )
         .await?;
-        let values = array(value);
         let dropped = values
             .iter()
             .filter(|v| is_bot(str_at(v, "/user/login").unwrap_or("")))
@@ -271,7 +293,7 @@ async fn pull_request<R: CredentialResolver>(
         }
         states.insert(
             "discussion".into(),
-            json!({"page":provider_page,"hasMore":more}),
+            json!({"page":used_page,"hasMore":more}),
         );
     }
     if want_inline {
@@ -309,8 +331,9 @@ async fn pull_request<R: CredentialResolver>(
     }
     if want_reviews {
         let provider_page = collection_page(query, "reviews", 1);
-        let (value, more) = fetch_collection(
+        let (value, more, used_page) = graphql_or_rest_collection(
             transport,
+            graphql.as_ref().and_then(|item| item.reviews.as_ref()),
             &[
                 "repos",
                 &query.owner,
@@ -324,16 +347,14 @@ async fn pull_request<R: CredentialResolver>(
             context,
         )
         .await?;
-        reviews = array(value);
-        states.insert(
-            "reviews".into(),
-            json!({"page":provider_page,"hasMore":more}),
-        );
+        reviews = value;
+        states.insert("reviews".into(), json!({"page":used_page,"hasMore":more}));
     }
     if want_commits {
         let provider_page = collection_page(query, "commits", 1);
-        let (value, more) = fetch_collection(
+        let (value, more, used_page) = graphql_or_rest_collection(
             transport,
+            graphql.as_ref().and_then(|item| item.commits.as_ref()),
             &[
                 "repos",
                 &query.owner,
@@ -347,11 +368,8 @@ async fn pull_request<R: CredentialResolver>(
             context,
         )
         .await?;
-        commits = array(value);
-        states.insert(
-            "commits".into(),
-            json!({"page":provider_page,"hasMore":more}),
-        );
+        commits = value;
+        states.insert("commits".into(), json!({"page":used_page,"hasMore":more}));
     }
 
     let mut row = pr_metadata(&raw, query, want_body);
@@ -779,19 +797,6 @@ async fn issue<R: CredentialResolver>(
         .number
         .ok_or_else(|| validation("number is required"))?
         .to_string();
-    let (raw, _) = fetch(
-        transport,
-        &["repos", &query.owner, &query.repo, "issues", &number],
-        &[],
-        context,
-    )
-    .await?;
-    if raw.get("pull_request").is_some_and(|v| !v.is_null()) {
-        return Err(validation(&format!(
-            "Issue #{} is a pull request; use ghGetHistoryItem operation:\"pullRequest\" with number:{}.",
-            number, number
-        )));
-    }
     let content = query.content.as_ref().and_then(Value::as_object);
     let want_body = content.is_none_or(|v| content_flag(Some(v), "body"));
     let comments = content
@@ -799,6 +804,33 @@ async fn issue<R: CredentialResolver>(
         .and_then(Value::as_object);
     let want_comments = content_flag(comments, "discussion");
     let include_bots = content_flag(comments, "includeBots");
+    let wanted = GraphqlHistoryWanted {
+        body: want_body,
+        files: false,
+        discussion: want_comments,
+        reviews: false,
+        commits: false,
+    };
+    let graphql =
+        try_history_graphql(transport, query, GraphqlItemKind::Issue, wanted, context).await;
+    let raw = if let Some(item) = &graphql {
+        item.raw.clone()
+    } else {
+        fetch(
+            transport,
+            &["repos", &query.owner, &query.repo, "issues", &number],
+            &[],
+            context,
+        )
+        .await?
+        .0
+    };
+    if raw.get("pull_request").is_some_and(|v| !v.is_null()) {
+        return Err(validation(&format!(
+            "Issue #{} is a pull request; use ghGetHistoryItem operation:\"pullRequest\" with number:{}.",
+            number, number
+        )));
+    }
     let mut row = json!({
         "number":raw["number"],"title":string(raw.get("title")),
         "state":str_at(&raw,"/state").unwrap_or("open"),"author":str_at(&raw,"/user/login").unwrap_or("unknown"),
@@ -818,8 +850,9 @@ async fn issue<R: CredentialResolver>(
     if want_comments {
         let page_no = query.comment_page.unwrap_or(1);
         let per = query.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
-        let (raw_comments, more) = fetch_collection(
+        let (raw_comments, more, used_page) = graphql_or_rest_collection(
             transport,
+            graphql.as_ref().and_then(|item| item.discussion.as_ref()),
             &[
                 "repos",
                 &query.owner,
@@ -833,7 +866,8 @@ async fn issue<R: CredentialResolver>(
             context,
         )
         .await?;
-        let comments = map_comments(array(raw_comments), "discussion", include_bots);
+        let page_no = used_page;
+        let comments = map_comments(raw_comments, "discussion", include_bots);
         let mut shaped = Vec::new();
         let mut body_page = None;
         for comment in comments {
@@ -1009,6 +1043,97 @@ async fn fetch_collection<R: CredentialResolver>(
         context,
     )
     .await
+}
+
+fn any_collection_page_gt_1(query: &GhGetHistoryItemQuery) -> bool {
+    [
+        query.file_page,
+        query.comment_page,
+        query.commit_page,
+        query.review_page,
+    ]
+    .into_iter()
+    .any(|page| page.unwrap_or(1) > 1)
+        || ["changedFiles", "discussion", "inline", "reviews", "commits"]
+            .iter()
+            .any(|key| collection_page(query, key, 1) > 1)
+}
+
+fn graphql_flag_count(wanted: GraphqlHistoryWanted) -> usize {
+    [
+        wanted.body,
+        wanted.files,
+        wanted.discussion,
+        wanted.reviews,
+        wanted.commits,
+    ]
+    .into_iter()
+    .filter(|flag| *flag)
+    .count()
+}
+
+fn should_use_graphql<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &GhGetHistoryItemQuery,
+    wanted: GraphqlHistoryWanted,
+) -> bool {
+    transport.graphql_enabled()
+        && !transport.graphql_host_skipped()
+        && matches!(
+            query.operation,
+            ItemOperation::PullRequest | ItemOperation::Issue
+        )
+        && query
+            .content
+            .as_ref()
+            .and_then(Value::as_object)
+            .and_then(|content| content.get("patches"))
+            .and_then(Value::as_object)
+            .and_then(|patches| patches.get("mode"))
+            .and_then(Value::as_str)
+            .unwrap_or("none")
+            == "none"
+        && !any_collection_page_gt_1(query)
+        && graphql_flag_count(wanted) >= 2
+}
+
+async fn try_history_graphql<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &GhGetHistoryItemQuery,
+    kind: GraphqlItemKind,
+    wanted: GraphqlHistoryWanted,
+    context: &RequestContext,
+) -> Option<crate::providers::github::GraphqlHistoryItem> {
+    if !should_use_graphql(transport, query, wanted) {
+        return None;
+    }
+    transport
+        .history_item_graphql(
+            kind,
+            &query.owner,
+            &query.repo,
+            query.number?,
+            wanted,
+            context,
+        )
+        .await
+        .ok()
+}
+
+async fn graphql_or_rest_collection<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    graphql: Option<&GraphqlCollection>,
+    segments: &[&str],
+    page: usize,
+    per: usize,
+    context: &RequestContext,
+) -> Result<(Vec<Value>, bool, usize), ProviderError> {
+    if let Some(col) = graphql.filter(|collection| collection.complete) {
+        return Ok((col.nodes.clone(), false, 1));
+    }
+    let rest_page = if graphql.is_some() { 1 } else { page };
+    let (value, more) = fetch_collection(transport, segments, rest_page, per, context).await?;
+    Ok((array(value), more, rest_page))
 }
 
 fn content_flag(value: Option<&Map<String, Value>>, key: &str) -> bool {
@@ -1666,5 +1791,513 @@ mod tests {
             error.message.as_ref(),
             "GitHub history item response exceeds 4 bytes"
         );
+    }
+
+    #[test]
+    fn comment_page_or_collection_pages_above_one_skip_graphql_gate() {
+        let comment_page: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "content":{"body":true,"comments":{"discussion":true}},
+            "commentPage": 2
+        }))
+        .unwrap();
+        assert!(any_collection_page_gt_1(&comment_page));
+        let discussion_page: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "content":{"body":true,"changedFiles":true},
+            "collectionPages":{"discussion":2}
+        }))
+        .unwrap();
+        assert!(any_collection_page_gt_1(&discussion_page));
+        assert_eq!(
+            graphql_flag_count(GraphqlHistoryWanted {
+                body: true,
+                files: true,
+                discussion: false,
+                reviews: false,
+                commits: false,
+            }),
+            2
+        );
+    }
+}
+
+#[cfg(test)]
+mod graphql_tests {
+    use super::*;
+    use crate::providers::github::{
+        CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
+    };
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use wiremock::{
+        Match, Mock, MockServer, Request, ResponseTemplate,
+        matchers::{method, path, query_param},
+    };
+
+    struct Safe;
+    impl ContentScan for Safe {
+        fn sanitize(
+            &self,
+            text: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (String, String)> {
+            Ok((text.to_owned(), Vec::new()))
+        }
+    }
+
+    struct CaptureBody(Arc<Mutex<Option<String>>>);
+    impl Match for CaptureBody {
+        fn matches(&self, request: &Request) -> bool {
+            *self.0.lock().expect("capture") =
+                Some(String::from_utf8_lossy(&request.body).into_owned());
+            true
+        }
+    }
+
+    struct GraphQlDocumentGuard;
+    impl Match for GraphQlDocumentGuard {
+        fn matches(&self, request: &Request) -> bool {
+            let body = String::from_utf8_lossy(&request.body);
+            !body.contains("first: 0")
+                && !body.contains("first:0")
+                && !body.contains("reviewThreads")
+        }
+    }
+
+    fn rest_pr() -> Value {
+        json!({
+            "number": 1,
+            "title": "T",
+            "state": "open",
+            "draft": false,
+            "user": {"login": "alice"},
+            "labels": [{"name": "bug"}],
+            "base": {"ref": "main"},
+            "head": {"ref": "feat", "sha": "abc"},
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "closed_at": null,
+            "merged_at": null,
+            "comments": 1,
+            "changed_files": 2,
+            "additions": 3,
+            "deletions": 1,
+            "body": "hello"
+        })
+    }
+
+    fn graphql_pr(files_has_next: bool, extra_file: bool) -> Value {
+        let mut files = vec![json!({
+            "path": "a.rs", "additions": 2, "deletions": 0, "changeType": "ADDED"
+        })];
+        if extra_file {
+            files.push(json!({
+                "path": "b.rs", "additions": 1, "deletions": 1, "changeType": "MODIFIED"
+            }));
+        }
+        json!({
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "number": 1,
+                        "title": "T",
+                        "state": "OPEN",
+                        "isDraft": false,
+                        "isMerged": false,
+                        "author": {"login": "alice"},
+                        "labels": {"nodes": [{"name": "bug"}]},
+                        "baseRefName": "main",
+                        "headRefName": "feat",
+                        "headRefOid": "abc",
+                        "createdAt": "2024-01-01T00:00:00Z",
+                        "updatedAt": "2024-01-02T00:00:00Z",
+                        "closedAt": null,
+                        "mergedAt": null,
+                        "comments": {"totalCount": 1},
+                        "changedFiles": 2,
+                        "additions": 3,
+                        "deletions": 1,
+                        "body": "hello",
+                        "files": {
+                            "pageInfo": {"hasNextPage": files_has_next},
+                            "nodes": files
+                        },
+                        "commentsConn": {
+                            "pageInfo": {"hasNextPage": false},
+                            "nodes": [{
+                                "databaseId": 9,
+                                "author": {"login": "bob"},
+                                "body": "c",
+                                "createdAt": "2024-01-01T00:00:00Z",
+                                "url": "https://example.com"
+                            }]
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    fn page1_files() -> Value {
+        json!([
+            {"filename": "a.rs", "additions": 2, "deletions": 0, "status": "added"},
+            {"filename": "b.rs", "additions": 1, "deletions": 1, "status": "modified"}
+        ])
+    }
+
+    fn page2_files() -> Value {
+        json!([{"filename": "c.rs", "additions": 1, "deletions": 0, "status": "added"}])
+    }
+
+    fn discussion_rest() -> Value {
+        json!([{
+            "id": 9,
+            "user": {"login": "bob"},
+            "body": "c",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z"
+        }])
+    }
+
+    fn eligible_query() -> GhGetHistoryItemQuery {
+        serde_json::from_value(json!({
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1,
+            "content": {
+                "body": true,
+                "changedFiles": true,
+                "comments": {"discussion": true}
+            }
+        }))
+        .unwrap()
+    }
+
+    async fn transport(server: &MockServer) -> GitHubTransport<StaticCredentialResolver> {
+        let endpoint =
+            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).unwrap())
+                .unwrap();
+        GitHubTransport::new(
+            endpoint,
+            Arc::new(StaticCredentialResolver::new(
+                "secret",
+                CredentialSource::Override,
+            )),
+            RetryPolicy::default(),
+        )
+        .unwrap()
+    }
+
+    async fn run(
+        transport: &GitHubTransport<StaticCredentialResolver>,
+        query: &GhGetHistoryItemQuery,
+    ) -> Value {
+        execute(
+            transport,
+            query,
+            &RequestContext::with_timeout(Duration::from_secs(5), 1_000_000),
+            &Safe,
+        )
+        .await
+        .expect("history item")
+    }
+
+    async fn mount_rest_pr(server: &MockServer, files_next: bool) {
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/pulls/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(rest_pr()))
+            .mount(server)
+            .await;
+        let mut files = ResponseTemplate::new(200).set_body_json(page1_files());
+        if files_next {
+            let next = format!(
+                "{}/api/v3/repos/o/r/pulls/1/files?page=2&per_page=100",
+                server.uri()
+            );
+            files = files.insert_header("link", format!("<{next}>; rel=\"next\""));
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/pulls/1/files"))
+            .and(query_param("page", "1"))
+            .respond_with(files)
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/issues/1/comments"))
+            .and(query_param("page", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(discussion_rest()))
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn graphql_has_next_page_matches_pure_rest_page_one_next() {
+        let graphql_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .and(GraphQlDocumentGuard)
+            .respond_with(ResponseTemplate::new(200).set_body_json(graphql_pr(true, true)))
+            .expect(1)
+            .mount(&graphql_server)
+            .await;
+        mount_rest_pr(&graphql_server, true).await;
+        let graphql_transport = transport(&graphql_server).await;
+        let graphql_out = run(&graphql_transport, &eligible_query()).await;
+
+        let rest_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&rest_server)
+            .await;
+        mount_rest_pr(&rest_server, true).await;
+        let rest_transport = transport(&rest_server).await.with_graphql_enabled(false);
+        let rest_out = run(&rest_transport, &eligible_query()).await;
+
+        assert_eq!(
+            graphql_out["pullRequests"][0]["contentPagination"]["changedFiles"],
+            rest_out["pullRequests"][0]["contentPagination"]["changedFiles"]
+        );
+        assert_eq!(
+            graphql_out["next"]["nextChangedFilesPage"],
+            rest_out["next"]["nextChangedFilesPage"]
+        );
+        assert_eq!(
+            graphql_out["next"]["nextChangedFilesPage"]["query"]["filePage"],
+            1
+        );
+        assert_eq!(
+            graphql_out["next"]["nextChangedFilesPage"]["query"]["collectionPages"]["changedFiles"],
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn graphql_page_two_continuation_is_rest_without_dupes_or_holes() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .and(GraphQlDocumentGuard)
+            .respond_with(ResponseTemplate::new(200).set_body_json(graphql_pr(true, true)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, true).await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/pulls/1/files"))
+            .and(query_param("page", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page2_files()))
+            .mount(&server)
+            .await;
+        let t = transport(&server).await;
+        let page1 = run(&t, &eligible_query()).await;
+        let mut page2_query: GhGetHistoryItemQuery =
+            serde_json::from_value(page1["next"]["nextChangedFilesPage"]["query"].clone()).unwrap();
+        page2_query.content = eligible_query().content;
+        let page2 = run(&t, &page2_query).await;
+        let mut paths: Vec<_> = page1["pullRequests"][0]["changedFiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(page2["pullRequests"][0]["changedFiles"].as_array().unwrap())
+            .map(|file| file["path"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(paths, vec!["a.rs", "b.rs", "c.rs"]);
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), 3);
+
+        let rest_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&rest_server)
+            .await;
+        mount_rest_pr(&rest_server, true).await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/pulls/1/files"))
+            .and(query_param("page", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page2_files()))
+            .mount(&rest_server)
+            .await;
+        let rest = transport(&rest_server).await.with_graphql_enabled(false);
+        let rest1 = run(&rest, &eligible_query()).await;
+        let mut rest2_query: GhGetHistoryItemQuery =
+            serde_json::from_value(rest1["next"]["nextChangedFilesPage"]["query"].clone()).unwrap();
+        rest2_query.content = eligible_query().content;
+        let rest2 = run(&rest, &rest2_query).await;
+        let rest_paths: Vec<_> = rest1["pullRequests"][0]["changedFiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(rest2["pullRequests"][0]["changedFiles"].as_array().unwrap())
+            .map(|file| file["path"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(rest_paths, vec!["a.rs", "b.rs", "c.rs"]);
+    }
+
+    #[tokio::test]
+    async fn comment_page_2_never_calls_graphql() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/issues/1/comments"))
+            .and(query_param("page", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+        let t = transport(&server).await;
+        let mut query = eligible_query();
+        query.comment_page = Some(2);
+        let _ = run(&t, &query).await;
+    }
+
+    #[tokio::test]
+    async fn collection_pages_discussion_2_never_calls_graphql() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/issues/1/comments"))
+            .and(query_param("page", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+        let t = transport(&server).await;
+        let mut query = eligible_query();
+        query.collection_pages = Some(json!({"discussion": 2}));
+        let _ = run(&t, &query).await;
+    }
+
+    #[tokio::test]
+    async fn patches_mode_all_never_calls_graphql() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        mount_rest_pr(&server, false).await;
+        let t = transport(&server).await;
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1,
+            "content": {
+                "body": true,
+                "changedFiles": true,
+                "patches": {"mode": "all"}
+            }
+        }))
+        .unwrap();
+        let _ = run(&t, &query).await;
+    }
+
+    #[tokio::test]
+    async fn graphql_document_omits_unused_connections_and_never_sends_first_zero() {
+        let server = MockServer::start().await;
+        let captured = Arc::new(Mutex::new(None));
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .and(CaptureBody(captured.clone()))
+            .and(GraphQlDocumentGuard)
+            .respond_with(ResponseTemplate::new(200).set_body_json(graphql_pr(false, true)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let t = transport(&server).await;
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1,
+            "content": {"body": true, "changedFiles": true}
+        }))
+        .unwrap();
+        let out = run(&t, &query).await;
+        let body = captured
+            .lock()
+            .expect("capture")
+            .clone()
+            .expect("graphql body");
+        assert!(!body.contains("reviewThreads"));
+        assert!(!body.contains("first: 0"));
+        assert!(!body.contains("first:0"));
+        assert!(!body.contains("commentsConn"));
+        assert!(!body.contains("reviews("));
+        assert!(!body.contains("commits("));
+        assert!(body.contains("files(first: $files)") || body.contains("files(first:$files)"));
+        let file = &out["pullRequests"][0]["changedFiles"][0];
+        assert_eq!(file["path"], "a.rs");
+        assert!(file.get("patch").is_none());
+        assert_eq!(file["status"], "added");
+    }
+
+    #[tokio::test]
+    async fn graphql_inline_comments_stay_on_rest() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .and(GraphQlDocumentGuard)
+            .respond_with(ResponseTemplate::new(200).set_body_json(graphql_pr(false, true)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/pulls/1/comments"))
+            .and(query_param("page", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+                "id": 11,
+                "user": {"login": "carol"},
+                "body": "inline",
+                "path": "a.rs",
+                "line": 3,
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z"
+            }])))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let t = transport(&server).await;
+        let query: GhGetHistoryItemQuery = serde_json::from_value(json!({
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1,
+            "content": {
+                "body": true,
+                "changedFiles": true,
+                "comments": {"discussion": true, "reviewInline": true}
+            }
+        }))
+        .unwrap();
+        let out = run(&t, &query).await;
+        let types: Vec<_> = out["pullRequests"][0]["comments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["commentType"].as_str().unwrap().to_owned())
+            .collect();
+        assert!(types.contains(&"review_inline".into()));
+        assert!(types.contains(&"discussion".into()));
     }
 }

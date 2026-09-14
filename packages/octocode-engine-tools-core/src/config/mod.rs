@@ -315,6 +315,38 @@ mod tests {
         assert_eq!(view.config_keys, vec!["local", "storage"])
     }
     #[test]
+    fn github_graphql_enabled_defaults_true_and_honors_env_and_file() {
+        let defaults = resolve_config(&input(BTreeMap::new(), None));
+        assert!(defaults.resolved.github.graphql_enabled);
+        let env_off = resolve_config(&input(
+            BTreeMap::from([("OCTOCODE_GITHUB_GRAPHQL".into(), "false".into())]),
+            None,
+        ));
+        assert!(!env_off.resolved.github.graphql_enabled);
+        assert_eq!(env_off.source, ConfigSource::Env);
+        let file_off = resolve_config(&input(
+            BTreeMap::new(),
+            Some("{\"github\":{\"graphqlEnabled\":false}}"),
+        ));
+        assert!(!file_off.resolved.github.graphql_enabled);
+        assert!(
+            !file_off
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("graphqlEnabled"))
+        );
+        let env_overrides_file = resolve_config(&input(
+            BTreeMap::from([("OCTOCODE_GITHUB_GRAPHQL".into(), "true".into())]),
+            Some("{\"github\":{\"graphqlEnabled\":false}}"),
+        ));
+        assert!(env_overrides_file.resolved.github.graphql_enabled);
+        assert_eq!(
+            get_config_value(&env_overrides_file.resolved, "github.graphqlEnabled"),
+            Some(json!(true))
+        );
+    }
+
+    #[test]
     fn unreadable_config_is_invalid_with_a_stable_diagnostic() {
         let mut i = input(BTreeMap::new(), None);
         i.config_file = FileInput::Unreadable {

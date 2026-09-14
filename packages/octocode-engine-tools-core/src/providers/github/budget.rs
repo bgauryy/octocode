@@ -31,12 +31,15 @@ pub enum GitHubResource {
     Core,
     Search,
     CodeSearch,
+    Graphql,
 }
 
 impl GitHubResource {
     pub fn classify(url: &Url) -> Self {
         let path = url.path();
-        if path.contains("/search/code") {
+        if path.contains("/graphql") {
+            Self::Graphql
+        } else if path.contains("/search/code") {
             Self::CodeSearch
         } else if path.contains("/search/") {
             Self::Search
@@ -48,7 +51,7 @@ impl GitHubResource {
     fn per_minute(self) -> usize {
         match self {
             Self::Core => usize::MAX,
-            Self::Search => 30,
+            Self::Search | Self::Graphql => 30,
             Self::CodeSearch => 10,
         }
     }
@@ -63,6 +66,7 @@ struct BudgetInner {
     semaphore: Arc<Semaphore>,
     search: Mutex<VecDeque<Instant>>,
     code_search: Mutex<VecDeque<Instant>>,
+    graphql: Mutex<VecDeque<Instant>>,
     circuit: Mutex<Circuit>,
     pace: bool,
 }
@@ -99,6 +103,7 @@ impl GitHubBudget {
                 semaphore: Arc::new(Semaphore::new(concurrency.max(1))),
                 search: Mutex::new(VecDeque::new()),
                 code_search: Mutex::new(VecDeque::new()),
+                graphql: Mutex::new(VecDeque::new()),
                 circuit: Mutex::new(Circuit::default()),
                 pace,
             }),
@@ -221,6 +226,7 @@ impl GitHubBudget {
         }
         let mut queue = match resource {
             GitHubResource::CodeSearch => self.inner.code_search.lock(),
+            GitHubResource::Graphql => self.inner.graphql.lock(),
             _ => self.inner.search.lock(),
         }
         .unwrap_or_else(|error| error.into_inner());
@@ -293,6 +299,20 @@ mod tests {
             ),
             GitHubResource::Core
         );
+        assert_eq!(
+            GitHubResource::classify(&Url::parse("https://api.github.com/graphql").unwrap()),
+            GitHubResource::Graphql
+        );
+        assert_eq!(
+            GitHubResource::classify(&Url::parse("https://ghe.example/api/graphql").unwrap()),
+            GitHubResource::Graphql
+        );
+        assert_ne!(
+            GitHubResource::classify(&Url::parse("https://api.github.com/graphql").unwrap()),
+            GitHubResource::Core
+        );
+        assert_eq!(GitHubResource::Graphql.per_minute(), 30);
+        assert_eq!(GitHubResource::Core.per_minute(), usize::MAX);
     }
 
     #[test]
