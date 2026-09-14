@@ -3146,13 +3146,85 @@ describe('Token Storage', () => {
     });
 
     it('falls back to the file store when the addon is absent', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
+      const storedCreds = createMockCredentials();
+      const store = { version: 1, credentials: { 'github.com': storedCreds } };
+
+      vi.mocked(fs.existsSync).mockImplementation((path: unknown) => {
+        if (String(path).includes('.key')) return true;
+        if (String(path).includes('credentials.json')) return true;
+        return false;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((path: unknown) => {
+        if (String(path).includes('.key')) return mockKey.toString('hex');
+        return 'iv:authtag:encrypted';
+      });
+      vi.mocked(crypto.createDecipheriv).mockReturnValue({
+        update: vi.fn().mockReturnValue(JSON.stringify(store)),
+        final: vi.fn().mockReturnValue(''),
+        setAuthTag: vi.fn(),
+      } as unknown as crypto.DecipherGCM);
 
       const { getCredentials, _setNativeCredentialsForTesting } =
         await import('../../../src/shared/credentials/storage.js');
       _setNativeCredentialsForTesting(null);
 
-      expect(await getCredentials('github.com')).toBeNull();
+      const result = await getCredentials('github.com');
+      expect(result?.token.token).toBe(storedCreds.token.token);
+    });
+
+    it('falls through to the file store when native get misses or throws', async () => {
+      const storedCreds = createMockCredentials();
+      const store = { version: 1, credentials: { 'github.com': storedCreds } };
+
+      vi.mocked(fs.existsSync).mockImplementation((path: unknown) => {
+        if (String(path).includes('.key')) return true;
+        if (String(path).includes('credentials.json')) return true;
+        return false;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((path: unknown) => {
+        if (String(path).includes('.key')) return mockKey.toString('hex');
+        return 'iv:authtag:encrypted';
+      });
+      vi.mocked(crypto.createDecipheriv).mockReturnValue({
+        update: vi.fn().mockReturnValue(JSON.stringify(store)),
+        final: vi.fn().mockReturnValue(''),
+        setAuthTag: vi.fn(),
+      } as unknown as crypto.DecipherGCM);
+
+      const native = {
+        storeCredentials: vi.fn(),
+        getCredentials: vi.fn().mockReturnValue(null),
+        deleteCredentials: vi.fn().mockImplementation(() => {
+          throw new Error('secure credential store is unavailable');
+        }),
+      };
+
+      const {
+        getCredentials,
+        deleteCredentials,
+        _setNativeCredentialsForTesting,
+      } = await import('../../../src/shared/credentials/storage.js');
+      _setNativeCredentialsForTesting(native);
+
+      expect((await getCredentials('github.com'))?.token.token).toBe(
+        storedCreds.token.token
+      );
+
+      native.getCredentials.mockImplementation(() => {
+        throw new Error('secure credential store is unavailable');
+      });
+      const { getCredentials: getCredentialsAgain, _resetCredentialsCache } =
+        await import('../../../src/shared/credentials/storage.js');
+      _setNativeCredentialsForTesting(native);
+      _resetCredentialsCache();
+      expect((await getCredentialsAgain('github.com'))?.token.token).toBe(
+        storedCreds.token.token
+      );
+
+      expect(await deleteCredentials('github.com')).toEqual({
+        success: false,
+        deletedFromFile: false,
+      });
     });
   });
 });

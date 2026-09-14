@@ -257,7 +257,17 @@ pub fn store_credentials_value(value: Value) -> Result<Value, ProviderError> {
 }
 
 pub fn get_credentials_value(hostname: Option<&str>) -> Result<Value, ProviderError> {
-    match load_stored_credential(&credential_hostname(hostname))? {
+    let Ok(store) = platform_store() else {
+        return Ok(Value::Null);
+    };
+    get_credentials_value_from(&store, hostname)
+}
+
+fn get_credentials_value_from(
+    store: &Arc<keyring_core::CredentialStore>,
+    hostname: Option<&str>,
+) -> Result<Value, ProviderError> {
+    match load_stored_from(store, &credential_hostname(hostname))? {
         Some(stored) => serde_json::to_value(&stored).map_err(|_| {
             ProviderError::new(
                 ProviderErrorKind::Decode,
@@ -1210,16 +1220,17 @@ mod tests {
     fn get_credentials_json_includes_full_secret() {
         let store = mock_store();
         store_in(&store, &sample_credentials("gho_full")).expect("store");
-        let stored = load_stored_from(&store, "github.com")
-            .expect("load")
-            .expect("credentials");
-        let json = serde_json::to_value(&stored).expect("json");
+        let json = get_credentials_value_from(&store, Some("github.com")).expect("json");
         assert_eq!(
             json.pointer("/token/token").and_then(Value::as_str),
             Some("gho_full")
         );
         assert_eq!(json["username"], "alice");
         assert!(json.get("scopes").is_none());
+        assert_eq!(
+            get_credentials_value_from(&store, Some("missing.example")).expect("miss"),
+            Value::Null
+        );
     }
 
     #[test]

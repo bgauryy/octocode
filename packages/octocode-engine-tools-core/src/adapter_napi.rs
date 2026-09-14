@@ -13,6 +13,40 @@ pub struct NativeRuntime {
     runtime: Arc<ToolRuntime>,
 }
 
+#[napi]
+pub fn native_abi_version() -> u32 {
+    crate::NATIVE_ABI_VERSION
+}
+
+#[napi]
+pub fn store_credentials(value: Value) -> napi::Result<Value> {
+    store_credentials_value(value).map_err(credential_boundary_error)
+}
+
+#[napi]
+pub fn get_credentials(hostname: Option<String>) -> napi::Result<Value> {
+    get_credentials_value(hostname.as_deref()).map_err(credential_boundary_error)
+}
+
+#[napi]
+pub fn delete_credentials(hostname: Option<String>) -> napi::Result<Value> {
+    delete_credentials_value(hostname.as_deref()).map_err(credential_boundary_error)
+}
+
+#[napi]
+pub async fn refresh_auth_token(hostname: Option<String>) -> napi::Result<Value> {
+    refresh_auth_token_value(hostname.as_deref())
+        .await
+        .map_err(credential_boundary_error)
+}
+
+#[napi]
+pub async fn get_token_with_refresh(hostname: Option<String>) -> napi::Result<Value> {
+    get_token_with_refresh_value(hostname.as_deref())
+        .await
+        .map_err(credential_boundary_error)
+}
+
 fn credential_boundary_error(error: ProviderError) -> napi::Error {
     let status = match error.kind {
         crate::providers::github::ProviderErrorKind::Validation => napi::Status::InvalidArg,

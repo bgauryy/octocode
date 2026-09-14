@@ -3,7 +3,23 @@ import { createRequire } from 'node:module';
 
 const [addon, regexWorker] = process.argv.slice(2);
 assert.ok(addon && regexWorker, 'usage: node addon-boundary.mjs <addon> <regex-worker>');
-const { NativeRuntime } = createRequire(import.meta.url)(addon);
+const binding = createRequire(import.meta.url)(addon);
+const {
+  NativeRuntime,
+  nativeAbiVersion,
+  storeCredentials,
+  getCredentials,
+  deleteCredentials,
+  refreshAuthToken,
+  getTokenWithRefresh,
+} = binding;
+assert.equal(typeof nativeAbiVersion, 'function');
+assert.equal(nativeAbiVersion(), 2);
+assert.equal(typeof storeCredentials, 'function');
+assert.equal(typeof getCredentials, 'function');
+assert.equal(typeof deleteCredentials, 'function');
+assert.equal(typeof refreshAuthToken, 'function');
+assert.equal(typeof getTokenWithRefresh, 'function');
 const runtime = new NativeRuntime({
   surface: 'mcp',
   regexWorkerPath: regexWorker,
@@ -11,6 +27,11 @@ const runtime = new NativeRuntime({
 });
 try {
   assert.equal(runtime.abiVersion, 2);
+  assert.equal(typeof runtime.storeCredentials, 'function');
+  assert.equal(typeof runtime.getCredentials, 'function');
+  assert.equal(typeof runtime.deleteCredentials, 'function');
+  assert.equal(typeof runtime.refreshAuthToken, 'function');
+  assert.equal(typeof runtime.getTokenWithRefresh, 'function');
   assert.equal(runtime.closed, false);
   await assert.rejects(
     runtime.execute('typed-error', 'localFetch', { queries: [{}] }),
