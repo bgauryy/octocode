@@ -58,19 +58,32 @@ pub struct LspError {
 
 impl LspError {
     fn with_query(code: &'static str, message: impl Into<String>, query: &LspSearchQuery) -> Self {
+        let next = recovery_next(query, code);
         Self {
             code,
             message: message.into(),
             hints: vec![
                 "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code.".into(),
             ],
-            next: Some(Box::new(recovery_next(query, code))),
+            next: next
+                .as_object()
+                .is_some_and(|object| !object.is_empty())
+                .then(|| Box::new(next)),
         }
     }
 
     fn invalid(message: impl Into<String>) -> Self {
         Self {
             code: "lsp.invalidInput",
+            message: message.into(),
+            hints: vec![],
+            next: None,
+        }
+    }
+
+    fn cancelled(message: impl Into<String>) -> Self {
+        Self {
+            code: "cancelled",
             message: message.into(),
             hints: vec![],
             next: None,
@@ -83,7 +96,7 @@ pub async fn execute(
     cancel: &dyn CancellationCheck,
     pool: Option<&LspPool>,
 ) -> Result<Value, LspError> {
-    cancel.check().map_err(LspError::invalid)?;
+    cancel.check().map_err(LspError::cancelled)?;
     let mut query = query;
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
@@ -768,32 +781,38 @@ fn recovery_next(query: &LspSearchQuery, code: &str) -> Value {
         .map(uri_to_path)
         .or_else(|| query.workspace_root.clone())
         .unwrap_or_default();
-    let search_text = query.symbol_name.clone().unwrap_or_default();
+    let search_text = query
+        .symbol_name
+        .as_deref()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_default();
     let mut next = serde_json::Map::new();
-    next.insert(
-        "searchText".into(),
-        json!({
-            "tool": "localSearch",
-            "query": {
-                "path": path,
-                "searchText": search_text
-            },
-            "confidence": "medium"
-        }),
-    );
-    if matches!(code, "lsp.serverUnavailable" | "lsp.anchorUnresolved") && !search_text.is_empty() {
+    if !search_text.is_empty() {
         next.insert(
-            "syntax".into(),
+            "searchText".into(),
             json!({
-                "tool": "astSearch",
+                "tool": "localSearch",
                 "query": {
-                    "operation": "match",
                     "path": path,
-                    "pattern": search_text
+                    "searchText": search_text
                 },
                 "confidence": "medium"
             }),
         );
+        if matches!(code, "lsp.serverUnavailable" | "lsp.anchorUnresolved") {
+            next.insert(
+                "syntax".into(),
+                json!({
+                    "tool": "astSearch",
+                    "query": {
+                        "operation": "match",
+                        "path": path,
+                        "pattern": search_text
+                    },
+                    "confidence": "medium"
+                }),
+            );
+        }
     }
     Value::Object(next)
 }
@@ -973,5 +992,44 @@ mod tests {
             invalid.next.expect("next")["searchText"]["confidence"],
             "medium"
         );
+    }
+
+    #[test]
+    fn recovery_next_omits_empty_search_text() {
+        let mut document = query();
+        document.operation = "documentSymbols".into();
+        document.symbol_name = None;
+        let next = recovery_next(&document, "empty");
+        assert!(next.get("searchText").is_none());
+        assert!(next.get("syntax").is_none());
+        assert!(next.as_object().is_some_and(|object| object.is_empty()));
+
+        document.symbol_name = Some(String::new());
+        let blank = recovery_next(&document, "lsp.serverUnavailable");
+        assert!(blank.get("searchText").is_none());
+        assert!(blank.get("syntax").is_none());
+    }
+
+    #[tokio::test]
+    async fn cancellation_is_not_invalid_input() {
+        struct Cancelled;
+        impl crate::tools::local_fetch::CancellationCheck for Cancelled {
+            fn check(&self) -> Result<(), String> {
+                Err("cancelled".into())
+            }
+        }
+        let error = super::execute(
+            json!({
+                "operation": "documentSymbols",
+                "uri": "/tmp/lib.rs"
+            }),
+            &Cancelled,
+            None,
+        )
+        .await
+        .expect_err("cancelled");
+        assert_eq!(error.code, "cancelled");
+        assert_ne!(error.code, "lsp.invalidInput");
+        assert!(error.next.is_none());
     }
 }

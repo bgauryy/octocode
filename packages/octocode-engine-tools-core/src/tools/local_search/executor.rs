@@ -592,7 +592,7 @@ fn build_next(
     if match_page < MAX_PAGE
         && files
             .iter()
-            .any(|f| f.matches.len() as u32 > match_page * matches_per)
+            .any(|f| f.matches.len() as u32 > match_page.saturating_mul(matches_per))
     {
         let mut n = base;
         n["matchPage"] = json!(match_page + 1);
@@ -832,5 +832,21 @@ mod tests {
         };
         assert!(build_next(&query, 999, 1001, 1, 20, &files, None).is_some());
         assert!(build_next(&query, 1000, 1001, 1, 20, &files, None).is_none());
+    }
+
+    #[test]
+    fn build_next_match_page_uses_saturating_mul() {
+        let files = [RipgrepFile {
+            path: "a.rs".into(),
+            match_count: 1,
+            matches: vec![],
+        }];
+        let query = LocalSearchRequest {
+            search_text: "needle".into(),
+            path: "/tmp".into(),
+            ..Default::default()
+        };
+        let next = build_next(&query, 1, 1, 3, u32::MAX, &files, None);
+        assert!(next.is_none());
     }
 }
