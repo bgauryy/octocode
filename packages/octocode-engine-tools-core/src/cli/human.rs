@@ -3,7 +3,9 @@ use super::execute;
 use clap::Args;
 use octocode_engine_tools_core::runtime::ToolRuntime;
 use serde_json::{Value, json};
+use std::io;
 use std::path::Path;
+use std::process::Command;
 
 #[derive(Args, Debug)]
 pub struct FilesArgs {
@@ -415,19 +417,35 @@ pub fn cache(runtime: &ToolRuntime, action: &str) -> u8 {
     }
 }
 
-pub fn skill(action: Option<&str>) -> u8 {
-    match action.unwrap_or("list") {
-        "list" | "check" | "info" => {
-            eprintln!(
-                "Use `octocode skill` for bundled skill install; native catalog owns research tools."
-            );
+pub fn skill(args: &[String]) -> u8 {
+    match Command::new("octocode").arg("skill").args(args).status() {
+        Ok(status) => status
+            .code()
+            .and_then(|code| u8::try_from(code).ok())
+            .unwrap_or(1),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            eprintln!("{}", missing_octocode_message(args));
             1
         }
-        other => {
-            eprintln!("Unknown skill action: {other}");
-            2
+        Err(error) => {
+            eprintln!("failed to spawn octocode skill: {error}");
+            1
         }
     }
+}
+
+fn missing_octocode_message(args: &[String]) -> String {
+    let invoked = if args.is_empty() {
+        "octocode skill".to_owned()
+    } else {
+        format!("octocode skill {}", args.join(" "))
+    };
+    format!(
+        "octo skill requires the Node CLI (`octocode`) on PATH.\n\
+         Install: npm i -g octocode\n\
+         Then:    {invoked}\n\
+         Or:      npx -y {invoked}"
+    )
 }
 
 fn lang_from_path(path: &str) -> Option<&'static str> {
@@ -476,10 +494,29 @@ mod tests {
     }
 
     #[test]
-    fn login_and_skill_fail_explicitly() {
+    fn login_fails_explicitly() {
         assert_eq!(super::login(), 1);
-        assert_eq!(super::skill(None), 1);
-        assert_eq!(super::skill(Some("list")), 1);
-        assert_eq!(super::skill(Some("unknown")), 2);
+    }
+
+    #[test]
+    fn missing_octocode_message_includes_user_args() {
+        assert_eq!(
+            super::missing_octocode_message(&["install".into(), "--all".into()]),
+            "octo skill requires the Node CLI (`octocode`) on PATH.\n\
+             Install: npm i -g octocode\n\
+             Then:    octocode skill install --all\n\
+             Or:      npx -y octocode skill install --all"
+        );
+    }
+
+    #[test]
+    fn missing_octocode_message_without_extra_args() {
+        assert_eq!(
+            super::missing_octocode_message(&[]),
+            "octo skill requires the Node CLI (`octocode`) on PATH.\n\
+             Install: npm i -g octocode\n\
+             Then:    octocode skill\n\
+             Or:      npx -y octocode skill"
+        );
     }
 }

@@ -133,8 +133,12 @@ enum Command {
     Cache { action: String },
     /// Install octocode-mcp into an IDE MCP JSON config.
     Install(mcp_install::InstallArgs),
-    /// Skill catalog pointer.
-    Skill { action: Option<String> },
+    /// Thin spawn of Node `octocode skill`.
+    #[command(disable_help_flag = true, disable_help_subcommand = true)]
+    Skill {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 pub async fn run(args: Args) -> u8 {
@@ -343,8 +347,8 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
         Command::Login => human::login(),
         Command::Logout => human::logout(runtime),
         Command::Cache { action } => human::cache(runtime, &action),
-        Command::Install(install) => mcp_install::run(install),
-        Command::Skill { action } => human::skill(action.as_deref()),
+        Command::Install(_) => unreachable!("install runs before ToolRuntime"),
+        Command::Skill { args } => human::skill(&args),
     }
 }
 

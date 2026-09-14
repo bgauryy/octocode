@@ -34,22 +34,112 @@ fn clone_without_owner_repo_prints_usage() {
 }
 
 #[test]
-fn login_and_skill_fail_closed() {
+fn login_fails_closed() {
     let workspace = Workspace::new();
     let login = workspace.cli().arg("login").output().expect("login");
     assert_eq!(login.status.code(), Some(1));
-    let skill = workspace
+}
+
+#[test]
+fn skill_without_octocode_prints_node_command_and_exits_1() {
+    let workspace = Workspace::new();
+    let empty_path = workspace.home.join("empty-path");
+    std::fs::create_dir_all(&empty_path).expect("empty PATH dir");
+    let output = workspace
         .cli()
-        .args(["skill", "list"])
+        .env("PATH", &empty_path)
+        .args(["skill", "install", "--all", "--platform", "cursor"])
         .output()
         .expect("skill");
-    assert_eq!(skill.status.code(), Some(1));
-    let unknown = workspace
+    assert_eq!(output.status.code(), Some(1));
+    let err = stderr(&output);
+    assert_eq!(
+        err,
+        "octo skill requires the Node CLI (`octocode`) on PATH.\n\
+         Install: npm i -g octocode\n\
+         Then:    octocode skill install --all --platform cursor\n\
+         Or:      npx -y octocode skill install --all --platform cursor\n"
+    );
+    assert!(
+        !workspace.home.join("skills").exists(),
+        "native must not create $OCTOCODE_HOME/skills"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn skill_spawns_octocode_with_skill_and_user_args() {
+    let workspace = Workspace::new();
+    let bin_dir = workspace.home.join("bin");
+    std::fs::create_dir_all(&bin_dir).expect("bin dir");
+    let argv_file = workspace.home.join("octocode-argv.txt");
+    write_unix_script(
+        &bin_dir.join("octocode"),
+        &format!(
+            r#"printf '%s\n' "$@" > "{}"
+if [ "$1" = skill ] && [ "$2" = help ]; then
+  echo "usage: octocode skill list|install|remove|check|info|help"
+fi
+exit 0
+"#,
+            argv_file.display()
+        ),
+    );
+    write_unix_script(
+        &bin_dir.join("octo"),
+        "echo spawned octo instead of octocode >&2\nexit 99\n",
+    );
+
+    let install = workspace
         .cli()
-        .args(["skill", "unknown"])
+        .env("PATH", &bin_dir)
+        .args([
+            "skill",
+            "install",
+            "--all",
+            "--platform",
+            "cursor",
+            "--global",
+        ])
         .output()
-        .expect("unknown skill");
-    assert_eq!(unknown.status.code(), Some(2));
+        .expect("skill install");
+    assert_eq!(install.status.code(), Some(0), "{}", stderr(&install));
+    assert_eq!(
+        std::fs::read_to_string(&argv_file).expect("argv"),
+        "skill\ninstall\n--all\n--platform\ncursor\n--global\n"
+    );
+    assert!(
+        !workspace.home.join("skills").exists(),
+        "native must not create $OCTOCODE_HOME/skills"
+    );
+
+    let help = workspace
+        .cli()
+        .env("PATH", &bin_dir)
+        .args(["skill", "help"])
+        .output()
+        .expect("skill help");
+    assert_eq!(help.status.code(), Some(0), "{}", stderr(&help));
+    assert_eq!(
+        std::fs::read_to_string(&argv_file).expect("argv"),
+        "skill\nhelp\n"
+    );
+    assert!(
+        stdout(&help).contains("usage: octocode skill list|install|remove|check|info|help"),
+        "{}",
+        stdout(&help)
+    );
+}
+
+#[cfg(unix)]
+fn write_unix_script(path: &std::path::Path, body: &str) {
+    std::fs::write(path, format!("#!/bin/sh\n{body}")).expect("script");
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = std::fs::metadata(path)
+        .expect("script metadata")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).expect("chmod");
 }
 
 #[test]
