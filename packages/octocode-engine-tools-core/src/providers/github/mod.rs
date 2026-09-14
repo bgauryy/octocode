@@ -2,6 +2,7 @@ mod auth;
 mod budget;
 mod content;
 mod dates;
+mod device;
 mod endpoint;
 mod error;
 mod history;
@@ -23,6 +24,10 @@ pub use content::{
     GitHubProvider, NoCache,
 };
 pub use dates::{quote_search_keyword, resolve_date_window};
+pub use device::{
+    DeviceClient, GITHUB_APP_CLIENT_ID, LoginOrigins, PlatformIo, open_url, parse_scopes,
+    refresh_auth_token, refresh_storage_if_needed,
+};
 pub use endpoint::GitHubEndpoint;
 pub use error::{ProviderError, ProviderErrorKind, RateLimit};
 pub use history::{

@@ -36,7 +36,12 @@ fn clone_without_owner_repo_prints_usage() {
 #[test]
 fn login_fails_closed() {
     let workspace = Workspace::new();
-    let login = workspace.cli().arg("login").output().expect("login");
+    let login = workspace
+        .cli()
+        .env("GITHUB_API_URL", "http://127.0.0.1:1/api/v3")
+        .args(["login", "--no-open"])
+        .output()
+        .expect("login");
     assert_eq!(login.status.code(), Some(1));
 }
 

@@ -92,7 +92,18 @@ impl GitHubServices {
             .finish();
         context.check()?;
         let credential = match credential {
-            Ok(value) => value,
+            Ok(value) => {
+                if let Ok(origins) = LoginOrigins::from_endpoint(self.provider.transport.endpoint())
+                {
+                    handle.block_on(refresh_storage_if_needed(
+                        &origins,
+                        GITHUB_APP_CLIENT_ID,
+                        value,
+                    ))
+                } else {
+                    value
+                }
+            }
             Err(error) => {
                 return Ok(queries
                     .iter()
@@ -473,9 +484,7 @@ fn history_error(error: ProviderError) -> DomainResult {
     let (message, suggestion) = match error.kind {
         ProviderErrorKind::Authentication => (
             "GitHub authentication required",
-            Some(
-                "TELL THE USER: Refresh your GitHub token! Run 'gh auth login' OR 'gh auth refresh' OR set a new GITHUB_TOKEN/GH_TOKEN environment variable",
-            ),
+            Some("octo login, or set GITHUB_TOKEN / GH_TOKEN"),
         ),
         ProviderErrorKind::Permission => (
             "Access forbidden - insufficient permissions",

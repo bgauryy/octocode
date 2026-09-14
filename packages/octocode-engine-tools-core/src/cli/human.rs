@@ -1,11 +1,15 @@
 //! Human command families from the native CLI RFC.
 use super::execute;
 use clap::Args;
+use octocode_engine_tools_core::providers::github::{
+    DeviceClient, GITHUB_APP_CLIENT_ID, LoginOrigins, PlatformIo, ProviderError, open_url,
+    parse_scopes,
+};
 use octocode_engine_tools_core::runtime::ToolRuntime;
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -363,8 +367,100 @@ pub fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     if token { 0 } else { 1 }
 }
 
-pub fn login() -> u8 {
-    eprintln!("Set GITHUB_TOKEN or GH_TOKEN, or run `gh auth login` and retry.");
+#[derive(Args, Debug)]
+pub struct LoginArgs {
+    #[arg(long)]
+    pub hostname: Option<String>,
+    #[arg(long)]
+    pub scopes: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
+    pub no_open: bool,
+    #[arg(long)]
+    pub refresh: bool,
+}
+
+pub async fn login(runtime: &ToolRuntime, args: LoginArgs) -> u8 {
+    let origins = match login_origins(runtime, args.hostname.as_deref()) {
+        Ok(origins) => origins,
+        Err(error) => return login_fail(args.json, &error.message),
+    };
+    let client = match DeviceClient::new(origins, GITHUB_APP_CLIENT_ID) {
+        Ok(client) => client,
+        Err(error) => return login_fail(args.json, &error.message),
+    };
+    if args.refresh {
+        return match client.refresh(&PlatformIo).await {
+            Ok(stored) => login_ok(args.json, &stored.username, &stored.hostname),
+            Err(error) => login_fail(args.json, &error.message),
+        };
+    }
+    let scopes = parse_scopes(args.scopes.as_deref());
+    let json_out = args.json;
+    let mut open_warning = None;
+    let result = client
+        .login(&PlatformIo, &scopes, &mut |verification| {
+            if json_out {
+                let _ = super::write_json(
+                    &json!({
+                        "userCode": verification.user_code,
+                        "verificationUri": verification.verification_uri,
+                    }),
+                    true,
+                );
+            } else {
+                println!(
+                    "First copy your one-time code: {}\n\nOpening {} in your browser...\n\nWaiting for authentication...",
+                    verification.user_code, verification.verification_uri
+                );
+                let _ = io::stdout().flush();
+            }
+            if args.no_open {
+                return;
+            }
+            if let Err(error) = open_url(&verification.verification_uri) {
+                open_warning = Some(error);
+            }
+        })
+        .await;
+    if let Some(warning) = open_warning {
+        eprintln!("Could not open browser automatically: {warning}");
+    }
+    match result {
+        Ok(success) => login_ok(args.json, &success.username, &success.hostname),
+        Err(error) => login_fail(args.json, &error.message),
+    }
+}
+
+fn login_origins(
+    runtime: &ToolRuntime,
+    hostname: Option<&str>,
+) -> Result<LoginOrigins, ProviderError> {
+    if let Some(hostname) = hostname.map(str::trim).filter(|value| !value.is_empty()) {
+        LoginOrigins::from_hostname(hostname)
+    } else {
+        LoginOrigins::from_api_url(&runtime.config().resolved.github.api_url)
+    }
+}
+
+fn login_ok(json_out: bool, username: &str, hostname: &str) -> u8 {
+    if json_out {
+        return super::write_json(
+            &json!({"success": true, "username": username, "hostname": hostname}),
+            true,
+        );
+    }
+    println!("Authentication complete. Signed in as {username} on {hostname}.");
+    0
+}
+
+fn login_fail(json_out: bool, message: &str) -> u8 {
+    if json_out {
+        let _ = super::write_json(&json!({"success": false, "error": message}), true);
+    } else {
+        eprintln!("{message}");
+    }
     1
 }
 
@@ -612,11 +708,6 @@ mod tests {
         assert_eq!(lang_from_path("/tmp/a.ts"), Some("typescript"));
         assert_eq!(lang_from_path("/tmp/a.py"), Some("python"));
         assert_eq!(lang_from_path("/tmp/dir"), None);
-    }
-
-    #[test]
-    fn login_fails_explicitly() {
-        assert_eq!(super::login(), 1);
     }
 
     #[test]

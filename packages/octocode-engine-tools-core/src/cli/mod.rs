@@ -125,8 +125,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Explain how to authenticate.
-    Login,
+    /// GitHub device-flow login.
+    Login(human::LoginArgs),
     /// Explain how to clear stored credentials.
     Logout,
     /// Inspect or clear native GitHub caches.
@@ -344,7 +344,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
                 2
             }
         },
-        Command::Login => human::login(),
+        Command::Login(args) => human::login(runtime, args).await,
         Command::Logout => human::logout(runtime),
         Command::Cache { action } => human::cache(runtime, &action),
         Command::Install(_) => unreachable!("install runs before ToolRuntime"),

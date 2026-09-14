@@ -49,6 +49,9 @@ impl GitHubEndpoint {
     pub fn host(&self) -> &str {
         self.rest_base.host_str().unwrap_or_default()
     }
+    pub fn rest_base(&self) -> &Url {
+        &self.rest_base
+    }
     pub fn credential_host(&self) -> &str {
         if self.host() == "api.github.com" {
             "github.com"
