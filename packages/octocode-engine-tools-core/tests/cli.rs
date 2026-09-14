@@ -235,6 +235,44 @@ fn install_dry_run_does_not_write() {
 }
 
 #[test]
+fn install_without_home_does_not_write_cwd() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .env_remove("HOME")
+        .env_remove("USERPROFILE")
+        .args(["install", "--ide", "cursor", "--json"])
+        .output()
+        .expect("install without HOME");
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let payload: serde_json::Value =
+        serde_json::from_str(stdout(&output)).expect("missing home json");
+    assert_eq!(payload["success"], false);
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("refusing to write IDE config into the current directory"),
+        "{payload}"
+    );
+    assert!(
+        !workspace
+            .workspace
+            .join(".cursor")
+            .join("mcp.json")
+            .exists()
+    );
+    let listed = workspace
+        .cli()
+        .env_remove("HOME")
+        .env_remove("USERPROFILE")
+        .args(["install", "--list", "--json"])
+        .output()
+        .expect("list without HOME");
+    assert_eq!(listed.status.code(), Some(0), "{}", stderr(&listed));
+}
+
+#[test]
 fn help_lists_install_not_mcp_subcommand() {
     let workspace = Workspace::new();
     let output = workspace.cli().arg("--help").output().expect("help");

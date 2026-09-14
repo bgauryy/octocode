@@ -72,7 +72,14 @@ struct CommandResult {
 }
 
 pub fn run(args: InstallArgs) -> u8 {
-    let result = execute(&args, &FsCtx::from_env(), &process_var);
+    let result = if args.list {
+        execute(&args, &FsCtx::unused(), &process_var)
+    } else {
+        match FsCtx::from_env() {
+            Some(ctx) => execute(&args, &ctx, &process_var),
+            None => missing_home(),
+        }
+    };
     emit(&args, &result);
     result.code
 }
@@ -81,17 +88,40 @@ fn process_var(key: &str) -> Option<String> {
     env::var(key).ok().filter(|value| !value.is_empty())
 }
 
+fn resolve_os_home(
+    home: Option<std::ffi::OsString>,
+    userprofile: Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    home.or(userprofile)
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+}
+
+fn missing_home() -> CommandResult {
+    CommandResult {
+        code: 1,
+        json: json!({
+            "success": false,
+            "error": "No home directory is set (HOME or USERPROFILE); refusing to write IDE config into the current directory.",
+        }),
+    }
+}
+
 impl FsCtx {
-    fn from_env() -> Self {
+    fn unused() -> Self {
         Self {
-            home: env::var_os("HOME")
-                .or_else(|| env::var_os("USERPROFILE"))
-                .map(PathBuf::from)
-                .filter(|path| !path.as_os_str().is_empty())
-                .unwrap_or_else(|| PathBuf::from(".")),
+            home: PathBuf::from("."),
+            app_data: None,
+            xdg_config_home: None,
+        }
+    }
+
+    fn from_env() -> Option<Self> {
+        Some(Self {
+            home: resolve_os_home(env::var_os("HOME"), env::var_os("USERPROFILE"))?,
             app_data: env::var_os("APPDATA").map(PathBuf::from),
             xdg_config_home: env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
-        }
+        })
     }
 
     fn windows_app_data(&self) -> PathBuf {
@@ -155,7 +185,16 @@ fn execute(args: &InstallArgs, ctx: &FsCtx, env: &dyn Fn(&str) -> Option<String>
         };
     }
 
-    let config_path = config_path(&ide, ctx);
+    let Some(config_path) = config_path(&ide, ctx) else {
+        return CommandResult {
+            code: 1,
+            json: json!({
+                "success": false,
+                "ide": ide,
+                "error": format!("No MCP JSON path mapping for IDE: {ide}"),
+            }),
+        };
+    };
     let existing = match read_config(&config_path) {
         Ok(value) => value,
         Err(error) => {
@@ -216,14 +255,26 @@ fn execute(args: &InstallArgs, ctx: &FsCtx, env: &dyn Fn(&str) -> Option<String>
                 json: payload,
             }
         }
-        Err(error) => CommandResult {
-            code: 1,
-            json: json!({
-                "success": false,
-                "configPath": config_path,
-                "error": error.to_string(),
-            }),
-        },
+        Err(error) => write_failure(&config_path, error.backup_path, &error.source),
+    }
+}
+
+fn write_failure(
+    config_path: &Path,
+    backup_path: Option<PathBuf>,
+    error: &io::Error,
+) -> CommandResult {
+    let mut payload = json!({
+        "success": false,
+        "configPath": config_path,
+        "error": error.to_string(),
+    });
+    if let Some(backup_path) = backup_path {
+        payload["backupPath"] = json!(backup_path);
+    }
+    CommandResult {
+        code: 1,
+        json: payload,
     }
 }
 
@@ -366,18 +417,48 @@ fn read_config(path: &Path) -> Result<Value, String> {
     Ok(value)
 }
 
-fn write_mcp_config(path: &Path, config: &Value) -> io::Result<Option<PathBuf>> {
+struct WriteError {
+    backup_path: Option<PathBuf>,
+    source: io::Error,
+}
+
+fn write_mcp_config(path: &Path, config: &Value) -> Result<Option<PathBuf>, WriteError> {
     let backup_path = if path.is_file() {
-        Some(backup_file(path)?)
+        match backup_file(path) {
+            Ok(path) => Some(path),
+            Err(source) => {
+                return Err(WriteError {
+                    backup_path: None,
+                    source,
+                });
+            }
+        }
     } else {
         None
     };
-    if let Some(parent) = path.parent() {
-        mkdir_private(parent)?;
+    if let Some(parent) = path.parent()
+        && let Err(source) = mkdir_private(parent)
+    {
+        return Err(WriteError {
+            backup_path,
+            source,
+        });
     }
-    let encoded = serde_json::to_string_pretty(config)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    atomic_write_private(path, format!("{encoded}\n").as_bytes())?;
+    let encoded = match serde_json::to_string_pretty(config) {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            return Err(WriteError {
+                backup_path,
+                source: io::Error::new(io::ErrorKind::InvalidData, error),
+            });
+        }
+    };
+    if let Err(source) = atomic_write_private(path, format!("{encoded}\n").as_bytes()) {
+        return Err(WriteError {
+            backup_path,
+            source,
+        });
+    }
     Ok(backup_path)
 }
 
@@ -426,23 +507,43 @@ fn atomic_write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 fn temp_path(path: &Path) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    let mut tmp = path.as_os_str().to_os_string();
-    tmp.push(format!(".{nanos}.tmp"));
-    PathBuf::from(tmp)
+    sibling_path(path, "tmp")
 }
 
 fn replace_file(tmp: &Path, dest: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
-        if dest.exists() {
-            fs::remove_file(dest)?;
+        if !dest.exists() {
+            return fs::rename(tmp, dest);
+        }
+        let aside = sibling_path(dest, "aside");
+        let _ = fs::remove_file(&aside);
+        fs::rename(dest, &aside)?;
+        match fs::rename(tmp, dest) {
+            Ok(()) => {
+                let _ = fs::remove_file(&aside);
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::rename(&aside, dest);
+                Err(error)
+            }
         }
     }
-    fs::rename(tmp, dest)
+    #[cfg(not(windows))]
+    {
+        fs::rename(tmp, dest)
+    }
+}
+
+fn sibling_path(path: &Path, suffix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let mut sibling = path.as_os_str().to_os_string();
+    sibling.push(format!(".{nanos}.{suffix}"));
+    PathBuf::from(sibling)
 }
 
 #[cfg(unix)]
@@ -465,12 +566,12 @@ fn write_private_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.write_all(bytes)
 }
 
-fn config_path(ide: &str, ctx: &FsCtx) -> PathBuf {
+fn config_path(ide: &str, ctx: &FsCtx) -> Option<PathBuf> {
     let home = ctx.home.as_path();
     let app_support = ctx.app_support_dir();
     let app_data = ctx.windows_app_data();
     let vscode_storage = app_support.join("Code").join("User").join("globalStorage");
-    match ide {
+    Some(match ide {
         "cursor" if cfg!(windows) => app_data.join("Cursor").join("mcp.json"),
         "cursor" => home.join(".cursor").join("mcp.json"),
         "claude-desktop" if cfg!(windows) => {
@@ -512,8 +613,8 @@ fn config_path(ide: &str, ctx: &FsCtx) -> PathBuf {
         "gemini-cli" => home.join(".gemini").join("settings.json"),
         "kiro" if cfg!(windows) => app_data.join("Kiro").join("mcp.json"),
         "kiro" => home.join(".kiro").join("mcp.json"),
-        _ => home.join(".cursor").join("mcp.json"),
-    }
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -550,6 +651,10 @@ mod tests {
         None
     }
 
+    fn mapped_path(ide: &str, ctx: &FsCtx) -> PathBuf {
+        config_path(ide, ctx).unwrap_or_else(|| panic!("no path for {ide}"))
+    }
+
     fn written_server(path: &Path) -> Value {
         let text = fs::read_to_string(path).expect("read installed JSON");
         let parsed: Value = serde_json::from_str(&text).expect("parse installed JSON");
@@ -577,7 +682,7 @@ mod tests {
         let (_dir, ctx) = temp_ctx();
         let result = execute(&install_args("cursor"), &ctx, &no_env);
         assert_eq!(result.code, 0, "{:?}", result.json);
-        let path = config_path("cursor", &ctx);
+        let path = mapped_path("cursor", &ctx);
         let server = written_server(&path);
         assert_rejects_octo_mcp(&server);
         assert_eq!(server["command"], "npx");
@@ -587,27 +692,29 @@ mod tests {
 
     #[test]
     fn rejects_octo_command_and_mcp_arg() {
-        let server = json!({
-            "command": "npx",
-            "type": "stdio",
-            "args": ["-y", "octocode-mcp@latest"],
-        });
-        assert_rejects_octo_mcp(&server);
-        let forbidden = json!({"command": "octo", "args": ["mcp"]});
-        assert_ne!(forbidden["command"], "npx");
+        let (_dir, ctx) = temp_ctx();
+        let result = execute(&install_args("claude-code"), &ctx, &no_env);
+        assert_eq!(result.code, 0, "{:?}", result.json);
+        let path = mapped_path("claude-code", &ctx);
+        let text = fs::read_to_string(&path).expect("read installed JSON");
         assert!(
-            forbidden["args"]
-                .as_array()
-                .expect("args")
-                .iter()
-                .any(|arg| arg.as_str() == Some("mcp"))
+            !text.contains("\"command\": \"octo\"") && !text.contains("\"command\":\"octo\""),
+            "writer must not emit command octo: {text}"
+        );
+        let server = written_server(&path);
+        assert_rejects_octo_mcp(&server);
+        let args = server["args"].as_array().expect("args");
+        assert!(
+            args.iter()
+                .all(|arg| arg.as_str() != Some("mcp") && arg.as_str() != Some("octo")),
+            "writer must not emit arg mcp: {args:?}"
         );
     }
 
     #[test]
     fn already_installed_without_force_exits_1() {
         let (_dir, ctx) = temp_ctx();
-        let path = config_path("cursor", &ctx);
+        let path = mapped_path("cursor", &ctx);
         fs::create_dir_all(path.parent().expect("parent")).expect("parent");
         fs::write(&path, r#"{"mcpServers":{"octocode":{"command":"npx"}}}"#).expect("seed");
         let original = fs::read_to_string(&path).expect("original");
@@ -621,7 +728,7 @@ mod tests {
     #[test]
     fn force_overwrites_and_keeps_other_servers() {
         let (_dir, ctx) = temp_ctx();
-        let path = config_path("cursor", &ctx);
+        let path = mapped_path("cursor", &ctx);
         fs::create_dir_all(path.parent().expect("parent")).expect("parent");
         fs::write(
             &path,
@@ -650,7 +757,7 @@ mod tests {
         let result = execute(&args, &ctx, &no_env);
         assert_eq!(result.code, 0);
         assert_eq!(result.json["dryRun"], true);
-        let path = config_path("cursor", &ctx);
+        let path = mapped_path("cursor", &ctx);
         assert!(!path.exists());
         assert!(!path.parent().expect("parent").exists());
         assert_rejects_octo_mcp(&result.json["config"]["mcpServers"]["octocode"]);
@@ -664,7 +771,7 @@ mod tests {
         let result = execute(&args, &ctx, &no_env);
         assert_eq!(result.code, 0);
         assert_eq!(result.json["check"], true);
-        assert!(!config_path("windsurf", &ctx).exists());
+        assert!(!mapped_path("windsurf", &ctx).exists());
     }
 
     #[test]
@@ -747,7 +854,7 @@ mod tests {
         ]);
         let result = execute(&args, &ctx, &|key| vars.get(key).cloned());
         assert_eq!(result.code, 0, "{:?}", result.json);
-        let server = written_server(&config_path("kiro", &ctx));
+        let server = written_server(&mapped_path("kiro", &ctx));
         assert_rejects_octo_mcp(&server);
         assert_eq!(server["env"]["ENABLE_LOCAL"], "false");
         assert_eq!(server["env"]["GITHUB_TOKEN"], "secret-token");
@@ -758,24 +865,53 @@ mod tests {
     fn json_ide_paths_stay_under_temp_home() {
         let (_dir, ctx) = temp_ctx();
         for id in JSON_IDE_IDS {
-            let path = config_path(id, &ctx);
+            let path = mapped_path(id, &ctx);
             assert!(
                 path.starts_with(&ctx.home),
                 "{id} escaped temp HOME: {}",
                 path.display()
             );
         }
+        assert!(config_path("not-a-json-ide", &ctx).is_none());
         #[cfg(unix)]
         {
             assert_eq!(
-                config_path("cursor", &ctx),
+                mapped_path("cursor", &ctx),
                 ctx.home.join(".cursor").join("mcp.json")
             );
             assert_eq!(
-                config_path("claude-code", &ctx),
+                mapped_path("claude-code", &ctx),
                 ctx.home.join(".claude.json")
             );
         }
+    }
+
+    #[test]
+    fn missing_home_fails_closed() {
+        assert!(resolve_os_home(None, None).is_none());
+        assert!(resolve_os_home(Some(std::ffi::OsString::from("")), None).is_none());
+        let result = missing_home();
+        assert_eq!(result.code, 1);
+        assert_eq!(result.json["success"], false);
+        assert!(
+            result.json["error"]
+                .as_str()
+                .expect("error")
+                .contains("refusing to write IDE config into the current directory")
+        );
+    }
+
+    #[test]
+    fn write_failure_includes_backup_path() {
+        let result = write_failure(
+            Path::new("/tmp/mcp.json"),
+            Some(PathBuf::from("/tmp/mcp.json.backup-1")),
+            &io::Error::new(io::ErrorKind::Other, "rename failed"),
+        );
+        assert_eq!(result.code, 1);
+        assert_eq!(result.json["success"], false);
+        assert_eq!(result.json["backupPath"], "/tmp/mcp.json.backup-1");
+        assert_eq!(result.json["configPath"], "/tmp/mcp.json");
     }
 
     #[cfg(unix)]
@@ -785,7 +921,7 @@ mod tests {
         let (_dir, ctx) = temp_ctx();
         let result = execute(&install_args("cursor"), &ctx, &no_env);
         assert_eq!(result.code, 0, "{:?}", result.json);
-        let path = config_path("cursor", &ctx);
+        let path = mapped_path("cursor", &ctx);
         let parent = path.parent().expect("parent");
         let dir_mode = fs::metadata(parent).expect("dir meta").permissions().mode() & 0o777;
         let file_mode = fs::metadata(&path).expect("file meta").permissions().mode() & 0o777;
