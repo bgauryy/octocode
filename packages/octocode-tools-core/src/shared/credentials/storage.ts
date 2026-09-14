@@ -127,6 +127,20 @@ function tryNativeGet(hostname: string): StoredCredentials | undefined {
   }
 }
 
+function deleteFileStoreCredentials(hostname: string): boolean {
+  const store = readCredentialsStore();
+  if (!store.credentials[hostname]) {
+    return false;
+  }
+  delete store.credentials[hostname];
+  if (Object.keys(store.credentials).length === 0) {
+    cleanupKeyFile();
+  } else {
+    writeCredentialsStore(store);
+  }
+  return true;
+}
+
 function asStoredCredentials(value: unknown): StoredCredentials | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -219,32 +233,20 @@ export async function deleteCredentials(
   if (native) {
     try {
       const result = native.deleteCredentials(normalizedHostname);
+      const deletedFromFile = deleteFileStoreCredentials(normalizedHostname);
       invalidateCredentialsCache(normalizedHostname);
       return {
         success: result?.success !== false,
-        deletedFromFile: false,
+        deletedFromFile,
       };
     } catch {
       invalidateCredentialsCache(normalizedHostname);
       return { success: false, deletedFromFile: false };
     }
   }
-  let deletedFromFile = false;
 
-  const store = readCredentialsStore();
-  if (store.credentials[normalizedHostname]) {
-    delete store.credentials[normalizedHostname];
-
-    if (Object.keys(store.credentials).length === 0) {
-      cleanupKeyFile();
-    } else {
-      writeCredentialsStore(store);
-    }
-    deletedFromFile = true;
-  }
-
+  const deletedFromFile = deleteFileStoreCredentials(normalizedHostname);
   invalidateCredentialsCache(normalizedHostname);
-
   return {
     success: deletedFromFile,
     deletedFromFile,

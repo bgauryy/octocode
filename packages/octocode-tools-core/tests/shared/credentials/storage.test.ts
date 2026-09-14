@@ -3226,5 +3226,56 @@ describe('Token Storage', () => {
         deletedFromFile: false,
       });
     });
+
+    it('native delete also clears leftover file-store secrets', async () => {
+      const storedCreds = createMockCredentials();
+      const store: {
+        version: number;
+        credentials: Record<string, ReturnType<typeof createMockCredentials>>;
+      } = { version: 1, credentials: { 'github.com': storedCreds } };
+
+      vi.mocked(fs.existsSync).mockImplementation((path: unknown) => {
+        if (String(path).includes('.key')) return true;
+        if (String(path).includes('credentials.json')) return true;
+        return false;
+      });
+      vi.mocked(fs.readFileSync).mockImplementation((path: unknown) => {
+        if (String(path).includes('.key')) return mockKey.toString('hex');
+        return 'iv:authtag:encrypted';
+      });
+      vi.mocked(crypto.createDecipheriv).mockReturnValue({
+        update: vi.fn().mockImplementation(() => JSON.stringify(store)),
+        final: vi.fn().mockReturnValue(''),
+        setAuthTag: vi.fn(),
+      } as unknown as crypto.DecipherGCM);
+      vi.mocked(fs.unlinkSync).mockImplementation(() => {
+        store.credentials = {};
+      });
+
+      const native = {
+        storeCredentials: vi.fn(),
+        getCredentials: vi.fn().mockReturnValue(null),
+        deleteCredentials: vi.fn().mockReturnValue({ success: true }),
+      };
+
+      const {
+        getCredentials,
+        deleteCredentials,
+        _setNativeCredentialsForTesting,
+        _resetCredentialsCache,
+      } = await import('../../../src/shared/credentials/storage.js');
+      _setNativeCredentialsForTesting(native);
+
+      expect((await getCredentials('github.com'))?.token.token).toBe(
+        storedCreds.token.token
+      );
+
+      const deleted = await deleteCredentials('github.com');
+      expect(deleted).toEqual({ success: true, deletedFromFile: true });
+      expect(native.deleteCredentials).toHaveBeenCalledWith('github.com');
+
+      _resetCredentialsCache();
+      expect(await getCredentials('github.com')).toBeNull();
+    });
   });
 });
