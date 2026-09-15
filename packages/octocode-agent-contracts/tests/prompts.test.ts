@@ -53,9 +53,7 @@ describe('shared prompts', () => {
 
   it('uses the negotiated catalog and teaches efficient research routing without stale tool inventories', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('Reuse an observed schema');
     expect(prompt).toContain('A catalog selects a tool; its exact schema defines a valid call');
-    expect(prompt).toContain('describe an unfamiliar contract once');
     expect(prompt).toContain(sharedPrompts.LOCAL_TOOL_GUIDANCE);
     expect(prompt.match(/<local_tools>/g)).toHaveLength(1);
     expect(sharedPrompts).toHaveProperty('LOCAL_TOOL_GUIDANCE');

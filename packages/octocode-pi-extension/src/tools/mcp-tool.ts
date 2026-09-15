@@ -13,7 +13,7 @@ export { formatMcpSchemaValidationErrors };
 import { isWorkerCapabilityClient, dispatchWorkerMcpAction, getCurrentWorkerCapabilities } from './worker-capabilities.js';
 import { readMcpCatalogPage } from './mcp/catalog-pages.js';
 import { workerMcpCatalogSnapshot } from './mcp/worker-catalog.js';
-import { DIRECT_TOOL_DESCRIPTIONS, MCP_SCHEMA_DISCOVERY_EXAMPLE, OCTOCODE_MCP_CALL_EXAMPLE } from './octocode-tools.js';
+import { DIRECT_TOOL_DESCRIPTIONS, OCTOCODE_MCP_CALL_EXAMPLE } from './octocode-tools.js';
 import fs from "node:fs";
 import path from "node:path";
 import { registerMcpClientHandlers } from './mcp/client-handlers.js';
@@ -2144,7 +2144,7 @@ export function registerMcpTool(
 
   // Universal ordered queries[] envelope: all queries are preflighted before the first side-effect.
   const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    reasoningDescription: 'Concise reason this MCP operation is necessary.',
+    reasoningDescription: 'Why.',
     allowParallel: true,
   });
 
@@ -2216,15 +2216,11 @@ export function registerMcpTool(
   const common = {
     label: "MCPTool",
     description: DIRECT_TOOL_DESCRIPTIONS.MCPTool!,
-    promptSnippet:
-      "Gateway to connected MCP servers, including the built-in octocode research catalog in <mcp_catalog_index>.",
+    promptSnippet: "Gateway to MCP servers. Built-in octocode catalog in <mcp_catalog_index>.",
     promptGuidelines: [
-      `Describe example: MCPTool(${MCP_SCHEMA_DISCOVERY_EXAMPLE}). Substitute the selected catalog name; reuse its schema afterward.`,
-      `Octocode call example: MCPTool(${OCTOCODE_MCP_CALL_EXAMPLE}). reasoning belongs to the outer MCPTool query; target fields belong only in arguments.queries[]. Omit auto-filled target goal/reasoning.`,
-      "Use responseView:\"table\" for large count/reference batches.",
-      "Use resources/read-resource and prompts/get-prompt/complete for the non-tool core MCP primitives.",
-      "add/remove changes $OCTOCODE_HOME/extension/mcp/servers.json or trusted workspace config; restart/stop manages connections. Config changes reload automatically. The built-in octocode server cannot be removed.",
-      "Treat MCP servers as arbitrary code. Do not add or run untrusted MCP config without user approval; project-scope writes require a trusted project.",
+      `Octocode call: MCPTool(${OCTOCODE_MCP_CALL_EXAMPLE}). Target fields go in arguments.queries[] only. Call schemas from <mcp_catalog_index> directly; use action:describe only for missing/stale.`,
+      "Batch independent Octocode queries inside one arguments.queries[]. Use queryRunType:parallel only for operations targeting different servers.",
+      "add/remove writes mcp.json; restart/stop manages connections. Do not add untrusted MCP config without user approval.",
     ],
     parameters,
     execute,

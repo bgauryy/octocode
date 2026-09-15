@@ -1,5 +1,277 @@
 use serde_json::{Value, json};
 
+pub fn render_tool(tool: &str, response: &Value, queries: &[Value]) -> String {
+    if tool == "localFetch" {
+        return render_local_fetch(response);
+    }
+    let mut response = response.clone();
+    if tool == "localSearch" {
+        for (index, row) in response
+            .get_mut("results")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            let Some(data) = row.get_mut("data") else {
+                continue;
+            };
+            for file in data
+                .get_mut("files")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                order_fields(
+                    file,
+                    &[
+                        "path",
+                        "totalOccurrences",
+                        "totalMatchedLines",
+                        "totalMatchRows",
+                        "returnedMatchRows",
+                        "matches",
+                        "pagination",
+                    ],
+                );
+            }
+            if let Some(page) = data.get_mut("pagination") {
+                order_fields(
+                    page,
+                    &[
+                        "currentPage",
+                        "totalPages",
+                        "filesPerPage",
+                        "totalFiles",
+                        "totalMatches",
+                        "hasMore",
+                        "nextPage",
+                        "outOfRange",
+                        "snapshot",
+                    ],
+                );
+            }
+            if queries
+                .get(index)
+                .is_some_and(|query| query.get("snapshot").is_some())
+                && let Some(page) = data.get_mut("pagination")
+            {
+                order_fields(
+                    page,
+                    &[
+                        "snapshot",
+                        "currentPage",
+                        "totalPages",
+                        "filesPerPage",
+                        "totalFiles",
+                        "totalMatches",
+                        "hasMore",
+                        "nextPage",
+                        "outOfRange",
+                    ],
+                );
+            }
+            if let Some(next) = data.get_mut("next").and_then(Value::as_object_mut) {
+                for call in next.values_mut() {
+                    if let Some(query) = call.get_mut("query") {
+                        order_fields(
+                            query,
+                            &[
+                                "searchText",
+                                "path",
+                                "regex",
+                                "caseMode",
+                                "wholeWord",
+                                "invertMatch",
+                                "include",
+                                "exclude",
+                                "excludeDir",
+                                "noIgnore",
+                                "hidden",
+                                "contextLines",
+                                "matchContentLength",
+                                "maxMatchesPerFile",
+                                "maxFiles",
+                                "maxDepth",
+                                "multiline",
+                                "sort",
+                                "rankingProfile",
+                                "langType",
+                                "unique",
+                                "matchWindow",
+                                "matchPage",
+                                "page",
+                                "snapshot",
+                                "resultView",
+                                "pageSize",
+                                "reverse",
+                            ],
+                        );
+                    }
+                }
+            }
+        }
+    }
+    if tool == "ghGetFileContent" {
+        for row in response
+            .get_mut("results")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            for file in row
+                .get_mut("data")
+                .and_then(|data| data.get_mut("files"))
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                order_fields(
+                    file,
+                    &[
+                        "path",
+                        "content",
+                        "sourceLineRanges",
+                        "errorCode",
+                        "terminalLimit",
+                        "partialReasons",
+                        "fileType",
+                        "contentView",
+                        "totalLines",
+                        "sourceChars",
+                        "sourceBytes",
+                        "returnedChars",
+                        "returnedBytes",
+                        "returnedLines",
+                        "selectedMatchCount",
+                        "minifyFallback",
+                        "resolvedBranch",
+                        "commitSha",
+                        "pagination",
+                        "next",
+                        "isPartial",
+                        "startLine",
+                        "endLine",
+                        "matchRanges",
+                        "matchedLines",
+                        "lastModified",
+                        "lastModifiedBy",
+                        "warnings",
+                        "matchNotFound",
+                        "searchedFor",
+                        "cached",
+                    ],
+                );
+                if matches!(
+                    file["errorCode"].as_str(),
+                    Some("fullContentLimit" | "noMatches")
+                ) {
+                    order_fields(
+                        file,
+                        &[
+                            "path",
+                            "content",
+                            "fileType",
+                            "contentView",
+                            "totalLines",
+                            "sourceChars",
+                            "sourceBytes",
+                            "returnedChars",
+                            "returnedBytes",
+                            "returnedLines",
+                            "errorCode",
+                            "partialReasons",
+                            "resolvedBranch",
+                            "next",
+                            "isPartial",
+                        ],
+                    );
+                }
+                if let Some(next) = file.get_mut("next").and_then(Value::as_object_mut) {
+                    for call in next.values_mut() {
+                        if let Some(query) = call.get_mut("query") {
+                            order_fields(
+                                query,
+                                &[
+                                    "owner",
+                                    "repo",
+                                    "path",
+                                    "branch",
+                                    "matchString",
+                                    "matchStringIsRegex",
+                                    "matchStringCaseSensitive",
+                                    "startLine",
+                                    "endLine",
+                                    "contextLines",
+                                    "contextBytes",
+                                    "chunkType",
+                                    "offset",
+                                    "limit",
+                                    "fullContent",
+                                    "forceRefresh",
+                                    "minify",
+                                ],
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        return yaml(
+            response,
+            &[
+                "base",
+                "shared",
+                "results",
+                "index",
+                "status",
+                "meta",
+                "data",
+                "owner",
+                "repo",
+                "files",
+                "path",
+                "content",
+                "fileType",
+                "totalLines",
+                "startLine",
+                "endLine",
+                "isPartial",
+                "pagination",
+                "error",
+            ],
+        );
+    }
+    yaml(
+        response,
+        &[
+            "base",
+            "shared",
+            "results",
+            "index",
+            "status",
+            "cache",
+            "meta",
+            "evidence",
+            "diagnostics",
+            "data",
+        ],
+    )
+}
+
+fn order_fields(value: &mut Value, keys: &[&str]) {
+    if let Some(map) = value.as_object_mut() {
+        let mut ordered = serde_json::Map::new();
+        for key in keys {
+            if let Some(value) = map.remove(*key) {
+                ordered.insert((*key).into(), value);
+            }
+        }
+        ordered.append(map);
+        *map = ordered;
+    }
+}
+
 pub fn mcp_result(structured: Value) -> Value {
     let text = render_local_fetch(&structured);
     let rows = structured["results"].as_array();

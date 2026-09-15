@@ -204,7 +204,7 @@ impl LocalFetchResult {
     }
 }
 
-pub trait CancellationCheck {
+pub trait CancellationCheck: Sync {
     fn check(&self) -> Result<(), String>;
 }
 pub struct NeverCancel;

@@ -3,7 +3,7 @@ mod extraction;
 mod pagination;
 mod types;
 mod validation;
-pub use executor::{execute_local_fetch, execute_local_fetch_with_regex};
+pub use executor::{execute_local_fetch, execute_local_fetch_with_regex, process_fetched_content};
 pub use types::*;
 pub use validation::validate_request;
 
@@ -277,6 +277,18 @@ mod tests {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/octocode-regex-worker");
         if !worker.exists() {
             return;
+        }
+        // On macOS a freshly compiled binary triggers a Gatekeeper security scan on first
+        // launch that can easily exceed the 1-second deadline. Spawn the worker once with
+        // no stdin so macOS completes the scan before the timed engine is created.
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new(&worker)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map(|mut c| c.wait());
         }
         let t = Temp::new();
         let p = t.0.join("regex.txt");

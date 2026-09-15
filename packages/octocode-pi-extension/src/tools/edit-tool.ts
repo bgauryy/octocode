@@ -28,7 +28,7 @@ export interface EditOperation {
   oldText?: string;
   newText: string;
   replaceAll?: boolean;
-  reasoning: string;
+  reasoning?: string;
   matchMode?: MatchMode;
   startLine?: number;
   endLine?: number;
@@ -58,7 +58,7 @@ interface AppliedEditEvidence {
   startLine: number;
   endLine: number;
   mode: MatchMode;
-  reasoning: string;
+  reasoning?: string;
   // Removed text fragments (the oldText segments), split by line.
   removedLines: string[];
   // Added text fragments (the newText), split by line.
@@ -235,14 +235,11 @@ function validateOperation(edit: unknown, index: number): EditOperation {
   if (item['replaceAll'] !== undefined && typeof item['replaceAll'] !== 'boolean') {
     throw new Error(`Edit tool input is invalid. edits[${index}].replaceAll must be a boolean.`);
   }
-  if (typeof item['reasoning'] !== 'string' || item['reasoning'].trim().length === 0) {
-    throw new Error(`Edit tool input is invalid. edits[${index}].reasoning is required — provide a non-empty string explaining why this edit is necessary.`);
-  }
   const operation: EditOperation = {
     oldText: matchMode === 'lineRange' && item['oldText'] === '' ? undefined : item['oldText'] as string | undefined,
     newText: item['newText'],
     replaceAll: item['replaceAll'] === true,
-    reasoning: item['reasoning'] as string,
+    reasoning: typeof item['reasoning'] === 'string' ? item['reasoning'] : undefined,
     matchMode,
   };
   if (matchMode === 'lineRange') {
@@ -418,7 +415,7 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
         startLine: range.startLine,
         endLine: range.endLine,
         mode: r.mode,
-        reasoning: edit.reasoning.trim(),
+        reasoning: (edit.reasoning ?? '').trim(),
         removedLines: toLines(removedText),
         addedLines: toLines(r.newText),
       });
@@ -502,7 +499,7 @@ async function generateDiffArtifactsAsync(filePath: string, oldContent: string, 
 
 const EDIT_TOOL_DISPLAY_NAME = 'edit (Octocode)';
 function editReasoningEntries(edits: EditOperation[]): EditReasoningEntry[] {
-  return edits.map((edit, index) => ({ editIndex: index, reasoning: edit.reasoning.trim() }));
+  return edits.map((edit, index) => ({ editIndex: index, reasoning: (edit.reasoning ?? '').trim() }));
 }
 
 function reasoningSuffix(editsByFile: Array<{ path: string; edits: EditOperation[] }>): string {
@@ -728,7 +725,7 @@ export function renderEditResult(
       const metaStr = `    edit #${edit.editIndex + 1} \xb7 ${range} \xb7 ${edit.mode}`;
       items.push({ text: paint(theme, 'dim', metaStr), truncate: true });
 
-      const reasonText = edit.reasoning.trim();
+      const reasonText = (edit.reasoning ?? '').trim();
       if (reasonText) {
         const indent = '      ';
         items.push({

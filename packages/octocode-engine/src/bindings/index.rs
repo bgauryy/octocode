@@ -266,7 +266,12 @@ fn index_error(error: crate::index::IndexError) -> Error {
 }
 
 fn numeric(value: impl TryInto<i64>) -> i64 {
-    value.try_into().unwrap_or(i64::MAX)
+    // Overflow is only possible on repos > ~9 EB in a single field; saturate
+    // to i64::MAX so callers always get a bounded value. The debug_assert
+    // surfaces the edge case during development without affecting release.
+    let result = value.try_into();
+    debug_assert!(result.is_ok(), "numeric: value overflowed i64");
+    result.unwrap_or(i64::MAX)
 }
 
 fn display_path(path: &Path) -> String {

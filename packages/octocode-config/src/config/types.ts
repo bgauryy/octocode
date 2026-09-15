@@ -4,6 +4,7 @@ export const CONFIG_FILE_NAME = '.octocoderc';
 
 export interface GitHubConfigOptions {
   apiUrl?: string;
+  graphqlEnabled?: boolean;
 }
 
 export interface LocalConfigOptions {
@@ -94,6 +95,7 @@ export interface OctocodeConfig {
 
 export interface RequiredGitHubConfig {
   apiUrl: string;
+  graphqlEnabled: boolean;
 }
 
 export interface RequiredLocalConfig {

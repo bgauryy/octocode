@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io::Read, path::Path};
 
 use rayon::prelude::*;
 
@@ -26,19 +26,29 @@ fn skipped(relative_path: String, code: &str, message: &str) -> GraphFactsScanOu
 pub(crate) fn scan_graph_facts(
     options: GraphFactsScanOptions,
 ) -> Result<GraphFactsScanResult, String> {
+    scan_graph_facts_filtered(options, &|_| Ok(true))
+}
+
+pub(crate) fn scan_graph_facts_filtered(
+    options: GraphFactsScanOptions,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<GraphFactsScanResult, String> {
     let max_files = options.max_files.unwrap_or(DEFAULT_MAX_FILES);
     let max_file_bytes = options.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES) as i64;
-    let query = crate::search::fs_query::query_file_system_inner(FileSystemQueryOptions {
-        path: options.path,
-        recursive: Some(true),
-        show_hidden: Some(false),
-        entry_type: Some("f".to_owned()),
-        extensions: Some(crate::signatures::graph_facts::graph_fact_extensions()),
-        exclude_dir: options.exclude_dir,
-        stop_at_limit: Some(true),
-        limit: Some(max_files),
-        ..Default::default()
-    })?;
+    let query = crate::search::fs_query::query_file_system_filtered_inner(
+        FileSystemQueryOptions {
+            path: options.path,
+            recursive: Some(true),
+            show_hidden: Some(false),
+            entry_type: Some("f".to_owned()),
+            extensions: Some(crate::signatures::graph_facts::graph_fact_extensions()),
+            exclude_dir: options.exclude_dir,
+            stop_at_limit: Some(true),
+            limit: Some(max_files),
+            ..Default::default()
+        },
+        allow_path,
+    )?;
 
     let truncated = query.was_capped;
     let mut candidate_paths: Vec<String> = query
@@ -47,47 +57,75 @@ pub(crate) fn scan_graph_facts(
         .map(|entry| entry.relative_path.replace('\\', "/"))
         .collect();
     candidate_paths.sort_unstable();
-    let outcomes: Vec<GraphFactsScanOutcome> = query
+    let outcomes: Vec<Option<GraphFactsScanOutcome>> = query
         .entries
         .into_par_iter()
-        .map(|entry| {
+        .map(|entry| -> Result<Option<GraphFactsScanOutcome>, String> {
+            let path = Path::new(&entry.path);
+            if !allow_path(path)? {
+                return Ok(None);
+            }
             let relative_path = entry.relative_path.replace('\\', "/");
+            let outcome =
+                |code: &str, message: &str| Ok(Some(skipped(relative_path.clone(), code, message)));
             if entry.size.unwrap_or_default() > max_file_bytes {
-                return skipped(
-                    relative_path,
+                return outcome(
                     "graph.scan.fileTooLarge",
                     "file exceeds the graph scan byte limit",
                 );
             }
-            let Ok(content) = fs::read_to_string(&entry.path) else {
-                return skipped(
-                    relative_path,
+            let Ok(file) = fs::File::open(path) else {
+                return outcome(
                     "graph.scan.readFailed",
                     "file could not be read as UTF-8 text",
                 );
             };
+            // Metadata is advisory: a file can grow between discovery and open.
+            // The read itself has a strict bound, including one overflow byte.
+            let mut content = String::new();
+            if file
+                .take(max_file_bytes as u64 + 1)
+                .read_to_string(&mut content)
+                .is_err()
+            {
+                return outcome(
+                    "graph.scan.readFailed",
+                    "file could not be read as UTF-8 text",
+                );
+            }
+            if content.len() > max_file_bytes as usize {
+                return outcome(
+                    "graph.scan.fileTooLarge",
+                    "file exceeds the graph scan byte limit",
+                );
+            }
+            if !allow_path(path)? {
+                return Ok(None);
+            }
             let Some(extraction) = crate::signatures::extract_graph_facts_with_metadata_inner(
                 &content,
                 &relative_path,
             ) else {
-                return skipped(
-                    relative_path,
+                return outcome(
                     "graph.scan.extractFailed",
                     "native graph-fact extraction returned no result",
                 );
             };
+            if !allow_path(path)? {
+                return Ok(None);
+            }
             let reference_counts =
                 exported_reference_counts(&content, &extraction.exported_declaration_names);
-            GraphFactsScanOutcome::Entry(GraphFactsScanEntry {
+            Ok(Some(GraphFactsScanOutcome::Entry(GraphFactsScanEntry {
                 relative_path,
                 facts_json: extraction.facts_json,
                 reference_counts,
-            })
+            })))
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
     let mut entries = Vec::new();
     let mut skipped = Vec::new();
-    for outcome in outcomes {
+    for outcome in outcomes.into_iter().flatten() {
         match outcome {
             GraphFactsScanOutcome::Entry(entry) => entries.push(entry),
             GraphFactsScanOutcome::Skipped(diagnostic) => skipped.push(diagnostic),
@@ -378,5 +416,56 @@ mod tests {
 
     fn path_string(path: &Path) -> String {
         path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn policy_denied_graph_files_do_not_consume_the_scan_budget() {
+        let root =
+            std::env::temp_dir().join(format!("octocode-graph-policy-{}", std::process::id()));
+        fs::create_dir_all(root.join("private")).expect("fixture");
+        fs::write(root.join("private/hidden.rs"), "pub fn hidden() {}").expect("hidden");
+        fs::write(root.join("visible.rs"), "pub fn visible() {}").expect("visible");
+        let result = scan_graph_facts_filtered(
+            GraphFactsScanOptions {
+                path: path_string(&root),
+                max_files: Some(1),
+                ..Default::default()
+            },
+            &|path| Ok(!path.starts_with(root.join("private"))),
+        )
+        .expect("filtered scan");
+        assert_eq!(result.candidate_paths, ["visible.rs"]);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.files_skipped, 0);
+        assert!(!result.truncated);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn graph_read_enforces_limit_when_file_grows_after_discovery() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let root =
+            std::env::temp_dir().join(format!("octocode-graph-growth-{}", std::process::id()));
+        fs::create_dir_all(&root).expect("fixture");
+        let file = root.join("growing.rs");
+        fs::write(&file, "pub fn initial() {}").expect("initial");
+        let visits = AtomicUsize::new(0);
+        let result = scan_graph_facts_filtered(
+            GraphFactsScanOptions {
+                path: path_string(&root),
+                max_file_bytes: Some(32),
+                ..Default::default()
+            },
+            &|path| {
+                if path == file && visits.fetch_add(1, Ordering::SeqCst) == 1 {
+                    fs::write(&file, "x".repeat(65_536)).expect("concurrent growth");
+                }
+                Ok(true)
+            },
+        )
+        .expect("bounded scan");
+        assert!(result.entries.is_empty());
+        assert_eq!(result.skipped[0].code, "graph.scan.fileTooLarge");
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

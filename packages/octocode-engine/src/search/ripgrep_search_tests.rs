@@ -390,6 +390,15 @@ fn results_are_sorted_by_path() {
 }
 
 #[test]
+fn explicit_traversal_sort_bypasses_post_collection_sorting() {
+    let mut o = opts("/fixture".to_owned(), "m");
+    o.sort = Some("traversal".to_owned());
+    assert!(preserves_traversal_order(&o));
+    o.sort = None;
+    assert!(!preserves_traversal_order(&o));
+}
+
+#[test]
 fn sort_reverse_flips_order() {
     let t = TmpDir::new();
     t.write("a.txt", "m\n");

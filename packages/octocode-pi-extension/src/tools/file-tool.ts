@@ -185,7 +185,7 @@ export function registerFileTool(
       'Read and understand existing files before edit/delete. Use exact oldText by default; normalized or lineRange matching is opt-in.',
       'For requireRecentRead or a lineRange edit without oldText, read through MCPTool localFetch first; shell reads do not refresh the stale-edit guard.',
       'Keep replacements bounded with the smallest unique anchor, and split large mutations across separate calls before the model output limit.',
-      'Batch edits to one path in a single query. All queries are preflighted before mutation; duplicate target paths are rejected.',
+      'Batch edits to one path in a single query.',
     ],
     parameters: buildQueryEnvelopeSchema(fileItemSchema, {
       reasoningDescription: 'Why this file mutation is necessary.',

@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use octocode_engine_tools_core::regex::{
+use octocode_native::regex::{
     MatchRange, REGEX_WORKER_PROTOCOL_VERSION, WorkerOperation, WorkerRequest, WorkerResponse,
 };
 

@@ -65,8 +65,13 @@ export function resolveGitHub(
 ): RequiredGitHubConfig {
   const envApiUrl = process.env.GITHUB_API_URL?.trim();
 
+  const envGraphql = parseBooleanEnv(process.env.OCTOCODE_GITHUB_GRAPHQL);
   return {
     apiUrl: envApiUrl || fileConfig?.apiUrl || DEFAULT_GITHUB_CONFIG.apiUrl,
+    graphqlEnabled:
+      envGraphql ??
+      fileConfig?.graphqlEnabled ??
+      DEFAULT_GITHUB_CONFIG.graphqlEnabled,
   };
 }
 

@@ -104,10 +104,15 @@ pub struct ResolvedConfig {
     pub storage: StorageConfig,
     pub extension: ExtensionConfig,
 }
+fn default_true() -> bool {
+    true
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GitHubConfig {
     #[serde(rename = "apiUrl")]
     pub api_url: String,
+    #[serde(rename = "graphqlEnabled", default = "default_true")]
+    pub graphql_enabled: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LocalConfig {

@@ -309,21 +309,18 @@ export function registerAwarenessTool(
       .describe(`${operationCount} canonical operations.`),
     describe: z.boolean().optional()
       .describe('Return its schema; omit params.'),
-    part: z.number().int().min(0).optional()
-      .describe('Schema part returned by describe discovery.'),
-    params: z.record(z.string(), z.unknown()).optional()
-      .describe('Canonical params; omit host bindings.'),
-    timeoutMs: z.number().int().min(1).max(300_000).optional()
-      .describe('Cooperative deadline in ms.'),
+    part: z.number().int().min(0).optional().describe('Schema page from describe.'),
+    params: z.record(z.string(), z.unknown()).optional().describe('Operation params.'),
+    timeoutMs: z.number().int().min(1).max(300_000).optional().describe('Deadline ms.'),
   });
   const parameters = buildQueryEnvelopeSchema(itemSchema, {
     maxItems: 100,
-    reasoningDescription: 'Why this operation is needed.',
+    reasoningDescription: 'Why.',
   });
   const description = DIRECT_TOOL_DESCRIPTIONS.awareness!;
-  const promptSnippet = `${operationCount} bound Awareness operations; start with context.orient.`;
+  const promptSnippet = `${operationCount} Awareness operations; start with context.orient.`;
   const promptGuidelines = [
-    'Call queries[{reasoning,operation,params?}]. Use {"describe":true} without params; concatenate returned schema parts before parsing. Pi binds database, workspace, session, and actor. Follow executable continuations.',
+    'queries[{operation,params?}]. Use describe:true (no params) for schema discovery. Follow returned continuations.',
   ];
   assertContractBudget('standing', [
     description,

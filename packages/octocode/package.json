@@ -1,15 +1,15 @@
 {
   "name": "octocode",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
-  "version": "19.1.0",
+  "version": "19.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": "./out/octocode.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
     "@octocodeai/config": "20.0.0",
-    "@octocodeai/octocode-engine": "19.1.0",
-    "@octocodeai/octocode-tools-core": "19.1.0",
+    "@octocodeai/octocode-engine": "19.2.0",
+    "@octocodeai/octocode-tools-core": "19.2.0",
     "@octokit/auth-oauth-device": "^8.0.5",
     "@octokit/oauth-methods": "^6.0.5",
     "@octokit/request": "^10.0.16",

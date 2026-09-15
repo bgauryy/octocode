@@ -153,6 +153,7 @@ export type SchemaState =
   | 'worker-lifecycle-history-durability-path-identity-upgrade'
   | 'refinements-upgrade'
   | 'event-stream-convergence-upgrade'
+  | 'signals-expires-not-null-upgrade'
   | 'legacy-renamed-predecessor';
 
 const LEGACY_RENAMED_RELATIONS = new Set([
@@ -206,6 +207,25 @@ function assertMessageRetentionPredecessorFingerprint(db: DatabaseSync): void {
     canonical.exec(SCHEMA_INDEX_DDL);
     canonical.exec('DROP INDEX IF EXISTS idx_signals_expires_at');
     canonical.exec('ALTER TABLE signals DROP COLUMN expires_at');
+    if (readSchemaObjects(db).some(({ name }) => name === 'memories_fts')) canonical.exec(FTS_SCHEMA_DDL);
+    if (readSchemaObjects(db).some(({ name }) => name === 'worker_lifecycle_events')) canonical.exec(WORKER_LIFECYCLE_DDL);
+    assertSchemaObjects(readSchemaObjects(db), readSchemaObjects(canonical));
+  } finally {
+    canonical.close();
+  }
+}
+
+/** Predecessor fingerprint for databases with signals.expires_at as nullable TEXT (no NOT NULL). */
+function assertSignalsNullableExpiresPredecessorFingerprint(db: DatabaseSync): void {
+  const canonical = new DatabaseSync(':memory:');
+  try {
+    canonical.exec(SCHEMA_DDL);
+    canonical.exec(SCHEMA_INDEX_DDL);
+    // Downgrade expires_at to nullable to match the intermediate v5 DDL.
+    canonical.exec('DROP INDEX IF EXISTS idx_signals_expires_at');
+    canonical.exec('ALTER TABLE signals DROP COLUMN expires_at');
+    canonical.exec('ALTER TABLE signals ADD COLUMN expires_at TEXT');
+    canonical.exec('CREATE INDEX idx_signals_expires_at ON signals(expires_at)');
     if (readSchemaObjects(db).some(({ name }) => name === 'memories_fts')) canonical.exec(FTS_SCHEMA_DDL);
     if (readSchemaObjects(db).some(({ name }) => name === 'worker_lifecycle_events')) canonical.exec(WORKER_LIFECYCLE_DDL);
     assertSchemaObjects(readSchemaObjects(db), readSchemaObjects(canonical));
@@ -333,6 +353,17 @@ export function inspectSchemaState(db: DatabaseSync): SchemaState {
       assertMessageRetentionPredecessorFingerprint(db);
       readAwarenessMetaVersion(db, [2, ...AWARENESS_MIGRATABLE_SCHEMA_VERSIONS]);
       return 'schema-generation-upgrade';
+    }
+    // Detect intermediate v5 databases where signals.expires_at was added as nullable TEXT
+    // (before the NOT NULL constraint was introduced). All other tables must be present.
+    if (canonicalCount === expected.size) {
+      const signalExpires = (db.prepare('PRAGMA table_info(signals)').all() as unknown as ColumnInfo[])
+        .find(col => col.name === 'expires_at');
+      if (signalExpires?.notnull === 0) {
+        assertSignalsNullableExpiresPredecessorFingerprint(db);
+        readAwarenessMeta(db);
+        return 'signals-expires-not-null-upgrade';
+      }
     }
     if (canonicalCount !== expected.size) {
       if (canonicalCount === expected.size - 1 && missingMeta) {

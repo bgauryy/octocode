@@ -27,8 +27,26 @@ pub fn query_file_system(options: FileSystemQueryOptions) -> Result<FileSystemQu
         .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
+/// Apply caller policy before inspecting or counting each descendant. Denied
+/// directories are pruned; callback errors abort traversal (e.g. cancellation).
+pub fn query_file_system_filtered(
+    options: FileSystemQueryOptions,
+    allow_path: &dyn Fn(&std::path::Path) -> std::result::Result<bool, String>,
+) -> Result<FileSystemQueryResult> {
+    crate::search::fs_query::query_file_system_filtered_inner(options, allow_path)
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+}
+
 pub fn scan_graph_facts(options: GraphFactsScanOptions) -> Result<GraphFactsScanResult> {
     crate::graph::scan_graph_facts(options)
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+}
+
+pub fn scan_graph_facts_filtered(
+    options: GraphFactsScanOptions,
+    allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
+) -> Result<GraphFactsScanResult> {
+    crate::graph::scan_graph_facts_filtered(options, allow_path)
         .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
@@ -42,6 +60,14 @@ pub fn parse_ripgrep_json(
 
 pub fn search_ripgrep(options: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
     crate::search::ripgrep_search::search(options)
+}
+
+pub use crate::search::ripgrep_search::RipgrepPathFilter;
+pub fn search_ripgrep_filtered(
+    options: RipgrepSearchOptions,
+    path_filter: std::sync::Arc<dyn RipgrepPathFilter>,
+) -> Result<RipgrepParseResult> {
+    crate::search::ripgrep_search::search_filtered(options, path_filter)
 }
 
 #[must_use]
@@ -187,6 +213,31 @@ pub fn structural_search_files_detailed(
         .unwrap_or_else(|_| {
             Err("structural detailed file search failed on pathological input".to_owned())
         })
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+}
+
+/// Run detailed structural search while consulting caller policy before
+/// candidate accounting, prefilter reads, metadata reads, and source reads.
+pub fn structural_search_files_detailed_filtered(
+    options: crate::structural::StructuralSearchFilesOptions,
+    allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
+) -> Result<crate::structural::StructuralSearchFilesDetailedResult> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::structural::search_files_detailed_filtered(options, allow_path)
+    }))
+    .unwrap_or_else(|_| {
+        Err("structural detailed file search failed on pathological input".to_owned())
+    })
+    .map_err(|message| Error::new(Status::InvalidArg, message))
+}
+
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub fn structural_rewrite(
+    content: &str,
+    rule_config: serde_json::Value,
+) -> Result<Vec<crate::structural::StructuralRewriteMatch>> {
+    std::panic::catch_unwind(|| crate::structural::structural_rewrite(content, rule_config))
+        .unwrap_or_else(|_| Err("structural rewrite failed on pathological input".to_owned()))
         .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 

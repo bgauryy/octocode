@@ -5,11 +5,12 @@
 mod adapter_napi;
 
 pub mod cache;
-pub mod cli;
 pub mod config;
 pub mod content;
 pub mod contracts;
+pub mod lsp;
 pub mod policy;
+pub mod providers;
 pub mod regex;
 pub mod response;
 pub mod runtime;
@@ -17,4 +18,4 @@ pub mod security;
 pub mod tools;
 
 /// Identifies the native boundary independently of generated tool contracts.
-pub const NATIVE_ABI_VERSION: u32 = 1;
+pub const NATIVE_ABI_VERSION: u32 = 2;

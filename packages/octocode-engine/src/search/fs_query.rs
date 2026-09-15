@@ -53,8 +53,18 @@ struct QueryState {
 pub(crate) fn query_file_system_inner(
     options: FileSystemQueryOptions,
 ) -> Result<FileSystemQueryResult, String> {
+    query_file_system_filtered_inner(options, &|_| Ok(true))
+}
+
+pub(crate) fn query_file_system_filtered_inner(
+    options: FileSystemQueryOptions,
+    allow_path: &dyn Fn(&Path) -> Result<bool, String>,
+) -> Result<FileSystemQueryResult, String> {
     let query = CompiledQuery::new(options)?;
     let mut state = QueryState::default();
+    if !allow_path(&query.root)? {
+        return Err("Filesystem query root is denied by path policy".to_owned());
+    }
     let root_metadata = fs::symlink_metadata(&query.root).map_err(|err| {
         format!(
             "Cannot access filesystem query root '{}': {err}",
@@ -67,7 +77,7 @@ pub(crate) fn query_file_system_inner(
     }
 
     if root_metadata.is_dir() && (query.recursive || !query.include_root) {
-        walk_children(&query.root, 1, &query, &mut state);
+        walk_children(&query.root, 1, &query, &mut state, allow_path)?;
     } else if !root_metadata.is_dir() && !query.include_root {
         return Err(format!(
             "Filesystem query root is not a directory: {}",
@@ -154,13 +164,19 @@ impl CompiledQuery {
     }
 }
 
-fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut QueryState) {
+fn walk_children(
+    base: &Path,
+    depth: u32,
+    query: &CompiledQuery,
+    state: &mut QueryState,
+    allow_path: &dyn Fn(&Path) -> Result<bool, String>,
+) -> Result<(), String> {
     if depth > MAX_RECURSION_DEPTH {
         state.skipped += 1;
-        return;
+        return Ok(());
     }
     if query.max_depth.is_some_and(|max_depth| depth > max_depth) {
-        return;
+        return Ok(());
     }
 
     let read_dir = match fs::read_dir(base) {
@@ -170,7 +186,7 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
             if err.kind() == std::io::ErrorKind::PermissionDenied {
                 state.permission_denied += 1;
             }
-            return;
+            return Ok(());
         }
     };
 
@@ -178,7 +194,7 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
         // Look ahead to one additional matching entry before declaring overflow.
         // Reaching the stored-entry cap alone does not prove the scan is partial.
         if query.stop_at_limit && state.total_discovered as usize > query.limit {
-            return;
+            return Ok(());
         }
         let dir_entry = match dir_entry {
             Ok(entry) => entry,
@@ -192,6 +208,11 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
         };
 
         let path = dir_entry.path();
+        // Authorize before metadata, matching (which can inspect empty
+        // directories), discovery counters, or recursive traversal.
+        if !allow_path(&path)? {
+            continue;
+        }
         let file_name = dir_entry.file_name();
         let name = file_name.to_string_lossy();
         if !query.show_hidden && name.starts_with('.') {
@@ -217,12 +238,13 @@ fn walk_children(base: &Path, depth: u32, query: &CompiledQuery, state: &mut Que
         visit_path_with_metadata(&path, depth, metadata, query, state);
 
         if query.recursive && is_directory {
-            walk_children(&path, depth + 1, query, state);
+            walk_children(&path, depth + 1, query, state, allow_path)?;
             if query.stop_at_limit && state.total_discovered as usize > query.limit {
-                return;
+                return Ok(());
             }
         }
     }
+    Ok(())
 }
 
 fn visit_path_with_metadata(

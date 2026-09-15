@@ -1,24 +1,24 @@
 import { z } from 'zod';
 
 export function mcpGatewayItemSchema() {
-  return z.strictObject({
+  return z.looseObject({
     action: z.enum([
       'list','describe','call','resources','read-resource','prompts','get-prompt',
       'complete','enable','disable','status','restart','stop','config','add','remove',
-    ]).describe('list: enabled server instructions and tool descriptions with continuations. describe: exact schema. Calls validate against cached exact schemas.'),
-    offset: z.number().int().nonnegative().optional().describe('list continuation row; copy next.params unchanged.'),
-    textOffset: z.number().int().nonnegative().optional().describe('list continuation within a long instruction or description.'),
-    limit: z.number().int().min(1).max(50).optional().describe('list rows per page, up to 50.'),
-    catalogRevision: z.string().optional().describe('list continuation revision; copy from next.params.'),
-    server: z.string().optional().describe('MCP server name. For add/remove this is the key written to mcp.json.'),
-    tool: z.string().optional().describe('MCP tool name for describe/call.'),
-    uri: z.string().optional().describe('Resource URI for read-resource.'),
-    name: z.string().optional().describe('Prompt name for get-prompt.'),
-    ref: z.record(z.string(), z.unknown()).optional().describe('Prompt or resource-template reference for complete.'),
-    argument: z.record(z.string(), z.unknown()).optional().describe('Partial argument for complete.'),
-    arguments: z.record(z.string(), z.unknown()).optional().describe('Input for action:call. Put every target-tool field here, never beside action/server/tool. Octocode inputs nest under arguments.queries[]; outer reasoning stays outside.'),
-    responseView: z.enum(['full', 'table']).optional().describe('call output: full evidence (default), optionally preceded by a batch summary table.'),
-    config: z.record(z.string(), z.unknown()).optional().describe('Server config for add: stdio {command,args?,env?,cwd?} or HTTP {url,headers?}.'),
-    scope: z.enum(['project', 'global']).optional().describe('add/remove target: project (.agents/mcp.json) or global ($OCTOCODE_HOME/mcp.json).'),
+    ]).describe('list|describe|call|resources|read-resource|prompts|get-prompt|complete|enable|disable|status|restart|stop|config|add|remove'),
+    offset: z.number().int().nonnegative().optional().describe('Continuation row.'),
+    textOffset: z.number().int().nonnegative().optional().describe('Text offset.'),
+    limit: z.number().int().min(1).max(50).optional().describe('Page size ≤50.'),
+    catalogRevision: z.string().optional().describe('Catalog revision.'),
+    server: z.string().optional().describe('Server name.'),
+    tool: z.string().optional().describe('Tool name.'),
+    uri: z.string().optional().describe('Resource URI.'),
+    name: z.string().optional().describe('Prompt name.'),
+    ref: z.record(z.string(), z.unknown()).optional().describe('Reference for complete.'),
+    argument: z.record(z.string(), z.unknown()).optional().describe('Argument for complete.'),
+    arguments: z.record(z.string(), z.unknown()).optional().describe('Tool input for call. Octocode nests under arguments.queries[].'),
+    responseView: z.enum(['full', 'table']).optional().describe('full (default) or table.'),
+    config: z.record(z.string(), z.unknown()).optional().describe('Server config: stdio {command,...} or http {url,...}.'),
+    scope: z.enum(['project', 'global']).optional().describe('project or global.'),
   });
 }

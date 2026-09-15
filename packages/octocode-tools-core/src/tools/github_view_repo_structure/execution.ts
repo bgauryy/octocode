@@ -32,6 +32,7 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
+import { fetchDirectoryContents } from '../../github/directoryFetch/fetchDirectoryContents.js';
 
 function normalizeStructureErrorResult(
   result: ProcessedBulkResult,
@@ -226,6 +227,53 @@ export async function exploreRepositoryStructure(
         actualBranch: effectiveBranch,
         warning: branchFallbackWarning,
       };
+    }
+
+    const materialize = (query as { materialize?: boolean }).materialize === true;
+    if (materialize) {
+      const snapshot = await fetchDirectoryContents(
+        query.owner,
+        query.repo,
+        typeof query.path === 'string' ? query.path : '',
+        effectiveBranch,
+        args.authInfo
+      ).catch(() => null);
+      if (snapshot) {
+      const offset =
+        (query as { materializeOffset?: number }).materializeOffset ?? 0;
+      (resultData as Record<string, unknown>).location = {
+        kind: 'local',
+        localPath: snapshot.localPath,
+        source: 'github-tree',
+        cached: snapshot.cached,
+        complete: snapshot.complete,
+        hasMore: !snapshot.complete,
+        resolvedBranch: effectiveBranch,
+        commitSha: snapshot.commitSha,
+      };
+      if (!snapshot.complete) {
+        const nextQuery = {
+          operation: 'tree' as const,
+          owner: query.owner,
+          repo: query.repo,
+          branch: effectiveBranch,
+          ...(query.path ? { path: query.path } : {}),
+          materialize: true,
+          materializeOffset: offset + snapshot.savedFileCount,
+        };
+        const next = {
+          ...((resultData as { next?: Record<string, unknown> }).next ?? {}),
+        };
+        delete next.nextPage;
+        next.continueMaterialize = {
+          tool: GITHUB_SEARCH_TOOL_NAME,
+          query: nextQuery,
+          why: 'Continue writing tree files after the per-call write cap.',
+          confidence: 'exact',
+        };
+        (resultData as Record<string, unknown>).next = next;
+      }
+      }
     }
 
     return createSuccessResult(

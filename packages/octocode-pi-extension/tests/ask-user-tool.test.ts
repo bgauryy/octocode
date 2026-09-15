@@ -58,7 +58,7 @@ test('askUser registration teaches decision-changing questions, concise choices,
   const guidance = `${tool.description}\n${tool.promptGuidelines?.join('\n') ?? ''}`;
   assert.ok(guidance.length < 1000, 'widget policy stays compact beside its schema');
   assert.match(guidance, /missing choice that changes the next action/);
-  assert.match(guidance, /routine authorized work does not need confirmation/);
+  assert.match(guidance, /ask whether to continue routine authorized work/);
   assert.match(guidance, /add only distinguishing detail/);
   assert.match(guidance, /recommended only for an evidence-backed safe default/);
   assert.match(guidance, /options chooses one with a custom-answer escape/);

@@ -610,10 +610,10 @@ export function registerBashTool(
         'Command; omit for job actions.',
       ),
       timeout: z.number().int().min(1).optional().describe(
-        `Seconds; set for blocking commands. Values above ${BASH_MAX_TIMEOUT_SEC} are clamped.`,
+        `Seconds; capped at ${BASH_MAX_TIMEOUT_SEC}.`,
       ),
       background: z.boolean().optional().describe(
-        `Run non-blocking; returns jobId and reports completion. Default timeout ${BASH_BG_DEFAULT_TIMEOUT_S}s.`,
+        `Non-blocking; returns jobId. Default ${BASH_BG_DEFAULT_TIMEOUT_S}s.`,
       ),
       title: z.string().optional().describe('Background label.'),
       action: z.enum(['status', 'output', 'kill', 'list']).optional().describe(
@@ -623,7 +623,7 @@ export function registerBashTool(
       outputOffset: z.number().optional().describe('Output line offset.'),
       lines: z.number().optional().describe('Output line limit.'),
     }),
-    { reasoningDescription: 'Concise reason this shell command is necessary.', allowParallel: false },
+    { reasoningDescription: 'Why.', allowParallel: false },
   );
 
   registerFn(pi, registeredToolNames, {
@@ -633,10 +633,7 @@ export function registerBashTool(
       DIRECT_TOOL_DESCRIPTIONS.bash!,
     promptSnippet: 'Run bounded builds, tests, package commands, and debugging.',
     promptGuidelines: [
-      'Set timeout for commands that can block and use non-interactive flags, e.g. npx -y pkg. Use this timeout field instead of assuming a platform timeout executable exists.',
-      'Batches execute sequentially, stop on failure, and keep prior effects. Isolate slow/network commands so one hang does not strand unrelated work.',
-      'Use file for mutations and MCPTool for search/reads that record edit freshness. Never use an interpreter or shell expansion to bypass path guards.',
-      'Redirect/tee/cp/mv destinations must pass the path guard. Environment exfiltration retains its approval gate; ordinary commands inherit the environment.',
+      'Set timeout; use non-interactive flags (e.g. npx -y). Isolate slow/network commands so one hang does not strand others.',
     ],
     parameters,
     async execute(

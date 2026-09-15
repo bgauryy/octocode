@@ -6,10 +6,12 @@ use super::types::*;
 use super::validation::validate_config;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-const SOURCE_KEYS: [&str; 15] = [
+const SOURCE_KEYS: [&str; 17] = [
     "GITHUB_API_URL",
+    "OCTOCODE_GITHUB_GRAPHQL",
     "ENABLE_LOCAL",
     "ENABLE_CLONE",
+    "ENABLE_AST_REWRITE_APPLY",
     "ALLOWED_PATHS",
     "WORKSPACE_ROOT",
     "TOOLS_TO_RUN",
@@ -81,6 +83,9 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                 .map(str::to_owned)
                 .or_else(|| str_field(github, "apiUrl"))
                 .unwrap_or_else(|| "https://api.github.com".into()),
+            graphql_enabled: parse_boolean_env(env(e, "OCTOCODE_GITHUB_GRAPHQL"))
+                .or_else(|| bool_field(github, "graphqlEnabled"))
+                .unwrap_or(true),
         },
         local: LocalConfig {
             enabled: parse_boolean_env(env(e, "ENABLE_LOCAL"))

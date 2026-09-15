@@ -40,6 +40,7 @@ import {
   isTokenExpired,
   isRefreshTokenExpired,
 } from './credentialUtils.js';
+import { nativeCredentials } from './nativeBridge.js';
 
 export async function storeCredentials(
   credentials: StoredCredentials
@@ -50,6 +51,13 @@ export async function storeCredentials(
     hostname,
     updatedAt: new Date().toISOString(),
   };
+
+  const native = nativeCredentials();
+  if (native) {
+    native.storeCredentials(normalizedCredentials);
+    invalidateCredentialsCache(hostname);
+    return { success: true };
+  }
 
   try {
     const store = readCredentialsStore();
@@ -81,6 +89,13 @@ export async function getCredentials(
     }
   }
 
+  const native = nativeCredentials();
+  if (native) {
+    const credentials = native.getCredentials(normalizedHostname);
+    setCachedCredentials(normalizedHostname, credentials);
+    return credentials;
+  }
+
   const store = readCredentialsStore();
   const credentials = store.credentials[normalizedHostname] || null;
 
@@ -102,6 +117,13 @@ export async function deleteCredentials(
 ): Promise<DeleteResult> {
   const normalizedHostname = normalizeHostname(hostname);
   let deletedFromFile = false;
+
+  const native = nativeCredentials();
+  if (native) {
+    native.deleteCredentials(normalizedHostname);
+    invalidateCredentialsCache(normalizedHostname);
+    return { success: true, deletedFromFile: false };
+  }
 
   const store = readCredentialsStore();
   if (store.credentials[normalizedHostname]) {
@@ -211,6 +233,12 @@ export async function refreshAuthToken(
   hostname?: string,
   clientId?: string
 ): Promise<RefreshResult> {
+  const native = nativeCredentials();
+  if (native) {
+    const result = await native.refreshAuthToken(hostname);
+    invalidateCredentialsCache(hostname ?? 'github.com');
+    return result;
+  }
   return _refreshAuthTokenCore(
     { getCredentials, updateToken },
     hostname,
@@ -222,6 +250,21 @@ export async function getTokenWithRefresh(
   hostname?: string,
   clientId?: string
 ): Promise<TokenWithRefreshResult> {
+  const native = nativeCredentials();
+  if (native) {
+    const result = await native.getTokenWithRefresh(hostname);
+    return {
+      token: result.token,
+      source:
+        result.source === 'refreshed'
+          ? 'refreshed'
+          : result.source === 'stored'
+            ? 'stored'
+            : 'none',
+      username: result.username,
+      refreshError: result.refreshError,
+    };
+  }
   return _getTokenWithRefreshCore(
     { getCredentials, updateToken },
     hostname,

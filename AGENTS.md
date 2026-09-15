@@ -95,7 +95,7 @@ Vitest coverage floors are package-specific ratchets in each `vitest.config.*`; 
 Local end-to-end (when changing engine, tools-core, or CLI):
 
 ```bash
-yarn workspace @octocodeai/octocode-engine build:dev
+yarn workspace @octocodeai/octocode-engine build:dev  # produces .node napi bindings — no standalone binary
 yarn workspace @octocodeai/octocode-tools-core build
 yarn workspace octocode build:dev            # also: yarn workspace octocode-mcp build:dev
 OCTO='node packages/octocode/out/octocode.js'
@@ -105,7 +105,7 @@ $OCTO tools --json
 $OCTO tools localSearch astSearch localFetch lspSearch --scheme
 ```
 
-Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx when validating monorepo changes. After engine or tools-core edits: rebuild the package, then `yarn workspace octocode build:dev`. `build:dev` skips clean + lint; engine uses debug (not `--release`).
+Prefer `node packages/octocode/out/octocode.js` over global `octocode` / npx when validating monorepo changes. After engine or tools-core edits: rebuild the package, then `yarn workspace octocode build:dev`. `build:dev` skips clean + lint; engine uses debug (not `--release`). Verify builds by exit code only — do not check `target/debug/` paths.
 
 ## Bash tool best practices
 

@@ -32,12 +32,12 @@ export function buildPlanPrompt(goal: string, adapter: PlanPromptHostAdapter = {
     '[PLAN MODE] Build a reviewable plan collaboratively. The host review owns one Start implementation decision; consume its result without asking again.',
     target,
     '',
-    '1. Establish only the evidence that changes scope, dependencies, risk, or acceptance. Use the live Octocode tool catalog for repository, code, history, package, graph, and semantic research; load a matching Octocode skill for specialized research, evaluation, or RFC work. Do not substitute shell search or direct CLI invocations. Keep simple requests brief; for shared or cross-cutting work, trace callers and contracts.',
-    '2. Use the RFC workflow and create or update a reviewable RFC when architecture, migration, or public-contract choices need user review. Otherwise keep a lightweight plan; put its brief rationale in the proposal fields, without a separate explanation or approval round.',
-    '3. Ask bounded clarification only when a decision-changing material choice cannot be answered from repository evidence. Do not turn reversible implementation details into questions. Cancellation, timeout, or unavailable interaction never authorizes a default.',
+    '1. Establish only the evidence that changes scope, dependencies, risk, or acceptance. Use the live Octocode catalog; call a visible schema directly and describe it only if missing or stale. Batch independent research in one call when supported; keep dependent probes sequential. Trace callers and contracts for shared work. Do not substitute shell search or a research CLI.',
+    '2. Create or update a reviewable RFC only for architecture, migration, or public-contract choices needing review. Otherwise use a lightweight plan and put its brief rationale in the proposal.',
+    '3. Ask only when a decision-changing material choice remains after research. Do not ask about reversible implementation details; cancellation, timeout, or unavailable interaction never authorizes a default.',
     `4. ${proposalInstruction} A consequential proposal links its exact RFC revision; a lightweight proposal omits the RFC path and retains the reason it is lightweight. ${reviewInstruction}`,
-    '5. The review has one decision: Start implementation or Request changes. Start binds the exact displayed revision and begins the first runnable step in one action; there is no separate Accept action. Feedback means revise and re-propose; rejection means stop; unavailable interaction leaves the proposal pending.',
+    '5. The review has one decision: Start implementation or Request changes. Start binds the exact displayed revision and begins the first runnable step in one action; there is no separate Accept action. Feedback revises and re-proposes; rejection stops; unavailable interaction leaves the proposal pending.',
     '',
-    'Planning does not disable tools; use only research and artifact-authoring effects before Start. Return the plan result, main risk, and excluded scope. Do not implement product code before Start.',
+    'Planning does not disable tools; before Start, use only research and artifact-authoring effects. Return the plan result, main risk, and excluded scope; do not implement product code before Start.',
   ].join('\n');
 }

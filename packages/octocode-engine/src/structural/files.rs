@@ -16,7 +16,7 @@ use super::types::{
     STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION,
 };
 use crate::signatures::languages;
-use crate::types::RipgrepSearchOptions;
+use crate::types::{RipgrepFile, RipgrepSearchOptions};
 
 pub fn search_files(
     options: StructuralSearchFilesOptions,
@@ -46,6 +46,14 @@ pub fn search_files(
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
     let overrides = build_overrides(&root, &include, &exclude)?;
+    let scope = FileScope {
+        include: &include,
+        exclude: &exclude,
+        exclude_dir: &exclude_dir,
+        hidden,
+        no_ignore,
+        max_depth,
+    };
     let (mut candidate_files, skipped_by_pre_filter, skipped_unsupported) = match &prefilter {
         Prefilter::None => (
             collect_files(
@@ -66,13 +74,8 @@ pub fn search_files(
             // extensions that textually contain the anchor must surface as
             // `skipped_unsupported`, not vanish into the prefilter lump.
             matching_anchor_candidate_files(
+                &scope,
                 &root,
-                &include,
-                &exclude,
-                &exclude_dir,
-                hidden,
-                no_ignore,
-                max_depth,
                 overrides,
                 anchor,
                 max_files.saturating_add(1),
@@ -83,13 +86,8 @@ pub fn search_files(
             // Union prefilter: files must contain at least one of the literals.
             // Uses regex alternation (safe because anchors are validated identifiers).
             matching_anchor_union_candidate_files(
+                &scope,
                 &root,
-                &include,
-                &exclude,
-                &exclude_dir,
-                hidden,
-                no_ignore,
-                max_depth,
                 overrides,
                 anchors,
                 max_files.saturating_add(1),
@@ -188,7 +186,7 @@ pub fn search_files(
                     Err(error) => {
                         return SearchOutcome::Incomplete(
                             error.diagnostic(&file_path.to_string_lossy()),
-                        )
+                        );
                     }
                 };
                 if matches.is_empty() {
@@ -313,6 +311,16 @@ pub fn search_files(
 pub fn search_files_detailed(
     options: StructuralSearchFilesOptions,
 ) -> Result<StructuralSearchFilesDetailedResult, String> {
+    search_files_detailed_filtered(options, &|_| Ok(true))
+}
+
+/// Detailed structural search with caller-owned descendant policy and
+/// cancellation. The callback runs before candidate accounting, literal
+/// prefilter reads, metadata reads, and source reads.
+pub fn search_files_detailed_filtered(
+    options: StructuralSearchFilesOptions,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<StructuralSearchFilesDetailedResult, String> {
     let StructuralSearchFilesOptions {
         path,
         pattern,
@@ -360,6 +368,9 @@ pub fn search_files_detailed(
     };
 
     let root = PathBuf::from(&path);
+    if !allow_path(&root)? {
+        return Err("Structural search root is denied by path policy".to_owned());
+    }
     check_root_exists(&root)?;
     let include = include.unwrap_or_default();
     let exclude = exclude.unwrap_or_default();
@@ -370,7 +381,7 @@ pub fn search_files_detailed(
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
     let overrides = build_overrides(&root, &include, &exclude)?;
-    let mut candidate_files = collect_files(
+    let mut candidate_files = collect_files_filtered(
         &root,
         overrides,
         &exclude_dir,
@@ -379,30 +390,11 @@ pub fn search_files_detailed(
         hidden,
         no_ignore,
         max_depth,
+        allow_path,
     )?;
     let scan_truncated = candidate_files.len() > max_files;
     candidate_files.truncate(max_files);
-    let matching_paths: Option<HashSet<String>> = match &prefilter {
-        Prefilter::None => None,
-        Prefilter::Single(anchor) => Some(matching_anchor_paths(
-            &root,
-            &include,
-            &exclude_dir,
-            hidden,
-            no_ignore,
-            max_depth,
-            anchor,
-        )?),
-        Prefilter::Union(anchors) => Some(matching_anchor_union_paths(
-            &root,
-            &include,
-            &exclude_dir,
-            hidden,
-            no_ignore,
-            max_depth,
-            anchors,
-        )?),
-    };
+    let matching_paths = matching_prefilter_paths(&candidate_files, &prefilter, allow_path)?;
 
     let mut matchers = BTreeMap::new();
     let mut files = Vec::new();
@@ -415,6 +407,9 @@ pub fn search_files_detailed(
     let mut compile_failures = 0u32;
 
     for file_path in candidate_files {
+        if !allow_path(&file_path)? {
+            continue;
+        }
         let path_string = file_path.to_string_lossy().to_string();
         if matching_paths
             .as_ref()
@@ -687,76 +682,68 @@ pub fn search_files_detailed(
     })
 }
 
-fn matching_anchor_paths(
-    root: &Path,
-    include: &[String],
-    exclude_dir: &[String],
-    hidden: Option<bool>,
-    no_ignore: Option<bool>,
-    max_depth: Option<u32>,
-    anchor: &str,
-) -> Result<HashSet<String>, String> {
-    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
-        path: root.to_string_lossy().into_owned(),
-        pattern: anchor.to_owned(),
-        fixed_string: Some(true),
-        case_sensitive: Some(true),
-        files_only: Some(true),
-        include: (!include.is_empty()).then(|| include.to_vec()),
-        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
-        hidden,
-        no_ignore,
-        // Structural depth counts root files as 1; ripgrep's public option
-        // counts them as 0 and adds one when configuring its walker.
-        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
-        sort: Some("path".to_owned()),
-        ..RipgrepSearchOptions::default()
-    })
-    .map_err(|err| format!("literal prefilter failed for anchor '{anchor}': {err}"))?;
-
-    Ok(result.files.into_iter().map(|file| file.path).collect())
+fn matching_prefilter_paths(
+    candidates: &[PathBuf],
+    prefilter: &Prefilter,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<Option<HashSet<String>>, String> {
+    let anchors = match prefilter {
+        Prefilter::None => return Ok(None),
+        Prefilter::Single(anchor) => std::slice::from_ref(anchor),
+        Prefilter::Union(anchors) => anchors.as_slice(),
+    };
+    let mut matching = HashSet::new();
+    for path in candidates {
+        if !allow_path(path)? {
+            continue;
+        }
+        let Ok(bytes) = fs::read(path) else { continue };
+        if anchors
+            .iter()
+            .any(|anchor| contains_bytes(&bytes, anchor.as_bytes()))
+        {
+            matching.insert(path.to_string_lossy().into_owned());
+        }
+    }
+    Ok(Some(matching))
 }
 
-// Both anchor-prefilter helpers thread the six local-search scope fields
-// requires (include/exclude/exclude_dir/hidden/no_ignore/max_depth); bundling
-// into a `FileScope` struct is a future cleanup, not warranted for this fix.
-#[allow(clippy::too_many_arguments)]
-fn matching_anchor_candidate_files(
-    root: &Path,
-    include: &[String],
-    exclude: &[String],
-    exclude_dir: &[String],
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|candidate| candidate == needle)
+}
+
+/// Scope fields shared between both anchor-prefilter helpers — include/exclude
+/// globs, the walk exclusion list, and depth/visibility options.
+struct FileScope<'a> {
+    include: &'a [String],
+    exclude: &'a [String],
+    exclude_dir: &'a [String],
     hidden: Option<bool>,
     no_ignore: Option<bool>,
     max_depth: Option<u32>,
-    overrides: Override,
-    anchor: &str,
-    max_files: usize,
-    supported_only: bool,
-) -> Result<(Vec<PathBuf>, u32, u32), String> {
-    let search_include = anchor_search_include_globs(include, supported_only);
-    let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
-        path: root.to_string_lossy().into_owned(),
-        pattern: anchor.to_owned(),
-        fixed_string: Some(true),
-        case_sensitive: Some(true),
-        files_only: Some(true),
-        include: (!search_include.is_empty()).then_some(search_include),
-        exclude: (!exclude.is_empty()).then(|| exclude.to_vec()),
-        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
-        hidden,
-        no_ignore,
-        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
-        sort: Some("path".to_owned()),
-        ..RipgrepSearchOptions::default()
-    })
-    .map_err(|err| format!("literal prefilter failed for anchor '{anchor}': {err}"))?;
+}
 
-    let files_searched = result.stats.files_searched.unwrap_or_default();
+/// Classify files returned by a ripgrep prefilter search into
+/// `(matched_paths, skipped_by_pre_filter, matched_unsupported)`.
+///
+/// - Only files with supported tree-sitter extensions enter `matched_paths`.
+/// - `skipped_by_pre_filter` = files_searched − matched_supported − matched_unsupported.
+/// - `matched_unsupported` = unsupported-ext files that contained the anchor.
+fn classify_ripgrep_prefilter(
+    files: Vec<RipgrepFile>,
+    files_searched: u32,
+    root: &Path,
+    max_depth: Option<u32>,
+    overrides: &Override,
+    max_files: usize,
+) -> (Vec<PathBuf>, u32, u32) {
     let mut matched_supported = 0u32;
     let mut matched_unsupported = 0u32;
     let mut out = Vec::new();
-    for file in result.files {
+    for file in files {
         let path = PathBuf::from(file.path);
         if !within_depth(root, &path, max_depth) || overrides.matched(&path, false).is_ignore() {
             continue;
@@ -772,7 +759,6 @@ fn matching_anchor_candidate_files(
             matched_unsupported = matched_unsupported.saturating_add(1);
         }
     }
-
     // `skipped_by_pre_filter` = supported files ripgrep searched but the anchor
     // was absent (proof of no match); `skipped_unsupported` = unsupported-ext
     // files that contained the anchor (not evaluated, not proof). Splitting
@@ -780,54 +766,55 @@ fn matching_anchor_candidate_files(
     let skipped_by_pre_filter = files_searched
         .saturating_sub(matched_supported)
         .saturating_sub(matched_unsupported);
-    Ok((out, skipped_by_pre_filter, matched_unsupported))
+    (out, skipped_by_pre_filter, matched_unsupported)
 }
 
-/// Union prefilter variant of [`matching_anchor_paths`]: a file qualifies if it
-/// contains ANY of `anchors` (regex alternation with escaped literals).
-fn matching_anchor_union_paths(
+fn matching_anchor_candidate_files(
+    scope: &FileScope,
     root: &Path,
-    include: &[String],
-    exclude_dir: &[String],
-    hidden: Option<bool>,
-    no_ignore: Option<bool>,
-    max_depth: Option<u32>,
-    anchors: &[String],
-) -> Result<HashSet<String>, String> {
-    let pattern = anchors_to_regex(anchors);
+    overrides: Override,
+    anchor: &str,
+    max_files: usize,
+    supported_only: bool,
+) -> Result<(Vec<PathBuf>, u32, u32), String> {
+    let search_include = anchor_search_include_globs(scope.include, supported_only);
     let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
-        pattern,
-        fixed_string: None, // regex alternation — not fixed-string
+        pattern: anchor.to_owned(),
+        fixed_string: Some(true),
         case_sensitive: Some(true),
         files_only: Some(true),
-        include: (!include.is_empty()).then(|| include.to_vec()),
-        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
-        hidden,
-        no_ignore,
-        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
+        include: (!search_include.is_empty()).then_some(search_include),
+        exclude: (!scope.exclude.is_empty()).then(|| scope.exclude.to_vec()),
+        exclude_dir: (!scope.exclude_dir.is_empty()).then(|| scope.exclude_dir.to_vec()),
+        hidden: scope.hidden,
+        no_ignore: scope.no_ignore,
+        max_depth: scope.max_depth.map(|depth| depth.saturating_sub(1)),
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
-    .map_err(|err| format!("union prefilter failed for anchors {anchors:?}: {err}"))?;
-    Ok(result.files.into_iter().map(|f| f.path).collect())
+    .map_err(|err| format!("literal prefilter failed for anchor '{anchor}': {err}"))?;
+
+    let files_searched = result.stats.files_searched.unwrap_or_default();
+    Ok(classify_ripgrep_prefilter(
+        result.files,
+        files_searched,
+        root,
+        scope.max_depth,
+        &overrides,
+        max_files,
+    ))
 }
 
 /// Union prefilter variant of [`matching_anchor_candidate_files`].
-#[allow(clippy::too_many_arguments)]
 fn matching_anchor_union_candidate_files(
+    scope: &FileScope,
     root: &Path,
-    include: &[String],
-    exclude: &[String],
-    exclude_dir: &[String],
-    hidden: Option<bool>,
-    no_ignore: Option<bool>,
-    max_depth: Option<u32>,
     overrides: Override,
     anchors: &[String],
     max_files: usize,
 ) -> Result<(Vec<PathBuf>, u32, u32), String> {
-    let search_include = anchor_search_include_globs(include, false);
+    let search_include = anchor_search_include_globs(scope.include, false);
     let pattern = anchors_to_regex(anchors);
     let result = crate::search::ripgrep_search::search(RipgrepSearchOptions {
         path: root.to_string_lossy().into_owned(),
@@ -836,40 +823,25 @@ fn matching_anchor_union_candidate_files(
         case_sensitive: Some(true),
         files_only: Some(true),
         include: (!search_include.is_empty()).then_some(search_include),
-        exclude: (!exclude.is_empty()).then(|| exclude.to_vec()),
-        exclude_dir: (!exclude_dir.is_empty()).then(|| exclude_dir.to_vec()),
-        hidden,
-        no_ignore,
-        max_depth: max_depth.map(|depth| depth.saturating_sub(1)),
+        exclude: (!scope.exclude.is_empty()).then(|| scope.exclude.to_vec()),
+        exclude_dir: (!scope.exclude_dir.is_empty()).then(|| scope.exclude_dir.to_vec()),
+        hidden: scope.hidden,
+        no_ignore: scope.no_ignore,
+        max_depth: scope.max_depth.map(|depth| depth.saturating_sub(1)),
         sort: Some("path".to_owned()),
         ..RipgrepSearchOptions::default()
     })
     .map_err(|err| format!("union prefilter failed for anchors {anchors:?}: {err}"))?;
 
     let files_searched = result.stats.files_searched.unwrap_or_default();
-    let mut matched_supported = 0u32;
-    let mut matched_unsupported = 0u32;
-    let mut out = Vec::new();
-    for file in result.files {
-        let path = PathBuf::from(file.path);
-        if !within_depth(root, &path, max_depth) || overrides.matched(&path, false).is_ignore() {
-            continue;
-        }
-        let is_supported =
-            extension_for_path(&path).is_some_and(|ext| languages::find_entry(&ext).is_some());
-        if is_supported {
-            matched_supported = matched_supported.saturating_add(1);
-            if out.len() < max_files {
-                out.push(path);
-            }
-        } else {
-            matched_unsupported = matched_unsupported.saturating_add(1);
-        }
-    }
-    let skipped_by_pre_filter = files_searched
-        .saturating_sub(matched_supported)
-        .saturating_sub(matched_unsupported);
-    Ok((out, skipped_by_pre_filter, matched_unsupported))
+    Ok(classify_ripgrep_prefilter(
+        result.files,
+        files_searched,
+        root,
+        scope.max_depth,
+        &overrides,
+        max_files,
+    ))
 }
 
 /// Build a ripgrep regex alternation from anchor literals.
@@ -969,7 +941,6 @@ fn build_overrides(
         .map_err(|err| format!("failed to compile include/exclude globs: {err}"))
 }
 
-// Walker threads the eight local-search scope/output fields; a
 /// Loud existence check shared by every entry point — mirrors the message
 /// `collect_files` produces so all prefilter branches fail identically.
 fn check_root_exists(root: &Path) -> Result<(), String> {
@@ -981,7 +952,6 @@ fn check_root_exists(root: &Path) -> Result<(), String> {
     })
 }
 
-// `FileScope` struct would trim this further but is out of scope here.
 fn collect_files(
     root: &Path,
     overrides: Override,
@@ -992,6 +962,34 @@ fn collect_files(
     no_ignore: Option<bool>,
     max_depth: Option<u32>,
 ) -> Result<Vec<PathBuf>, String> {
+    collect_files_filtered(
+        root,
+        overrides,
+        exclude_dir,
+        max_files,
+        supported_only,
+        hidden,
+        no_ignore,
+        max_depth,
+        &|_| Ok(true),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_files_filtered(
+    root: &Path,
+    overrides: Override,
+    exclude_dir: &[String],
+    max_files: usize,
+    supported_only: bool,
+    hidden: Option<bool>,
+    no_ignore: Option<bool>,
+    max_depth: Option<u32>,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<Vec<PathBuf>, String> {
+    if !allow_path(root)? {
+        return Err("Structural search root is denied by path policy".to_owned());
+    }
     let metadata = fs::metadata(root).map_err(|err| {
         format!(
             "Cannot access structural search path '{}': {err}",
@@ -1039,6 +1037,9 @@ fn collect_files(
             break;
         }
         let Ok(entry) = result else { continue };
+        if !allow_path(entry.path())? {
+            continue;
+        }
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }

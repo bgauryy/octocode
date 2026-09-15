@@ -39,10 +39,7 @@ export function validateWriteParams(params: Record<string, unknown>): { path: st
     throw new Error('Write tool input is invalid. content must be a string.');
   }
   assertWellFormedText(params['content'], 'content');
-  if (typeof params['reasoning'] !== 'string' || params['reasoning'].trim().length === 0) {
-    throw new Error('Write tool input is invalid. reasoning is required — provide a non-empty string explaining why this write is necessary.');
-  }
-  return { path: rawPath, content: params['content'], reasoning: params['reasoning'] };
+  return { path: rawPath, content: params['content'], reasoning: typeof params['reasoning'] === 'string' ? params['reasoning'] : '' };
 }
 
 /** Execute one path-guarded write after the caller has preflighted the batch. */

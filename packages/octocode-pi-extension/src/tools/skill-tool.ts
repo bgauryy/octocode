@@ -147,7 +147,7 @@ function formatSkillList(skills: DiscoveredSkill[], total = skills.length): stri
     const usedNote = used ? ` (loaded ${used.count}× this session)` : '';
     return `- ${skill.name} [${skill.source}] id:${skill.sourceId ?? skill.path}${usedNote}: ${skill.description || '(no description)'}`;
   });
-  return [`${total} skill(s) available — load one with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}) when the task matches:`, ...lines].join('\n');
+  return [`${total} skill(s) available — load one with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…"}]}) when the task matches:`, ...lines].join('\n');
 }
 
 // ─── Per-query executors ───────────────────────────────────────────────────────
@@ -169,8 +169,6 @@ function executeLoadItem(
   }
   const name = typeof query['name'] === 'string' ? query['name'].trim() : '';
   if (!name) return result('skill load requires name. Use skill({queries:[{reasoning:"…", type:"load", action:"list"}]}) for the catalog.', undefined, true);
-  const reason = typeof query['reason'] === 'string' ? query['reason'].trim() : '';
-  if (!reason) return result('skill load requires reason explaining why it matches the current task.', undefined, true);
   const skill = skills.find((candidate) => candidate.name === name)
     ?? skills.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
   if (!skill) {
@@ -247,29 +245,23 @@ export function registerSkillTool(
 ): void {
   // ── Per-item schema: type:"load" | type:"call" with explicit typed fields ──
   const itemSchema = z.looseObject({
-    type: z.enum(['load', 'call']).optional().describe(
-      'load (default): work with installed SKILL.md skills (load or list). call: manage dynamic skills (reuse, create, enhance, fix, list, delete).',
-    ),
-    action: z.enum(['load', 'list']).optional().describe(
-      'load (default): bounded SKILL.md and file preview. list: enabled skill identities and descriptions; follow next when partial.',
-    ),
-    offset: z.number().int().min(0).optional().describe('Catalog continuation row (action:list).'),
-    textOffset: z.number().int().min(0).optional().describe('Description continuation offset (action:list).'),
-    limit: z.number().int().min(1).max(50).optional().describe('Catalog page size (action:list).'),
-    catalogRevision: z.string().optional().describe('Copy from the catalog continuation to detect discovery changes.'),
-    name: z.string().optional().describe('Skill name for type:load action:load (exact name from <available_skills> or action:list).'),
-    reason: z.string().optional().describe('Required for type:load action:load. One concise, user-facing clause explaining why this skill matches the current task. Also used as skill creation reason for type:call.'),
-    skillType: z.string().optional().describe('Skill name / workflow id (lowercase a-z, 0-9, hyphens). Required for type:call.'),
-    mode: z.enum(['auto', 'use', 'create', 'enhance', 'fix', 'list', 'delete']).optional().describe(
-      'auto (default) · use (reuse only) · create (after user approval) · enhance/fix (revise existing) · list · delete.',
-    ),
-    intent: z.string().optional().describe('What the workflow does (type:call). Guides skill-smith authoring and keyword matching.'),
-    approveCreate: z.boolean().optional().describe('type:call: attest existing user approval for creation in auto mode; never self-authorize.'),
-    force: z.boolean().optional().describe('type:call: bypass only the triviality heuristic when reuse is justified; grants no authority.'),
+    type: z.enum(['load', 'call']).optional().describe('load: SKILL.md skills. call: dynamic skill lifecycle.'),
+    action: z.enum(['load', 'list']).optional().describe('load: SKILL.md preview. list: catalog.'),
+    offset: z.number().int().min(0).optional().describe('Continuation row.'),
+    textOffset: z.number().int().min(0).optional().describe('Text offset.'),
+    limit: z.number().int().min(1).max(50).optional().describe('Page size.'),
+    catalogRevision: z.string().optional().describe('Catalog revision.'),
+    name: z.string().optional().describe('Skill name.'),
+    reason: z.string().optional().describe('Context or creation reason.'),
+    skillType: z.string().optional().describe('Workflow id for type:call.'),
+    mode: z.enum(['auto', 'use', 'create', 'enhance', 'fix', 'list', 'delete']).optional().describe('auto·use·create·enhance·fix·list·delete'),
+    intent: z.string().optional().describe('type:call workflow intent.'),
+    approveCreate: z.boolean().optional().describe('Attest user approval for creation.'),
+    force: z.boolean().optional().describe('Bypass triviality heuristic only.'),
   });
 
   const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    reasoningDescription: 'Concise reason this query is necessary.',
+    reasoningDescription: 'Why.',
   });
 
   const execute = async (
@@ -299,7 +291,6 @@ export function registerSkillTool(
           if (['create', 'enhance', 'fix'].includes(String(query['mode'])) && !text('reason')) throw new Error('Skill creation requires reason.');
         } else if (query['action'] !== 'list') {
           if (!text('name')) throw new Error('skill load requires name.');
-          if (!text('reason')) throw new Error('skill load requires reason explaining why it matches the current task.');
         }
       },
       execute: async (query) => {
@@ -367,9 +358,8 @@ export function registerSkillTool(
     description: DIRECT_TOOL_DESCRIPTIONS.skill!,
     promptSnippet: 'Load a specialized workflow when needed; manage recurring dynamic skills on request.',
     promptGuidelines: [
-      'type:"load" selects installed instructions by exact catalog name and a short reason. Read required continuation pages before following a partial skill.',
-      'type:"call" owns recurring multi-step workflows; callTool owns reusable functions; agent owns bounded independent work. A routine edit needs none of these by default.',
-      'On a creation proposal, check existing capabilities and prepare the smallest useful workflow. mode:"create" requires user approval; approveCreate records existing approval, not model consent.',
+      'type:load selects installed SKILL.md by exact name. Read continuation pages before following a partial skill.',
+      'type:call for recurring workflows; mode:create requires user approval.',
     ],
     parameters,
     execute,

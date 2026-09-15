@@ -35,6 +35,7 @@ import {
 } from './comments.js';
 import type { CollectionArray } from './collectionPaging.js';
 import { fetchPRFileChangesAPI, fetchPRCommitsWithFiles } from './commits.js';
+import { fetchGraphqlPullRequestCollections } from '../graphqlHistory.js';
 
 export async function transformPullRequestItemFromSearch(
   item: IssueSearchResultItem,
@@ -248,7 +249,22 @@ export async function transformPullRequestItemFromREST(
     };
   }
 
+  const graphql = await fetchGraphqlPullRequestCollections(octokit, params);
+
   if (shouldFetchFileChanges(params)) {
+    if (graphql?.files === 'complete' && graphql.mappedFiles) {
+      result.file_changes = {
+        total_count:
+          'changed_files' in item
+            ? (item.changed_files ?? graphql.mappedFiles.length)
+            : graphql.mappedFiles.length,
+        files: applyPartialContentFilter(
+          graphql.mappedFiles as DiffEntry[],
+          params
+        ) as DiffEntry[],
+      };
+      result.collectionStates.changedFiles = { page: 1, hasMore: false };
+    } else {
     const fileChanges = await fetchPRFileChangesAPI(
       owner,
       repo,
@@ -274,6 +290,7 @@ export async function transformPullRequestItemFromREST(
           ...fileChanges.providerLimits,
         ];
     }
+    }
   }
 
   const wantDiscussionRest = shouldFetchDiscussionComments(params);
@@ -289,15 +306,21 @@ export async function transformPullRequestItemFromREST(
       { comments: inlineComments, note: inlineNote },
     ] = await Promise.all([
       wantDiscussionRest
-        ? fetchPRComments(
-            octokit,
-            owner,
-            repo,
-            item.number,
-            includeBots,
-            authInfo,
-            params.collectionPages?.discussion ?? 1
-          )
+        ? graphql?.discussion === 'complete' && graphql.mappedComments
+          ? Promise.resolve({
+              comments: Object.assign([...graphql.mappedComments], {
+                collectionState: { page: 1, hasMore: false },
+              }),
+            })
+          : fetchPRComments(
+              octokit,
+              owner,
+              repo,
+              item.number,
+              includeBots,
+              authInfo,
+              params.collectionPages?.discussion ?? 1
+            )
         : emptyRest(),
       wantInlineRest
         ? fetchPRInlineComments(
@@ -331,6 +354,12 @@ export async function transformPullRequestItemFromREST(
   }
 
   if (shouldFetchReviews(params)) {
+    if (graphql?.reviews === 'complete' && graphql.mappedReviews) {
+      result.reviews = Object.assign([...graphql.mappedReviews], {
+        collectionState: { page: 1, hasMore: false },
+      });
+      result.collectionStates.reviews = { page: 1, hasMore: false };
+    } else {
     const reviews = await fetchPRReviews(
       octokit,
       owner,
@@ -342,9 +371,16 @@ export async function transformPullRequestItemFromREST(
     rawResponseChars += getRawResponseChars(reviews) ?? 0;
     result.reviews = reviews;
     result.collectionStates.reviews = reviews.collectionState;
+    }
   }
 
   if (shouldFetchCommits(params)) {
+    if (graphql?.commits === 'complete' && graphql.mappedCommits) {
+      result.commits = Object.assign([...graphql.mappedCommits], {
+        collectionState: { page: 1, hasMore: false },
+      });
+      result.collectionStates.commits = { page: 1, hasMore: false };
+    } else {
     const commits = await fetchPRCommitsWithFiles(
       owner,
       repo,
@@ -361,6 +397,7 @@ export async function transformPullRequestItemFromREST(
           ...(result.providerLimits ?? []),
           ...commits.providerLimits,
         ];
+    }
     }
   }
 

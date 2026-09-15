@@ -114,8 +114,9 @@ pub fn validate_config(config: &Value) -> ValidationResult {
                 e.push("github.apiUrl: Must be a string".into())
             }
         }
+        boolean(o.get("graphqlEnabled"), "github.graphqlEnabled", &mut e);
     }
-    warn_unknown(gh, "github", &["apiUrl"], &mut w);
+    warn_unknown(gh, "github", &["apiUrl", "graphqlEnabled"], &mut w);
     let local = object(root.get("local"), "local", &mut e);
     if let Some(o) = local {
         boolean(o.get("enabled"), "local.enabled", &mut e);

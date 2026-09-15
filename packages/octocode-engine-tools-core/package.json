@@ -1,17 +1,56 @@
 {
-  "name": "@octocodeai/octocode-engine-tools-core",
+  "name": "@octocodeai/octocode-native",
   "version": "0.1.0",
-  "private": true,
-  "description": "Native Octocode tools, runtime, CLI and MCP addon",
+  "description": "Native Octocode tool runtime and command-line interface",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-engine-tools-core"
+  },
+  "bin": {
+    "octocode": "./bin/octocode.cjs",
+    "octocode-regex-worker": "./bin/octocode-regex-worker.cjs"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@octocodeai/octocode-native-darwin-arm64": "0.1.0",
+    "@octocodeai/octocode-native-darwin-x64": "0.1.0",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "0.1.0",
+    "@octocodeai/octocode-native-linux-x64-gnu": "0.1.0",
+    "@octocodeai/octocode-native-linux-x64-musl": "0.1.0",
+    "@octocodeai/octocode-native-win32-x64-msvc": "0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "cargo build --release --bins --no-default-features",
     "build:dev": "cargo build --bins --no-default-features",
     "build:addon": "cargo build --release --lib --features napi-addon",
     "build:addon:dev": "cargo build --lib --features napi-addon",
+    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64",
+    "build:darwin-arm64": "cargo build --release --bins --no-default-features --target aarch64-apple-darwin && node scripts/copy-binaries.cjs darwin-arm64",
+    "build:darwin-x64": "cargo build --release --bins --no-default-features --target x86_64-apple-darwin && node scripts/copy-binaries.cjs darwin-x64",
+    "build:linux-arm64-gnu": "cargo build --release --bins --no-default-features --target aarch64-unknown-linux-gnu && node scripts/copy-binaries.cjs linux-arm64-gnu",
+    "build:linux-x64-gnu": "cargo build --release --bins --no-default-features --target x86_64-unknown-linux-gnu && node scripts/copy-binaries.cjs linux-x64-gnu",
+    "build:linux-x64-musl": "cargo build --release --bins --no-default-features --target x86_64-unknown-linux-musl && node scripts/copy-binaries.cjs linux-x64-musl",
+    "build:windows-x64": "cargo build --release --bins --no-default-features --target x86_64-pc-windows-msvc && node scripts/copy-binaries.cjs win32-x64-msvc",
+    "clean:binaries": "find npm -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' | xargs rm -f",
     "test": "cargo test --no-default-features",
+    "test:rust": "cargo test --no-default-features",
     "lint": "cargo clippy --no-default-features --all-targets -- -D warnings",
-    "format:check": "cargo fmt --check",
-    "typecheck": "cargo check --no-default-features --all-targets"
+    "lint:rust": "cargo clippy --no-default-features --all-targets -- -D warnings",
+    "fmt:rust": "cargo fmt --all",
+    "fmt:rust:check": "cargo fmt --all -- --check",
+    "check:rust": "cargo check --no-default-features --all-targets",
+    "typecheck": "cargo check --no-default-features --all-targets",
+    "platforms:check": "node scripts/check-platform-binaries.cjs",
+    "verify": "yarn lint && yarn typecheck && yarn test",
+    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs"
   }
 }

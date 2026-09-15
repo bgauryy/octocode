@@ -78,14 +78,33 @@ fn now() -> Result<u64, CursorError> {
 }
 
 impl ReadCursor {
+    /// Search execution revalidates this snapshot after reapplying path policy.
+    pub fn create_search(query: Value, scope: String) -> Result<String, CursorError> {
+        let snapshot = query["snapshot"]
+            .as_str()
+            .filter(|s| s.starts_with("lexical-live-v1:"))
+            .ok_or(CursorError::Invalid)?
+            .to_owned();
+        Self {
+            version: 1,
+            contract: crate::contracts::contract_fingerprint().into(),
+            scope,
+            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
+            tool: "localSearch".into(),
+            query,
+            source_sha256: snapshot,
+        }
+        .encode()
+    }
     /// `path` must have passed the current path policy; tokens grant no authority.
     pub fn create(
         query: Value,
         scope: String,
         validated_path: &Path,
-        source_sha256: &str,
+        source_sha256: Option<&str>,
     ) -> Result<String, CursorError> {
-        if source_digest(validated_path)? != source_sha256 {
+        let current_digest = source_digest(validated_path)?;
+        if source_sha256.is_some_and(|expected| current_digest != expected) {
             return Err(CursorError::ChangedSource);
         }
         let cursor = Self {
@@ -95,9 +114,13 @@ impl ReadCursor {
             expires_at: now()? + TOKEN_LIFETIME.as_secs(),
             tool: "localFetch".into(),
             query,
-            source_sha256: source_sha256.into(),
+            source_sha256: current_digest,
         };
-        let bytes = serde_json::to_vec(&cursor).map_err(|_| CursorError::Invalid)?;
+        cursor.encode()
+    }
+
+    fn encode(&self) -> Result<String, CursorError> {
+        let bytes = serde_json::to_vec(self).map_err(|_| CursorError::Invalid)?;
         if bytes.len() > MAX_TOKEN_BYTES {
             return Err(CursorError::Invalid);
         }
@@ -120,7 +143,15 @@ impl ReadCursor {
             return Err(CursorError::Invalid);
         }
         let cursor: Self = serde_json::from_slice(&bytes).map_err(|_| CursorError::Invalid)?;
-        if cursor.version != 1 || cursor.tool != "localFetch" || !cursor.query.is_object() {
+        if cursor.version != 1
+            || !matches!(cursor.tool.as_str(), "localFetch" | "localSearch")
+            || !cursor.query.is_object()
+        {
+            return Err(CursorError::Invalid);
+        }
+        if cursor.tool == "localSearch"
+            && cursor.query["snapshot"].as_str() != Some(&cursor.source_sha256)
+        {
             return Err(CursorError::Invalid);
         }
         if cursor.contract != crate::contracts::contract_fingerprint() {

@@ -61,9 +61,8 @@ export function registerChromeDebugTool(
     promptGuidelines: [
       'Choose the smallest scheme that answers the question; use scheme:"debug" for a combined pass when the failure boundary is unknown.',
       'scheme:"raw" method:"Domain.Method" runs ANY CDP call; the domain is auto-enabled before the call.',
-      'Schemes add Debugger.setSkipAllPauses and a dialog guard. These runtime changes do not authorize navigation or other page effects.',
       'Pass launch:true to start a fresh Chrome on the given port; each port gets its own profile dir.',
-      'Screenshots are stored under the private session browser/screenshots directory; use the returned artifact path. Set OCTOCODE_CDP_DEBUG=1 for cdp-events.jsonl logs.',
+      'Screenshots are stored under the private session browser/screenshots directory; use the returned artifact path.',
     ],
     parameters: (() => {
       const itemSchema = z.looseObject({

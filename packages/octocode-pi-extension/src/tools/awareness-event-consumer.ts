@@ -3,7 +3,6 @@ import path from 'node:path';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
 import {
   createAwarenessEventConsumer,
-  createAwarenessEventObservability,
   watchAwarenessEventHints,
   type AwarenessEventObservability,
   type AwarenessEventStore,
@@ -63,16 +62,23 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
   const host = pi as unknown as object;
   if (registeredAwarenessHosts.has(host)) return;
   registeredAwarenessHosts.add(host);
-  const attentionByContext = new WeakMap<object, string>();
+  // Session-scoped: Pi creates a new ctx object on every agent_end turn, so a
+  // WeakMap keyed on ctx would never hit across turns and the toast would fire
+  // repeatedly. One string per consumer is sufficient — there is at most one
+  // active drain at a time and it is reset on session_start.
+  let lastAttention: string | undefined;
+  let lastAttentionAt = 0;
   const observe = (stats: AwarenessEventObservability, ctx: PiContext): void => {
     options.onObservability?.(stats, ctx);
     // Queue churn is status, while held decisions and delivery failures need attention.
     const attention = stats.drainErrors > 0 ? 'Peer message delivery is unavailable; messages may be delayed.'
       : stats.drainHeld > 0 ? 'A peer proposal needs a human decision. Inspect the Awareness inbox.'
         : undefined;
-    if (!attention) { attentionByContext.delete(ctx); return; }
-    if (attentionByContext.get(ctx) === attention) return;
-    attentionByContext.set(ctx, attention);
+    if (!attention) return; // don't clear dedup mid-retry; only session_start resets it
+    const now = Date.now();
+    if (lastAttention === attention && now - lastAttentionAt < 30_000) return;
+    lastAttention = attention;
+    lastAttentionAt = now;
     try { if (ctx.hasUI) ctx.ui?.notify?.(`Awareness: ${attention}`, 'warning'); } catch { /* stale UI cannot change delivery */ }
   };
   let generation = 0;
@@ -101,6 +107,7 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
   const drain = async (ctx: PiContext): Promise<void> => {
     if (shutdown || running) return;
     if (!options.openStore && !isPersistentStorageEnabled()) { stopWatching(); return; }
+    if (!pi.sendMessage) return; // delivery not yet supported by this host; retry at next turn
     const workspace = path.resolve(ctx.cwd ?? process.cwd());
     const consumerId = resolveAwarenessSessionAgentId(ctx);
     // consumerId is undefined when both getSessionId() and getSessionFile() are
@@ -115,10 +122,8 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
     const sessionFile = ctx.sessionManager?.getSessionFile?.();
     if (!sessionFile || !existsSync(sessionFile)) return;
     const expectedAgentId = options.resolveExpectedAgentId?.(ctx);
-    if (!expectedAgentId?.trim()) {
-      observe({ ...createAwarenessEventObservability(consumerId), errors: 1, drainErrors: 1 }, ctx);
-      return;
-    }
+    // If not yet resolved, defer — same silent treatment as missing consumerId or session file.
+    if (!expectedAgentId?.trim()) return;
     const key = `${workspace}\0${consumerId}\0${expectedAgentId}`;
     let scoped = activeConsumer;
     if (scoped?.key !== key) {
@@ -294,6 +299,8 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
     pendingActionable = 0;
     wakeAvailable = true;
     deliveryRetries = 0;
+    lastAttention = undefined;
+    lastAttentionAt = 0;
     await drain(ctx);
   });
   // Pi remains streaming until its agent_end hooks return. Drain on the next

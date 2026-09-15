@@ -13,6 +13,7 @@ import type {
 
 export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
   apiUrl: 'https://api.github.com',
+  graphqlEnabled: true,
 };
 
 export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {

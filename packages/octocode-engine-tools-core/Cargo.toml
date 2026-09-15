@@ -1,8 +1,9 @@
 [package]
-name = "octocode-engine-tools-core"
+name = "octocode-native"
 version = "0.1.0"
 edition = "2024"
 autobins = false
+autoexamples = false
 license = "MIT"
 description = "Native Octocode tool runtime and command-line interface"
 
@@ -10,7 +11,7 @@ description = "Native Octocode tool runtime and command-line interface"
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
-name = "octo"
+name = "octocode"
 path = "src/main.rs"
 
 [[bin]]
@@ -25,6 +26,7 @@ napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 regex = "1"
+icu_collator = "2.3.1"
 regress = "0.12"
 url = "2"
 clap = { version = "4", features = ["derive"] }
@@ -34,6 +36,10 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "j
 bytes = "1"
 futures-util = "0.3"
 secrecy = "0.10"
+keyring-core = "1"
+aes-gcm = "0.10"
+hex = "0.4"
+zeroize = "1"
 octocode-engine = { path = "../octocode-engine", default-features = false, features = ["portable-default"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -44,13 +50,23 @@ napi-derive = { version = "3", optional = true }
 napi-build = { version = "2", optional = true }
 
 [dev-dependencies]
+base64 = "0.22"
+serde_json = { version = "1", features = ["preserve_order"] }
+tempfile = "3"
 wiremock = "0.6"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+windows-native-keyring-store = "1"
 
 [profile.release]
 lto = true

@@ -744,7 +744,7 @@ export function registerPlanTool(
       'Skip routine work. For complex work, use action:"set" when execution is already authorized and action:"propose" when review is required. Use an RFC only for consequential choices needing review.',
       'Wrong: complete because a worker said DONE. Right: verify the assigned check, then use action:"complete" with the observed receipt.',
       'For independent lanes, encode dependsOn, start each runnable index before delegation, and complete each explicit index.',
-      'During execution, action:"start" targets one runnable step with optional index. For a reviewed proposal, action:"start" instead requires revision plus the answered authorizationInteractionId and must omit index; accepted-recovery may omit the interaction. Cancellation never approves it.',
+      'During execution, action:"start" takes optional index; for a reviewed proposal, supply revision and authorizationInteractionId and omit index.',
     ],
     parameters: (() => {
       const reasoning = z.string().min(1).max(400);
@@ -811,6 +811,7 @@ export function registerPlanTool(
         ctx,
         passthroughSingle: true,
         preflight(query) {
+          if (!query.reasoning) throw new Error('reasoning is required.');
           const action = String(query['action'] ?? '');
           const VALID_ACTIONS: PlanAction[] = ['set', 'propose', 'clarify', 'add', 'start', 'complete', 'remove', 'clear', 'show'];
           if (!VALID_ACTIONS.includes(action as PlanAction)) {

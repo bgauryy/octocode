@@ -1294,8 +1294,10 @@ describe('getConfigSync', () => {
     try {
       for (const key of [
         'GITHUB_API_URL',
+        'OCTOCODE_GITHUB_GRAPHQL',
         'ENABLE_LOCAL',
         'ENABLE_CLONE',
+        'ENABLE_AST_REWRITE_APPLY',
         'ALLOWED_PATHS',
         'WORKSPACE_ROOT',
         'TOOLS_TO_RUN',

@@ -1,0 +1,66 @@
+name: Rust Tools Core — Build, Test & Clippy
+
+# The main `ci` job deliberately excludes octocode-engine-tools-core because
+# Rust compilation on every PR is too costly for an unrelated change. This workflow
+# closes that gap for the packages it directly owns.
+#
+# Targets (D gate: macOS arm64/x64, Linux x64 GNU/musl/arm64 GNU, Windows x64 MSVC):
+#   Native runners covered here: ubuntu-latest (x64 GNU), macos-latest (arm64), windows-latest (x64 MSVC)
+#   Cross-compilation targets (Linux x64 musl, Linux arm64 GNU) are tracked separately;
+#   they require cargo-cross or bespoke runner images not available here.
+
+on:
+  pull_request:
+    paths:
+      - 'packages/octocode-engine-tools-core/**'
+      - 'packages/octocode-engine/src/**'
+      - 'packages/octocode-engine/Cargo.toml'
+      - '.github/workflows/rust-tools-core.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/octocode-engine-tools-core/**'
+      - 'packages/octocode-engine/src/**'
+      - 'packages/octocode-engine/Cargo.toml'
+      - '.github/workflows/rust-tools-core.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} – test & clippy
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+          components: clippy
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/octocode-engine-tools-core
+
+      - name: Test (no default features)
+        working-directory: packages/octocode-engine-tools-core
+        run: cargo test --no-default-features
+        env:
+          RUST_BACKTRACE: 1
+
+      - name: Clippy (no default features, -D warnings)
+        working-directory: packages/octocode-engine-tools-core
+        run: cargo clippy --no-default-features -- -D warnings

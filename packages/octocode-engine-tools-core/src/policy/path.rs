@@ -106,6 +106,21 @@ impl PathPolicy {
         }
     }
 
+    /// Discovery prunes denied subtrees. Let the walker account for ordinary
+    /// filesystem errors itself so permission/not-found diagnostics stay intact.
+    pub fn permits_discovery(&self, input: impl AsRef<Path>) -> bool {
+        match self.validate(input) {
+            Ok(_) => true,
+            Err(error) => !matches!(
+                error.code,
+                PolicyErrorCode::IgnoredPath
+                    | PolicyErrorCode::OutsideAllowedRoots
+                    | PolicyErrorCode::SymlinkEscape
+                    | PolicyErrorCode::SymlinkLoop
+            ),
+        }
+    }
+
     pub fn exists(&self, input: impl AsRef<Path>) -> bool {
         self.validate(input).is_ok()
     }
@@ -390,15 +405,21 @@ fn default_home() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn fixture() -> PathBuf {
         let id = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("octocode-policy-{}-{id}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "octocode-policy-{}-{id}-{}",
+            std::process::id(),
+            FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&root).unwrap();
         root
     }

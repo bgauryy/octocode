@@ -1829,7 +1829,7 @@ test("prompt guidance distinguishes the MCP envelope from nested server argument
 
   assert.match(guidance, /Put actions in queries\[\]/);
   assert.match(guidance, /input in queries\[\]\.arguments/);
-  assert.match(guidance, /octocode tools nest queries\[\] there/);
+  assert.match(guidance, /Octocode (?:tools nest queries\[\] there|batches nest under arguments\.queries\[\])/);
 });
 
 test("schema: call queries expose the compact table response view", () => {
