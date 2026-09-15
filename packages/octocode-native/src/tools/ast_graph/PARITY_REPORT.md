@@ -10,7 +10,7 @@ Reference artifact:
 `/Users/bgaryy/code/octocode/.octocode/implementation/rust-migration/reference/packages/octocode/out/octocode.js`
 
 Candidate artifact:
-`/Users/bgaryy/code/octocode/packages/octocode-engine-tools-core/target/debug/octocode`
+`/Users/bgaryy/code/octocode/packages/octocode-native/target/debug/octocode`
 
 Native graph behavior is covered by `cargo test --no-default-features`.
 The Python Node-differential harness that produced this report has been removed.
@@ -23,7 +23,7 @@ PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
 NO_COLOR=1
-ALLOWED_PATHS=/Users/bgaryy/code/octocode/packages/octocode-engine-tools-core
+ALLOWED_PATHS=/Users/bgaryy/code/octocode/packages/octocode-native
 ENABLE_LOCAL=true
 ```
 
@@ -32,7 +32,7 @@ fixture and isolated homes use `TemporaryDirectory`; only the evidence report
 persists at:
 
 ```text
-packages/octocode-engine-tools-core/target/parity/ast_graph_report.json
+packages/octocode-native/target/parity/ast_graph_report.json
 ```
 
 The current passing report contains 71 assertions and 71 cases. Each case

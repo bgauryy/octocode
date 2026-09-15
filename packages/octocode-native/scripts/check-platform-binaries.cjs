@@ -2,7 +2,7 @@
  * Verifies that every platform directory under npm/ contains both the
  * octocode and octocode-regex-worker binaries before publishing.
  *
- * Run: yarn workspace @octocodeai/octocode-engine-tools-core platforms:check
+ * Run: yarn workspace @octocodeai/octocode-native platforms:check
  */
 'use strict'
 

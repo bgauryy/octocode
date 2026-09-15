@@ -1,10 +1,10 @@
 {
-  "name": "@octocodeai/octocode-native-darwin-arm64",
-  "description": "octocode-native CLI — darwin-arm64 (Apple Silicon)",
+  "name": "@octocodeai/octocode-native-darwin-x64",
+  "description": "octocode-native CLI — darwin-x64 (Intel Mac)",
   "version": "0.1.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
-    "arm64"
+    "x64"
   ],
   "os": [
     "darwin"
@@ -21,7 +21,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/bgauryy/octocode.git",
-    "directory": "packages/octocode-engine-tools-core"
+    "directory": "packages/octocode-native"
   },
   "scripts": {
     "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"

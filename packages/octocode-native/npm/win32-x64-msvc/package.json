@@ -3,15 +3,25 @@
   "description": "octocode-native CLI — win32-x64-msvc (Windows x64)",
   "version": "0.1.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "cpu": ["x64"],
-  "os": ["win32"],
-  "files": ["octocode.exe", "octocode-regex-worker.exe", "README.md"],
+  "cpu": [
+    "x64"
+  ],
+  "os": [
+    "win32"
+  ],
+  "files": [
+    "octocode.exe",
+    "octocode-regex-worker.exe",
+    "README.md"
+  ],
   "license": "MIT",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/bgauryy/octocode.git",
-    "directory": "packages/octocode-engine-tools-core"
+    "directory": "packages/octocode-native"
   },
   "scripts": {
     "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"

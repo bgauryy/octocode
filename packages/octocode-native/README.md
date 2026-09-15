@@ -1,7 +1,7 @@
 # octocode-native
 
 > **Package name:** `@octocodeai/octocode-native`  
-> **Directory:** `packages/octocode-engine-tools-core/`
+> **Directory:** `packages/octocode-native/`
 
 Native Rust CLI for Octocode research tools. Runs the same tool engine used by
 the MCP server and the Node CLI — local file search, AST analysis, LSP
@@ -52,16 +52,16 @@ On Alpine / musl Linux the shim detects `/etc/alpine-release` and resolves
 # dev build
 yarn workspace @octocodeai/octocode-native build:dev
 # or
-cargo build --manifest-path packages/octocode-engine-tools-core/Cargo.toml --bins
+cargo build --manifest-path packages/octocode-native/Cargo.toml --bins
 
 # release build (LTO + strip, ~50 MB)
-cargo build --manifest-path packages/octocode-engine-tools-core/Cargo.toml --bins --release
+cargo build --manifest-path packages/octocode-native/Cargo.toml --bins --release
 ```
 
 Binary locations:
 ```sh
-packages/octocode-engine-tools-core/target/debug/octocode
-packages/octocode-engine-tools-core/target/release/octocode
+packages/octocode-native/target/debug/octocode
+packages/octocode-native/target/release/octocode
 ```
 
 ## Architecture
@@ -85,7 +85,7 @@ separate implementation.
 ### npm / platform distribution layout
 
 ```
-packages/octocode-engine-tools-core/
+packages/octocode-native/
 ├─ bin/
 │   ├─ octocode.cjs              ← platform-selecting Node shim
 │   └─ octocode-regex-worker.cjs
@@ -305,10 +305,10 @@ Node, fast config/status checks, and search with full ripgrep flags.
 
 ```sh
 # all tests
-cargo test --manifest-path packages/octocode-engine-tools-core/Cargo.toml
+cargo test --manifest-path packages/octocode-native/Cargo.toml
 
 # CLI integration tests only
-cargo test --manifest-path packages/octocode-engine-tools-core/Cargo.toml --test cli
+cargo test --manifest-path packages/octocode-native/Cargo.toml --test cli
 
 # via yarn
 yarn workspace @octocodeai/octocode-native test

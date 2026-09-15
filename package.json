@@ -41,6 +41,13 @@
     "@octocodeai/octocode-extension-rust-linux-x64-gnu": "workspace:*",
     "@octocodeai/octocode-extension-rust-linux-x64-musl": "workspace:*",
     "@octocodeai/octocode-extension-rust-win32-x64-msvc": "workspace:*",
+    "@octocodeai/octocode-native": "workspace:*",
+    "@octocodeai/octocode-native-darwin-arm64": "workspace:*",
+    "@octocodeai/octocode-native-darwin-x64": "workspace:*",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "workspace:*",
+    "@octocodeai/octocode-native-linux-x64-gnu": "workspace:*",
+    "@octocodeai/octocode-native-linux-x64-musl": "workspace:*",
+    "@octocodeai/octocode-native-win32-x64-msvc": "workspace:*",
     "@octocodeai/octocode-skill-installer": "workspace:*",
     "@octocodeai/octocode-tools-core": "workspace:*",
     "minimatch@npm:10.0.1": "npm:10.2.6"
@@ -75,6 +82,7 @@
     "packages/*",
     "packages/octocode-engine/npm/*",
     "packages/octocode-extension-rust/npm/*",
+    "packages/octocode-native/npm/*",
     "skills"
   ]
 }
