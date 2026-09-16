@@ -39,6 +39,19 @@ impl Workspace {
         path
     }
 
+    pub fn write_outside_allowed_roots(
+        &self,
+        relative: &str,
+        contents: impl AsRef<[u8]>,
+    ) -> PathBuf {
+        let path = self._root.path().join("outside").join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("outside fixture parents");
+        }
+        std::fs::write(&path, contents).expect("outside fixture write");
+        path
+    }
+
     pub fn config(&self, extra: &[(&str, String)]) -> ConfigInput {
         let mut env = BTreeMap::from([
             ("ENABLE_LOCAL".into(), "true".into()),

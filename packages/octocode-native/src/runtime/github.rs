@@ -32,6 +32,8 @@ pub(super) struct GitHubServices {
     provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
     timeout: Duration,
     home: PathBuf,
+    oauth_client_id: Option<String>,
+    refresh_lock: std::sync::Mutex<()>,
 }
 
 impl GitHubServices {
@@ -54,6 +56,11 @@ impl GitHubServices {
         )?;
         transport.graphql_enabled = config.resolved.github.graphql_enabled;
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
+        let oauth_client_id = config
+            .env_value("OCTOCODE_GITHUB_CLIENT_ID")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
         let credentials = Arc::new(ConfigCredentialResolver::new(
             config,
             ChainedCredentialSource::new(
@@ -69,6 +76,8 @@ impl GitHubServices {
             provider: GitHubProvider { transport, cache },
             timeout,
             home,
+            oauth_client_id,
+            refresh_lock: std::sync::Mutex::new(()),
         })
     }
 
@@ -118,21 +127,42 @@ impl GitHubServices {
             .as_ref()
             .is_some_and(|value| value.source == CredentialSource::Storage)
         {
-            let refreshed = handle
-                .block_on(crate::providers::github::login::resolve_stored_with_refresh(&host));
-            if let Ok(Some(cred)) = refreshed {
-                Some(cred)
-            } else {
-                // Refresh failed or stored credential is empty — fall back to the gh CLI
-                // token before returning the original. This mirrors Node's resolveTokenFull
-                // which tries `gh auth token` as a last resort when the stored OAuth token
-                // is expired or has insufficient scope for the requested API (e.g. code search).
-                GhCliCredentialSource
-                    .load_blocking(&host)
-                    .ok()
-                    .flatten()
-                    .map(|token| ResolvedCredential::new(token, CredentialSource::Storage))
-                    .or(credential)
+            // Re-read stored metadata while holding one process-wide refresh
+            // section so concurrent batches cannot exchange the same refresh
+            // token more than once. The second waiter observes the fresh token.
+            let _refresh_guard = self
+                .refresh_lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let client_id = self.oauth_client_id.as_deref().unwrap_or_else(|| {
+                if host == "github.com" {
+                    crate::providers::github::login::GITHUB_APP_CLIENT_ID
+                } else {
+                    ""
+                }
+            });
+            match handle.block_on(
+                crate::providers::github::login::resolve_stored_with_refresh(&host, client_id),
+            ) {
+                Ok(Some(refreshed)) => Some(refreshed),
+                Ok(None) => credential,
+                Err(refresh_error) => match GhCliCredentialSource.load_blocking(&host) {
+                    Ok(Some(token)) => {
+                        Some(ResolvedCredential::new(token, CredentialSource::Storage))
+                    }
+                    _ => {
+                        return Ok(queries
+                            .iter()
+                            .map(|query| {
+                                if tool == "ghGetFileContent" {
+                                    file_error(refresh_error.clone(), query)
+                                } else {
+                                    history_error(refresh_error.clone())
+                                }
+                            })
+                            .collect());
+                    }
+                },
             }
         } else {
             credential

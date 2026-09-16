@@ -436,6 +436,10 @@ impl ToolRuntime {
         let handle = tokio::runtime::Handle::current();
         let allow_ast_rewrite_apply = self.config.resolved.local.enable_ast_rewrite_apply;
         let lsp_pool = self.lsp_pool.clone();
+        let lsp_execution_config = crate::tools::lsp_search::LspExecutionConfig {
+            config_path: self.config.resolved.lsp.config_path.clone(),
+            trust_project_config: self.input.trusted_project,
+        };
         let output_tool = tool.clone();
         let outcome = self
             .requests
@@ -501,10 +505,18 @@ impl ToolRuntime {
                             .map(|query| {
                                 let pool = lsp_pool.clone();
                                 let context = context.clone();
+                                let paths = paths.clone();
+                                let lsp_execution_config = lsp_execution_config.clone();
                                 async move {
                                     context.check()?;
-                                    match crate::tools::lsp_search::execute(query, &context, &pool)
-                                        .await
+                                    match crate::tools::lsp_search::execute(
+                                        query,
+                                        &context,
+                                        &pool,
+                                        &paths,
+                                        &lsp_execution_config,
+                                    )
+                                    .await
                                     {
                                         Ok(data) => Ok(super::dispatch::value_result(data)),
                                         Err(message) => Ok(super::dispatch::provider_failure(

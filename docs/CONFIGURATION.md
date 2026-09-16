@@ -466,6 +466,7 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 | Env var | `.octocoderc` key | Default |
 |---------|------------------|---------|
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` |
+| `OCTOCODE_GITHUB_CLIENT_ID` | — | Built-in for `github.com`; required for GitHub Enterprise device login or refresh |
 
 #### Local tools
 
@@ -590,6 +591,9 @@ Octocode **always ignores** these keys when loading `~/.octocode/.env` or a proj
 export GITHUB_TOKEN="ghp_your_ghe_token"
 export GITHUB_API_URL="https://github.mycompany.com/api/v3"
 
+# OAuth device login/refresh against GHE requires your enterprise OAuth app ID
+export OCTOCODE_GITHUB_CLIENT_ID="your_oauth_app_client_id"
+
 # OAuth login against GHE
 npx octocode auth login --hostname github.mycompany.com
 ```
@@ -627,6 +631,7 @@ npx octocode status --json
 | `.env` key ignored | Octocode blocks token vars in `.env` — use your shell or the MCP `env` block |
 | `.env` key not loading | Confirm the agent session restarted and the project is trusted |
 | Enterprise hitting github.com | Set `GITHUB_API_URL` in both shell and `.octocoderc` |
+| Enterprise device login or refresh rejects configuration | Set `OCTOCODE_GITHUB_CLIENT_ID` to the client ID of an OAuth app registered on that GitHub Enterprise host |
 | Settings not taking effect | Restart the MCP server or start a new agent session after editing `.octocoderc` |
 
 ---

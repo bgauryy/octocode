@@ -15,6 +15,7 @@ type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 trait PoolClient: Clone + Send + Sync + 'static {
     fn alive(&self) -> ClientFuture<bool>;
+    fn busy(&self) -> bool;
     fn stop(&self) -> ClientFuture<()>;
 }
 
@@ -22,6 +23,10 @@ impl PoolClient for NativeLspClient {
     fn alive(&self) -> ClientFuture<bool> {
         let client = self.clone();
         Box::pin(async move { client.is_alive().await })
+    }
+
+    fn busy(&self) -> bool {
+        self.has_active_requests()
     }
 
     fn stop(&self) -> ClientFuture<()> {
@@ -299,23 +304,29 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
         let count = Arc::clone(&self.count);
         let duration = Duration::from_millis(self.options.idle_timeout_ms);
         tokio::spawn(async move {
-            sleep(duration).await;
-            let stale = {
-                let mut state = state.lock().await;
-                let matches = state.entries.get(&key).is_some_and(|entry| {
-                    entry.id == entry_id && entry.idle_generation == generation
-                });
-                if matches {
-                    remove_lru(&mut state.lru, &key);
-                    let removed = state.entries.remove(&key).map(|entry| entry.client);
-                    count.store(state.entries.len(), Ordering::SeqCst);
-                    removed
-                } else {
-                    None
+            loop {
+                sleep(duration).await;
+                let stale = {
+                    let mut state = state.lock().await;
+                    let current = state.entries.get(&key).filter(|entry| {
+                        entry.id == entry_id && entry.idle_generation == generation
+                    });
+                    if current.is_some_and(|entry| entry.client.busy()) {
+                        continue;
+                    }
+                    if current.is_some() {
+                        remove_lru(&mut state.lru, &key);
+                        let removed = state.entries.remove(&key).map(|entry| entry.client);
+                        count.store(state.entries.len(), Ordering::SeqCst);
+                        removed
+                    } else {
+                        None
+                    }
+                };
+                if let Some(client) = stale {
+                    client.stop().await;
                 }
-            };
-            if let Some(client) = stale {
-                client.stop().await;
+                break;
             }
         });
     }
@@ -557,6 +568,7 @@ mod tests {
         alive: Arc<AtomicBool>,
         health_gate: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
         stops: Arc<AtomicUsize>,
+        busy: Arc<AtomicBool>,
     }
 
     impl FakeClient {
@@ -566,6 +578,7 @@ mod tests {
                 alive: Arc::new(AtomicBool::new(true)),
                 health_gate: Arc::new(Mutex::new(None)),
                 stops: Arc::new(AtomicUsize::new(0)),
+                busy: Arc::new(AtomicBool::new(false)),
             }
         }
     }
@@ -580,6 +593,10 @@ mod tests {
                 }
                 alive.load(Ordering::SeqCst)
             })
+        }
+
+        fn busy(&self) -> bool {
+            self.busy.load(Ordering::SeqCst)
         }
 
         fn stop(&self) -> ClientFuture<()> {
@@ -711,6 +728,28 @@ mod tests {
         tokio::task::yield_now().await;
         assert_eq!(pool.len(), 0);
         assert_eq!(first.stops.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn active_request_prevents_idle_shutdown_until_request_finishes() {
+        let pool = pool(4, 100);
+        let client = pool
+            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .await
+            .expect("install")
+            .expect("client");
+        client.busy.store(true, Ordering::SeqCst);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(101)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.len(), 1);
+        assert_eq!(client.stops.load(Ordering::SeqCst), 0);
+
+        client.busy.store(false, Ordering::SeqCst);
+        tokio::time::advance(Duration::from_millis(101)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(pool.len(), 0);
+        assert_eq!(client.stops.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

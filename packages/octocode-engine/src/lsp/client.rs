@@ -7,7 +7,10 @@ use napi_derive::napi;
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex as StdMutex,
+};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin};
 use tokio::sync::Mutex;
@@ -103,6 +106,7 @@ struct NativeLspClientInner {
     position_encoding: StdMutex<Option<String>>,
     readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
+    active_requests: AtomicUsize,
     /// Open-document lifecycle state: `uri -> last sent version`. Drives the
     /// LSP `didOpen` (once) → `didChange` (incrementing version) → `didClose`
     /// protocol so servers never see a second `didOpen` for the same document.
@@ -128,6 +132,7 @@ impl NativeLspClient {
                 position_encoding: StdMutex::new(None),
                 readiness: StdMutex::new(None),
                 progress: ProgressTracker::new(),
+                active_requests: AtomicUsize::new(0),
                 open_docs: StdMutex::new(HashMap::new()),
             }),
         }
@@ -663,7 +668,12 @@ impl NativeLspClient {
             .ok_or_else(|| Error::new(Status::GenericFailure, "LSP client not initialized"))
     }
 
+    pub(crate) fn has_active_requests(&self) -> bool {
+        self.inner.active_requests.load(Ordering::Acquire) > 0
+    }
+
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let _activity = RequestActivity::begin(&self.inner.active_requests);
         // Acquire a cloned handle and DROP the guard before awaiting, so the
         // request + content-modified retry loop never holds the connection
         // mutex across `.await`.
@@ -707,6 +717,21 @@ impl NativeLspClient {
             )
             .await?;
         snippets_from_locations(result).await
+    }
+}
+
+struct RequestActivity<'a>(&'a AtomicUsize);
+
+impl<'a> RequestActivity<'a> {
+    fn begin(active: &'a AtomicUsize) -> Self {
+        active.fetch_add(1, Ordering::AcqRel);
+        Self(active)
+    }
+}
+
+impl Drop for RequestActivity<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 

@@ -148,6 +148,60 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
 }
 
 #[tokio::test]
+async fn lsp_search_rejects_files_outside_allowed_roots_before_server_discovery() {
+    let workspace = Workspace::new();
+    let outside = workspace.write_outside_allowed_roots("secret.rs", "pub fn secret() {}\n");
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(
+        &runtime,
+        "lspSearch",
+        json!({
+            "operation": "documentSymbols",
+            "uri": outside
+        }),
+    )
+    .await
+    .expect("typed lsp denial");
+    assert_eq!(row_status(&outcome), "error");
+    let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
+    assert!(
+        rendered.contains("outside allowed directories"),
+        "expected path-policy denial, got {rendered}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn resolved_lsp_config_path_reaches_engine_discovery() {
+    let workspace = Workspace::new();
+    let path = workspace.write("source.custom", "symbol\n");
+    let config_path = workspace.write(
+        ".octocode/lsp.json",
+        r#"{"languageServers":{".custom":{"command":"missing-custom-lsp","args":[],"languageId":"custom"}}}"#,
+    );
+    let runtime = workspace.runtime(&[(
+        "OCTOCODE_LSP_CONFIG",
+        config_path.to_string_lossy().into_owned(),
+    )]);
+    let outcome = call(
+        &runtime,
+        "lspSearch",
+        json!({
+            "operation": "documentSymbols",
+            "uri": path
+        }),
+    )
+    .await
+    .expect("typed configured server failure");
+    let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
+    assert!(
+        !rendered.contains("No language server is configured"),
+        "resolved config was ignored: {rendered}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn close_joins_a_fresh_runtime() {
     let workspace = Workspace::new();
     workspace.runtime(&[]).close().await;

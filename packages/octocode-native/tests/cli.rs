@@ -56,6 +56,22 @@ fn login_and_skill_fail_closed() {
 }
 
 #[test]
+fn status_honors_enterprise_hostname_and_personal_access_token_alias() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .env("GITHUB_PERSONAL_ACCESS_TOKEN", "fixture-pat")
+        .args(["status", "--hostname", "ghe.example.com", "--json"])
+        .output()
+        .expect("status");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("status json");
+    assert_eq!(value["auth"]["hostname"], "ghe.example.com");
+    assert_eq!(value["auth"]["authenticated"], true);
+    assert_eq!(value["auth"]["tokenSource"], "env");
+}
+
+#[test]
 fn install_writes_npx_latest_and_never_octo_mcp() {
     let workspace = Workspace::new();
     let missing = workspace.cli().arg("install").output().expect("install");

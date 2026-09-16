@@ -69,6 +69,7 @@ struct TokenResponse {
     refresh_token: Option<String>,
     expires_in: Option<u64>,
     refresh_token_expires_in: Option<u64>,
+    scope: Option<String>,
     error: Option<String>,
     interval: Option<u64>,
 }
@@ -99,6 +100,19 @@ pub struct TokenWithRefreshResult {
 pub async fn login_device_flow(
     endpoints: &LoginEndpoints,
 ) -> Result<StoredCredentials, ProviderError> {
+    login_device_flow_with_client_id(endpoints, GITHUB_APP_CLIENT_ID).await
+}
+
+pub async fn login_device_flow_with_client_id(
+    endpoints: &LoginEndpoints,
+    client_id: &str,
+) -> Result<StoredCredentials, ProviderError> {
+    if client_id.trim().is_empty() {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Configuration,
+            "GitHub OAuth client ID is required",
+        ));
+    }
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
@@ -116,9 +130,7 @@ pub async fn login_device_flow(
             reqwest::header::CONTENT_TYPE,
             "application/x-www-form-urlencoded",
         )
-        .body(format!(
-            "client_id={GITHUB_APP_CLIENT_ID}&scope=repo%2Cread%3Aorg%2Cgist"
-        ))
+        .body(device_code_form(client_id))
         .send()
         .await
         .map_err(|_| {
@@ -141,16 +153,14 @@ pub async fn login_device_flow(
             .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
             .header(ACCEPT, "application/json")
             .header(USER_AGENT, "octocode-native")
-            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .body(format!(
-                "client_id={GITHUB_APP_CLIENT_ID}&device_code={}&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code",
-                urlencoding_device(&device.device_code)
-            ))
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(token_poll_form(client_id, &device.device_code))
             .send()
             .await
-            .map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Transport, "token poll failed")
-            })?
+            .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, "token poll failed"))?
             .json()
             .await
             .map_err(|_| {
@@ -167,17 +177,26 @@ pub async fn login_device_flow(
             let username = fetch_username(&client, &endpoints.api_origin, &access)
                 .await
                 .unwrap_or_default();
-            let now = rfc3339_now();
+            let now_secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|value| value.as_secs())
+                .unwrap_or(0);
+            let now = unix_to_rfc3339(now_secs);
+            let scopes = token.scope.as_deref().map(parse_granted_scopes);
             let stored = StoredCredentials {
                 hostname: endpoints.host.clone(),
                 username,
                 token: OAuthToken {
                     token: access,
                     token_type: token.token_type.unwrap_or_else(|| "oauth".into()),
-                    scopes: Some(vec!["repo".into(), "read:org".into(), "gist".into()]),
+                    scopes,
                     refresh_token: token.refresh_token,
-                    expires_at: None,
-                    refresh_token_expires_at: None,
+                    expires_at: token
+                        .expires_in
+                        .map(|seconds| unix_to_rfc3339(now_secs.saturating_add(seconds))),
+                    refresh_token_expires_at: token
+                        .refresh_token_expires_in
+                        .map(|seconds| unix_to_rfc3339(now_secs.saturating_add(seconds))),
                 },
                 git_protocol: "https".into(),
                 created_at: now.clone(),
@@ -215,17 +234,36 @@ async fn fetch_username(client: &reqwest::Client, api_origin: &str, token: &str)
         .map(str::to_owned)
 }
 
-fn urlencoding_device(value: &str) -> String {
-    let mut out = String::new();
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(char::from(byte));
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
+fn device_code_form(client_id: &str) -> String {
+    url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("client_id", client_id)
+        .append_pair("scope", "repo read:org gist")
+        .finish()
+}
+
+fn token_poll_form(client_id: &str, device_code: &str) -> String {
+    url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("client_id", client_id)
+        .append_pair("device_code", device_code)
+        .append_pair("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
+        .finish()
+}
+
+fn refresh_token_form(client_id: &str, refresh_token: &str) -> String {
+    url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("grant_type", "refresh_token")
+        .append_pair("client_id", client_id)
+        .append_pair("refresh_token", refresh_token)
+        .finish()
+}
+
+fn parse_granted_scopes(value: &str) -> Vec<String> {
+    value
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn rfc3339_now() -> String {
@@ -468,11 +506,7 @@ async fn exchange_refresh_token(
             reqwest::header::CONTENT_TYPE,
             "application/x-www-form-urlencoded",
         )
-        .body(format!(
-            "grant_type=refresh_token&client_id={}&client_secret=&refresh_token={}",
-            urlencoding_device(client_id),
-            urlencoding_device(refresh_token)
-        ))
+        .body(refresh_token_form(client_id, refresh_token))
         .send()
         .await
         .map_err(|_| {
@@ -585,6 +619,7 @@ pub async fn get_token_with_refresh(
 
 pub async fn resolve_stored_with_refresh(
     host: &str,
+    client_id: &str,
 ) -> Result<Option<ResolvedCredential>, ProviderError> {
     let endpoints = LoginEndpoints::from_host(host);
     let Some(stored) = load_stored_credentials(&endpoints.host)? else {
@@ -596,23 +631,25 @@ pub async fn resolve_stored_with_refresh(
             super::CredentialSource::Storage,
         )));
     }
-    match refresh_stored_credentials(stored.clone(), &endpoints, GITHUB_APP_CLIENT_ID).await {
-        Ok(updated) => Ok(Some(ResolvedCredential::new(
-            updated.token.token,
-            super::CredentialSource::Storage,
-        ))),
-        Err(_) => Ok(Some(ResolvedCredential::new(
-            stored.token.token,
-            super::CredentialSource::Storage,
-        ))),
+    if client_id.trim().is_empty() {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Configuration,
+            "OCTOCODE_GITHUB_CLIENT_ID is required to refresh GitHub Enterprise credentials",
+        ));
     }
+    let updated = refresh_stored_credentials(stored, &endpoints, client_id).await?;
+    Ok(Some(ResolvedCredential::new(
+        updated.token.token,
+        super::CredentialSource::Storage,
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        LoginEndpoints, StoredCredentials, exchange_refresh_token, is_refresh_token_expired,
-        is_token_expired, unix_to_rfc3339,
+        LoginEndpoints, StoredCredentials, device_code_form, exchange_refresh_token,
+        is_refresh_token_expired, is_token_expired, parse_granted_scopes, refresh_token_form,
+        token_poll_form, unix_to_rfc3339,
     };
     use crate::providers::github::OAuthToken;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -646,6 +683,47 @@ mod tests {
         assert_eq!(ghes.web_origin, "https://ghe.example.com");
         assert_eq!(ghes.host, "ghe.example.com");
         assert_eq!(LoginEndpoints::from_host("github.com").host, "github.com");
+    }
+
+    #[test]
+    fn oauth_forms_use_standard_form_encoding_and_space_delimited_scopes() {
+        let device = url::form_urlencoded::parse(device_code_form("client id").as_bytes())
+            .into_owned()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            device.get("client_id").map(String::as_str),
+            Some("client id")
+        );
+        assert_eq!(
+            device.get("scope").map(String::as_str),
+            Some("repo read:org gist")
+        );
+
+        let poll = url::form_urlencoded::parse(token_poll_form("cid", "device/code").as_bytes())
+            .into_owned()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            poll.get("device_code").map(String::as_str),
+            Some("device/code")
+        );
+        assert_eq!(
+            poll.get("grant_type").map(String::as_str),
+            Some("urn:ietf:params:oauth:grant-type:device_code")
+        );
+
+        let refresh =
+            url::form_urlencoded::parse(refresh_token_form("cid", "refresh/token").as_bytes())
+                .into_owned()
+                .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            refresh.get("refresh_token").map(String::as_str),
+            Some("refresh/token")
+        );
+        assert!(!refresh.contains_key("client_secret"));
+        assert_eq!(
+            parse_granted_scopes("repo, read:org gist"),
+            vec!["repo", "read:org", "gist"]
+        );
     }
 
     #[test]

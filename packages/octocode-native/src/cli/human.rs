@@ -725,25 +725,59 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
 /// - `username` is populated natively only for the platform-keychain source.
 /// - `raw_token` is the credential secret when we can expose it (env / file / gh-cli);
 ///   callers may use it for a live GH API call to resolve `username`.
-fn resolve_auth(runtime: &ToolRuntime) -> (bool, Option<String>, &'static str, Option<String>) {
+fn configured_github_host(runtime: &ToolRuntime) -> String {
+    runtime
+        .config()
+        .resolved
+        .github
+        .api_url
+        .parse::<url::Url>()
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .map(|host| {
+            if host == "api.github.com" {
+                "github.com".to_owned()
+            } else {
+                host
+            }
+        })
+        .unwrap_or_else(|| "github.com".into())
+}
+
+fn oauth_client_id<'a>(runtime: &'a ToolRuntime, host: &str) -> Option<&'a str> {
+    runtime
+        .config()
+        .env_value("OCTOCODE_GITHUB_CLIENT_ID")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or((host == "github.com")
+            .then_some(octocode_native::providers::github::login::GITHUB_APP_CLIENT_ID))
+}
+
+fn resolve_auth(
+    runtime: &ToolRuntime,
+    host: &str,
+) -> (bool, Option<String>, &'static str, Option<String>) {
     use octocode_native::providers::github::{
         CredentialSourceProvider, GhCliCredentialSource, LegacyCredentialStore,
         PlatformCredentialStore, load_stored_credentials,
     };
     use secrecy::ExposeSecret;
     // 1. Environment variables (fast, no I/O)
-    for key in ["GITHUB_TOKEN", "GH_TOKEN", "OCTOCODE_TOKEN"] {
+    for key in [
+        "OCTOCODE_TOKEN",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ] {
         if let Some(v) = runtime.config().env_value(key).filter(|v| !v.is_empty()) {
             return (true, None, "env", Some(v.to_owned()));
         }
     }
     let home = runtime.inspect_config().home;
     // 2. OS platform keychain — username comes from keychain metadata directly
-    if matches!(
-        PlatformCredentialStore.load_blocking("github.com"),
-        Ok(Some(_))
-    ) {
-        let username = load_stored_credentials("github.com")
+    if matches!(PlatformCredentialStore.load_blocking(host), Ok(Some(_))) {
+        let username = load_stored_credentials(host)
             .ok()
             .flatten()
             .map(|c| c.username)
@@ -751,12 +785,12 @@ fn resolve_auth(runtime: &ToolRuntime) -> (bool, Option<String>, &'static str, O
         return (true, username, "platform", None);
     }
     // 3. credentials.json at OCTOCODE_HOME (written by the JS CLI)
-    if let Ok(Some(secret)) = LegacyCredentialStore::new(&home).load_blocking("github.com") {
+    if let Ok(Some(secret)) = LegacyCredentialStore::new(&home).load_blocking(host) {
         let token = secret.expose_secret().to_owned();
         return (true, None, "file", Some(token));
     }
     // 4. gh CLI token
-    if let Ok(Some(secret)) = GhCliCredentialSource.load_blocking("github.com") {
+    if let Ok(Some(secret)) = GhCliCredentialSource.load_blocking(host) {
         let token = secret.expose_secret().to_owned();
         return (true, None, "gh-cli", Some(token));
     }
@@ -771,7 +805,7 @@ async fn fetch_github_username(token: &str, api_base: &str) -> Option<String> {
         std::time::Duration::from_secs(5),
         reqwest::Client::new()
             .get(&url)
-            .header("Authorization", format!("token {token}"))
+            .header("Authorization", format!("Bearer {token}"))
             .header(
                 "User-Agent",
                 concat!("octocode-native/", env!("CARGO_PKG_VERSION")),
@@ -872,7 +906,7 @@ fn human_bytes(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / 1_048_576.0)
 }
 
-pub async fn status(runtime: &ToolRuntime, _hostname: Option<&str>, json_out: bool) -> u8 {
+pub async fn status(runtime: &ToolRuntime, hostname: Option<&str>, json_out: bool) -> u8 {
     let view = runtime.inspect_config();
     let catalog = runtime.catalog().ok();
     let available = catalog
@@ -886,8 +920,12 @@ pub async fn status(runtime: &ToolRuntime, _hostname: Option<&str>, json_out: bo
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let (auth, username, source, _token) = resolve_auth(runtime);
-    let hostname = "github.com"; // TODO: read from config when GHE support lands
+    let hostname = hostname
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| configured_github_host(runtime));
+    let (auth, username, source, _token) = resolve_auth(runtime, &hostname);
     // MCP client detection (all 15 IDEs)
     let mcp_clients = detect_mcp_clients(&view.home);
     let configured_count = mcp_clients.iter().filter(|(_, has)| *has).count();
@@ -965,22 +1003,9 @@ pub async fn status(runtime: &ToolRuntime, _hostname: Option<&str>, json_out: bo
 }
 
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
-    let (authenticated, username, source, token) = resolve_auth(runtime);
     let api_base = &runtime.config().resolved.github.api_url;
-    let hostname = api_base
-        .parse::<url::Url>()
-        .ok()
-        .and_then(|u| {
-            u.host_str().map(|h| {
-                if h == "api.github.com" {
-                    "github.com"
-                } else {
-                    h
-                }
-                .to_owned()
-            })
-        })
-        .unwrap_or_else(|| "github.com".into());
+    let hostname = configured_github_host(runtime);
+    let (authenticated, username, source, token) = resolve_auth(runtime, &hostname);
     // Resolve username via GH API when the credential source doesn't carry it
     let username = if authenticated && username.is_none() {
         match &token {
@@ -1019,10 +1044,21 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     }
 }
 
-pub async fn login(refresh: bool) -> u8 {
+pub async fn login(runtime: &ToolRuntime, refresh: bool) -> u8 {
+    let host = configured_github_host(runtime);
+    let client_id = oauth_client_id(runtime, &host);
+    if host != "github.com" && client_id.is_none() {
+        eprintln!(
+            "OCTOCODE_GITHUB_CLIENT_ID is required for GitHub Enterprise device login and refresh."
+        );
+        return 1;
+    }
     if refresh {
-        let result =
-            octocode_native::providers::github::login::refresh_auth_token_result(None, None).await;
+        let result = octocode_native::providers::github::login::refresh_auth_token_result(
+            Some(&host),
+            client_id,
+        )
+        .await;
         if result.success {
             eprintln!(
                 "Refreshed credentials for {}",
@@ -1045,12 +1081,14 @@ pub async fn login(refresh: bool) -> u8 {
         eprintln!("login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.");
         return 1;
     }
-    let api = std::env::var("GITHUB_API_URL")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "https://api.github.com".into());
-    let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_api_url(&api);
-    match octocode_native::providers::github::login::login_device_flow(&endpoints).await {
+    let api = &runtime.config().resolved.github.api_url;
+    let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_api_url(api);
+    match octocode_native::providers::github::login::login_device_flow_with_client_id(
+        &endpoints,
+        client_id.expect("public GitHub or validated enterprise client ID"),
+    )
+    .await
+    {
         Ok(stored) => {
             eprintln!(
                 "Authenticated as {} on {}",

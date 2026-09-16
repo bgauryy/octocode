@@ -757,7 +757,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             human::status(runtime, hostname.as_deref(), json).await
         }
         Command::Auth { json } => human::auth_status(runtime, json).await,
-        Command::Login { refresh } => human::login(refresh).await,
+        Command::Login { refresh } => human::login(runtime, refresh).await,
         Command::Logout => human::logout(runtime),
         Command::Cache { action } => human::cache(runtime, &action),
         Command::Skill { args } => human::skill(&args),

@@ -1,10 +1,12 @@
 //! Native `lspSearch` using the portable engine language-server client.
+use crate::policy::path::PathPolicy;
 use crate::tools::local_fetch::CancellationCheck;
 use octocode_engine::lsp::client::NativeLspClient;
-use octocode_engine::lsp::config::default_server_for_file;
+use octocode_engine::lsp::config::{LspDiscoveryOptions, default_server_for_file_with_options};
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::resolver::resolve_position;
 use octocode_engine::lsp::types::JsFuzzyPosition;
+use octocode_engine::lsp::uri::uri_to_path as engine_uri_to_path;
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -12,14 +14,20 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LspPosition {
+    pub line: u32,
+    pub character: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LspSearchQuery {
     pub operation: String,
     pub uri: Option<String>,
     pub workspace_root: Option<String>,
     pub symbol_name: Option<String>,
-    pub line: Option<u32>,
-    pub character: Option<u32>,
+    pub position: Option<LspPosition>,
     pub line_hint: Option<u32>,
     pub order_hint: Option<u32>,
     pub include_declaration: Option<bool>,
@@ -28,7 +36,15 @@ pub struct LspSearchQuery {
     pub depth: Option<u32>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
+    pub snapshot: Option<String>,
+    pub context_lines: Option<u32>,
     pub rust_context: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LspExecutionConfig {
+    pub config_path: Option<String>,
+    pub trust_project_config: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -52,6 +68,8 @@ pub async fn execute(
     query: Value,
     cancel: &dyn CancellationCheck,
     pool: &LspClientPool,
+    paths: &PathPolicy,
+    execution_config: &LspExecutionConfig,
 ) -> Result<Value, String> {
     cancel.check()?;
     let mut query = query;
@@ -60,13 +78,28 @@ pub async fn execute(
         object.remove("reasoning");
     }
     let query: LspSearchQuery = serde_json::from_value(query).map_err(|error| error.to_string())?;
-    let path = query
-        .uri
-        .as_deref()
-        .map(uri_to_path)
-        .or_else(|| query.workspace_root.clone())
-        .ok_or_else(|| "lspSearch requires uri or workspaceRoot".to_owned())?;
-    let workspace = query
+    let path = if let Some(uri) = query.uri.as_deref() {
+        let decoded = decode_uri_path(uri)?;
+        paths
+            .validate_read(&decoded)
+            .map_err(|error| error.message)?
+            .canonical
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        paths
+            .validate(
+                query
+                    .workspace_root
+                    .as_deref()
+                    .ok_or_else(|| "lspSearch requires uri or workspaceRoot".to_owned())?,
+            )
+            .map_err(|error| error.message)?
+            .canonical
+            .to_string_lossy()
+            .into_owned()
+    };
+    let workspace_candidate = query
         .workspace_root
         .clone()
         .or_else(|| resolve_workspace_root_for_file(path.clone()).ok())
@@ -76,17 +109,36 @@ pub async fn execute(
                 .map(|parent| parent.to_string_lossy().into_owned())
                 .unwrap_or_else(|| ".".into())
         });
-    if let Some(root) = query.workspace_root.as_deref()
-        && !Path::new(root).is_dir()
-    {
-        return Ok(failure(
-            &query,
-            "lsp.workspaceRootInvalid",
-            "workspaceRoot is not a directory.",
-            false,
-        ));
-    }
-    let Some(mut config) = default_server_for_file(path.clone(), workspace) else {
+    let workspace = match paths.validate(&workspace_candidate) {
+        Ok(validated) if validated.canonical.is_dir() => {
+            validated.canonical.to_string_lossy().into_owned()
+        }
+        _ => {
+            return Ok(failure(
+                &query,
+                "lsp.workspaceRootInvalid",
+                "workspaceRoot is not an authorized directory.",
+                false,
+            ));
+        }
+    };
+    let config_path = execution_config
+        .config_path
+        .as_deref()
+        .map(|path| {
+            paths
+                .validate_read(path)
+                .map(|validated| validated.canonical)
+        })
+        .transpose()
+        .map_err(|error| error.message)?;
+    let discovery = LspDiscoveryOptions {
+        config_path,
+        trust_project_config: execution_config.trust_project_config,
+    };
+    let Some(mut config) =
+        default_server_for_file_with_options(path.clone(), workspace, &discovery)
+    else {
         return Ok(failure(
             &query,
             "lsp.serverUnavailable",
@@ -136,6 +188,7 @@ pub async fn execute(
     let result = match query.operation.as_str() {
         "definition" => locations(
             &query,
+            paths,
             "definition",
             "definitionProvider",
             client
@@ -157,7 +210,7 @@ pub async fn execute(
                 recover_aliases(&client, &query, &path, line, character, &snippets).await;
             let mut all = snippets;
             all.extend(recovered);
-            locations(&query, "references", "referencesProvider", all)
+            locations(&query, paths, "references", "referencesProvider", all)
         }
         "hover" => json!({
             "type": query.operation,
@@ -167,6 +220,7 @@ pub async fn execute(
         }),
         "typeDefinition" => locations(
             &query,
+            paths,
             "typeDefinition",
             "typeDefinitionProvider",
             client
@@ -176,6 +230,7 @@ pub async fn execute(
         ),
         "implementation" => locations(
             &query,
+            paths,
             "implementation",
             "implementationProvider",
             client
@@ -270,8 +325,11 @@ fn apply_rust_context(
 }
 
 fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), String> {
-    if let Some(line) = query.line {
-        return Ok((line, query.character.unwrap_or(0)));
+    if matches!(
+        query.operation.as_str(),
+        "documentSymbols" | "workspaceSymbol" | "diagnostic"
+    ) {
+        return Ok((0, 0));
     }
     if let Some(name) = query.symbol_name.as_deref() {
         let resolved = resolve_position(
@@ -285,7 +343,11 @@ fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), Stri
         .map_err(|error| error.to_string())?;
         return Ok((resolved.position.line, resolved.position.character));
     }
-    Ok((query.line_hint.unwrap_or(0), query.character.unwrap_or(0)))
+    query
+        .position
+        .as_ref()
+        .map(|position| (position.line, position.character))
+        .ok_or_else(|| "lspSearch requires position or symbolName+lineHint".to_owned())
 }
 
 fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
@@ -305,6 +367,9 @@ fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
                         .unwrap_or(2)
                 ),
             );
+            if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) {
+                object.insert("snapshot".into(), json!(snapshot));
+            }
         }
         value["next"]["nextPage"] = json!({
             "tool": "lspSearch",
@@ -427,6 +492,7 @@ async fn types(
 
 fn locations(
     query: &LspSearchQuery,
+    paths: &PathPolicy,
     kind: &str,
     provider: &str,
     snippets: Vec<impl serde::Serialize>,
@@ -434,7 +500,13 @@ fn locations(
     let mut locations = snippets
         .into_iter()
         .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
+        .filter(|location| location_path_is_authorized(location, paths))
         .collect::<Vec<_>>();
+    if let Some(context_lines) = query.context_lines {
+        for location in &mut locations {
+            apply_context_lines(location, context_lines, paths);
+        }
+    }
     if query.format.as_deref() == Some("compact") {
         locations = locations.into_iter().map(compact_location).collect();
     }
@@ -446,6 +518,10 @@ fn locations(
             true,
         );
     }
+    let snapshot = semantic_snapshot(query, kind, &locations);
+    if snapshot_mismatch(query, &snapshot) {
+        return snapshot_changed(query, snapshot);
+    }
     let (page, pagination) = paginate(
         &locations,
         query.page.unwrap_or(1),
@@ -453,15 +529,124 @@ fn locations(
     );
     let mut payload = json!({ "kind": kind, "locations": page });
     if query.group_by_file == Some(true) {
-        payload["byFile"] = group_by_file(&locations);
+        payload["byFile"] = group_by_file(
+            payload["locations"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+        );
     }
     json!({
         "type": query.operation,
         "uri": query.uri,
+        "snapshot": snapshot,
         "lsp": { "serverAvailable": true, "source": "native", "provider": provider },
         "payload": payload,
         "pagination": pagination
     })
+}
+
+fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Value]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut scope = query.clone();
+    scope.page = None;
+    scope.snapshot = None;
+    let bytes = serde_json::to_vec(&json!({
+        "query": scope,
+        "kind": kind,
+        "items": items,
+    }))
+    .unwrap_or_default();
+    format!("lsp-v1:{}", hex::encode(Sha256::digest(bytes)))
+}
+
+fn snapshot_mismatch(query: &LspSearchQuery, actual: &str) -> bool {
+    query.page.unwrap_or(1) > 1 && query.snapshot.as_deref() != Some(actual)
+}
+
+fn snapshot_changed(query: &LspSearchQuery, snapshot: String) -> Value {
+    let mut restart = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
+    if let Some(object) = restart.as_object_mut() {
+        object.remove("snapshot");
+        object.insert("page".into(), json!(1));
+    }
+    json!({
+        "status": "error",
+        "errorCode": "lsp.snapshot.changed",
+        "error": "The LSP result or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
+        "type": query.operation,
+        "uri": query.uri,
+        "snapshot": snapshot,
+        "complete": false,
+        "next": {
+            "restart": {
+                "tool": "lspSearch",
+                "query": restart,
+                "confidence": "exact"
+            }
+        }
+    })
+}
+
+fn location_path_is_authorized(location: &Value, paths: &PathPolicy) -> bool {
+    location
+        .get("uri")
+        .and_then(Value::as_str)
+        .and_then(|uri| decode_uri_path(uri).ok())
+        .is_some_and(|path| paths.validate_read(path).is_ok())
+}
+
+fn apply_context_lines(location: &mut Value, context_lines: u32, paths: &PathPolicy) {
+    const MAX_CONTEXT_SOURCE_BYTES: u64 = 1_000_000;
+    let Some(uri) = location.get("uri").and_then(Value::as_str) else {
+        return;
+    };
+    let Ok(path) = decode_uri_path(uri) else {
+        return;
+    };
+    let Ok(validated) = paths.validate_read(path) else {
+        return;
+    };
+    if std::fs::metadata(&validated.canonical)
+        .ok()
+        .is_none_or(|metadata| metadata.len() > MAX_CONTEXT_SOURCE_BYTES)
+    {
+        return;
+    }
+    let Ok(source) = fs::read_to_string(&validated.canonical) else {
+        return;
+    };
+    let start_line = location
+        .pointer("/range/start/line")
+        .and_then(Value::as_u64)
+        .unwrap_or(0) as usize;
+    let range_end = location
+        .pointer("/range/end/line")
+        .and_then(Value::as_u64)
+        .unwrap_or(start_line as u64) as usize;
+    let end_character = location
+        .pointer("/range/end/character")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let selected_end = if end_character == 0 && range_end > start_line {
+        range_end - 1
+    } else {
+        range_end
+    };
+    let lines = source.split_inclusive('\n').collect::<Vec<_>>();
+    if start_line >= lines.len() {
+        return;
+    }
+    let start = start_line.saturating_sub(context_lines as usize);
+    let end = selected_end
+        .saturating_add(context_lines as usize)
+        .saturating_add(1)
+        .min(lines.len());
+    location["content"] = json!(lines[start..end].concat());
+    location["displayRange"] = json!({
+        "startLine": start + 1,
+        "endLine": end,
+    });
 }
 
 fn compact_location(value: Value) -> Value {
@@ -637,6 +822,10 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
             true,
         );
     }
+    let snapshot = semantic_snapshot(query, kind, &items);
+    if snapshot_mismatch(query, &snapshot) {
+        return snapshot_changed(query, snapshot);
+    }
     let (page, pagination) = paginate(
         &items,
         query.page.unwrap_or(1),
@@ -645,6 +834,7 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
     json!({
         "type": query.operation,
         "uri": query.uri,
+        "snapshot": snapshot,
         "lsp": { "serverAvailable": true, "source": "native" },
         "payload": { "kind": kind, "items": page },
         "pagination": pagination
@@ -740,36 +930,94 @@ fn as_array(value: &Value) -> Vec<Value> {
     }
 }
 
-fn uri_to_path(uri: &str) -> String {
-    uri.strip_prefix("file://")
-        .map(percent_decode)
-        .unwrap_or_else(|| uri.to_owned())
+fn decode_uri_path(uri: &str) -> Result<String, String> {
+    if uri.starts_with("file:") {
+        engine_uri_to_path(uri).map_err(|error| error.to_string())
+    } else {
+        Ok(uri.to_owned())
+    }
 }
 
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%'
-            && index + 2 < bytes.len()
-            && let Ok(byte) = u8::from_str_radix(
-                std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or(""),
-                16,
-            )
-        {
-            out.push(byte);
-            index += 3;
-            continue;
-        }
-        out.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
+fn uri_to_path(uri: &str) -> String {
+    decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canonical_nested_position_survives_deserialization_and_resolves_exactly() {
+        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+            "operation": "definition",
+            "uri": "/repo/src/lib.rs",
+            "position": { "line": 7, "character": 11 },
+            "page": 1,
+            "pageSize": 40,
+            "format": "structured",
+            "includeDeclaration": true
+        }))
+        .expect("canonical lsp query");
+        assert_eq!(super::resolve_anchor(&query, "/unused"), Ok((7, 11)));
+        assert_eq!(
+            serde_json::to_value(query).expect("serialize")["position"],
+            serde_json::json!({ "line": 7, "character": 11 })
+        );
+    }
+
+    #[test]
+    fn document_wide_operations_do_not_require_a_position_anchor() {
+        for operation in ["documentSymbols", "workspaceSymbol", "diagnostic"] {
+            let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+                "operation": operation,
+                "uri": "/repo/src/lib.rs",
+                "page": 1,
+                "pageSize": 40,
+                "format": "structured",
+                "includeDeclaration": true
+            }))
+            .expect("document-wide lsp query");
+            assert_eq!(super::resolve_anchor(&query, "/unused"), Ok((0, 0)));
+        }
+    }
+
+    #[test]
+    fn later_pages_require_the_semantic_snapshot_and_carry_it_forward() {
+        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+            "operation": "documentSymbols",
+            "uri": "/repo/src/lib.rs",
+            "page": 2,
+            "pageSize": 1,
+            "format": "structured",
+            "includeDeclaration": true
+        }))
+        .expect("canonical lsp query");
+        let items = vec![
+            serde_json::json!({"name":"a"}),
+            serde_json::json!({"name":"b"}),
+        ];
+        let snapshot = super::semantic_snapshot(&query, "symbols", &items);
+        assert!(super::snapshot_mismatch(&query, &snapshot));
+        let changed = super::snapshot_changed(&query, snapshot.clone());
+        assert_eq!(changed["errorCode"], "lsp.snapshot.changed");
+        assert_eq!(changed["next"]["restart"]["query"]["page"], 1);
+        assert!(
+            changed["next"]["restart"]["query"]
+                .get("snapshot")
+                .is_none()
+        );
+
+        let mut continued_query = query;
+        continued_query.snapshot = Some(snapshot.clone());
+        let continued = super::with_next(
+            &continued_query,
+            serde_json::json!({
+                "snapshot": snapshot,
+                "pagination": {"hasMore": true, "nextPage": 3}
+            }),
+        );
+        assert_eq!(continued["next"]["nextPage"]["query"]["page"], 3);
+        assert!(continued["next"]["nextPage"]["query"]["snapshot"].is_string());
+    }
+
     #[test]
     fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         let query = super::LspSearchQuery {
@@ -777,8 +1025,7 @@ mod tests {
             uri: Some("/repo/src/lib.rs".into()),
             workspace_root: None,
             symbol_name: Some("execute".into()),
-            line: None,
-            character: None,
+            position: None,
             line_hint: Some(10),
             order_hint: None,
             include_declaration: None,
@@ -787,6 +1034,8 @@ mod tests {
             depth: None,
             page: None,
             page_size: None,
+            snapshot: None,
+            context_lines: None,
             rust_context: None,
         };
         let empty = super::with_next(&query, super::empty(&query, "noLocations", "none", true));

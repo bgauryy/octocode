@@ -40,9 +40,30 @@ pub fn detect_language_id(file_path: String) -> Option<String> {
         .or_else(|| grammar_for_file(&file_path).map(|spec| spec.language_id.to_owned()))
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct LspDiscoveryOptions {
+    pub config_path: Option<PathBuf>,
+    pub trust_project_config: bool,
+}
+
 pub fn default_server_for_file(
     file_path: String,
     workspace_root: String,
+) -> Option<JsLanguageServerConfig> {
+    let options = LspDiscoveryOptions {
+        config_path: std::env::var("OCTOCODE_LSP_CONFIG")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from),
+        trust_project_config: project_lsp_config_trusted(),
+    };
+    default_server_for_file_with_options(file_path, workspace_root, &options)
+}
+
+pub fn default_server_for_file_with_options(
+    file_path: String,
+    workspace_root: String,
+    options: &LspDiscoveryOptions,
 ) -> Option<JsLanguageServerConfig> {
     let extension = extension_key(&file_path)?;
     let spec = spec_for_extension(&extension);
@@ -53,7 +74,7 @@ pub fn default_server_for_file(
         return Some(config_from_spec(spec, workspace_root));
     }
 
-    if let Some(config) = user_server_for_extension(&extension, &workspace_root) {
+    if let Some(config) = user_server_for_extension(&extension, &workspace_root, options) {
         return Some(config);
     }
 
@@ -335,8 +356,9 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
 fn user_server_for_extension(
     extension: &str,
     workspace_root: &str,
+    options: &LspDiscoveryOptions,
 ) -> Option<JsLanguageServerConfig> {
-    for config_path in user_config_paths(workspace_root) {
+    for config_path in user_config_paths(workspace_root, options) {
         let Ok(content) = std::fs::read_to_string(config_path) else {
             continue;
         };
@@ -365,14 +387,12 @@ fn user_server_for_extension(
     None
 }
 
-fn user_config_paths(workspace_root: &str) -> Vec<PathBuf> {
+fn user_config_paths(workspace_root: &str, options: &LspDiscoveryOptions) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    if let Ok(path) = std::env::var("OCTOCODE_LSP_CONFIG") {
-        if !path.trim().is_empty() {
-            paths.push(PathBuf::from(path));
-        }
+    if let Some(path) = options.config_path.as_ref() {
+        paths.push(path.clone());
     }
-    if project_lsp_config_trusted() {
+    if options.trust_project_config {
         paths.push(Path::new(workspace_root).join(".octocode/lsp-servers.json"));
     }
     if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
@@ -576,9 +596,9 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
 mod tests {
     use super::{
         command_is_tsgo, command_resolves_to_executable, current_node_command,
-        default_server_for_file, detect_language_id, is_command_available,
-        is_rust_analyzer_command, resolve_known_server_command, resolve_server_invocation,
-        resolve_server_invocation_with_environment,
+        default_server_for_file, default_server_for_file_with_options, detect_language_id,
+        is_command_available, is_rust_analyzer_command, resolve_known_server_command,
+        resolve_server_invocation, resolve_server_invocation_with_environment, LspDiscoveryOptions,
     };
     use std::path::PathBuf;
 
@@ -726,6 +746,31 @@ mod tests {
             Some(&["-e".to_owned(), "process.exit(99)".to_owned()][..])
         );
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn explicit_discovery_options_use_resolved_config_without_process_env() {
+        let root = temp_test_root("octocode-engine-explicit-lsp-config");
+        std::fs::create_dir_all(&root).expect("create temporary root");
+        let config_path = root.join("native-lsp.json");
+        std::fs::write(
+            &config_path,
+            r#"{"languageServers":{".rs":{"command":"custom-rust-server","args":["--stdio"],"languageId":"rust"}}}"#,
+        )
+        .expect("write explicit lsp config");
+        let root_str = root.to_string_lossy().into_owned();
+        let config = default_server_for_file_with_options(
+            "demo.rs".to_owned(),
+            root_str,
+            &LspDiscoveryOptions {
+                config_path: Some(config_path),
+                trust_project_config: false,
+            },
+        )
+        .expect("explicit server config");
+        assert_eq!(config.command, "custom-rust-server");
+        assert_eq!(config.language_id.as_deref(), Some("rust"));
         let _ = std::fs::remove_dir_all(root);
     }
 

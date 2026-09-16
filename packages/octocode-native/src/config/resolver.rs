@@ -6,8 +6,9 @@ use super::types::*;
 use super::validation::validate_config;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-const SOURCE_KEYS: [&str; 17] = [
+const SOURCE_KEYS: [&str; 18] = [
     "GITHUB_API_URL",
+    "OCTOCODE_GITHUB_CLIENT_ID",
     "OCTOCODE_GITHUB_GRAPHQL",
     "ENABLE_LOCAL",
     "ENABLE_CLONE",
