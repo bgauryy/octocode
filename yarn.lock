@@ -2621,10 +2621,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.0.2
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=f6a460&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=e1bbf5&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/78efae00143f95eea15f8be67bcfc151aab8eb4e41cca7eb008b041d6da630b2df3cc3c21f4af203a59782ac75cddc8c3a40805df0e637097a5ad8db6f8f167b
+  checksum: 10c0/388c968ada71c2d7052fe57ee5f0c141fc264891d5f2dc007a1b7101867c57ba7011a6e4b62983ccbc10528a8ac9cac121467c059f6445282615f4f1e94e83a2
   languageName: node
   linkType: hard
 
