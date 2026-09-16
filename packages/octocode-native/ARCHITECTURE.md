@@ -63,8 +63,11 @@ in Rust. Embedded contracts are parsed once into immutable data. Prepare fills
 envelope meta fields only; it does not alias tool fields. Human CLI commands
 emit canonical query shapes; adapter tests freeze fields that differ from Rust
 internal terminology. Completed responses are checked against generated,
-tool-specific output envelopes before they leave the runtime. Node forwards
-registration, instructions, request arguments and cancellation only.
+tool-specific output envelopes before they leave the runtime. The generated
+provenance sidecar records the clean canonical-core revision and matching
+contract fingerprint; crate tests reject dirty or fingerprint-mismatched
+provenance. Node
+forwards registration, instructions, request arguments and cancellation only.
 
 The crate builds binaries without addon features and builds the addon as a
 library with `napi-addon`. Advanced ECMAScript patterns use a separately bounded

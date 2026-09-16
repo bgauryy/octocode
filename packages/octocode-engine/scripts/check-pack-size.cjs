@@ -6,6 +6,8 @@
 'use strict'
 
 const { spawnSync } = require('child_process')
+const { readFileSync } = require('fs')
+const { join } = require('path')
 
 const MAX_PACKED_BYTES = Number(process.env.OCTOCODE_CONTEXT_PACK_MAX_BYTES ?? 1_000_000)
 const MAX_UNPACKED_BYTES = Number(process.env.OCTOCODE_CONTEXT_UNPACKED_MAX_BYTES ?? 2_000_000)
@@ -51,9 +53,8 @@ if (!pack) {
   fail('npm pack returned no package metadata')
 }
 
-const nativeFiles = pack.files
-  .map((file) => file.path)
-  .filter((filePath) => filePath.endsWith('.node'))
+const packedFiles = new Set(pack.files.map((file) => file.path))
+const nativeFiles = [...packedFiles].filter((filePath) => filePath.endsWith('.node'))
 
 if (nativeFiles.length > 0) {
   fail(`main package includes native binaries: ${nativeFiles.join(', ')}`)
@@ -65,6 +66,25 @@ if (pack.size > MAX_PACKED_BYTES) {
 
 if (pack.unpackedSize > MAX_UNPACKED_BYTES) {
   fail(`unpacked size ${pack.unpackedSize} exceeds budget ${MAX_UNPACKED_BYTES}`)
+}
+
+const manifest = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'))
+const exportedTargets = new Set()
+for (const conditions of Object.values(manifest.exports ?? {})) {
+  if (typeof conditions === 'string') {
+    exportedTargets.add(conditions)
+    continue
+  }
+  for (const target of Object.values(conditions)) {
+    if (typeof target === 'string') exportedTargets.add(target)
+  }
+}
+const missingExportTargets = [...exportedTargets]
+  .map((target) => target.replace(/^\.\//, ''))
+  .filter((target) => !packedFiles.has(target))
+  .sort()
+if (missingExportTargets.length > 0) {
+  fail(`package exports missing from tarball: ${missingExportTargets.join(', ')}`)
 }
 
 console.log(

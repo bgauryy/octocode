@@ -109,11 +109,6 @@
       "import": "./dist/lsp/initConstants.js",
       "default": "./dist/lsp/initConstants.js"
     },
-    "./lsp/lspClientPool": {
-      "types": "./dist/lsp/lspClientPool.d.ts",
-      "import": "./dist/lsp/lspClientPool.js",
-      "default": "./dist/lsp/lspClientPool.js"
-    },
     "./lsp/lspErrorCodes": {
       "types": "./dist/lsp/lspErrorCodes.d.ts",
       "import": "./dist/lsp/lspErrorCodes.js",
@@ -310,9 +305,6 @@
       ],
       "lsp/initConstants": [
         "./dist/lsp/initConstants.d.ts"
-      ],
-      "lsp/lspClientPool": [
-        "./dist/lsp/lspClientPool.d.ts"
       ],
       "lsp/lspErrorCodes": [
         "./dist/lsp/lspErrorCodes.d.ts"

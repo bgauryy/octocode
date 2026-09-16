@@ -59,9 +59,15 @@ pub const fn contract_json() -> &'static str {
     generated::CONTRACT_JSON
 }
 
+/// Provenance for the generated contract, including the clean canonical-core
+/// revision and the fingerprint embedded above.
+pub const fn contract_provenance_json() -> &'static str {
+    include_str!("generated/contract-provenance.json")
+}
+
 #[cfg(test)]
 mod contract_owner_tests {
-    use super::{PrepareOptions, prepare_and_validate, validate_output};
+    use super::{PrepareOptions, contract_provenance_json, prepare_and_validate, validate_output};
     use serde_json::json;
 
     #[test]
@@ -106,6 +112,24 @@ mod contract_owner_tests {
                 PrepareOptions::default(),
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn generated_contract_has_clean_matching_provenance() {
+        let provenance: serde_json::Value =
+            serde_json::from_str(contract_provenance_json()).expect("provenance JSON");
+        assert_eq!(provenance["sourcePackage"], "@octocodeai/octocode-core");
+        assert_eq!(provenance["sourceDirty"], false);
+        assert_eq!(
+            provenance["contractFingerprint"],
+            super::contract_fingerprint()
+        );
+        assert!(
+            provenance["sourceRevision"]
+                .as_str()
+                .is_some_and(|revision| revision.len() == 40
+                    && revision.chars().all(|ch| ch.is_ascii_hexdigit()))
         );
     }
 
