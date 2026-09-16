@@ -87,12 +87,27 @@ function errorRecovery(error: unknown): unknown {
  * Build the standard query-envelope JSON Schema from a Zod item schema.
  * The item schema owns unknown-field handling. Reasoning is added at this layer.
  */
+function addReasoningToQuerySchema(
+  itemSchema: ZodTypeAny,
+  reasoning: z.ZodString,
+): ZodTypeAny {
+  if (itemSchema instanceof z.ZodObject) return itemSchema.extend({ reasoning });
+  if (itemSchema instanceof z.ZodUnion) {
+    const options = itemSchema.options.map((option) =>
+      addReasoningToQuerySchema(option as ZodTypeAny, reasoning),
+    );
+    if (options.length < 2) throw new Error('Query unions require at least two branches');
+    return z.union(options as [ZodTypeAny, ZodTypeAny, ...ZodTypeAny[]]);
+  }
+  throw new Error('Query item schema must be an object or union of objects');
+}
+
 export function buildQueryEnvelopeSchema(
   itemSchema: ZodTypeAny,
   options: QueryEnvelopeOptions = {},
 ): Record<string, unknown> {
   const reasoning = z.string().min(1).max(400).describe(options.reasoningDescription ?? 'Why.');
-  const querySchema = (itemSchema as z.ZodObject<z.ZodRawShape>).extend({ reasoning });
+  const querySchema = addReasoningToQuerySchema(itemSchema, reasoning);
   const schema = z.object({
     queries: z.array(querySchema)
       .min(1)

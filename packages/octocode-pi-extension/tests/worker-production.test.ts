@@ -64,11 +64,25 @@ it('enforces the parent grant through a real installed Pi worker turn', async ()
     mcpTools: [{ server: 'octocode', tool: 'localSearch', description: 'Granted source research.', inputSchema: { type: 'object' } }, { server: 'private', tool: 'readSecret', description: 'Unrelated parent resource.' }],
   };
   const calls: unknown[] = [];
-  const broker = await createWorkerMcpBroker({ snapshot, dispatchMcp: async params => { calls.push(params); return { content: [{ type: 'text', text: 'PARENT_MCP_RESULT' }] }; } });
+  const broker = await createWorkerMcpBroker({
+    snapshot,
+    dispatchMcp: async params => {
+      if (params['action'] === 'describe') {
+        const details = {
+          server: 'octocode',
+          tool: { name: 'localSearch', description: 'Granted source research.', inputSchema: { type: 'object' } },
+        };
+        return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
+      }
+      calls.push(params);
+      return { content: [{ type: 'text', text: 'PARENT_MCP_RESULT' }] };
+    },
+  });
   try {
     const binding = broker.registerWorker('production-child', { nativeTools: ['MCPTool', 'skill'], skills: ['granted-id'], mcpTools: [{ server: 'octocode', tool: 'localSearch' }] });
     const marker = path.join(root, 'forbidden-native-ran');
     const script = [
+      { name: 'MCPTool', arguments: { queries: [{ reasoning: 'Load the exact granted schema.', action: 'describe', server: 'octocode', tool: 'localSearch' }] } },
       { name: 'MCPTool', arguments: { queries: [{ reasoning: 'Exercise granted parent transport.', action: 'call', server: 'octocode', tool: 'localSearch', arguments: {} }] } },
       { name: 'MCPTool', arguments: { queries: [{ reasoning: 'Verify broker rejects ungranted identity.', action: 'call', server: 'private', tool: 'readSecret', arguments: {} }] } },
       { name: 'skill', arguments: { queries: [{ reasoning: 'Load granted instructions.', type: 'load', action: 'load', name: 'granted-skill', reason: 'Verify the concrete granted file.' }] } },
@@ -78,13 +92,16 @@ it('enforces the parent grant through a real installed Pi worker turn', async ()
     const { output, receipt } = await runWorker(root, binding, 'index.js', 'MCPTool,skill', script);
     expect(receipt).toMatchObject({ secretInEnvironment: false, catalogPrivate: false, skillVisible: true });
     expect(receipt.activeTools.sort()).toEqual(['MCPTool', 'skill']);
-    expect(receipt.results).toHaveLength(5);
-    expect(receipt.results[0]).toMatchObject({ isError: false, text: expect.stringContaining('PARENT_MCP_RESULT') });
-    expect(receipt.results[1]).toMatchObject({ isError: true, text: expect.stringContaining('not granted') });
-    expect(receipt.results[2]).toMatchObject({ isError: false, text: expect.stringContaining('GRANTED_SKILL_BODY') });
-    expect(receipt.results[3]).toMatchObject({ isError: true, text: expect.stringContaining('Unknown skill') });
-    expect(receipt.results[4].isError).toBe(true);
+    expect(receipt.results).toHaveLength(6);
+    expect(receipt.results[0]).toMatchObject({ isError: false, text: expect.stringContaining('Exact schema loaded') });
+    expect(receipt.results[0].text).toContain('"inputSchema"');
+    expect(receipt.results[1]).toMatchObject({ isError: false, text: expect.stringContaining('PARENT_MCP_RESULT') });
+    expect(receipt.results[2]).toMatchObject({ isError: true, text: expect.stringContaining('not granted') });
+    expect(receipt.results[3]).toMatchObject({ isError: false, text: expect.stringContaining('GRANTED_SKILL_BODY') });
+    expect(receipt.results[4]).toMatchObject({ isError: true, text: expect.stringContaining('Unknown skill') });
+    expect(receipt.results[5].isError).toBe(true);
     expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ __expectedSchemaDigest: expect.any(String) });
     expect(fs.existsSync(marker)).toBe(false);
     expect(output).not.toContain(binding.token);
   } finally {

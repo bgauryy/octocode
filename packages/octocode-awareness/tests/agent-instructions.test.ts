@@ -28,7 +28,7 @@ describe('portable Awareness agent instructions', () => {
     expect(instructions).toContain('generated from the canonical descriptor');
     expect(instructions).toContain('includeSchemas:true');
     expect(instructions).toContain('helpful requires later evidence');
-    expect(instructions).toContain('Run the check before work.verify');
+    expect(instructions).toContain('Run the declared check before recording its result with work.verify');
     expect(instructions).not.toContain('to_agents');
     expect(instructions).not.toContain('kinds(');
     expect(instructions).not.toContain('files(');

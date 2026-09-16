@@ -248,6 +248,8 @@ async function captureExtensions(): Promise<CaptureResult> {
       appendedEntries.push({ customType, data });
     },
     getActiveTools: () => [...activeTools],
+    getAllTools: () => [...tools.values()].map(tool => ({ ...tool, description: tool.description ?? '',
+      sourceInfo: { path: '/test', source: '@octocodeai/pi-extension', scope: 'temporary', origin: 'package' } })),
     setActiveTools: (names: string[]) => {
       activeTools.splice(0, activeTools.length, ...names);
     },
@@ -1081,19 +1083,23 @@ test('enum tool params use string-enum schemas (Google API compat), never litera
   // Google's API rejects. Every string-enum tool param must be a plain
   // {type:"string", enum:[...]} schema (see pi-ai StringEnum).
   const { tools } = await captureExtensions();
-  const prop = (tool: string, name: string): Record<string, unknown> => queryPropertySchemas(tools.get(tool)!, name)[0]!;
-
-  const mcpAction = prop('MCPTool', 'action');
-  assert.equal(mcpAction['type'], 'string');
-  assert.deepEqual(mcpAction['enum'], ['list', 'describe', 'call', 'resources', 'read-resource', 'prompts', 'get-prompt', 'complete', 'enable', 'disable', 'status', 'restart', 'stop', 'config', 'add', 'remove']);
-  const mcpScope = prop('MCPTool', 'scope');
-  assert.equal(mcpScope['type'], 'string');
-  assert.deepEqual(mcpScope['enum'], ['project', 'global']);
-  assert.match(String(prop('MCPTool', 'arguments')['description']), /every target-tool field here, never beside action\/server\/tool/i);
+  const mcpActions = queryPropertySchemas(tools.get('MCPTool')!, 'action');
+  assert.deepEqual(
+    mcpActions.flatMap((schema) => schema['enum'] as string[]),
+    ['list', 'describe', 'call', 'resources', 'read-resource', 'prompts', 'get-prompt', 'complete', 'enable', 'disable', 'status', 'restart', 'stop', 'config', 'add', 'remove'],
+  );
+  const mcpScopes = queryPropertySchemas(tools.get('MCPTool')!, 'scope');
+  assert.deepEqual([...new Set(mcpScopes.flatMap((schema) => schema['enum'] as string[]))], ['project', 'global']);
+  const mcpArguments = queryPropertySchemas(tools.get('MCPTool')!, 'arguments');
+  assert.ok(mcpArguments.some((schema) => /Octocode nests target calls under arguments\.queries\[\]/i.test(String(schema['description']))));
   const agentTypes = queryPropertySchemas(tools.get('agent')!, 'type');
   assert.deepEqual([...new Set(agentTypes.flatMap((schema) => schema['enum'] as string[]))], ['spawn', 'inspect', 'configure', 'wait', 'message', 'steer', 'abort', 'kill']);
 
-  for (const [name, schema] of [['MCPTool.action', mcpAction], ['MCPTool.scope', mcpScope], ...agentTypes.map((schema, index) => [`agent.type[${index}]`, schema] as const)] as const) {
+  for (const [name, schema] of [
+    ...mcpActions.map((schema, index) => [`MCPTool.action[${index}]`, schema] as const),
+    ...mcpScopes.map((schema, index) => [`MCPTool.scope[${index}]`, schema] as const),
+    ...agentTypes.map((schema, index) => [`agent.type[${index}]`, schema] as const),
+  ] as const) {
     assert.equal(schema['type'], 'string');
     assert.doesNotMatch(JSON.stringify(schema), /anyOf|"const"/, `${name} must use string enum values, not literal unions`);
   }
@@ -2419,20 +2425,22 @@ test('research tools served via MCPTool — not registered as native Pi tools', 
 });
 
 test('mcp initialization reads canonical project config before the agent calls tools', async () => {
-  const { tools } = await captureExtensions();
+  const { tools, activeTools } = await captureExtensions();
   const mcpTool = tools.get('MCPTool')!;
   assert.ok(mcpTool, 'MCPTool registered');
   assert.equal(tools.has('mcp'), false, 'mcp alias was removed to slim the tool surface');
   assert.match(mcpTool.promptSnippet!, /mcp_catalog_index/);
-  assert.match(mcpTool.promptSnippet!, /Gateway to connected MCP servers/i);
+  assert.match(mcpTool.promptSnippet!, /Gateway to MCP servers/i);
   assert.match(mcpTool.description!, /tools, resources, and prompts/i);
-  assert.match(mcpTool.description!, /input in queries\[\]\.arguments/i);
+  assert.match(mcpTool.description!, /action:describe loads the exact schema/i);
   assert.doesNotMatch(mcpTool.description!, /prepare/i);
   const mcpGuidelines = mcpTool.promptGuidelines?.join('\n') ?? '';
-  assert.match(mcpGuidelines, /\$OCTOCODE_HOME\/mcp\.json/);
-  assert.match(mcpGuidelines, /\.agents\/mcp\.json/);
-  assert.match(mcpGuidelines, /restart\/stop manages connections/i);
-  assert.match(mcpGuidelines, /built-in octocode server cannot be removed/i);
+  assert.match(mcpGuidelines, /Target fields go in arguments\.queries\[\] only/i);
+  assert.match(mcpGuidelines, /action:describe loads the exact schema and normally activates a Pi tool/i);
+  assert.match(mcpGuidelines, /action:call is blocked until the same schema was described/i);
+  assert.match(mcpGuidelines, /queryRunType:parallel.*different servers/i);
+  assert.match(mcpGuidelines, /add\/remove writes mcp\.json/i);
+  assert.match(mcpGuidelines, /untrusted MCP config.*approval/i);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '.tmp-mcp-test-'));
   try {
@@ -2487,7 +2495,8 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.match(cachedPrompt, /instructions: Use echo only for MCP bridge smoke tests\./);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /description: Echo text/);
-    assert.match(cachedPrompt, /inputSchema: \{"properties":\{"text":\{"type":"string"\}\},"required":\["text"\],"type":"object"\}/);
+    assert.match(cachedPrompt, /action:"describe"/);
+    assert.doesNotMatch(cachedPrompt, /inputSchema:/);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /<runtime_capabilities>/);
     assert.match(cachedPrompt, /effective_inline_images: false/);
@@ -2496,28 +2505,47 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.doesNotMatch(cachedPrompt, /octocode-roast: Critical review and adversarial critique/, 'pathless metadata cannot shadow an effective skill source');
     assert.doesNotMatch(cachedPrompt, /BEFORE acting/);
 
-    const called = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'ok' } });
-    assert.match((called.content[0] as { text: string }).text, /echo:ok/);
+    await assert.rejects(
+      invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'guessed' } }),
+      /MCP_SCHEMA_REQUIRED.*fake\/echo/,
+      'the model must inspect the exact schema before using the generic gateway call',
+    );
 
     const described = await invokeMcp({ action: 'describe', server: 'fake', tool: 'echo' });
     assert.match((described.content[0] as { text: string }).text, /Use echo only for MCP bridge smoke tests/);
     assert.match((described.content[0] as { text: string }).text, /"name": "echo"/);
     assert.match((described.content[0] as { text: string }).text, /"inputSchema"/);
+    assert.match((described.content.at(-1) as { text: string }).text, /Loaded Pi tool: mcp__/);
+
+    const proxyName = [...tools.keys()].find(name => name.startsWith('mcp__fake__echo__'));
+    assert.ok(proxyName, 'describe registers a namespaced Pi proxy for the exact MCP schema');
+    assert.ok(activeTools.includes(proxyName), 'describe activates the proxy for the next provider request');
+    const proxy = tools.get(proxyName)!;
+    assert.match(proxy.description ?? '', /MCP fake\/echo.*Echo text/i);
+    assert.deepEqual(proxy.parameters, {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    });
+    const proxied = await invokeExecute(proxy, { text: 'via proxy' }, trustedCtx);
+    assert.match((proxied.content[0] as { text: string }).text, /echo:via proxy/);
+
+    const called = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'ok' } });
+    assert.match((called.content[0] as { text: string }).text, /echo:ok/);
 
     await assert.rejects(
       invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 42 } }),
       /MCP_SCHEMA_INVALID/,
     );
 
-    // Prompt-caching contract: the catalog block is byte-stable — call/describe
-    // activity must NOT change the rendered <mcp_catalog> bytes (any churn would
-    // invalidate the provider prompt cache from that point on).
+    // Prompt-caching contract: demand-loaded schemas do not mutate the routing index,
+    // preserving provider prompt-cache bytes after call/describe activity.
     const afterUse = await captureExtensions().then(({ handlers }) =>
       handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: 'Pi base prompt' }, trustedCtx)
     );
     const hotPrompt = (afterUse as { systemPrompt?: string }).systemPrompt ?? '';
     const catalogSlice = (prompt: string): string =>
-      prompt.slice(prompt.indexOf('<mcp_catalog>'), prompt.indexOf('</mcp_catalog>'));
+      prompt.slice(prompt.indexOf('<mcp_catalog_index>'), prompt.indexOf('</mcp_catalog_index>'));
     assert.match(hotPrompt, /tool: echo/);
     assert.equal(catalogSlice(hotPrompt), catalogSlice(cachedPrompt), 'catalog bytes identical before and after call/describe');
 

@@ -43,9 +43,10 @@ Run focused checks first, then tests/build/typecheck/lint and the user-facing CL
 </code_quality>`;
 
 const capabilityRouting = `<capability_routing>
-Use advertised Octocode tools for research, file for mutations, bash for builds/tests/packages/debugging only. Shell reads bypass structured evidence; never use bash for local file reads or code search.
+Use each tool listed in <native_tools> for its advertised purpose; consult its own schema for exact fields and constraints. Use advertised Octocode tools for research, file for mutations, bash for builds/tests/packages/debugging only. Shell reads bypass structured evidence; never use bash for local file reads or code search.
 Delegate bounded independent lanes that save time or add coverage. Each worker needs one objective, exclusive ownership, acceptance, and return shape. Keep synthesis and decisions in parent. Worker [DONE] closes its unit; verify, reconcile, update an existing plan if present, and continue.
-Use advertised host capabilities for browser, decisions, artifacts, and visuals. Agentic improvements: octocode-eval-benchmark with baseline, held-out cases, and termination criteria; ordinary retries use their direct acceptance check.
+Use web for live search/fetch, chromeDebug for CDP browser automation, inspectMedia/media/runFfmpeg for image/video/audio work, callTool to reuse dynamic functions, skill to load specialized workflows, plan for complex multi-step work, askUser for a missing decision, localServer for static artifacts, awareness for shared coordination state.
+Agentic improvements: octocode-eval-benchmark with baseline, held-out cases, and termination criteria; ordinary retries use their direct acceptance check.
 </capability_routing>`;
 
 /** Host-neutral guidance for the negotiated research catalog. */

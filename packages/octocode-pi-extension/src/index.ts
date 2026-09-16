@@ -92,7 +92,6 @@ import {
   waitForMcpShutdown,
   warmMcpCatalog,
 } from './tools/mcp-tool.js';
-import { isCompactMcpEnabled } from './tools/mcp/env.js';
 import { initializeCapabilityAdapters, refreshCapabilityAdapters, getCapabilityAdapters, disposeCapabilityAdapters } from './adapters/pi-capability-adapters.js';
 import { PI_DECLARATIVE_HOOK_EVENTS } from './adapters/pi-hook-runtime.js';
 import { clearSessionCapabilities } from './tools/capability-session.js';
@@ -101,6 +100,7 @@ import { disposeWorkerCapabilityRuntime, refreshCurrentWorkerCapabilities, asser
 import { openMcpManager, closeConfiguration } from './tools/mcp/html.js';
 import { getDynamicCapabilitiesAddendum } from './tools/dynamic-catalog.js';
 import { renderAvailableSkillsAddendum } from './tools/skill-catalog.js';
+import { renderNativeToolsAddendum } from './tools/native-tool-catalog.js';
 import { registerPlanTool } from './tools/planning/plan-registration.js';
 import { registerLocalServerTool } from './tools/local-server-tool.js';
 import { registerAskUserTool } from './tools/ask-user-tool.js';
@@ -837,7 +837,7 @@ async function wireOctocodePiExtension(
       const directToolStats = getDirectToolContractStats(new Set(pi.getActiveTools?.() ?? registeredToolNames));
       runtimeStore.getState().setContext({
         status: 'pending',
-        mode: isCompactMcpEnabled() ? 'compact' : 'exact',
+        mode: 'routing',
         directToolChars: directToolStats.totalChars,
       });
       updateOctocodeMetricsUi(ctx);
@@ -927,7 +927,7 @@ async function wireOctocodePiExtension(
         if (disableBuiltinTools(pi)) {
           notify(
             ctx,
-            `Octocode disabled Pi built-ins (${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}); use MCPTool({queries:[{reasoning:'research the codebase',action:'call',server:'octocode',tool:'...',arguments:{}}]}) for research. Overrides: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}.`,
+            `Octocode disabled Pi built-ins (${DISABLED_BUILTIN_TOOL_NAMES.join(', ')}); select a research tool from <mcp_catalog_index>, load it with MCPTool action:describe, then call the returned exact-schema Pi tool. Overrides: ${OVERRIDDEN_BUILTIN_TOOL_NAMES.join(', ')}.`, 
             'info',
           );
         }
@@ -1151,6 +1151,7 @@ async function wireOctocodePiExtension(
         'octocode-product-policy': projectPiSystemPromptCapabilities(policy, { mcpTool: hasCapability('MCPTool'), skill: hasCapability('skill') }),
         'mcp-tool-contracts': hasCapability('MCPTool') ? getCachedMcpCatalogAddendum(ctx) : '',
         'runtime-tool-contracts': [renderRuntimeCapabilitiesAddendum(ctx), session.capabilityRevision ? `<capability_revision>${session.capabilityRevision}</capability_revision>` : ''].filter(Boolean).join('\n'),
+        'native-tool-contracts': renderNativeToolsAddendum(activeTools),
         'dynamic-tool-contracts': worker ? '' : getDynamicCapabilitiesAddendum(session.latestAvailableSkills?.map(skill => skill.name), { tools: hasCapability('callTool'), skills: hasCapability('skill') }),
         'available-skills': hasCapability('skill') ? renderAvailableSkillsAddendum(session.latestAvailableSkills) : '',
         'session-artifact-contract': session.sessionArtifactPathsContext,
@@ -1282,7 +1283,7 @@ async function wireOctocodePiExtension(
       );
       runtimeStoreFor(ctx)?.getState().setContext({
         status: 'ready',
-        mode: isCompactMcpEnabled() ? 'compact' : 'exact',
+        mode: 'routing',
         systemPromptChars: resolvedPrompt.length,
         mcpChars: mcpCatalog.length,
         dynamicChars,
@@ -1308,7 +1309,7 @@ async function wireOctocodePiExtension(
           mcpTools: mcpCounts.tools,
           skills: session.latestAvailableSkills?.length ?? 0,
           status: 'ready',
-          mode: isCompactMcpEnabled() ? 'compact' : 'exact',
+          mode: 'routing',
         },
       });
       session.frozenSystemPrompt = resolvedPrompt;

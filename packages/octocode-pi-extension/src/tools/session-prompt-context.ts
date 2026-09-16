@@ -4,6 +4,7 @@ const SEGMENTS = [
   { id: 'octocode-product-policy', kind: 'product-policy', origin: 'octocode-harness', authority: 'product', visibility: 'hidden-policy', rehydrate: 'always', tokenBudget: 20_000 },
   { id: 'mcp-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: INITIAL_CONTEXT_TOKEN_BUDGET },
   { id: 'runtime-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 10_000 },
+  { id: 'native-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 4_000 },
   { id: 'dynamic-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 20_000 },
   { id: 'available-skills', kind: 'skill', origin: 'installed-skills', authority: 'project', visibility: 'inspectable', rehydrate: 'on-trigger', tokenBudget: 20_000 },
   { id: 'session-artifact-contract', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 1_000 },

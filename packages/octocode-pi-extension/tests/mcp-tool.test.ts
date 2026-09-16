@@ -6,9 +6,8 @@ import {
   setMcpToolEnabled,
 } from "@octocodeai/agent-contracts/mcp-state";
 import { openOctocodeDb } from "../src/tools/storage-policy.js";
-import { afterEach, beforeEach, test } from "vitest";
+import { afterEach, test } from "vitest";
 import { __test__ as mcpTestHooks, getCachedMcpCatalogAddendum, getCachedMcpCounts, formatMcpSchemaValidationErrors, mcpCatalogReady, stopAllMcpServers, waitForMcpShutdown, warmMcpCatalog } from '../src/tools/mcp-tool.js';
-import { isCompactMcpEnabled, isMcpAiGuideEnabled } from '../src/tools/mcp/env.js';
 import { resolveMcpCallContent, resolveMcpCallTable, resolveMcpCallText, summarizeMcpStructuredResults, summarizeMcpCallDetails } from '../src/tools/mcp/sanitize.js';
 import { OCTOCODE_MCP_ENV_DEFAULTS } from '../src/tools/mcp/config.js';
 import { buildMcpCatalogSnapshot } from "../src/tools/mcp/catalog.js";
@@ -22,22 +21,11 @@ const mcpCtx = {
   cwd: fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-cache-")),
 } as unknown as import("../src/types.js").PiContext;
 const originalOctocodeHome = process.env["OCTOCODE_HOME"];
-const originalCompactMcp = process.env["OCTOCODE_COMPACT_MCP"];
-const originalAiGuide = process.env["OCTOCODE_MCP_AI_GUIDE"];
 const originalStorageMode = process.env["OCTOCODE_STORAGE_MODE"];
-
-beforeEach(() => {
-  process.env["OCTOCODE_COMPACT_MCP"] = "1";
-});
 
 afterEach(() => {
   if (originalOctocodeHome === undefined) delete process.env["OCTOCODE_HOME"];
   else process.env["OCTOCODE_HOME"] = originalOctocodeHome;
-  if (originalCompactMcp === undefined)
-    delete process.env["OCTOCODE_COMPACT_MCP"];
-  else process.env["OCTOCODE_COMPACT_MCP"] = originalCompactMcp;
-  if (originalAiGuide === undefined) delete process.env["OCTOCODE_MCP_AI_GUIDE"];
-  else process.env["OCTOCODE_MCP_AI_GUIDE"] = originalAiGuide;
   if (originalStorageMode === undefined)
     delete process.env["OCTOCODE_STORAGE_MODE"];
   else process.env["OCTOCODE_STORAGE_MODE"] = originalStorageMode;
@@ -65,104 +53,34 @@ test("MCP schema errors end with the rejected field instead of a generic retry h
   assert.equal(text.trim().split('\n').at(-1), '- /queries/0/pageSize: must be <= 50');
 });
 
-test("compact MCP prompting is the default and exact mode is an explicit opt-out", () => {
-  assert.equal(isCompactMcpEnabled({}), true);
-  assert.equal(isCompactMcpEnabled({ OCTOCODE_COMPACT_MCP: "1" }), true);
-  assert.equal(isCompactMcpEnabled({ OCTOCODE_COMPACT_MCP: "true" }), true);
-  assert.equal(isCompactMcpEnabled({ OCTOCODE_COMPACT_MCP: "0" }), false);
-});
-
-test("AI-authored MCP guide generation is opt-in", () => {
-  assert.equal(isMcpAiGuideEnabled({}), false);
-  assert.equal(isMcpAiGuideEnabled({ OCTOCODE_MCP_AI_GUIDE: "1" }), true);
-  assert.equal(isMcpAiGuideEnabled({ OCTOCODE_MCP_AI_GUIDE: "0" }), false);
-});
-
-test("mode-aware artifact persistence never creates or overwrites mcp.md in exact mode", async () => {
-  const home = fs.mkdtempSync(
-    path.join(os.tmpdir(), "octo-mcp-artifacts-exact-"),
-  );
+test("artifact persistence writes the exact catalog and no prompt guide", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-artifacts-"));
   const snapshot = buildMcpCatalogSnapshot({
     cwd: mcpCtx.cwd!,
     sources: [],
     configSignatures: { demo: "demo-v1" },
-    servers: [
-      {
-        name: "demo",
-        tools: [
-          {
-            name: "echo",
-            description: "Echo text.",
-            inputSchema: {
-              type: "object",
-              required: ["text"],
-              properties: { text: { type: "string" } },
-            },
-          },
-        ],
-      },
-    ],
+    servers: [{
+      name: "demo",
+      tools: [{
+        name: "echo",
+        description: "Echo text.",
+        inputSchema: {
+          type: "object",
+          required: ["text"],
+          properties: { text: { type: "string" } },
+        },
+      }],
+    }],
   });
-  const workspaceDir = path.join(
-    home,
-    "extension",
-    "mcp",
-    "workspaces",
-    snapshot.workspaceKey,
+
+  const persisted = await mcpTestHooks.persistMcpArtifacts(snapshot, { home });
+
+  assert.equal(fs.existsSync(path.join(path.dirname(persisted.snapshotPath), "mcp.md")), false);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(persisted.snapshotPath, "utf8")).servers[0].tools[0].inputSchema,
+    snapshot.servers[0]!.tools[0]!.inputSchema,
   );
-  fs.mkdirSync(workspaceDir, { recursive: true });
-  const guidePath = path.join(workspaceDir, "mcp.md");
-  fs.writeFileSync(guidePath, "existing compact guide\n");
-
-  await mcpTestHooks.persistMcpArtifacts(snapshot, { compactMcp: false, home });
-
-  assert.equal(fs.readFileSync(guidePath, "utf8"), "existing compact guide\n");
-  assert.ok(fs.existsSync(path.join(workspaceDir, "catalog.json")));
 });
-
-test("mode-aware artifact persistence creates a validated compact guide only when enabled", async () => {
-  const home = fs.mkdtempSync(
-    path.join(os.tmpdir(), "octo-mcp-artifacts-compact-"),
-  );
-  const snapshot = buildMcpCatalogSnapshot({
-    cwd: mcpCtx.cwd!,
-    sources: [],
-    configSignatures: { demo: "demo-v1" },
-    servers: [
-      {
-        name: "demo",
-        instructions: "Route echo requests.",
-        tools: [
-          {
-            name: "echo",
-            description: "Echo text.",
-            inputSchema: {
-              type: "object",
-              required: ["text"],
-              properties: { text: { type: "string" } },
-            },
-          },
-        ],
-      },
-    ],
-  });
-
-  const persisted = await mcpTestHooks.persistMcpArtifacts(snapshot, {
-    compactMcp: true,
-    home,
-  });
-  const guidePath = path.join(path.dirname(persisted.snapshotPath), "mcp.md");
-  const guide = fs.readFileSync(guidePath, "utf8");
-
-  assert.match(guide, /^<!-- octocode-mcp-guide:v6 /);
-  assert.match(guide, /<mcp_catalog_index>/);
-  assert.match(guide, /tool: echo/);
-  assert.deepEqual(JSON.parse(guide.split('inputSchema: ')[1]!.split('\n')[0]!), {
-    properties: { text: { type: 'string' } }, required: ['text'], type: 'object',
-  });
-  assert.deepEqual(JSON.parse(fs.readFileSync(persisted.snapshotPath, 'utf8')).servers[0].tools[0].inputSchema, snapshot.servers[0]!.tools[0]!.inputSchema);
-});
-
 function tmpMcpJson(content: unknown): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-"));
   const p = path.join(dir, "mcp.json");
@@ -307,12 +225,11 @@ test("call table view keeps batch evidence compact without serializing match bod
   assert.doesNotMatch(text, /large match body/);
 });
 
-// ─── <mcp_catalog> prompt addendum (init discovery, compaction-surviving) ─────
+// ─── <mcp_catalog_index> prompt addendum (compaction-surviving) ───────────────
 //
-// Caching contract: the every-turn block carries the FULL init-time discovery
-// (server instructions, tool descriptions, exact inputSchema JSON) and must be
-// BYTE-STABLE across turns — churn in the block invalidates the provider prompt
-// cache.
+// Caching contract: the every-turn block carries bounded routing metadata and
+// stays byte-stable across turns. Exact schemas remain in catalog.json and are
+// returned only by MCPTool describe.
 
 const CATALOG_TOOLS = [
   {
@@ -378,7 +295,7 @@ test("waitForMcpShutdown waits for tracked background MCP work", async () => {
   assert.equal(settled, true);
 });
 
-test("catalog addendum carries server instructions, descriptions, complete schemas, and the call envelope", () => {
+test("catalog addendum carries deterministic routing metadata and demand-load guidance", () => {
   seedCatalog();
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
   assert.match(addendum, /<mcp_catalog_index>/);
@@ -386,30 +303,14 @@ test("catalog addendum carries server instructions, descriptions, complete schem
   assert.match(addendum, /instructions: Use batched queries/);
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
-  assert.match(addendum, /inputSchema: \{"properties":/);
-  assert.match(addendum, /arguments:<object matching inputSchema>/);
-  assert.doesNotMatch(addendum, /schemaLease|SCHEMA_REQUIRED/);
+  assert.match(addendum, /action:"describe"/);
+  assert.doesNotMatch(addendum, /inputSchema|schemaDigest|schemaLease|SCHEMA_REQUIRED/);
 });
 
-test("explicit exact catalog addendum carries enabled descriptions and input schemas", () => {
-  process.env["OCTOCODE_COMPACT_MCP"] = "0";
-  seedCatalog();
-  const addendum = getCachedMcpCatalogAddendum(mcpCtx);
-
-  assert.match(addendum, /^<mcp_catalog>/);
-  assert.match(addendum, /server: octocode/);
-  assert.match(addendum, /tool: localSearch/);
-  assert.match(addendum, /description: Search local source files\./);
-  assert.match(addendum, /inputSchema: \{"properties":/);
-  assert.match(addendum, /"required":\["queries"\]/);
-  assert.doesNotMatch(addendum, /mcp_catalog_index/);
-});
-
-test("default compact catalog excludes tools disabled for the active workspace", () => {
+test("routing catalog excludes tools disabled for the active workspace", () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "octo-mcp-enabled-only-"));
   process.env["OCTOCODE_HOME"] = home;
   process.env["OCTOCODE_STORAGE_MODE"] = "persistent";
-  delete process.env["OCTOCODE_COMPACT_MCP"];
   setMcpToolEnabled(
     openOctocodeDb(),
     path.resolve(mcpCtx.cwd!),
@@ -714,7 +615,7 @@ test("catalog addendum is byte-stable: tools appear in the output sorted regardl
   );
 });
 
-test("catalog addendum exposes every connected tool and complete schema without a prompt continuation", () => {
+test("catalog addendum bounds large catalogs and provides an executable continuation", () => {
   mcpTestHooks.setCachedMcpCatalog(mcpCtx, [
     {
       name: "bigserver",
@@ -731,12 +632,16 @@ test("catalog addendum exposes every connected tool and complete schema without 
     },
   ]);
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
-  assert.equal(addendum.match(/^tool: tool-/gm)?.length, 300);
-  assert.equal(addendum.match(/^inputSchema: /gm)?.length, 300);
-  assert.doesNotMatch(addendum, /catalog_continuation:/);
+  const displayedTools = addendum.match(/^tool: tool-/gm)?.length ?? 0;
+  assert.ok(addendum.length < 20_000, `routing index uses ${addendum.length} characters`);
+  assert.ok(displayedTools > 0 && displayedTools < 300);
+  assert.doesNotMatch(addendum, /inputSchema:/);
+  assert.match(addendum, /catalog_continuation: \{"partial":true/);
+  assert.match(addendum, /"tool":"MCPTool"/);
+  assert.match(addendum, /"action":"list"/);
 });
 
-test("catalog addendum exposes oversized schemas and keeps sibling routing metadata", () => {
+test("catalog addendum omits oversized schemas and keeps sibling routing metadata", () => {
   mcpTestHooks.setCachedMcpCatalog(mcpCtx, [
     {
       name: "octocode",
@@ -762,8 +667,7 @@ test("catalog addendum exposes oversized schemas and keeps sibling routing metad
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
   assert.match(addendum, /tool: huge/);
   assert.match(addendum, /tool: localSearch/);
-  assert.match(addendum, /inputSchema:/);
-  assert.match(addendum, /value-899/);
+  assert.doesNotMatch(addendum, /inputSchema:|value-899/);
 });
 
 test("catalog addendum renders long instructions and descriptions in full without truncation", () => {
@@ -960,8 +864,8 @@ test("lazy startup persists a cold index, freezes snapshot-hit prompt bytes, and
     const coldPrompt = renderMockSystemPrompt(fixture.ctx);
     assert.match(coldPrompt, /<mcp_catalog_index>/);
     assert.match(coldPrompt, /Mocked cache-flow tool/);
-    assert.match(coldPrompt, /inputSchema:/);
-    assert.match(coldPrompt, /arguments:<object matching inputSchema>/);
+    assert.match(coldPrompt, /action:"describe"/);
+    assert.doesNotMatch(coldPrompt, /inputSchema:/);
     const snapshotDir = path.join(
       process.env["OCTOCODE_HOME"],
       "extension",
@@ -1010,7 +914,7 @@ test("lazy startup persists a cold index, freezes snapshot-hit prompt bytes, and
   }
 });
 
-test("persisted mcp.md releases prompt readiness before live schema refresh completes", async () => {
+test("persisted catalog releases prompt readiness before live schema refresh completes", async () => {
   const fixture = createDelayedMcpFixture(250);
   process.env["OCTOCODE_HOME"] = path.join(
     (fixture.ctx as unknown as { cwd: string }).cwd,
@@ -1042,83 +946,6 @@ test("persisted mcp.md releases prompt readiness before live schema refresh comp
   }
 });
 
-test("cold startup generates mcp.md from descriptions and schemas, then reuses it without another model call", async () => {
-  process.env["OCTOCODE_MCP_AI_GUIDE"] = "1";
-  const fixture = createDelayedMcpFixture(0);
-  process.env["OCTOCODE_HOME"] = path.join(
-    (fixture.ctx as unknown as { cwd: string }).cwd,
-    ".octocode-home",
-  );
-  const prompts: string[] = [];
-  const notifications: string[] = [];
-  Object.assign(fixture.ctx, {
-    model: { id: "mock-model", provider: "mock-provider" },
-    modelRegistry: {
-      find: () => undefined,
-      complete: async (
-        _model: unknown,
-        context: { messages: Array<{ content: string }> },
-      ) => {
-        prompts.push(context.messages[0]!.content);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                servers: [
-                  {
-                    name: "octocode",
-                    tools: [
-                      {
-                        name: "mockTool",
-                        description:
-                          "Generated mock purpose. Input: no declared fields.",
-                      },
-                    ],
-                  },
-                ],
-              }),
-            },
-          ],
-        };
-      },
-    },
-    ui: { notify: (message: string) => notifications.push(message) },
-  });
-  try {
-    await warmMcpCatalog(fixture.ctx);
-    assert.equal(prompts.length, 1);
-    assert.match(prompts[0]!, /"name":"mockTool"/);
-    assert.match(prompts[0]!, /"inputSchema":\{"type":"object"\}/);
-    assert.match(
-      getCachedMcpCatalogAddendum(fixture.ctx),
-      /Generated mock purpose/,
-    );
-    assert.ok(
-      notifications.some((message) =>
-        /generating a concise mcp\.md/i.test(message),
-      ),
-    );
-
-    stopAllMcpServers();
-    await warmMcpCatalog(fixture.ctx);
-    assert.equal(
-      prompts.length,
-      1,
-      "matching persisted mcp.md must bypass generation",
-    );
-    assert.match(
-      getCachedMcpCatalogAddendum(fixture.ctx),
-      /Generated mock purpose/,
-    );
-    assert.ok(
-      notifications.some((message) => /using cached mcp\.md/i.test(message)),
-    );
-  } finally {
-    stopAllMcpServers();
-    fixture.cleanup();
-  }
-});
 
 test("mock LLM gets stable cache hits when MCP discovery finishes before turn one", async () => {
   const fixture = createDelayedMcpFixture(0);
@@ -1626,14 +1453,14 @@ test("catalog metadata is escaped: malicious server/tool names cannot close or f
   );
 });
 
-test("compiled catalog prompt exposes names, descriptions, and complete schemas", () => {
+test("compiled catalog prompt exposes names and descriptions without schemas", () => {
   seedCatalog();
   const addendum = getCachedMcpCatalogAddendum(mcpCtx);
   assert.match(addendum, /<mcp_catalog_index>/);
   assert.match(addendum, /tool: localSearch/);
   assert.match(addendum, /description: Search local source files/);
-  assert.match(addendum, /inputSchema: \{"properties":/);
-  assert.doesNotMatch(addendum, /schemaDigest|schemaLease/);
+  assert.match(addendum, /action:"describe"/);
+  assert.doesNotMatch(addendum, /inputSchema|schemaDigest|schemaLease/);
 });
 
 test("compiled call rejects an unsupported schema without invoking the server", async () => {
@@ -1671,6 +1498,28 @@ test(
   async () => {
     const fixture = createCallGateMcpFixture();
     try {
+      const stale = await handleMcpAction(
+        {
+          action: "call",
+          server: "octocode",
+          tool: "echo",
+          arguments: { value: "stale" },
+          __expectedSchemaDigest: "previous-schema-revision",
+        },
+        undefined,
+        fixture.ctx,
+      );
+      assert.equal(stale.isError, true);
+      assert.match(
+        (stale.content[0] as { text: string }).text,
+        /MCP_SCHEMA_STALE.*octocode\/echo/,
+      );
+      assert.equal(
+        fs.existsSync(fixture.callMarker),
+        false,
+        "a proxy compiled for a stale schema must not invoke the server",
+      );
+
       const invalid = await handleMcpAction(
         {
           action: "call",
@@ -1819,7 +1668,7 @@ test("schema: top-level only exposes queries property", () => {
   assert.ok(s.required?.includes("queries"), "queries is required");
 });
 
-test("prompt guidance distinguishes the MCP envelope from nested server arguments", () => {
+test("prompt guidance distinguishes routing metadata from demand-loaded schemas", () => {
   const def = buildMcpToolDef();
   const guidance = [
     def.description,
@@ -1827,91 +1676,65 @@ test("prompt guidance distinguishes the MCP envelope from nested server argument
     ...(def.promptGuidelines ?? []),
   ].join("\n");
 
-  assert.match(guidance, /Put actions in queries\[\]/);
-  assert.match(guidance, /input in queries\[\]\.arguments/);
-  assert.match(guidance, /Octocode (?:tools nest queries\[\] there|batches nest under arguments\.queries\[\])/);
+  assert.match(guidance, /Batch independent Octocode queries inside one arguments\.queries\[\]/);
+  assert.match(guidance, /Use <mcp_catalog_index> to select a server\/tool/);
+  assert.match(guidance, /action:describe loads the exact schema and normally activates a Pi tool/);
+  assert.match(guidance, /action:call is blocked until the same schema was described/);
 });
 
-test("schema: call queries expose the compact table response view", () => {
-  const def = buildMcpToolDef();
-  type S = {
-    properties?: {
-      queries?: {
-        items?: {
-          properties?: {
-            responseView?: { enum?: string[] };
-          };
-        };
-      };
-    };
-  };
-  const responseView = (def.parameters as S).properties?.queries?.items
-    ?.properties?.responseView;
-  assert.deepEqual(responseView?.enum, ["full", "table"]);
-});
+type GatewayBranch = {
+  additionalProperties?: boolean;
+  properties?: Record<string, { enum?: string[] }>;
+  required?: string[];
+};
 
-test("schema: per-query item requires reasoning", () => {
-  const def = buildMcpToolDef();
-  type S = {
-    properties?: {
-      queries?: {
-        items?: { properties?: Record<string, unknown>; required?: string[] };
-      };
-    };
+function gatewayBranches(def: ToolDefinition): GatewayBranch[] {
+  const schema = def.parameters as {
+    properties?: { queries?: { items?: { anyOf?: GatewayBranch[]; oneOf?: GatewayBranch[] } } };
   };
-  const items = (def.parameters as S).properties?.queries?.items;
-  assert.ok(
-    items?.properties?.["reasoning"],
-    "reasoning must be in per-query schema",
+  const items = schema.properties?.queries?.items;
+  return items?.anyOf ?? items?.oneOf ?? [];
+}
+
+function gatewayBranch(def: ToolDefinition, action: string): GatewayBranch {
+  const branch = gatewayBranches(def).find(
+    (candidate) => candidate.properties?.["action"]?.enum?.includes(action),
   );
-  assert.ok(
-    items?.required?.includes("reasoning"),
-    "reasoning must be required per query",
-  );
-});
+  assert.ok(branch, `missing ${action} schema branch`);
+  return branch;
+}
 
-test("schema: action is required and paginated MCP tool listing is available", () => {
-  const def = buildMcpToolDef();
-  type S = {
-    properties?: {
-      queries?: {
-        items?: {
-          properties?: Record<string, { enum?: string[] }>;
-          required?: string[];
-        };
-      };
-    };
-  };
-  const items = (def.parameters as S).properties?.queries?.items;
-  assert.ok(items?.required?.includes("action"));
-  assert.ok(items?.properties?.["action"]?.enum?.includes("list"));
-});
-
-test("schema: per-query item exposes tool, resource, prompt, completion, and management fields", () => {
-  const def = buildMcpToolDef();
-  type S = {
-    properties?: {
-      queries?: { items?: { properties?: Record<string, unknown> } };
-    };
-  };
-  const props =
-    (def.parameters as S).properties?.queries?.items?.properties ?? {};
-  for (const field of [
-    "action",
-    "server",
-    "tool",
-    "uri",
-    "name",
-    "ref",
-    "argument",
-    "arguments",
-    "config",
-    "scope",
-  ]) {
-    assert.ok(props[field], `queries[].${field} must be in schema`);
+test("schema: every MCP action is a strict branch with per-query reasoning", () => {
+  const branches = gatewayBranches(buildMcpToolDef());
+  assert.equal(branches.length, 16);
+  for (const branch of branches) {
+    assert.equal(branch.additionalProperties, false);
+    assert.equal(branch.properties?.["action"]?.enum?.length, 1);
+    assert.ok(branch.required?.includes("action"));
+    assert.ok(branch.required?.includes("reasoning"));
+    assert.ok(branch.properties?.["reasoning"]);
   }
 });
 
+test("schema: call, describe, and list expose only action-valid fields", () => {
+  const def = buildMcpToolDef();
+  const call = gatewayBranch(def, "call");
+  assert.deepEqual(call.properties?.["responseView"]?.enum, ["full", "table"]);
+  assert.ok(call.required?.includes("server"));
+  assert.ok(call.required?.includes("tool"));
+  assert.ok(call.properties?.["arguments"]);
+
+  const describe = gatewayBranch(def, "describe");
+  assert.deepEqual(describe.required, ["action", "server", "tool", "reasoning"]);
+  assert.equal(describe.properties?.["arguments"], undefined);
+  assert.equal(describe.properties?.["responseView"], undefined);
+
+  const list = gatewayBranch(def, "list");
+  assert.ok(list.properties?.["offset"]);
+  assert.ok(list.properties?.["catalogRevision"]);
+  assert.equal(list.properties?.["server"], undefined);
+  assert.equal(list.properties?.["tool"], undefined);
+});
 test("schema: queries array enforces minItems:1", () => {
   const def = buildMcpToolDef();
   type S = { properties?: { queries?: { minItems?: number } } };

@@ -1,5 +1,4 @@
 import type { Client, Transport } from '@modelcontextprotocol/client';
-import type { PiContext } from '../../types.js';
 import type { McpServerConfig, McpConfigSource } from './config.js';
 import type { McpOAuthFlow } from './oauth.js';
 import type { McpCompiledSchemaValidator } from './schema-validator.js';
@@ -71,21 +70,11 @@ export interface McpDiscoverySnapshot {
 }
 
 export interface McpPromptArtifactStatus {
-  mode: "exact" | "compact";
+  mode: "routing";
   status: "pending" | "ready";
   promptChars: number;
   workspaceKey?: string;
   configDigest?: string;
   capturedAt?: string;
   catalogPath?: string;
-  guidePath?: string;
-  guideState: "active" | "ignored" | "missing";
-}
-
-export interface PersistMcpArtifactsOptions {
-  compactMcp?: boolean;
-  ctx?: PiContext;
-  signal?: AbortSignal;
-  guide?: string;
-  home?: string;
 }

@@ -117,28 +117,26 @@ avoid collisions, while source IDs retain exact identity.
 
 ## Agent context and prompt artifacts
 
-The Agent context section shows catalog mode and readiness, prompt character
-count, artifact paths, guide state, and the last published effective capability
-revision. Parent capabilities lists enabled native tools, exact skill identities,
+The Agent context section shows catalog readiness, prompt character count, the exact
+catalog path, and the last published effective capability revision. Parent capabilities lists enabled native tools, exact skill identities,
 and MCP server/tool pairs. Worker grants shows each worker's selected access.
 
-| `OCTOCODE_COMPACT_MCP` | Prompt projection |
-|---|---|
-| Unset/enabled | Schema-aware `mcp.md` with every enabled description and complete input contract. |
-| `0`/disabled | Unoptimized exact enabled catalog projection for debugging. |
-
-The default compact guide is deterministic. `OCTOCODE_MCP_AI_GUIDE=1` opts into
-model-authored guide generation. The exact `catalog.json` and compact `mcp.md`
-artifacts live under `$OCTOCODE_HOME/extension/mcp/workspaces/<workspace-key>/`.
+There is one deterministic prompt projection: a bounded `<mcp_catalog_index>` containing
+enabled server instructions plus tool names and descriptions. Exact input schemas are not
+injected. The exact `catalog.json` artifact lives under
+`$OCTOCODE_HOME/extension/mcp/workspaces/<workspace-key>/`.
 
 The runtime resolves effective capabilities before every turn. Changes appear in
 the next turn's prompt/catalog without starting a new session. An unchanged
 projection stays byte-stable. A `stale` badge means a changed source is awaiting
 the next projection; it does not require `/new`.
 
-The prompt eagerly supplies enabled MCP descriptions and complete input contracts. The inspection
-surface stays bounded: `MCPTool action:"list"` returns instructions and descriptions,
-and `action:"describe"` returns one exact schema again.
+The prompt supplies enabled MCP routing metadata only. `MCPTool action:"describe"` returns
+the selected exact schema and activates a directly callable namespaced Pi proxy when the host
+admits dynamic names; otherwise it reports the generic gateway fallback. Generic gateway calls
+are blocked until that schema is described. The inspection surface stays
+bounded: `action:"list"` returns instructions and descriptions with
+revision-bound executable continuations.
 Skill list → load follows the same staged discovery pattern. Copy a partial
 result's executable `next` call unchanged; it carries the catalog revision and
 any field-fragment position. [Catalog contracts](CAPABILITIES.md#versioned-prompt-and-catalogs)
@@ -194,7 +192,6 @@ The Overrides section exposes state for diagnosis.
 | Source reviews and selections | Extension-owned capability state, keyed by scope and source ID. |
 | OAuth access/refresh tokens | OS credential store. |
 | Exact MCP schemas/instructions | Workspace `catalog.json`. |
-| Compact guide | Workspace `mcp.md`. |
 | Generated configuration page | `$OCTOCODE_HOME/extension/tmp/settings/<workspace-digest>/settings.html`. |
 
 Workspace overrides precede global overrides. Tool enablement considers the

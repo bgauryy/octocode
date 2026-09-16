@@ -223,9 +223,11 @@ export function getToolEffect(toolName: string | undefined, input?: Record<strin
       const params = query['params'] && typeof query['params'] === 'object' && !Array.isArray(query['params'])
         ? query['params'] as Record<string, unknown>
         : {};
-      const operationEffect = descriptor.effect(params);
-      if (operationEffect === 'workspace-write') effect = 'workspace-write';
-      else if (operationEffect === 'coordination-write' && effect === 'read') effect = 'coordination-write';
+      try {
+        const operationEffect = descriptor.effect(params);
+        if (operationEffect === 'workspace-write') effect = 'workspace-write';
+        else if (operationEffect === 'coordination-write' && effect === 'read') effect = 'coordination-write';
+      } catch { return undefined; } // invalid params — can't determine effect
     }
     return effect;
   }

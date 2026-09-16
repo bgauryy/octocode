@@ -13,7 +13,6 @@ import { setMcpToolEnabled } from '@octocodeai/agent-contracts/mcp-state';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 
 const originalHome = process.env['OCTOCODE_HOME'];
-const originalCompactMcp = process.env['OCTOCODE_COMPACT_MCP'];
 const originalStorageMode = process.env['OCTOCODE_STORAGE_MODE'];
 const roots: string[] = [];
 const settingsCtx = {} as PiContext;
@@ -21,8 +20,6 @@ afterEach(() => {
   mcpTestHooks.clearCachedMcpCatalog();
   if (originalHome === undefined) delete process.env['OCTOCODE_HOME'];
   else process.env['OCTOCODE_HOME'] = originalHome;
-  if (originalCompactMcp === undefined) delete process.env['OCTOCODE_COMPACT_MCP'];
-  else process.env['OCTOCODE_COMPACT_MCP'] = originalCompactMcp;
   if (originalStorageMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
   else process.env['OCTOCODE_STORAGE_MODE'] = originalStorageMode;
   while (roots.length) fs.rmSync(roots.pop()!, { recursive: true, force: true });
@@ -163,7 +160,6 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-mcp-html-'));
   roots.push(root);
   process.env['OCTOCODE_HOME'] = path.join(root, 'home');
-  delete process.env['OCTOCODE_COMPACT_MCP'];
   const cwd = path.join(root, 'workspace');
   const configPath = projectMcpPath(cwd, process.env['OCTOCODE_HOME']);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -208,9 +204,10 @@ test('settings.html shows live commands plus the complete skill/MCP surface and 
   assert.doesNotMatch(html, /review<script>/);
   assert.match(html, /Search skills/);
   assert.match(html, /Agent prompt catalog/);
-  assert.match(html, /Schema-aware mcp\.md is injected/);
-  assert.match(html, /OCTOCODE_COMPACT_MCP/);
-  assert.match(html, /default\/enabled/);
+  assert.match(html, /bounded routing index is injected/i);
+  assert.match(html, /exact input schemas are fetched on demand/i);
+  assert.match(html, /<span class="badge on">routing<\/span>/);
+  assert.doesNotMatch(html, /mcp\.md/);
   assert.match(html, /MCP connections/);
   assert.match(html, /--orange:#FF8A3D/);
   assert.match(html, /--violet:#7957D5/);
@@ -253,18 +250,4 @@ test('configuration retains complete descriptions and schemas for disabled tools
   assert.match(html, /schema_tail/);
   assert.match(html, /Complete connected instructions\./);
   assert.match(html, /data-action="enable" data-server="docs" data-tool="readDoc"/);
-});
-
-test('settings.html identifies compact MCP as the enabled default', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-mcp-html-compact-'));
-  roots.push(root);
-  process.env['OCTOCODE_HOME'] = path.join(root, 'home');
-  process.env['OCTOCODE_COMPACT_MCP'] = '1';
-  const cwd = path.join(root, 'workspace');
-
-  const html = await renderMcpManagerPage({ cwd } as unknown as PiContext);
-
-  assert.match(html, /Schema-aware mcp\.md is injected/);
-  assert.match(html, /OCTOCODE_COMPACT_MCP/);
-  assert.match(html, /enabled/);
 });

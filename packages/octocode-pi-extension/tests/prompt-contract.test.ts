@@ -136,22 +136,24 @@ test('main prompt composes host facts with the canonical coder and Awareness pro
 test('product policy only advertises MCP and skill gateways that are active', () => {
   const projected = projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: false, skill: false });
   assert.doesNotMatch(projected, /Use MCPTool \(server:"octocode"\)/);
-  assert.doesNotMatch(projected, /The outer MCPTool query owns reasoning/);
+  assert.doesNotMatch(projected, /Describe activates a namespaced Pi tool/);
   assert.doesNotMatch(projected, /Load a matching Octocode skill/);
   assert.match(projected, /Permissions and approval are host-enforced/);
   assert.equal(projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: true, skill: true }), SYSTEM_PROMPT);
 });
 
-test('MCP guidance distinguishes the Pi envelope from the target Octocode query', () => {
+test('MCP guidance loads exact schemas and keeps dynamic and fallback calls unambiguous', () => {
   const example = JSON.parse(OCTOCODE_MCP_CALL_EXAMPLE) as {
     queries: Array<{ reasoning?: string; arguments?: { queries?: Array<Record<string, unknown>> } }>;
   };
   assert.equal(typeof example.queries[0]?.reasoning, 'string');
   assert.equal(example.queries[0]?.arguments?.queries?.[0]?.['reasoning'], undefined);
   assert.deepEqual(example.queries[0]?.arguments?.queries, [{ path: '/ABS/repo/README.md', fullContent: true }]);
-  assert.match(SYSTEM_PROMPT, /outer MCPTool query owns reasoning/i);
-  assert.match(SYSTEM_PROMPT, /target Octocode input stays inside arguments\.queries\[\]/i);
-  assert.match(SYSTEM_PROMPT, /never put target fields beside action\/server\/tool/i);
+  assert.match(SYSTEM_PROMPT, /call MCPTool action:"describe"/i);
+  assert.match(SYSTEM_PROMPT, /exact target schema and normally activates a namespaced Pi tool/i);
+  assert.match(SYSTEM_PROMPT, /fixed host allowlist.*now-unlocked generic MCPTool action:"call" path/i);
+  assert.match(SYSTEM_PROMPT, /otherwise only for batching after describe/i);
+  assert.match(SYSTEM_PROMPT, /target input stays inside arguments\.queries\[\]/i);
 });
 
 test('worker process prompt omits user-facing coder authority while keeping interaction and research routing safety', () => {

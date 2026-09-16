@@ -5,8 +5,8 @@ import {
   buildOctocodeSystemPrompt,
 } from '@octocodeai/agent-contracts/prompts';
 
-const MCP_HOST_GUIDANCE = `Use MCPTool (server:"octocode") for all repository, code, history, package, graph, semantic research, local file reads, and code searches — MCPTool is the only research and local-file path in this host. Use localFetch to read a file, localSearch or astSearch to search code; use bash only when no local tool covers the operation (builds, tests, package commands, bounded debugging). Never invoke Octocode research CLI tools via bash or npx.
-The outer MCPTool query owns reasoning, action, server, and arguments. Target Octocode input stays inside arguments.queries[]; never put target fields beside action/server/tool or put outer reasoning inside arguments. Omit target goal/reasoning when the Octocode schema marks them auto-filled.`;
+const MCP_HOST_GUIDANCE = `Use MCPTool (server:"octocode") to discover and load tools for repository, code, history, package, graph, semantic research, local file reads, and code searches. Use localFetch to read a file, localSearch or astSearch to search code; use bash only when no local tool covers the operation (builds, tests, package commands, bounded debugging). Never invoke Octocode research CLI tools via bash or npx.
+Select from <mcp_catalog_index>, then call MCPTool action:"describe". Describe exposes the exact target schema and normally activates a namespaced Pi tool; call that returned tool directly. If describe reports a fixed host allowlist, use the now-unlocked generic MCPTool action:"call" path. That path is otherwise only for batching after describe: its outer query owns reasoning, action, server, tool, and arguments, while target input stays inside arguments.queries[] when required by the target schema.`;
 const SKILL_HOST_GUIDANCE = 'Load a matching Octocode skill for specialized research or planning.';
 const HOST_FACTS = `<octocode_host>
 ${MCP_HOST_GUIDANCE}

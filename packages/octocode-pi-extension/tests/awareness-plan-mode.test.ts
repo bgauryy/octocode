@@ -31,4 +31,13 @@ describe('Awareness discovery capability classification', () => {
     expect(getToolEffect('awareness', input)).toBeUndefined();
     expect(evaluateToolCapability({ toolName: 'awareness', toolInput: input }).effectiveDecision).toBe('block');
   });
+
+  it('does not throw and treats invalid execution params as unclassified (regression: stale cwd/include_messages/include_work)', () => {
+    // Stale params that were removed from the context.orient strict schema.
+    // descriptor.effect() previously threw, propagating through the hook error handler.
+    const input = { queries: [{ operation: 'context.orient', params: { cwd: '/some/path', include_messages: true, include_work: true } }] };
+    expect(() => getToolEffect('awareness', input)).not.toThrow();
+    expect(getToolEffect('awareness', input)).toBeUndefined();
+    expect(evaluateToolCapability({ toolName: 'awareness', toolInput: input }).effectiveDecision).toBe('block');
+  });
 });

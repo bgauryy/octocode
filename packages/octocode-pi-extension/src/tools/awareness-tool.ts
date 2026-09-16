@@ -320,7 +320,7 @@ export function registerAwarenessTool(
   const description = DIRECT_TOOL_DESCRIPTIONS.awareness!;
   const promptSnippet = `${operationCount} Awareness operations; start with context.orient.`;
   const promptGuidelines = [
-    'queries[{operation,params?}]. Use describe:true (no params) for schema discovery. Follow returned continuations.',
+    'queries[{operation,params?}]. Use {"describe":true} (no params) for schema discovery. Follow returned continuations.',
   ];
   assertContractBudget('standing', [
     description,

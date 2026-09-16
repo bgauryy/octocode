@@ -616,7 +616,7 @@ describe('ordered Awareness event consumer', () => {
     const entries: object[] = [];
     const observations: unknown[] = [];
     const notify = vi.fn();
-    let watcherError: (() => void) | undefined;
+    let watcherError: ((error: unknown) => void) | undefined;
     const handlers = new Map<string, (event: unknown, ctx: PiContext) => Promise<void>>();
     const pi = {
       on: (name: string, handler: (event: unknown, ctx: PiContext) => Promise<void>) => handlers.set(name, handler),
@@ -636,7 +636,7 @@ describe('ordered Awareness event consumer', () => {
     await handlers.get('session_start')!({}, ctx);
 
     // Simulate a transient watcher error (e.g. SQLite lock or missing WAL file).
-    watcherError?.();
+    watcherError?.(undefined);
 
     // Must count as a lifetime error for diagnostics but NOT as a drainError.
     expect(observations.at(-1)).toMatchObject({ errors: 1, drainErrors: 0 });

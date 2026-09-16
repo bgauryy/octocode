@@ -6,10 +6,12 @@ contract. The native product obtains live schemas and composes policy through it
 runtime adapters.
 
 The 10 Octocode research tools are reached through the built-in `octocode` MCP server;
-Pi-specific tools are implemented directly in `src/tools/`. The system prompt includes
-every enabled MCP tool description and complete input contract. Put the selected tool's
-input under `queries[].arguments`; `action:"describe"` returns its exact JSON schema again.
-CLI-only hosts use `npx octocode tools <name> --scheme` instead.
+Pi-specific tools are implemented directly in `src/tools/`. The system prompt includes a
+bounded routing index, not tool input schemas. Use `MCPTool action:"describe"` to load the
+selected exact schema and, when the host admits dynamic names, a namespaced Pi tool; then call
+the returned tool directly. The generic gateway call remains available for fixed allowlists and
+batching but is blocked until describe. CLI-only
+hosts use `npx octocode tools <name> --scheme` instead.
 
 The extension supplies its guarded same-name `bash`. For direct extension installs, it
 removes Pi `read`/`edit`/`write`/`grep`/`find`/`ls` on load and session start. `file`
@@ -39,8 +41,8 @@ Every direct tool exposes a `queries` batch. The registered schema requires a no
 tool definition. Descriptions distinguish when to choose the tool and the
 consequence of a nearby wrong choice. Field descriptions keep exact constraints;
 registration preserves schema descriptions and example data without truncation.
-Dynamic tool, skill, and MCP guide generation import
-`BEHAVIORAL_PROMPT_GUIDANCE` from agent-contracts.
+Dynamic tool and skill generation import `BEHAVIORAL_PROMPT_GUIDANCE` from
+agent-contracts.
 
 The dynamic capability index is a bounded inventory, not a complete contract.
 Its overflow entry provides an executable `callTool` or `skill` list call.
@@ -402,21 +404,22 @@ for the complete cross-host location matrix.
 
 Startup reads a versioned private snapshot from
 `$OCTOCODE_HOME/extension/mcp/workspaces/<workspace-digest>/`. `catalog.json` retains exact
-schemas for enabled tools from enabled servers. By default the first-turn system prompt
-receives a schema-aware `<mcp_catalog_index>` from `mcp.md` with every enabled description
-and complete input contract; calls validate against the same exact catalog. Set
-`OCTOCODE_COMPACT_MCP=0` only to inject the unoptimized exact catalog for debugging.
-`OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored descriptions while preserving complete
-schema contracts; otherwise the guide is deterministic and adds no model request.
-There is no prepare action or schema lease.
+schemas for enabled tools from enabled servers. The system prompt receives one deterministic,
+bounded `<mcp_catalog_index>` containing server instructions plus tool names and descriptions;
+it does not contain input schemas. `MCPTool action:"describe"` loads one selected exact schema,
+registers a namespaced Pi proxy without prompt snippets or guidelines, and activates it for the
+next provider request. Call that proxy directly with the target arguments. If a host-level tool
+allowlist rejects dynamic names, describe reports that fallback and the generic gateway remains
+the callable path. Generic gateway calls require a prior describe receipt and revalidate its schema
+digest. After compaction, receipts without an active provider-visible proxy are cleared, forcing a
+fresh describe. Calls also validate against the same exact enabled catalog. There is no prepare
+action or caller-supplied schema lease.
 
 Local cached-catalog readiness is independent from live schema refresh and does not
-prove a provider cache hit: matching `catalog.json` + `mcp.md` supplies the default
-compact prompt projection; exact mode needs only
-`catalog.json`. Cold/changed startup waits through two bounded discovery attempts per
-enabled server and, only with AI guide generation enabled, bounded generation (35 seconds total),
-then freezes stable prompt bytes for that session and persists any late result for the
-next one. The shared runtime renderer shows checking, discovery, optional generation,
+prove a provider cache hit: matching `catalog.json` supplies the routing projection.
+Cold or changed startup waits through two bounded discovery attempts per enabled server
+(35 seconds total), then freezes stable prompt bytes for that session and persists any
+late result for the next one. The shared runtime renderer shows checking, discovery,
 counts, and degraded state. See [RUNTIME_STATE.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/RUNTIME_STATE.md).
 
 ### 1. Active config locations

@@ -4,7 +4,13 @@ import { escapePromptMetadata } from './prompt-safety.js';
 import type { PiContext, PiInstance, SkillInfo, NotifyFn } from '../types.js';
 import type { SessionScopedState } from '../session-scoped-state.js';
 import { buildEffectiveCapabilitySnapshot, publishSessionCapabilities } from './capability-session.js';
-import { getEffectiveMcpSnapshot, refreshMcpCapabilities, handleMcpAction } from './mcp-tool.js';
+import {
+  getEffectiveMcpSnapshot,
+  refreshMcpCapabilities,
+  handleMcpAction,
+  getGrantedDynamicMcpProxyTools,
+  isDynamicMcpProxyTool,
+} from './mcp-tool.js';
 import { loadMcpConfig } from './mcp/config.js';
 import { discoverSkills, discoverSkillCandidates } from './skill-discovery.js';
 import { initializeWorkerCapabilityRuntime, updateParentCapabilitySnapshot, getParentCapabilitySnapshot, refreshCurrentWorkerCapabilities, getCurrentWorkerCapabilities } from './worker-capabilities.js';
@@ -18,7 +24,10 @@ export async function preparePromptCapabilities(options: {
   const cwd = ctx?.cwd ?? process.cwd();
   if (worker) {
     const view = await refreshCurrentWorkerCapabilities({ beginTurn: true });
-    pi.setActiveTools?.(view?.snapshot.nativeTools ?? []);
+    const dynamicMcpTools = view
+      ? getGrantedDynamicMcpProxyTools(pi, view.snapshot.mcpTools)
+      : [];
+    pi.setActiveTools?.([...(view?.snapshot.nativeTools ?? []), ...dynamicMcpTools]);
     const signature = view ? `${view.grant.revision}:${view.snapshot.revision}` : '';
     if (view && signature !== session.workerGrantSignature) {
       pi.appendEntry?.('octocode-worker-capabilities', { schemaVersion: 1, grant: view.grant, capabilityRevision: view.snapshot.revision });
@@ -31,7 +40,13 @@ export async function preparePromptCapabilities(options: {
   session.latestAvailableSkills = worker
     ? (getCurrentWorkerCapabilities()?.snapshot.skills ?? []).map(skill => ({ ...skill, sourceId: skill.id, description: skill.description ?? '', dir: path.dirname(skill.path), source: 'parent grant' }))
     : activeTools.has('skill') ? discoverSkills(cwd, options.piSkills, undefined, { trusted: ctx?.isProjectTrusted?.() === true }) : [];
-  const snapshot = worker ? getCurrentWorkerCapabilities()?.snapshot : buildEffectiveCapabilitySnapshot([...activeTools], session.latestAvailableSkills, activeTools.has('MCPTool') ? getEffectiveMcpSnapshot(ctx) : undefined);
+  const snapshot = worker
+    ? getCurrentWorkerCapabilities()?.snapshot
+    : buildEffectiveCapabilitySnapshot(
+      [...activeTools].filter(name => !isDynamicMcpProxyTool(pi, name)),
+      session.latestAvailableSkills,
+      activeTools.has('MCPTool') ? getEffectiveMcpSnapshot(ctx) : undefined,
+    );
   if (snapshot) {
     session.capabilityRevision = snapshot.revision;
     publishSessionCapabilities(cwd, snapshot);
@@ -40,7 +55,11 @@ export async function preparePromptCapabilities(options: {
       else await initializeWorkerCapabilityRuntime({ snapshot, dispatchMcp: (params, signal) => handleMcpAction(params, signal, ctx), refreshSnapshot: async () => {
         await refreshMcpCapabilities(ctx);
         const tools = pi.getActiveTools?.() ?? [...activeTools];
-        const current = buildEffectiveCapabilitySnapshot(tools, tools.includes('skill') ? discoverSkills(cwd, session.latestPiSkills, undefined, { trusted: ctx?.isProjectTrusted?.() === true }) : [], tools.includes('MCPTool') ? getEffectiveMcpSnapshot(ctx) : undefined);
+        const current = buildEffectiveCapabilitySnapshot(
+          tools.filter(name => !isDynamicMcpProxyTool(pi, name)),
+          tools.includes('skill') ? discoverSkills(cwd, session.latestPiSkills, undefined, { trusted: ctx?.isProjectTrusted?.() === true }) : [],
+          tools.includes('MCPTool') ? getEffectiveMcpSnapshot(ctx) : undefined,
+        );
         publishSessionCapabilities(cwd, current);
         return current;
       } });

@@ -12,7 +12,7 @@ export function projectPlanStatus(model: PlanReadModelV1) {
       activity: { kind: 'idle' },
       context: {
         status: 'pending',
-        mode: 'exact',
+        mode: 'routing',
         systemPromptChars: 0,
         mcpChars: 0,
         dynamicChars: 0,

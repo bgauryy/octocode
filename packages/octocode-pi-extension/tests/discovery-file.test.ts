@@ -61,7 +61,7 @@ test('discovery context accounting includes direct tool contracts in the provide
       mcpTools: 14,
       skills: 1,
       status: 'ready',
-      mode: 'exact',
+      mode: 'routing',
       contextAwarenessEstimates: { method: 'ceil-utf16-chars/4', total: 100, awarenessInstructions: 25, byKind: { 'product-policy': 100 } },
     },
   });
@@ -79,7 +79,7 @@ test('discovery context accounting includes direct tool contracts in the provide
     mcpTools: 14,
     skills: 1,
     status: 'ready',
-    mode: 'exact',
+    mode: 'routing',
   });
 });
 

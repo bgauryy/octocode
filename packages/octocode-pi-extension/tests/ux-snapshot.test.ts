@@ -72,7 +72,7 @@ function runtime(overrides: Partial<Pick<RuntimeState, 'generation' | 'phase' | 
     phase: 'ready' as const,
     activity: { kind: 'working' as const, since: 9_000, planScope: 'plan-1', stepId: 't2', label: 'Implementing' },
     context: {
-      status: 'ready' as const, mode: 'exact' as const, systemPromptChars: 1, mcpChars: 1,
+      status: 'ready' as const, mode: 'routing' as const, systemPromptChars: 1, mcpChars: 1,
       dynamicChars: 0, directToolChars: 0, providerSubtotalChars: 2, estimatedTokens: 1,
       mcpServers: 1, mcpTools: 2, skills: 3,
     },

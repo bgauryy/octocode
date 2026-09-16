@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,7 @@ import { parseArgs } from '../src/command-parser.js';
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -52,6 +53,7 @@ describe('canonical CLI parsing and help boundaries', () => {
   });
 
   it('rejects malformed globals, positions, values, flags, and missing mutation identity', async () => {
+    vi.stubEnv('OCTOCODE_AGENT_ID', undefined);
     const cases: Array<[string[], RegExp]> = [
       [['--db'], /--db expects a path/],
       [['--db-scope', '--compact', 'work', 'list'], /--db-scope expects a value/],

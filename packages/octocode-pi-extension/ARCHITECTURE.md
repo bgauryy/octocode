@@ -66,7 +66,7 @@ previously resolved inventory that could introduce a second source identity.
 |---|---|---|
 | `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 20k tokens |
 | `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 2k tokens |
-| `mcp-tool-contracts` | Complete schemas in `<mcp_catalog_index>` (default) or `<mcp_catalog>` (`OCTOCODE_COMPACT_MCP=0`) | Shared initial-context allowance; no smaller catalog cap |
+| `mcp-tool-contracts` | Enabled server/tool routing metadata in `<mcp_catalog_index>`; `MCPTool action:"describe"` loads one exact schema and activates a Pi proxy when the host admits its dynamic name | 18k characters in the initial index; larger catalogs expose an executable continuation |
 | `runtime-tool-contracts` | `<runtime_capabilities>` and current `capability_revision` | 10k tokens |
 | `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 20k tokens |
 | `available-skills` | `<available_skills>` — discovered skill list | 20k tokens |
@@ -219,7 +219,7 @@ tool palette. Measure the live contracts before estimating context savings.
 | `ghCloneRepo` | Standard |
 | `artifactSearch` | Standard |
 
-**Protocol**: The prompt publishes every enabled tool's complete input contract. Call it as `MCPTool({queries:[{reasoning, action:"call", server:"octocode", tool:"localFetch", arguments:{queries:[{path:"/ABS/repo/README.md", fullContent:true}]}}]})`. The outer Pi query owns `reasoning`, `action`, `server`, and `tool`; target-tool fields stay in `arguments.queries[]`. Omit target `goal` and `reasoning` when the Octocode schema marks them auto-filled. Use `action:"describe"` only to return one selected exact JSON schema.
+**Protocol**: The prompt publishes bounded routing metadata, not input schemas. Use `MCPTool action:"describe"` to load the selected exact JSON schema. When the host admits dynamic names, describe returns and activates a namespaced Pi tool; call that returned tool directly with the target arguments. A fixed host allowlist is reported explicitly and leaves the generic gateway as the callable fallback. `MCPTool action:"call"` is blocked until the same server/tool schema was described, keeps target fields in `arguments`, and revalidates the described schema digest before execution. Compaction clears receipts that no longer have an active provider-visible proxy, so deferred-schema calls cannot outlive model-visible schema context.
 
 ### 3.4 MCP binary resolution (`mcp/config.ts`)
 

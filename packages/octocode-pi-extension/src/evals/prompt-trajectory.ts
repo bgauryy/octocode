@@ -3,6 +3,9 @@ import { z } from 'zod';
 
 export type TrajectoryEventKind =
   | 'octocode_research'
+  | 'mcp_describe'
+  | 'mcp_schema_visible'
+  | 'mcp_call'
   | 'skill_load'
   | 'plan_set'
   | 'plan_propose'
@@ -20,6 +23,8 @@ export interface TrajectoryEvent {
   kind: TrajectoryEventKind;
   /** Stable action or worker identifier when ordering must refer to one lane. */
   id?: string;
+  /** Exact schema identity observed at describe/provider/call boundaries. */
+  schemaDigest?: string;
   profile?: string;
   ownership?: string[];
   packet?: Partial<Record<'goal' | 'context' | 'scope' | 'ownership' | 'acceptance' | 'returnShape', string>>;
@@ -76,6 +81,12 @@ const corpus: TrajectoryScenario[] = [
     requires: ['octocode_research', 'final'],
     forbids: ['mutate', 'plan_propose', 'agent_spawn'],
   },
+  {
+    id: 'deferred-mcp-schema',
+    prompt: 'Use the configured octocode MCP localFetch capability to read packages/octocode-pi-extension/ARCHITECTURE.md. Discover its exact schema before the first call, then return one cited architecture fact without modifying files.',
+    requires: ['mcp_describe', 'mcp_schema_visible', 'mcp_call', 'final'],
+    forbids: ['mutate', 'agent_spawn'],
+  },
 ];
 for (const scenario of corpus) {
   Object.freeze(scenario.requires);
@@ -87,7 +98,7 @@ export const FROZEN_TRAJECTORY_CORPUS: readonly TrajectoryScenario[] = Object.fr
 
 const computedCorpusSha256 = createHash('sha256').update(JSON.stringify(FROZEN_TRAJECTORY_CORPUS)).digest('hex');
 /** Update deliberately only when the held-out corpus itself is versioned. */
-export const FROZEN_TRAJECTORY_CORPUS_SHA256 = '876478f35120953dd20cfb4c7361820e6b6783d8172facaee8f41a87d679a768';
+export const FROZEN_TRAJECTORY_CORPUS_SHA256 = 'bb25ea5fed65b8f00976daabf7c7d7db43098e5b3c8d2e37c1d6ae625007eb2d';
 if (computedCorpusSha256 !== FROZEN_TRAJECTORY_CORPUS_SHA256) {
   throw new Error(`Frozen trajectory corpus changed without a receipt-version update: ${computedCorpusSha256}`);
 }
@@ -164,6 +175,23 @@ function approvalViolations(scenario: TrajectoryScenario, events: readonly Traje
   return [];
 }
 
+function deferredMcpViolations(scenario: TrajectoryScenario, events: readonly TrajectoryEvent[]): string[] {
+  if (!scenario.requires.includes('mcp_call')) return [];
+  const chain = (['mcp_describe', 'mcp_schema_visible', 'mcp_call'] as const)
+    .map(kind => events.find(event => event.kind === kind));
+  if (chain.some(event => !event)) return [];
+  const identities = new Set(chain.map(event => event!.id).filter(Boolean));
+  const digests = new Set(chain.map(event => event!.schemaDigest).filter(Boolean));
+  const violations: string[] = [];
+  if (identities.size !== 1 || chain.some(event => !event!.id)) {
+    violations.push('mcp: describe, visible schema, and call must refer to one server/tool identity');
+  }
+  if (digests.size !== 1 || chain.some(event => !event!.schemaDigest)) {
+    violations.push('mcp: describe, provider-visible schema, and call must share one schema digest');
+  }
+  return violations;
+}
+
 function delegationViolations(scenario: TrajectoryScenario, events: readonly TrajectoryEvent[]): string[] {
   const expected = scenario.delegation;
   if (!expected) return [];
@@ -223,7 +251,11 @@ export function gradeTrajectory(scenario: TrajectoryScenario, events: readonly T
   if (!orderedSubsequence && scenario.requires.every((kind) => firstIndex(events, kind) >= 0)) {
     violations.push('order: required actions occurred out of sequence');
   }
-  violations.push(...approvalViolations(scenario, events), ...delegationViolations(scenario, events));
+  violations.push(
+    ...approvalViolations(scenario, events),
+    ...delegationViolations(scenario, events),
+    ...deferredMcpViolations(scenario, events),
+  );
   const denominator = Math.max(1, scenario.requires.length + scenario.forbids.length + (scenario.authorization ? 1 : 0) + (scenario.delegation ? 4 : 0));
   return {
     scenarioId: scenario.id,

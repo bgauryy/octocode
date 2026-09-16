@@ -5,9 +5,8 @@
  * as individual Pi tools. They are served via the bundled octocode MCP server through
  * MCPTool. The shared catalog owns the available research capabilities.
  * Full MCP discovery runs at session_start via warmMcpCatalog() and
- * before_agent_start awaits it (mcpCatalogReady). By default the first system
- * prompt receives the schema-aware <mcp_catalog_index>; OCTOCODE_COMPACT_MCP=0 opts
- * into the unoptimized exact catalog projection for debugging.
+ * before_agent_start awaits it (mcpCatalogReady). The system prompt receives a
+ * bounded routing index; exact input contracts are fetched through MCPTool describe.
  */
 import { withOctocodeRender } from '../branding/renderers.js';
 import type { ToolDefinition } from '../types.js';
@@ -32,7 +31,7 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
   localServer: 'Serve a static artifact on 127.0.0.1. Mount minimal scope; unmount when done.',
   askUser: 'Collect one missing choice that changes the next action. Ask once.',
   awareness: 'Shared coordination state. Start with context.orient; batch reads; one mutation per call.',
-  MCPTool: 'Call MCP tools, resources, and prompts. server:"octocode" = code/GitHub/history/npm research. Batch Octocode calls in arguments.queries[]. action:describe only for missing/stale schemas.',
+  MCPTool: 'Discover MCP tools, resources, and prompts. server:"octocode" = code/GitHub/history/npm research. action:describe loads the exact schema and normally activates a Pi tool.',
 });
 
 /** One executable discovery recipe; workers inherit it through the MCP gateway. */

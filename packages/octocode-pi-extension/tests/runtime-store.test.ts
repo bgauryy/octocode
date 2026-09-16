@@ -9,7 +9,7 @@ test('runtime store resets session state and tracks ordered initialization work'
   store.getState().setStatus('worker', 'running');
   store.getState().setContext({
     status: 'ready',
-    mode: 'compact',
+    mode: 'routing',
     systemPromptChars: 12_000,
     directToolChars: 40_000,
     providerSubtotalChars: 52_000,
