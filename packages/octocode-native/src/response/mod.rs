@@ -155,7 +155,10 @@ fn paginate_text(text: &str, options: &ResponsePageOptions) -> Page {
     };
     let units = text.encode_utf16().collect::<Vec<_>>();
     let total = units.len();
-    let snapshot = format!("response-v1:{:x}", Sha256::digest(text.as_bytes()));
+    let snapshot = format!(
+        "response-v1:{}",
+        hex::encode(Sha256::digest(text.as_bytes()))
+    );
     let length = requested_length.max(1);
     let requested_offset = options.response_char_offset.unwrap_or(0);
     let offset = requested_offset.min(total);

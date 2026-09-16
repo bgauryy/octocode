@@ -30,14 +30,14 @@ icu_collator = "2.3.1"
 regress = "0.12"
 url = "2"
 clap = { version = "4", features = ["derive"] }
-base64 = "0.22"
-sha2 = "0.10"
+base64 = "0.23"
+sha2 = "0.11"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "http2", "query", "system-proxy"] }
 bytes = "1"
 futures-util = "0.3"
 secrecy = "0.10"
 keyring-core = "1"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 hex = "0.4"
 zeroize = "1"
 octocode-engine = { path = "../octocode-engine", default-features = false, features = ["portable-default"] }
@@ -50,8 +50,6 @@ napi-derive = { version = "3", optional = true }
 napi-build = { version = "2", optional = true }
 
 [dev-dependencies]
-base64 = "0.22"
-serde_json = { version = "1", features = ["preserve_order"] }
 tempfile = "3"
 wiremock = "0.6"
 

@@ -1,6 +1,6 @@
 [package]
 name = "octocode-engine"
-version = "19.1.0"
+version = "19.2.0"
 edition = "2021"
 build = "src/build.rs"
 description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
@@ -38,13 +38,13 @@ lightningcss = { version = "1.0.0-alpha.72", default-features = false, optional 
 memmap2 = "0.9.11"
 napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
 napi-derive = { version = "3", optional = true }
-oxc_allocator = "0.149"
-oxc_ast = "0.149"
-oxc_codegen = { version = "0.149", default-features = false }
-oxc_minifier = "0.149"
-oxc_parser = "0.149"
-oxc_semantic = "0.149"
-oxc_span = "0.149"
+oxc_allocator = "0.150"
+oxc_ast = "0.150"
+oxc_codegen = { version = "0.150", default-features = false }
+oxc_minifier = "0.150"
+oxc_parser = "0.150"
+oxc_semantic = "0.150"
+oxc_span = "0.150"
 rayon = "1"
 regex = "1"
 regex-syntax = "0.8"

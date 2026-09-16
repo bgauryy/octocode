@@ -35,7 +35,7 @@ pub enum CursorError {
 
 pub fn scope_digest(value: &Value) -> Result<String, CursorError> {
     let bytes = serde_json::to_vec(value).map_err(|_| CursorError::Invalid)?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 fn source_digest(path: &Path) -> Result<String, CursorError> {
@@ -67,7 +67,7 @@ fn source_digest(path: &Path) -> Result<String, CursorError> {
     if metadata.len() != after.len() || metadata.modified().ok() != after.modified().ok() {
         return Err(CursorError::ChangedSource);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hex::encode(hash.finalize()))
 }
 
 fn now() -> Result<u64, CursorError> {
@@ -125,9 +125,9 @@ impl ReadCursor {
             return Err(CursorError::Invalid);
         }
         Ok(format!(
-            "{}.{:x}",
+            "{}.{}",
             URL_SAFE_NO_PAD.encode(&bytes),
-            Sha256::digest(&bytes)
+            hex::encode(Sha256::digest(&bytes))
         ))
     }
 
@@ -139,7 +139,7 @@ impl ReadCursor {
         let bytes = URL_SAFE_NO_PAD
             .decode(encoded)
             .map_err(|_| CursorError::Invalid)?;
-        if checksum != format!("{:x}", Sha256::digest(&bytes)) {
+        if checksum != hex::encode(Sha256::digest(&bytes)) {
             return Err(CursorError::Invalid);
         }
         let cursor: Self = serde_json::from_slice(&bytes).map_err(|_| CursorError::Invalid)?;
@@ -195,9 +195,9 @@ mod tests {
         };
         let bytes = serde_json::to_vec(&cursor).expect("serialize");
         let token = format!(
-            "{}.{:x}",
+            "{}.{}",
             URL_SAFE_NO_PAD.encode(&bytes),
-            Sha256::digest(&bytes)
+            hex::encode(Sha256::digest(&bytes))
         );
         assert!(matches!(
             ReadCursor::decode(&token, "two"),

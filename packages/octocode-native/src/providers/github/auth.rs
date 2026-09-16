@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::config::ConfigOutput;
-use aes_gcm::{AesGcm, KeyInit, aead::AeadInPlace, aead::consts::U16, aes::Aes256};
+use aes_gcm::{AesGcm, KeyInit, aead::AeadInOut, aead::consts::U16, aes::Aes256};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -410,12 +410,14 @@ fn read_legacy(home: &Path, host: &str) -> Result<Option<SecretString>, Provider
         return Err(corrupt_legacy());
     }
     let cipher = AesGcm::<Aes256, U16>::new_from_slice(&key).map_err(|_| corrupt_legacy())?;
+    let nonce: &[u8; 16] = iv.as_slice().try_into().map_err(|_| corrupt_legacy())?;
+    let tag: &[u8; 16] = tag.as_slice().try_into().map_err(|_| corrupt_legacy())?;
     cipher
-        .decrypt_in_place_detached(
-            iv.as_slice().into(),
+        .decrypt_inout_detached(
+            nonce.into(),
             b"",
-            &mut ciphertext,
-            tag.as_slice().into(),
+            ciphertext.as_mut_slice().into(),
+            tag.into(),
         )
         .map_err(|_| corrupt_legacy())?;
     let mut store: LegacyStore =

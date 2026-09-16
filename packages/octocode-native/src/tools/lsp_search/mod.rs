@@ -327,7 +327,7 @@ fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
 fn rust_fingerprint(context: &Value) -> String {
     use sha2::{Digest, Sha256};
     let canonical = serde_json::to_vec(context).unwrap_or_default();
-    format!("rust-v1:{:x}", Sha256::digest(canonical))
+    format!("rust-v1:{}", hex::encode(Sha256::digest(canonical)))
 }
 
 async fn hierarchy(
@@ -533,8 +533,7 @@ async fn recover_aliases(
         let Ok(source) = fs::read_to_string(&file) else {
             continue;
         };
-        let Some(facts) = octocode_engine::portable::extract_graph_facts(&source, &file)
-        else {
+        let Some(facts) = octocode_engine::portable::extract_graph_facts(&source, &file) else {
             continue;
         };
         let Ok(parsed) = serde_json::from_str::<Value>(&facts) else {

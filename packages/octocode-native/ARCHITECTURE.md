@@ -31,7 +31,7 @@ Four actual CLI batch comparisons pass, with both implementations observing
 three simultaneous HTTP requests. ghSearch passes 25 complete CLI envelopes and
 25 stdio MCP structuredContent comparisons (code, repositories, tree, and one
 cross-operation invalid input). ghGetHistoryItem actual CLI envelopes pass 4/4
-on the compact JSON harness. Human commands cover the RFC families: `search`/`read`, `files`/`tree`/`symbols`/`ast`/`graph`/`rewrite`, `def`/`refs`/`callers`/`callees`/`type`/`diagnostics`/`lsp`, `repos`/`clone`/`package`/`history`, plus `context`, `status`, `auth`, `login`, `logout`, `cache`, and `skill`. Interactive IDE install and OAuth TUI remain Node `octocode` management.
+on the compact JSON harness. Human commands cover the RFC families: `search`/`read`, `files`/`tree`/`symbols`/`ast`/`graph`/`rewrite`, the `def`/`refs`/`hover`/call-hierarchy/type-hierarchy/`diagnostics` LSP commands, `repos`/`code`/`gh-tree`/`clone`/`package`/`history`, plus `context`, `status`, `auth`, `login`, `logout`, `cache`, `install`, and `skill`. The native installer owns JSON-configured IDEs; TOML/YAML clients and the interactive management UI remain Node `octocode` responsibilities.
 
 NAPI admits requests synchronously before scheduling futures, so cancellation
 cannot race the first Rust poll. Admission is bounded and owns cleanup through
@@ -61,8 +61,10 @@ The embedded ast-grep experiment is behind core's optional
 Canonical instructions are generated for enabled-tool combinations and selected
 in Rust. Embedded contracts are parsed once into immutable data. Prepare fills
 envelope meta fields only; it does not alias tool fields. Human CLI commands
-emit canonical query shapes. Node forwards registration, instructions, request
-arguments and cancellation only.
+emit canonical query shapes; adapter tests freeze fields that differ from Rust
+internal terminology. Completed responses are checked against generated,
+tool-specific output envelopes before they leave the runtime. Node forwards
+registration, instructions, request arguments and cancellation only.
 
 The crate builds binaries without addon features and builds the addon as a
 library with `napi-addon`. Advanced ECMAScript patterns use a separately bounded

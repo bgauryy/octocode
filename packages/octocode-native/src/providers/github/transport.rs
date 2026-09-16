@@ -227,7 +227,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         if let Some(session) = session {
             digest.update(session.as_bytes());
         }
-        Ok(super::CachePartition(format!("{:x}", digest.finalize())))
+        Ok(super::CachePartition(hex::encode(digest.finalize())))
     }
 
     pub async fn execute_graphql(

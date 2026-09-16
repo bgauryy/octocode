@@ -7,7 +7,9 @@ mod validate;
 
 pub use instructions::mcp_instructions;
 pub use prepare::{ContractInputError, PrepareOptions, PreparedBatch, prepare};
-pub use validate::{ContractValidationError, ValidationIssue, format_input_error, validate};
+pub use validate::{
+    ContractValidationError, ValidationIssue, format_input_error, validate, validate_output,
+};
 
 /// Embedded contracts are immutable across runtime handles and requests.
 pub fn parsed_contract() -> Result<&'static serde_json::Value, &'static str> {
@@ -59,7 +61,7 @@ pub const fn contract_json() -> &'static str {
 
 #[cfg(test)]
 mod contract_owner_tests {
-    use super::{PrepareOptions, prepare_and_validate};
+    use super::{PrepareOptions, prepare_and_validate, validate_output};
     use serde_json::json;
 
     #[test]
@@ -105,6 +107,36 @@ mod contract_owner_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn output_contract_rejects_unattributed_rows() {
+        let error = validate_output(
+            "localSearch",
+            &json!({"results":[{"data":{"searchEngine":"rg","files":[]}}]}),
+        )
+        .expect_err("rows require index and evidence metadata");
+        assert!(
+            error
+                .issues
+                .iter()
+                .any(|issue| issue.path.last().is_some_and(|part| part == "index"))
+        );
+    }
+
+    #[test]
+    fn output_contract_accepts_attributed_tool_data() {
+        validate_output(
+            "localSearch",
+            &json!({
+                "results":[{
+                    "index":0,
+                    "meta":{"evidence":{"kind":"lexical","confidence":"medium"}},
+                    "data":{"searchEngine":"rg","files":[]}
+                }]
+            }),
+        )
+        .expect("canonical result envelope");
     }
 
     #[test]

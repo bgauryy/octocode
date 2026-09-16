@@ -400,7 +400,10 @@ fn ast_help_shows_lang_flag() {
         .expect("ast --help");
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
-    assert!(text.contains("--lang"), "missing --lang in ast help: {text}");
+    assert!(
+        text.contains("--lang"),
+        "missing --lang in ast help: {text}"
+    );
 }
 
 #[test]
@@ -429,10 +432,7 @@ fn history_pr_without_number_exits_two() {
         .expect("history pr");
     assert_eq!(exit_code(&output), Some(2));
     let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("--number"),
-        "expected --number hint: {text}"
-    );
+    assert!(text.contains("--number"), "expected --number hint: {text}");
 }
 
 #[test]
@@ -445,10 +445,7 @@ fn history_commit_without_ref_exits_two() {
         .expect("history commit");
     assert_eq!(exit_code(&output), Some(2));
     let text = format!("{}{}", stdout(&output), stderr(&output));
-    assert!(
-        text.contains("--ref"),
-        "expected --ref hint: {text}"
-    );
+    assert!(text.contains("--ref"), "expected --ref hint: {text}");
 }
 
 #[test]
@@ -566,7 +563,10 @@ fn code_help_shows_lang_and_path_flags() {
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
     assert!(text.contains("--lang"), "missing --lang: {text}");
-    assert!(text.contains("--owner") || text.contains("owner"), "missing --owner: {text}");
+    assert!(
+        text.contains("--owner") || text.contains("owner"),
+        "missing --owner: {text}"
+    );
 }
 
 #[test]
@@ -586,13 +586,43 @@ fn gh_tree_without_owner_repo_exits_two() {
 }
 
 #[test]
-fn tools_catalog_lists_enabled_count() {
+fn schema_alias_prints_the_complete_tool_contract() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["tools"])
+        .args(["tools", "localSearch", "--schema", "--compact"])
         .output()
-        .expect("tools");
+        .expect("schema alias");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("contract JSON");
+    assert_eq!(value["name"], "localSearch");
+    assert!(value["inputSchema"].is_object());
+    assert!(value["outputSchema"].is_object());
+}
+
+#[test]
+fn history_compare_requires_both_refs() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args([
+            "history",
+            "compare",
+            "--repo",
+            "owner/repo",
+            "--base",
+            "main",
+        ])
+        .output()
+        .expect("history compare");
+    assert_eq!(exit_code(&output), Some(2));
+    assert!(stderr(&output).contains("--head"), "{}", stderr(&output));
+}
+
+#[test]
+fn tools_catalog_lists_enabled_count() {
+    let workspace = Workspace::new();
+    let output = workspace.cli().args(["tools"]).output().expect("tools");
     // tools exits 0 for catalog listing
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
@@ -600,4 +630,125 @@ fn tools_catalog_lists_enabled_count() {
         text.contains("enabled") || text.contains("Tools"),
         "expected tool listing: {text}"
     );
+}
+
+#[test]
+fn search_emits_one_selected_output_mode() {
+    let workspace = Workspace::new();
+    let path = workspace.write("search.rs", "fn needle() {}\n");
+    let path = path.to_str().expect("utf8");
+
+    let human = workspace
+        .cli()
+        .args(["search", "needle", path, "--fixed-strings"])
+        .output()
+        .expect("human search");
+    assert!(human.status.success(), "{}", stderr(&human));
+    assert!(
+        stdout(&human).contains("search.rs:1:"),
+        "{}",
+        stdout(&human)
+    );
+    assert!(
+        !stdout(&human).contains("\"searchEngine\""),
+        "human output must not append JSON: {}",
+        stdout(&human)
+    );
+
+    let json = workspace
+        .cli()
+        .args(["search", "needle", path, "--fixed-strings", "--json"])
+        .output()
+        .expect("json search");
+    assert!(json.status.success(), "{}", stderr(&json));
+    let value: serde_json::Value = serde_json::from_str(stdout(&json)).expect("one JSON document");
+    assert_eq!(value["results"][0]["data"]["searchEngine"], "rg");
+}
+
+#[test]
+fn rewrite_apply_previews_then_applies_with_hash_guards() {
+    let workspace = Workspace::new();
+    let path = workspace.write("rewrite.rs", "pub const VALUE: u32 = 2;\n");
+    let output = workspace
+        .cli()
+        .env("ENABLE_AST_REWRITE_APPLY", "true")
+        .args([
+            "rewrite",
+            path.to_str().expect("utf8"),
+            "pub const $NAME: u32 = $VALUE;",
+            "--to",
+            "pub const $NAME: u64 = $VALUE;",
+            "--lang",
+            "rust",
+            "--apply",
+        ])
+        .output()
+        .expect("rewrite apply");
+    assert!(
+        output.status.success(),
+        "{}{}",
+        stdout(&output),
+        stderr(&output)
+    );
+    assert_eq!(
+        std::fs::read_to_string(path).expect("rewritten source"),
+        "pub const VALUE: u64 = 2;\n"
+    );
+}
+
+#[test]
+fn json_errors_do_not_leak_duplicate_stderr() {
+    let workspace = Workspace::new();
+    let missing = workspace.workspace.join("missing.rs");
+    let output = workspace
+        .cli()
+        .args(["--json-errors", "read", missing.to_str().expect("utf8")])
+        .output()
+        .expect("missing read");
+    assert_eq!(exit_code(&output), Some(3));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
+    assert_eq!(value["errorCode"], "fileAccessFailed");
+    assert!(
+        stderr(&output).is_empty(),
+        "duplicate stderr: {}",
+        stderr(&output)
+    );
+
+    let malformed = workspace
+        .cli()
+        .args(["--json-errors", "localSearch", "{"])
+        .output()
+        .expect("malformed raw JSON");
+    assert_eq!(exit_code(&malformed), Some(2));
+    let error: serde_json::Value =
+        serde_json::from_str(stdout(&malformed)).expect("machine-readable parse error");
+    assert_eq!(error["success"], false);
+    assert!(stderr(&malformed).is_empty(), "{}", stderr(&malformed));
+}
+
+#[test]
+fn install_rejects_unknown_method_and_accepts_claude_alias() {
+    let workspace = Workspace::new();
+    let invalid = workspace
+        .cli()
+        .args([
+            "install",
+            "--ide",
+            "cursor",
+            "--method",
+            "invalid",
+            "--dry-run",
+        ])
+        .output()
+        .expect("invalid method");
+    assert_eq!(exit_code(&invalid), Some(2), "{}", stderr(&invalid));
+
+    let claude = workspace
+        .cli()
+        .args(["install", "--ide", "claude", "--dry-run", "--json"])
+        .output()
+        .expect("claude alias");
+    assert!(claude.status.success(), "{}", stderr(&claude));
+    let value: serde_json::Value = serde_json::from_str(stdout(&claude)).expect("install JSON");
+    assert_eq!(value["ide"], "claude-desktop");
 }

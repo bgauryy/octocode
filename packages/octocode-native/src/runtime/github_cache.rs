@@ -46,7 +46,7 @@ impl GitHubContentCache {
         self.disk.as_ref().map(|dir| {
             let mut digest = Sha256::new();
             digest.update(resource.as_bytes());
-            dir.join(format!("{:x}.json", digest.finalize()))
+            dir.join(format!("{}.json", hex::encode(digest.finalize())))
         })
     }
 

@@ -197,7 +197,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                 digest.update(value.as_bytes());
                 digest.update([0]);
             }
-            format!("github-tree:{:x}", digest.finalize())
+            format!("github-tree:{}", hex::encode(digest.finalize()))
         };
         let cached = self.cache.get(&partition, &key).await;
         let mut segments = vec!["repos", owner, repo, "contents"];
@@ -463,5 +463,5 @@ fn cache_key(request: &ContentRequest, resolved_ref: &str) -> String {
         h.update(value.as_bytes());
         h.update([0]);
     }
-    format!("github-content:{:x}", h.finalize())
+    format!("github-content:{}", hex::encode(h.finalize()))
 }

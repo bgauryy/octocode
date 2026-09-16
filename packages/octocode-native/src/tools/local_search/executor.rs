@@ -707,10 +707,9 @@ fn fingerprint(
     opt!("sortReverse", q.reverse);
     let mut entries = legacy.into_iter().collect::<Vec<_>>();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
-    let query_key = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&json!([q.path, entries])).unwrap_or_default())
-    );
+    let query_key = hex::encode(Sha256::digest(
+        serde_json::to_vec(&json!([q.path, entries])).unwrap_or_default(),
+    ));
     let file_values = files
         .iter()
         .map(|f| {
@@ -735,8 +734,10 @@ fn fingerprint(
         json!([query_key,file_values,{"totalOccurrences":stats.match_count.unwrap_or(0),"matchedLines":stats.matched_lines.unwrap_or(0),"filesMatched":stats.files_matched.unwrap_or(files.len() as u32),"filesSearched":stats.files_searched.unwrap_or(0),"capped":stats.capped.unwrap_or(false),"capReason":stats.cap_reason,"errorCount":stats.error_count.filter(|n|*n>0),"firstError":stats.first_error} ]),
     );
     format!(
-        "lexical-live-v1:{:x}",
-        Sha256::digest(serde_json::to_vec(&canonical).unwrap_or_default())
+        "lexical-live-v1:{}",
+        hex::encode(Sha256::digest(
+            serde_json::to_vec(&canonical).unwrap_or_default()
+        ))
     )
 }
 fn canonicalize(value: Value) -> Value {

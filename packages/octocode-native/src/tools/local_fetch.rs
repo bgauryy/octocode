@@ -138,7 +138,7 @@ mod tests {
         req.match_string = Some("needle".into());
         req.context_lines = Some(0);
         let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel);
-        let expected_hash = format!("{:x}", sha2::Sha256::digest(b"zero\nneedle SECRET\nlast\n"));
+        let expected_hash = hex::encode(sha2::Sha256::digest(b"zero\nneedle SECRET\nlast\n"));
         assert_eq!(r.source_sha256.as_deref(), Some(expected_hash.as_str()));
         assert_eq!(r.content.as_deref(), Some("needle [REDACTED]\n"));
         assert_eq!(r.match_ranges, vec![LineRange { start: 2, end: 2 }]);

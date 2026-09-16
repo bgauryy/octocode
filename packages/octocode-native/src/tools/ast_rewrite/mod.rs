@@ -1571,7 +1571,7 @@ fn portable_relative(root: &Path, target: &Path) -> Result<String, RewriteError>
 }
 
 fn sha256(value: impl AsRef<[u8]>) -> String {
-    format!("{:x}", Sha256::digest(value.as_ref()))
+    hex::encode(Sha256::digest(value.as_ref()))
 }
 
 fn cancelled(message: String) -> RewriteError {

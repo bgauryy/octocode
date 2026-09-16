@@ -718,10 +718,9 @@ fn add_coverage(
         .iter()
         .map(|d| json!([d.file, d.line, d.code, d.message]))
         .collect::<Vec<_>>();
-    let id = format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&tuples).unwrap_or_default())
-    );
+    let id = hex::encode(Sha256::digest(
+        serde_json::to_vec(&tuples).unwrap_or_default(),
+    ));
     let mut counts = BTreeMap::<String, u32>::new();
     for d in &b.diagnostics {
         *counts.entry(d.code.clone()).or_default() += 1

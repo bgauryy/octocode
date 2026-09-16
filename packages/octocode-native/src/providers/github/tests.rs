@@ -1,4 +1,4 @@
-use aes_gcm::{AesGcm, KeyInit, Nonce, aead::AeadInPlace, aead::consts::U16, aes::Aes256};
+use aes_gcm::{AesGcm, KeyInit, aead::AeadInOut, aead::consts::U16, aes::Aes256};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use secrecy::ExposeSecret;
 use std::{
@@ -739,7 +739,7 @@ async fn legacy_encrypted_store_is_read_only_and_strict() {
     let mut plaintext = serde_json::to_vec(&serde_json::json!({"version":1,"credentials":{"github.com":{"hostname":"github.com","username":"u","gitProtocol":"https","createdAt":"x","updatedAt":"x","token":{"token":"legacy-secret","tokenType":"oauth"}}}})).expect("json");
     let cipher = AesGcm::<Aes256, U16>::new_from_slice(&key).expect("cipher");
     let tag = cipher
-        .encrypt_in_place_detached(Nonce::from_slice(&nonce), b"", &mut plaintext)
+        .encrypt_inout_detached((&nonce).into(), b"", plaintext.as_mut_slice().into())
         .expect("encrypt");
     std::fs::write(home.join(".key"), hex::encode(key)).expect("key");
     std::fs::write(

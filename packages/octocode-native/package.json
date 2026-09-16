@@ -29,6 +29,8 @@
     "access": "public"
   },
   "scripts": {
+    "audit": "yarn audit:rust",
+    "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
     "build": "cargo build --release --bins --no-default-features",
     "build:dev": "cargo build --bins --no-default-features",
     "build:addon": "cargo build --release --lib --features napi-addon",
@@ -41,6 +43,7 @@
     "build:linux-x64-musl": "cargo build --release --bins --no-default-features --target x86_64-unknown-linux-musl && node scripts/copy-binaries.cjs linux-x64-musl",
     "build:windows-x64": "cargo build --release --bins --no-default-features --target x86_64-pc-windows-msvc && node scripts/copy-binaries.cjs win32-x64-msvc",
     "clean:binaries": "find npm -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' | xargs rm -f",
+    "deps:rust": "cargo tree --duplicates",
     "test": "cargo test --no-default-features",
     "test:rust": "cargo test --no-default-features",
     "lint": "cargo clippy --no-default-features --all-targets -- -D warnings",
@@ -49,8 +52,9 @@
     "fmt:rust:check": "cargo fmt --all -- --check",
     "check:rust": "cargo check --no-default-features --all-targets",
     "typecheck": "cargo check --no-default-features --all-targets",
+    "udeps:rust": "cargo +nightly udeps --all-targets --all-features",
     "platforms:check": "node scripts/check-platform-binaries.cjs",
-    "verify": "yarn lint && yarn typecheck && yarn test",
+    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn udeps:rust && yarn audit:rust",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs"
   }
 }

@@ -118,9 +118,22 @@ impl GitHubServices {
             .as_ref()
             .is_some_and(|value| value.source == CredentialSource::Storage)
         {
-            handle
-                .block_on(crate::providers::github::login::resolve_stored_with_refresh(&host))
-                .unwrap_or(credential)
+            let refreshed = handle
+                .block_on(crate::providers::github::login::resolve_stored_with_refresh(&host));
+            if let Ok(Some(cred)) = refreshed {
+                Some(cred)
+            } else {
+                // Refresh failed or stored credential is empty — fall back to the gh CLI
+                // token before returning the original. This mirrors Node's resolveTokenFull
+                // which tries `gh auth token` as a last resort when the stored OAuth token
+                // is expired or has insufficient scope for the requested API (e.g. code search).
+                GhCliCredentialSource
+                    .load_blocking(&host)
+                    .ok()
+                    .flatten()
+                    .map(|token| ResolvedCredential::new(token, CredentialSource::Storage))
+                    .or(credential)
+            }
         } else {
             credential
         };

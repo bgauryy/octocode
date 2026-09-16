@@ -58,6 +58,12 @@ pub struct SearchArgs {
     /// Automatically fetch every result page until all results are returned.
     #[arg(long)]
     pub all: bool,
+    /// Emit one structured JSON document instead of grep-style rows.
+    #[arg(long, conflicts_with_all = ["quiet", "all"])]
+    pub json: bool,
+    /// Emit compact single-line JSON (implies --json).
+    #[arg(long, conflicts_with_all = ["quiet", "all"])]
+    pub compact: bool,
     /// Descend at most N directory levels.
     #[arg(long)]
     pub max_depth: Option<u32>,

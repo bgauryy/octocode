@@ -47,9 +47,24 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(1, |v| v + 1);
             let field = issue.path.last().map(String::as_str).unwrap_or("unknown");
-            details.push(format!(
-                "Remove unknown field(s) from query {query}: {field}"
-            ));
+            // Extract known fields from the embedded schema so we can suggest the
+            // closest match (edit distance <= 3) as a "did you mean ...?" hint.
+            let known: Vec<&str> = issue
+                .schema
+                .as_ref()
+                .and_then(|s| s["knownFields"].as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+                .collect();
+            let suggestion = suggest_field(field, &known);
+            let msg = match suggestion {
+                Some(s) => format!(
+                    "Remove unknown field '{field}' from query {query} (did you mean '{s}'?)"
+                ),
+                None => format!("Remove unknown field(s) from query {query}: {field}"),
+            };
+            details.push(msg);
         }
         details.push(format!(
             "Run tools {tool_name} --scheme --brief to see valid fields."
@@ -61,6 +76,27 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
         .iter()
         .map(|issue| {
             let path = issue.path.join(".");
+            // For unknown-field issues in the mixed-error path, append a suggestion too.
+            if issue.rule_id == "schema.unknown-field" {
+                let field = issue.path.last().map(String::as_str).unwrap_or("unknown");
+                let known: Vec<&str> = issue
+                    .schema
+                    .as_ref()
+                    .and_then(|s| s["knownFields"].as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str())
+                    .collect();
+                let base = if path.is_empty() {
+                    issue.message.clone()
+                } else {
+                    format!("{path}: {}", issue.message)
+                };
+                return match suggest_field(field, &known) {
+                    Some(s) => format!("{base} (did you mean '{s}'?)"),
+                    None => base,
+                };
+            }
             if path.is_empty() {
                 issue.message.clone()
             } else {
@@ -139,6 +175,26 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
         &mut Vec::new(),
     )?;
     Ok(input)
+}
+
+/// Validates a completed structured response against the canonical generated
+/// output contract. Validation uses a clone because schema defaults, if ever
+/// introduced by the contract owner, must not mutate an already produced result.
+pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractValidationError> {
+    let contract = super::parsed_contract().map_err(|error| internal(error.to_string()))?;
+    let tool = contract["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|tool| tool["name"] == tool_name))
+        .ok_or_else(|| {
+            issue(
+                "contract.unknown-tool",
+                vec![],
+                format!("Unknown tool: {tool_name}"),
+            )
+        })?;
+    let schema = &tool["outputSchema"];
+    let mut candidate = output.clone();
+    validate_schema(schema, schema, &mut candidate, &mut Vec::new())
 }
 
 fn apply_normalization_rules(
@@ -936,18 +992,21 @@ fn validate_object(
         }
     }
     if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
+        let known_fields: Vec<serde_json::Value> = properties
+            .map(|p| p.keys().map(|k| serde_json::json!(k)).collect())
+            .unwrap_or_default();
         for key in object.keys() {
             if !properties.is_some_and(|known| known.contains_key(key)) {
                 let mut field_path = path.clone();
                 field_path.push(key.clone());
-                issues.extend(
-                    issue(
-                        "schema.unknown-field",
-                        field_path,
-                        format!("Unknown field: {key}"),
-                    )
-                    .issues,
-                );
+                issues.push(ValidationIssue {
+                    rule_id: "schema.unknown-field".into(),
+                    path: field_path,
+                    message: format!("Unknown field: {key}"),
+                    // Embed known fields so format_input_error can suggest alternatives.
+                    schema: Some(serde_json::json!({ "knownFields": known_fields })),
+                    received: None,
+                });
             }
         }
     }
@@ -1361,6 +1420,44 @@ fn schema_issue(
 
 fn internal(message: String) -> ContractValidationError {
     issue("contract.generated-json", vec![], message)
+}
+
+/// Return the closest name from `known` that differs from `unknown` by at most
+/// `max_dist` edits (Levenshtein distance), or `None` if no match is close enough.
+fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
+    const MAX_DIST: usize = 3;
+    known
+        .iter()
+        .filter_map(|&k| {
+            let d = levenshtein(unknown, k);
+            (d <= MAX_DIST).then_some((d, k))
+        })
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, k)| k)
+}
+
+/// Classic Wagner-Fischer Levenshtein distance, O(m*n) time, O(min(m,n)) space.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    let (a, b) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let mut prev: Vec<usize> = (0..=a.len()).collect();
+    let mut curr = vec![0usize; a.len() + 1];
+    for (j, cb) in b.iter().enumerate() {
+        curr[0] = j + 1;
+        for (i, ca) in a.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[i + 1] = (prev[i + 1] + 1).min(curr[i] + 1).min(prev[i] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[a.len()]
 }
 
 #[cfg(test)]

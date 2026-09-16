@@ -127,7 +127,7 @@ pub fn process_fetched_content(
     if let Err(error) = validate_request(q) {
         return LocalFetchResult::error(q.path.clone(), "invalidQuery", error);
     }
-    let source_sha256 = format!("{:x}", Sha256::digest(bytes));
+    let source_sha256 = hex::encode(Sha256::digest(bytes));
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(q.path.clone(), "cancelled", e);
     }
@@ -198,8 +198,7 @@ pub fn process_fetched_content(
         reason: "match-evidence".into(),
     });
     if applied == MinifyMode::Standard {
-        selected =
-            octocode_engine::portable::apply_content_view_minification(&selected, &q.path)
+        selected = octocode_engine::portable::apply_content_view_minification(&selected, &q.path)
     } else if applied == MinifyMode::Symbols {
         if let Some(s) = octocode_engine::portable::extract_signatures(&selected, &q.path) {
             selected = octocode_engine::portable::apply_content_view_minification(&s, &q.path)

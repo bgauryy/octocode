@@ -1,5 +1,5 @@
 //! Human command families from the native CLI RFC.
-use super::execute;
+use super::{ExecuteOptions, execute};
 use clap::Args;
 use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
@@ -131,6 +131,15 @@ pub struct ReposArgs {
     /// Restrict results to this GitHub owner (user or org).
     #[arg(long)]
     pub owner: Option<String>,
+    /// Restrict results to a primary programming language.
+    #[arg(long)]
+    pub language: Option<String>,
+    /// GitHub star range, e.g. `>100` or `10..50`.
+    #[arg(long)]
+    pub stars: Option<String>,
+    /// Repository result ordering.
+    #[arg(long, value_parser = ["stars", "forks", "help-wanted-issues", "updated", "best-match"])]
+    pub sort: Option<String>,
     #[command(flatten)]
     pub output: OutputOpts,
 }
@@ -168,8 +177,8 @@ pub struct PackageArgs {
 /// Search or read GitHub pull requests, issues, and commits.
 #[derive(Args, Debug)]
 pub struct HistoryArgs {
-    /// History operation: `prs`/`issues`/`commits` for search, `pr`/`issue`/`commit` for a single item.
-    #[arg(value_parser = ["prs", "issues", "commits", "pr", "issue", "commit"])]
+    /// History operation: searches, single-item reads, or `compare` for two refs.
+    #[arg(value_parser = ["prs", "issues", "commits", "pr", "issue", "commit", "compare"])]
     pub operation: String,
     /// GitHub repository in `OWNER/REPO` format.
     #[arg(long)]
@@ -183,6 +192,12 @@ pub struct HistoryArgs {
     /// Commit SHA for single-item reads (`commit` operation); cannot be used with --number.
     #[arg(long, conflicts_with = "number")]
     pub r#ref: Option<String>,
+    /// Base ref for `compare`.
+    #[arg(long, requires = "head")]
+    pub base: Option<String>,
+    /// Head ref for `compare`.
+    #[arg(long, requires = "base")]
+    pub head: Option<String>,
     #[command(flatten)]
     pub output: OutputOpts,
 }
@@ -283,20 +298,75 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
         );
         return 2;
     };
-    run(
-        runtime,
-        "astRewrite",
-        json!({
-            "path": args.path,
-            "pattern": args.pattern,
-            "rewrite": args.replacement,
-            "ruleKind": "pattern",
-            "langType": lang,
-            "apply": args.apply
-        }),
-        !pretty,
-    )
-    .await
+    let mut query = json!({
+        "path": args.path,
+        "pattern": args.pattern,
+        "rewrite": args.replacement,
+        "ruleKind": "pattern",
+        "langType": lang,
+    });
+    if !args.apply {
+        return run(runtime, "astRewrite", query, !pretty).await;
+    }
+
+    // Applying is deliberately a two-step transaction. The preview supplies the
+    // snapshot and per-file hashes required by the canonical apply contract.
+    let preview = match runtime
+        .execute(
+            "cli-rewrite-preview".into(),
+            "astRewrite".into(),
+            query.clone(),
+        )
+        .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let Some(payload) = error.payload {
+                return super::write_json(&payload, !pretty).max(2);
+            }
+            return super::write_json(
+                &json!({"errorCode": error.code, "error": error.message}),
+                !pretty,
+            )
+            .max(5);
+        }
+    };
+    let Some(data) = preview.structured_content.pointer("/results/0/data") else {
+        return super::write_json(
+            &json!({"errorCode":"invalidPreview","error":"Rewrite preview returned no result data"}),
+            !pretty,
+        )
+        .max(5);
+    };
+    let Some(snapshot) = data.get("snapshot").and_then(Value::as_str) else {
+        // An empty preview has no transaction to apply; return it unchanged.
+        return super::write_json(&preview.structured_content, !pretty);
+    };
+    let mut expected_hashes = serde_json::Map::new();
+    for file in data
+        .get("files")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let (Some(path), Some(hash)) = (
+            file.get("absolutePath").and_then(Value::as_str),
+            file.get("beforeHash").and_then(Value::as_str),
+        ) {
+            expected_hashes.insert(path.to_owned(), json!(hash));
+        }
+    }
+    if expected_hashes.is_empty() {
+        return super::write_json(
+            &json!({"errorCode":"invalidPreview","error":"Rewrite preview returned no guarded file hashes"}),
+            !pretty,
+        )
+        .max(5);
+    }
+    query["apply"] = json!(true);
+    query["snapshot"] = json!(snapshot);
+    query["expectedHashes"] = Value::Object(expected_hashes);
+    run(runtime, "astRewrite", query, !pretty).await
 }
 
 pub async fn lsp(runtime: &ToolRuntime, operation: &str, args: LspArgs) -> u8 {
@@ -351,11 +421,23 @@ pub async fn subtypes(runtime: &ToolRuntime, args: LspArgs) -> u8 {
     lsp(runtime, "subtypes", args).await
 }
 
-pub async fn repos(runtime: &ToolRuntime, args: ReposArgs) -> u8 {
+fn repos_query(args: &ReposArgs) -> Value {
     let mut query = json!({"operation":"repositories","keywords":[args.query]});
-    if let Some(owner) = args.owner {
-        query["owner"] = json!(owner);
+    for (field, value) in [
+        ("owner", &args.owner),
+        ("language", &args.language),
+        ("stars", &args.stars),
+        ("sort", &args.sort),
+    ] {
+        if let Some(value) = value {
+            query[field] = json!(value);
+        }
     }
+    query
+}
+
+pub async fn repos(runtime: &ToolRuntime, args: ReposArgs) -> u8 {
+    let query = repos_query(&args);
     run(runtime, "ghSearch", query, !args.output.pretty).await
 }
 
@@ -380,26 +462,31 @@ pub struct CodeArgs {
     pub output: OutputOpts,
 }
 
-pub async fn code_search(runtime: &ToolRuntime, args: CodeArgs) -> u8 {
+fn code_query(args: &CodeArgs) -> Value {
     let mut query = json!({"operation":"code","keywords":[args.query]});
-    if let Some(owner) = args.owner {
+    if let Some(owner) = &args.owner {
         query["owner"] = json!(owner);
     }
-    if let Some(repo) = args.repo {
-        // Split owner/repo into separate fields if both present
-        if let Some((o, r)) = repo.split_once('/') {
-            query["owner"] = json!(o);
-            query["repo"] = json!(r);
+    if let Some(repo) = &args.repo {
+        // Split owner/repo into separate fields if both present.
+        if let Some((owner, repo)) = repo.split_once('/') {
+            query["owner"] = json!(owner);
+            query["repo"] = json!(repo);
         } else {
             query["repo"] = json!(repo);
         }
     }
-    if let Some(path) = args.path {
+    if let Some(path) = &args.path {
         query["path"] = json!(path);
     }
-    if let Some(lang) = args.lang {
-        query["langType"] = json!(lang);
+    if let Some(language) = &args.lang {
+        query["language"] = json!(language);
     }
+    query
+}
+
+pub async fn code_search(runtime: &ToolRuntime, args: CodeArgs) -> u8 {
+    let query = code_query(&args);
     run(runtime, "ghSearch", query, !args.output.pretty).await
 }
 
@@ -477,7 +564,11 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
             ("ghSearchHistory", query)
         }
         "pr" | "issue" => {
-            let operation = if args.operation == "pr" { "pullRequest" } else { "issue" };
+            let operation = if args.operation == "pr" {
+                "pullRequest"
+            } else {
+                "issue"
+            };
             let Some(number) = args.number else {
                 eprintln!(
                     "history {}: requires --number N\n  Usage: octocode history {} --repo {owner}/{repo} --number N",
@@ -496,6 +587,22 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
                 return 2;
             };
             let query = json!({"operation":"commit","owner":owner,"repo":repo,"ref":sha});
+            ("ghGetHistoryItem", query)
+        }
+        "compare" => {
+            let (Some(base), Some(head)) = (args.base, args.head) else {
+                eprintln!(
+                    "history compare: requires --base <REF> --head <REF>\n  Usage: octocode history compare --repo {owner}/{repo} --base main --head feature"
+                );
+                return 2;
+            };
+            let query = json!({
+                "operation":"compare",
+                "owner":owner,
+                "repo":repo,
+                "base":base,
+                "head":head
+            });
             ("ghGetHistoryItem", query)
         }
         other => {
@@ -533,11 +640,9 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
                 println!("{enabled}/{total} tools enabled  protocol:{protocol}");
                 return 0;
             }
-            if full {
-                if let Some(text) = catalog["mcpInstructions"].as_str() {
-                    println!("{text}");
-                    return 0;
-                }
+            if full && let Some(text) = catalog["mcpInstructions"].as_str() {
+                println!("{text}");
+                return 0;
             }
             // Default: compact agent context block
             println!("Octocode Native CLI — Agent Context");
@@ -574,9 +679,13 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
             println!("  <toolName> --scheme --pretty   indented schema");
             println!();
             println!("Batch independent queries in queries[]; keep dependent probes sequential.");
-            println!("Follow next.* continuations unchanged. localSearch/astSearch find candidates; lspSearch proves identity.");
+            println!(
+                "Follow next.* continuations unchanged. localSearch/astSearch find candidates; lspSearch proves identity."
+            );
             println!();
-            println!("Output: compact JSON by default. --pretty: indented. Exit: 0=ok 2=input 3=notfound 4=auth 5=tool 7=ratelimit");
+            println!(
+                "Output: compact JSON by default. --pretty: indented. Exit: 0=ok 2=input 3=notfound 4=auth 5=tool 7=ratelimit"
+            );
             println!();
             // Grouped tool list
             if let Some(tools) = tools_arr {
@@ -1062,12 +1171,62 @@ fn lang_from_path(path: &str) -> Option<&'static str> {
 }
 
 async fn run(runtime: &ToolRuntime, tool: &str, query: Value, compact: bool) -> u8 {
-    execute(runtime, tool, query, true, compact, false, None).await
+    execute(
+        runtime,
+        tool,
+        query,
+        ExecuteOptions {
+            structured: true,
+            compact,
+            ..ExecuteOptions::default()
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::lang_from_path;
+    use super::{CodeArgs, OutputOpts, ReposArgs, code_query, lang_from_path, repos_query};
+
+    #[test]
+    fn code_query_uses_the_canonical_language_field() {
+        let query = code_query(&CodeArgs {
+            query: "ToolRuntime".into(),
+            owner: None,
+            repo: Some("bgauryy/octocode".into()),
+            path: Some("src".into()),
+            lang: Some("rust".into()),
+            output: OutputOpts::default(),
+        });
+        assert_eq!(query["language"], "rust");
+        assert!(query.get("langType").is_none());
+        assert_eq!(query["owner"], "bgauryy");
+        assert_eq!(query["repo"], "octocode");
+        octocode_native::contracts::prepare_and_validate(
+            "ghSearch",
+            query,
+            octocode_native::contracts::PrepareOptions::default(),
+        )
+        .expect("human code query remains canonical");
+    }
+
+    #[test]
+    fn repository_query_exposes_canonical_filters() {
+        let query = repos_query(&ReposArgs {
+            query: "parser".into(),
+            owner: Some("rust-lang".into()),
+            language: Some("rust".into()),
+            stars: Some(">100".into()),
+            sort: Some("stars".into()),
+            output: OutputOpts::default(),
+        });
+        octocode_native::contracts::prepare_and_validate(
+            "ghSearch",
+            query,
+            octocode_native::contracts::PrepareOptions::default(),
+        )
+        .expect("human repository query remains canonical");
+    }
 
     #[test]
     fn infers_language_from_common_extensions() {

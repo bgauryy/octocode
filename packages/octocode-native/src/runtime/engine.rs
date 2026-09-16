@@ -24,6 +24,10 @@ pub struct HostOptions {
     pub trusted_project: bool,
     #[serde(default)]
     pub surface: RuntimeSurface,
+    /// Override the per-request execution timeout in seconds (default: 60).
+    /// CLI sets 120 to accommodate LSP cold-start initialization.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,6 +114,16 @@ impl ToolRuntime {
         );
         let mut runtime = Self::new(input)?;
         super::maintenance::run_if_due(&runtime.inspect_config().home);
+        if let Some(secs) = options.timeout_secs {
+            // Replace the default 60-second runtime with the caller-specified timeout.
+            // The CLI uses 120 s so LSP cold-start initialisation (which can take ~60 s)
+            // completes before the execution context deadline fires.
+            runtime.requests = RequestRuntime::new(RuntimeLimits {
+                timeout: std::time::Duration::from_secs(secs),
+                ..RuntimeLimits::default()
+            })
+            .map_err(|e| RuntimeError::new("runtime", format!("{e:?}")))?;
+        }
         let worker_path = options.regex_worker_path.or_else(|| {
             (options.surface == RuntimeSurface::Cli)
                 .then(|| std::env::current_exe().ok())
@@ -422,7 +436,9 @@ impl ToolRuntime {
         let handle = tokio::runtime::Handle::current();
         let allow_ast_rewrite_apply = self.config.resolved.local.enable_ast_rewrite_apply;
         let lsp_pool = self.lsp_pool.clone();
-        self.requests
+        let output_tool = tool.clone();
+        let outcome = self
+            .requests
             .execute_blocking_admitted(admission, move |context| {
                 let mut rows = Vec::with_capacity(queries.len());
                 let mut source_digests = Vec::with_capacity(queries.len());
@@ -590,7 +606,18 @@ impl ToolRuntime {
                 })
             })
             .await
-            .map_err(runtime_execution_error)
+            .map_err(runtime_execution_error)?;
+        contracts::validate_output(&output_tool, &outcome.structured_content).map_err(|error| {
+            RuntimeError {
+                code: "outputContractViolation".into(),
+                message: format!(
+                    "{output_tool} produced a response that violates its canonical output contract"
+                ),
+                payload: None,
+                validation_issues: Some(error.issues),
+            }
+        })?;
+        Ok(outcome)
     }
 }
 

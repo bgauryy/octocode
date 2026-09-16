@@ -97,8 +97,11 @@ enum Command {
         #[arg(long, value_parser = ["none", "standard", "symbols"])]
         minify: Option<String>,
         /// Emit indented JSON instead of raw file content.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "all")]
         pretty: bool,
+        /// Drain every remote file-content page to raw stdout.
+        #[arg(long)]
+        all: bool,
     },
     /// Show active configuration keys and values (secrets are always redacted).
     Config {
@@ -115,8 +118,8 @@ enum Command {
         tool: Option<String>,
         /// Raw JSON query object or array (positional; omit with --scheme to print the schema).
         queries: Option<String>,
-        /// Print the input schema for the given tool instead of executing it.
-        #[arg(long)]
+        /// Print the complete contract for the given tool instead of executing it.
+        #[arg(long, visible_alias = "schema")]
         scheme: bool,
         /// Emit structured JSON output.
         #[arg(long)]
@@ -245,7 +248,7 @@ enum Command {
         #[arg(long)]
         pass_env: bool,
         /// Installation runner: "npx" (default), "bunx", or "pnpm".
-        #[arg(long)]
+        #[arg(long, value_parser = ["npx", "bunx", "pnpm"])]
         method: Option<String>,
         /// Write a .bak backup of the existing config before overwriting.
         #[arg(long)]
@@ -264,10 +267,63 @@ fn emit_error(msg: &str, json_errors: bool) {
     }
 }
 
+fn parse_github_reference(
+    reference: &str,
+    explicit_branch: Option<String>,
+) -> Result<(String, String, String, Option<String>), &'static str> {
+    let (reference, suffix_branch) = match reference.rsplit_once('@') {
+        Some((path, branch)) if !branch.is_empty() => (path, Some(branch.to_owned())),
+        _ => (reference, None),
+    };
+    let mut branch = explicit_branch.or(suffix_branch);
+    let parts = if reference.starts_with("https://") || reference.starts_with("http://") {
+        let url = url::Url::parse(reference).map_err(|_| "fetch: invalid GitHub URL")?;
+        if !matches!(url.host_str(), Some("github.com") | Some("www.github.com")) {
+            return Err("fetch: URL host must be github.com");
+        }
+        url.path_segments()
+            .map(|segments| {
+                segments
+                    .filter(|segment| !segment.is_empty())
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    } else {
+        reference
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    if parts.len() < 2 {
+        return Err("fetch: expected owner/repo[/path][@branch]");
+    }
+    let owner = parts[0].clone();
+    let repo = parts[1].trim_end_matches(".git").to_owned();
+    if owner.is_empty() || repo.is_empty() {
+        return Err("fetch: expected owner/repo[/path][@branch]");
+    }
+    let path = if parts.get(2).is_some_and(|part| part == "blob") && parts.len() >= 5 {
+        branch.get_or_insert_with(|| parts[3].clone());
+        parts[4..].join("/")
+    } else if parts.get(2).is_some_and(|part| part == "raw") && parts.len() >= 5 {
+        branch.get_or_insert_with(|| parts[3].clone());
+        parts[4..].join("/")
+    } else {
+        parts[2..].join("/")
+    };
+    Ok((owner, repo, path, branch))
+}
+
 pub async fn run(args: Args) -> u8 {
     let json_errors = args.json_errors;
     let runtime = match ToolRuntime::from_host(HostOptions {
         surface: RuntimeSurface::Cli,
+        // Use 120 s instead of the default 60 s so LSP cold-start initialisation
+        // (which can take ~60 s on the first invocation) completes without a timeout.
+        timeout_secs: Some(120),
         ..HostOptions::default()
     }) {
         Ok(runtime) => runtime,
@@ -299,83 +355,94 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 "ghCloneRepo",
                 "artifactSearch",
             ];
-            if let Some(tool_name) = args.first().map(|s| s.as_str()) {
-                if KNOWN_TOOLS.contains(&tool_name) {
-                    let tool = tool_name.to_owned();
-                    let rest = &args[1..];
-                    let compact = rest.iter().any(|s| s == "--compact");
-                    let pretty = rest.iter().any(|s| s == "--pretty");
-                    let scheme = rest.iter().any(|s| s == "--scheme");
-                    if scheme {
-                        return match runtime.catalog() {
-                            Ok(catalog) => {
-                                let value = catalog["tools"]
-                                    .as_array()
-                                    .and_then(|ts| {
-                                        ts.iter().find(|t| t["name"] == tool)
-                                    })
-                                    .cloned()
-                                    .unwrap_or(Value::Null);
-                                if value.is_null() {
-                                    eprintln!("Unknown tool: {tool}");
-                                    2
-                                } else {
-                                    write_json(&value, !pretty)
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("{}", error.message);
-                                5
-                            }
-                        };
-                    }
-                    let json_arg = rest
-                        .iter()
-                        .find(|s| s.starts_with('{') || s.starts_with('['));
-                    return match json_arg {
-                        Some(json_str) => {
-                            match serde_json::from_str::<Value>(json_str) {
-                                Ok(input) => {
-                                    execute(
-                                        runtime,
-                                        &tool,
-                                        input,
-                                        true,
-                                        compact,
-                                        false,
-                                        None,
-                                    )
-                                    .await
-                                }
-                                Err(parse_error) => {
-                                    eprintln!("Invalid JSON query: {parse_error}");
-                                    2
-                                }
+            if let Some(tool_name) = args.first().map(|s| s.as_str())
+                && KNOWN_TOOLS.contains(&tool_name)
+            {
+                let tool = tool_name.to_owned();
+                let rest = &args[1..];
+                let compact = rest.iter().any(|s| s == "--compact");
+                let pretty = rest.iter().any(|s| s == "--pretty");
+                let scheme = rest
+                    .iter()
+                    .any(|argument| matches!(argument.as_str(), "--scheme" | "--schema"));
+                if scheme {
+                    return match runtime.catalog() {
+                        Ok(catalog) => {
+                            let value = catalog["tools"]
+                                .as_array()
+                                .and_then(|ts| ts.iter().find(|t| t["name"] == tool))
+                                .cloned()
+                                .unwrap_or(Value::Null);
+                            if value.is_null() {
+                                eprintln!("Unknown tool: {tool}");
+                                2
+                            } else {
+                                write_json(&value, !pretty)
                             }
                         }
-                        None => {
-                            eprintln!("Usage: octocode {tool} '<json>'");
-                            eprintln!("       octocode {tool} --scheme");
-                            2
+                        Err(error) => {
+                            eprintln!("{}", error.message);
+                            5
                         }
                     };
                 }
+                let json_arg = rest
+                    .iter()
+                    .find(|s| s.starts_with('{') || s.starts_with('['));
+                return match json_arg {
+                    Some(json_str) => match serde_json::from_str::<Value>(json_str) {
+                        Ok(input) => {
+                            execute(
+                                runtime,
+                                &tool,
+                                input,
+                                ExecuteOptions {
+                                    structured: true,
+                                    compact,
+                                    json_errors,
+                                    ..ExecuteOptions::default()
+                                },
+                            )
+                            .await
+                        }
+                        Err(parse_error) => {
+                            emit_error(&format!("Invalid JSON query: {parse_error}"), json_errors);
+                            2
+                        }
+                    },
+                    None => {
+                        eprintln!("Usage: octocode {tool} '<json>'");
+                        eprintln!("       octocode {tool} --scheme");
+                        2
+                    }
+                };
             }
             // Fall through to search pattern alias
             match search::SearchArgs::try_parse_from(
                 std::iter::once("octocode".to_owned()).chain(args),
             ) {
-                Ok(args) => execute_search(runtime, args).await,
+                Ok(args) => execute_search(runtime, args, json_errors).await,
                 Err(error) => {
                     let _ = error.print();
                     2
                 }
             }
         }
-        Command::Search(args) => execute_search(runtime, *args).await,
+        Command::Search(args) => execute_search(runtime, *args, json_errors).await,
         Command::Next { token, all } => match runtime.resume_token(&token) {
             Ok((tool, query, digest)) => {
-                execute(runtime, &tool, query, false, false, all, Some(digest)).await
+                execute(
+                    runtime,
+                    &tool,
+                    query,
+                    ExecuteOptions {
+                        all,
+                        expected_source: Some(digest),
+                        json_errors,
+                        ..ExecuteOptions::default()
+                    },
+                )
+                .await
             }
             Err(error) => {
                 emit_error(&format!("{}: {}", error.code, error.message), json_errors);
@@ -424,8 +491,10 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                         if json || compact {
                             return write_json(&catalog, compact);
                         }
-                        let tools_arr =
-                            catalog["tools"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+                        let tools_arr = catalog["tools"]
+                            .as_array()
+                            .map(|v| v.as_slice())
+                            .unwrap_or(&[]);
                         let enabled = tools_arr.iter().filter(|t| t["available"] == true).count();
                         println!("Tools ({enabled}/{} enabled):", tools_arr.len());
                         println!();
@@ -473,10 +542,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                             catalog
                         };
                         if value.is_null() {
-                            eprintln!(
-                                "Unknown tool: {}",
-                                name.unwrap_or("(none)")
-                            );
+                            eprintln!("Unknown tool: {}", name.unwrap_or("(none)"));
                             2
                         } else {
                             write_json(&value, compact)
@@ -491,12 +557,23 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 (Some(name), false, Some(json_str)) => {
                     let input = match serde_json::from_str::<Value>(json_str) {
                         Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("Invalid JSON query: {e}");
+                        Err(error) => {
+                            emit_error(&format!("Invalid JSON query: {error}"), json_errors);
                             return 2;
                         }
                     };
-                    execute(runtime, name, input, json || compact, compact, false, None).await
+                    execute(
+                        runtime,
+                        name,
+                        input,
+                        ExecuteOptions {
+                            structured: json || compact,
+                            compact,
+                            json_errors,
+                            ..ExecuteOptions::default()
+                        },
+                    )
+                    .await
                 }
                 // `tools <name>` without json or scheme — show usage hint
                 (Some(name), false, None) => {
@@ -534,7 +611,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     .split_once(':')
                     .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
                 else {
-                    eprintln!("--lines requires START:END");
+                    emit_error("--lines requires START:END", json_errors);
                     return 2;
                 };
                 query["startLine"] = json!(start);
@@ -567,7 +644,17 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             if let Some(value) = minify {
                 query["minify"] = json!(value);
             }
-            execute(runtime, "localFetch", query, false, false, all, None).await
+            execute(
+                runtime,
+                "localFetch",
+                query,
+                ExecuteOptions {
+                    all,
+                    json_errors,
+                    ..ExecuteOptions::default()
+                },
+            )
+            .await
         }
         Command::Fetch {
             r#ref,
@@ -579,29 +666,20 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             context,
             minify,
             pretty,
+            all,
         } => {
-            // Parse owner/repo[/path][@branch].
-            let (path_part, ref_branch) = match r#ref.rsplit_once('@') {
-                Some((p, b)) => (p, Some(b.to_owned())),
-                None => (r#ref.as_str(), None),
-            };
-            let branch_final = branch.or(ref_branch);
-            // Strip a leading https://github.com/ if the user pasted a URL.
-            let stripped = path_part
-                .trim_start_matches("https://github.com/")
-                .trim_start_matches("http://github.com/");
-            let parts: Vec<&str> = stripped.splitn(3, '/').collect();
-            if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
-                eprintln!("fetch: expected owner/repo[/path][@branch]");
-                return 2;
-            }
-            let owner = parts[0];
-            let repo_name = parts[1];
-            let file_path = if parts.len() > 2 { parts[2] } else { "" };
+            let (owner, repo_name, file_path, branch_final) =
+                match parse_github_reference(&r#ref, branch) {
+                    Ok(parsed) => parsed,
+                    Err(message) => {
+                        emit_error(message, json_errors);
+                        return 2;
+                    }
+                };
             let mut query = json!({
                 "owner": owner,
-                "repo":  repo_name,
-                "path":  file_path,
+                "repo": repo_name,
+                "path": file_path,
             });
             if let Some(b) = branch_final {
                 query["branch"] = json!(b);
@@ -611,7 +689,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     .split_once(':')
                     .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
                 else {
-                    eprintln!("--lines requires START:END");
+                    emit_error("--lines requires START:END", json_errors);
                     return 2;
                 };
                 query["startLine"] = json!(start);
@@ -638,10 +716,13 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 runtime,
                 "ghGetFileContent",
                 query,
-                pretty,
-                pretty,
-                false,
-                None,
+                ExecuteOptions {
+                    structured: pretty,
+                    compact: pretty,
+                    all,
+                    json_errors,
+                    ..ExecuteOptions::default()
+                },
             )
             .await
         }
@@ -708,15 +789,28 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
     }
 }
 
+#[derive(Default)]
+pub(super) struct ExecuteOptions {
+    structured: bool,
+    compact: bool,
+    all: bool,
+    expected_source: Option<String>,
+    json_errors: bool,
+}
+
 pub(super) async fn execute(
     runtime: &ToolRuntime,
     tool: &str,
     mut input: Value,
-    structured: bool,
-    compact: bool,
-    all: bool,
-    mut expected_source: Option<String>,
+    options: ExecuteOptions,
 ) -> u8 {
+    let ExecuteOptions {
+        structured,
+        compact,
+        all,
+        mut expected_source,
+        json_errors,
+    } = options;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let mut seen = std::collections::HashSet::new();
     let mut pages = 0;
@@ -769,7 +863,7 @@ pub(super) async fn execute(
                     .flatten()
                     .enumerate()
                 {
-                    if row["status"] == "error" && !structured {
+                    if row["status"] == "error" && !structured && !json_errors {
                         let recoverable = matches!(
                             row["data"]["errorCode"].as_str(),
                             Some("fileTooLarge" | "fullContentLimit")
@@ -788,14 +882,14 @@ pub(super) async fn execute(
                                 5
                             };
                         }
-                        if tool == "localSearch"
-                            && let Err(error) = search::write_row(row, &value)
-                        {
-                            return if error.kind() == io::ErrorKind::BrokenPipe {
-                                0
-                            } else {
-                                5
-                            };
+                        if tool == "localSearch" {
+                            if let Err(error) = search::write_row(row, &value) {
+                                return if error.kind() == io::ErrorKind::BrokenPipe {
+                                    0
+                                } else {
+                                    5
+                                };
+                            }
                         } else if row["data"]["content"].as_str().is_none() {
                             let _ = write_json(&row["data"], true);
                         }
@@ -884,10 +978,34 @@ pub(super) async fn execute(
                     if let Some(payload) = error.payload {
                         write_json(&payload, compact);
                     } else {
-                        eprintln!("{}: {}", error.code, error.message);
+                        // Emit a structured JSON error to stdout so callers can parse it.
+                        // Previously this went to stderr only, causing silent empty output
+                        // (e.g. lspSearch timeout on cold start when stderr is discarded).
+                        let hint = if error.code == "timeout" {
+                            Some(
+                                "Retry -- the first call initialises the language server (~60 s cold start).",
+                            )
+                        } else {
+                            None
+                        };
+                        let mut v = json!({
+                            "error": error.message,
+                            "errorCode": error.code,
+                        });
+                        if let Some(h) = hint {
+                            v["hints"] = json!([h]);
+                        }
+                        write_json(&v, compact);
                     }
+                } else if json_errors {
+                    emit_error(&format!("{}: {}", error.code, error.message), true);
                 } else {
                     eprintln!("{}: {}", error.code, error.message);
+                    if error.code == "timeout" {
+                        eprintln!(
+                            "Hint: retry -- the first call initialises the language server (~60 s cold start)."
+                        );
+                    }
                 }
                 return if error.code == "invalidInput" { 2 } else { 5 };
             }
@@ -926,7 +1044,10 @@ fn read_error(data: &Value, failure: Option<octocode_native::runtime::FailureKin
         {
             format!(
                 "File not found: {}",
-                data["path"].as_str().unwrap_or_default()
+                data["path"]
+                    .as_str()
+                    .or_else(|| data["resolvedPath"].as_str())
+                    .unwrap_or_default()
             )
         }
         _ => data["error"]
@@ -936,7 +1057,7 @@ fn read_error(data: &Value, failure: Option<octocode_native::runtime::FailureKin
     }
 }
 
-async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs) -> u8 {
+async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs, json_errors: bool) -> u8 {
     let queries = match args.queries() {
         Ok(queries) => queries,
         Err(error) => {
@@ -982,10 +1103,11 @@ async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs) -> u8 {
                 runtime,
                 "localSearch",
                 query.clone(),
-                false,
-                false,
-                true,
-                None,
+                ExecuteOptions {
+                    all: true,
+                    json_errors,
+                    ..ExecuteOptions::default()
+                },
             )
             .await;
             if current > 1 {
@@ -1001,10 +1123,40 @@ async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs) -> u8 {
         runtime,
         "localSearch",
         queries,
-        false,
-        false,
-        args.all,
-        None,
+        ExecuteOptions {
+            structured: args.json || args.compact,
+            compact: args.compact,
+            all: args.all,
+            json_errors,
+            ..ExecuteOptions::default()
+        },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_github_reference;
+
+    #[test]
+    fn parses_copied_github_blob_urls() {
+        let (owner, repo, path, branch) = parse_github_reference(
+            "https://github.com/rust-lang/rust/blob/main/README.md#L1",
+            None,
+        )
+        .expect("GitHub URL");
+        assert_eq!(owner, "rust-lang");
+        assert_eq!(repo, "rust");
+        assert_eq!(path, "README.md");
+        assert_eq!(branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn explicit_branch_overrides_reference_branch() {
+        let (_, _, path, branch) =
+            parse_github_reference("rust-lang/rust/README.md@main", Some("stable".into()))
+                .expect("short reference");
+        assert_eq!(path, "README.md");
+        assert_eq!(branch.as_deref(), Some("stable"));
+    }
 }

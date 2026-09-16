@@ -35,6 +35,14 @@ pub struct InstallArgs {
     pub rollback: Option<String>,
 }
 
+fn canonical_ide(ide: &str) -> &str {
+    match ide {
+        "claude" => "claude-desktop",
+        "vscode" => "vscode-cline",
+        other => other,
+    }
+}
+
 pub fn run(args: InstallArgs) -> u8 {
     // Rollback mode: restore a backup written by a previous --backup install
     if let Some(ref bak_str) = args.rollback {
@@ -73,16 +81,17 @@ pub fn run(args: InstallArgs) -> u8 {
         }
         return 0;
     }
-    let Some(ide) = args.ide.as_deref().filter(|value| !value.is_empty()) else {
+    let Some(requested_ide) = args.ide.as_deref().filter(|value| !value.is_empty()) else {
         eprintln!("Usage: octocode install --ide <id> [--force] [--dry-run] [--check] [--json]");
         return 2;
     };
+    let ide = canonical_ide(requested_ide);
     if matches!(ide, "codex" | "goose") {
         eprintln!("use Node `octocode install --ide {ide}` for TOML/YAML clients");
         return 2;
     }
     let Some(config_path) = config_path(ide) else {
-        eprintln!("Unknown --ide {ide}");
+        eprintln!("Unknown --ide {requested_ide}");
         return 2;
     };
     match install(ide, &config_path, &args) {
@@ -312,7 +321,7 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{JSON_IDES, octocode_server, reject_octo_mcp};
+    use super::{JSON_IDES, canonical_ide, octocode_server, reject_octo_mcp};
     use serde_json::json;
 
     fn default_args() -> super::InstallArgs {
@@ -329,6 +338,13 @@ mod tests {
             backup: false,
             rollback: None,
         }
+    }
+
+    #[test]
+    fn ide_aliases_resolve_to_supported_json_clients() {
+        assert_eq!(canonical_ide("claude"), "claude-desktop");
+        assert_eq!(canonical_ide("vscode"), "vscode-cline");
+        assert_eq!(canonical_ide("cursor"), "cursor");
     }
 
     #[test]
