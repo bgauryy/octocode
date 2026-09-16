@@ -16,7 +16,7 @@ const { join } = require('path')
 
 const root = join(__dirname, '..')
 
-// Regenerate octocode-engine-core/src/security/patterns.rs from the canonical TS
+// Regenerate src/security/patterns.rs from the canonical TS
 // pattern list before every native build so Rust stays in lockstep with JS.
 function generateSecurityPatterns() {
   execFileSync(process.execPath, [join(__dirname, 'gen-patterns.mjs')], {

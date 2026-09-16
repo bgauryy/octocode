@@ -7,7 +7,7 @@ native octocode CLI ──────────┐
                              ├─ Rust runtime / policy / tools
 Node MCP → optional NAPI ─────┘           ├─ native config
                                          ├─ providers / registry adapters
-                                         └─ octocode-engine-core primitives
+                                         └─ octocode-engine primitives
 ```
 
 The CLI never loads NAPI or runs JavaScript. The CLI module lives in the `octocode`
@@ -21,7 +21,7 @@ The native CLI and optional addon execute the full 11-tool catalog through the
 same Rust runtime. Availability matches Node flags: local tools require
 `local.enabled` (default on), `ghCloneRepo` requires `ENABLE_CLONE` and
 persistent storage, and GitHub/artifact tools are on by default. LSP uses the
-shared `octocode-engine-core` language-server client and lifecycle pool.
+shared `octocode-engine` language-server client and lifecycle pool.
 Config resolution, generated validation, path/content policy and request
 lifecycle are native. Local search passes 28 complete CLI and MCP fixture
 comparisons, including every continuation. Plain search passes 44 checks and
@@ -89,10 +89,10 @@ Current-candidate resource and platform comparisons remain release gates.
 | adapter_napi | Host conversion, runtime handle and lifecycle | A separate execution implementation |
 | CLI | Arguments, human output and shell exits (`octocode` binary crate; not a lib module) | Node runtime, NAPI, or the addon cdylib |
 
-Reusable engine Rust algorithms live in `octocode-engine-core`, which this crate
-consumes directly without a Cargo dependency on `octocode-engine`. Core's portable
-APIs accept resolved options and do not import this higher-level runtime. The
-published engine package separately adapts the same core through optional NAPI
+Reusable engine Rust algorithms live in `octocode-engine`, which this crate
+consumes as a pure `rlib` (no N-API, `default-features = false`). The engine's
+portable APIs accept resolved options and do not import this higher-level runtime.
+The same package also builds the Node.js `.node` addon via optional NAPI
 bindings. The public tool core remains the contract authoring owner;
 build-time generation produces Rust artifacts. Candidate generation must fail on
 unsupported executable rules rather than omit them.
