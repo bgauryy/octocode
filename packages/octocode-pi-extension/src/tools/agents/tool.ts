@@ -49,6 +49,7 @@ export function registerUnifiedAgentTool(
 
   // ── Discriminated operation schema ───────────────────────────────────────────
   const reasoning = z.string().min(1).max(400);
+  const customWorkerCapabilitySelection = WorkerCapabilitySelectionSchema.omit({ nativeTools: true });
   const packetFields = {
     goal: z.string().min(1),
     context: z.string().min(1),
@@ -96,6 +97,7 @@ export function registerUnifiedAgentTool(
     type: z.enum(['spawn']),
     profile: z.enum(['custom']),
     ...packetFields,
+    capabilities: customWorkerCapabilitySelection.optional(),
     tools: z.array(z.string()),
     systemPrompt: z.string().min(1),
     resourceMode: z.enum(['lean', 'octocode', 'default']).optional(),
@@ -112,13 +114,22 @@ export function registerUnifiedAgentTool(
     queries: z.array(query).min(1).max(100).describe('Operations, sequential.'),
     queryRunType: z.enum(['sequential']).default('sequential').optional(),
   }));
-  // One shared definition preserves strict branch validation without repeating
-  // the complete selection contract in each profile and configure operation.
+  // Shared definitions preserve strict profile-specific validation without
+  // repeating the selection contracts in every spawn/configure branch.
   const branches = (parameters['properties'] as { queries: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } } }).queries.items.anyOf;
   for (const branch of branches) {
-    if (branch.properties['capabilities']) branch.properties['capabilities'] = { $ref: '#/definitions/workerCapabilities' };
+    if (!branch.properties['capabilities']) continue;
+    const profile = branch.properties['profile'] as { enum?: string[] } | undefined;
+    branch.properties['capabilities'] = {
+      $ref: profile?.enum?.includes('custom')
+        ? '#/definitions/customWorkerCapabilities'
+        : '#/definitions/workerCapabilities',
+    };
   }
-  parameters['definitions'] = { workerCapabilities: toToolSchema(WorkerCapabilitySelectionSchema.describe('Enabled parent identities; omitted fields use role defaults, [] grants none.')) };
+  parameters['definitions'] = {
+    workerCapabilities: toToolSchema(WorkerCapabilitySelectionSchema.describe('Enabled parent identities; omitted fields use role defaults, [] grants none.')),
+    customWorkerCapabilities: toToolSchema(customWorkerCapabilitySelection.describe('Enabled non-native parent identities; omitted=role defaults, []=none. Native tools only from tools[].')),
+  };
 
   registerFn(pi, registeredToolNames, {
     name: 'agent',
@@ -127,9 +138,9 @@ export function registerUnifiedAgentTool(
 
     promptSnippet: 'Spawn or manage bounded workers. Every spawn needs Goal, Context, Scope, Ownership, Acceptance, Return.',
     promptGuidelines: [
-      'Delegate when lanes are independent with disjoint ownership. Custom profile needs tools+systemPrompt.',
-      'Spawn first; reference agentId only in later calls. After spawning continue non-overlapping work; type:wait collects results. Verify handbacks; never persist raw output as memory.',
-      'Standalone needs no planStep. Grant only enabled parent identities; lean workers keep skill/MCP grants empty; use resourceMode:"octocode" for extension tools.',
+      'Delegate for 2+ independent lanes with disjoint ownership. Custom profile needs tools+systemPrompt.',
+      'Spawn first; parent continues non-overlapping work. type:wait collects results; verify/reconcile handbacks; kill done workers; never persist raw handback as memory.',
+      'Incomplete packets fail preflight. No planStep for standalone. Lean workers: no skill/MCP grants; use resourceMode:"octocode" for extension tools.',
     ],
 
     parameters,

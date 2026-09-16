@@ -19,7 +19,7 @@ describe('graphqlCompleteCollectionEligible', () => {
     ).toBe(true);
   });
 
-  it('skips GraphQL when any collection page is greater than 1 or patches are requested', () => {
+  it('skips GraphQL when collection continuation, patches, or commit files are requested', () => {
     expect(
       graphqlCompleteCollectionEligible({
         owner: 'a',
@@ -38,6 +38,17 @@ describe('graphqlCompleteCollectionEligible', () => {
           body: true,
           changedFiles: true,
           patches: { mode: 'all' },
+        },
+      })
+    ).toBe(false);
+    expect(
+      graphqlCompleteCollectionEligible({
+        owner: 'a',
+        repo: 'b',
+        prNumber: 1,
+        content: {
+          body: true,
+          commits: { includeFiles: true },
         },
       })
     ).toBe(false);

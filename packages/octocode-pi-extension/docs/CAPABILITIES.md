@@ -56,7 +56,7 @@ Sources: [prompt preparation](../src/tools/prompt-capabilities.ts), [capability 
 
 ## Worker grants
 
-Workers receive explicit selections from the parent's enabled snapshot: native tool names, exact skill IDs, and MCP `{server, tool}` pairs. Spawn accepts `capabilities` with `snapshotRevision`; typed defaults are intersected with the parent's available capabilities. An explicitly empty selection grants no entries in that category. Custom workers also require an explicit native tool allowlist and a non-empty role prompt.
+Workers receive explicit selections from the parent's enabled snapshot: native tool names, exact skill IDs, and MCP `{server, tool}` pairs. Spawn accepts `capabilities` with `snapshotRevision`; typed defaults are intersected with the parent's available capabilities. An explicitly empty selection grants no entries in that category. Custom workers require a non-empty role prompt and use top-level `tools[]` as their only native-tool selector; their optional `capabilities` object accepts only `skills` and `mcpTools`.
 
 The parent changes a running worker through `agent type:"configure"`, providing `agentId`, the current `snapshotRevision`, replacement `capabilities` arrays, and optionally the expected `grantRevision`. Workers request missing access from their parent. They cannot grant themselves a disabled or unselected capability. `/config` displays Worker grants for inspection.
 

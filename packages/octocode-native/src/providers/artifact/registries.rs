@@ -410,13 +410,45 @@ fn terms(query: &ArtifactQuery) -> String {
         .unwrap_or_default()
 }
 
+fn paged(
+    artifacts: Vec<ArtifactItem>,
+    total: Option<u64>,
+    page: u64,
+    size: usize,
+    artifact_type: ArtifactType,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    let more = total
+        .map(|count| page.saturating_mul(size as u64) < count)
+        .unwrap_or(artifacts.len() == size);
+    let terminal_limit = (more && artifacts.is_empty()).then(|| {
+        format!(
+            "{} returned an empty page before its reported total.",
+            if artifact_type == ArtifactType::Crates {
+                "crates.io"
+            } else {
+                artifact_type.as_str()
+            }
+        )
+    });
+    Ok(ArtifactProviderPage {
+        next_state: (more && !artifacts.is_empty()).then(|| ArtifactProviderState {
+            page: Some(page + 1),
+            ..Default::default()
+        }),
+        artifacts,
+        total,
+        terminal_limit,
+        registry: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::RequestBudget;
     use crate::providers::artifact::http::{
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
-    use crate::providers::RequestBudget;
     use serde_json::json;
     use std::time::Duration;
 
@@ -429,7 +461,7 @@ mod tests {
         fn ok(body: serde_json::Value) -> Self {
             Self {
                 status: 200,
-                body: serde_json::to_vec(&body).unwrap(),
+                body: serde_json::to_vec(&body).expect("registry test data should serialize"),
             }
         }
     }
@@ -474,14 +506,21 @@ mod tests {
             }
         }));
         let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
         let q = exact_query(ArtifactType::PyPi, "requests");
         let page = pypi(&q, &client).await.expect("pypi");
         assert_eq!(page.artifacts.len(), 1);
         let item = &page.artifacts[0];
         assert_eq!(item.name, "requests");
         assert_eq!(item.version.as_deref(), Some("2.31.0"));
-        assert!(item.registry_url.contains("pypi.org"), "{}", item.registry_url);
+        assert!(
+            item.registry_url.contains("pypi.org"),
+            "{}",
+            item.registry_url
+        );
     }
 
     #[tokio::test]
@@ -497,7 +536,10 @@ mod tests {
             }
         }));
         let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
         let q = exact_query(ArtifactType::Crates, "serde");
         let page = crates(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -506,7 +548,11 @@ mod tests {
         let item = &page.artifacts[0];
         assert_eq!(item.name, "serde");
         assert_eq!(item.version.as_deref(), Some("1.0.200"));
-        assert!(item.registry_url.contains("crates.io"), "{}", item.registry_url);
+        assert!(
+            item.registry_url.contains("crates.io"),
+            "{}",
+            item.registry_url
+        );
     }
 
     #[tokio::test]
@@ -517,7 +563,10 @@ mod tests {
             "synopsis": "HTTP web framework for Go"
         }));
         let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
         let q = exact_query(ArtifactType::Go, "github.com/gin-gonic/gin");
         let page = go(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -526,7 +575,11 @@ mod tests {
         let item = &page.artifacts[0];
         assert_eq!(item.name, "github.com/gin-gonic/gin");
         assert_eq!(item.version.as_deref(), Some("v1.9.1"));
-        assert!(item.registry_url.contains("pkg.go.dev"), "{}", item.registry_url);
+        assert!(
+            item.registry_url.contains("pkg.go.dev"),
+            "{}",
+            item.registry_url
+        );
     }
 
     #[tokio::test]
@@ -545,7 +598,10 @@ mod tests {
             }
         }));
         let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
         let q = exact_query(ArtifactType::Packagist, "laravel/framework");
         let page = packagist(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -554,7 +610,11 @@ mod tests {
         let item = &page.artifacts[0];
         assert_eq!(item.name, "laravel/framework");
         assert_eq!(item.version.as_deref(), Some("10.0.0"));
-        assert!(item.registry_url.contains("packagist.org"), "{}", item.registry_url);
+        assert!(
+            item.registry_url.contains("packagist.org"),
+            "{}",
+            item.registry_url
+        );
     }
 
     #[tokio::test]
@@ -567,7 +627,10 @@ mod tests {
             "source_code_uri": "https://github.com/rails/rails"
         }));
         let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
         let q = exact_query(ArtifactType::Rubygems, "rails");
         let page = rubygems(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -576,38 +639,10 @@ mod tests {
         let item = &page.artifacts[0];
         assert_eq!(item.name, "rails");
         assert_eq!(item.version.as_deref(), Some("7.0.6"));
-        assert!(item.registry_url.contains("rubygems.org"), "{}", item.registry_url);
+        assert!(
+            item.registry_url.contains("rubygems.org"),
+            "{}",
+            item.registry_url
+        );
     }
-}
-
-fn paged(
-    artifacts: Vec<ArtifactItem>,
-    total: Option<u64>,
-    page: u64,
-    size: usize,
-    artifact_type: ArtifactType,
-) -> Result<ArtifactProviderPage, ArtifactError> {
-    let more = total
-        .map(|count| page.saturating_mul(size as u64) < count)
-        .unwrap_or(artifacts.len() == size);
-    let terminal_limit = (more && artifacts.is_empty()).then(|| {
-        format!(
-            "{} returned an empty page before its reported total.",
-            if artifact_type == ArtifactType::Crates {
-                "crates.io"
-            } else {
-                artifact_type.as_str()
-            }
-        )
-    });
-    Ok(ArtifactProviderPage {
-        next_state: (more && !artifacts.is_empty()).then(|| ArtifactProviderState {
-            page: Some(page + 1),
-            ..Default::default()
-        }),
-        artifacts,
-        total,
-        terminal_limit,
-        registry: None,
-    })
 }

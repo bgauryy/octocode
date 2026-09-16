@@ -868,30 +868,55 @@ export function setPlanDecisions(cwd: string, decisions: PlanDecision[] | undefi
 export function resolveRfcPath(workspace: string, input: string): RfcResolution {
   const raw = String(input ?? '').trim();
   if (!raw) return { error: 'no RFC path given' };
-  const rfcRoot = path.resolve(workspace, '.octocode', 'rfc');
   try {
     let candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(workspace, raw);
+
+    // Path must exist.
     let stat: fs.Stats;
     try {
       stat = fs.statSync(candidate);
     } catch {
       return { error: `no such RFC path: ${raw}` };
     }
-    if (stat.isDirectory()) candidate = path.join(candidate, 'RFC.md');
+
+    if (stat.isDirectory()) {
+      // Prefer RFC.md; fall back to any .md file in the directory.
+      const rfcMd = path.join(candidate, 'RFC.md');
+      if (fs.existsSync(rfcMd)) {
+        candidate = rfcMd;
+      } else {
+        let entries: string[] = [];
+        try { entries = fs.readdirSync(candidate); } catch { /* ignore */ }
+        const mdFile = entries.filter((f) => f.toLowerCase().endsWith('.md')).sort()[0];
+        if (mdFile) {
+          candidate = path.join(candidate, mdFile);
+        } else {
+          return { error: `RFC directory has no .md file: ${path.relative(workspace, candidate) || candidate} — add a document and retry` };
+        }
+      }
+      try { stat = fs.statSync(candidate); } catch {
+        return { error: `RFC directory candidate not readable: ${path.relative(workspace, candidate) || candidate}` };
+      }
+    }
+
+    // Resolve symlinks; use realpathSync on both sides so macOS /var → /private/var compares correctly.
     let real: string;
     try {
       real = fs.realpathSync(candidate);
     } catch {
-      return { error: `no such RFC file: ${path.relative(workspace, candidate) || candidate}` };
+      real = candidate;
     }
-    const realRoot = fs.existsSync(rfcRoot) ? fs.realpathSync(rfcRoot) : rfcRoot;
-    const withinRoot = real === realRoot || real.startsWith(realRoot + path.sep);
-    if (!withinRoot) {
-      return { error: `RFC must live under .octocode/rfc/ (got ${raw})` };
+    let resolvedWorkspace: string;
+    try { resolvedWorkspace = fs.realpathSync(workspace); } catch { resolvedWorkspace = path.resolve(workspace); }
+    const wsPrefix = resolvedWorkspace.endsWith(path.sep) ? resolvedWorkspace : resolvedWorkspace + path.sep;
+    if (real !== resolvedWorkspace && !real.startsWith(wsPrefix)) {
+      return { error: `RFC path must be within the workspace (got ${raw})` };
     }
-    if (!fs.statSync(real).isFile()) {
+
+    if (!stat.isFile()) {
       return { error: `RFC path is not a file: ${raw}` };
     }
+
     return { path: real };
   } catch (err) {
     return { error: `could not resolve RFC path: ${(err as Error).message}` };

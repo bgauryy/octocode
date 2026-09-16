@@ -198,16 +198,17 @@ pub fn process_fetched_content(
         reason: "match-evidence".into(),
     });
     if applied == MinifyMode::Standard {
-        selected = octocode_engine::portable::apply_content_view_minification(&selected, &q.path)
+        selected =
+            octocode_engine_core::portable::apply_content_view_minification(&selected, &q.path)
     } else if applied == MinifyMode::Symbols {
-        if let Some(s) = octocode_engine::portable::extract_signatures(&selected, &q.path) {
-            selected = octocode_engine::portable::apply_content_view_minification(&s, &q.path)
+        if let Some(s) = octocode_engine_core::portable::extract_signatures(&selected, &q.path) {
+            selected = octocode_engine_core::portable::apply_content_view_minification(&s, &q.path)
         } else if let Some(outline) = crate::content::markdown_heading_outline(&selected, &q.path) {
             selected = outline
         } else {
             warnings.push(format!("No smaller outline is available for {}; using the standard content view. The outline may be unsupported, oversized, or unavailable for this source.",q.path));
             selected =
-                octocode_engine::portable::apply_content_view_minification(&selected, &q.path);
+                octocode_engine_core::portable::apply_content_view_minification(&selected, &q.path);
             content_view = MinifyMode::Standard;
             minify_fallback = Some(MinifyFallback {
                 requested: MinifyMode::Symbols,

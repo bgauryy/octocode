@@ -1,4 +1,3 @@
-use crate::search::ripgrep_search;
 use crate::types::{
     FileSystemQueryOptions, FileSystemQueryResult, GraphFactsScanOptions, GraphFactsScanResult,
     IndexBuildRequest, IndexBuildResult, IndexQueryRequest, IndexQueryResult, IndexStatusRequest,
@@ -85,7 +84,7 @@ impl Task for MinifyContentTask {
     type JsValue = MinifyResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(crate::minify::minifier::minify_content_result_inner(
+        Ok(crate::portable::minify_content(
             &self.content,
             &self.file_path,
         ))
@@ -115,8 +114,7 @@ impl Task for FileSystemQueryTask {
                 "filesystem query options already consumed",
             )
         })?;
-        crate::search::fs_query::query_file_system_inner(options)
-            .map_err(|message| Error::new(Status::InvalidArg, message))
+        Ok(crate::portable::query_file_system(options)?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -139,8 +137,7 @@ impl Task for GraphFactsScanTask {
                 "graph scan options already consumed",
             )
         })?;
-        crate::graph::scan_graph_facts(options)
-            .map_err(|message| Error::new(Status::InvalidArg, message))
+        Ok(crate::portable::scan_graph_facts(options)?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -159,7 +156,7 @@ impl Task for SearchRipgrepTask {
             .options
             .take()
             .ok_or_else(|| Error::new(Status::GenericFailure, "search options already consumed"))?;
-        Ok(ripgrep_search::search(options)?)
+        Ok(crate::portable::search_ripgrep(options)?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -179,19 +176,12 @@ impl Task for StructuralSearchTask {
     type JsValue = Vec<crate::structural::StructuralMatch>;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let ext = crate::text::file_extension::get_extension_internal(&self.file_path, true, "txt");
-        // Same panic guard as the (formerly) sync binding: an unwind across the
-        // napi FFI boundary would abort the Node process.
-        std::panic::catch_unwind(|| {
-            crate::structural::search(
-                &self.content,
-                &ext,
-                self.pattern.as_deref(),
-                self.rule.as_deref(),
-            )
-        })
-        .unwrap_or_else(|_| Err("structural search failed on pathological input".to_string()))
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+        Ok(crate::portable::structural_search(
+            &self.content,
+            &self.file_path,
+            self.pattern.as_deref(),
+            self.rule.as_deref(),
+        )?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -214,11 +204,7 @@ impl Task for StructuralSearchFilesTask {
                 "structural search options already consumed",
             )
         })?;
-        std::panic::catch_unwind(|| crate::structural::search_files(options))
-            .unwrap_or_else(|_| {
-                Err("structural file search failed on pathological input".to_string())
-            })
-            .map_err(|message| Error::new(Status::InvalidArg, message))
+        Ok(crate::portable::structural_search_files(options)?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -243,15 +229,11 @@ impl Task for SyntaxTreeInspectTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         let options = self.options.take();
-        std::panic::catch_unwind(|| {
-            crate::structural::inspect_syntax_tree(&self.content, &self.file_path, options)
-        })
-        .map_err(|_| {
-            Error::new(
-                Status::GenericFailure,
-                "syntax-tree inspection failed on pathological input",
-            )
-        })
+        Ok(crate::portable::inspect_syntax_tree(
+            &self.content,
+            &self.file_path,
+            options,
+        )?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -264,18 +246,10 @@ impl Task for SemanticBoundaryOffsetsTask {
     type JsValue = Vec<u32>;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        // Tree-sitter parsing is CPU-bound and, like the structural/signature
-        // paths, can unwind on pathological input — a panic across the napi FFI
-        // boundary would abort Node, so contain it here.
-        std::panic::catch_unwind(|| {
-            crate::signatures::get_semantic_boundary_offsets_inner(&self.content, &self.file_path)
-        })
-        .map_err(|_| {
-            Error::new(
-                Status::GenericFailure,
-                "semantic boundary detection failed on pathological input",
-            )
-        })
+        Ok(crate::portable::semantic_boundary_offsets(
+            &self.content,
+            &self.file_path,
+        )?)
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {

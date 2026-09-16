@@ -607,7 +607,7 @@ export function registerBashTool(
   const parameters = buildQueryEnvelopeSchema(
     z.looseObject({
       command: z.string().optional().describe(
-        'Command; omit for job actions.',
+        'Command to run; required unless action is set.',
       ),
       timeout: z.number().int().min(1).optional().describe(
         `Seconds; capped at ${BASH_MAX_TIMEOUT_SEC}.`,
@@ -619,7 +619,7 @@ export function registerBashTool(
       action: z.enum(['status', 'output', 'kill', 'list']).optional().describe(
         'Manage jobs; status/output/kill need jobId.',
       ),
-      jobId: z.string().optional().describe('Job target.'),
+      jobId: z.string().optional().describe('Job target; required for action: status/output/kill.'),
       outputOffset: z.number().optional().describe('Output line offset.'),
       lines: z.number().optional().describe('Output line limit.'),
     }),
@@ -633,7 +633,7 @@ export function registerBashTool(
       DIRECT_TOOL_DESCRIPTIONS.bash!,
     promptSnippet: 'Run bounded builds, tests, package commands, and debugging.',
     promptGuidelines: [
-      'Set timeout; use non-interactive flags (e.g. npx -y). Isolate slow/network commands so one hang does not strand others.',
+      'Set timeout; use non-interactive flags (npx -y). Isolate slow/network commands.',
     ],
     parameters,
     async execute(

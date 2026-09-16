@@ -7,7 +7,7 @@ native octocode CLI ──────────┐
                              ├─ Rust runtime / policy / tools
 Node MCP → optional NAPI ─────┘           ├─ native config
                                          ├─ providers / registry adapters
-                                         └─ portable octocode-engine primitives
+                                         └─ octocode-engine-core primitives
 ```
 
 The CLI never loads NAPI or runs JavaScript. The CLI module lives in the `octocode`
@@ -21,7 +21,7 @@ The native CLI and optional addon execute the full 11-tool catalog through the
 same Rust runtime. Availability matches Node flags: local tools require
 `local.enabled` (default on), `ghCloneRepo` requires `ENABLE_CLONE` and
 persistent storage, and GitHub/artifact tools are on by default. LSP uses the
-portable engine language-server client.
+shared `octocode-engine-core` language-server client and lifecycle pool.
 Config resolution, generated validation, path/content policy and request
 lifecycle are native. Local search passes 28 complete CLI and MCP fixture
 comparisons, including every continuation. Plain search passes 44 checks and
@@ -55,7 +55,7 @@ when storage is persistent). Crate tests are Tokio/`cargo test` against
 `ToolRuntime` and the `octocode` binary. They do not spawn Python or the frozen
 Node CLI.
 Structural rewrite's baseline uses the attested native ast-grep executable.
-The embedded ast-grep experiment is behind the engine's optional
+The embedded ast-grep experiment is behind core's optional
 `embedded-ast-grep-rewrite` feature and is excluded from `portable-default`.
 
 Canonical instructions are generated for enabled-tool combinations and selected
@@ -85,13 +85,15 @@ Current-candidate resource and platform comparisons remain release gates.
 | runtime/policy/cache | Dispatch, request context, security, cancellation and resource limits | CLI formatting or MCP SDK types |
 | tools | Canonical operations using shared services | Independent config/auth/security implementations |
 | providers/registries | Remote DTOs, HTTP/retry/cache/credential policy | CLI or MCP framing |
-| lsp | Native pool (`src/lsp`); tools call it as a shared service | TypeScript engine wrappers, CLI, NAPI types |
+| lsp | Runtime composition in `src/lsp`; tools call the core-owned pool as a shared service | A second lifecycle policy, TypeScript engine wrappers, CLI, NAPI types |
 | adapter_napi | Host conversion, runtime handle and lifecycle | A separate execution implementation |
 | CLI | Arguments, human output and shell exits (`octocode` binary crate; not a lib module) | Node runtime, NAPI, or the addon cdylib |
 
-Existing engine Rust algorithms remain in their owning crate with optional NAPI
-bindings. Their portable APIs accept resolved options; they do not import this
-higher-level runtime. The public tool core remains the contract authoring owner;
+Reusable engine Rust algorithms live in `octocode-engine-core`, which this crate
+consumes directly without a Cargo dependency on `octocode-engine`. Core's portable
+APIs accept resolved options and do not import this higher-level runtime. The
+published engine package separately adapts the same core through optional NAPI
+bindings. The public tool core remains the contract authoring owner;
 build-time generation produces Rust artifacts. Candidate generation must fail on
 unsupported executable rules rather than omit them.
 

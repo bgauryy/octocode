@@ -2126,8 +2126,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "octocode-engine"
-version = "19.1.0"
+name = "octocode-engine-core"
+version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "crossbeam-epoch",
@@ -2191,7 +2191,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "octocode-engine",
+ "octocode-engine-core",
  "regex",
  "regress",
  "reqwest",

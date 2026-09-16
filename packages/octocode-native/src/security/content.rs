@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use octocode_engine_core::security::types::SanitizationResult;
 use serde_json::{Map, Value};
 
 use super::SecurityRegistry;
@@ -9,14 +10,6 @@ use crate::policy::{PolicyError, PolicyErrorCode};
 const MAX_STRING_LENGTH: usize = 10_000;
 const MAX_ARRAY_LENGTH: usize = 100;
 const MAX_DEPTH: usize = 20;
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
-pub struct SanitizationResult {
-    pub content: String,
-    pub has_secrets: bool,
-    pub secrets_detected: Vec<String>,
-    pub warnings: Vec<String>,
-}
 
 #[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ValidationResult {
@@ -38,22 +31,15 @@ impl ContentSecurity {
 
     pub fn sanitize_text(&self, content: &str, file_path: Option<&Path>) -> SanitizationResult {
         let path = file_path.map(|path| path.to_string_lossy());
-        let native = octocode_engine::portable::sanitize_content(content, path.as_deref())
-            .unwrap_or_else(
-                |error| octocode_engine::security::types::SanitizationResult {
-                    content: "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned(),
-                    has_secrets: true,
-                    secrets_detected: vec!["sanitizer-failure".to_owned()],
-                    warnings: vec![error.to_string()],
-                },
-            );
+        let native = octocode_engine_core::portable::sanitize_content(content, path.as_deref())
+            .unwrap_or_else(|error| SanitizationResult {
+                content: "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned(),
+                has_secrets: true,
+                secrets_detected: vec!["sanitizer-failure".to_owned()],
+                warnings: vec![error.to_string()],
+            });
         if self.registry.secret_patterns().is_empty() {
-            return SanitizationResult {
-                content: native.content,
-                has_secrets: native.has_secrets,
-                secrets_detected: native.secrets_detected,
-                warnings: native.warnings,
-            };
+            return native;
         }
         let mut sanitized = native.content;
         let mut secrets = native.secrets_detected;
@@ -114,7 +100,7 @@ impl ContentSecurity {
     }
 
     pub fn mask_sensitive_data(&self, text: &str) -> String {
-        let native = octocode_engine::portable::mask_sensitive_data(text.to_owned());
+        let native = octocode_engine_core::portable::mask_sensitive_data(text.to_owned());
         let mut spans = Vec::new();
         for pattern in self
             .registry
@@ -286,8 +272,8 @@ mod tests {
                 false,
                 None,
             )
-            .unwrap()])
-            .unwrap();
+            .expect("security test setup should succeed")])
+            .expect("security test setup should succeed");
         let policy = ContentSecurity::new(Arc::new(registry));
         let result = policy.sanitize_text("secret-123", None);
         assert_eq!(result.content, "[REDACTED-CUSTOM]");
@@ -298,7 +284,7 @@ mod tests {
         let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
         let result = policy
             .validate_text_bytes(&[b'a', 0xff, b'b'], None, 3)
-            .unwrap();
+            .expect("security test setup should succeed");
         assert_eq!(result.content, "a�b");
     }
 
@@ -333,7 +319,7 @@ mod tests {
             ),
         ];
         for (content, path) in corpus {
-            let expected = octocode_engine::portable::sanitize_content(
+            let expected = octocode_engine_core::portable::sanitize_content(
                 &content,
                 path.map(|path| path.to_string_lossy()).as_deref(),
             )

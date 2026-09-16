@@ -16,7 +16,7 @@ pub(super) fn project(
         .map_err(|(message, _)| ProviderError::new(ProviderErrorKind::Validation, message))?
         .0;
     let original_positions = positions(fragment, &sanitized);
-    let compact = octocode_engine::portable::minify_content(&sanitized, path);
+    let compact = octocode_engine_core::portable::minify_content(&sanitized, path);
     let compact_positions = positions(fragment, &compact.content);
     let (text, anchors) = if !compact.failed && compact_positions.len() == original_positions.len()
     {

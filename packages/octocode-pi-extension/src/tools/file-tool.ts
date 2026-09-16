@@ -154,7 +154,8 @@ async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: Abor
 
 const fileEditOperationSchema = z.strictObject({
   oldText: z.string().optional().describe('Current text; required except for lineRange.'),
-  newText: z.string().describe('Replacement text.'),
+  newText: z.string().optional().describe('Replacement text; required unless newLines is set.'),
+  newLines: z.array(z.string()).optional().describe('Line-array alternative to newText for lineRange: each element is one line without \\n. Eliminates trailing-newline ambiguity. Mutually exclusive with newText.'),
   replaceAll: z.boolean().optional().describe('Replace every match; default false.'),
   matchMode: z.enum(['exact', 'normalized', 'lineRange']).optional().describe('Match strategy; default exact.'),
   startLine: z.number().int().min(1).optional().describe('First line for lineRange.'),
@@ -180,12 +181,12 @@ export function registerFileTool(
     description: DIRECT_TOOL_DESCRIPTIONS.file!,
     promptSnippet: 'Apply scoped file edits, full writes, or deletions.',
     promptGuidelines: [
-      'Use type:"edit" for targeted replacements, type:"write" for new files or intentional full rewrites, and type:"delete" only when removal is explicitly in scope.',
-      'After reasoning and type, write accepts path+content; delete accepts path; edit accepts path+edits+requireRecentRead. Extra fields such as confirm, force, or dryRun fail preflight.',
-      'Read and understand existing files before edit/delete. Use exact oldText by default; normalized or lineRange matching is opt-in.',
-      'For requireRecentRead or a lineRange edit without oldText, read through MCPTool localFetch first; shell reads do not refresh the stale-edit guard.',
-      'Keep replacements bounded with the smallest unique anchor, and split large mutations across separate calls before the model output limit.',
-      'Batch edits to one path in a single query.',
+      'type:edit=targeted replacements; type:write=new file or full rewrite; type:delete=explicitly in scope only.',
+      'write=path+content; delete=path; edit=path+edits. Extra fields (confirm, force, dryRun) fail preflight.',
+      'Read existing files before edit/delete. Prefer exact oldText; lineRange and normalized are opt-in.',
+      'requireRecentRead or lineRange-without-oldText requires prior localFetch; shell reads do not count.',
+      'Use smallest unique anchor; split large mutations across calls before output limit.',
+      'Batch edits to one path per query.',
     ],
     parameters: buildQueryEnvelopeSchema(fileItemSchema, {
       reasoningDescription: 'Why this file mutation is necessary.',

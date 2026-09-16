@@ -183,8 +183,28 @@ pub struct HistoryArgs {
     pub output: OutputOpts,
 }
 
+/// Directories that are always excluded from file walks unless the user
+/// explicitly scopes the search below them. Mirrors the defaults already
+/// applied by `localSearch` and `astSearch`.
+const DEFAULT_EXCLUDE_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    ".git",
+    ".svn",
+    "dist",
+    "out",
+    ".next",
+    "build",
+    ".turbo",
+    "coverage",
+];
+
 pub async fn files(runtime: &ToolRuntime, args: FilesArgs) -> u8 {
-    let mut query = json!({"operation":"files","path":args.path});
+    let mut query = json!({
+        "operation": "files",
+        "path": args.path,
+        "excludeDir": DEFAULT_EXCLUDE_DIRS,
+    });
     if !args.names.is_empty() {
         query["names"] = json!(args.names);
     }
@@ -341,7 +361,9 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
             let mut query = json!({"operation":operation,"owner":owner,"repo":repo});
             if operation == "commit" {
                 match args.r#ref {
-                    Some(sha) => { query["ref"] = json!(sha); }
+                    Some(sha) => {
+                        query["ref"] = json!(sha);
+                    }
                     None => {
                         eprintln!("commit operation requires --ref <SHA>");
                         return 2;
@@ -360,21 +382,78 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
     run(runtime, tool, query, !args.output.pretty).await
 }
 
-pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool) -> u8 {
+/// Group tool names into CLI families.
+fn tool_family(name: &str) -> &'static str {
+    match name {
+        "ghSearch" | "ghGetFileContent" | "ghSearchHistory" | "ghGetHistoryItem"
+        | "ghCloneRepo" => "GitHub",
+        "localSearch" | "localFetch" | "astSearch" | "astRewrite" | "lspSearch" => "Local Code",
+        "artifactSearch" => "Package",
+        _ => "Other",
+    }
+}
+
+pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal: bool) -> u8 {
     match runtime.catalog() {
         Ok(catalog) => {
             if json_out {
                 return super::write_json(&catalog, true);
             }
+            let tools_arr = catalog["tools"].as_array();
+            let enabled = tools_arr
+                .map(|t| t.iter().filter(|v| v["available"] == true).count())
+                .unwrap_or(0);
+            let total = tools_arr.map(|t| t.len()).unwrap_or(0);
+            if minimal {
+                let protocol = catalog["protocol"].as_str().unwrap_or("mcp");
+                println!("{enabled}/{total} tools enabled  protocol:{protocol}");
+                return 0;
+            }
             if full && let Some(text) = catalog["mcpInstructions"].as_str() {
                 println!("{text}");
+                return 0;
             }
-            if let Some(tools) = catalog["tools"].as_array() {
-                for tool in tools {
-                    let name = tool["name"].as_str().unwrap_or_default();
-                    let available = tool["available"].as_bool().unwrap_or(false);
-                    let mark = if available { "on" } else { "off" };
-                    println!("{name} {mark}");
+            // Default: compact agent context block (equivalent to JS `context`)
+            println!("Octocode Native CLI — Agent Context");
+            println!("Compact context. Full MCP instructions: `context --full`.");
+            println!();
+            println!("Commands:");
+            println!("  tools <name> --scheme          lean schema");
+            println!("  tools <name> '<json>'          run a tool");
+            println!("  search <text> <path>           lexical search");
+            println!("  read <path>                    read a file");
+            println!("  symbols <path>                 list declarations");
+            println!("  def <file> --line <n>          jump to definition");
+            println!();
+            println!("Batch independent queries in queries[]; keep dependent probes sequential.");
+            println!(
+                "Follow next.* continuations unchanged. localSearch/astSearch find candidates; lspSearch proves identity."
+            );
+            println!();
+            println!("Output: minified JSON by default. --pretty: indented JSON.");
+            println!("Exit:   0 ok · 2 input · 3 not-found · 4 auth · 5 tool · 7 rate-limit");
+            println!();
+            // Grouped tool list
+            if let Some(tools) = tools_arr {
+                println!("Tools ({enabled} enabled / {total} cataloged):");
+                let families = ["GitHub", "Local Code", "Package", "Other"];
+                for family in families {
+                    let family_tools: Vec<_> = tools
+                        .iter()
+                        .filter(|t| tool_family(t["name"].as_str().unwrap_or("")) == family)
+                        .collect();
+                    if family_tools.is_empty() {
+                        continue;
+                    }
+                    println!("  {family}:");
+                    for tool in family_tools {
+                        let name = tool["name"].as_str().unwrap_or_default();
+                        let available = tool["available"].as_bool().unwrap_or(false);
+                        let desc = tool["description"].as_str().unwrap_or("");
+                        let short_desc = if desc.len() > 70 { &desc[..70] } else { desc };
+                        let flag = if available { "" } else { " [disabled]" };
+                        println!("    {name}{flag} — {short_desc}");
+                    }
                 }
             }
             0
@@ -386,18 +465,160 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool) -> u8 {
     }
 }
 
-fn has_auth_token(runtime: &ToolRuntime) -> bool {
-    ["GITHUB_TOKEN", "GH_TOKEN", "OCTOCODE_TOKEN"]
-        .iter()
-        .any(|key| {
-            runtime
-                .config()
-                .env_value(key)
-                .is_some_and(|value| !value.is_empty())
-        })
+/// Resolve authentication: checks env vars, then OS keychain, then credentials.json
+/// at OCTOCODE_HOME, then gh CLI.
+/// Returns `(authenticated, username, source, raw_token)`.
+/// - `username` is populated natively only for the platform-keychain source.
+/// - `raw_token` is the credential secret when we can expose it (env / file / gh-cli);
+///   callers may use it for a live GH API call to resolve `username`.
+fn resolve_auth(runtime: &ToolRuntime) -> (bool, Option<String>, &'static str, Option<String>) {
+    use octocode_native::providers::github::{
+        CredentialSourceProvider, GhCliCredentialSource, LegacyCredentialStore,
+        PlatformCredentialStore, load_stored_credentials,
+    };
+    use secrecy::ExposeSecret;
+    // 1. Environment variables (fast, no I/O)
+    for key in ["GITHUB_TOKEN", "GH_TOKEN", "OCTOCODE_TOKEN"] {
+        if let Some(v) = runtime.config().env_value(key).filter(|v| !v.is_empty()) {
+            return (true, None, "env", Some(v.to_owned()));
+        }
+    }
+    let home = runtime.inspect_config().home;
+    // 2. OS platform keychain — username comes from keychain metadata directly
+    if matches!(
+        PlatformCredentialStore.load_blocking("github.com"),
+        Ok(Some(_))
+    ) {
+        let username = load_stored_credentials("github.com")
+            .ok()
+            .flatten()
+            .map(|c| c.username)
+            .filter(|u| !u.is_empty());
+        return (true, username, "platform", None);
+    }
+    // 3. credentials.json at OCTOCODE_HOME (written by the JS CLI)
+    if let Ok(Some(secret)) = LegacyCredentialStore::new(&home).load_blocking("github.com") {
+        let token = secret.expose_secret().to_owned();
+        return (true, None, "file", Some(token));
+    }
+    // 4. gh CLI token
+    if let Ok(Some(secret)) = GhCliCredentialSource.load_blocking("github.com") {
+        let token = secret.expose_secret().to_owned();
+        return (true, None, "gh-cli", Some(token));
+    }
+    (false, None, "none", None)
 }
 
-pub async fn status(runtime: &ToolRuntime, json_out: bool) -> u8 {
+/// Call `GET /user` on the GitHub API with the given token and return the
+/// `login` field. Times out after 5 s and silently returns `None` on any error.
+async fn fetch_github_username(token: &str, api_base: &str) -> Option<String> {
+    let url = format!("{}/user", api_base.trim_end_matches('/'));
+    let resp = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        reqwest::Client::new()
+            .get(&url)
+            .header("Authorization", format!("token {token}"))
+            .header(
+                "User-Agent",
+                concat!("octocode-native/", env!("CARGO_PKG_VERSION")),
+            )
+            .header("Accept", "application/vnd.github.v3+json")
+            .send(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let json: serde_json::Value = resp.json().await.ok()?;
+    json.get("login")
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+}
+
+/// Returns total bytes in a directory tree (best-effort; skips unreadable entries).
+fn dir_size_bytes(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .map(|e| {
+            let meta = e.metadata().ok();
+            if meta.as_ref().is_some_and(|m| m.is_dir()) {
+                dir_size_bytes(&e.path())
+            } else {
+                meta.map(|m| m.len()).unwrap_or(0)
+            }
+        })
+        .sum()
+}
+
+/// All known MCP client IDs and their config format.
+const ALL_IDES: &[(&str, &str)] = &[
+    ("cursor", "json"),
+    ("claude-desktop", "json"),
+    ("claude-code", "json"),
+    ("windsurf", "json"),
+    ("vscode-cline", "json"),
+    ("vscode-roo", "json"),
+    ("vscode-continue", "json"),
+    ("zed", "json"),
+    ("opencode", "json"),
+    ("gemini-cli", "json"),
+    ("kiro", "json"),
+    ("trae", "json"),
+    ("antigravity", "json"),
+    ("codex", "toml"),
+    ("goose", "yaml"),
+];
+
+/// Detect which IDEs have an Octocode MCP entry in their config.
+/// Returns ALL known IDEs — configured:true only when the config file exists
+/// and contains an octocode entry.
+fn detect_mcp_clients(_home: &Path) -> Vec<(&'static str, bool)> {
+    use super::mcp_install::config_path;
+    ALL_IDES
+        .iter()
+        .map(|(ide, fmt)| {
+            let configured = config_path(ide)
+                .and_then(|path| std::fs::read_to_string(&path).ok())
+                .map(|content| match *fmt {
+                    "toml" => {
+                        content.contains("[mcpServers.octocode]") || content.contains("octocode")
+                    }
+                    "yaml" => content.contains("octocode:") || content.contains("- octocode"),
+                    _ => serde_json::from_str::<serde_json::Value>(&content)
+                        .ok()
+                        .and_then(|v| {
+                            v["mcpServers"]
+                                .as_object()
+                                .map(|s| s.contains_key("octocode"))
+                        })
+                        .unwrap_or(false),
+                })
+                .unwrap_or(false);
+            (*ide, configured)
+        })
+        .collect()
+}
+
+/// Format bytes as a human-readable size string.
+fn human_bytes(bytes: u64) -> String {
+    if bytes == 0 {
+        return "0 B".into();
+    }
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    if bytes < 1_048_576 {
+        return format!("{:.1} KB", bytes as f64 / 1024.0);
+    }
+    format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+}
+
+pub async fn status(runtime: &ToolRuntime, _hostname: Option<&str>, json_out: bool) -> u8 {
     let view = runtime.inspect_config();
     let catalog = runtime.catalog().ok();
     let available = catalog
@@ -411,51 +632,143 @@ pub async fn status(runtime: &ToolRuntime, json_out: bool) -> u8 {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let token = has_auth_token(runtime);
+    let (auth, username, source, _token) = resolve_auth(runtime);
+    let hostname = "github.com"; // TODO: read from config when GHE support lands
+    // MCP client detection (all 15 IDEs)
+    let mcp_clients = detect_mcp_clients(&view.home);
+    let configured_count = mcp_clients.iter().filter(|(_, has)| *has).count();
+    // Cache size — sub-directory breakdown
+    let cache_root = view.home.join("tmp");
+    let cache_dirs = ["tmp", "clone", "tree", "response"];
+    let mut cache_totals: Vec<(_, u64)> = cache_dirs
+        .iter()
+        .map(|d| (*d, dir_size_bytes(&view.home.join(d))))
+        .collect();
+    // legacy: everything in tmp/ is counted under "tmp" already
+    let total_cache: u64 = cache_totals.iter().map(|(_, b)| b).sum();
+    // keep tmp as the raw dir_size (may overlap); give clone/tree/response their own paths
+    cache_totals[0] = ("tmp", dir_size_bytes(&cache_root));
     if json_out {
         return super::write_json(
             &json!({
                 "home": view.home,
                 "storage": view.storage_mode,
-                "auth": if token { "set" } else { "unset" },
-                "availableTools": available
+                "auth": {
+                    "authenticated": auth,
+                    "username": username,
+                    "hostname": hostname,
+                    "tokenPresent": auth,
+                    "tokenSource": source,
+                },
+                "config": {
+                    "source": "file",
+                    "storageMode": view.storage_mode,
+                },
+                "availableTools": available,
+                "mcpClients": mcp_clients.iter().map(|(ide, has)| json!({
+                    "client": ide,
+                    "octocodeInstalled": has
+                })).collect::<Vec<_>>(),
+                "cache": {
+                    "totalBytes": total_cache,
+                    "details": {
+                        "tmp": cache_totals[0].1,
+                        "clone": cache_totals[1].1,
+                        "tree": cache_totals[2].1,
+                        "response": cache_totals[3].1,
+                    }
+                }
             }),
             true,
         );
     }
+    // Human output
+    let auth_line = match (auth, &username) {
+        (true, Some(user)) => format!("authenticated as {user} (source: {source})"),
+        (true, None) => format!("authenticated (source: {source})"),
+        (false, _) => "unauthenticated".into(),
+    };
+    println!("home:    {}", view.home.display());
+    println!("storage: {}", view.storage_mode);
+    println!("auth:    {auth_line}");
+    println!();
     println!(
-        "home: {}\nstorage: {}\nauth: {}\ntools: {}",
-        view.home.display(),
-        view.storage_mode,
-        if token { "set" } else { "unset" },
-        available.join(" ")
+        "MCP Clients  ({configured_count}/{} configured)",
+        mcp_clients.len()
     );
+    for (ide, has) in &mcp_clients {
+        println!("  {} {ide}", if *has { "✓" } else { "○" });
+    }
+    println!();
+    println!("Cache  {} total", human_bytes(total_cache));
+    for (label, bytes) in &cache_totals {
+        println!("  {label:<10} {}", human_bytes(*bytes));
+    }
+    println!();
+    println!("Tools  ({} enabled):", available.len());
+    println!("  {}", available.join(" "));
     0
 }
 
-pub fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
-    let token = has_auth_token(runtime);
-    if json_out {
-        return super::write_json(&json!({"authenticated": token}), true);
-    }
-    println!(
-        "{}",
-        if token {
-            "authenticated"
-        } else {
-            "unauthenticated"
+pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
+    let (authenticated, username, source, token) = resolve_auth(runtime);
+    let api_base = &runtime.config().resolved.github.api_url;
+    let hostname = api_base
+        .parse::<url::Url>()
+        .ok()
+        .and_then(|u| {
+            u.host_str().map(|h| {
+                if h == "api.github.com" {
+                    "github.com"
+                } else {
+                    h
+                }
+                .to_owned()
+            })
+        })
+        .unwrap_or_else(|| "github.com".into());
+    // Resolve username via GH API when the credential source doesn't carry it
+    let username = if authenticated && username.is_none() {
+        match &token {
+            Some(tok) => fetch_github_username(tok, api_base).await,
+            None => None,
         }
-    );
-    if token { 0 } else { 1 }
+    } else {
+        username
+    };
+    if json_out {
+        return super::write_json(
+            &json!({
+                "success": true,
+                "authenticated": authenticated,
+                "username": username,
+                "hostname": hostname,
+                "tokenPresent": authenticated,
+                "tokenConfigured": authenticated,
+                "tokenSource": source,
+                "publicGitHubAccess": if authenticated { "authenticated" } else { "unauthenticated" }
+            }),
+            true,
+        );
+    }
+    if authenticated {
+        if let Some(user) = &username {
+            println!("authenticated as {user} (source: {source})");
+        } else {
+            println!("authenticated (source: {source})");
+        }
+        0
+    } else {
+        eprintln!("unauthenticated");
+        eprintln!("Run `octocode login` or set GITHUB_TOKEN / GH_TOKEN.");
+        1
+    }
 }
 
 pub async fn login(refresh: bool) -> u8 {
     if refresh {
         let result =
-            octocode_native::providers::github::login::refresh_auth_token_result(
-                None, None,
-            )
-            .await;
+            octocode_native::providers::github::login::refresh_auth_token_result(None, None).await;
         if result.success {
             eprintln!(
                 "Refreshed credentials for {}",
@@ -482,10 +795,8 @@ pub async fn login(refresh: bool) -> u8 {
         .ok()
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "https://api.github.com".into());
-    let endpoints =
-        octocode_native::providers::github::login::LoginEndpoints::from_api_url(&api);
-    match octocode_native::providers::github::login::login_device_flow(&endpoints).await
-    {
+    let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_api_url(&api);
+    match octocode_native::providers::github::login::login_device_flow(&endpoints).await {
         Ok(stored) => {
             eprintln!(
                 "Authenticated as {} on {}",

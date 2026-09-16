@@ -633,6 +633,67 @@ test('overlapping edits in the same query are rejected before any write', async 
   assert.equal(fs.readFileSync(filePath, 'utf8'), original);
 });
 
+test('normalized mode matches template-literal backtick escapes in file content', async () => {
+  const filePath = path.join(tmpDir, 'backtick-escape.ts');
+  // File contains raw \` (backslash-backtick) as appears in TypeScript template literals.
+  fs.writeFileSync(filePath, 'const x = `<tag>\nTreat a crash-left \\`started\\` effect as terminal \\`uncertain\\`.\n</tag>`;\n', 'utf8');
+  await recordFileReadState(filePath);
+  // oldText uses plain backticks (no backslash) — normalized mode should bridge the gap.
+  const result = await run({
+    queries: [{ type: 'edit',
+      reasoning: 'backtick normalization test',
+      path: 'backtick-escape.ts',
+      edits: [{ matchMode: 'normalized', oldText: 'Treat a crash-left `started` effect as terminal `uncertain`.', newText: 'Treat a crash-left `started` effect as terminal `uncertain`; retry may duplicate.' }],
+    }],
+  });
+  assert.ok(!result.isError, `unexpected error: ${JSON.stringify(result.content)}`);
+  const written = fs.readFileSync(filePath, 'utf8');
+  assert.ok(written.includes('retry may duplicate'), 'replacement should be present');
+  assert.ok(!written.includes('as terminal \\`uncertain\\`.\n'), 'old text should be gone');
+});
+
+test('lineRange replacing a mid-file line preserves newline so next line stays on its own line', async () => {
+  const filePath = path.join(tmpDir, 'lr-newline.ts');
+  fs.writeFileSync(filePath, 'line1\nline2 old content\nline3\n', 'utf8');
+  await recordFileReadState(filePath);
+  const result = await run({
+    queries: [{ type: 'edit',
+      reasoning: 'lineRange newline preservation test',
+      path: 'lr-newline.ts',
+      edits: [{ matchMode: 'lineRange', startLine: 2, endLine: 2, newText: 'line2 new content' }],
+    }],
+  });
+  assert.ok(!result.isError, `unexpected error: ${JSON.stringify(result.content)}`);
+  const written = fs.readFileSync(filePath, 'utf8');
+  assert.equal(written, 'line1\nline2 new content\nline3\n', 'line3 must remain on its own line');
+});
+
+test('lineRange newLines[] replaces a mid-file line without trailing-newline ambiguity', async () => {
+  const filePath = path.join(tmpDir, 'lr-newlines.ts');
+  fs.writeFileSync(filePath, 'alpha\nbeta old\ngamma\n', 'utf8');
+  await recordFileReadState(filePath);
+  const result = await run({
+    queries: [{ type: 'edit',
+      reasoning: 'newLines array test',
+      path: 'lr-newlines.ts',
+      edits: [{ matchMode: 'lineRange', startLine: 2, endLine: 2, newLines: ['beta new'] }],
+    }],
+  });
+  assert.ok(!result.isError, `unexpected error: ${JSON.stringify(result.content)}`);
+  assert.equal(fs.readFileSync(filePath, 'utf8'), 'alpha\nbeta new\ngamma\n', 'gamma must stay on own line');
+});
+
+test('newLines[] rejects when matchMode is not lineRange', async () => {
+  const filePath = path.join(tmpDir, 'lr-newlines-reject.ts');
+  fs.writeFileSync(filePath, 'x\n', 'utf8');
+  await recordFileReadState(filePath);
+  await assert.rejects(
+    () => run({ queries: [{ type: 'edit', reasoning: 'r', path: 'lr-newlines-reject.ts',
+      edits: [{ newLines: ['y'], newText: 'z' }] }] }),
+    /mutually exclusive|lineRange/i,
+  );
+});
+
 test('lineRange out-of-bounds throws a clear error', async () => {
   const filePath = path.join(tmpDir, 'lr-oob.ts');
   fs.writeFileSync(filePath, 'line1\nline2\n', 'utf8');

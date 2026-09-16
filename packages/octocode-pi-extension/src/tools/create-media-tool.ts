@@ -223,11 +223,11 @@ export function registerMediaTool(
     description: DIRECT_TOOL_DESCRIPTIONS.media!,
     promptSnippet: 'Create image/PDF artifacts or transform existing audio/video/image files.',
     promptGuidelines: [
-      'Use type:image/pdf to author; type:gif/trim/audio/convert transforms `source` into `dest`.',
-      'type:concat joins sources[] — reencode:true for different codecs/resolutions.',
-      'image takes svg OR html; pdf takes html OR markdown OR images. Supply exactly one source form.',
-      'convert videoCodec:"h264_videotoolbox"/"hevc_videotoolbox" for hardware encoding on macOS.',
-      'Inspect generated artifacts before presenting them; image pixels enter model context only with showToModel:true or a later inspectMedia call.'
+      'image/pdf to author; gif/trim/audio/convert transforms source into dest.',
+      'concat joins sources[] — reencode:true for different codecs/resolutions.',
+      'image: svg|html; pdf: html|markdown|images. Exactly one source form.',
+      'macOS hw encoding: videoCodec:"h264_videotoolbox" or "hevc_videotoolbox".',
+      'Inspect output before presenting; pixels in context only with showToModel:true or a later inspectMedia call.',
     ],
     parameters: buildQueryEnvelopeSchema(mediaItemSchema, {
       reasoningDescription: 'Concise reason this media operation is necessary.',

@@ -2,7 +2,7 @@ use super::types::*;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine::types::GraphFactsScanOptions;
+use octocode_engine_core::types::GraphFactsScanOptions;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Component, Path, PathBuf},
@@ -42,7 +42,7 @@ pub(crate) fn build_graph(
         }
     }
     let max_files = q.max_files.unwrap_or(20_000).clamp(1, 50_000);
-    let scan = octocode_engine::portable::scan_graph_facts_filtered(
+    let scan = octocode_engine_core::portable::scan_graph_facts_filtered(
         GraphFactsScanOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
             exclude_dir: Some(exclude),

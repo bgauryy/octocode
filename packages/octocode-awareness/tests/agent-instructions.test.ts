@@ -12,6 +12,7 @@ describe('portable Awareness agent instructions', () => {
     for (const section of AWARENESS_AGENT_INSTRUCTION_SECTIONS) {
       expect(instructions).toContain(`## ${section}\n`);
     }
+    expect(Buffer.byteLength(instructions)).toBeLessThanOrEqual(4_500);
     expect(instructions).toContain('context.observe');
     expect(instructions).toContain('context.feedback');
     expect(instructions).toContain('context.orient');
@@ -25,6 +26,9 @@ describe('portable Awareness agent instructions', () => {
     expect(instructions).toContain('The live operation descriptor is the field-level source of truth');
     expect(instructions).toContain('inputSchemaText');
     expect(instructions).toContain('generated from the canonical descriptor');
+    expect(instructions).toContain('includeSchemas:true');
+    expect(instructions).toContain('helpful requires later evidence');
+    expect(instructions).toContain('Run the check before work.verify');
     expect(instructions).not.toContain('to_agents');
     expect(instructions).not.toContain('kinds(');
     expect(instructions).not.toContain('files(');

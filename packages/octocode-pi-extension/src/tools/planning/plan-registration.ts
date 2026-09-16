@@ -740,11 +740,11 @@ export function registerPlanTool(
     description: DIRECT_TOOL_DESCRIPTIONS.plan!,
     promptSnippet: 'Plan only complex work or an explicit planning request. Routine multi-step work and simple delegation need no plan.',
     promptGuidelines: [
-      'Every call is {queries:[{reasoning,action,...}]}; select exactly one action branch and keep action fields inside that query.',
-      'Skip routine work. For complex work, use action:"set" when execution is already authorized and action:"propose" when review is required. Use an RFC only for consequential choices needing review.',
-      'Wrong: complete because a worker said DONE. Right: verify the assigned check, then use action:"complete" with the observed receipt.',
-      'For independent lanes, encode dependsOn, start each runnable index before delegation, and complete each explicit index.',
-      'During execution, action:"start" takes optional index; for a reviewed proposal, supply revision and authorizationInteractionId and omit index.',
+      '{queries:[{reasoning,action,...}]}; one action branch per query; keep action fields inside that query.',
+      'action:"set" when authorized; action:"propose" when review required; RFC for consequential choices only.',
+      'action:"complete" only after verifying the check; not on worker DONE claim.',
+      'Independent lanes: encode dependsOn, start each runnable, complete each explicit index.',
+      'action:"start" takes optional index; reviewed proposals need revision+authorizationInteractionId.',
     ],
     parameters: (() => {
       const reasoning = z.string().min(1).max(400);
@@ -782,14 +782,14 @@ export function registerPlanTool(
           reasoning,
           action: z.enum(['start']),
           scope,
-          index: z.number().int().min(1).optional().describe('Executing plan only: 1-based runnable step; omit to start the next dependency-ready step.'),
+          index: z.number().int().min(1).optional().describe('1-based runnable step; omit to start next dependency-ready step.'),
         }),
         z.strictObject({
           reasoning,
           action: z.enum(['start']),
           scope,
           revision: z.string().min(1).describe('Reviewed plan only: exact displayed RFC revision; omit index.'),
-          authorizationInteractionId: z.string().min(1).optional().describe('Answered human Start interaction; required while in review and omitted only for persisted accepted-recovery.'),
+          authorizationInteractionId: z.string().min(1).optional().describe('Answered Start interaction; required in review; omit only for persisted accepted-recovery.'),
         }),
         z.strictObject({ reasoning, action: z.enum(['complete']), scope, index: z.number().int().min(1).optional(), receipt: receipt.optional() }),
         z.strictObject({ reasoning, action: z.enum(['remove']), scope, index: z.number().int().min(1).optional() }),

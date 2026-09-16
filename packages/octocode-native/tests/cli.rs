@@ -277,7 +277,10 @@ fn fetch_help_shows_ref_and_branch_flags() {
         .expect("fetch --help");
     assert!(output.status.success(), "{}", stderr(&output));
     let text = stdout(&output);
-    assert!(text.contains("REF") || text.contains("ref"), "missing ref positional: {text}");
+    assert!(
+        text.contains("REF") || text.contains("ref"),
+        "missing ref positional: {text}"
+    );
     assert!(text.contains("--branch"), "missing --branch flag: {text}");
     assert!(text.contains("--lines"), "missing --lines flag: {text}");
     assert!(text.contains("--pretty"), "missing --pretty flag: {text}");
@@ -347,7 +350,10 @@ fn graph_help_shows_valid_analysis_values() {
     let text = stdout(&output);
     assert!(text.contains("deadCode"), "missing deadCode: {text}");
     assert!(text.contains("cycles"), "missing cycles: {text}");
-    assert!(text.contains("reachability"), "missing reachability: {text}");
+    assert!(
+        text.contains("reachability"),
+        "missing reachability: {text}"
+    );
 }
 
 #[test]

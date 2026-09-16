@@ -358,7 +358,8 @@ mod tests {
             r#"{"operation":"repositories","owner":"o"}"#,
             r#"{"operation":"tree","owner":"o","repo":"r"}"#,
         ] {
-            serde_json::from_str::<GhSearchQuery>(raw).unwrap();
+            serde_json::from_str::<GhSearchQuery>(raw)
+                .expect("GitHub search test data should be valid");
         }
     }
     #[test]
@@ -366,7 +367,7 @@ mod tests {
         let query = serde_json::from_str::<GhSearchQuery>(
             r#"{"operation":"code","keywords":["x"],"page":10,"pageSize":100}"#,
         )
-        .unwrap();
+        .expect("GitHub search test data should be valid");
         let mut value = json!({"operation":"code","pagination":{"hasMore":false}});
         apply_partial(&mut value, &query, true, true, 10, "code");
         assert_eq!(value["terminalLimit"], true);

@@ -154,8 +154,11 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
               },
               onError: () => {
                 if (shutdown || generation !== consumerGeneration) return;
+                // File-watcher I/O errors are transient monitoring failures — the watcher
+                // retries internally. Do not bump drainErrors; that would falsely show
+                // "Peer message delivery is unavailable" when delivery itself is fine.
                 const stats = consumer.snapshot();
-                observe({ ...stats, errors: stats.errors + 1, drainErrors: stats.drainErrors + 1 }, binding.ctx);
+                observe({ ...stats, errors: stats.errors + 1 }, binding.ctx);
               },
             });
           }
@@ -190,10 +193,11 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
            * next user prompt ('nextTurn' is only an in-memory queue and does not survive
            * compaction or session reload).
            *
-           * Two microtask yields give sendCustomMessage time to complete its internal
-           * awaits before we verify persistence in the session ledger. The yields are
-           * no-ops when the write is synchronous (test harness path) and necessary when
-           * it is async (production sendCustomMessage implementation).
+           * Two microtask yields let sendCustomMessage start and hit its first await.
+           * If persistence still isn't observable at that point (async I/O in flight),
+           * one setImmediate gives the event loop a macrotask turn to process pending
+           * I/O callbacks before we declare failure. Synchronous mocks in tests satisfy
+           * persisted() after the microtask yields and skip the setImmediate branch.
            */
           awaitingReceipt.add(message.details.eventId);
           pi.sendMessage({ ...message, display: true }, { triggerTurn: false, deliverAs: 'steer' });
@@ -201,6 +205,12 @@ export function registerAwarenessEventConsumer(pi: PiInstance, options: Register
           await Promise.resolve(); // let its first internal await settle
 
           assertActive();
+          if (!persisted()) {
+            // Production async fallback: if the write is still in-flight, give
+            // I/O callbacks one macrotask turn to complete before deciding failure.
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            assertActive();
+          }
           if (persisted()) {
             if (awaitingReceipt.delete(message.details.eventId)) recordActionable(message, expectedAgentId);
             options.onDelivery?.(message, currentCtx);

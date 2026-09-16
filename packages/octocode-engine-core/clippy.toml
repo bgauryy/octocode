@@ -1,0 +1,11 @@
+allow-unwrap-in-tests = true
+# Honest ceiling for non-exempt functions. The structural matcher's recursive
+# `match_multi_capture` genuinely threads 9 args (self + name + two source refs +
+# candidate list + captures + depth + attempts); its siblings and the
+# `collect_files` walker sit at 8. Deliberately flat, not a stateful struct (see
+# structural/octo.rs). The two anchor-prefilter helpers in structural/files.rs
+# sit above this and keep an explicit `#[allow]`.
+too-many-arguments-threshold = 9
+disallowed-methods = [
+    { path = "alloc::string::String::leak", reason = "leaks per call in a long-lived server process — bind to a local instead" },
+]

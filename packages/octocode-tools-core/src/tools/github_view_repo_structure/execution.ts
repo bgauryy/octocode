@@ -231,6 +231,16 @@ export async function exploreRepositoryStructure(
 
     const materialize = (query as { materialize?: boolean }).materialize === true;
     if (materialize) {
+      if (
+        typeof query.owner !== 'string' ||
+        query.owner.length === 0 ||
+        typeof query.repo !== 'string' ||
+        query.repo.length === 0
+      ) {
+        throw new Error(
+          'GitHub repository owner and name are required for materialization'
+        );
+      }
       const snapshot = await fetchDirectoryContents(
         query.owner,
         query.repo,

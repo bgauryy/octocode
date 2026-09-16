@@ -326,10 +326,19 @@ describe('schema', () => {
     expect(schema.required).toContain('queries');
   });
 
-  function schemaBranches(schema: ToolDefinition['parameters']): Array<{ properties?: Record<string, { const?: string; enum?: string[]; minLength?: number; maxLength?: number; description?: string }>; required?: string[] }> {
+  type SchemaProperty = {
+    const?: string;
+    enum?: string[];
+    minLength?: number;
+    maxLength?: number;
+    description?: string;
+    $ref?: string;
+  };
+
+  function schemaBranches(schema: ToolDefinition['parameters']): Array<{ properties?: Record<string, SchemaProperty>; required?: string[] }> {
     const root = schema as { properties?: { queries?: { minItems?: number; items?: { anyOf?: unknown[]; oneOf?: unknown[] } } } };
     const items = root.properties?.queries?.items;
-    return (items?.anyOf ?? items?.oneOf ?? []) as Array<{ properties?: Record<string, { const?: string; enum?: string[]; minLength?: number; maxLength?: number }>; required?: string[] }>;
+    return (items?.anyOf ?? items?.oneOf ?? []) as Array<{ properties?: Record<string, SchemaProperty>; required?: string[] }>;
   }
 
   it('queries array has minItems:1 and every discriminated branch requires bounded reasoning', async () => {
@@ -357,6 +366,86 @@ describe('schema', () => {
     for (const profile of AGENT_PROFILES) expect(profiles).toContain(profile);
     const custom = branches.find((branch) => branch.properties?.['profile']?.enum?.includes('custom'));
     expect(custom?.required).toEqual(expect.arrayContaining(['goal', 'context', 'scope', 'ownership', 'acceptance', 'returnShape', 'tools', 'systemPrompt']));
+  });
+
+  it('publishes profile-specific capability contracts that agree with custom preflight', async () => {
+    const tools = await loadSut();
+    const tool = tools.get('agent')!;
+    const schema = tool.parameters as {
+      definitions?: Record<string, {
+        additionalProperties?: boolean;
+        properties?: Record<string, unknown>;
+      }>;
+    };
+    const branches = schemaBranches(tool.parameters);
+    const custom = branches.find((branch) => branch.properties?.['profile']?.enum?.includes('custom'));
+    const typed = branches.find((branch) => branch.properties?.['profile']?.enum?.includes('researcher'));
+    const configure = branches.find((branch) => branch.properties?.['type']?.enum?.includes('configure'));
+
+    expect(custom?.properties?.['capabilities']?.$ref).toBe('#/definitions/customWorkerCapabilities');
+    expect(typed?.properties?.['capabilities']?.$ref).toBe('#/definitions/workerCapabilities');
+    expect(configure?.properties?.['capabilities']?.$ref).toBe('#/definitions/workerCapabilities');
+    expect(Object.keys(schema.definitions?.['customWorkerCapabilities']?.properties ?? {}).sort()).toEqual(['mcpTools', 'skills']);
+    expect(schema.definitions?.['customWorkerCapabilities']?.additionalProperties).toBe(false);
+    expect(Object.keys(schema.definitions?.['workerCapabilities']?.properties ?? {}).sort()).toEqual(['mcpTools', 'nativeTools', 'skills']);
+
+    const validator = compileMcpSchemaValidator(tool.parameters);
+    expect(validator.validate(batch({
+      type: 'spawn', profile: 'custom', task: 'custom capabilities',
+      tools: ['MCPTool', 'skill'], capabilities: { skills: [], mcpTools: [] },
+    })).valid).toBe(true);
+    expect(validator.validate(batch({
+      type: 'spawn', profile: 'custom', task: 'duplicate native selector',
+      tools: ['MCPTool'], capabilities: { nativeTools: [] },
+    })).valid).toBe(false);
+    expect(validator.validate(batch({
+      type: 'spawn', profile: 'researcher', task: 'typed capabilities',
+      capabilities: { nativeTools: [], skills: [], mcpTools: [] },
+    })).valid).toBe(true);
+    expect(validator.validate(batch({
+      type: 'configure', agentId: 'existing-agent', snapshotRevision: 'snapshot-one',
+      capabilities: { nativeTools: [], skills: [], mcpTools: [] },
+    })).valid).toBe(true);
+  });
+
+  it('accepts every profile and operation contract while rejecting branch-only field leakage', async () => {
+    const tools = await loadSut();
+    const validator = compileMcpSchemaValidator(tools.get('agent')!.parameters);
+    const validPayloads = [
+      ...AGENT_PROFILES.map((profile) => batch({
+        type: 'spawn',
+        profile,
+        task: `${profile} task`,
+        ...(profile === 'custom' ? { tools: [], systemPrompt: 'Bounded custom role.' } : {}),
+        ...(profile === 'browser' ? { runNow: false } : {}),
+      })),
+      batch({ type: 'inspect' }),
+      batch({ type: 'inspect', agentId: 'existing-agent', full: true }),
+      batch({
+        type: 'configure', agentId: 'existing-agent', snapshotRevision: 'snapshot-one', grantRevision: 1,
+        capabilities: { nativeTools: [], skills: [], mcpTools: [] },
+      }),
+      batch({ type: 'wait', agentId: 'existing-agent', timeoutMs: 1, remove: false, full: true }),
+      batch({ type: 'message', agentId: 'existing-agent', message: 'continue', delivery: 'send' }),
+      batch({ type: 'steer', agentId: 'existing-agent', message: 'focus here' }),
+      batch({ type: 'abort', agentId: 'existing-agent', full: true }),
+      batch({ type: 'kill', agentId: 'existing-agent', remove: true, full: true }),
+    ];
+    for (const payload of validPayloads) expect(validator.validate(payload).valid).toBe(true);
+
+    const invalidPayloads = [
+      batch({ type: 'spawn', profile: 'researcher', task: 'typed', tools: [] }),
+      batch({ type: 'spawn', profile: 'browser', task: 'browser', systemPrompt: 'not allowed' }),
+      batch({ type: 'spawn', profile: 'custom', task: 'custom', tools: [], systemPrompt: 'role', url: 'https://example.com' }),
+      batch({ type: 'inspect', message: 'not allowed' }),
+      batch({ type: 'configure', agentId: 'existing-agent', snapshotRevision: 'snapshot-one' }),
+      batch({ type: 'wait' }),
+      batch({ type: 'message', agentId: 'existing-agent' }),
+      batch({ type: 'steer', agentId: 'existing-agent', message: 'focus', delivery: 'send' }),
+      batch({ type: 'abort', agentId: 'existing-agent', remove: true }),
+      batch({ type: 'kill', agentId: 'existing-agent', durationMs: 1 }),
+    ];
+    for (const payload of invalidPayloads) expect(validator.validate(payload).valid).toBe(false);
   });
 
   it('marks planStep as optional and exclusive to an existing executing-plan assignment', async () => {
@@ -494,93 +583,18 @@ describe('plan worker assignment', () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  function assignmentModel() {
-    return planReadModel.buildPlanReadModel({
-      steps: [
-        { id: 'research', text: 'Research', status: 'todo', awarenessTaskId: 'shared-research' },
-        { id: 'implement', text: 'Implement API', status: 'todo', awarenessTaskId: 'shared-implement', dependsOnStepIds: ['research'], paths: ['src/api.ts'], acceptance: 'API contract passes', checkCommand: 'yarn test api' },
-      ],
-      review: { phase: 'executing', branchSnapshotId: 'branch', generation: 1, decisions: [], blockingQuestions: [], comments: [] },
-      coordination: { mode: 'required', sourcePlanKey: 'plan-assignment', coordinationWorkspace: '/repo' },
-      sharedTaskStatuses: { 'shared-research': 'DONE', 'shared-implement': 'IN_PROGRESS' },
-    });
-  }
-
-  it('drops an unbound planStep and spawns standalone when no parent plan exists', async () => {
-    const model = assignmentModel();
-    model.phase = 'abandoned';
-    model.tasks = [];
-    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(model);
+  it('passes planStep through as metadata without validation', async () => {
     const agentProcess = await import('../src/tools/agents/process.js');
     const tools = await loadSut();
     const result = await run(
       tools.get('agent')!,
       batch({ type: 'spawn', task: 'Independent architecture review', planStep: 'architecture-review-integration' }),
     );
-    expect(vi.mocked(agentProcess.spawnRpcAgent).mock.calls[0]![0].planStep).toBeUndefined();
-    expect(result.text).toMatch(/ignored unbound planStep.*standalone subagents do not require a plan/is);
+    expect(vi.mocked(agentProcess.spawnRpcAgent).mock.calls[0]![0].planStep).toBe('architecture-review-integration');
+    expect(result.text).toMatch(/SPAWNED/i);
   });
 
-  it('carries the canonical task contract using effective shared status', async () => {
-    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(assignmentModel());
-    const agentProcess = await import('../src/tools/agents/process.js');
-    const tools = await loadSut();
-    await run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build this', planStep: 'implement' }), planContext('assignment'));
-    const params = vi.mocked(agentProcess.spawnRpcAgent).mock.calls[0]![0];
-    expect(params.task).toContain('plan-assignment');
-    expect(params.task).toContain('implement');
-    expect(params.task).toContain('src/api.ts');
-    expect(params.task).toContain('API contract passes');
-    expect(params.task).toContain('yarn test api');
-  });
-
-  it.each(['missing', 'todo', 'dependency', 'review', 'interaction'])(
-    'rejects %s plan assignments before preparation or spawning', async (invalid) => {
-      const model = assignmentModel();
-      if (invalid === 'todo') model.tasks[1]!.status = 'todo';
-      if (invalid === 'dependency') model.tasks[0]!.status = 'doing';
-      if (invalid === 'review') model.phase = 'in_review';
-      if (invalid === 'interaction') model.pendingInteractionIds = ['pending'];
-      vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockReturnValue(model);
-      const agentProcess = await import('../src/tools/agents/process.js');
-      const tools = await loadSut();
-      await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build', planStep: invalid === 'missing' ? 'absent' : 'implement' }))).rejects.toThrow(/plan|depend|interaction/i);
-      expect(agentProcess.prepareSpawnAgentParams).not.toHaveBeenCalled();
-      expect(agentProcess.spawnRpcAgent).not.toHaveBeenCalled();
-    },
-  );
-
-  it('revalidates plan identity after asynchronous spawn preparation', async () => {
-    const current = assignmentModel();
-    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockImplementation(() => current);
-    const agentProcess = await import('../src/tools/agents/process.js');
-    vi.mocked(agentProcess.prepareSpawnAgentParams).mockImplementationOnce(async (params) => {
-      current.planId = 'replacement-plan';
-      return params;
-    });
-    const tools = await loadSut();
-    await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build', planStep: 'implement' }))).rejects.toThrow(/plan.*chang/i);
-    expect(agentProcess.spawnRpcAgent).not.toHaveBeenCalled();
-  });
-
-  it.each(['owner', 'status', 'dependency'])('revalidates %s after asynchronous preparation', async (change) => {
-    const current = assignmentModel();
-    vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockImplementation(() => current);
-    const agentProcess = await import('../src/tools/agents/process.js');
-    const agentLedger = await import('../src/tools/agents/ledger.js');
-    const owner = vi.spyOn(agentLedger, 'findLivePlanWorker').mockReturnValue(undefined);
-    vi.mocked(agentProcess.prepareSpawnAgentParams).mockImplementationOnce(async (params) => {
-      if (change === 'owner') owner.mockReturnValue('existing-worker');
-      if (change === 'status') current.tasks[1]!.status = 'done';
-      if (change === 'dependency') current.tasks[0]!.status = 'doing';
-      return params;
-    });
-    const tools = await loadSut();
-    await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Build', planStep: 'implement' }))).rejects.toThrow(/plan|depend/i);
-    expect(agentProcess.spawnRpcAgent).not.toHaveBeenCalled();
-  });
-
-  it('leaves standalone spawning independent of plan state', async () => {
+  it('spawns without planStep and does not read plan state', async () => {
     const read = vi.spyOn(planReadModel, 'getCurrentPlanReadModel').mockImplementation(() => { throw new Error('should not read plan'); });
     const tools = await loadSut();
     await expect(run(tools.get('agent')!, batch({ type: 'spawn', task: 'Independent research' }))).resolves.toBeDefined();
@@ -860,12 +874,20 @@ describe('spawn: typed profiles', () => {
   });
 
   it('profile:custom uses the explicit least-capability tool list and shared worker contract', async () => {
-    await run(tools.get('agent')!, batch({ type: 'spawn', profile: 'custom', task: 'custom job' }));
+    await run(tools.get('agent')!, batch({
+      type: 'spawn', profile: 'custom', task: 'custom job',
+      capabilities: { skills: [], mcpTools: [] },
+    }));
     const spawnCall = vi.mocked(agentProcess.prepareSpawnAgentParams).mock.calls[0]![0] as {
-      resourceMode?: string; tools?: string[]; skills?: string[]; systemPrompt?: string;
+      resourceMode?: string;
+      tools?: string[];
+      skills?: string[];
+      systemPrompt?: string;
+      capabilities?: { skills?: string[]; mcpTools?: Array<{ server: string; tool: string }> };
     };
     expect(spawnCall.resourceMode).toBe('octocode');
     expect(spawnCall.tools).toEqual([]);
+    expect(spawnCall.capabilities).toEqual({ skills: [], mcpTools: [] });
     expect(spawnCall.skills).toBeDefined();
     expect(spawnCall.systemPrompt).toMatch(/The parent owns scope, synthesis, dependent decisions, and user contact/i);
     expect(spawnCall.systemPrompt).toMatch(/Perform the bounded custom test role/);

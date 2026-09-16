@@ -1,0 +1,110 @@
+[package]
+name = "octocode-engine-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Shared Rust engine primitives for Octocode native and N-API consumers"
+publish = false
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+aho-corasick = "1"
+ast-grep-core = { version = "0.45.3", optional = true }
+ast-grep-config = { version = "0.45.3", optional = true }
+ast-grep-language = { version = "0.45.3", optional = true }
+crossbeam-epoch = "0.9.20"
+grep = { version = "0.4", features = ["pcre2"] }
+ignore = "0.4"
+lightningcss = { version = "1.0.0-alpha.72", default-features = false, optional = true }
+memmap2 = "0.9.11"
+napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
+napi-derive = { version = "3", optional = true }
+oxc_allocator = "0.149"
+oxc_ast = "0.149"
+oxc_codegen = { version = "0.149", default-features = false }
+oxc_minifier = "0.149"
+oxc_parser = "0.149"
+oxc_semantic = "0.149"
+oxc_span = "0.149"
+rayon = "1"
+regex = "1"
+regex-syntax = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+serde_yaml_ng = "0.10"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "test-util", "time"] }
+tree-sitter = "0.27"
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-css = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-json = "0.24"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-php = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24.2"
+tree-sitter-scala = { version = "0.26", optional = true }
+tree-sitter-scss = "1"
+tree-sitter-sequel = { version = "0.3", optional = true }
+tree-sitter-swift = { version = "0.7", optional = true }
+tree-sitter-typescript = "0.23"
+tree-sitter-yaml = "0.7"
+url = "2"
+which = "8"
+
+[features]
+default = ["portable-default"]
+portable-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
+napi-addon = ["dep:napi", "dep:napi-derive"]
+embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config", "dep:ast-grep-language"]
+tree-sitter-cpp = ["dep:tree-sitter-cpp"]
+tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
+tree-sitter-swift = ["dep:tree-sitter-swift"]
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-sitter-swift"]
+css-quality = ["dep:lightningcss"]
+tree-sitter-extended = ["dep:tree-sitter-sequel", "dep:tree-sitter-scala"]
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+proptest = "1"
+
+[[bench]]
+name = "structural"
+harness = false
+
+[[bench]]
+name = "minify"
+harness = false
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+needless_pass_by_value = "allow"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+
+[lints.rust]
+dead_code = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
+unused_mut = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = "symbols"
+
+[profile.dev.package."regex-automata"]
+opt-level = 3
+
+[profile.test.package."regex-automata"]
+opt-level = 3

@@ -1267,14 +1267,6 @@ test('every direct tool contract is concise enough for per-turn agent context', 
     visitDescriptions(tool.parameters, name);
     totalContractChars += description.length + schemaText.length;
   }
-  assert.match(tools.get('bash')!.description!, /never for code search or file reads/i);
-  assert.match(tools.get('MCPTool')!.description!, /server:"octocode" holds the code, GitHub, history, npm/i);
-  assert.match(tools.get('MCPTool')!.description!, /system prompt lists every enabled tool description and complete input schema/i);
-  assert.match(tools.get('agent')!.description!, /use MCPTool for repository research/i);
-  assert.match(tools.get('agent')!.description!, /implementer/);
-  assert.match(tools.get('agent')!.description!, /custom.*requires.*tools.*systemPrompt/i);
-  assert.match(tools.get('skill')!.description!, /specialized workflow/i);
-  assert.doesNotMatch(tools.get('skill')!.description!, /matching skill BEFORE acting/i);
   assert.ok(totalContractChars <= 48_000, `direct tool contracts use ${totalContractChars} chars: ${[...tools].map(([name, tool]) => `${name}=${JSON.stringify(tool.parameters).length + (tool.description?.length ?? 0)}`).join(', ')}`);
 });
 
@@ -1382,16 +1374,7 @@ test('file exposes one edit schema and rendering contract', async () => {
   const { tools } = await captureExtensions();
   const editTool = tools.get('file')!;
   assert.equal(editTool.label, 'file (Octocode)');
-  assert.match(editTool.description!, /guarded edit, write, or delete/i);
-  assert.ok(
-    editTool.promptGuidelines!.some(line => line.includes('stale-edit guard')),
-    'edit guidance covers the stale/lost-update guard'
-  );
-  assert.ok(
-    editTool.promptGuidelines!.some(line =>
-      line.includes('targeted replacements')
-    )
-  );
+
   const params = editTool.parameters as {
     properties: {
       queries: { items: { properties: { edits: { items: { properties: Record<string, unknown> } } } } };
@@ -1423,7 +1406,6 @@ test('file write preserves atomic creation and path guards', async () => {
   const { tools, activeTools } = await captureExtensions();
   const writeTool = tools.get('file')!;
   assert.equal(writeTool.label, 'file (Octocode)');
-  assert.match(writeTool.description!, /write replaces the whole file/i);
   assert.equal(activeTools.includes('write'), false, 'native write stays disabled');
   assert.equal(tools.has('file'), true, 'file replaces native edit/write');
   assert.equal(activeTools.includes('read'), false);

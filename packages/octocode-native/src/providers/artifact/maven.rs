@@ -6,85 +6,6 @@ use super::{
 };
 use regex::Regex;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::providers::artifact::http::{
-        ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
-    };
-    use crate::providers::RequestBudget;
-    use std::time::Duration;
-
-    struct MockHttp(Vec<u8>);
-
-    impl ArtifactHttp for MockHttp {
-        fn get<'a>(
-            &'a self,
-            _req: ArtifactHttpRequest,
-            _budget: &'a RequestBudget,
-        ) -> ArtifactHttpFuture<'a> {
-            let body = self.0.clone();
-            Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) })
-        }
-    }
-
-    fn budget() -> RequestBudget {
-        RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
-    }
-
-    #[tokio::test]
-    async fn maven_parses_exact_xml_lookup() {
-        let xml = concat!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
-            "<metadata>",
-            "<groupId>com.fasterxml.jackson.core</groupId>",
-            "<artifactId>jackson-databind</artifactId>",
-            "<versioning><release>2.15.2</release></versioning>",
-            "</metadata>"
-        );
-        let http = MockHttp(xml.as_bytes().to_vec());
-        let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
-        let q = ArtifactQuery {
-            artifact_type: ArtifactType::Maven,
-            package_name: Some(
-                "com.fasterxml.jackson.core:jackson-databind".into(),
-            ),
-            keywords: None,
-            page_size: None,
-            cursor: None,
-            registry: None,
-        };
-        let page = maven(&q, &ArtifactProviderState::default(), &client)
-            .await
-            .expect("maven exact");
-        assert_eq!(page.artifacts.len(), 1);
-        let item = &page.artifacts[0];
-        assert_eq!(item.name, "com.fasterxml.jackson.core:jackson-databind");
-        assert_eq!(item.version.as_deref(), Some("2.15.2"));
-        assert!(item.registry_url.contains("sonatype.com"), "{}", item.registry_url);
-    }
-
-    #[tokio::test]
-    async fn maven_rejects_invalid_coordinate() {
-        let http = MockHttp(vec![]);
-        let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
-        let q = ArtifactQuery {
-            artifact_type: ArtifactType::Maven,
-            package_name: Some("not-a-maven-coordinate".into()),
-            keywords: None,
-            page_size: None,
-            cursor: None,
-            registry: None,
-        };
-        let err = maven(&q, &ArtifactProviderState::default(), &client)
-            .await
-            .expect_err("invalid maven coordinate");
-        assert_eq!(err.code, "invalid_query");
-    }
-}
-
 pub(crate) async fn maven(
     query: &ArtifactQuery,
     state: &ArtifactProviderState,
@@ -227,4 +148,91 @@ async fn exact(
         terminal_limit: None,
         registry: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::RequestBudget;
+    use crate::providers::artifact::http::{
+        ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
+    };
+    use std::time::Duration;
+
+    struct MockHttp(Vec<u8>);
+
+    impl ArtifactHttp for MockHttp {
+        fn get<'a>(
+            &'a self,
+            _req: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            let body = self.0.clone();
+            Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) })
+        }
+    }
+
+    fn budget() -> RequestBudget {
+        RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
+    }
+
+    #[tokio::test]
+    async fn maven_parses_exact_xml_lookup() {
+        let xml = concat!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+            "<metadata>",
+            "<groupId>com.fasterxml.jackson.core</groupId>",
+            "<artifactId>jackson-databind</artifactId>",
+            "<versioning><release>2.15.2</release></versioning>",
+            "</metadata>"
+        );
+        let http = MockHttp(xml.as_bytes().to_vec());
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
+        let q = ArtifactQuery {
+            artifact_type: ArtifactType::Maven,
+            package_name: Some("com.fasterxml.jackson.core:jackson-databind".into()),
+            keywords: None,
+            page_size: None,
+            cursor: None,
+            registry: None,
+        };
+        let page = maven(&q, &ArtifactProviderState::default(), &client)
+            .await
+            .expect("maven exact");
+        assert_eq!(page.artifacts.len(), 1);
+        let item = &page.artifacts[0];
+        assert_eq!(item.name, "com.fasterxml.jackson.core:jackson-databind");
+        assert_eq!(item.version.as_deref(), Some("2.15.2"));
+        assert!(
+            item.registry_url.contains("sonatype.com"),
+            "{}",
+            item.registry_url
+        );
+    }
+
+    #[tokio::test]
+    async fn maven_rejects_invalid_coordinate() {
+        let http = MockHttp(vec![]);
+        let b = budget();
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
+        let q = ArtifactQuery {
+            artifact_type: ArtifactType::Maven,
+            package_name: Some("not-a-maven-coordinate".into()),
+            keywords: None,
+            page_size: None,
+            cursor: None,
+            registry: None,
+        };
+        let err = maven(&q, &ArtifactProviderState::default(), &client)
+            .await
+            .expect_err("invalid maven coordinate");
+        assert_eq!(err.code, "invalid_query");
+    }
 }

@@ -297,21 +297,27 @@ export async function transformPullRequestItemFromREST(
   const wantInlineRest = shouldFetchInlineComments(params);
   if (wantDiscussionRest || wantInlineRest) {
     const includeBots = shouldIncludeBotComments(params);
-    const emptyRest = (): Promise<{
+    type CommentFetchResult = {
       comments: CollectionArray<PRCommentItem>;
       note?: string;
-    }> => Promise.resolve({ comments: attachRawResponseChars([], 0) });
+    };
+    const emptyRest = (): Promise<CommentFetchResult> =>
+      Promise.resolve({ comments: attachRawResponseChars([], 0) });
+    const completeGraphqlComments = (
+      comments: PRCommentItem[]
+    ): Promise<CommentFetchResult> =>
+      Promise.resolve({
+        comments: Object.assign([...comments], {
+          collectionState: { page: 1, hasMore: false },
+        }),
+      });
     const [
       { comments: discussionComments, note: discussionNote },
       { comments: inlineComments, note: inlineNote },
     ] = await Promise.all([
       wantDiscussionRest
         ? graphql?.discussion === 'complete' && graphql.mappedComments
-          ? Promise.resolve({
-              comments: Object.assign([...graphql.mappedComments], {
-                collectionState: { page: 1, hasMore: false },
-              }),
-            })
+          ? completeGraphqlComments(graphql.mappedComments)
           : fetchPRComments(
               octokit,
               owner,

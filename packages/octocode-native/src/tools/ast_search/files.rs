@@ -1,7 +1,7 @@
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine::types::{FileSystemEntry, FileSystemQueryOptions};
+use octocode_engine_core::types::{FileSystemEntry, FileSystemQueryOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -80,7 +80,7 @@ pub fn execute_files(
     let validated = paths.validate(&q.path).map_err(super::AstError::from)?;
     let (time, mut warnings) = valid_time(q.time.clone());
     let access = q.access.as_deref();
-    let native = octocode_engine::portable::query_file_system_filtered(
+    let native = octocode_engine_core::portable::query_file_system_filtered(
         FileSystemQueryOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
             include_root: Some(true),

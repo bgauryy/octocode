@@ -60,7 +60,7 @@ pub struct ToolRuntime {
             Result<super::github::GitHubServices, crate::providers::github::ProviderError>,
         >,
     >,
-    lsp_pool: Arc<crate::lsp::LspPool>,
+    lsp_pool: Arc<octocode_engine_core::lsp::pool::LspClientPool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,7 +167,7 @@ impl ToolRuntime {
             regex: None,
             github_cache,
             github_services: Arc::new(std::sync::OnceLock::new()),
-            lsp_pool: Arc::new(crate::lsp::LspPool::default()),
+            lsp_pool: Arc::new(octocode_engine_core::lsp::pool::LspClientPool::default()),
         })
     }
 
@@ -183,6 +183,7 @@ impl ToolRuntime {
     pub async fn close(&self) {
         self.begin_close();
         self.requests.close().await;
+        self.lsp_pool.clear_all().await;
         self.github_cache.clear();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
@@ -486,12 +487,8 @@ impl ToolRuntime {
                                 let context = context.clone();
                                 async move {
                                     context.check()?;
-                                    match crate::tools::lsp_search::execute(
-                                        query,
-                                        &context,
-                                        Some(&pool),
-                                    )
-                                    .await
+                                    match crate::tools::lsp_search::execute(query, &context, &pool)
+                                        .await
                                     {
                                         Ok(data) => Ok(super::dispatch::value_result(data)),
                                         Err(message) => Ok(super::dispatch::provider_failure(

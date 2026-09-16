@@ -14,7 +14,7 @@ pub fn parse_ripgrep_json(
     stdout: String,
     options: Option<RipgrepParseOptions>,
 ) -> RipgrepParseResult {
-    crate::search::ripgrep_parser::parse_ripgrep_json_inner(&stdout, options)
+    crate::portable::parse_ripgrep_json(&stdout, options)
 }
 
 /// Run ripgrep in-process: walk `path`, search every file with ripgrep's own
@@ -36,8 +36,8 @@ pub fn validate_ripgrep_pattern(
     pattern: String,
     fixed_string: Option<bool>,
     perl_regex: Option<bool>,
-) -> crate::search::ripgrep_pattern::RipgrepPatternValidationResult {
-    crate::search::ripgrep_pattern::validate(
+) -> crate::portable::RipgrepPatternValidationResult {
+    crate::portable::validate_ripgrep_pattern(
         &pattern,
         fixed_string.unwrap_or(false),
         perl_regex.unwrap_or(false),

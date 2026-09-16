@@ -1,7 +1,12 @@
 //! Complete-collection GraphQL fast path for a single PR history item.
 import { getConfigSync } from '@octocodeai/config';
 import type { OctokitWithThrottling } from './client.js';
-import type { GitHubPullRequestsSearchParams } from './githubAPI.js';
+import type {
+  CommitInfo,
+  GitHubPullRequestsSearchParams,
+  PRCommentItem,
+  PRReviewInfo,
+} from './githubAPI.js';
 import {
   shouldFetchCommits,
   shouldFetchDiscussionComments,
@@ -22,26 +27,9 @@ export type GraphqlPrCollections = {
     deletions?: number;
     status: string;
   }>;
-  mappedComments?: Array<{
-    id: string | number;
-    body?: string;
-    user?: { login?: string };
-    created_at?: string;
-  }>;
-  mappedReviews?: Array<{
-    id?: string;
-    user?: { login?: string };
-    state?: string;
-    body?: string;
-    submitted_at?: string;
-  }>;
-  mappedCommits?: Array<{
-    sha: string;
-    commit?: {
-      message?: string;
-      author?: { name?: string; date?: string };
-    };
-  }>;
+  mappedComments?: PRCommentItem[];
+  mappedReviews?: PRReviewInfo[];
+  mappedCommits?: CommitInfo[];
 };
 
 const skippedHosts = new Set<string>();
@@ -73,6 +61,10 @@ export function graphqlCompleteCollectionEligible(
     params.content as { patches?: { mode?: string } } | undefined
   )?.patches?.mode;
   if (patches && patches !== 'none') return false;
+  const includeCommitFiles = (
+    params.content as { commits?: { includeFiles?: boolean } } | undefined
+  )?.commits?.includeFiles;
+  if (includeCommitFiles === true) return false;
   const flags = [
     Boolean((params.content as { body?: boolean } | undefined)?.body),
     shouldFetchFileChanges(params),
@@ -132,13 +124,13 @@ export async function fetchGraphqlPullRequestCollections(
   }
   if (wantDiscussion) {
     selections.push(
-      'commentsConn: comments(first:$discussion){ pageInfo{ hasNextPage } nodes{ databaseId author{ login } body createdAt } }'
+      'commentsConn: comments(first:$discussion){ pageInfo{ hasNextPage } nodes{ databaseId author{ login } body createdAt updatedAt } }'
     );
     variables.discussion = 100;
   }
   if (wantReviews) {
     selections.push(
-      'reviews(first:$reviews){ pageInfo{ hasNextPage } nodes{ author{ login } state body submittedAt } }'
+      'reviews(first:$reviews){ pageInfo{ hasNextPage } nodes{ id author{ login } state body submittedAt commit{ oid } } }'
     );
     variables.reviews = 100;
   }
@@ -214,17 +206,20 @@ export async function fetchGraphqlPullRequestCollections(
                   nodes?: Array<Record<string, unknown>>;
                 }
               )?.nodes ?? []
-            ).map(node => ({
-              id: (node.databaseId as number | undefined) ?? String(node.id ?? ''),
-              body: node.body as string | undefined,
-              user: {
-                login: String(
+            ).map(node => {
+              const createdAt = String(node.createdAt ?? '');
+              return {
+                id: String(node.databaseId ?? node.id ?? ''),
+                body: String(node.body ?? ''),
+                user: String(
                   (node.author as { login?: string } | undefined)?.login ??
                     'unknown'
                 ),
-              },
-              created_at: node.createdAt as string | undefined,
-            }))
+                createdAt,
+                updatedAt: String(node.updatedAt ?? createdAt),
+                commentType: 'discussion' as const,
+              };
+            })
           : undefined,
       mappedReviews:
         reviews === 'complete'
@@ -232,16 +227,22 @@ export async function fetchGraphqlPullRequestCollections(
               (pr.reviews as { nodes?: Array<Record<string, unknown>> })
                 ?.nodes ?? []
             ).map(node => ({
-              id: node.id as string | undefined,
-              user: {
-                login: String(
-                  (node.author as { login?: string } | undefined)?.login ??
-                    'unknown'
-                ),
-              },
-              state: node.state as string | undefined,
-              body: node.body as string | undefined,
-              submitted_at: node.submittedAt as string | undefined,
+              id: String(node.id ?? ''),
+              user: String(
+                (node.author as { login?: string } | undefined)?.login ??
+                  'unknown'
+              ),
+              state: String(node.state ?? ''),
+              body: String(node.body ?? ''),
+              submittedAt:
+                typeof node.submittedAt === 'string'
+                  ? node.submittedAt
+                  : undefined,
+              commitId:
+                typeof (node.commit as { oid?: unknown } | undefined)?.oid ===
+                'string'
+                  ? (node.commit as { oid: string }).oid
+                  : undefined,
             }))
           : undefined,
       mappedCommits:
@@ -255,13 +256,10 @@ export async function fetchGraphqlPullRequestCollections(
               const user = (author.user ?? {}) as Record<string, unknown>;
               return {
                 sha: String(commit.oid ?? ''),
-                commit: {
-                  message: String(commit.messageHeadline ?? ''),
-                  author: {
-                    name: String(user.login ?? 'unknown'),
-                    date: String(commit.authoredDate ?? ''),
-                  },
-                },
+                message: String(commit.messageHeadline ?? ''),
+                author: String(user.login ?? 'unknown'),
+                date: String(commit.authoredDate ?? ''),
+                files: [],
               };
             })
           : undefined,

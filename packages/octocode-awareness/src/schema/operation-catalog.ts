@@ -12,6 +12,7 @@ import type {
 } from '../operation-contracts.js';
 import type { AwarenessStorageScope } from '../storage-scope.js';
 import { projectCommandInput } from './command-input.js';
+import { compactAwarenessInputSchema } from './compact-json-schema.js';
 import { schemas, type SchemaName } from './registry.js';
 import type {
   AwarenessConcept,
@@ -147,9 +148,10 @@ interface DescriptorInput<K extends AwarenessOperation> {
 }
 function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): AwarenessOperationDescriptor<K> {
   const routeSchemas = input.routes.map(routeSchema);
-  const inputSchema = input.inputSchema ?? (routeSchemas.length === 1
+  const sourceSchema = input.inputSchema ?? (routeSchemas.length === 1
     ? routeSchemas[0]!
-    : { $schema: 'https://json-schema.org/draft/2020-12/schema', oneOf: routeSchemas });
+    : { oneOf: routeSchemas });
+  const inputSchema = compactAwarenessInputSchema(sourceSchema);
   const validator = z.fromJSONSchema(inputSchema);
   const inputSchemaText = JSON.stringify(inputSchema);
   for (const route of input.routes) reverseRoutes.set(route.command, { operation: input.operation, ...(route.selector ? { selector: route.selector } : {}) });
@@ -217,11 +219,12 @@ function contextWriteDescriptor<K extends 'context.observe' | 'context.feedback'
   operation: K, use: string, schema: z.ZodType, inputSchema: Record<string, unknown>,
 ): AwarenessOperationDescriptor<K> {
   const validate = (params?: unknown) => schema.parse(params) as AwarenessOperationParams[K];
-  const inputSchemaText = JSON.stringify(inputSchema);
+  const compactInputSchema = compactAwarenessInputSchema(inputSchema);
+  const inputSchemaText = JSON.stringify(compactInputSchema);
   return Object.freeze({
     operation, concept: 'context', use, visibility: 'routine',
     effects: ['coordination-write'] as const,
-    inputSchema: Object.freeze(inputSchema),
+    inputSchema: Object.freeze(compactInputSchema),
     inputSchemaText,
     validate, effect: () => 'coordination-write' as const, approval: () => undefined,
     outputBudget: 1_500, continuations: canonicalizeContinuation,
@@ -236,7 +239,9 @@ function knowledgeDescriptor(
   operation: KnowledgeOperation, use: string, schema: z.ZodType,
 ): AwarenessOperationDescriptor {
   const validate = (params?: unknown) => schema.parse(params ?? {}) as Params;
-  const inputSchema = z.toJSONSchema(schema, { io: 'input' }) as Record<string, unknown>;
+  const inputSchema = compactAwarenessInputSchema(
+    z.toJSONSchema(schema, { io: 'input' }) as Record<string, unknown>,
+  );
   const effect = (params?: Params): AwarenessOperationEffect => {
     const input = validate(params);
     return operation === 'memory.set' || (operation === 'history.experience' && ['record', 'seal'].includes(String(input.action)))
@@ -274,65 +279,65 @@ const contextOrientInputSchema = z.strictObject({
 const operationDescriptors = Object.freeze([
   descriptor({
     operation: 'context.orient',
-    use: 'Actively read interpreted run state, nudges and shared context; reuse the revision on the next relevant call.',
+    use: 'Read a bounded interpreted snapshot when changed context could alter the next action; pass if_revision to suppress unchanged output.',
     routes: [route('attend', 'attend', 'query', 'read')],
     inputSchema: z.toJSONSchema(contextOrientInputSchema, { io: 'input' }) as Record<string, unknown>,
     outputBudget: 6_000,
   }),
-  contextWriteDescriptor('context.observe', 'Record a session observation. Passive acquisition offers a brief new-episode nudge; retry with the same observation ID.', contextObservationSchema, contextObservationJsonSchema),
-  contextWriteDescriptor('context.feedback', 'Link an advisory to an action and reported outcome; helpful outcomes require subsequent evidence.', contextFeedbackSchema, contextFeedbackJsonSchema),
-  descriptor({ operation: 'work.create', use: 'Create a plan, task, or standalone work declaration.', routes: choice('kind', {
+  contextWriteDescriptor('context.observe', 'Record one measured state change; use passive only for lifecycle observations and reuse observation_id on retry.', contextObservationSchema, contextObservationJsonSchema),
+  contextWriteDescriptor('context.feedback', 'Link an advisory to the action actually taken and its outcome; helpful claims remain provisional until later evidence.', contextFeedbackSchema, contextFeedbackJsonSchema),
+  descriptor({ operation: 'work.create', use: 'Create kind=plan, task, or standalone; use standalone only for file work outside a durable plan.', routes: choice('kind', {
     plan: route('plan create', 'plan', 'plan', 'coordination-write', 'create'),
     task: route('task create', 'task', 'task', 'coordination-write', 'create'),
     standalone: route('work start', 'work', 'work', 'coordination-write', 'start'),
   }) }),
-  descriptor({ operation: 'work.list', use: 'List scoped plans, tasks, ready work, agents, active presence, or the workboard.', routes: choice('kind', {
+  descriptor({ operation: 'work.list', use: 'List one scoped view selected by kind: plans, tasks, ready work, active presence, agents, or workboard.', routes: choice('kind', {
     plan: route('plan list', 'plan', 'plan', 'read', 'list'), task: route('task list', 'task', 'task', 'read', 'list'),
     ready: route('task ready', 'task', 'task', 'read', 'ready'), presence: route('work list', 'work', 'work', 'read', 'list'),
     agents: route('query agents', 'agents', 'query', 'read', 'agents'),
     workboard: route('query workboard', 'query', 'query', 'read', 'workboard'),
   }, 'presence') }),
-  descriptor({ operation: 'work.show', use: 'Inspect one plan, task, or active file.', routes: choice('kind', {
+  descriptor({ operation: 'work.show', use: 'Inspect one plan, task, or active file-presence record selected by kind.', routes: choice('kind', {
     plan: route('plan show', 'plan', 'plan', 'read', 'show'), task: route('task show', 'task', 'task', 'read', 'show'),
     presence: route('work show', 'work', 'work', 'read', 'show'),
   }) }),
-  descriptor({ operation: 'work.claim', use: 'Atomically claim a task and start its attempt.', routes: [route('task claim', 'task', 'task', 'coordination-write', 'claim')] }),
-  descriptor({ operation: 'work.update', use: 'Transition an existing work item or refresh its lease.', routes: choice('transition', {
+  descriptor({ operation: 'work.claim', use: 'Atomically claim an exact task, or the next ready task in a plan, and start its attempt.', routes: [route('task claim', 'task', 'task', 'coordination-write', 'claim')] }),
+  descriptor({ operation: 'work.update', use: 'Apply one explicit transition to a task, plan, or presence record; heartbeat/touch only refresh leases.', routes: choice('transition', {
     heartbeat: route('task heartbeat', 'task', 'task', 'coordination-write', 'heartbeat'), submit: route('task submit', 'task', 'task', 'coordination-write', 'submit'),
     release: route('task release', 'task', 'task', 'coordination-write', 'release'), retry: route('task retry', 'task', 'task', 'coordination-write', 'retry'),
     touch: route('work touch', 'work', 'work', 'coordination-write', 'touch'), end: route('work end', 'work', 'work', 'coordination-write', 'end'),
     join: route('plan join', 'plan', 'plan', 'coordination-write', 'join'), document: route('plan doc', 'plan', 'plan', 'coordination-write', 'doc'),
     status: route('plan status', 'plan', 'plan', 'coordination-write', 'status'),
   }) }),
-  descriptor({ operation: 'work.depend', use: 'Add a dependency between work items.', routes: [route('task depend', 'task', 'task', 'coordination-write', 'depend')] }),
-  descriptor({ operation: 'work.protect', use: 'Acquire, wait for, or release exceptional exclusive protection.', routes: choice('action', {
+  descriptor({ operation: 'work.depend', use: 'Add declared prerequisite task IDs to one existing task.', routes: [route('task depend', 'task', 'task', 'coordination-write', 'depend')] }),
+  descriptor({ operation: 'work.protect', use: 'Acquire, wait for, or release exceptional exclusive file protection; routine ownership uses work.create.', routes: choice('action', {
     acquire: route('lock acquire', 'lock_acquire', 'lock-acquire', 'coordination-write'),
     wait: route('lock wait', 'lock_wait', 'lock-wait', 'read'), release: route('lock release', 'lock_release', 'lock-release', 'coordination-write'),
   }) }),
-  descriptor({ operation: 'work.verify', use: 'Audit verification debt or record an observed check result.', routes: choice('action', {
+  descriptor({ operation: 'work.verify', use: 'Audit pending verification debt, or mark only runs covered by an observed check receipt.', routes: choice('action', {
     audit: route('verify audit', 'verify_audit', 'verify-audit', 'read'), mark: route('verify mark', 'verify', 'verify', 'coordination-write'),
   }) }),
   descriptor({
-    operation: 'message.list', use: 'Read decision-changing messages.',
+    operation: 'message.list', use: 'Read bounded decision-changing messages; follow the returned cursor and request bodies only when needed.',
     routes: [route('signal list', 'agent_signal', 'signal', 'read', 'list')],
     outputBudget: BOUNDED_ROUTINE_OUTPUT_BYTES,
   }),
-  descriptor({ operation: 'message.send', use: 'Send a decision-changing message.', routes: [route('signal publish', 'agent_signal', 'signal', 'coordination-write', 'publish')] }),
-  descriptor({ operation: 'message.reply', use: 'Reply in an existing message thread.', routes: [route('signal reply', 'agent_signal', 'signal', 'coordination-write', 'reply')] }),
-  descriptor({ operation: 'message.resolve', use: 'Resolve a handled message thread.', routes: [route('signal resolve', 'agent_signal', 'signal', 'coordination-write', 'resolve')] }),
-  descriptor({ operation: 'memory.recall', use: 'Recall scoped reusable learning.', routes: [route('memory recall', 'memory_recall', 'memory-recall', 'read')] }),
-  descriptor({ operation: 'memory.record', use: 'Record reusable evidence-linked learning.', routes: [route('memory record', 'memory_record', 'memory-record', 'coordination-write')] }),
-  knowledgeDescriptor('memory.set', 'Create or revise a keyed, attributed lesson with typed anchors; compare-and-set protects existing revisions.', knowledgeSetSchema),
-  knowledgeDescriptor('memory.get', 'Read an exact lesson revision or discover scoped path, flow, and failure knowledge with evidence and continuations.', knowledgeGetSchema),
-  knowledgeDescriptor('memory.revalidate', 'Review declared evidence freshness; unchanged bytes never verify the lesson itself.', knowledgeRevalidateSchema),
-  descriptor({ operation: 'history.status', use: 'Inspect LocalGit availability and durability.', routes: [route('history status', 'history_status', 'history', 'read', 'history_status')] }),
-  descriptor({ operation: 'history.timeline', use: 'List bounded recoverable file history.', routes: [route('history timeline', 'history_timeline', 'history', 'read', 'history_timeline')] }),
-  descriptor({ operation: 'history.read', use: 'Read one recoverable historical version.', routes: [route('history read', 'history_read', 'history', 'read', 'history_read')] }),
-  descriptor({ operation: 'history.restore', use: 'Preview or apply one bound restore.', routes: choice('action', {
+  descriptor({ operation: 'message.send', use: 'Send one typed, decision-changing message to exact actor IDs with optional file and reference scope.', routes: [route('signal publish', 'agent_signal', 'signal', 'coordination-write', 'publish')] }),
+  descriptor({ operation: 'message.reply', use: 'Reply to the exact signal ID in an existing thread and provide a new subject.', routes: [route('signal reply', 'agent_signal', 'signal', 'coordination-write', 'reply')] }),
+  descriptor({ operation: 'message.resolve', use: 'Resolve one handled signal or thread only after no response or work remains.', routes: [route('signal resolve', 'agent_signal', 'signal', 'coordination-write', 'resolve')] }),
+  descriptor({ operation: 'memory.recall', use: 'Search legacy scoped memories by evidence, label, file, or failure signal with bounded results.', routes: [route('memory recall', 'memory_recall', 'memory-recall', 'read')] }),
+  descriptor({ operation: 'memory.record', use: 'Record one legacy evidence-linked memory when the learning is reusable beyond the current run.', routes: [route('memory record', 'memory_record', 'memory-record', 'coordination-write')] }),
+  knowledgeDescriptor('memory.set', 'Create or compare-and-set a keyed, attributed lesson with typed anchors and explicit applicability.', knowledgeSetSchema),
+  knowledgeDescriptor('memory.get', 'Read an exact lesson revision or discover scoped path, flow, and failure knowledge; follow snapshot continuations.', knowledgeGetSchema),
+  knowledgeDescriptor('memory.revalidate', 'Check declared evidence freshness for lessons; unchanged bytes do not verify the lesson claim.', knowledgeRevalidateSchema),
+  descriptor({ operation: 'history.status', use: 'Inspect whether LocalGit recovery is available and durable for this workspace.', routes: [route('history status', 'history_status', 'history', 'read', 'history_status')] }),
+  descriptor({ operation: 'history.timeline', use: 'List a bounded page of recoverable history for one file and follow its cursor.', routes: [route('history timeline', 'history_timeline', 'history', 'read', 'history_timeline')] }),
+  descriptor({ operation: 'history.read', use: 'Read one bounded before/after version from an exact recoverable operation.', routes: [route('history read', 'history_read', 'history', 'read', 'history_read')] }),
+  descriptor({ operation: 'history.restore', use: 'Preview a bound restore first; apply only the unchanged preview after required approval.', routes: choice('action', {
     preview: route('history restore-preview', 'history_restore_preview', 'history', 'read', 'history_restore_preview'),
     apply: route('history restore-apply', 'history_restore_apply', 'history', 'workspace-write', 'history_restore_apply', 'fs-delete'),
   }, 'preview') }),
-  knowledgeDescriptor('history.experience', 'Record meaningful attempts and decisions, inspect traces, archive selected evidence, compare outcomes, or recover unfinished work.', experienceInputSchema),
+  knowledgeDescriptor('history.experience', 'Record meaningful attempts or decisions, inspect and compare traces, archive selected evidence, or recover unfinished work.', experienceInputSchema),
 ] as const);
 
 if (operationDescriptors.length > 25) throw new Error('Routine Awareness surface exceeds the twenty-five-operation budget');

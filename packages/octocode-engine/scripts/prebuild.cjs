@@ -16,8 +16,8 @@ const { join } = require('path')
 
 const root = join(__dirname, '..')
 
-// Regenerate src/security/patterns.rs from the canonical TS pattern list before
-// every native build so the Rust detector stays in lockstep with the JS fallback.
+// Regenerate octocode-engine-core/src/security/patterns.rs from the canonical TS
+// pattern list before every native build so Rust stays in lockstep with JS.
 function generateSecurityPatterns() {
   execFileSync(process.execPath, [join(__dirname, 'gen-patterns.mjs')], {
     stdio: 'inherit',

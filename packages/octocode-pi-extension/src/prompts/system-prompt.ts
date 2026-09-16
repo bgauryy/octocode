@@ -6,7 +6,7 @@ import {
 } from '@octocodeai/agent-contracts/prompts';
 
 const MCP_HOST_GUIDANCE = `Use MCPTool (server:"octocode") for all repository, code, history, package, graph, semantic research, local file reads, and code searches — MCPTool is the only research and local-file path in this host. Use localFetch to read a file, localSearch or astSearch to search code; use bash only when no local tool covers the operation (builds, tests, package commands, bounded debugging). Never invoke Octocode research CLI tools via bash or npx.
-The outer MCPTool query owns reasoning, action, server, tool, and arguments. Target Octocode input stays inside arguments.queries[]; never put target fields beside action/server/tool or put outer reasoning inside arguments. Omit target goal/reasoning when the Octocode schema marks them auto-filled.`;
+The outer MCPTool query owns reasoning, action, server, and arguments. Target Octocode input stays inside arguments.queries[]; never put target fields beside action/server/tool or put outer reasoning inside arguments. Omit target goal/reasoning when the Octocode schema marks them auto-filled.`;
 const SKILL_HOST_GUIDANCE = 'Load a matching Octocode skill for specialized research or planning.';
 const HOST_FACTS = `<octocode_host>
 ${MCP_HOST_GUIDANCE}

@@ -1,7 +1,65 @@
+use crate::lsp::client::NativeLspClient;
+use crate::lsp::pool::{LspClientPool, LspPoolOptions};
 use crate::lsp::symbol_kind;
 use crate::lsp::types::{JsFuzzyPosition, JsLanguageServerConfig, JsResolvedSymbol};
 use napi::{Error, Result, Status};
 use napi_derive::napi;
+use std::sync::{Arc, OnceLock, RwLock};
+
+fn pooled_clients() -> &'static RwLock<Arc<LspClientPool>> {
+    static POOL: OnceLock<RwLock<Arc<LspClientPool>>> = OnceLock::new();
+    POOL.get_or_init(|| RwLock::new(Arc::new(LspClientPool::default())))
+}
+
+fn current_pool() -> Arc<LspClientPool> {
+    pooled_clients()
+        .read()
+        .map(|pool| Arc::clone(&pool))
+        .unwrap_or_else(|_| Arc::new(LspClientPool::default()))
+}
+
+#[napi(js_name = "configureLspClientPool")]
+pub async fn configure_lsp_client_pool(idle_timeout_ms: u32, max_entries: u32) {
+    let previous = current_pool();
+    previous.clear_all().await;
+    if let Ok(mut slot) = pooled_clients().write() {
+        *slot = Arc::new(LspClientPool::new(LspPoolOptions {
+            idle_timeout_ms: u64::from(idle_timeout_ms),
+            max_entries: max_entries as usize,
+        }));
+    }
+}
+
+#[napi(js_name = "acquirePooledLspClient")]
+pub async fn acquire_pooled_lsp_client(
+    config: JsLanguageServerConfig,
+) -> Result<Option<NativeLspClient>> {
+    let pool = current_pool();
+    Ok(pool.acquire(config).await?)
+}
+
+#[napi(js_name = "releasePooledLspClient")]
+pub async fn release_pooled_lsp_client(config: JsLanguageServerConfig) -> Result<bool> {
+    let pool = current_pool();
+    Ok(pool.clear(&config).await?)
+}
+
+#[napi(js_name = "clearPooledLspClients")]
+pub async fn clear_pooled_lsp_clients() {
+    let pool = current_pool();
+    pool.clear_all().await;
+}
+
+#[napi(js_name = "pooledLspClientCount")]
+pub fn pooled_lsp_client_count() -> u32 {
+    u32::try_from(current_pool().len()).unwrap_or(u32::MAX)
+}
+
+#[napi(js_name = "pooledLspClientConfigs")]
+pub async fn pooled_lsp_client_configs() -> Vec<JsLanguageServerConfig> {
+    let pool = current_pool();
+    pool.configs().await
+}
 
 /// Resolve a fuzzy symbol position (name + optional line hint) to an exact
 /// line/character position inside the file at `file_path`.

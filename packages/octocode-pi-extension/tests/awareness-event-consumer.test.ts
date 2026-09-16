@@ -611,6 +611,39 @@ describe('ordered Awareness event consumer', () => {
     ]);
   });
 
+  it('does not show a delivery warning for transient watcher I/O errors', async () => {
+    const fixture = fakeStore([]);
+    const entries: object[] = [];
+    const observations: unknown[] = [];
+    const notify = vi.fn();
+    let watcherError: (() => void) | undefined;
+    const handlers = new Map<string, (event: unknown, ctx: PiContext) => Promise<void>>();
+    const pi = {
+      on: (name: string, handler: (event: unknown, ctx: PiContext) => Promise<void>) => handlers.set(name, handler),
+      sendMessage: vi.fn(),
+    } as unknown as PiInstance;
+    const ctx = {
+      hasUI: true, cwd: workspace, ui: { notify },
+      sessionManager: { ...persistedSession(), getSessionId: () => 'session-1', getEntries: () => entries },
+    } as PiContext;
+    registerAwarenessEventConsumer(pi, {
+      // A non-memory dbPath triggers watcher creation.
+      openStore: () => ({ ...fixture.store, dbPath: '/fake/awareness.db' }),
+      watchEvents: (opts) => { watcherError = opts.onError; return { close: () => {} }; },
+      resolveExpectedAgentId: () => 'pi:session-1',
+      onObservability: (stats) => { observations.push(stats); },
+    });
+    await handlers.get('session_start')!({}, ctx);
+
+    // Simulate a transient watcher error (e.g. SQLite lock or missing WAL file).
+    watcherError?.();
+
+    // Must count as a lifetime error for diagnostics but NOT as a drainError.
+    expect(observations.at(-1)).toMatchObject({ errors: 1, drainErrors: 0 });
+    // Must NOT show the delivery-unavailable toast; that is reserved for actual send failures.
+    expect(JSON.stringify(notify.mock.calls)).not.toContain('Peer message delivery is unavailable');
+  });
+
   it('waits for the completion hook to return and cancels scheduled delivery at shutdown', async () => {
     const fixture = fakeStore([peerEvent(1)]);
     const handlers = new Map<string, (event: unknown, ctx: PiContext) => Promise<void>>();

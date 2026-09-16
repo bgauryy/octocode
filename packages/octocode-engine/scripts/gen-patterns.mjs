@@ -2,8 +2,8 @@
 /**
  * gen-patterns.mjs
  *
- * Generates src/patterns.rs from the canonical allRegexPatterns order in
- * this package's TypeScript source (ensures Rust pattern evaluation order ==
+ * Generates octocode-engine-core/src/security/patterns.rs from the canonical
+ * allRegexPatterns order in this package's TypeScript source (ensures Rust evaluation order ==
  * TS order).
  *
  * Previously this parsed TS source files directly (alphabetical file order).
@@ -29,7 +29,7 @@ import * as esbuild from 'esbuild';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC_ENTRY  = join(__dirname, '..', 'src', 'security', 'regexes', 'index.ts');
-const OUT_FILE   = join(__dirname, '..', 'src', 'security', 'patterns.rs');
+const OUT_FILE   = join(__dirname, '..', '..', 'octocode-engine-core', 'src', 'security', 'patterns.rs');
 
 // ---------------------------------------------------------------------------
 // Convert a JS RegExp to a Rust regex string

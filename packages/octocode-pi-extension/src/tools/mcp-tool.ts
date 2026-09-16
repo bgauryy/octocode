@@ -13,7 +13,7 @@ export { formatMcpSchemaValidationErrors };
 import { isWorkerCapabilityClient, dispatchWorkerMcpAction, getCurrentWorkerCapabilities } from './worker-capabilities.js';
 import { readMcpCatalogPage } from './mcp/catalog-pages.js';
 import { workerMcpCatalogSnapshot } from './mcp/worker-catalog.js';
-import { DIRECT_TOOL_DESCRIPTIONS, OCTOCODE_MCP_CALL_EXAMPLE } from './octocode-tools.js';
+import { DIRECT_TOOL_DESCRIPTIONS } from './octocode-tools.js';
 import fs from "node:fs";
 import path from "node:path";
 import { registerMcpClientHandlers } from './mcp/client-handlers.js';
@@ -2218,7 +2218,7 @@ export function registerMcpTool(
     description: DIRECT_TOOL_DESCRIPTIONS.MCPTool!,
     promptSnippet: "Gateway to MCP servers. Built-in octocode catalog in <mcp_catalog_index>.",
     promptGuidelines: [
-      `Octocode call: MCPTool(${OCTOCODE_MCP_CALL_EXAMPLE}). Target fields go in arguments.queries[] only. Call schemas from <mcp_catalog_index> directly; use action:describe only for missing/stale.`,
+      `Target fields go in arguments.queries[] only. Call schemas from <mcp_catalog_index> directly; use action:describe only for missing/stale.`,
       "Batch independent Octocode queries inside one arguments.queries[]. Use queryRunType:parallel only for operations targeting different servers.",
       "add/remove writes mcp.json; restart/stop manages connections. Do not add untrusted MCP config without user approval.",
     ],

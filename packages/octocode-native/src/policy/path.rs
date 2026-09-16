@@ -413,14 +413,14 @@ mod tests {
     fn fixture() -> PathBuf {
         let id = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("path policy test setup should succeed")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
             "octocode-policy-{}-{id}-{}",
             std::process::id(),
             FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&root).expect("path policy test setup should succeed");
         root
     }
 
@@ -428,46 +428,63 @@ mod tests {
     fn permits_regular_workspace_files_and_redacts_the_workspace_prefix() {
         let root = fixture();
         let file = root.join("source.rs");
-        std::fs::write(&file, "safe").unwrap();
+        std::fs::write(&file, "safe").expect("path policy test setup should succeed");
         let policy = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(root.clone()),
             ..Default::default()
         })
-        .unwrap();
-        let result = policy.validate_read(&file).unwrap();
-        assert_eq!(result.canonical, std::fs::canonicalize(&file).unwrap());
+        .expect("path policy test setup should succeed");
+        let result = policy
+            .validate_read(&file)
+            .expect("path policy test setup should succeed");
+        assert_eq!(
+            result.canonical,
+            std::fs::canonicalize(&file).expect("path policy test setup should succeed")
+        );
         assert_eq!(result.display, "source.rs");
         assert_eq!(policy.redact(root.join("src\\sub\\..\\a.ts")), "src/a.ts");
-        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(root).expect("path policy test setup should succeed");
     }
 
     #[test]
     fn rejects_sensitive_paths_and_directories_as_reads() {
         let root = fixture();
         let secret = root.join(".env");
-        std::fs::write(&secret, "TOKEN=x").unwrap();
+        std::fs::write(&secret, "TOKEN=x").expect("path policy test setup should succeed");
         let policy = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(root.clone()),
             ..Default::default()
         })
-        .unwrap();
+        .expect("path policy test setup should succeed");
         assert_eq!(
-            policy.validate_read(secret).unwrap_err().code,
+            policy
+                .validate_read(secret)
+                .expect_err("path policy should reject the test input")
+                .code,
             PolicyErrorCode::IgnoredPath
         );
         assert_eq!(
-            policy.validate_read(&root).unwrap_err().code,
+            policy
+                .validate_read(&root)
+                .expect_err("path policy should reject the test input")
+                .code,
             PolicyErrorCode::NotRegular
         );
         assert_eq!(
-            policy.validate(&root).unwrap().canonical,
-            std::fs::canonicalize(&root).unwrap()
+            policy
+                .validate(&root)
+                .expect("path policy test setup should succeed")
+                .canonical,
+            std::fs::canonicalize(&root).expect("path policy test setup should succeed")
         );
         assert_eq!(
-            policy.validate("   ").unwrap_err().code,
+            policy
+                .validate("   ")
+                .expect_err("path policy should reject the test input")
+                .code,
             PolicyErrorCode::EmptyPath
         );
-        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(root).expect("path policy test setup should succeed");
     }
 
     #[cfg(unix)]
@@ -478,30 +495,31 @@ mod tests {
         let root = fixture();
         let outside = fixture();
         let outside_file = outside.join("secret.txt");
-        std::fs::write(&outside_file, "secret").unwrap();
-        symlink(&outside_file, root.join("escape.txt")).unwrap();
-        symlink(&outside, root.join("escape-dir")).unwrap();
+        std::fs::write(&outside_file, "secret").expect("path policy test setup should succeed");
+        symlink(&outside_file, root.join("escape.txt"))
+            .expect("path policy test setup should succeed");
+        symlink(&outside, root.join("escape-dir")).expect("path policy test setup should succeed");
         let policy = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(root.clone()),
             ..Default::default()
         })
-        .unwrap();
+        .expect("path policy test setup should succeed");
         assert_eq!(
             policy
                 .validate_read(root.join("escape.txt"))
-                .unwrap_err()
+                .expect_err("path policy should reject the test input")
                 .code,
             PolicyErrorCode::SymlinkEscape
         );
         assert_eq!(
             policy
                 .validate_output(root.join("escape-dir/new.txt"))
-                .unwrap_err()
+                .expect_err("path policy should reject the test input")
                 .code,
             PolicyErrorCode::OutsideAllowedRoots
         );
-        std::fs::remove_dir_all(root).unwrap();
-        std::fs::remove_dir_all(outside).unwrap();
+        std::fs::remove_dir_all(root).expect("path policy test setup should succeed");
+        std::fs::remove_dir_all(outside).expect("path policy test setup should succeed");
     }
 
     #[test]

@@ -14,11 +14,19 @@ describe('canonical operation registry contract', () => {
     ]);
   });
 
-  it('owns executable schema, validation, handler, effects, approval, bounds, and continuations', () => {
-    for (const descriptor of listAwarenessOperationDescriptors()) {
+  it('owns executable, compact schema plus validation, policy, bounds, and continuations', () => {
+    const descriptors = listAwarenessOperationDescriptors();
+    const schemaBytes = descriptors.reduce(
+      (total, descriptor) => total + Buffer.byteLength(descriptor.inputSchemaText),
+      0,
+    );
+    expect(schemaBytes).toBeLessThanOrEqual(42_000);
+
+    for (const descriptor of descriptors) {
       expect(() => z.fromJSONSchema(descriptor.inputSchema)).not.toThrow();
       expect(descriptor.inputSchemaText).toBe(JSON.stringify(descriptor.inputSchema));
       expect(JSON.parse(descriptor.inputSchemaText)).toEqual(descriptor.inputSchema);
+      expect(descriptor.use.length).toBeGreaterThan(30);
       expect(typeof descriptor.validate).toBe('function');
       expect(typeof descriptor.handler).toBe('function');
       expect(typeof descriptor.effect).toBe('function');

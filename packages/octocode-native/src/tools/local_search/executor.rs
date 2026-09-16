@@ -5,7 +5,7 @@ use crate::policy::discovery::{
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
 use crate::tools::local_fetch::CancellationCheck;
-use octocode_engine::{
+use octocode_engine_core::{
     portable::{RipgrepPathFilter, search_ripgrep_filtered},
     types::RipgrepSearchOptions,
 };
@@ -402,7 +402,7 @@ fn cancelled(message: String) -> LocalSearchError {
 }
 
 fn rank_relevance(
-    files: &mut [octocode_engine::types::RipgrepFile],
+    files: &mut [octocode_engine_core::types::RipgrepFile],
     q: &LocalSearchRequest,
     view: ResultView,
 ) {
@@ -448,7 +448,7 @@ fn rank_relevance(
     });
 }
 fn score(
-    file: &octocode_engine::types::RipgrepFile,
+    file: &octocode_engine_core::types::RipgrepFile,
     profile: &str,
     view: ResultView,
     unique: bool,
@@ -566,7 +566,7 @@ fn build_next(
     total_pages: u32,
     match_page: u32,
     matches_per: u32,
-    files: &[octocode_engine::types::RipgrepFile],
+    files: &[octocode_engine_core::types::RipgrepFile],
     snapshot: Option<&str>,
 ) -> Option<Value> {
     let mut map = serde_json::Map::new();
@@ -600,8 +600,8 @@ fn build_next(
 }
 fn fingerprint(
     q: &LocalSearchRequest,
-    files: &[octocode_engine::types::RipgrepFile],
-    stats: &octocode_engine::types::RipgrepStats,
+    files: &[octocode_engine_core::types::RipgrepFile],
+    stats: &octocode_engine_core::types::RipgrepStats,
 ) -> String {
     let mut legacy = serde_json::Map::new();
     legacy.insert("searchText".into(), json!(q.search_text));

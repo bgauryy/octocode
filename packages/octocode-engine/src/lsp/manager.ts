@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { LSPClient } from './client.js';
-import { getLanguageServerForFile, resolveServerForFile } from './config.js';
-import { LspClientPool, type PoolKey, serializeKey } from './lspClientPool.js';
+import { resolveServerForFile } from './config.js';
+import { nativeBinding } from './native.js';
 import { manifestInstallHint } from './serverManifest.js';
 import { resolveWorkspaceRootForFile } from './workspaceRoot.js';
 import type {
@@ -130,78 +130,23 @@ export function parsePoolMaxEntries(
 
 const POOL_MAX_ENTRIES = parsePoolMaxEntries();
 
-// Servers that need post-initialize readiness before semantic requests.
-// Bash awaits workspace configuration before enabling document analysis without
-// emitting progress; its bounded settle remains explicitly unconfirmed.
-// TypeScript, Python, C/C++, and data-format servers (JSON/YAML/HTML/CSS)
-// answer queries immediately after the LSP handshake — skipping waitForReady
-// avoids burning the 2-second SETTLE_MS window for them.
-const STARTUP_WAIT_LANGUAGES: ReadonlySet<string> = new Set([
-  'go',
-  'rust',
-  'java',
-  'csharp',
-  'swift',
-  'shellscript',
-]);
+let poolConfiguration: Promise<void> | undefined;
 
-// Per-language upper bound for $/progress drain (ms).
-// These are ceilings — waitForReady returns as soon as the server goes idle.
-const SERVER_READY_TIMEOUT_MS: Partial<Record<string, number>> = {
-  go: 15_000,
-  rust: 60_000,
-  java: 120_000,
-  csharp: 30_000,
-  swift: 30_000,
-  shellscript: 2_000,
-};
-const DEFAULT_READY_TIMEOUT_MS = 30_000;
-
-function readyTimeoutForLanguage(languageId: string): number {
-  return SERVER_READY_TIMEOUT_MS[languageId] ?? DEFAULT_READY_TIMEOUT_MS;
+function ensurePoolConfigured(): Promise<void> {
+  poolConfiguration ??= nativeBinding.configureLspClientPool(
+    POOL_IDLE_TIMEOUT_MS,
+    POOL_MAX_ENTRIES
+  );
+  return poolConfiguration;
 }
 
-// Eliminates the double getLanguageServerForFile call that would otherwise
-// happen once in poolKeyForFile (to build the key) and again inside the factory
-// (to create the client). poolKeyForFile deposits the already-resolved config
-// here before calling sharedPool.acquire; the factory reads and clears it.
-//
-// The deposit is conditional: when sharedPool already has an entry or an
-// inflight promise for this key, acquire() returns the cached client or the
-// existing promise WITHOUT invoking the factory — so depositing again here
-// would never be read or cleared and would leak the entry forever. Key format
-// is the shared serializeKey from lspClientPool.ts.
-const _pendingConfigs = new Map<string, LanguageServerConfig>();
-
-const sharedPool = new LspClientPool<LSPClient>({
-  idleTimeoutMs: POOL_IDLE_TIMEOUT_MS,
-  maxEntries: POOL_MAX_ENTRIES,
-  factory: async key => {
-    const cacheKey = serializeKey(key);
-    const serverConfig =
-      _pendingConfigs.get(cacheKey) ??
-      (await getLanguageServerForFile(
-        synthesizeFilePathForKey(key),
-        key.workspaceRoot
-      ));
-    _pendingConfigs.delete(cacheKey);
-    if (!serverConfig) return null;
-    const client = new LSPClient(serverConfig);
-    try {
-      await client.start();
-      // Wait for servers that do workspace-wide indexing before answering
-      // semantic queries, plus Bash's asynchronous configuration handshake.
-      // Other servers skip the bounded settle interval.
-      if (STARTUP_WAIT_LANGUAGES.has(key.languageId)) {
-        await client.waitForReady(readyTimeoutForLanguage(key.languageId));
-      }
-      return client;
-    } catch (error) {
-      await client.stop().catch(() => undefined);
-      throw error;
-    }
-  },
-});
+export interface PoolKey {
+  workspaceRoot: string;
+  filePath: string;
+  languageId: string;
+  serverId?: string;
+  contextFingerprint?: string;
+}
 
 export type LspClientAcquireFailureKind = 'unavailable' | 'startupFailed';
 
@@ -269,8 +214,11 @@ export async function acquirePooledClientDetailed(
     };
   }
   try {
-    const client = await sharedPool.acquire(resolved.key);
-    if (!client) {
+    await ensurePoolConfigured();
+    const nativeClient = await nativeBinding.acquirePooledLspClient(
+      LSPClient.nativeConfig(resolved.serverConfig)
+    );
+    if (!nativeClient) {
       return {
         ok: false,
         kind: 'startupFailed',
@@ -279,6 +227,7 @@ export async function acquirePooledClientDetailed(
         workspaceRoot,
       };
     }
+    const client = LSPClient.fromPooled(resolved.serverConfig, nativeClient);
     return {
       ok: true,
       client,
@@ -313,7 +262,8 @@ export async function acquirePooledClient(
 }
 
 export async function releaseAllPooledClients(): Promise<void> {
-  await sharedPool.clearAll();
+  await ensurePoolConfigured();
+  await nativeBinding.clearPooledLspClients();
 }
 
 export async function releasePooledClientForFile(
@@ -327,8 +277,10 @@ export async function releasePooledClientForFile(
     rustContext
   );
   if (!resolved) return false;
-  await sharedPool.clear(resolved.key);
-  return true;
+  await ensurePoolConfigured();
+  return nativeBinding.releasePooledLspClient(
+    LSPClient.nativeConfig(resolved.serverConfig)
+  );
 }
 
 export type LspStatusInput = {
@@ -352,10 +304,12 @@ export type LspStatusResult = {
 export async function getLspStatus(
   input: LspStatusInput = {}
 ): Promise<LspStatusResult> {
+  await ensurePoolConfigured();
+  const configs = (await nativeBinding.pooledLspClientConfigs()) as LanguageServerConfig[];
   const base = {
     enabled: true as const,
-    pooledClientCount: sharedPool.size(),
-    pooledClients: sharedPool.keys(),
+    pooledClientCount: nativeBinding.pooledLspClientCount(),
+    pooledClients: configs.map(poolStatusKey),
   };
 
   if (!input.filePath) {
@@ -388,15 +342,21 @@ export async function getLspStatus(
 }
 
 export function pooledClientCount(): number {
-  return sharedPool.size();
+  return nativeBinding.pooledLspClientCount();
 }
 
-function synthesizeFilePathForKey(key: PoolKey): string {
-  return key.filePath;
+function poolStatusKey(config: LanguageServerConfig): PoolKey {
+  return {
+    workspaceRoot: config.workspaceRoot,
+    // File paths intentionally do not participate in the canonical pool key.
+    filePath: config.workspaceRoot,
+    languageId: config.languageId ?? 'unknown',
+    contextFingerprint: serverConfigurationFingerprint(config),
+    serverId: `${config.command} ${(config.args ?? []).join(' ')}`.trim(),
+  };
 }
 
 type ResolvedPooledServer = {
-  key: PoolKey;
   serverConfig: LanguageServerConfig;
   source: Exclude<LspServerSource, 'unavailable'>;
 };
@@ -409,22 +369,7 @@ async function resolvePooledServerForFile(
   const resolution = await resolveServerForFile(filePath, workspaceRoot);
   if (!resolution || resolution.source === 'unavailable') return null;
   const serverConfig = applyRustBuildContext(resolution.config, rustContext);
-  const key: PoolKey = {
-    workspaceRoot,
-    filePath,
-    languageId: serverConfig.languageId ?? 'unknown',
-    contextFingerprint: serverConfigurationFingerprint(serverConfig),
-    serverId:
-      `${serverConfig.command} ${(serverConfig.args ?? []).join(' ')}`.trim(),
-  };
-  const serialized = serializeKey(key);
-  // Only deposit when the pool will actually call the factory for this key.
-  // If there's already an entry or inflight, acquire() won't start a new factory
-  // run — so depositing here would permanently leak the entry.
-  if (!sharedPool.has(key)) {
-    _pendingConfigs.set(serialized, serverConfig);
-  }
-  return { key, serverConfig, source: resolution.source };
+  return { serverConfig, source: resolution.source };
 }
 
 const RECEIPT_CAPABILITIES = [

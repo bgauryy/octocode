@@ -91,7 +91,7 @@ export function buildQueryEnvelopeSchema(
   itemSchema: ZodTypeAny,
   options: QueryEnvelopeOptions = {},
 ): Record<string, unknown> {
-  const reasoning = z.string().max(400).optional().describe(options.reasoningDescription ?? 'Why.');
+  const reasoning = z.string().min(1).max(400).describe(options.reasoningDescription ?? 'Why.');
   const querySchema = (itemSchema as z.ZodObject<z.ZodRawShape>).extend({ reasoning });
   const schema = z.object({
     queries: z.array(querySchema)
@@ -150,6 +150,16 @@ function assertBatchShape(
     const query = value as Record<string, unknown>;
     const reasoning =
       typeof query["reasoning"] === "string" ? query["reasoning"].trim() : "";
+    if (!reasoning) {
+      throw new Error(
+        `queries[${index}].reasoning is required and must be non-empty.`,
+      );
+    }
+    if (reasoning.length > 400) {
+      throw new Error(
+        `queries[${index}].reasoning must be at most 400 characters.`,
+      );
+    }
     return { ...query, reasoning } as QueryRecord;
   });
 }

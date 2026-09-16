@@ -67,6 +67,33 @@ export declare class NativeLspClient {
   ): Promise<any | null>;
 }
 
+/** Configure the process-local core-owned LSP client pool. */
+export declare function configureLspClientPool(
+  idleTimeoutMs: number,
+  maxEntries: number
+): Promise<void>;
+
+/** Acquire or start the canonical pooled client for this effective server configuration. */
+export declare function acquirePooledLspClient(
+  config: JsLanguageServerConfig
+): Promise<NativeLspClient | null>;
+
+/** Remove and stop the pooled client for this effective server configuration. */
+export declare function releasePooledLspClient(
+  config: JsLanguageServerConfig
+): Promise<boolean>;
+
+/** Remove and stop every pooled LSP client. */
+export declare function clearPooledLspClients(): Promise<void>;
+
+/** Return the number of retained pooled LSP clients. */
+export declare function pooledLspClientCount(): number;
+
+/** Return the effective configurations of retained pooled LSP clients. */
+export declare function pooledLspClientConfigs(): Promise<
+  Array<JsLanguageServerConfig>
+>;
+
 /**
  * Agent-readable "standard" view: strips comments and blank-line noise while
  * preserving indentation and code shape. Capped at 1MB; panic-contained.

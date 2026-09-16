@@ -30,11 +30,30 @@ export class LSPClient {
   private lastReadiness: LspReadiness | undefined;
   private readonly openDocuments = new Map<string, OpenDocumentState>();
 
-  constructor(config: LanguageServerConfig) {
+  constructor(
+    config: LanguageServerConfig,
+    nativeClient?: NativeLspClientBinding
+  ) {
     this.command = config.command;
+    this.nativeClient =
+      nativeClient ?? new nativeBinding.NativeLspClient(LSPClient.nativeConfig(config));
+    if (nativeClient) {
+      this.initialized = true;
+      this.lastReadiness = nativeClient.getReadiness?.();
+    }
+  }
+
+  static fromPooled(
+    config: LanguageServerConfig,
+    nativeClient: NativeLspClientBinding
+  ): LSPClient {
+    return new LSPClient(config, nativeClient);
+  }
+
+  static nativeConfig(config: LanguageServerConfig): LanguageServerConfig {
     const initializationOptions = config.initializationOptions;
     const tsserver = initializationOptions?.tsserver;
-    this.nativeClient = new nativeBinding.NativeLspClient({
+    return {
       command: config.command,
       args: config.args,
       workspaceRoot: config.workspaceRoot,
@@ -44,15 +63,13 @@ export class LSPClient {
             ...initializationOptions,
             tsserver: {
               ...(tsserver && typeof tsserver === 'object' ? tsserver : {}),
-              // The syntax server answers cold definitions with local import
-              // bindings while the semantic project loads. Agent requests need
-              // the full provider from the first query, without guessed paths.
+              // Semantic requests must not use the cold syntax-only provider.
               useSyntaxServer: 'never',
             },
           }
         : initializationOptions,
       env: config.env,
-    });
+    };
   }
 
   async start(): Promise<void> {

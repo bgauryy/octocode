@@ -907,9 +907,9 @@ fn shape_pr_files(
             if let Some((additions, deletions)) =
                 str_at(&file, "/filename").and_then(|path| ranges.get(path))
             {
-                let filtered_patch = octocode_engine::portable::filter_patch(
+                let filtered_patch = octocode_engine_core::portable::filter_patch(
                     str_at(&file, "/patch").unwrap_or(""),
-                    Some(octocode_engine::types::FilterPatchOptions {
+                    Some(octocode_engine_core::types::FilterPatchOptions {
                         additions: additions.clone(),
                         deletions: deletions.clone(),
                         ..Default::default()
@@ -1490,7 +1490,7 @@ fn history_body_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
         && query.minify.as_deref() != Some("none")
         && query.match_string.is_none()
     {
-        octocode_engine::portable::apply_content_view_minification(value, "history.md")
+        octocode_engine_core::portable::apply_content_view_minification(value, "history.md")
     } else {
         value.to_owned()
     }
@@ -1501,9 +1501,9 @@ fn history_patch_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
         && query.minify.as_deref() != Some("none")
         && query.match_string.is_none()
     {
-        octocode_engine::portable::filter_patch(
+        octocode_engine_core::portable::filter_patch(
             value,
-            Some(octocode_engine::types::FilterPatchOptions {
+            Some(octocode_engine_core::types::FilterPatchOptions {
                 trim_context: Some(true),
                 context_lines: Some(2),
                 ..Default::default()
@@ -1982,13 +1982,13 @@ mod tests {
         let bare: GhGetHistoryItemQuery = serde_json::from_value(json!({
             "operation":"pullRequest","owner":"a","repo":"b","number":1
         }))
-        .unwrap();
+        .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&bare));
         let mut query: GhGetHistoryItemQuery = serde_json::from_value(json!({
             "operation":"pullRequest","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true}
         }))
-        .unwrap();
+        .expect("GitHub history test data should be valid");
         assert!(super::graphql_complete_collection_eligible(&query));
         query.file_page = Some(2);
         assert!(!super::graphql_complete_collection_eligible(&query));
@@ -1997,13 +1997,13 @@ mod tests {
             "content":{"body":true,"comments":{"discussion":true}},
             "collectionPages":{"discussion":2}
         }))
-        .unwrap();
+        .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&paged));
         let patches: GhGetHistoryItemQuery = serde_json::from_value(json!({
             "operation":"pullRequest","owner":"a","repo":"b","number":1,
             "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"}}
         }))
-        .unwrap();
+        .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&patches));
     }
 
@@ -2032,7 +2032,8 @@ mod tests {
     #[test]
     fn missing_identity_is_rejected() {
         let q: GhGetHistoryItemQuery =
-            serde_json::from_str(r#"{"operation":"commit","owner":"a","repo":"b"}"#).unwrap();
+            serde_json::from_str(r#"{"operation":"commit","owner":"a","repo":"b"}"#)
+                .expect("GitHub history test data should be valid");
         assert!(validate(&q).is_err());
     }
 
@@ -2043,7 +2044,8 @@ mod tests {
             "nested": [{"body": "a secret value"}],
             "next": {"tool": "secret-tool", "query": {"path": "secret.rs"}}
         });
-        sanitize_all_strings(&mut value, &ReplacingScan).unwrap();
+        sanitize_all_strings(&mut value, &ReplacingScan)
+            .expect("GitHub history test data should be valid");
         assert_eq!(value["title"], "[MASKED]");
         assert_eq!(value["nested"][0]["body"], "a [MASKED] value");
         assert_eq!(value["next"]["tool"], "secret-tool");
@@ -2054,14 +2056,16 @@ mod tests {
     fn cancellation_is_observed_before_provider_work() {
         let context = RequestContext::with_timeout(std::time::Duration::from_secs(1), 1024);
         context.cancellation.cancel();
-        let error = check_context(&context).unwrap_err();
+        let error =
+            check_context(&context).expect_err("GitHub history operation should fail in this test");
         assert_eq!(error.kind, ProviderErrorKind::Cancelled);
         assert_eq!(error.message.as_ref(), "request cancelled");
     }
 
     #[test]
     fn normalized_response_budget_is_enforced() {
-        let error = enforce_response_limit(&json!({"body": "abcdefgh"}), 4).unwrap_err();
+        let error = enforce_response_limit(&json!({"body": "abcdefgh"}), 4)
+            .expect_err("GitHub history operation should fail in this test");
         assert_eq!(error.kind, ProviderErrorKind::ResponseTooLarge);
         assert_eq!(
             error.message.as_ref(),

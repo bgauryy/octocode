@@ -1,15 +1,13 @@
 /**
  * plan-integration.ts — Agent profile constants, plan-mode effect resolution,
- * same-batch cross-reference guard, and plan-assignment dispatch.
+ * and same-batch cross-reference guard.
  *
  * Side effect: registers resolveAgentBatchEffect with registerAgentToolEffectResolver
  * on first import, so that the plan-mode gate is active whenever this module loads.
  *
  * Owners: AGENT_PROFILES, AGENT_OPERATIONS, typed registry mapping,
- *         resolveAgentBatchEffect, rejectCrossBatchReference, resolvePlanAssignment.
+ *         resolveAgentBatchEffect, rejectCrossBatchReference.
  */
-
-import type { PiContext } from '../../types.js';
 import {
   SUBAGENT_REGISTRY,
   type SubagentConfig,
@@ -20,9 +18,6 @@ import {
   registerAgentToolEffectResolver,
   type ToolEffect,
 } from '../plan-mode.js';
-import { activePlanScope } from '../planning/plan-store.js';
-import { getCurrentPlanReadModel } from '../plan-read-model.js';
-import { findLivePlanWorker } from './ledger.js';
 import type { QueryRecord } from '../query-envelope.js';
 
 // ─── Profile & operation constants ────────────────────────────────────────────
@@ -153,47 +148,4 @@ export function rejectCrossBatchReference(queries: QueryRecord[]): void {
   }
 }
 
-// ─── Plan assignment dispatch ────────────────────────────────────────────────
 
-function validatePlanAssignment(
-  planStep: string,
-  scope: string,
-  plan: ReturnType<typeof getCurrentPlanReadModel>,
-  expectedPlanId?: string,
-) {
-  if (expectedPlanId && plan.planId !== expectedPlanId) throw new Error('Parent plan changed during worker preparation; inspect the current plan before delegating.');
-  if (plan.phase !== 'executing') throw new Error('planStep was provided, which explicitly requests a plan assignment, but the parent plan is not executing. Standalone subagents need no plan: omit planStep.');
-  if (plan.pendingInteractionIds.length > 0) throw new Error('Resolve pending plan interactions before delegating a task.');
-  const task = plan.tasks.find((candidate) => candidate.id === planStep);
-  if (!task) throw new Error(`planStep must be an existing stable task id in the current plan: ${planStep}`);
-  if (task.status !== 'doing') throw new Error(`Plan task ${planStep} must be doing before delegation; start its runnable step first.`);
-  if (!task.dependsOn.every((index) => plan.tasks.find((candidate) => candidate.index === index)?.status === 'done')) {
-    throw new Error(`Plan task ${planStep} has unfinished dependencies.`);
-  }
-  const owner = findLivePlanWorker(scope, plan.planId, task.id);
-  if (owner) throw new Error(`Plan task ${planStep} already has live worker ${owner}; collect or continue that worker before assigning another.`);
-  return { scope, planId: plan.planId, task };
-}
-
-export function resolvePlanAssignment(planStep: string, ctx?: PiContext, expectedPlanId?: string) {
-  const scope = activePlanScope(ctx);
-  return validatePlanAssignment(planStep, scope, getCurrentPlanReadModel(ctx, scope), expectedPlanId);
-}
-
-/**
- * Treat planStep as an optional-model-field mistake only when no parent plan
- * task exists for it to name. Any existing plan keeps the strict assignment path.
- */
-export function resolveOptionalPlanAssignment(planStep: string | undefined, ctx?: PiContext) {
-  if (!planStep) return { planStep: undefined, assignment: undefined, ignoredPlanStep: false };
-  const scope = activePlanScope(ctx);
-  const plan = getCurrentPlanReadModel(ctx, scope);
-  if (plan.phase !== 'executing' && plan.tasks.length === 0) {
-    return { planStep: undefined, assignment: undefined, ignoredPlanStep: true };
-  }
-  return {
-    planStep,
-    assignment: validatePlanAssignment(planStep, scope, plan),
-    ignoredPlanStep: false,
-  };
-}

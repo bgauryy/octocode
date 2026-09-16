@@ -78,7 +78,12 @@ fn executable_has_node_shebang(path: &str) -> Result<bool> {
 }
 
 #[cfg_attr(feature = "napi-addon", napi)]
+#[derive(Clone)]
 pub struct NativeLspClient {
+    inner: Arc<NativeLspClientInner>,
+}
+
+struct NativeLspClientInner {
     config: JsLanguageServerConfig,
     child: Mutex<Option<Child>>,
     // Stored behind an `Arc` so callers can clone a handle out from under the
@@ -96,6 +101,7 @@ pub struct NativeLspClient {
     /// (absent ⇒ utf-16 by spec). Any other value means the server ignored our
     /// capability. Startup rejects it before serving positions in the wrong units.
     position_encoding: StdMutex<Option<String>>,
+    readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
     /// Open-document lifecycle state: `uri -> last sent version`. Drives the
     /// LSP `didOpen` (once) → `didChange` (incrementing version) → `didClose`
@@ -112,53 +118,59 @@ impl NativeLspClient {
     #[cfg_attr(feature = "napi-addon", napi(constructor))]
     pub fn new(config: JsLanguageServerConfig) -> Self {
         Self {
-            config,
-            child: Mutex::new(None),
-            connection: Mutex::new(None),
-            stderr_task: Mutex::new(None),
-            stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
-            capabilities: StdMutex::new(None),
-            position_encoding: StdMutex::new(None),
-            progress: ProgressTracker::new(),
-            open_docs: StdMutex::new(HashMap::new()),
+            inner: Arc::new(NativeLspClientInner {
+                config,
+                child: Mutex::new(None),
+                connection: Mutex::new(None),
+                stderr_task: Mutex::new(None),
+                stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
+                capabilities: StdMutex::new(None),
+                position_encoding: StdMutex::new(None),
+                readiness: StdMutex::new(None),
+                progress: ProgressTracker::new(),
+                open_docs: StdMutex::new(HashMap::new()),
+            }),
         }
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn start(&self) -> Result<()> {
-        let mut child_guard = self.child.lock().await;
+        let mut child_guard = self.inner.child.lock().await;
         if child_guard.is_some() {
             return Err(Error::new(
                 Status::GenericFailure,
                 "LSP client already started",
             ));
         }
-        if let Ok(mut stderr_lines) = self.stderr_lines.lock() {
+        if let Ok(mut stderr_lines) = self.inner.stderr_lines.lock() {
             stderr_lines.clear();
         }
-        if let Ok(mut capabilities) = self.capabilities.lock() {
+        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
         }
-        if let Ok(mut encoding) = self.position_encoding.lock() {
+        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = None;
         }
-        if let Ok(mut open_docs) = self.open_docs.lock() {
+        if let Ok(mut readiness) = self.inner.readiness.lock() {
+            *readiness = None;
+        }
+        if let Ok(mut open_docs) = self.inner.open_docs.lock() {
             open_docs.clear();
         }
 
         let validated_command =
-            crate::lsp::validation::validate_lsp_server_path(self.config.command.clone())?;
-        let mut command_args = self.config.args.clone().unwrap_or_default();
+            crate::lsp::validation::validate_lsp_server_path(self.inner.config.command.clone())?;
+        let mut command_args = self.inner.config.args.clone().unwrap_or_default();
         let command_program = lsp_spawn_program(&validated_command, &mut command_args)?;
         let mut command = tokio::process::Command::new(&command_program);
         command
             .args(command_args)
-            .current_dir(&self.config.workspace_root)
+            .current_dir(&self.inner.config.workspace_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        if let Some(env) = &self.config.env {
+        if let Some(env) = &self.inner.config.env {
             for (key, value) in env {
                 command.env(key, value);
             }
@@ -173,7 +185,7 @@ impl NativeLspClient {
         let stderr_task = child
             .stderr
             .take()
-            .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.stderr_lines)));
+            .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.inner.stderr_lines)));
         let Some(stdout) = child.stdout.take() else {
             cleanup_failed_start(&mut child, stderr_task).await;
             return Err(Error::new(
@@ -189,7 +201,7 @@ impl NativeLspClient {
             ));
         };
 
-        let root_uri = match path_to_uri(&self.config.workspace_root) {
+        let root_uri = match path_to_uri(&self.inner.config.workspace_root) {
             Ok(uri) => uri,
             Err(error) => {
                 cleanup_failed_start(&mut child, stderr_task).await;
@@ -201,15 +213,16 @@ impl NativeLspClient {
             stdin,
             ClientRequestContext {
                 configuration: self
+                    .inner
                     .config
                     .initialization_options
                     .clone()
                     .unwrap_or_else(|| json!({})),
                 workspace_folders: json!([{ "uri": root_uri, "name": "workspace" }]),
             },
-            Arc::clone(&self.progress),
+            Arc::clone(&self.inner.progress),
         ));
-        let initialize_result = match initialize(&connection, &self.config).await {
+        let initialize_result = match initialize(&connection, &self.inner.config).await {
             Ok(value) => value,
             Err(error) => {
                 cleanup_failed_start(&mut child, stderr_task).await;
@@ -231,10 +244,10 @@ impl NativeLspClient {
                 ));
             }
         }
-        if let Ok(mut capabilities) = self.capabilities.lock() {
+        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = initialize_result.get("capabilities").cloned();
         }
-        if let Ok(mut encoding) = self.position_encoding.lock() {
+        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = negotiated_encoding;
         }
         if let Err(error) = connection.notify("initialized", json!({})).await {
@@ -242,33 +255,36 @@ impl NativeLspClient {
             return Err(error);
         }
 
-        *self.connection.lock().await = Some(connection);
-        *self.stderr_task.lock().await = stderr_task;
+        *self.inner.connection.lock().await = Some(connection);
+        *self.inner.stderr_task.lock().await = stderr_task;
         *child_guard = Some(child);
         Ok(())
     }
 
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn stop(&self) -> Result<()> {
-        let connection = self.connection.lock().await.take();
+        let connection = self.inner.connection.lock().await.take();
         if let Some(connection) = connection {
             let _ = connection.request("shutdown", Value::Null, 1_000).await;
             let _ = connection.notify("exit", Value::Null).await;
         }
-        if let Some(mut child) = self.child.lock().await.take() {
+        if let Some(mut child) = self.inner.child.lock().await.take() {
             wait_for_graceful_exit(&mut child, Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS))
                 .await;
         }
-        if let Some(task) = self.stderr_task.lock().await.take() {
+        if let Some(task) = self.inner.stderr_task.lock().await.take() {
             task.abort();
         }
-        if let Ok(mut capabilities) = self.capabilities.lock() {
+        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
         }
-        if let Ok(mut encoding) = self.position_encoding.lock() {
+        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = None;
         }
-        if let Ok(mut open_docs) = self.open_docs.lock() {
+        if let Ok(mut readiness) = self.inner.readiness.lock() {
+            *readiness = None;
+        }
+        if let Ok(mut open_docs) = self.inner.open_docs.lock() {
             open_docs.clear();
         }
         Ok(())
@@ -281,12 +297,17 @@ impl NativeLspClient {
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-        Ok(self
+        let readiness = self
+            .inner
             .progress
             .wait_until_idle(timeout_ms)
             .await
             .as_str()
-            .to_owned())
+            .to_owned();
+        if let Ok(mut slot) = self.inner.readiness.lock() {
+            *slot = Some(readiness.clone());
+        }
+        Ok(readiness)
     }
 
     /// `false` if the client was never started/already stopped, or if its
@@ -296,7 +317,7 @@ impl NativeLspClient {
     /// fail until the idle timer eventually reaps it.
     #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn is_alive(&self) -> bool {
-        match self.connection.lock().await.as_ref() {
+        match self.inner.connection.lock().await.as_ref() {
             Some(connection) => connection.is_alive(),
             None => false,
         }
@@ -304,7 +325,7 @@ impl NativeLspClient {
 
     #[cfg_attr(feature = "napi-addon", napi)]
     pub fn has_capability(&self, capability: String) -> bool {
-        let Ok(capabilities) = self.capabilities.lock() else {
+        let Ok(capabilities) = self.inner.capabilities.lock() else {
             return false;
         };
         capabilities
@@ -319,7 +340,17 @@ impl NativeLspClient {
     /// value other than `Some("utf-16")` indicates a non-conformant server.
     #[cfg_attr(feature = "napi-addon", napi)]
     pub fn position_encoding(&self) -> Option<String> {
-        self.position_encoding
+        self.inner
+            .position_encoding
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    #[cfg_attr(feature = "napi-addon", napi(js_name = "getReadiness"))]
+    pub fn readiness(&self) -> Option<String> {
+        self.inner
+            .readiness
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
@@ -327,7 +358,8 @@ impl NativeLspClient {
 
     #[cfg_attr(feature = "napi-addon", napi(js_name = "getRecentStderr"))]
     pub fn get_recent_stderr(&self) -> Vec<String> {
-        self.stderr_lines
+        self.inner
+            .stderr_lines
             .lock()
             .map(|lines| lines.iter().cloned().collect())
             .unwrap_or_default()
@@ -356,6 +388,7 @@ impl NativeLspClient {
         // across an await).
         let next_version = {
             let mut open_docs = self
+                .inner
                 .open_docs
                 .lock()
                 .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
@@ -366,7 +399,7 @@ impl NativeLspClient {
 
         if next_version == 1 {
             let language_id = crate::lsp::config::detect_language_id(file_path.clone())
-                .or_else(|| self.config.language_id.clone())
+                .or_else(|| self.inner.config.language_id.clone())
                 .unwrap_or_else(|| "plaintext".to_owned());
             let params = json!({
                 "textDocument": {
@@ -393,6 +426,7 @@ impl NativeLspClient {
         let uri = path_to_uri(&file_path)?;
         let was_open = {
             let mut open_docs = self
+                .inner
                 .open_docs
                 .lock()
                 .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
@@ -585,6 +619,7 @@ impl NativeLspClient {
         let uri = path_to_uri(&file_path)?;
         let connection = self.connection_handle().await?;
         let min_version = self
+            .inner
             .open_docs
             .lock()
             .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?
@@ -597,7 +632,7 @@ impl NativeLspClient {
     }
 }
 
-impl Drop for NativeLspClient {
+impl Drop for NativeLspClientInner {
     fn drop(&mut self) {
         self.connection.get_mut().take();
         if let Some(task) = self.stderr_task.get_mut().take() {
@@ -619,7 +654,8 @@ impl NativeLspClient {
     /// LSP requests are NOT serialized and cannot head-of-line block one
     /// another. Returns an error if the client has not been started.
     async fn connection_handle(&self) -> Result<Arc<JsonRpcConnection<ChildStdin>>> {
-        self.connection
+        self.inner
+            .connection
             .lock()
             .await
             .as_ref()

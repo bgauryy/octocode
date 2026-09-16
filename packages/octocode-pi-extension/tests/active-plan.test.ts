@@ -1125,16 +1125,52 @@ test('resolveRfcPath resolves a dir to its RFC.md, and a direct RFC.md file', ()
   }
 });
 
-test('resolveRfcPath rejects paths outside .octocode/rfc/, missing files, and traversal', () => {
+test('resolveRfcPath accepts any workspace file, rejects outside workspace, missing paths, and empty dirs', () => {
   const { ws } = makeRfcWorkspace();
   const outside = path.join(ws, 'NOTES.md');
   fs.writeFileSync(outside, '# not an rfc');
+  // Make a subdirectory with no .md files
+  const emptyDir = path.join(ws, '.octocode', 'rfc', 'empty-dir');
+  fs.mkdirSync(emptyDir, { recursive: true });
   try {
-    assert.ok(resolveRfcPath(ws, outside).error, 'a file outside .octocode/rfc/ is rejected');
-    assert.match(resolveRfcPath(ws, outside).error!, /\.octocode\/rfc/);
+    // Any file within the workspace is accepted
+    assert.ok(!resolveRfcPath(ws, outside).error, 'a file anywhere in the workspace is accepted');
+    assert.ok(resolveRfcPath(ws, outside).path, 'and it resolves to a path');
+    // Traversal within workspace is fine (resolves to workspace file)
+    const fromTraversal = resolveRfcPath(ws, path.join('.octocode', 'rfc', '..', '..', 'NOTES.md'));
+    assert.ok(!fromTraversal.error, 'traversal that stays within the workspace is accepted');
+    // Non-existent path is rejected
     assert.ok(resolveRfcPath(ws, path.join('.octocode', 'rfc', 'nope')).error, 'missing path rejected');
+    // Empty input rejected
     assert.ok(resolveRfcPath(ws, '').error, 'empty input rejected');
-    assert.ok(resolveRfcPath(ws, path.join('.octocode', 'rfc', '..', '..', 'NOTES.md')).error, 'traversal out of the rfc tree rejected');
+    // Directory with no .md files returns a helpful error
+    assert.ok(resolveRfcPath(ws, emptyDir).error, 'directory with no .md files is rejected');
+    assert.match(resolveRfcPath(ws, emptyDir).error!, /no .md file/);
+    // Path outside the workspace is rejected
+    const parent = path.dirname(ws);
+    const outsideWs = path.join(parent, 'SECRETS.md');
+    fs.writeFileSync(outsideWs, '# outside');
+    try {
+      assert.ok(resolveRfcPath(ws, outsideWs).error, 'path outside workspace is rejected');
+      assert.match(resolveRfcPath(ws, outsideWs).error!, /within the workspace/);
+    } finally {
+      fs.unlinkSync(outsideWs);
+    }
+  } finally {
+    fs.rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test('resolveRfcPath resolves a dir with a non-RFC.md markdown file', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-rfc-alt-md-'));
+  const rfcDir = path.join(ws, '.octocode', 'rfc', 'design');
+  fs.mkdirSync(rfcDir, { recursive: true });
+  const altMd = path.join(rfcDir, 'DESIGN.md');
+  fs.writeFileSync(altMd, '# Design doc\n');
+  try {
+    const res = resolveRfcPath(ws, rfcDir);
+    assert.ok(!res.error, 'resolves without error');
+    assert.equal(res.path, fs.realpathSync(altMd), 'resolves to the .md file found in the directory');
   } finally {
     fs.rmSync(ws, { recursive: true, force: true });
   }

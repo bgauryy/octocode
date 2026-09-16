@@ -10,7 +10,7 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use octocode_engine::apply_content_view_minification;
+use octocode_engine_core::portable::apply_content_view_minification;
 
 /// A realistic JS module: comments (stripped), imports, classes, control flow —
 /// the kind of content OXC actually has to parse and regenerate, not a
@@ -78,8 +78,8 @@ fn bench_minify_js(c: &mut Criterion) {
             |b, source| {
                 b.iter(|| {
                     black_box(apply_content_view_minification(
-                        black_box(source.clone()),
-                        black_box("service.js".to_owned()),
+                        black_box(source.as_str()),
+                        black_box("service.js"),
                     ))
                 });
             },
@@ -99,8 +99,8 @@ fn bench_minify_css(c: &mut Criterion) {
             |b, source| {
                 b.iter(|| {
                     black_box(apply_content_view_minification(
-                        black_box(source.clone()),
-                        black_box("theme.css".to_owned()),
+                        black_box(source.as_str()),
+                        black_box("theme.css"),
                     ))
                 });
             },

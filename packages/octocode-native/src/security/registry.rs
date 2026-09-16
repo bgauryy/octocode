@@ -295,14 +295,14 @@ mod tests {
         let mut registry = SecurityRegistry::default();
         registry
             .add_allowed_commands(["/bin/RG".to_owned(), "rg".to_owned()])
-            .unwrap();
+            .expect("security registry test setup should succeed");
         assert_eq!(registry.allowed_commands(), ["rg"]);
         assert_eq!(registry.version(), 1);
         registry.freeze();
         assert_eq!(
             registry
                 .add_allowed_roots([PathBuf::from("/tmp")])
-                .unwrap_err()
+                .expect_err("security registry should reject the test operation")
                 .code,
             PolicyErrorCode::RegistryFrozen
         );
@@ -313,7 +313,7 @@ mod tests {
     fn unsupported_js_regex_is_visible() {
         let error =
             SensitiveDataPattern::compile("lookbehind", "", "(?<=token=)x", false, false, None)
-                .unwrap_err();
+                .expect_err("security registry should reject the test operation");
         assert_eq!(error.code, PolicyErrorCode::UnsupportedRegex);
     }
 }

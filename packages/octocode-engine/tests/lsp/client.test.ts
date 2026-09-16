@@ -159,6 +159,15 @@ describe('LSPClient native wrapper', () => {
     await expect(client.closeDocument(file)).resolves.toBeUndefined();
   });
 
+  it('rejects oversized disk documents before native LSP I/O', async () => {
+    const { config, file } = await fixture();
+    const client = new LSPClient(config);
+
+    await expect(client.openDocumentFromDisk(file, 1)).rejects.toThrow(
+      /File is too large for LSP document open/
+    );
+  });
+
   it('refuses to start a rejected shell-wrapper command before spawning', async () => {
     const root = await mkdtemp(
       path.join(os.tmpdir(), 'octocode-engine-shell-reject-')

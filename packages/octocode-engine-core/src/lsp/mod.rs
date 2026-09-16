@@ -3,6 +3,7 @@ mod commands;
 pub mod config;
 pub mod grammar;
 pub mod json_rpc;
+pub mod pool;
 pub mod resolver;
 pub mod symbol_kind;
 pub mod types;

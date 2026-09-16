@@ -131,8 +131,12 @@ describe('host-only Awareness behavior', () => {
     expect(guide.prompt).not.toContain('## observe\n');
     expect(guide.prompt).not.toContain('solo work needs no record');
     expect(guide.commands).toHaveLength(ROUTINE_AWARENESS_OPERATIONS.length);
-    for (const command of guide.commands) {
-      expect(JSON.parse(command.inputSchemaText)).toEqual(
+    expect(Buffer.byteLength(JSON.stringify(guide))).toBeLessThan(16_000);
+    for (const command of guide.commands) expect(command).not.toHaveProperty('inputSchemaText');
+
+    const guideWithSchemas = getExternalAgentAwarenessGuide({ includeSchemas: true });
+    for (const command of guideWithSchemas.commands) {
+      expect(JSON.parse(command.inputSchemaText!)).toEqual(
         getAwarenessOperationDescriptor(command.operation)?.inputSchema,
       );
     }

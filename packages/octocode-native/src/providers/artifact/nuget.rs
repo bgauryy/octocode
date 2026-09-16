@@ -322,10 +322,10 @@ fn limit_reason() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::RequestBudget;
     use crate::providers::artifact::http::{
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
-    use crate::providers::RequestBudget;
     use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -341,7 +341,7 @@ mod tests {
             Self {
                 responses: values
                     .into_iter()
-                    .map(|v| serde_json::to_vec(&v).unwrap())
+                    .map(|v| serde_json::to_vec(&v).expect("NuGet test data should be valid"))
                     .collect(),
                 index: AtomicUsize::new(0),
             }
@@ -402,7 +402,10 @@ mod tests {
         });
         let http = SequenceMock::json_seq(vec![index, registration]);
         let b = budget();
-        let client = RegistryClient { http: &http, budget: &b };
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+        };
         let q = ArtifactQuery {
             artifact_type: ArtifactType::Nuget,
             package_name: Some("Newtonsoft.Json".into()),
@@ -418,7 +421,11 @@ mod tests {
         let item = &page.artifacts[0];
         assert_eq!(item.name, "Newtonsoft.Json");
         assert_eq!(item.version.as_deref(), Some("13.0.3"));
-        assert!(item.registry_url.contains("nuget.org"), "{}", item.registry_url);
+        assert!(
+            item.registry_url.contains("nuget.org"),
+            "{}",
+            item.registry_url
+        );
     }
 
     #[test]
@@ -426,22 +433,22 @@ mod tests {
         use std::cmp::Ordering;
         // stable > prerelease
         assert_eq!(
-            compare_versions("13.0.3", "13.0.3-beta1").unwrap(),
+            compare_versions("13.0.3", "13.0.3-beta1").expect("NuGet test data should be valid"),
             Ordering::Greater
         );
         // higher patch wins
         assert_eq!(
-            compare_versions("2.0.1", "2.0.0").unwrap(),
+            compare_versions("2.0.1", "2.0.0").expect("NuGet test data should be valid"),
             Ordering::Greater
         );
         // equal
         assert_eq!(
-            compare_versions("1.0.0", "1.0.0").unwrap(),
+            compare_versions("1.0.0", "1.0.0").expect("NuGet test data should be valid"),
             Ordering::Equal
         );
         // 4-part version
         assert_eq!(
-            compare_versions("1.2.3.4", "1.2.3.3").unwrap(),
+            compare_versions("1.2.3.4", "1.2.3.3").expect("NuGet test data should be valid"),
             Ordering::Greater
         );
     }

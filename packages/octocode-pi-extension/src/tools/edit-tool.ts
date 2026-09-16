@@ -27,6 +27,10 @@ export interface EditQuery {
 export interface EditOperation {
   oldText?: string;
   newText: string;
+  /** Line-array alternative to newText for lineRange mode (VS Code LineReplacement pattern).
+   *  Each element is one line without \n. Joined with \n; trailing \n added when range had one.
+   *  Eliminates trailing-newline ambiguity. Mutually exclusive with newText when set. */
+  newLines?: string[];
   replaceAll?: boolean;
   reasoning?: string;
   matchMode?: MatchMode;
@@ -121,6 +125,8 @@ function normalizeForFuzzyMatch(text: string): string {
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ')
+    // Unescape template-literal backtick escapes so oldText with `x` matches file with \`x\`.
+    .replace(/\\`/g, '`')
     .split('\n')
     .map((line) => line.trim().replace(/[ \t]+/g, ' '))
     .join('\n');
@@ -208,7 +214,7 @@ function validateOperation(edit: unknown, index: number): EditOperation {
     throw new Error(`Edit tool input is invalid. edits[${index}] must be an object.`);
   }
   const item = edit as Record<string, unknown>;
-  const allowed = new Set(['oldText', 'newText', 'replaceAll', 'reasoning', 'matchMode', 'startLine', 'endLine']);
+  const allowed = new Set(['oldText', 'newText', 'newLines', 'replaceAll', 'reasoning', 'matchMode', 'startLine', 'endLine']);
   const extra = Object.keys(item).filter(key => !allowed.has(key));
   if (extra.length) throw new Error(`Edit tool input is invalid. edits[${index}] has unknown fields: ${extra.join(', ')}.`);
   const matchMode = (item['matchMode'] ?? 'exact') as MatchMode;
@@ -218,13 +224,23 @@ function validateOperation(edit: unknown, index: number): EditOperation {
   if (matchMode !== 'lineRange' && (item['startLine'] !== undefined || item['endLine'] !== undefined)) {
     throw new Error('startLine and endLine require matchMode:"lineRange".');
   }
-  if (typeof item['newText'] !== 'string') {
-    throw new Error(`Edit tool input is invalid. edits[${index}].newText must be a string.`);
+  const hasNewLines = Array.isArray(item['newLines']);
+  if (!hasNewLines && typeof item['newText'] !== 'string') {
+    throw new Error(`Edit tool input is invalid. edits[${index}].newText must be a string (or supply newLines[] for lineRange).`);
+  }
+  if (hasNewLines && (item['newLines'] as unknown[]).some((l) => typeof l !== 'string')) {
+    throw new Error(`Edit tool input is invalid. edits[${index}].newLines must be an array of strings.`);
+  }
+  if (hasNewLines && item['newText'] !== undefined) {
+    throw new Error(`Edit tool input is invalid. edits[${index}]: newLines and newText are mutually exclusive.`);
+  }
+  if (hasNewLines && (item['matchMode'] ?? 'exact') !== 'lineRange') {
+    throw new Error(`Edit tool input is invalid. edits[${index}].newLines requires matchMode:"lineRange".`);
   }
   if (item['oldText'] !== undefined && typeof item['oldText'] !== 'string') {
     throw new Error(`Edit tool input is invalid. edits[${index}].oldText must be a string.`);
   }
-  assertWellFormedText(item['newText'], 'newText');
+  if (!hasNewLines) assertWellFormedText(item['newText'] as string, 'newText');
   if (typeof item['oldText'] === 'string') assertWellFormedText(item['oldText'], 'oldText');
   if (matchMode !== 'lineRange' && (typeof item['oldText'] !== 'string' || item['oldText'].length === 0)) {
     throw new Error(`Edit tool input is invalid. edits[${index}].oldText must be a non-empty string unless matchMode:"lineRange" is used.`);
@@ -237,7 +253,8 @@ function validateOperation(edit: unknown, index: number): EditOperation {
   }
   const operation: EditOperation = {
     oldText: matchMode === 'lineRange' && item['oldText'] === '' ? undefined : item['oldText'] as string | undefined,
-    newText: item['newText'],
+    newText: (item['newText'] as string | undefined) ?? '',
+    newLines: hasNewLines ? (item['newLines'] as string[]) : undefined,
     replaceAll: item['replaceAll'] === true,
     reasoning: typeof item['reasoning'] === 'string' ? item['reasoning'] : undefined,
     matchMode,
@@ -331,7 +348,19 @@ function lineRangeReplacement(content: string, spans: ReturnType<typeof lineSpan
   if (edit.oldText !== undefined && normalizeToLF(edit.oldText) !== current) {
     throw new Error(`edits[${editIndex}] oldText does not match the requested line range in ${filePath}. Re-read the target range.`);
   }
-  return [{ editIndex, start, end, newText: normalizeToLF(edit.newText), mode: 'lineRange' }];
+  // newLines[] (VS Code LineReplacement pattern): each element is one line without \n.
+  // Eliminates trailing-newline ambiguity entirely. Falls back to newText with auto-repair.
+  let newText: string;
+  if (edit.newLines !== undefined) {
+    newText = edit.newLines.join('\n');
+    if (current.endsWith('\n') && edit.newLines.length > 0) newText += '\n';
+  } else {
+    const normalizedNew = normalizeToLF(edit.newText);
+    newText = current.endsWith('\n') && !normalizedNew.endsWith('\n')
+      ? normalizedNew + '\n'
+      : normalizedNew;
+  }
+  return [{ editIndex, start, end, newText, mode: 'lineRange' }];
 }
 
 export function applyCustomEditsToContent(content: string, edits: EditOperation[], filePath: string): AppliedEditResult {
@@ -572,11 +601,20 @@ export async function prepareEdit(query: EditQuery, cwd: string, inheritedRequir
   const rawContent = bytes.toString('utf8');
   // Commit needs the token, not a second retained copy of the original file.
   delete target.snapshot.content;
+  // requireRecentRead is implicitly forced when any edit uses lineRange without oldText,
+  // because line numbers can silently shift without a verified read.
+  const implicitlyRequired = !contentAnchored && !inheritedRequireRecentRead && query.requireRecentRead !== true;
   const requireRecentRead = inheritedRequireRecentRead || query.requireRecentRead === true || !contentAnchored;
   const readState = await checkReadState(
     absolutePath,
     requireRecentRead,
-    { contentAnchored, currentDigest: target.snapshot.digest },
+    {
+      contentAnchored,
+      currentDigest: target.snapshot.digest,
+      implicitReason: implicitlyRequired
+        ? 'a lineRange edit without oldText was used — line numbers require a verified read'
+        : undefined,
+    },
   );
   const { bom, text } = stripBom(rawContent);
   const normalizedContent = normalizeToLF(text);

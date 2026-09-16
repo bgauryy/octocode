@@ -2,31 +2,27 @@ use crate::types::{
     ExtractMatchingLinesOptions, ExtractMatchingLinesResult, FilterPatchOptions,
     SliceContentOptions, SliceContentResult,
 };
-use napi::{Error, Result, Status};
+use napi::Result;
 use napi_derive::napi;
 
 /// Number of UTF-8 bytes up to (not including) the `char_index`-th JavaScript
 /// UTF-16 code unit in `content`. Zero-allocation — no `Buffer.from()` needed.
 #[napi(js_name = "charToByteOffset")]
 pub fn char_to_byte_offset(content: String, char_index: u32) -> u32 {
-    crate::text::utf8_offsets::char_to_byte_offset_inner(&content, char_index as usize) as u32
+    crate::portable::char_to_byte_offset(&content, char_index as usize) as u32
 }
 
 /// JavaScript UTF-16 code-unit offset for `byte_offset` bytes into `content`.
 /// Zero-allocation — no `Buffer.from()` needed.
 #[napi(js_name = "byteToCharOffset")]
 pub fn byte_to_char_offset(content: String, byte_offset: u32) -> u32 {
-    crate::text::utf8_offsets::byte_to_char_offset_inner(&content, byte_offset as usize) as u32
+    crate::portable::byte_to_char_offset(&content, byte_offset as usize) as u32
 }
 
 /// Extract a byte-range substring from `content`.
 #[napi(js_name = "byteSliceContent")]
 pub fn byte_slice_content(content: String, byte_start: u32, byte_end: u32) -> String {
-    crate::text::utf8_offsets::byte_slice_content_inner(
-        &content,
-        byte_start as usize,
-        byte_end as usize,
-    )
+    crate::portable::byte_slice_content(&content, byte_start as usize, byte_end as usize)
 }
 
 /// Paginate `content` by char offset + length, with optional line-boundary
@@ -39,7 +35,7 @@ pub fn slice_content(
     char_length: u32,
     options: Option<SliceContentOptions>,
 ) -> SliceContentResult {
-    crate::text::utf8_offsets::slice_content_inner(
+    crate::portable::slice_content(
         &content,
         char_offset as usize,
         char_length as usize,
@@ -58,24 +54,9 @@ pub fn extract_matching_lines(
     pattern: String,
     options: Option<ExtractMatchingLinesOptions>,
 ) -> Result<ExtractMatchingLinesResult> {
-    // A `isRegex: true` query with an uncompilable pattern must surface as an
-    // error, not a silent empty-match success that hides the bad query.
-    let is_regex = options.as_ref().and_then(|o| o.is_regex).unwrap_or(false);
-    if is_regex && !pattern.is_empty() {
-        let case_sensitive = options
-            .as_ref()
-            .and_then(|o| o.case_sensitive)
-            .unwrap_or(false);
-        regex::RegexBuilder::new(&pattern)
-            .case_insensitive(!case_sensitive)
-            .build()
-            .map_err(|err| {
-                Error::new(Status::InvalidArg, format!("invalid regex pattern: {err}"))
-            })?;
-    }
-    Ok(crate::search::line_extractor::extract_matching_lines_inner(
+    Ok(crate::portable::extract_matching_lines(
         &content, &pattern, options,
-    ))
+    )?)
 }
 
 /// Filter and optionally trim a unified diff patch.
@@ -85,5 +66,5 @@ pub fn extract_matching_lines(
 /// both operations in a single pass.
 #[napi(js_name = "filterPatch")]
 pub fn filter_patch(patch: String, options: Option<FilterPatchOptions>) -> String {
-    crate::text::diff_parser::filter_patch_inner(&patch, options)
+    crate::portable::filter_patch(&patch, options)
 }

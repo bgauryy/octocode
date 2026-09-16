@@ -1,7 +1,7 @@
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine::structural::{
+use octocode_engine_core::structural::{
     StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
 };
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,7 @@ pub fn execute_match(
         let s = security
             .validate_text_bytes(&bytes, Some(&p.canonical), 1_000_000)
             .map_err(super::AstError::from)?;
-        let r = octocode_engine::portable::structural_search_detailed(
+        let r = octocode_engine_core::portable::structural_search_detailed(
             &s.content,
             &p.canonical.to_string_lossy(),
             q.pattern.as_deref(),
@@ -90,7 +90,7 @@ pub fn execute_match(
             r.status,
         )]
     } else {
-        let r = octocode_engine::portable::structural_search_files_detailed_filtered(
+        let r = octocode_engine_core::portable::structural_search_files_detailed_filtered(
             StructuralSearchFilesOptions {
                 path: p.canonical.to_string_lossy().into_owned(),
                 pattern: q.pattern.clone(),

@@ -210,7 +210,8 @@ mod tests {
             ),
         ];
         for (input, error, expected) in cases {
-            let result = mcp_input_error("localFetch", &input, &error).unwrap();
+            let result = mcp_input_error("localFetch", &input, &error)
+                .expect("invalid input should produce an MCP error");
             assert_eq!(
                 result["content"][0]["text"],
                 format!(

@@ -402,7 +402,10 @@ mod tests {
         );
         let rows = traverse(&graph, "entry.ts", 4);
         assert_eq!(rows.len(), 4);
-        assert_eq!(rows.last().unwrap()["distance"], 3);
+        assert_eq!(
+            rows.last().expect("traversal should produce four rows")["distance"],
+            3
+        );
     }
 
     #[test]

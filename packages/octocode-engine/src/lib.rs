@@ -1,20 +1,15 @@
 #[cfg(feature = "napi-addon")]
 mod bindings;
+
 pub mod error;
-pub mod graph;
-pub mod index;
-pub mod lsp;
-pub mod minify;
 pub mod portable;
-pub mod search;
 pub mod security;
-pub mod signatures;
-pub mod structural;
-pub mod text;
 pub mod types;
 
-// Keep the NAPI-facing Rust surface explicit. These exports also make FFI-only
-// entry points reachable to Rust's dead-code analysis and the benchmark crates.
+pub use octocode_engine_core::{graph, index, lsp, minify, search, signatures, structural, text};
+
+// Keep the NAPI-facing Rust surface explicit so the public addon ABI remains
+// unchanged while implementation ownership lives in octocode-engine-core.
 #[cfg(feature = "napi-addon")]
 pub use bindings::filesystem::query_file_system;
 #[cfg(feature = "napi-addon")]
@@ -23,8 +18,10 @@ pub use bindings::graph::scan_graph_facts;
 pub use bindings::index::{build_index, index_status, query_index};
 #[cfg(feature = "napi-addon")]
 pub use bindings::lsp::{
+    acquire_pooled_lsp_client, clear_pooled_lsp_clients, configure_lsp_client_pool,
     convert_symbol_kind, detect_language_id, from_uri, get_language_server_for_file,
-    is_command_available, resolve_position, resolve_position_from_content,
+    is_command_available, pooled_lsp_client_configs, pooled_lsp_client_count,
+    release_pooled_lsp_client, resolve_position, resolve_position_from_content,
     resolve_workspace_root_for_file, safe_read_file, safe_read_line_window, to_lsp_symbol_kind,
     to_uri, validate_lsp_server_path,
 };
@@ -51,4 +48,4 @@ pub use bindings::text::{
 #[cfg(feature = "napi-addon")]
 pub use bindings::yaml::json_to_yaml_string;
 #[cfg(feature = "napi-addon")]
-pub use lsp::client::NativeLspClient;
+pub use octocode_engine_core::lsp::client::NativeLspClient;

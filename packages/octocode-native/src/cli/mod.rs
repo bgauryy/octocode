@@ -10,6 +10,9 @@ use std::io::{self, Write};
 #[derive(Parser)]
 #[command(name = "octocode", version, about = "Native Octocode research tools")]
 pub struct Args {
+    /// Emit {"success":false,"error":"..."} to stdout on errors instead of stderr text.
+    #[arg(long, global = true)]
+    json_errors: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -138,12 +141,6 @@ enum Command {
     Def(human::LspArgs),
     /// Find all references to a symbol across the workspace.
     Refs(human::LspArgs),
-    /// List all call sites that call this function (incoming call hierarchy).
-    Callers(human::LspArgs),
-    /// List all functions called by this function (outgoing call hierarchy).
-    Callees(human::LspArgs),
-    /// Jump to the type definition of the symbol under the cursor.
-    Type(human::LspArgs),
     /// Show LSP diagnostics (errors, warnings, hints) for a source file.
     Diagnostics(human::LspArgs),
     /// Search GitHub repositories by keyword.
@@ -159,12 +156,18 @@ enum Command {
         /// Include the full tool context with all available parameters.
         #[arg(long)]
         full: bool,
+        /// Emit a compact one-line summary (enabled tool count + protocol).
+        #[arg(long)]
+        minimal: bool,
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
     },
     /// Show runtime status: home directory, storage, authentication, and available tools.
     Status {
+        /// GitHub API hostname (override for GitHub Enterprise).
+        #[arg(long)]
+        hostname: Option<String>,
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
@@ -221,26 +224,44 @@ enum Command {
         /// Pass through additional environment variables to the MCP server process.
         #[arg(long)]
         pass_env: bool,
+        /// Installation runner: "npx" (default), "bunx", or "pnpm".
+        #[arg(long)]
+        method: Option<String>,
+        /// Write a .bak backup of the existing config before overwriting.
+        #[arg(long)]
+        backup: bool,
+        /// Restore config from a .bak backup file written by a previous --backup install.
+        #[arg(long)]
+        rollback: Option<String>,
     },
 }
 
+fn emit_error(msg: &str, json_errors: bool) {
+    if json_errors {
+        println!("{}", json!({"success": false, "error": msg}));
+    } else {
+        eprintln!("{msg}");
+    }
+}
+
 pub async fn run(args: Args) -> u8 {
+    let json_errors = args.json_errors;
     let runtime = match ToolRuntime::from_host(HostOptions {
         surface: RuntimeSurface::Cli,
         ..HostOptions::default()
     }) {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("{}: {}", error.code, error.message);
+            emit_error(&format!("{}: {}", error.code, error.message), json_errors);
             return 5;
         }
     };
-    let result = dispatch(args.command, &runtime).await;
+    let result = dispatch(args.command, json_errors, &runtime).await;
     runtime.close().await;
     result
 }
 
-async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
+async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) -> u8 {
     match command {
         Command::Pattern(args) => {
             match search::SearchArgs::try_parse_from(
@@ -259,7 +280,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
                 execute(runtime, &tool, query, false, false, all, Some(digest)).await
             }
             Err(error) => {
-                eprintln!("{}: {}", error.code, error.message);
+                emit_error(&format!("{}: {}", error.code, error.message), json_errors);
                 2
             }
         },
@@ -461,7 +482,16 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
             }
             // pretty=false → raw content to stdout (mirrors `read`)
             // pretty=true  → structured indented JSON
-            execute(runtime, "ghGetFileContent", query, pretty, pretty, false, None).await
+            execute(
+                runtime,
+                "ghGetFileContent",
+                query,
+                pretty,
+                pretty,
+                false,
+                None,
+            )
+            .await
         }
         Command::Files(args) => human::files(runtime, args).await,
         Command::Tree(args) => human::tree(runtime, args).await,
@@ -471,17 +501,20 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
         Command::Rewrite(args) => human::rewrite(runtime, args).await,
         Command::Def(args) => human::lsp(runtime, "definition", args).await,
         Command::Refs(args) => human::lsp(runtime, "references", args).await,
-        Command::Callers(args) => human::lsp(runtime, "callers", args).await,
-        Command::Callees(args) => human::lsp(runtime, "callees", args).await,
-        Command::Type(args) => human::lsp(runtime, "typeDefinition", args).await,
         Command::Diagnostics(args) => human::lsp(runtime, "diagnostic", args).await,
         Command::Repos(args) => human::repos(runtime, args).await,
         Command::Clone(args) => human::clone_repo(runtime, args).await,
         Command::Package(args) => human::package(runtime, args).await,
         Command::History(args) => human::history(runtime, args).await,
-        Command::Context { full, json } => human::context(runtime, json, full).await,
-        Command::Status { json } => human::status(runtime, json).await,
-        Command::Auth { json } => human::auth_status(runtime, json),
+        Command::Context {
+            full,
+            minimal,
+            json,
+        } => human::context(runtime, json, full, minimal).await,
+        Command::Status { hostname, json } => {
+            human::status(runtime, hostname.as_deref(), json).await
+        }
+        Command::Auth { json } => human::auth_status(runtime, json).await,
         Command::Login { refresh } => human::login(refresh).await,
         Command::Logout => human::logout(runtime),
         Command::Cache { action } => human::cache(runtime, &action),
@@ -495,6 +528,9 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
             json,
             enable_local,
             pass_env,
+            method,
+            backup,
+            rollback,
         } => mcp_install::run(mcp_install::InstallArgs {
             ide,
             force,
@@ -504,6 +540,9 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
             json,
             enable_local,
             pass_env,
+            method,
+            backup,
+            rollback,
         }),
     }
 }
@@ -541,22 +580,19 @@ pub(super) async fn execute(
                     return 6;
                 }
                 let value = outcome.structured_content;
-                let mut exit = match outcome.failure {
-                    Some(octocode_native::runtime::FailureKind::NotFound) => 3,
-                    // The frozen raw-tool CLI classifies the legacy 401 message
-                    // as a tool failure. Human commands use the typed auth code.
-                    Some(octocode_native::runtime::FailureKind::Authentication) => {
-                        if structured {
-                            5
-                        } else {
-                            4
+                let mut exit =
+                    match outcome.failure {
+                        Some(octocode_native::runtime::FailureKind::NotFound) => 3,
+                        // The frozen raw-tool CLI classifies the legacy 401 message
+                        // as a tool failure. Human commands use the typed auth code.
+                        Some(octocode_native::runtime::FailureKind::Authentication) => {
+                            if structured { 5 } else { 4 }
                         }
-                    }
-                    Some(octocode_native::runtime::FailureKind::Permission) => 4,
-                    Some(octocode_native::runtime::FailureKind::RateLimited) => 7,
-                    Some(octocode_native::runtime::FailureKind::Execution) => 5,
-                    None => 0,
-                };
+                        Some(octocode_native::runtime::FailureKind::Permission) => 4,
+                        Some(octocode_native::runtime::FailureKind::RateLimited) => 7,
+                        Some(octocode_native::runtime::FailureKind::Execution) => 5,
+                        None => 0,
+                    };
                 if structured && !outcome.all_failed {
                     exit = 0;
                 }
@@ -714,10 +750,7 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
     }
 }
 
-fn read_error(
-    data: &Value,
-    failure: Option<octocode_native::runtime::FailureKind>,
-) -> String {
+fn read_error(data: &Value, failure: Option<octocode_native::runtime::FailureKind>) -> String {
     match data["errorCode"].as_str() {
         Some("fileTooLarge" | "fullContentLimit") => "Read exceeds the single-page limit.".into(),
         Some("contentSecurityLimit") => {

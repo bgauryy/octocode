@@ -18,8 +18,8 @@ import { ToolResultError } from './tool-result-error.js';
 // ─── Registration helper ─────────────────────────────────────────────────────
 
 export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object.freeze({
-  file: 'Edit, write, or delete files with guards. Edit targets bytes; write replaces all. Batch edits per path.',
-  bash: 'Run builds, tests, or packages. Set timeout. background:true returns a jobId. Manage with action:status|output|kill|list.',
+  file: 'Guarded edit, write, or delete files. Edit targets bytes; write replaces the whole file. Batch edits per path.',
+  bash: 'Run builds, tests, and packages. Set timeout. background:true returns jobId. Manage with action:status|output|kill|list.',
   inspectMedia: 'Inspect image, video, or audio — metadata, pixels, frames, or waveforms.',
   media: 'Create images/PDFs or transform media. Inspect output after creation.',
   runFfmpeg: 'Run ffmpeg/ffprobe argv for filter_complex, loudnorm, VMAF, etc. Pass argv without shell or binary name.',
@@ -27,12 +27,12 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
   chromeDebug: 'Inspect/operate Chrome via CDP. Attach to known target; run minimal scheme.',
   agent: 'Delegate bounded workers for parallel or specialist work. Verify handbacks. Custom requires tools+systemPrompt.',
   callTool: 'Reuse or maintain a dynamic function. Reuse first; creation requires approval.',
-  skill: 'Load an installed skill or manage dynamic skills. type:load for SKILL.md; type:call for lifecycle.',
+  skill: 'Load skills for specialized workflow needs. type:load for SKILL.md; type:call for lifecycle.',
   plan: `${PLAN_USAGE_GUIDANCE}`,
   localServer: 'Serve a static artifact on 127.0.0.1. Mount minimal scope; unmount when done.',
   askUser: 'Collect one missing choice that changes the next action. Ask once.',
   awareness: 'Shared coordination state. Start with context.orient; batch reads; one mutation per call.',
-  MCPTool: 'Call MCP tools, resources, and prompts. server:"octocode" for code/GitHub/npm research. Batch Octocode calls inside arguments.queries[]. Use action:describe only for missing/stale schemas.',
+  MCPTool: 'Call MCP tools, resources, and prompts. server:"octocode" = code/GitHub/history/npm research. Batch Octocode calls in arguments.queries[]. action:describe only for missing/stale schemas.',
 });
 
 /** One executable discovery recipe; workers inherit it through the MCP gateway. */

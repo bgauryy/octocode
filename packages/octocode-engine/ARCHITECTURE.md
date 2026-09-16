@@ -1,58 +1,46 @@
 # Octocode engine architecture
 
-`octocode-engine` is a napi-rs native package **plus a TypeScript orchestration
-layer**. Rust modules (reached through thin NAPI bindings in `src/bindings/`)
-own the pure primitives — minify, search, structural, signatures, binary, text,
-and the secret-detection/sanitizer core. The TS layer in `src/lsp/` and
-`src/security/` owns what Rust cannot hold across NAPI calls — the LSP client
-pool, symbol resolver, path/command validators, the security registry, and the
-secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
-`vitest`.
+`octocode-engine` is the published napi-rs package and TypeScript host adapter
+for the reusable Rust implementation in `../octocode-engine-core`. Rust under
+`src/bindings/` converts JS-owned values, calls core primitives, and preserves
+the public NAPI surface. The TypeScript layer in `src/lsp/` and `src/security/`
+owns Node-only discovery, provisioning, validation, registry, and wrapper
+behavior; reusable algorithms, domain types, errors, security primitives, and
+LSP lifecycle policy live in core. Core and binding Rust are tested with
+`cargo test`; TypeScript wrappers with `vitest`.
 
 ## Boundary
 
 - Extension filesystem mutations and edit-preview diff generation belong to
   `octocode-extension-rust`; this engine retains research-tool diff filtering.
-- `src/lib.rs` wires modules and re-exports the public NAPI surface.
+- `src/lib.rs` wires bindings and explicitly re-exports the public NAPI surface.
 - `src/bindings/` is the FFI boundary. Keep wrappers thin: convert JS-owned
-  values, call inner Rust modules, map errors once.
-- `src/types.rs` holds NAPI-safe shared structs.
+  values, call `octocode-engine-core`, and map errors once.
+- Shared NAPI-safe Rust structs are defined once in `../octocode-engine-core/src/types.rs`
+  and exposed here through the existing facade.
 
 ## Domains
 
-- `src/minify/` owns content minification: dispatch, comment removal, file-type
-  config, and strategy implementations.
-- `src/search/` owns local search: filesystem queries, matching-line extraction,
-  ripgrep parsing, pattern validation, and in-process ripgrep search. Native
-  collection is mode-aware: file and count views retain paths/counts without
-  constructing discarded snippets, and normal matches enumerate a line once.
-- `src/text/` owns small text utilities: diff filtering, extensions, UTF-8/UTF-16
-  offsets, and YAML serialization.
-- `src/structural/` owns Octocode AST search: language adapter, query
-  validation, matcher compilation, file traversal, ripgrep-backed prefiltering,
-  and result types.
-- `src/lsp/` owns LSP support across two tiers: Rust (`*.rs`) — the NAPI
-  `NativeLspClient` (JSON-RPC, lifecycle, symbol-kind, grammar/config tables,
-  and bounded transport notifications such as `publishDiagnostics`);
-  TypeScript (`*.ts`) — the client pool (`lspClientPool.ts`), manager
-  (`manager.ts`), symbol resolver, URI/path validation, and workspace-root
-  detection. tools-core consumes the TS tier through the `./lsp/*` subpath
-  exports.
-  `config.rs` also owns language-server command resolution: environment
-  overrides first, then known fast paths such as `tsgo`, then package-local
-  fallbacks such as `node_modules/typescript-language-server/lib/cli.mjs`.
-  Resolver tests must inject cwd/PATH availability through helpers instead of
-  mutating process-global cwd.
-  Definition, type-definition, and implementation requests negotiate LocationLink
-  support. Native conversion preserves the provider's symbol selection range
-  separately from enclosing source context. Plain Location ranges remain unchanged;
-  providers may include annotations in declaration spans.
-- `src/signatures/` owns syntax outlines and JS/TS symbol extraction.
-- `src/security/` owns secret detection and sanitization across two tiers: Rust
-  (`detector.rs`, `sanitizer.rs`, `patterns.rs`) for the detection engine and
-  TypeScript wrappers (`withSecurityValidation`, `registry`, `pathValidator`,
-  `commandValidator`, `mask`, `regexes/`) for orchestration. Both ship under
-  the engine package via the `./security/*` subpath exports.
+- `../octocode-engine-core/src/minify/`, `search/`, `text/`, `structural/`,
+  `signatures/`, `graph/`, and `index/` own the reusable Rust implementations.
+  Matching files under `src/bindings/` are NAPI adapters only.
+- `../octocode-engine-core/src/lsp/` owns the portable JSON-RPC client,
+  grammar/config tables, command resolution, bounded notification transport,
+  and shared pool lifecycle policy (canonical keys, in-flight deduplication,
+  health checks, idle expiry, LRU eviction, and explicit cleanup).
+- TypeScript under `src/lsp/` owns Node-only command discovery/provisioning,
+  workspace-root detection, URI/path validation, symbol resolution, and the
+  compatibility manager API. Its pool wrapper delegates lifecycle ownership to
+  the shared core-backed native facade. tools-core consumes this tier through
+  the `./lsp/*` subpath exports.
+- `../octocode-engine-core/src/security/` owns secret detection and sanitization.
+  TypeScript wrappers under `src/security/` retain Node orchestration such as
+  `withSecurityValidation`, registries, validators, masking, and regex catalogs;
+  these continue to ship through the engine's `./security/*` subpath exports.
+- Definition, type-definition, and implementation requests negotiate
+  `LocationLink` support. Native conversion preserves the provider's symbol
+  selection range separately from enclosing source context. Plain `Location`
+  ranges remain unchanged.
 
 ## Research graph direction
 
@@ -60,11 +48,13 @@ Reachability/dead-code detection is exposed by `astSearch`'s `topology`
 operation, consuming this engine's per-file facts rather than tool-specific
 regex logic:
 
-- `signatures/graph_facts.rs` (JS/TS via `js_oxc.rs`, other registered languages via
-  Tree-sitter) parses files through the shared grammar registry and extracts
+- `../octocode-engine-core/src/signatures/graph_facts.rs` (JS/TS via
+  `js_oxc.rs`, other registered languages via Tree-sitter) parses files through
+  the shared grammar registry and extracts
   AST facts for declarations, imports, exports, calls, classes, and functions,
   normalized into common symbol/relation facts;
-- `graph/mod.rs` owns the bounded filesystem walk, parallel file reads, native
+- `../octocode-engine-core/src/graph/mod.rs` owns the bounded filesystem walk,
+  parallel file reads, native
   fact extraction, and conservative same-file reference counts behind the
   async `scanGraphFacts` batch binding. The outer scan result and each embedded
   fact payload carry the same additive `schemaVersion`. Per-file omissions are
@@ -115,7 +105,7 @@ Completed files remain available, while exhausted matching cannot establish
 absence or satisfy a negation. Public tools preserve these diagnostics and
 report terminal limits when no continuation can complete the execution.
 
-**Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has live consumers
+**Note:** core's `signatures/graph_facts.rs`/`extractGraphFacts` has live consumers
 through both the single-file API and `scanGraphFacts` — it is not orphaned. A
 native Rust port of the graph algorithms above
 (reachability/SCC/retainer-lookup/pruning) was
@@ -127,15 +117,16 @@ TypeScript implementation; see that doc's status before reviving the idea.
 - Do not put logic in `lib.rs` or `bindings/`.
 - Put new code in the closest domain module; create a submodule only when a file
   gains a separate responsibility.
-- Keep domain modules pure Rust where possible. NAPI types belong at the edge.
-- Stateful orchestration that must persist across NAPI calls (LSP client pool,
-  security registry) belongs in the TS tier (`src/lsp/*.ts`, `src/security/*.ts`),
-  not Rust. Protocol state received only by the native JSON-RPC reader remains
-  at that transport boundary and must be bounded before TypeScript can query it.
+- Reusable pure Rust modules belong in `octocode-engine-core`; NAPI conversion
+  belongs at this package's binding edge.
+- Stateful Node host orchestration such as security registries remains in the
+  TypeScript tier. LSP process lifecycle policy and native protocol state live
+  in core and are bounded before TypeScript can query them.
 - Declare the public NAPI and Rust benchmark exports explicitly in `lib.rs`.
-  Internal callers import from the owning module; avoid wildcard relay exports.
+  Internal callers import from core or the owning binding; avoid wildcard relay
+  exports and compatibility-only duplicate modules.
 - Avoid duplicate helpers across domains. Shared LSP command/path checks live in
-  `src/lsp/commands.rs`.
+  `../octocode-engine-core/src/lsp/commands.rs`.
 
 ## Cargo Deps
 

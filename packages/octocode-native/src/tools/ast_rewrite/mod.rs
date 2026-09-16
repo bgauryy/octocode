@@ -2337,14 +2337,19 @@ mod tests {
                 .collect(),
         };
         persist_journal(&journal_path, &journal).expect("journal");
-        for index in 0..2 {
-            fs::write(&journal.files[index].stage, &after[index]).expect("stage");
-            fs::rename(&journal.files[index].target, &journal.files[index].backup).expect("backup");
-            journal.files[index].state = "backed-up".to_owned();
+        for (index, (file, after_bytes)) in journal
+            .files
+            .iter_mut()
+            .zip(after.iter())
+            .take(2)
+            .enumerate()
+        {
+            fs::write(&file.stage, after_bytes).expect("stage");
+            fs::rename(&file.target, &file.backup).expect("backup");
+            file.state = "backed-up".to_owned();
             if index == 0 {
-                fs::rename(&journal.files[index].stage, &journal.files[index].target)
-                    .expect("promote");
-                journal.files[index].state = "promoted".to_owned();
+                fs::rename(&file.stage, &file.target).expect("promote");
+                file.state = "promoted".to_owned();
             }
         }
         persist_journal(&journal_path, &journal).expect("persist interruption");

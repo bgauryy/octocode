@@ -169,15 +169,16 @@ export function forgetFileReadState(filePath: string, cwd = process.cwd()): void
 export async function checkReadState(
   absolutePath: string,
   requireRecentRead: boolean,
-  opts: { contentAnchored?: boolean; currentDigest?: string } = {},
+  opts: { contentAnchored?: boolean; currentDigest?: string; implicitReason?: string } = {},
 ): Promise<ReadStateCheck> {
   absolutePath = resolveCanonicalPath(absolutePath);
   const state = readStates.get(absolutePath);
   if (!state) {
     const message = 'No prior localFetch read state recorded for this file. Shell reads (bash/cat/grep) do not refresh this guard — use MCPTool localFetch instead: MCPTool(action:"call",server:"octocode",tool:"localFetch",arguments:{queries:[{path:"<absolute_path>"}]}).';
     if (requireRecentRead) {
+      const why = opts.implicitReason ? ` Implicit cause: ${opts.implicitReason}.` : '';
       throw new Error(
-        `${message} Re-read the file via MCPTool before editing${opts.contentAnchored === false ? ', or provide oldText matching the requested range.' : ', or set requireRecentRead:false only when intentional.'}`,
+        `${message}${why} Re-read the file via MCPTool before editing${opts.contentAnchored === false ? ', or provide oldText matching the requested range.' : ', or set requireRecentRead:false only when intentional.'}`,
       );
     }
     return { state: 'missing', message };

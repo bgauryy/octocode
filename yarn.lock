@@ -2646,6 +2646,12 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@octocodeai/octocode-engine-core@workspace:packages/octocode-engine-core":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-engine-core@workspace:packages/octocode-engine-core"
+  languageName: unknown
+  linkType: soft
+
 "@octocodeai/octocode-engine-darwin-arm64@workspace:*, @octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine-darwin-arm64@workspace:packages/octocode-engine/npm/darwin-arm64"

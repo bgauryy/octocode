@@ -13,7 +13,5 @@ pub fn minify_content(content: String, file_path: String) -> AsyncTask<MinifyCon
 /// preserving indentation and code shape. Capped at 1MB; panic-contained.
 #[napi(js_name = "applyContentViewMinification")]
 pub fn apply_content_view_minification(content: String, file_path: String) -> String {
-    crate::signatures::run_on_deep_stack(move || {
-        crate::minify::apply::apply_content_view_minification_inner(&content, &file_path)
-    })
+    crate::portable::apply_content_view_minification(&content, &file_path)
 }

@@ -1,11 +1,11 @@
 //! Native `lspSearch` using the portable engine language-server client.
-use crate::lsp::LspPool;
 use crate::tools::local_fetch::CancellationCheck;
-use octocode_engine::lsp::client::NativeLspClient;
-use octocode_engine::lsp::config::default_server_for_file;
-use octocode_engine::lsp::resolver::resolve_position;
-use octocode_engine::lsp::types::JsFuzzyPosition;
-use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
+use octocode_engine_core::lsp::client::NativeLspClient;
+use octocode_engine_core::lsp::config::default_server_for_file;
+use octocode_engine_core::lsp::pool::LspClientPool;
+use octocode_engine_core::lsp::resolver::resolve_position;
+use octocode_engine_core::lsp::types::JsFuzzyPosition;
+use octocode_engine_core::lsp::workspace::resolve_workspace_root_for_file;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
@@ -51,7 +51,7 @@ struct RustBuildContext {
 pub async fn execute(
     query: Value,
     cancel: &dyn CancellationCheck,
-    pool: Option<&LspPool>,
+    pool: &LspClientPool,
 ) -> Result<Value, String> {
     cancel.check()?;
     let mut query = query;
@@ -95,23 +95,32 @@ pub async fn execute(
         ));
     };
     apply_rust_context(&mut config, &query)?;
-    let client = match pool {
-        Some(pool) => pool.get_or_insert(config),
-        None => std::sync::Arc::new(NativeLspClient::new(config)),
-    };
-    match ensure_ready(client.as_ref()).await {
-        Err(error) => {
-            return Ok(failure(&query, "lsp.serverUnavailable", &error, false));
-        }
-        Ok(Some(ready)) if ready == "timeout" => {
+    let client = match pool.acquire(config).await {
+        Ok(Some(client)) => client,
+        Ok(None) => {
             return Ok(failure(
                 &query,
-                "lsp.timeout",
-                "Timed out waiting for the language server to become ready.",
+                "lsp.serverUnavailable",
+                "Language server failed to start.",
                 false,
             ));
         }
-        Ok(_) => {}
+        Err(error) => {
+            return Ok(failure(
+                &query,
+                "lsp.serverUnavailable",
+                &error.to_string(),
+                false,
+            ));
+        }
+    };
+    if client.readiness().as_deref() == Some("timeout") {
+        return Ok(failure(
+            &query,
+            "lsp.timeout",
+            "Timed out waiting for the language server to become ready.",
+            false,
+        ));
     }
     if Path::new(&path).is_file()
         && let Ok(content) = fs::read_to_string(&path)
@@ -145,7 +154,7 @@ pub async fn execute(
                 .await
                 .map_err(|error| error.to_string())?;
             let recovered =
-                recover_aliases(client.as_ref(), &query, &path, line, character, &snippets).await;
+                recover_aliases(&client, &query, &path, line, character, &snippets).await;
             let mut all = snippets;
             all.extend(recovered);
             locations(&query, "references", "referencesProvider", all)
@@ -215,68 +224,11 @@ pub async fn execute(
             true,
         ),
     };
-    if pool.is_none() {
-        let _ = client.stop().await;
-    }
     Ok(with_next(&query, result))
 }
 
-const LSP_READY_TIMEOUT_MS: u32 = 15_000;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LspPreparePlan {
-    Reuse,
-    Start,
-    Recover,
-}
-
-fn lsp_prepare_plan(alive: bool, start_failed_already_started: bool) -> LspPreparePlan {
-    if alive {
-        LspPreparePlan::Reuse
-    } else if start_failed_already_started {
-        LspPreparePlan::Recover
-    } else {
-        LspPreparePlan::Start
-    }
-}
-
-fn already_started(error: &str) -> bool {
-    error.contains("already started")
-}
-
-async fn ensure_ready(client: &NativeLspClient) -> Result<Option<String>, String> {
-    if client.is_alive().await {
-        return Ok(None);
-    }
-    match client.start().await {
-        Ok(()) => {
-            let ready = client
-                .wait_for_ready(Some(LSP_READY_TIMEOUT_MS))
-                .await
-                .unwrap_or_else(|_| "timeout".into());
-            Ok(Some(ready))
-        }
-        Err(error) => {
-            let message = error.to_string();
-            match lsp_prepare_plan(client.is_alive().await, already_started(&message)) {
-                LspPreparePlan::Reuse => Ok(None),
-                LspPreparePlan::Start => Err(message),
-                LspPreparePlan::Recover => {
-                    let _ = client.stop().await;
-                    client.start().await.map_err(|error| error.to_string())?;
-                    let ready = client
-                        .wait_for_ready(Some(LSP_READY_TIMEOUT_MS))
-                        .await
-                        .unwrap_or_else(|_| "timeout".into());
-                    Ok(Some(ready))
-                }
-            }
-        }
-    }
-}
-
 fn apply_rust_context(
-    config: &mut octocode_engine::lsp::types::JsLanguageServerConfig,
+    config: &mut octocode_engine_core::lsp::types::JsLanguageServerConfig,
     query: &LspSearchQuery,
 ) -> Result<(), String> {
     let Some(value) = &query.rust_context else {
@@ -546,8 +498,8 @@ async fn recover_aliases(
     path: &str,
     line: u32,
     character: u32,
-    provider: &[octocode_engine::lsp::types::JsCodeSnippet],
-) -> Vec<octocode_engine::lsp::types::JsCodeSnippet> {
+    provider: &[octocode_engine_core::lsp::types::JsCodeSnippet],
+) -> Vec<octocode_engine_core::lsp::types::JsCodeSnippet> {
     let Some(symbol) = query.symbol_name.as_deref() else {
         return Vec::new();
     };
@@ -581,7 +533,8 @@ async fn recover_aliases(
         let Ok(source) = fs::read_to_string(&file) else {
             continue;
         };
-        let Some(facts) = octocode_engine::portable::extract_graph_facts(&source, &file) else {
+        let Some(facts) = octocode_engine_core::portable::extract_graph_facts(&source, &file)
+        else {
             continue;
         };
         let Ok(parsed) = serde_json::from_str::<Value>(&facts) else {
@@ -664,7 +617,7 @@ async fn recover_aliases(
     recovered
 }
 
-fn snippet_identity(snippet: &octocode_engine::lsp::types::JsCodeSnippet) -> String {
+fn snippet_identity(snippet: &octocode_engine_core::lsp::types::JsCodeSnippet) -> String {
     format!(
         "{}:{}:{}:{}:{}",
         uri_to_path(&snippet.uri),
@@ -818,28 +771,6 @@ fn percent_decode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LspPreparePlan, already_started, lsp_prepare_plan};
-
-    #[test]
-    fn warm_alive_client_is_reused_without_start_or_wait() {
-        assert_eq!(lsp_prepare_plan(true, false), LspPreparePlan::Reuse);
-        assert_eq!(lsp_prepare_plan(true, true), LspPreparePlan::Reuse);
-    }
-
-    #[test]
-    fn cold_client_starts_once() {
-        assert_eq!(lsp_prepare_plan(false, false), LspPreparePlan::Start);
-    }
-
-    #[test]
-    fn dead_already_started_client_is_recovered() {
-        assert!(already_started("LSP client already started"));
-        assert!(!already_started(
-            "Failed to start language server: No such file"
-        ));
-        assert_eq!(lsp_prepare_plan(false, true), LspPreparePlan::Recover);
-    }
-
     #[test]
     fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         let query = super::LspSearchQuery {

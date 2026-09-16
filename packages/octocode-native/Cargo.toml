@@ -40,7 +40,7 @@ keyring-core = "1"
 aes-gcm = "0.10"
 hex = "0.4"
 zeroize = "1"
-octocode-engine = { path = "../octocode-engine", default-features = false, features = ["portable-default"] }
+octocode-engine-core = { path = "../octocode-engine-core", default-features = false, features = ["portable-default"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }

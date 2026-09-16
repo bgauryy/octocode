@@ -966,10 +966,10 @@ export function registerAskUserTool(
     description: DIRECT_TOOL_DESCRIPTIONS.askUser!,
     promptSnippet: 'Ask only for a missing decision that changes the next action; choose one input mode and never infer approval.',
     promptGuidelines: [
-      'options chooses one with a custom-answer escape; multiSelect:true chooses independent options; fields collects related values; question alone collects text. Never combine modes.',
-      'Wrong: ask whether to continue routine authorized work. Right: continue; ask only for unresolved scope, trade-off, or authorization.',
-      'Wrong: repeat labels in descriptions. Right: add only distinguishing detail; mark recommended only for an evidence-backed safe default.',
-      'Back, cancel, timeout, and unavailable interaction never select a default; resume a durable continuation when present, otherwise ask inline.',
+      'options=single+custom-escape; multiSelect=independent; fields=related; question=free-text. Never combine modes.',
+      'Only ask for unresolved scope, trade-off, or authorization; continue all other authorized work.',
+      'descriptions: only distinguishing detail. recommended: only for evidence-backed safe default.',
+      'Back/cancel/timeout/unavailable never select a default; resume durable continuation if present, else ask inline.',
     ],
     parameters: (() => {
       const reasoning = z.string().min(1).max(400);

@@ -39,8 +39,6 @@ import {
 import {
   type AgentProfile,
   PROFILE_TO_SUBAGENT,
-  resolvePlanAssignment,
-  resolveOptionalPlanAssignment,
 } from './plan-integration.js';
 import {
   SUBAGENT_REGISTRY,
@@ -317,7 +315,7 @@ export async function executeSpawnQuery(
   const requestedPlanStep = (query['planStep'] as string | undefined)?.trim() || undefined;
   const cohortId = (query['cohortId'] as string | undefined)?.trim() || undefined;
 
-  const { planStep, assignment, ignoredPlanStep } = resolveOptionalPlanAssignment(requestedPlanStep, ctx);
+  const planStep = requestedPlanStep;
   const fullTask = task;
 
   let spawnParams: SpawnAgentParams;
@@ -475,16 +473,6 @@ export async function executeSpawnQuery(
   signal?.throwIfAborted();
   const approvedParams = await prepareSpawnAgentParams(spawnParams, ctx);
   signal?.throwIfAborted();
-  if (assignment) {
-    const current = resolvePlanAssignment(assignment.task.id, ctx, assignment.planId);
-    if (current.scope !== assignment.scope) throw new Error('Parent plan session changed during worker preparation; retry in the current session.');
-    const contract = JSON.stringify({ planId: current.planId, taskId: current.task.id, task: current.task.text,
-      paths: current.task.paths ?? [], acceptance: current.task.acceptance, checkCommand: current.task.checkCommand });
-    if (contract.length > 12_000) throw new Error('Plan assignment context exceeds 12000 characters; narrow the task contract before delegating.');
-    approvedParams.planId = current.planId;
-    approvedParams.planScope = current.scope;
-    approvedParams.task = `${approvedParams.task}\n\n## Parent plan assignment\n${contract}\nReport evidence and checks to the parent; the parent owns task completion and verification.`;
-  }
   signal?.throwIfAborted();
   const record = spawnRpcAgent(approvedParams, ctx);
   refreshAgentLedgerUi(ctx);
@@ -500,7 +488,6 @@ export async function executeSpawnQuery(
     `[SPAWNED] model: ${ledgerEntry?.provider ? `${ledgerEntry.provider}/` : ''}${ledgerEntry?.model ?? 'inherited'}`,
     `[SPAWNED] task: ${ledgerEntry?.task ?? task}`,
     ...(ledgerEntry?.planStep ? [`[SPAWNED] plan: ${ledgerEntry.planStep}`] : []),
-    ...(ignoredPlanStep ? ['[SPAWNED] note: ignored unbound planStep because no parent plan exists; standalone subagents do not require a plan.'] : []),
     ...policyLines,
     '',
     `[USAGE] agent({queries:[{reasoning:"\u2026", type:"wait", agentId:"${agentId}"}]})`,
@@ -508,6 +495,6 @@ export async function executeSpawnQuery(
 
   return {
     content: [{ type: 'text', text: output }],
-    details: { agentId, profile, name: record.name, model: ledgerEntry?.model, provider: ledgerEntry?.provider, task: ledgerEntry?.task ?? task, planStep: ledgerEntry?.planStep, ignoredPlanStep, cohortId: record.cohortId, capabilityGrant: record.capabilityGrant },
+    details: { agentId, profile, name: record.name, model: ledgerEntry?.model, provider: ledgerEntry?.provider, task: ledgerEntry?.task ?? task, planStep: ledgerEntry?.planStep, cohortId: record.cohortId, capabilityGrant: record.capabilityGrant },
   } as unknown as ToolCallResult;
 }

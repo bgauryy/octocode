@@ -9,6 +9,7 @@ export type NativeLspClientBinding = {
   start(): Promise<void>;
   stop(): Promise<void>;
   waitForReady(timeoutMs?: number): Promise<LspReadiness>;
+  getReadiness(): LspReadiness | undefined;
   hasCapability(capability: string): boolean;
   isAlive(): Promise<boolean>;
   getRecentStderr(): string[];
@@ -65,6 +66,12 @@ interface ResolvedSymbol {
 
 type NativeBinding = {
   NativeLspClient: new (config: unknown) => NativeLspClientBinding;
+  configureLspClientPool(idleTimeoutMs: number, maxEntries: number): Promise<void>;
+  acquirePooledLspClient(config: unknown): Promise<NativeLspClientBinding | null | undefined>;
+  releasePooledLspClient(config: unknown): Promise<boolean>;
+  clearPooledLspClients(): Promise<void>;
+  pooledLspClientCount(): number;
+  pooledLspClientConfigs(): Promise<unknown[]>;
   resolvePosition(filePath: string, fuzzy: FuzzyPosition): ResolvedSymbol;
   resolvePositionFromContent(content: string, fuzzy: FuzzyPosition): ResolvedSymbol;
   toUri(path: string): string;

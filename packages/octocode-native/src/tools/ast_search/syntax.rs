@@ -1,7 +1,7 @@
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine::structural::SyntaxTreeInspectOptions;
+use octocode_engine_core::structural::SyntaxTreeInspectOptions;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -65,7 +65,7 @@ pub fn execute_syntax(
         );
     }
     cancel.check().map_err(super::cancelled)?;
-    let r = octocode_engine::portable::inspect_syntax_tree(
+    let r = octocode_engine_core::portable::inspect_syntax_tree(
         &sanitized.content,
         &p.canonical.to_string_lossy(),
         Some(SyntaxTreeInspectOptions {

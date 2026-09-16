@@ -165,7 +165,11 @@ fn all_row_statuses(outcome: &octocode_native::runtime::ToolOutcome) -> Vec<&str
                 .map(|r| {
                     r.get("status")
                         .and_then(Value::as_str)
-                        .unwrap_or(if r.get("data").is_some() { "success" } else { "" })
+                        .unwrap_or(if r.get("data").is_some() {
+                            "success"
+                        } else {
+                            ""
+                        })
                 })
                 .collect()
         })
@@ -203,8 +207,7 @@ async fn batch_of_three_github_queries_all_succeed() {
     }
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
 
     let outcome = call(
         &runtime,
@@ -232,8 +235,7 @@ async fn batch_of_three_github_queries_all_succeed() {
     );
     for (i, status) in statuses.iter().enumerate() {
         assert_ne!(
-            *status,
-            "error",
+            *status, "error",
             "result[{i}] failed: {}",
             outcome.structured_content
         );
@@ -284,8 +286,7 @@ async fn three_github_queries_each_produce_a_server_side_http_request() {
     }
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
 
     let outcome = call(
         &runtime,
@@ -306,9 +307,18 @@ async fn three_github_queries_each_produce_a_server_side_http_request() {
 
     // All three results succeed.
     let statuses = all_row_statuses(&outcome);
-    assert_eq!(statuses.len(), 3, "expected 3 results: {}", outcome.structured_content);
+    assert_eq!(
+        statuses.len(),
+        3,
+        "expected 3 results: {}",
+        outcome.structured_content
+    );
     for (i, status) in statuses.iter().enumerate() {
-        assert_ne!(*status, "error", "result[{i}] failed: {}", outcome.structured_content);
+        assert_ne!(
+            *status, "error",
+            "result[{i}] failed: {}",
+            outcome.structured_content
+        );
     }
     // WireMock verifies `.expect(1)` on drop: each content endpoint was hit exactly once.
 
@@ -346,8 +356,7 @@ async fn gh_search_history_commits_lists_via_rest() {
         .await;
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghSearchHistory",
@@ -356,7 +365,12 @@ async fn gh_search_history_commits_lists_via_rest() {
     .await
     .expect("gh_search_history commits");
 
-    assert_eq!(row_status(&outcome), "success", "{}", outcome.structured_content);
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
     let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
     assert!(
         rendered.contains("stabilise parser"),
@@ -386,8 +400,7 @@ async fn gh_search_history_issues_lists_via_rest() {
         .await;
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghSearchHistory",
@@ -396,7 +409,12 @@ async fn gh_search_history_issues_lists_via_rest() {
     .await
     .expect("gh_search_history issues");
 
-    assert_eq!(row_status(&outcome), "success", "{}", outcome.structured_content);
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
     let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
     assert!(
         rendered.contains("Memory leak"),
@@ -432,8 +450,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
         .await;
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghSearchHistory",
@@ -442,7 +459,12 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
     .await
     .expect("gh_search_history pullRequests");
 
-    assert_eq!(row_status(&outcome), "success", "{}", outcome.structured_content);
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
     let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
     assert!(
         rendered.contains("concurrency buffering"),
@@ -473,8 +495,7 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
         .await;
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
@@ -483,7 +504,12 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
     .await
     .expect("gh_get_history_item commit");
 
-    assert_eq!(row_status(&outcome), "success", "{}", outcome.structured_content);
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
     let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
     assert!(
         rendered.contains("critical regression"),
@@ -510,8 +536,7 @@ async fn gh_get_history_item_issue_fetches_via_rest() {
         .await;
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
@@ -520,7 +545,12 @@ async fn gh_get_history_item_issue_fetches_via_rest() {
     .await
     .expect("gh_get_history_item issue");
 
-    assert_eq!(row_status(&outcome), "success", "{}", outcome.structured_content);
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
     let rendered = serde_json::to_string(row_data(&outcome)).expect("json");
     assert!(
         rendered.contains("Parser OOM"),
@@ -534,15 +564,12 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/deadbeef1234567890"))
-        .respond_with(
-            ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})),
-        )
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
         .mount(&server)
         .await;
 
     let workspace = Workspace::new();
-    let runtime =
-        workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     // Not-found is surfaced as a row-level error (non-panic)
     let result = call(
         &runtime,

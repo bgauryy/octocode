@@ -297,21 +297,31 @@ mod tests {
     #[test]
     fn classifies_search_resources() {
         assert_eq!(
-            GitHubResource::classify(&Url::parse("https://api.github.com/search/code").unwrap()),
+            GitHubResource::classify(
+                &Url::parse("https://api.github.com/search/code")
+                    .expect("GitHub test URL should parse")
+            ),
             GitHubResource::CodeSearch
         );
         assert_eq!(
-            GitHubResource::classify(&Url::parse("https://api.github.com/search/issues").unwrap()),
+            GitHubResource::classify(
+                &Url::parse("https://api.github.com/search/issues")
+                    .expect("GitHub test URL should parse")
+            ),
             GitHubResource::Search
         );
         assert_eq!(
             GitHubResource::classify(
-                &Url::parse("https://api.github.com/repos/a/b/issues").unwrap()
+                &Url::parse("https://api.github.com/repos/a/b/issues")
+                    .expect("GitHub test URL should parse")
             ),
             GitHubResource::Core
         );
         assert_eq!(
-            GitHubResource::classify(&Url::parse("https://api.github.com/graphql").unwrap()),
+            GitHubResource::classify(
+                &Url::parse("https://api.github.com/graphql")
+                    .expect("GitHub test URL should parse")
+            ),
             GitHubResource::Graphql
         );
     }

@@ -2,7 +2,6 @@
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
-const MCP_ARGS: [&str; 2] = ["-y", "octocode-mcp@latest"];
 const JSON_IDES: [&str; 13] = [
     "cursor",
     "claude-desktop",
@@ -28,9 +27,42 @@ pub struct InstallArgs {
     pub json: bool,
     pub enable_local: Option<bool>,
     pub pass_env: bool,
+    /// Installation runner: "npx" (default), "bunx", or "pnpm".
+    pub method: Option<String>,
+    /// Write a .bak backup before overwriting the config file.
+    pub backup: bool,
+    /// Restore config from this .bak file path and exit.
+    pub rollback: Option<String>,
 }
 
 pub fn run(args: InstallArgs) -> u8 {
+    // Rollback mode: restore a backup written by a previous --backup install
+    if let Some(ref bak_str) = args.rollback {
+        let bak = PathBuf::from(bak_str);
+        if !bak.exists() {
+            eprintln!("rollback: backup file not found: {}", bak.display());
+            return 1;
+        }
+        // Restore: strip .bak extension to get the original path
+        let dest = bak.with_extension("");
+        return match std::fs::copy(&bak, &dest) {
+            Ok(_) => {
+                if args.json {
+                    println!(
+                        "{}",
+                        json!({"success": true, "restored": dest, "from": bak})
+                    );
+                } else {
+                    println!("Restored {} from {}", dest.display(), bak.display());
+                }
+                0
+            }
+            Err(e) => {
+                eprintln!("rollback: {e}");
+                1
+            }
+        };
+    }
     if args.list {
         if args.json {
             println!("{}", json!({ "ides": JSON_IDES }));
@@ -116,16 +148,27 @@ fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, Stri
         }
         return Ok(0);
     }
+    // Write a backup before overwriting if requested
+    let backed_up = if args.backup && config_path.exists() {
+        let bak = config_path.with_extension("json.bak");
+        std::fs::copy(config_path, &bak).ok().map(|_| bak)
+    } else {
+        None
+    };
     write_json(config_path, &root)?;
     if args.json {
         println!(
             "{}",
             json!({
                 "success": true,
-                "configPath": config_path
+                "configPath": config_path,
+                "backupPath": backed_up
             })
         );
     } else {
+        if let Some(ref bak) = backed_up {
+            println!("Backup written to {}", bak.display());
+        }
         println!(
             "Installed octocode MCP for {ide} at {}",
             config_path.display()
@@ -151,10 +194,15 @@ fn octocode_server(args: &InstallArgs) -> Value {
             }
         }
     }
+    let (cmd, cmd_args): (&str, &[&str]) = match args.method.as_deref().unwrap_or("npx") {
+        "bunx" => ("bunx", &["octocode-mcp@latest"]),
+        "pnpm" => ("pnpm", &["dlx", "octocode-mcp@latest"]),
+        _ => ("npx", &["-y", "octocode-mcp@latest"]),
+    };
     let mut server = json!({
-        "command": "npx",
+        "command": cmd,
         "type": "stdio",
-        "args": MCP_ARGS
+        "args": cmd_args
     });
     if !env.is_empty() {
         server["env"] = Value::Object(env);
@@ -178,7 +226,7 @@ fn reject_octo_mcp(server: &Value) -> Result<(), String> {
     Ok(())
 }
 
-fn config_path(ide: &str) -> Option<PathBuf> {
+pub fn config_path(ide: &str) -> Option<PathBuf> {
     let home = home_dir()?;
     let app_support = app_support_dir(&home);
     let vscode_storage = app_support.join("Code").join("User").join("globalStorage");
@@ -267,9 +315,8 @@ mod tests {
     use super::{JSON_IDES, octocode_server, reject_octo_mcp};
     use serde_json::json;
 
-    #[test]
-    fn server_is_npx_latest_with_yes_flag() {
-        let server = octocode_server(&super::InstallArgs {
+    fn default_args() -> super::InstallArgs {
+        super::InstallArgs {
             ide: Some("cursor".into()),
             force: false,
             dry_run: false,
@@ -278,11 +325,29 @@ mod tests {
             json: false,
             enable_local: None,
             pass_env: false,
-        });
+            method: None,
+            backup: false,
+            rollback: None,
+        }
+    }
+
+    #[test]
+    fn server_is_npx_latest_with_yes_flag() {
+        let server = octocode_server(&default_args());
         assert_eq!(server["command"], "npx");
         assert_eq!(server["args"], json!(["-y", "octocode-mcp@latest"]));
         reject_octo_mcp(&server).expect("allowed");
         assert!(!JSON_IDES.contains(&"codex"));
+    }
+
+    #[test]
+    fn server_uses_bunx_when_specified() {
+        let server = octocode_server(&super::InstallArgs {
+            method: Some("bunx".into()),
+            ..default_args()
+        });
+        assert_eq!(server["command"], "bunx");
+        assert_eq!(server["args"], json!(["octocode-mcp@latest"]));
     }
 
     #[test]

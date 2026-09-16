@@ -1,8 +1,3 @@
-//! Process-local language-server pool owned by the native runtime.
-//!
-//! Tool handlers consume this service. They must not create independent
-//! language-server clients or import TypeScript engine wrappers.
+//! Compatibility alias for the core-owned language-server pool.
 
-mod pool;
-
-pub use pool::LspPool;
+pub use octocode_engine_core::lsp::pool::LspClientPool as LspPool;

@@ -58,6 +58,12 @@ export const extractMatchingLines = nativeBinding.extractMatchingLines;
 export const filterPatch = nativeBinding.filterPatch;
 export const PatchLineType = nativeBinding.PatchLineType;
 export const NativeLspClient = nativeBinding.NativeLspClient;
+export const configureLspClientPool = nativeBinding.configureLspClientPool;
+export const acquirePooledLspClient = nativeBinding.acquirePooledLspClient;
+export const releasePooledLspClient = nativeBinding.releasePooledLspClient;
+export const clearPooledLspClients = nativeBinding.clearPooledLspClients;
+export const pooledLspClientCount = nativeBinding.pooledLspClientCount;
+export const pooledLspClientConfigs = nativeBinding.pooledLspClientConfigs;
 export const resolvePosition = nativeBinding.resolvePosition;
 export const resolvePositionFromContent =
   nativeBinding.resolvePositionFromContent;

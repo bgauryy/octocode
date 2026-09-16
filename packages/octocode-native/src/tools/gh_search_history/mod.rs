@@ -546,9 +546,9 @@ mod tests {
     use super::*;
     #[test]
     fn canonical_issue_qualifier_order() {
-        let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issues","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).unwrap();
+        let q: GhSearchHistoryQuery=serde_json::from_str(r#"{"operation":"issues","owner":"a","repo":"b","keywords":["x"],"state":"closed","match":["title"],"label":["bug"]}"#).expect("GitHub history search test data should be valid");
         assert_eq!(
-            build_query(&q).unwrap(),
+            build_query(&q).expect("GitHub history search test data should be valid"),
             "x in:title is:issue repo:a/b is:closed label:\"bug\" archived:false"
         );
     }
@@ -557,11 +557,16 @@ mod tests {
         let q: GhSearchHistoryQuery = serde_json::from_str(
             r#"{"operation":"issues","owner":"a","repo":"b","keywords":["fix login"]}"#,
         )
-        .unwrap();
-        assert!(build_query(&q).unwrap().starts_with("\"fix login\""));
+        .expect("GitHub history search test data should be valid");
+        assert!(
+            build_query(&q)
+                .expect("GitHub history search test data should be valid")
+                .starts_with("\"fix login\"")
+        );
         assert!(should_use_search_for_issues(&q));
         let listed: GhSearchHistoryQuery =
-            serde_json::from_str(r#"{"operation":"issues","owner":"a","repo":"b"}"#).unwrap();
+            serde_json::from_str(r#"{"operation":"issues","owner":"a","repo":"b"}"#)
+                .expect("GitHub history search test data should be valid");
         assert!(!should_use_search_for_issues(&listed));
     }
     #[test]
@@ -569,15 +574,16 @@ mod tests {
         let q: GhSearchHistoryQuery = serde_json::from_str(
             r#"{"operation":"commits","owner":"a","repo":"b","keywords":["fix"],"author":"dev@example.com","since":"2026-01-01T00:00:00Z"}"#,
         )
-        .unwrap();
-        let query = build_query(&q).unwrap();
+        .expect("GitHub history search test data should be valid");
+        let query = build_query(&q).expect("GitHub history search test data should be valid");
         assert!(query.contains("author-email:dev@example.com"));
         assert!(query.contains("committer-date:>=2026-01-01T00:00:00Z"));
     }
     #[test]
     fn rejects_unscoped_commit() {
         let q: GhSearchHistoryQuery =
-            serde_json::from_str(r#"{"operation":"commits","owner":"a"}"#).unwrap();
+            serde_json::from_str(r#"{"operation":"commits","owner":"a"}"#)
+                .expect("GitHub history search test data should be valid");
         assert!(build_query(&q).is_err());
     }
 }
