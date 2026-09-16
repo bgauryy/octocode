@@ -16,7 +16,7 @@ import { StringDecoder } from 'node:string_decoder';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FORBIDDEN_WORKER_TOOL_NAMES } from '@octocodeai/agent-contracts/capabilities';
+import { FORBIDDEN_WORKER_TOOL_NAMES } from '../../contracts/capabilities.js';
 import { withPeerCoordination } from './coordination.js';
 import { getInstallSource } from '../../assets.js';
 import { extensionTmpRoot, extensionWorkspaceRoot } from '../../extension-paths.js';

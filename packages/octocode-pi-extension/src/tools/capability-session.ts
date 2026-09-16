@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { CapabilitySnapshotSchema, type CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { CapabilitySnapshotSchema, type CapabilitySnapshot } from '../contracts/capabilities.js';
+import { capabilityDefinitionRevision } from '../contracts/capability-sources.js';
 import type { DiscoveredSkill } from './skill-discovery.js';
 import type { McpCatalogSnapshotV1 } from './mcp/catalog.js';
 

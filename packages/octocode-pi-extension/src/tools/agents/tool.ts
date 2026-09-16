@@ -35,7 +35,7 @@ import { CLI_GLYPH } from '../../tui/cli-design.js';
 import { paint } from '../../tui/palette.js';
 
 import { z } from 'zod';
-import { WorkerCapabilitySelectionSchema } from '@octocodeai/agent-contracts/capabilities';
+import { WorkerCapabilitySelectionSchema } from '../../contracts/capabilities.js';
 type RegisterFn = typeof registerUniqueTool;
 
 /** Register the single public agent tool. */

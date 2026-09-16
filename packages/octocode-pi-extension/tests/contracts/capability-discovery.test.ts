@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { defaultAgentSkillSources, discoverAgentSkillInventory, effectiveAgentSkills, resolveAgentSkillInventory } from '../src/agent-skills.js';
-import { discoverMcpSystem } from '../src/mcp-discovery.js';
+import { defaultAgentSkillSources, discoverAgentSkillInventory, effectiveAgentSkills, resolveAgentSkillInventory } from '../../src/contracts/agent-skills.js';
+import { discoverMcpSystem } from '../../src/contracts/mcp-discovery.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });

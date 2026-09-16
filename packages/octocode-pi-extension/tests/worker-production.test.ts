@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createWorkerMcpBroker, type WorkerBrokerBinding } from '../src/tools/mcp/broker.js';
-import type { CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
+import type { CapabilitySnapshot } from '../src/contracts/capabilities.js';
 import { getAwarenessOperationDescriptor } from '@octocodeai/octocode-awareness';
 
 it('lets an Awareness-only worker discover and execute the native API without shell access or duplicate standing policy', async () => {

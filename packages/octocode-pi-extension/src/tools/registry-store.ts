@@ -9,7 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensurePrivateDirectory } from '@octocodeai/agent-contracts/permissions';
+import { ensurePrivateDirectory } from '@octocodeai/octocode-awareness/host';
 import { writePrivateFileAtomicSync } from './atomic-state-file.js';
 
 /** A candidate needs at least this many overlapping keyword tokens to count as a match. */

@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { discoverMcpSystem } from '../src/mcp-discovery.js';
-import { workspaceAgentRoot } from '../src/paths.js';
+import { discoverMcpSystem } from '../../src/contracts/mcp-discovery.js';
+import { workspaceAgentRoot } from '../../src/contracts/paths.js';
 
 const roots: string[] = [];
 

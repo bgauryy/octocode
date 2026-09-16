@@ -3,7 +3,7 @@
  * and worker model/provider validation.
  */
 import path from 'node:path';
-import { isForbiddenWorkerTool } from '@octocodeai/agent-contracts/capabilities';
+import { isForbiddenWorkerTool } from '../../contracts/capabilities.js';
 import type { SpawnPolicy, SpawnPolicyResult, PiContext } from '../../types.js';
 import { assertWorktreeSpawnAllowed } from '../worktree.js';
 import {

@@ -25,7 +25,7 @@
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/agent-contracts/permissions';
+import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/octocode-awareness/host';
 import { canonicalPathKey, resolveCanonicalPath } from './path-guard.js';
 import { assertFileContentSize, replaceNativeFile, snapshotNativeFile } from './native-files.js';
 import type { MutationReceipt } from '@octocodeai/octocode-extension-rust';

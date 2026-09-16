@@ -5,7 +5,7 @@ import {
   FORBIDDEN_WORKER_TOOL_NAMES,
   isForbiddenWorkerTool,
   projectWorkerCapabilitySnapshot,
-} from '../src/capabilities.js';
+} from '../../src/contracts/capabilities.js';
 
 const snapshot = {
   schemaVersion: 1 as const,

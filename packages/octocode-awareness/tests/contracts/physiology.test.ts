@@ -6,7 +6,7 @@ import {
   type NativeRuntimeObservation,
   type PiRuntimeObservation,
   type RuntimeObservation,
-} from '../src/physiology.js';
+} from '../../src/physiology.js';
 
 const nativeObservation = {
   schema_version: 1,

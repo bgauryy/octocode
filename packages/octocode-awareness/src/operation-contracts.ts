@@ -1,4 +1,4 @@
-import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
+export type ApprovalClass = 'fs-delete';
 import type { AwarenessStorageScope } from './storage-scope.js';
 
 export type AwarenessOperationEffect =

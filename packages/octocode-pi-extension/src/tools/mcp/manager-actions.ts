@@ -1,5 +1,5 @@
 import type { FooterDensity } from '../../ui-extras.js';
-import type { PermissionLevel } from '@octocodeai/agent-contracts/protocols';
+import type { PermissionLevel } from '../../contracts/protocols.js';
 import { EFFORT_LEVELS, type EffortLevel } from '../effort-dial.js';
 
 export type McpManagerAction = (

@@ -9,8 +9,8 @@ import {
   inspectSchemaState,
   SchemaState,
 } from './db-introspection.js';
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
-import { withSqliteBusyRetry } from '@octocodeai/agent-contracts/sqlite';
+import type { DatabaseSync } from './sqlite.js';
+import { withSqliteBusyRetry } from './sqlite.js';
 import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from './storage-scope.js';
 import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL, SIGNALS_EXPIRES_NOT_NULL_UPGRADE_DDL } from './db-schema.js';
 import { hasFts, rebuildFts } from './db-maintenance.js';

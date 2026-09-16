@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { afterEach, vi } from 'vitest';
-import type { CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
+import type { CapabilitySnapshot } from '../../src/contracts/capabilities.js';
 import * as workerCapabilities from '../../src/tools/worker-capabilities.js';
 import { discoverSkills } from '../../src/tools/skill-discovery.js';
 import { getAssetPaths } from '../../src/assets.js';

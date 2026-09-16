@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import type { AwarenessQueryRow } from './repo-model.js';
 
-import { RuntimeObservationSchema, type RuntimeObservation } from '@octocodeai/agent-contracts/physiology';
+import { RuntimeObservationSchema, type RuntimeObservation } from './physiology.js';
 
 function validateRuntimeObservation(value: RuntimeObservation): RuntimeObservation {
   const parsed = RuntimeObservationSchema.safeParse(value);

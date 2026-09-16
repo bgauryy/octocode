@@ -8,7 +8,7 @@
  * dependencies are drawn directly from the agents/ sub-modules).
  */
 import type { PiContext, ToolCallResult } from '../../types.js';
-import { SUBAGENT_WORKER_CONTRACT } from '@octocodeai/agent-contracts/prompts';
+import { SUBAGENT_WORKER_CONTRACT } from '../../contracts/prompts/index.js';
 import { setManagedStatus } from '../runtime-renderer.js';
 import type { AgentRecord, SpawnAgentParams, WaitOutcome } from './types.js';
 import {
@@ -52,7 +52,7 @@ import { SCHEME_REGISTRY } from '../../chrome-debug-schemes.js';
 import type { ChromeDebugParams } from '../../chrome-debug-schemes.js';
 import { getRandomAgentName } from '../../agentNames.js';
 import type { QueryRecord } from '../query-envelope.js';
-import { WorkerCapabilitySelectionSchema } from '@octocodeai/agent-contracts/capabilities';
+import { WorkerCapabilitySelectionSchema } from '../../contracts/capabilities.js';
 import { configureWorkerCapabilities, getParentCapabilitySnapshot, getParentWorkerCapabilities, inspectWorkerCapabilityGrants } from '../worker-capabilities.js';
 import { buildWorkerHandoff } from './packets.js';
 

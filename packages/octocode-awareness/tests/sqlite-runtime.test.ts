@@ -5,7 +5,7 @@ import {
   assessConcurrentWalSafety,
   inspectSqliteRuntime,
   journalModeForSqliteVersion,
-} from '@octocodeai/agent-contracts/sqlite-version';
+} from '../src/sqlite-version.js';
 
 describe('concurrent WAL runtime gate', () => {
   it.each([

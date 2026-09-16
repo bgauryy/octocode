@@ -37,7 +37,7 @@ import {
   type ToolManifestEntry,
 } from './dynamic-tools.js';
 import fs from 'node:fs';
-import { BEHAVIORAL_PROMPT_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
+import { BEHAVIORAL_PROMPT_GUIDANCE } from '../contracts/prompts/index.js';
 
 import { z } from 'zod';
 type RegisterFn = typeof registerUniqueTool;

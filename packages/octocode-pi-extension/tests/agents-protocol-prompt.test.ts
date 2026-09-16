@@ -11,7 +11,7 @@ import { disposeWorkerCapabilityRuntime } from '../src/tools/worker-capabilities
 import { installAuthenticatedWorkerCapabilityView } from './helpers/worker-capabilities.js';
 import { discoverSkillCandidates, reviewSkillSource } from '../src/tools/skill-discovery.js';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
-import { setSkillEnabled } from '@octocodeai/agent-contracts/mcp-state';
+import { setSkillEnabled } from '../src/contracts/mcp-state.js';
 import type { ToolDefinition, SkillInfo } from '../src/types.js';
 import { failedToolResult } from './helpers/failed-tool-result.js';
 

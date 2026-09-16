@@ -5,7 +5,7 @@ import {
   ensurePrivateDirectory,
   hardenPrivateFile,
   PRIVATE_FILE_MODE,
-} from '@octocodeai/agent-contracts/permissions';
+} from '@octocodeai/octocode-awareness/host';
 
 function temporaryPath(filePath: string): string {
   return `${filePath}.${process.pid}.${randomUUID()}.tmp`;

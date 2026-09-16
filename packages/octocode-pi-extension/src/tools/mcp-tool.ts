@@ -29,8 +29,8 @@ import {
   listMcpOverrides,
   setMcpServerEnabled,
   setMcpToolEnabled,
-} from "@octocodeai/agent-contracts/mcp-state";
-import { ensurePrivateDirectory } from '@octocodeai/agent-contracts/permissions';
+} from "../contracts/mcp-state.js";
+import { ensurePrivateDirectory } from '@octocodeai/octocode-awareness/host';
 import { openOctocodeDb } from "./storage-policy.js";
 import type {
   NotifyFn,

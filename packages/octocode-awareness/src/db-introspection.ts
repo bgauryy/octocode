@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { AGENT_APPLICATION_ID, readSchemaObjects, assertSchemaObjects } from '@octocodeai/agent-contracts/schema';
+import { AGENT_APPLICATION_ID, readSchemaObjects, assertSchemaObjects } from './agent-store-schema.js';
 import {
   AWARENESS_APPLICATION_ID,
   AWARENESS_MIGRATABLE_SCHEMA_VERSIONS,
   AWARENESS_SCHEMA_VERSION,
 } from './storage-scope.js';
 import type { TableInfoRow } from './types/work-maintenance.js';
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync } from './sqlite.js';
 import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from './db-schema.js';
 import { WORKER_LIFECYCLE_DDL } from './db-worker-schema.js';
 import { EVENT_OUTBOX_V1_DDL, EVENT_OUTBOX_V1_INDEX_DDL } from './db-continuity-schema.js';

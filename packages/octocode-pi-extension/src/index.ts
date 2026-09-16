@@ -1,4 +1,4 @@
-import type {PromptMode} from '@octocodeai/agent-contracts/protocols';
+import type {PromptMode} from './contracts/protocols.js';
 import fs from 'node:fs';
 import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from "@octocodeai/config";
 import { contentDigest } from '@octocodeai/octocode-awareness/host';

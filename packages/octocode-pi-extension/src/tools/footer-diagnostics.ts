@@ -46,15 +46,18 @@ export function buildFooterDiagnostics(
   const eventLog = input.statuses['octocode-event-log'];
   if (eventLog)
     rows.push(attentionRow('event-log', 'P1', eventLog, '/octocode-status events'));
-  rows.push({
-    id: 'github',
-    priority: 'P3',
-    segments: [
-      { text: githubAuthLabel(input.githubStatus), token: input.githubStatus === 'authenticated'
-        ? 'success' : input.githubStatus === 'checking' ? 'dim' : 'warning' },
-      { text: '/configuration', token: 'link' },
-    ],
-  });
+  // Authenticated is the happy path — hide it; the session row already links /configuration.
+  // Show only when there is an actionable or transient state the operator should notice.
+  if (input.githubStatus !== 'authenticated') {
+    rows.push({
+      id: 'github',
+      priority: 'P3',
+      segments: [
+        { text: githubAuthLabel(input.githubStatus), token: input.githubStatus === 'checking' ? 'dim' : 'warning' },
+        { text: '/configuration', token: 'link' },
+      ],
+    });
+  }
   if (input.metrics.length > 0)
     rows.push({ id: 'metrics', priority: 'P4', segments: input.metrics });
   if (input.awareness?.verifyTasks)

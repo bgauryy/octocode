@@ -10,7 +10,7 @@ import {
   sessionArtifactDir,
   sessionDir,
   sessionsRoot,
-} from '../src/paths.js';
+} from '../../src/contracts/paths.js';
 
 const HOME = '/tmp/octo-home';
 const env = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ OCTOCODE_HOME: HOME, ...extra });

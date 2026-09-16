@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { openOctocodeDb } from '../src/db.js';
-import { capabilityDefinitionRevision, capabilitySourcePaths, stableCapabilitySourceId } from '../src/capability-sources.js';
-import { getCapabilitySourceStatus, getSelectedCapabilitySource, listCapabilitySourceReviews, reviewCapabilitySource, setCapabilitySourceEnabled } from '../src/capability-state.js';
+import { openOctocodeDb } from '../../src/contracts/db.js';
+import { capabilityDefinitionRevision, capabilitySourcePaths, stableCapabilitySourceId } from '../../src/contracts/capability-sources.js';
+import { getCapabilitySourceStatus, getSelectedCapabilitySource, listCapabilitySourceReviews, reviewCapabilitySource, setCapabilitySourceEnabled } from '../../src/contracts/capability-state.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });

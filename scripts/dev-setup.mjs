@@ -23,11 +23,9 @@ import { spawnSync } from 'node:child_process';
 import {
   OCTOCODE_CORE_PACKAGE,
   AGENT_TESTING_PACKAGE,
-  SHARED_PACKAGE,
   isLocalResolution,
   localAgentTestingResolution,
   localCoreResolution,
-  localSharedResolution,
   managedResolutionPackages,
   workspaceResolutionPackages,
 } from './dev-resolution-contract.mjs';
@@ -64,10 +62,8 @@ const WORKSPACE_RESOLUTIONS = Object.fromEntries(
 );
 const coreResolution = localCoreResolution(ROOT);
 const agentTestingResolution = localAgentTestingResolution(ROOT);
-const sharedResolution = localSharedResolution(ROOT);
 const DEV_RESOLUTIONS = {
   ...WORKSPACE_RESOLUTIONS,
-  ...(sharedResolution ? { [SHARED_PACKAGE]: sharedResolution } : {}),
   ...(coreResolution ? { [OCTOCODE_CORE_PACKAGE]: coreResolution } : {}),
   ...(agentTestingResolution ? { [AGENT_TESTING_PACKAGE]: agentTestingResolution } : {}),
 };

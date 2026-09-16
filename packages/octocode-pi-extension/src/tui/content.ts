@@ -11,7 +11,7 @@
  *     their call sites; only stable copy lives here.
  */
 
-import { type ApprovalClass } from '@octocodeai/agent-contracts/protocols';
+import { type ApprovalClass } from '../contracts/protocols.js';
 
 // ─── Brand ─────────────────────────────────────────────────────────────────────
 

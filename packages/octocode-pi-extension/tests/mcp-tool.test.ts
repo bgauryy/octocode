@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   setMcpToolEnabled,
-} from "@octocodeai/agent-contracts/mcp-state";
+} from "../src/contracts/mcp-state.js";
 import { openOctocodeDb } from "../src/tools/storage-policy.js";
 import { afterEach, test } from "vitest";
 import { __test__ as mcpTestHooks, getCachedMcpCatalogAddendum, getCachedMcpCounts, formatMcpSchemaValidationErrors, mcpCatalogReady, stopAllMcpServers, waitForMcpShutdown, warmMcpCatalog } from '../src/tools/mcp-tool.js';

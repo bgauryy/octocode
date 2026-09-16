@@ -4,7 +4,7 @@ import {
   type AwarenessOperationResult,
   type ContextObservation,
 } from '@octocodeai/octocode-awareness';
-import type { PiRuntimeObservation } from '@octocodeai/agent-contracts/physiology';
+import type { PiRuntimeObservation } from '@octocodeai/octocode-awareness/host';
 import { isPersistentStorageEnabledForExtension } from '@octocodeai/config';
 import type { PiContext } from '../types.js';
 import { buildAwarenessContext } from '../tools/awareness-context.js';

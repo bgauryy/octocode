@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { discoverAgentInstructionFiles } from '@octocodeai/agent-contracts/capability-sources';
+import { discoverAgentInstructionFiles } from '../contracts/capability-sources.js';
 import { escapePromptMetadata } from './prompt-safety.js';
 import type { PiContext, PiInstance, SkillInfo, NotifyFn } from '../types.js';
 import type { SessionScopedState } from '../session-scoped-state.js';

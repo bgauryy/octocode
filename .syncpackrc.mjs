@@ -42,7 +42,6 @@ const config = {
     {
       label: 'Use workspace protocol for internal packages',
       dependencies: [
-        '@octocodeai/agent-contracts',
         'octocode-security',
         'octocode-security-utils',
         'octocode-lsp',

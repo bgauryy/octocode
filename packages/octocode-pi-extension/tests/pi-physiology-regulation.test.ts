@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PiRuntimeObservation } from '@octocodeai/agent-contracts/physiology';
+import type { PiRuntimeObservation } from '@octocodeai/octocode-awareness/host';
 import { createPiPhysiologyAdvisory } from '../src/adapters/pi-physiology-regulation.js';
 
 const sample = (failed = 1, generation = 1): PiRuntimeObservation => ({

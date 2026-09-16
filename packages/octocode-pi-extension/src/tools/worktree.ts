@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extensionHome } from '../extension-paths.js';
 import type { WorkerWorktreeState } from '../types.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/host';
 
 export type WorktreeIsolation = 'shared' | 'worktree';
 

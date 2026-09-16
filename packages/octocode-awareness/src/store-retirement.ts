@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { renameSync } from 'node:fs';
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync } from './sqlite.js';
 import { inspectSchemaState, readAwarenessMeta } from './db-introspection.js';
 import { StoreRetirementError } from './store-retirement-error.js';
 import { storeRetirementBlockers } from './store-retirement-state.js';

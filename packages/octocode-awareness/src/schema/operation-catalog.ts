@@ -1,4 +1,4 @@
-import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
+import type { ApprovalClass } from '../operation-contracts.js';
 import { z } from 'zod';
 import { contextObservationSchema, contextFeedbackSchema, contextObservationJsonSchema, contextFeedbackJsonSchema } from '../context-regulation.js';
 import { knowledgeSetSchema, knowledgeGetSchema, knowledgeRevalidateSchema } from '../knowledge-contract.js';

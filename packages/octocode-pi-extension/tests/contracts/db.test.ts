@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeOctocodeDb, openOctocodeDb } from '../src/db.js';
-import { initOctocodeSchema, recordSession } from '../src/schema.js';
+import { closeOctocodeDb, openOctocodeDb } from '../../src/contracts/db.js';
+import { initOctocodeSchema, recordSession } from '@octocodeai/octocode-awareness/host';
 import {
   getMcpEnablement,
   getSkillEnablement,
@@ -12,7 +12,7 @@ import {
   setSkillEnabled,
   setMcpServerEnabled,
   setMcpToolEnabled,
-} from '../src/mcp-state.js';
+} from '../../src/contracts/mcp-state.js';
 
 const dirs: string[] = [];
 function freshDbPath(): string {

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { withSqliteBusyRetry } from '@octocodeai/agent-contracts/sqlite';
+import { withSqliteBusyRetry } from './sqlite.js';
 import { storeVerifiedMemory } from './coordination/verified-memory.js';
 import { containsSecretLikeText } from './memory-hardening.js';
 import { decodeMemoryContent } from './memory-content.js';

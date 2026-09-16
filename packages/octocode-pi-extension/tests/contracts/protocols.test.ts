@@ -4,7 +4,7 @@ import {
   DEFAULT_OCTOCODE_PROMPT_MODE,
   PERMISSION_LEVELS,
   PROMPT_MODES,
-} from '../src/protocols.js';
+} from '../../src/contracts/protocols.js';
 
 describe('shared protocol enums', () => {
   it('publishes stable prompt and permission choices', () => {

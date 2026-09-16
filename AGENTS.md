@@ -41,11 +41,10 @@ Octocode and Awareness skill commands share filesystem/platform behavior through
 
 ## Packages
 
-Top-level workspace packages (12). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
+Workspace packages (11). Prefer package `ARCHITECTURE.md` / `AGENTS.md` / `docs/` over guessing.
 
 | Package | npm name | What it is | Dig deeper |
 |---|---|---|---|
-| [`packages/octocode-agent-contracts`](packages/octocode-agent-contracts) | `@octocodeai/agent-contracts` | Local canonical owner of shared worker/system/plan prompt fragments, host protocols, entity types, paths, permissions, and Agent control SQLite helpers. Awareness owns its separate ledger and operating guide. | [ARCHITECTURE](packages/octocode-agent-contracts/ARCHITECTURE.md) |
 | [`packages/octocode-config`](packages/octocode-config) | `@octocodeai/config` | Zero-dep env + config loader — single source for `getOctocodeHome`, `parseEnv`, `loadOctocodeEnv`, `propagateOctocodeEnv`, `loadOctocoderc`, `PROTECTED_KEYS`. Used by every package (`workspace:*`) and injected into skill scripts as `octocode-config.mjs`. CLI: `npx @octocodeai/config [--keys\|--check KEY]`. | package `src/` |
 | [`packages/octocode-skill-installer`](packages/octocode-skill-installer) | `@octocodeai/octocode-skill-installer` | Private workspace for shared durable skill materialization, platform paths, links/junctions, conflict policy, and install results; bundled into caller outputs. | [ARCHITECTURE](packages/octocode-skill-installer/ARCHITECTURE.md) |
 | [`packages/octocode-tools-core`](packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | Brain. All tool runners, GitHub/Octokit client, security, providers, credentials, session, config. Registry: `src/tools/toolConfig.ts`. Delegates home/env to `@octocodeai/config`; native work to engine. | [ARCHITECTURE](packages/octocode-tools-core/ARCHITECTURE.md) |
@@ -60,7 +59,7 @@ Top-level workspace packages (12). Prefer package `ARCHITECTURE.md` / `AGENTS.md
 
 External (not in this workspace): `@octocodeai/octocode-core` at `../octocode-mcp-host/packages/octocode-core` owns all public tool contracts. Import names, descriptions, executable schemas, relations, examples, input preparation, and pure discovery/presentation helpers from `@octocodeai/octocode-core/schema`; import shared instructions, `buildMcpInstructions(enabledToolNames)`, and `buildCliToolContext({ availability })` from `@octocodeai/octocode-core/mcp`. Keep runtime attachments and response formatting in tools-core. Never hand-write tool guidance in interface packages.
 
-For local core changes, build that sibling package before refreshing the development `file:` resolution and rebuilding consumers. Host/worker prompt contracts instead live locally in `packages/octocode-agent-contracts`; Pi imports that workspace package. After changing those contracts, build `yarn workspace @octocodeai/agent-contracts build` before rebuilding Pi; no sibling rebuild or dependency reinstall is needed for these local exports.
+For local core changes, build that sibling package before refreshing the development `file:` resolution and rebuilding consumers. Pi-owned prompt, protocol, capability, discovery, path, and control-database contracts live under `packages/octocode-pi-extension/src/contracts`. Awareness owns shared entity, permission, SQLite, embedding, and physiology primitives under `packages/octocode-awareness/src` and exposes the Pi-facing subset through `@octocodeai/octocode-awareness/host`. After changing that host API, build Awareness before rebuilding Pi.
 
 ## Tools
 

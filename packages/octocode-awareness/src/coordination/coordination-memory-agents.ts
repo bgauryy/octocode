@@ -1,6 +1,6 @@
-import type { AgentRecord,AgentStatus,LiteMessage,MemoryItem,PruneResult } from '@octocodeai/agent-contracts/entities';
+import type { AgentRecord,AgentStatus,LiteMessage,MemoryItem,PruneResult } from '../entities.js';
 import { generateAgentName } from './agent-naming.js';
-import { embeddingToBytes,isEmbeddingEnabled,runHostEmbedder } from '@octocodeai/agent-contracts/embed';
+import { embeddingToBytes,isEmbeddingEnabled,runHostEmbedder } from '../embed.js';
 import { CoordinationState } from './coordination-state.js';
 import type { MemoryRecallPage } from './coordination-core.js';
 import { encodeSignalBody } from '../signal-data.js';

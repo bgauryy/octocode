@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { bytesToEmbedding, cosineSimilarity, isEmbeddingEnabled, runHostEmbedder } from '@octocodeai/agent-contracts/embed';
+import { bytesToEmbedding, cosineSimilarity, isEmbeddingEnabled, runHostEmbedder } from '../embed.js';
 import { canonicalMemoryInstant } from '../memory-scoring.js';
 import { insertPreparedMemory } from '../memory-write.js';
 import { containsSecretLikeText, MEMORY_EVALUATION_CORPUS_V1, runMemoryEvaluationCorpus, type MemoryEvaluationCorpusV1, type MemoryEvaluationReportV1, type MemoryRecallModeV1 } from '../memory-hardening.js';

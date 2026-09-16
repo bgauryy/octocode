@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { utcNow } from './helpers.js';
-import { cosineSimilarity } from '@octocodeai/agent-contracts/embed';
+import { cosineSimilarity } from './embed.js';
 
 export const EMBEDDING_CANDIDATE_LIMIT = 2_000;
 

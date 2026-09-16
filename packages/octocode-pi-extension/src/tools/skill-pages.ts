@@ -1,4 +1,4 @@
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilityDefinitionRevision } from '../contracts/capability-sources.js';
 import type { DiscoveredSkill } from './skill-discovery.js';
 
 export interface SkillPageQuery { offset?: number; textOffset?: number; limit?: number; catalogRevision?: string }

@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import type { DatabaseSync } from './sqlite.js';
 import { getDatabasePath } from './db-runtime.js';
 import { resolveAwarenessStoreIdentity, stableIdentityHash } from './db-introspection.js';
 import type { HistoryGitStore } from './history-git.js';

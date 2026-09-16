@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, realpathSync, renameSync, unlinkSync, writeFileS
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { DatabaseSync, SQLITE_BUSY_DEADLINE_MS } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync, SQLITE_BUSY_DEADLINE_MS } from './sqlite.js';
 import { getDatabasePath } from './db-runtime.js';
 import { assertDatabaseIntegrity, inspectSchemaState, stableIdentityHash } from './db-introspection.js';
 import { historyStatus } from './history-query.js';

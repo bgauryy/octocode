@@ -6,7 +6,7 @@ import {
   isEmbeddingEnabled,
   resolveEmbedCommand,
   runHostEmbedder,
-} from '../src/embed.js';
+} from '../../src/embed.js';
 
 describe('resolveEmbedCommand / isEmbeddingEnabled', () => {
   it('trims and treats blank/unset as null', () => {

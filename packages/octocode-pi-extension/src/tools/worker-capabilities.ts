@@ -6,7 +6,7 @@ import {
   type CapabilitySnapshot,
   type WorkerCapabilityGrant,
   type WorkerCapabilitySelection,
-} from '@octocodeai/agent-contracts/capabilities';
+} from '../contracts/capabilities.js';
 import {
   createWorkerMcpBroker,
   createWorkerBrokerClient,

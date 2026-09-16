@@ -9,7 +9,7 @@ import { getFooterDensity, setFooterDensity } from '../src/ui-extras.js';
 import { getPermissionLevel, setPermissionLevel } from '../src/tools/approval.js';
 import { projectMcpPath } from '../src/tools/mcp/config.js';
 import { __test__ as mcpTestHooks } from '../src/tools/mcp-tool.js';
-import { setMcpToolEnabled } from '@octocodeai/agent-contracts/mcp-state';
+import { setMcpToolEnabled } from '../src/contracts/mcp-state.js';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 
 const originalHome = process.env['OCTOCODE_HOME'];

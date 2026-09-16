@@ -4,13 +4,13 @@ import {
   assessConcurrentWalSafety,
   inspectSqliteRuntime,
   journalModeForSqliteVersion,
-} from '../src/sqlite-version.js';
+} from '../../src/sqlite-version.js';
 import {
   DatabaseSync,
   checkpointWal,
   isSqliteBusy,
   withSqliteBusyRetry,
-} from '../src/sqlite.js';
+} from '../../src/sqlite.js';
 
 describe('sqlite-version', () => {
   it('gates WAL on the reset-race fix', () => {

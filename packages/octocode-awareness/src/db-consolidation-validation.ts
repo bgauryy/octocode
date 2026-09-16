@@ -1,4 +1,4 @@
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync } from './sqlite.js';
 import type { SQLInputValue } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';

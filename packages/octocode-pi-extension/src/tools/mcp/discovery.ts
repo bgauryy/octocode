@@ -3,9 +3,9 @@ import {
   type DiscoverMcpConfigOptions,
   type DiscoveredMcpConfig,
   type McpDiscoveryResult,
-} from '@octocodeai/agent-contracts/agent-skills';
+} from '../../contracts/agent-skills.js';
 import path from 'node:path';
-import { capabilitySourcePaths } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilitySourcePaths } from '../../contracts/capability-sources.js';
 import { extensionWorkspaceRoot, extensionHome } from '../../extension-paths.js';
 
 /** Pi owns its workspace storage policy; shared contracts own discovery and admission. */

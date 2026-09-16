@@ -13,7 +13,7 @@ import {
   resetSkillUsageForTests,
 } from '../src/tools/skill-tool.js';
 import { discoverSkillStates, discoverSkills, discoverSkillCandidates } from '../src/tools/skill-discovery.js';
-import { setSkillEnabled } from '@octocodeai/agent-contracts/mcp-state';
+import { setSkillEnabled } from '../src/contracts/mcp-state.js';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { renderAvailableSkillsAddendum } from '../src/tools/skill-catalog.js';

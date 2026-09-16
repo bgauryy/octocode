@@ -14,7 +14,7 @@ import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCliInvocation, getIns
 import { resolveAwarenessCoordinationScope } from '../src/tools/awareness-context.js';
 import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 import { ROUTINE_AWARENESS_OPERATIONS } from '@octocodeai/octocode-awareness';
-import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '@octocodeai/agent-contracts/prompts';
+import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '../src/contracts/prompts/index.js';
 import { getAppendSystemTarget, parseSetupScope, splitArgs, truncateUserVisibleToolOutput } from '../src/utils.js';
 import { mergeManagedAppendSystem } from '../src/prompt.js';
 import { cleanupSpawnedAgentsForShutdown } from '../src/tools/agents/process.js';

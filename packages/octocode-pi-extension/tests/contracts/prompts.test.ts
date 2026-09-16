@@ -6,8 +6,8 @@ import {
   buildOctocodeSystemPrompt,
   buildPlanPrompt,
   expandSubagentPrompt,
-} from '../src/prompts/index.js';
-import * as sharedPrompts from '../src/prompts/index.js';
+} from '../../src/contracts/prompts/index.js';
+import * as sharedPrompts from '../../src/contracts/prompts/index.js';
 
 describe('shared prompts', () => {
   it('shares compact widget and context guidance without introducing host tool names', () => {

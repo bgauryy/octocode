@@ -19,7 +19,7 @@ import type { PiContext } from '../types.js';
 import { getMcpDiscoverySnapshot } from './mcp-tool.js';
 import type { McpDiscoverySnapshot } from './mcp/types.js';
 import { discoverMcpConfigs } from './mcp/discovery.js';
-import type { DiscoveredMcpConfig } from '@octocodeai/agent-contracts/agent-skills';
+import type { DiscoveredMcpConfig } from '../contracts/agent-skills.js';
 import type { DiscoveredSkillState } from './skill-discovery.js';
 import { writeEphemeralFileAtomicSync } from './atomic-state-file.js';
 

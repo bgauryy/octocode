@@ -89,3 +89,27 @@ export { claimNativeHookOwner, loadWorkspacePolicy, storageScopeForOperation } f
 export { AWARENESS_HOST_PARAMETER_NAMES } from './schema/operation-catalog.js';
 export type { AwarenessIntegrationHost, AwarenessHookOwner } from './workspace-policy.js';
 export type { AwarenessStorageScope } from './storage-scope.js';
+
+// Shared host primitives consumed by Pi. Keeping them behind the existing host
+// dependency avoids an Awareness → Pi package cycle.
+export {
+  AGENT_APPLICATION_ID,
+  assertSchemaObjects,
+  initOctocodeSchema,
+  readSchemaObjects,
+  recordSession,
+  utcNow,
+} from './agent-store-schema.js';
+export type { ReadableSqlite, SchemaObject, SqliteLike } from './agent-store-schema.js';
+export { DatabaseSync, SQLITE_BUSY_DEADLINE_MS, withSqliteBusyRetry } from './sqlite.js';
+export { journalModeForSqliteVersion } from './sqlite-version.js';
+export {
+  ensurePrivateDirectory,
+  hardenPrivateFile,
+  hardenSqliteFiles,
+  preparePrivateSqlitePath,
+  PRIVATE_FILE_MODE,
+} from './permissions.js';
+export { PiRuntimeObservationSchema } from './physiology.js';
+export type { PiRuntimeObservation } from './physiology.js';
+export type { TaskStatus } from './entities.js';

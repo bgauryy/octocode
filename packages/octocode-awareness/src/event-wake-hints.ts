@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync } from './sqlite.js';
 
 export interface AwarenessEventHintOptions {
   database: string;

@@ -27,7 +27,7 @@ import {
   PERMISSION_LEVELS,
   type ApprovalClass,
   type PermissionLevel,
-} from '@octocodeai/agent-contracts/protocols';
+} from '../contracts/protocols.js';
 import {
   APPROVAL_CHOICE_ALWAYS,
   APPROVAL_CHOICE_NO,

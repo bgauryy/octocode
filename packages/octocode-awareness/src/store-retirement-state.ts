@@ -1,4 +1,4 @@
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import type { DatabaseSync } from './sqlite.js';
 import type { StoreRetirementBlocker, StoreRetirementBlockerCode } from './store-retirement-types.js';
 
 /** Read every non-terminal lifecycle relation that can still own live work. */

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync } from '../src/sqlite.js';
 import { SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { initDb } from '../src/db-init.js';
 import { assertCanonicalSchemaFingerprint } from '../src/db-introspection.js';
-import { normalizeSchemaSql, readSchemaObjects, schemaObjectsFingerprint } from '@octocodeai/agent-contracts/schema';
+import { normalizeSchemaSql, readSchemaObjects, schemaObjectsFingerprint } from '../src/agent-store-schema.js';
 import { AWARENESS_APPLICATION_ID, AWARENESS_SCHEMA_VERSION } from '../src/storage-scope.js';
 
 // A DDL change must intentionally mint a new generation, filename, and fingerprint.

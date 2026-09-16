@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createAwarenessClient, type AwarenessOperationResult, type ContextObservation } from '@octocodeai/octocode-awareness';
-import type { PiRuntimeObservation } from '@octocodeai/agent-contracts/physiology';
+import type { PiRuntimeObservation } from '@octocodeai/octocode-awareness/host';
 import type { PiContext } from '../src/types.js';
 import { createPiAwarenessObservationSink } from '../src/adapters/pi-awareness-observation.js';
 

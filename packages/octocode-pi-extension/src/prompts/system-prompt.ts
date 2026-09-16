@@ -3,7 +3,7 @@ import {
   INTERACTION_CONTEXT_GUIDANCE,
   LOCAL_TOOL_GUIDANCE,
   buildOctocodeSystemPrompt,
-} from '@octocodeai/agent-contracts/prompts';
+} from '../contracts/prompts/index.js';
 
 const MCP_HOST_GUIDANCE = `Use MCPTool (server:"octocode") to discover and load tools for repository, code, history, package, graph, semantic research, local file reads, and code searches. Use localFetch to read a file, localSearch or astSearch to search code; use bash only when no local tool covers the operation (builds, tests, package commands, bounded debugging). Never invoke Octocode research CLI tools via bash or npx.
 Select from <mcp_catalog_index>, then call MCPTool action:"describe". Describe exposes the exact target schema and normally activates a namespaced Pi tool; call that returned tool directly. If describe reports a fixed host allowlist, use the now-unlocked generic MCPTool action:"call" path. That path is otherwise only for batching after describe: its outer query owns reasoning, action, server, tool, and arguments, while target input stays inside arguments.queries[] when required by the target schema.`;

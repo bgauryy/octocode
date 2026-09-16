@@ -11,7 +11,7 @@ import {
   type CapabilitySnapshot,
   type WorkerCapabilityGrant,
   type WorkerCapabilitySelection,
-} from '@octocodeai/agent-contracts/capabilities';
+} from '../../contracts/capabilities.js';
 import type { ToolCallResult } from '../../types.js';
 import { readMcpCatalogPage, type McpCatalogPageQuery } from './catalog-pages.js';
 import { workerMcpCatalogSnapshot } from './worker-catalog.js';

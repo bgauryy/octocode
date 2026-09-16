@@ -1,7 +1,7 @@
 import {
   PiRuntimeObservationSchema,
   type PiRuntimeObservation,
-} from '@octocodeai/agent-contracts/physiology';
+} from '@octocodeai/octocode-awareness/host';
 import type { PiContext, PiInstance } from '../types.js';
 
 type ToolOutcome = 'succeeded' | 'failed' | 'cancelled' | 'blocked';

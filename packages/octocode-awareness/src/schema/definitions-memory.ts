@@ -1,6 +1,6 @@
 /* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { z } from 'zod';
-import { PLAN_STATUSES } from '@octocodeai/agent-contracts/entities';
+import { PLAN_STATUSES } from '../entities.js';
 import { AttendRevisionInputSchema } from './attend-revision.js';
 import {
   agentId, nonEmptyText, tags, workspacePath, artifactScope, repoScope,

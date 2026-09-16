@@ -3,7 +3,7 @@ import {
   type AwarenessOperationDescriptor,
 } from '@octocodeai/octocode-awareness';
 import { AWARENESS_HOST_PARAMETER_NAMES } from '@octocodeai/octocode-awareness/host';
-import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
+import type { ApprovalClass } from '../contracts/protocols.js';
 import type { ToolCallResult } from '../types.js';
 
 export const AWARENESS_OUTPUT_MAX_CHARS = 12_000;

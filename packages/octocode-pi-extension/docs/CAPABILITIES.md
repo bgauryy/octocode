@@ -16,7 +16,7 @@ Octocode uses `.pi` defaults **only for models**. `PI_CODING_AGENT_DIR` relocate
 | MCP servers | `~/.octocode/mcp.json` | `.agents/mcp.json` | No Pi directory discovery |
 | Instructions | `~/.agents/AGENTS.md`, `~/.octocode/AGENTS.md` | Ancestor `.agents/AGENTS.md` files within the repository | Pi's context files remain host-owned and are deduplicated by actual path |
 
-The [shared path contract](../../octocode-agent-contracts/src/capability-sources.ts) owns global and workspace roots. [Skill discovery](../src/tools/skill-discovery.ts) and [MCP configuration](../src/tools/mcp/config.ts) own the complete imported-source inventories for their capabilities.
+The [shared path contract](../src/contracts/capability-sources.ts) owns global and workspace roots. [Skill discovery](../src/tools/skill-discovery.ts) and [MCP configuration](../src/tools/mcp/config.ts) own the complete imported-source inventories for their capabilities.
 
 Discovery reads configuration data. It does not write Pi configuration, connect foreign MCP servers, execute hooks, or load another copy of Pi's native extensions. Workspace capabilities require current workspace trust.
 
@@ -26,7 +26,7 @@ Instruction files load from global sources first, then repository ancestors towa
 
 ## Reviewed linked imports
 
-Claude, Codex, and Cursor sources are candidates, disabled until reviewed. MCP locations include user `~/.claude.json`, `~/.claude/mcp.json`, `~/.cursor/mcp.json`, and `$CODEX_HOME/config.toml`; workspace locations include `.mcp.json`, `.claude/mcp.json`, `.cursor/mcp.json`, and `.codex/config.toml`. Claude's `~/.claude.json` project entries retain project scope. Foreign skill roots include the corresponding `.claude/skills`, `.cursor/skills`, and `.codex/skills` locations. Other recognized legacy hosts remain visible in the [discovery inventory](../../octocode-agent-contracts/src/mcp-discovery.ts), including global `~/.agents/mcp.json`; they follow the same review boundary.
+Claude, Codex, and Cursor sources are candidates, disabled until reviewed. MCP locations include user `~/.claude.json`, `~/.claude/mcp.json`, `~/.cursor/mcp.json`, and `$CODEX_HOME/config.toml`; workspace locations include `.mcp.json`, `.claude/mcp.json`, `.cursor/mcp.json`, and `.codex/config.toml`. Claude's `~/.claude.json` project entries retain project scope. Foreign skill roots include the corresponding `.claude/skills`, `.cursor/skills`, and `.codex/skills` locations. Other recognized legacy hosts remain visible in the [discovery inventory](../src/contracts/mcp-discovery.ts), including global `~/.agents/mcp.json`; they follow the same review boundary.
 
 `/config` opens the OS browser configuration page; `/configuration` is an alias. Review and link import records a stable source ID, the exact definition revision, and project or global scope. The original file remains authoritative. The extension does not copy it or rewrite the foreign application's configuration. A plain Enable action cannot authorize an unreviewed or changed definition.
 
@@ -62,7 +62,7 @@ The parent changes a running worker through `agent type:"configure"`, providing 
 
 Grant removals take effect immediately. Additions apply before the worker's next turn. Parent disablement removes access even if an older grant included the identity. The worker's prompt, skill loader, active native tools, and MCP catalog use the same grant. A worker may retain only dynamically loaded MCP proxies whose `{server, tool}` identity remains in its grant. Workers launched with Pi's fixed native-tool allowlist cannot admit a new proxy name; describe still returns the exact schema and unlocks the schema-digest-bound generic gateway call. Proxy and gateway calls pass through the parent-owned broker, which validates current identity and grant state before dispatch; workers do not independently connect discovered MCP sources.
 
-The [shared capability schemas](../../octocode-agent-contracts/src/capabilities.ts), [worker runtime](../src/tools/worker-capabilities.ts), and [MCP broker](../src/tools/mcp/broker.ts) own these boundaries. A skill's frontmatter `allowed-tools` field describes intended usage; it does not grant runtime access.
+The [shared capability schemas](../src/contracts/capabilities.ts), [worker runtime](../src/tools/worker-capabilities.ts), and [MCP broker](../src/tools/mcp/broker.ts) own these boundaries. A skill's frontmatter `allowed-tools` field describes intended usage; it does not grant runtime access.
 
 ## Model definitions
 
@@ -128,7 +128,7 @@ The adapter accepts native Pi event names and the shared event names. [Hook disc
 
 ### Review and precedence
 
-Each source has a stable location ID and a normalized definition revision. Sources remain pending review until you review that exact revision. The [shared capability state](../../octocode-agent-contracts/src/capability-state.ts) stores the reviewed revision and enablement in the extension state database. Memory storage mode keeps review state in memory instead.
+Each source has a stable location ID and a normalized definition revision. Sources remain pending review until you review that exact revision. The [shared capability state](../src/contracts/capability-state.ts) stores the reviewed revision and enablement in the extension state database. Memory storage mode keeps review state in memory instead.
 
 Changing the normalized definition requires another review. Disabling a reviewed source prevents execution. A workspace source never executes without workspace trust, even when its revision was previously reviewed. Discovery and catalog refresh never execute commands.
 

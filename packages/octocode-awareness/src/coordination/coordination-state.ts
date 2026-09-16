@@ -6,7 +6,7 @@ import { startWork, listWork, endWork, getRun, normalizeFiles } from '../work.js
 import { markVerified } from '../verify-mark.js';
 import { insertNotification } from '../notifications-core.js';
 import { resolveNotification } from '../notifications-inbox.js';
-import type { CheckAudit,CheckStatus,HandoffNote,Lock,LockWaitResult,Task,WorkPresence } from '@octocodeai/agent-contracts/entities';
+import type { CheckAudit,CheckStatus,HandoffNote,Lock,LockWaitResult,Task,WorkPresence } from '../entities.js';
 import { CoordinationPlansTasks } from './coordination-plans-tasks.js';
 import { handoffFromRow,type HandoffRow,normalizeLeaseSeconds,now,required,sleepMs,splitFiles } from './coordination-shared.js';
 

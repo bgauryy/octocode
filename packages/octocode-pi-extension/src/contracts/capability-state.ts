@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { capabilityDefinitionRevision, type CapabilityKind } from './capability-sources.js';
-import { utcNow, type ReadableSqlite, type SqliteLike } from './schema.js';
+import { utcNow, type ReadableSqlite, type SqliteLike } from '@octocodeai/octocode-awareness/host';
 
 const keySchema = z.string().min(1).max(4096).refine(value => !value.includes('\0'));
 const digestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);

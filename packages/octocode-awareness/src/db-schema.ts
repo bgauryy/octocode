@@ -1,5 +1,5 @@
-import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from '@octocodeai/agent-contracts/entities';
-import { sqlEnum } from '@octocodeai/agent-contracts/schema';
+import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from './entities.js';
+import { sqlEnum } from './agent-store-schema.js';
 import { CONTINUITY_SCHEMA_DDL, EVENT_OUTBOX_TYPED_INDEX_DDL } from './db-continuity-schema.js';
 import { LOCAL_HISTORY_INDEX_DDL, LOCAL_HISTORY_SCHEMA_DDL } from './db-history-schema.js';
 import { AWARENESS_META_DDL, HOOK_RECEIPTS_DDL } from './db-meta-schema.js';

@@ -10,7 +10,7 @@ import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js
 import { orchestrate } from './call-skill.js';
 import { discoverSkills, type DiscoveredSkill } from './skill-discovery.js';
 import { readSkillPage } from './skill-pages.js';
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilityDefinitionRevision } from '../contracts/capability-sources.js';
 import { isWorkerCapabilityClient, getCurrentWorkerCapabilities, refreshCurrentWorkerCapabilities, assertCurrentWorkerNativeTool } from './worker-capabilities.js';
 
 import { z } from 'zod';

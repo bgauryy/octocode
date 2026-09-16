@@ -7,7 +7,7 @@ import type { WorktreeIsolation } from '../worktree.js';
 import type { WorkerAwarenessInspection } from '../awareness-worker-audit.js';
 import type { InternalWorktreeState } from '../worktree.js';
 import type { WorkerLedgerEvent, WorkerMessageActivity } from '../../types.js';
-import type { WorkerCapabilityGrant, WorkerCapabilitySelection } from '@octocodeai/agent-contracts/capabilities';
+import type { WorkerCapabilityGrant, WorkerCapabilitySelection } from '../../contracts/capabilities.js';
 
 export type AgentStatus = 'starting' | 'running' | 'idle' | 'exited' | 'failed' | 'killed';
 export type ResourceMode = 'lean' | 'octocode' | 'default';

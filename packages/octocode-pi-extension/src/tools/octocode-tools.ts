@@ -10,7 +10,7 @@
  */
 import { withOctocodeRender } from '../branding/renderers.js';
 import type { ToolDefinition } from '../types.js';
-import { PLAN_USAGE_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
+import { PLAN_USAGE_GUIDANCE } from '../contracts/prompts/index.js';
 import { QueryBatchError } from './query-batch-error.js';
 import { ToolResultError } from './tool-result-error.js';
 

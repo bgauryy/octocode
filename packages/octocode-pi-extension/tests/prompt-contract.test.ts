@@ -5,10 +5,10 @@ import { test } from 'vitest';
 import { AWARENESS_PI_HOST_PROMPT, getExternalAgentAwarenessGuide } from '@octocodeai/octocode-awareness/host';
 import { getAwarenessAgentInstructions } from '@octocodeai/octocode-awareness';
 import { buildPlanPrompt } from '../src/prompts/plan-prompt.js';
-import { LOCAL_TOOL_GUIDANCE, PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '@octocodeai/agent-contracts/prompts';
+import { LOCAL_TOOL_GUIDANCE, PLAN_PROMPT_MAX_GOAL, PLAN_PROMPT_TRUNCATION_MARKER } from '../src/contracts/prompts/index.js';
 import { buildPiSystemPrompt, projectPiSystemPromptCapabilities, SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
-import { expandSubagentPrompt, SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_PLACEHOLDERS } from '@octocodeai/agent-contracts/prompts';
-import { PLAN_USAGE_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
+import { expandSubagentPrompt, SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_PLACEHOLDERS } from '../src/contracts/prompts/index.js';
+import { PLAN_USAGE_GUIDANCE } from '../src/contracts/prompts/index.js';
 import { DIRECT_TOOL_DESCRIPTIONS, OCTOCODE_MCP_CALL_EXAMPLE } from '../src/tools/octocode-tools.js';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');

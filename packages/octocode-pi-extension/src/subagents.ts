@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SUBAGENT_PLACEHOLDERS } from '@octocodeai/agent-contracts/prompts';
+import { SUBAGENT_PLACEHOLDERS } from './contracts/prompts/index.js';
 import type { ResourceMode } from './tools/agents/types.js';
 import { discoverSkills } from './tools/skill-discovery.js';
 

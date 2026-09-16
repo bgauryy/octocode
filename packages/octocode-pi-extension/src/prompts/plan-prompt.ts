@@ -1,4 +1,4 @@
-import { buildPlanPrompt as buildSharedPlanPrompt } from '@octocodeai/agent-contracts/prompts';
+import { buildPlanPrompt as buildSharedPlanPrompt } from '../contracts/prompts/index.js';
 
 /** Pi supplies exact tool syntax; agent-contracts owns the planning and authorization semantics. */
 export function buildPlanPrompt(goal: string): string {

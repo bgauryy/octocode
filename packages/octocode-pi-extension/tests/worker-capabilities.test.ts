@@ -11,7 +11,7 @@ import {
 } from '../src/tools/worker-capabilities.js';
 import { createWorkerBrokerClient } from '../src/tools/mcp/broker.js';
 import { executeAgentLifecycle } from '../src/tools/agents/lifecycle.js';
-import type { CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
+import type { CapabilitySnapshot } from '../src/contracts/capabilities.js';
 
 const snapshot: CapabilitySnapshot = {
   schemaVersion: 1, revision: 'catalog-one', nativeTools: ['MCPTool', 'skill', 'file', 'bash'],

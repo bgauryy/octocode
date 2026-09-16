@@ -3,7 +3,7 @@ import { countPlans, createPlan, getPlan, joinPlan, listPlans, registerPlanDocum
 import { addTaskDependency, createTask, countReadyTasks, countTasks, listReadyTasks, listTasks } from '../tasks-ready.js';
 import { claimTask, heartbeatTaskClaim, releaseTaskClaim, retryTask, submitTask } from '../tasks-claims.js';
 import { getTask } from '../tasks-catalog.js';
-import type { PlanStatus, TaskStatus } from '@octocodeai/agent-contracts/entities';
+import type { PlanStatus, TaskStatus } from '../entities.js';
 import { normalizeWorkspacePath } from '../git.js';
 import { ParsedArgs } from './args.js';
 import { EmitOptions, die, emit } from '../command-output.js';

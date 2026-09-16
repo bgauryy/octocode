@@ -7,8 +7,8 @@ import {
   listSkillOverrides,
   normalizeSkillKey,
   setSkillEnabled,
-} from '@octocodeai/agent-contracts/mcp-state';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
+} from '../../contracts/mcp-state.js';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/host';
 import { openOctocodeDb } from '../storage-policy.js';
 import type { PiCommand, PiContext, PiInstance, SkillInfo } from '../../types.js';
 import { extensionTmpRoot } from '../../extension-paths.js';
@@ -23,7 +23,7 @@ import { openPlanReview } from '../planning/plan-command.js';
 import { openLocalUrl } from '../local-url-opener.js';
 import { getFooterDensity, setFooterDensity, type FooterDensity } from '../../ui-extras.js';
 import { getPermissionLevel, setPermissionLevel } from '../approval.js';
-import { type PermissionLevel } from '@octocodeai/agent-contracts/protocols';
+import { type PermissionLevel } from '../../contracts/protocols.js';
 import {
   ContributionRegistry,
   SettingsRegistry,
@@ -36,7 +36,7 @@ import { applyDialLevel, EFFORT_LEVELS, getActiveDialLevel } from '../effort-dia
 import { updateOctocodeMetricsUi } from '../../extension-ui.js';
 import { OCTOCODE_THEME_DARK, OCTOCODE_THEME_LIGHT } from '../../ui-extras.js';
 import { refreshCapabilityAdapters } from '../../adapters/pi-capability-adapters.js';
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilityDefinitionRevision } from '../../contracts/capability-sources.js';
 import { configurationRevision } from '../configuration-snapshot.js';
 import { getSessionCapabilities } from '../capability-session.js';
 import { inspectWorkerCapabilityGrants } from '../worker-capabilities.js';

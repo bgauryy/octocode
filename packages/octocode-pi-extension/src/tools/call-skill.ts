@@ -12,7 +12,7 @@
  */
 
 import type { ToolDefinition, PiContext } from '../types.js';
-import { BEHAVIORAL_PROMPT_GUIDANCE } from '@octocodeai/agent-contracts/prompts';
+import { BEHAVIORAL_PROMPT_GUIDANCE } from '../contracts/prompts/index.js';
 import { sliceBetween } from '../utils.js';
 import type { registerUniqueTool } from './octocode-tools.js';
 import { spawnRpcAgent } from './agents/process.js';

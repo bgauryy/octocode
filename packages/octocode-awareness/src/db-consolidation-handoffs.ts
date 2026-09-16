@@ -1,4 +1,4 @@
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import type { DatabaseSync } from './sqlite.js';
 import { signalExpiresAt } from './message-lifecycle.js';
 
 export interface MigrationEvent {

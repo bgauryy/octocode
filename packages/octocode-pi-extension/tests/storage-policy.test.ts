@@ -15,7 +15,7 @@ vi.mock('@octocodeai/octocode-awareness/host', async (importOriginal) => ({
   openAwarenessStore: mocks.openAwarenessStore,
 }));
 
-vi.mock('@octocodeai/agent-contracts/db', () => ({
+vi.mock('../src/contracts/db.js', () => ({
   openOctocodeDb: mocks.openStateDb,
 }));
 

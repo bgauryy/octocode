@@ -12,14 +12,19 @@
  */
 import { resolve } from 'node:path';
 import { agentDbPath } from './paths.js';
-import { AGENT_APPLICATION_ID, initOctocodeSchema, readSchemaObjects, assertSchemaObjects, type SchemaObject } from './schema.js';
 import {
+  AGENT_APPLICATION_ID,
+  assertSchemaObjects,
   DatabaseSync,
+  hardenSqliteFiles,
+  initOctocodeSchema,
+  journalModeForSqliteVersion,
+  preparePrivateSqlitePath,
+  readSchemaObjects,
   SQLITE_BUSY_DEADLINE_MS,
   withSqliteBusyRetry,
-} from './sqlite.js';
-import { journalModeForSqliteVersion } from './sqlite-version.js';
-import { hardenSqliteFiles, preparePrivateSqlitePath } from './permissions.js';
+  type SchemaObject,
+} from '@octocodeai/octocode-awareness/host';
 
 // Cache one connection per resolved path so tests and multiple homes stay
 // isolated while the common (single-home) case reuses one handle.

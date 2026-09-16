@@ -4,7 +4,7 @@
  * Pi's published types define host contracts; local interfaces describe
  * Octocode's tool results, runtime state, and UI projections.
  */
-import type { PromptMode } from '@octocodeai/agent-contracts/protocols';
+import type { PromptMode } from './contracts/protocols.js';
 
 import type {
   BuildSystemPromptOptions as PiBuildSystemPromptOptions,

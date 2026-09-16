@@ -8,7 +8,7 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 
 | Area | Source contract |
 |---|---|
-| Main-agent policy | `@octocodeai/agent-contracts/prompts` owns the canonical coder kernel; [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts) adds Pi host facts and canonical Awareness guidance |
+| Main-agent policy | [`src/contracts/prompts`](src/contracts/prompts) owns the canonical coder kernel; [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts) adds Pi host facts and canonical Awareness guidance |
 | Awareness host bindings | [`src/tools/awareness-cli-context.ts`](src/tools/awareness-cli-context.ts): native-facade prompt context; foreign tool sets can receive a bound CLI fallback. [`src/tools/awareness-context.ts`](src/tools/awareness-context.ts) owns native database/workspace/identity bindings |
 | Runtime physiology | [`src/adapters/pi-physiology.ts`](src/adapters/pi-physiology.ts): headless native measurements and session fences; [`src/adapters/pi-physiology-regulation.ts`](src/adapters/pi-physiology-regulation.ts): bounded projection of canonical Awareness advice |
 | Context assembly and lifecycle | [`src/index.ts`](src/index.ts) composes the host; [`src/tools/session-prompt-context.ts`](src/tools/session-prompt-context.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) own prompt context |
@@ -23,9 +23,9 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 | Skill discovery | [`src/tools/skill-discovery.ts`](src/tools/skill-discovery.ts); the `skill` tool consumes that inventory from [`src/tools/skill-tool.ts`](src/tools/skill-tool.ts) |
 | MCP client requests | [`src/tools/mcp/client-handlers.ts`](src/tools/mcp/client-handlers.ts) owns roots, sampling, elicitation, and request-scoped cancellation. Sampling sends complete message payloads; display previews never become model input. The gateway owns catalog invalidation through a callback. |
 | Worker spawning and waits | [`src/tools/agents/tool.ts`](src/tools/agents/tool.ts), [`src/tools/agents/lifecycle.ts`](src/tools/agents/lifecycle.ts), and [`src/tools/agents/wait.ts`](src/tools/agents/wait.ts) |
-| Capability sources and review | `@octocodeai/agent-contracts/capability-sources`, `agent-skills`, and `capability-state`; Pi applies host trust and enablement through the skill/MCP adapters |
+| Capability sources and review | [`src/contracts/capability-sources.ts`](src/contracts/capability-sources.ts), [`src/contracts/agent-skills.ts`](src/contracts/agent-skills.ts), and [`src/contracts/capability-state.ts`](src/contracts/capability-state.ts); Pi applies host trust and enablement through the skill/MCP adapters |
 | Model and command-hook adapters | [`src/adapters/pi-capability-adapters.ts`](src/adapters/pi-capability-adapters.ts) owns initialization, refresh, and disposal; [capability reference](docs/CAPABILITIES.md) owns source and execution contracts |
-| Effective snapshots and worker grants | [`src/tools/capability-session.ts`](src/tools/capability-session.ts), [`src/tools/worker-capabilities.ts`](src/tools/worker-capabilities.ts), and [`src/tools/mcp/broker.ts`](src/tools/mcp/broker.ts); shared Zod schemas live in `@octocodeai/agent-contracts/capabilities` |
+| Effective snapshots and worker grants | [`src/tools/capability-session.ts`](src/tools/capability-session.ts), [`src/tools/worker-capabilities.ts`](src/tools/worker-capabilities.ts), and [`src/tools/mcp/broker.ts`](src/tools/mcp/broker.ts); shared Zod schemas live in [`src/contracts/capabilities.ts`](src/contracts/capabilities.ts) |
 | Pi retained-context evidence | [`src/adapters/pi-retained-context.ts`](src/adapters/pi-retained-context.ts) |
 | Execution journal and replay | [`src/tools/execution-events.ts`](src/tools/execution-events.ts) owns typed events and the reducer; [`src/tools/execution-runtime.ts`](src/tools/execution-runtime.ts) binds Pi branch persistence; [`src/tools/lifecycle-ui.ts`](src/tools/lifecycle-ui.ts) observes host events |
 | Plan projection | [`src/tools/plan-read-model.ts`](src/tools/plan-read-model.ts) |
@@ -41,7 +41,7 @@ comparisons, and validation limits for the September 13, 2026 review.
 
 ### 2.1 Composition
 
-The extension adds a short `<octocode_host>` capability and trust-boundary adapter, then composes the canonical coder kernel from `@octocodeai/agent-contracts/prompts` with `EXTERNAL_AGENT_AWARENESS_PROMPT`. The root process receives intent classification, execution/delegation, verification, continuation, tool routing, and output rules. Workers receive host/interaction safety plus their bounded shared and role contracts, never root user-facing authority. Live catalogs and selected skills retain operational detail; no regex-triggered repository instruction is injected.
+The extension adds a short `<octocode_host>` capability and trust-boundary adapter, then composes the canonical coder kernel from `src/contracts/prompts` with `EXTERNAL_AGENT_AWARENESS_PROMPT`. The root process receives intent classification, execution/delegation, verification, continuation, tool routing, and output rules. Workers receive host/interaction safety plus their bounded shared and role contracts, never root user-facing authority. Live catalogs and selected skills retain operational detail; no regex-triggered repository instruction is injected.
 
 Source: `src/prompts/system-prompt.ts` → `SYSTEM_PROMPT`.
 Bundled artifact: `dist/system/SYSTEM_PROMPT.md`.
@@ -149,7 +149,7 @@ catalog change restarts paging instead of mixing revisions.
 |---|---|
 | `src/prompts/system-prompt.ts` | Pi host adapter plus root/worker selection over the shared canonical prompt builders |
 | `src/prompts/plan-prompt.ts` | Thin Pi call-syntax adapter over the shared atomic-Start plan prompt |
-| `@octocodeai/agent-contracts/prompts` | Local owner: `packages/octocode-agent-contracts/src/prompts/`. Pi build selects `coordination:"worker-only"`; runtime injects the short canonical Awareness standing prompt once; the full guide stays on demand, preserving shared worker restrictions without parallel ledger instructions |
+| `src/contracts/prompts/` | Internal Pi owner. Pi build selects `coordination:"worker-only"`; runtime injects the short canonical Awareness standing prompt once; the full guide stays on demand, preserving shared worker restrictions without parallel ledger instructions |
 
 ---
 
@@ -238,7 +238,7 @@ buildDefaultOctocodeMcpServer():
 
 ### 3.5 Discovery ownership
 
-`@octocodeai/agent-contracts` owns skill/MCP source discovery, JSON and full TOML
+The extension's `src/contracts/` modules own host-independent skill/MCP source discovery, JSON and full TOML
 normalization, stable source IDs, definition revisions, and admission. Native
 workspace sources live in `.agents/`; global sources use `getOctocodeHome()`.
 Pi defaults apply only to models (`~/.pi/agent/models.json`, honoring

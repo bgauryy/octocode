@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { workspaceAgentRoot } from '../src/paths.js';
+import { workspaceAgentRoot } from '../../src/contracts/paths.js';
 import {
   defaultAgentSkillRoots,
   defaultAgentSkillSources,
@@ -11,7 +11,7 @@ import {
   effectiveAgentSkills,
   listAgentSkillFiles,
   parseAgentSkill,
-} from '../src/agent-skills.js';
+} from '../../src/contracts/agent-skills.js';
 
 const roots: string[] = [];
 afterEach(() => {

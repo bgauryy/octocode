@@ -4,7 +4,7 @@ import {
   ensurePrivateDirectory,
   hardenPrivateFile,
   PRIVATE_FILE_MODE,
-} from '@octocodeai/agent-contracts/permissions';
+} from '@octocodeai/octocode-awareness/host';
 import { extensionWorkspaceRoot } from './extension-paths.js';
 import { createSessionArtifactContext } from './tools/session-artifacts.js';
 import type { PiContext } from './types.js';

@@ -72,5 +72,5 @@ Hooks: `docs/HOOKS.md`; lifecycle: `docs/HOW_IT_WORKS.md`; concept owners:
 
 - [Native API and prompt exports](docs/API.md)
 - [Configuration and integration ownership](docs/CONFIGURATION.md)
-- [Shared contracts owner](../octocode-agent-contracts/ARCHITECTURE.md)
+- [Shared host primitives](src/host-api.ts)
 - [Pi integration](../octocode-pi-extension/docs/AWARENESS_AGENT_FLOW.md)

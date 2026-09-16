@@ -6,7 +6,7 @@ Everything the extension registers with Pi on load: tools, system-prompt section
 
 ## System Prompt
 
-The prompt is assembled from a small Pi host adapter, the canonical coder kernel from `@octocodeai/agent-contracts/prompts`, and the canonical `EXTERNAL_AGENT_AWARENESS_PROMPT`. The kernel owns intent classification, execution and delegation, verification, continuation, repository/tool routing, lifecycle, and output rules. Full Awareness recipes remain on demand through `guide` and the skill. The built prompt is supplied through `before_agent_start`; no regex-triggered repo-state, output-recovery, or editor-comment prompts are injected.
+The prompt is assembled from a small Pi host adapter, the canonical coder kernel from `src/contracts/prompts`, and the canonical `EXTERNAL_AGENT_AWARENESS_PROMPT`. The kernel owns intent classification, execution and delegation, verification, continuation, repository/tool routing, lifecycle, and output rules. Full Awareness recipes remain on demand through `guide` and the skill. The built prompt is supplied through `before_agent_start`; no regex-triggered repo-state, output-recovery, or editor-comment prompts are injected.
 
 Before every turn, the hook refreshes a versioned effective capability snapshot
 and replaces its owned prompt projection. The seven core segments contain product

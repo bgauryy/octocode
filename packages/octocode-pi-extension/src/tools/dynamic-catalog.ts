@@ -14,7 +14,7 @@ import { listTools } from './dynamic-tools.js';
 import { listSkills } from './dynamic-skills.js';
 import { truncatePlainToWidth } from './render-helpers.js';
 import { escapePromptMetadata } from './prompt-safety.js';
-import { normalizeSkillKey } from '@octocodeai/agent-contracts/mcp-state';
+import { normalizeSkillKey } from '../contracts/mcp-state.js';
 
 const MAX_ENTRIES_PER_KIND = 30;
 const MAX_DESCRIPTION_CHARS = 100;

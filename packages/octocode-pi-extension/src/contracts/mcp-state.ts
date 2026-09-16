@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { utcNow, type SqliteLike, type ReadableSqlite } from './schema.js';
+import { utcNow, type SqliteLike, type ReadableSqlite } from '@octocodeai/octocode-awareness/host';
 
 export const MCP_GLOBAL_SCOPE = '*';
 

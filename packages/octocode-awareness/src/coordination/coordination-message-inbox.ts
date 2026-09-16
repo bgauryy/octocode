@@ -1,5 +1,5 @@
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
-import type { LiteMessage } from '@octocodeai/agent-contracts/entities';
+import type { DatabaseSync } from '../sqlite.js';
+import type { LiteMessage } from '../entities.js';
 import { type CanonicalMessageRow, messageFromCanonicalSignalRow } from './coordination-shared.js';
 import { decodeSignalCursor, encodeSignalCursor } from '../signal-pagination.js';
 import { repositoryWorkspacePaths } from '../git.js';

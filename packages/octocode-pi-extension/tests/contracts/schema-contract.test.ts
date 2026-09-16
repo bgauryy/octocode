@@ -2,9 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from '../src/sqlite.js';
-import { closeOctocodeDb, openOctocodeDb } from '../src/db.js';
-import { AGENT_APPLICATION_ID } from '../src/schema.js';
+import { AGENT_APPLICATION_ID, DatabaseSync } from '@octocodeai/octocode-awareness/host';
+import { closeOctocodeDb, openOctocodeDb } from '../../src/contracts/db.js';
 
 const directories: string[] = [];
 afterEach(() => { directories.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })); });

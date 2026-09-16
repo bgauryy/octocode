@@ -1,6 +1,6 @@
 /* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { z } from 'zod';
-import { TASK_STATUSES } from '@octocodeai/agent-contracts/entities';
+import { TASK_STATUSES } from '../entities.js';
 import {
   agentId, nonEmptyText, workspacePath, artifactScope, targetFiles, repoScope, refScope,
 } from './common.js';
