@@ -1,11 +1,11 @@
 //! Native `lspSearch` using the portable engine language-server client.
 use crate::tools::local_fetch::CancellationCheck;
-use octocode_engine_core::lsp::client::NativeLspClient;
-use octocode_engine_core::lsp::config::default_server_for_file;
-use octocode_engine_core::lsp::pool::LspClientPool;
-use octocode_engine_core::lsp::resolver::resolve_position;
-use octocode_engine_core::lsp::types::JsFuzzyPosition;
-use octocode_engine_core::lsp::workspace::resolve_workspace_root_for_file;
+use octocode_engine::lsp::client::NativeLspClient;
+use octocode_engine::lsp::config::default_server_for_file;
+use octocode_engine::lsp::pool::LspClientPool;
+use octocode_engine::lsp::resolver::resolve_position;
+use octocode_engine::lsp::types::JsFuzzyPosition;
+use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
@@ -228,7 +228,7 @@ pub async fn execute(
 }
 
 fn apply_rust_context(
-    config: &mut octocode_engine_core::lsp::types::JsLanguageServerConfig,
+    config: &mut octocode_engine::lsp::types::JsLanguageServerConfig,
     query: &LspSearchQuery,
 ) -> Result<(), String> {
     let Some(value) = &query.rust_context else {
@@ -498,8 +498,8 @@ async fn recover_aliases(
     path: &str,
     line: u32,
     character: u32,
-    provider: &[octocode_engine_core::lsp::types::JsCodeSnippet],
-) -> Vec<octocode_engine_core::lsp::types::JsCodeSnippet> {
+    provider: &[octocode_engine::lsp::types::JsCodeSnippet],
+) -> Vec<octocode_engine::lsp::types::JsCodeSnippet> {
     let Some(symbol) = query.symbol_name.as_deref() else {
         return Vec::new();
     };
@@ -533,7 +533,7 @@ async fn recover_aliases(
         let Ok(source) = fs::read_to_string(&file) else {
             continue;
         };
-        let Some(facts) = octocode_engine_core::portable::extract_graph_facts(&source, &file)
+        let Some(facts) = octocode_engine::portable::extract_graph_facts(&source, &file)
         else {
             continue;
         };
@@ -617,7 +617,7 @@ async fn recover_aliases(
     recovered
 }
 
-fn snippet_identity(snippet: &octocode_engine_core::lsp::types::JsCodeSnippet) -> String {
+fn snippet_identity(snippet: &octocode_engine::lsp::types::JsCodeSnippet) -> String {
     format!(
         "{}:{}:{}:{}:{}",
         uri_to_path(&snippet.uri),

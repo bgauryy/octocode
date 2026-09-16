@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use octocode_engine_core::security::types::SanitizationResult;
+use octocode_engine::security::types::SanitizationResult;
 use serde_json::{Map, Value};
 
 use super::SecurityRegistry;
@@ -31,7 +31,7 @@ impl ContentSecurity {
 
     pub fn sanitize_text(&self, content: &str, file_path: Option<&Path>) -> SanitizationResult {
         let path = file_path.map(|path| path.to_string_lossy());
-        let native = octocode_engine_core::portable::sanitize_content(content, path.as_deref())
+        let native = octocode_engine::portable::sanitize_content(content, path.as_deref())
             .unwrap_or_else(|error| SanitizationResult {
                 content: "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned(),
                 has_secrets: true,
@@ -100,7 +100,7 @@ impl ContentSecurity {
     }
 
     pub fn mask_sensitive_data(&self, text: &str) -> String {
-        let native = octocode_engine_core::portable::mask_sensitive_data(text.to_owned());
+        let native = octocode_engine::portable::mask_sensitive_data(text.to_owned());
         let mut spans = Vec::new();
         for pattern in self
             .registry
@@ -319,7 +319,7 @@ mod tests {
             ),
         ];
         for (content, path) in corpus {
-            let expected = octocode_engine_core::portable::sanitize_content(
+            let expected = octocode_engine::portable::sanitize_content(
                 &content,
                 path.map(|path| path.to_string_lossy()).as_deref(),
             )

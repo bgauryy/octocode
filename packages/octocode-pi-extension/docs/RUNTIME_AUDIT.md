@@ -8,8 +8,8 @@ for the standing contracts.
 
 ## What reaches the agent
 
-The extension composes shared policy from `agent-contracts` with Pi host facts and
-enabled capability catalogs. Plans, recovery, memory, and physiology arrive in an
+The extension composes its Pi-owned policy from `src/contracts/prompts` with host
+facts and enabled capability catalogs. Plans, recovery, memory, and physiology arrive in an
 attributed turn message. Its `display: false` flag hides it from ordinary transcript
 display, not from the model. The review checks those messages and tool results;
 it makes no claim about the model's private reasoning.
@@ -125,7 +125,7 @@ floor, or runtime assertion was weakened to obtain the passing result.
 | Workspace build | Passed; Pi rebuilt after final source integration |
 | Workspace lint and typecheck | Passed |
 | Pi package tests | 211 files, 2,357 tests passed |
-| Awareness and agent-contracts tests | 1,022 and 121 tests passed, respectively |
+| Awareness tests | 1,022 tests passed |
 | CLI, MCP server, and VS Code tests | 952, 818, and 42 tests passed, respectively |
 | Documentation and workspace health | Passed |
 | Root test command | Passed with final source frozen. Tools-core's 4,262 tests passed and branch coverage reached 79.71%, above its unchanged 79.7% floor. |

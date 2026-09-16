@@ -1,15 +1,38 @@
-#[cfg(feature = "napi-addon")]
-mod bindings;
+//! `octocode-engine` — Rust algorithms and Node.js N-API cdylib.
+//!
+//! This crate owns all engine primitives: search, LSP, signatures, structural
+//! analysis, minification, security, graph, index, and text utilities.
+//! When built with the `napi-addon` feature it also produces the platform
+//! `.node` binary consumed by `octocode-tools-core`, `octocode`, and
+//! `octocode-pi-extension`.
+//!
+//! `octocode-native` uses this crate as a pure `rlib` (no N-API) for the
+//! native CLI and MCP runtime.
 
 pub mod error;
+pub mod graph;
+pub mod index;
+pub mod lsp;
+pub mod minify;
 pub mod portable;
+pub mod search;
 pub mod security;
+pub mod signatures;
+pub mod structural;
+pub mod text;
 pub mod types;
 
-pub use octocode_engine_core::{graph, index, lsp, minify, search, signatures, structural, text};
+/// Node.js N-API function bindings. Only compiled when the `napi-addon`
+/// feature is enabled.
+#[cfg(feature = "napi-addon")]
+pub mod bindings;
 
-// Keep the NAPI-facing Rust surface explicit so the public addon ABI remains
-// unchanged while implementation ownership lives in octocode-engine-core.
+pub const ENGINE_CORE_API_VERSION: u32 = 1;
+
+// ── N-API public surface ──────────────────────────────────────────────────────
+// Explicit re-exports keep the addon ABI stable and make each symbol
+// discoverable from the crate root.
+
 #[cfg(feature = "napi-addon")]
 pub use bindings::filesystem::query_file_system;
 #[cfg(feature = "napi-addon")]
@@ -48,4 +71,4 @@ pub use bindings::text::{
 #[cfg(feature = "napi-addon")]
 pub use bindings::yaml::json_to_yaml_string;
 #[cfg(feature = "napi-addon")]
-pub use octocode_engine_core::lsp::client::NativeLspClient;
+pub use lsp::client::NativeLspClient;

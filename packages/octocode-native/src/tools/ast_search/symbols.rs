@@ -1,7 +1,7 @@
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
 };
-use octocode_engine_core::types::GraphFactsScanOptions;
+use octocode_engine::types::GraphFactsScanOptions;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -53,7 +53,7 @@ pub fn execute_symbols(
         let s = security
             .validate_text_bytes(&b, Some(&p.canonical), 1_000_000)
             .map_err(super::AstError::from)?;
-        match octocode_engine_core::portable::extract_graph_facts(
+        match octocode_engine::portable::extract_graph_facts(
             &s.content,
             &p.canonical.to_string_lossy(),
         ) {
@@ -65,7 +65,7 @@ pub fn execute_symbols(
             }
         }
     } else {
-        let r = octocode_engine_core::portable::scan_graph_facts_filtered(
+        let r = octocode_engine::portable::scan_graph_facts_filtered(
             GraphFactsScanOptions {
                 path: p.canonical.to_string_lossy().into_owned(),
                 exclude_dir: q.exclude_dir.clone(),

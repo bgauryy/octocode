@@ -94,7 +94,7 @@ it('marks native MCP roots active and ignores Pi files without writing discovery
   const { home, cwd } = fixture();
   const files = [path.join(cwd, '.agents', 'mcp.json'), path.join(home, '.octocode', 'mcp.json'), path.join(home, '.pi', 'agent', 'mcp.json')];
   for (const file of files) write(file, '{"mcpServers":{"docs":{"command":"docs"}}}');
-  const result = discoverMcpSystem(cwd, { homeDir: home });
+  const result = discoverMcpSystem(cwd, { homeDir: home, env: {} });
   expect(result.configs.filter(c => c.active).map(c => c.path).sort()).toEqual(files.slice(0, 2).sort());
   expect(result.configs.some(c => c.host === 'pi')).toBe(false);
   expect(result.definitions).toEqual([]);

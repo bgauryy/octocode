@@ -1,5 +1,5 @@
 //! Frozen lexical pages for `noIgnore` searches.
-use octocode_engine_core::types::RipgrepParseResult;
+use octocode_engine::types::RipgrepParseResult;
 use std::{
     collections::VecDeque,
     sync::Mutex,

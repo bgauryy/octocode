@@ -299,7 +299,9 @@ export const SCHEMA_INDEX_DDL = `
  */
 export const SIGNALS_EXPIRES_NOT_NULL_UPGRADE_DDL = `
   UPDATE signals SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE expires_at IS NULL;
-  CREATE TABLE signals_upgrade_v5 (
+  CREATE TABLE signals_upgrade_v5 AS SELECT * FROM signals;
+  DROP TABLE signals;
+  CREATE TABLE signals (
     signal_id      TEXT PRIMARY KEY,
     workspace_path TEXT NOT NULL,
     artifact       TEXT,
@@ -320,9 +322,8 @@ export const SIGNALS_EXPIRES_NOT_NULL_UPGRADE_DDL = `
     created_at     TEXT NOT NULL,
     expires_at     TEXT NOT NULL
   );
-  INSERT INTO signals_upgrade_v5 SELECT * FROM signals;
-  DROP TABLE signals;
-  ALTER TABLE signals_upgrade_v5 RENAME TO signals;
+  INSERT INTO signals SELECT * FROM signals_upgrade_v5;
+  DROP TABLE signals_upgrade_v5;
   CREATE INDEX idx_signals_status         ON signals(status);
   CREATE INDEX idx_signals_to_agent       ON signals(to_agent);
   CREATE INDEX idx_signals_workspace_path ON signals(workspace_path);

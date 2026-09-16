@@ -371,3 +371,233 @@ fn pretty_flag_appears_in_subcommand_help() {
         "--pretty flag not in help: {text}"
     );
 }
+
+// ── New command coverage ─────────────────────────────────────────────────────
+
+#[test]
+fn ast_without_lang_on_dir_exits_two_with_hint() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["ast", ".", "fn $NAME"])
+        .output()
+        .expect("ast");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("--lang"),
+        "expected --lang hint in error: {text}"
+    );
+}
+
+#[test]
+fn ast_help_shows_lang_flag() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["ast", "--help"])
+        .output()
+        .expect("ast --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("--lang"), "missing --lang in ast help: {text}");
+}
+
+#[test]
+fn rewrite_missing_lang_emits_hint() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["rewrite", ".", "fn $N", "--to", "fn ${N}_v2"])
+        .output()
+        .expect("rewrite");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("--lang"),
+        "expected --lang hint in rewrite error: {text}"
+    );
+}
+
+#[test]
+fn history_pr_without_number_exits_two() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["history", "pr", "--repo", "owner/repo"])
+        .output()
+        .expect("history pr");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("--number"),
+        "expected --number hint: {text}"
+    );
+}
+
+#[test]
+fn history_commit_without_ref_exits_two() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["history", "commit", "--repo", "owner/repo"])
+        .output()
+        .expect("history commit");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("--ref"),
+        "expected --ref hint: {text}"
+    );
+}
+
+#[test]
+fn direct_tool_dispatch_bad_json_exits_two() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["localSearch", "not-valid-json"])
+        .output()
+        .expect("localSearch bad json");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("Invalid JSON") || text.contains("Usage:"),
+        "expected json error: {text}"
+    );
+}
+
+#[test]
+fn direct_tool_dispatch_no_args_exits_two_with_usage() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["astSearch"])
+        .output()
+        .expect("astSearch no args");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("Usage:") || text.contains("--scheme"),
+        "expected usage hint: {text}"
+    );
+}
+
+#[test]
+fn tools_with_name_only_shows_usage_hint() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["tools", "localSearch"])
+        .output()
+        .expect("tools localSearch");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("localSearch"),
+        "expected tool name in hint: {text}"
+    );
+}
+
+#[test]
+fn callers_help_is_reachable() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["callers", "--help"])
+        .output()
+        .expect("callers --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("callers") || stdout(&output).contains("caller"));
+}
+
+#[test]
+fn callees_help_is_reachable() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["callees", "--help"])
+        .output()
+        .expect("callees --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn hover_help_is_reachable() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["hover", "--help"])
+        .output()
+        .expect("hover --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn type_def_help_is_reachable() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["type-def", "--help"])
+        .output()
+        .expect("type-def --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn implementation_help_is_reachable() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["implementation", "--help"])
+        .output()
+        .expect("implementation --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn code_help_shows_lang_and_path_flags() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["code", "--help"])
+        .output()
+        .expect("code --help");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("--lang"), "missing --lang: {text}");
+    assert!(text.contains("--owner") || text.contains("owner"), "missing --owner: {text}");
+}
+
+#[test]
+fn gh_tree_without_owner_repo_exits_two() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["gh-tree", "notaslashedrepo"])
+        .output()
+        .expect("gh-tree bad repo");
+    assert_eq!(exit_code(&output), Some(2));
+    let text = format!("{}{}", stdout(&output), stderr(&output));
+    assert!(
+        text.contains("Usage:") || text.contains("OWNER/REPO"),
+        "expected usage: {text}"
+    );
+}
+
+#[test]
+fn tools_catalog_lists_enabled_count() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["tools"])
+        .output()
+        .expect("tools");
+    // tools exits 0 for catalog listing
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("enabled") || text.contains("Tools"),
+        "expected tool listing: {text}"
+    );
+}

@@ -141,10 +141,30 @@ enum Command {
     Def(human::LspArgs),
     /// Find all references to a symbol across the workspace.
     Refs(human::LspArgs),
+    /// Show hover documentation for a symbol at a given file and line.
+    Hover(human::LspArgs),
+    /// Find all callers of a function (incoming call hierarchy).
+    Callers(human::LspArgs),
+    /// Find all callees of a function (outgoing call hierarchy).
+    Callees(human::LspArgs),
+    /// Jump to the type definition of a symbol.
+    #[command(name = "type-def")]
+    TypeDef(human::LspArgs),
+    /// Find all implementations of a trait, interface, or abstract type.
+    Implementation(human::LspArgs),
+    /// Find supertypes of a type in the type hierarchy.
+    Supertypes(human::LspArgs),
+    /// Find subtypes of a type in the type hierarchy.
+    Subtypes(human::LspArgs),
     /// Show LSP diagnostics (errors, warnings, hints) for a source file.
     Diagnostics(human::LspArgs),
     /// Search GitHub repositories by keyword.
     Repos(human::ReposArgs),
+    /// Search GitHub code by keyword, owner, repo, path, or language.
+    Code(human::CodeArgs),
+    /// Browse a GitHub repository tree.
+    #[command(name = "gh-tree")]
+    GhTree(human::GhTreeArgs),
     /// Clone a GitHub repository into the local Octocode cache for offline access.
     Clone(human::CloneArgs),
     /// Look up or discover packages across npm, PyPI, crates.io, Maven, and 4 other registries.
@@ -264,6 +284,84 @@ pub async fn run(args: Args) -> u8 {
 async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) -> u8 {
     match command {
         Command::Pattern(args) => {
+            // Direct tool-name dispatch: `octocode localSearch '{...}'`
+            // Allows bypassing human wrappers for raw tool JSON queries.
+            const KNOWN_TOOLS: &[&str] = &[
+                "localSearch",
+                "localFetch",
+                "astSearch",
+                "astRewrite",
+                "lspSearch",
+                "ghSearch",
+                "ghGetFileContent",
+                "ghSearchHistory",
+                "ghGetHistoryItem",
+                "ghCloneRepo",
+                "artifactSearch",
+            ];
+            if let Some(tool_name) = args.first().map(|s| s.as_str()) {
+                if KNOWN_TOOLS.contains(&tool_name) {
+                    let tool = tool_name.to_owned();
+                    let rest = &args[1..];
+                    let compact = rest.iter().any(|s| s == "--compact");
+                    let pretty = rest.iter().any(|s| s == "--pretty");
+                    let scheme = rest.iter().any(|s| s == "--scheme");
+                    if scheme {
+                        return match runtime.catalog() {
+                            Ok(catalog) => {
+                                let value = catalog["tools"]
+                                    .as_array()
+                                    .and_then(|ts| {
+                                        ts.iter().find(|t| t["name"] == tool)
+                                    })
+                                    .cloned()
+                                    .unwrap_or(Value::Null);
+                                if value.is_null() {
+                                    eprintln!("Unknown tool: {tool}");
+                                    2
+                                } else {
+                                    write_json(&value, !pretty)
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("{}", error.message);
+                                5
+                            }
+                        };
+                    }
+                    let json_arg = rest
+                        .iter()
+                        .find(|s| s.starts_with('{') || s.starts_with('['));
+                    return match json_arg {
+                        Some(json_str) => {
+                            match serde_json::from_str::<Value>(json_str) {
+                                Ok(input) => {
+                                    execute(
+                                        runtime,
+                                        &tool,
+                                        input,
+                                        true,
+                                        compact,
+                                        false,
+                                        None,
+                                    )
+                                    .await
+                                }
+                                Err(parse_error) => {
+                                    eprintln!("Invalid JSON query: {parse_error}");
+                                    2
+                                }
+                            }
+                        }
+                        None => {
+                            eprintln!("Usage: octocode {tool} '<json>'");
+                            eprintln!("       octocode {tool} --scheme");
+                            2
+                        }
+                    };
+                }
+            }
+            // Fall through to search pattern alias
             match search::SearchArgs::try_parse_from(
                 std::iter::once("octocode".to_owned()).chain(args),
             ) {
@@ -319,20 +417,66 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             json,
             compact,
         } => {
-            if tool.is_none() || scheme {
-                return match runtime.catalog() {
+            match (tool.as_deref(), scheme, queries.as_deref()) {
+                // `tools` or `tools --json` — human-readable catalog
+                (None, false, None) => match runtime.catalog() {
                     Ok(catalog) => {
-                        let value = if let Some(name) = tool {
+                        if json || compact {
+                            return write_json(&catalog, compact);
+                        }
+                        let tools_arr =
+                            catalog["tools"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+                        let enabled = tools_arr.iter().filter(|t| t["available"] == true).count();
+                        println!("Tools ({enabled}/{} enabled):", tools_arr.len());
+                        println!();
+                        println!("  Tip: use tool names directly — `octocode <toolName> '<json>'`");
+                        println!("       or inspect schema — `octocode <toolName> --scheme`");
+                        println!();
+                        let families = ["GitHub", "Local Code", "Package", "Other"];
+                        for family in families {
+                            let family_tools: Vec<_> = tools_arr
+                                .iter()
+                                .filter(|t| {
+                                    human::tool_family(t["name"].as_str().unwrap_or("")) == family
+                                })
+                                .collect();
+                            if family_tools.is_empty() {
+                                continue;
+                            }
+                            println!("  {family}:");
+                            for t in family_tools {
+                                let name = t["name"].as_str().unwrap_or_default();
+                                let avail = t["available"].as_bool().unwrap_or(false);
+                                let desc = t["description"].as_str().unwrap_or("");
+                                let short = if desc.len() > 72 { &desc[..72] } else { desc };
+                                let flag = if avail { " " } else { "!" };
+                                println!("  [{flag}] {name:<30} {short}");
+                            }
+                        }
+                        0
+                    }
+                    Err(error) => {
+                        eprintln!("{}", error.message);
+                        5
+                    }
+                },
+                // `tools <name> --scheme` or `tools --scheme` with optional name
+                (name, true, _) => match runtime.catalog() {
+                    Ok(catalog) => {
+                        let value = if let Some(n) = name {
                             catalog["tools"]
                                 .as_array()
-                                .and_then(|tools| tools.iter().find(|tool| tool["name"] == name))
+                                .and_then(|ts| ts.iter().find(|t| t["name"] == n))
                                 .cloned()
                                 .unwrap_or(Value::Null)
                         } else {
                             catalog
                         };
                         if value.is_null() {
-                            eprintln!("Unknown tool");
+                            eprintln!(
+                                "Unknown tool: {}",
+                                name.unwrap_or("(none)")
+                            );
                             2
                         } else {
                             write_json(&value, compact)
@@ -342,25 +486,33 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                         eprintln!("{}", error.message);
                         5
                     }
-                };
-            }
-            let input = match queries.and_then(|text| serde_json::from_str::<Value>(&text).ok()) {
-                Some(input) => input,
-                None => {
-                    eprintln!("--queries requires a valid structured tool input");
-                    return 2;
+                },
+                // `tools <name> '<json>'` — execute tool
+                (Some(name), false, Some(json_str)) => {
+                    let input = match serde_json::from_str::<Value>(json_str) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("Invalid JSON query: {e}");
+                            return 2;
+                        }
+                    };
+                    execute(runtime, name, input, json || compact, compact, false, None).await
                 }
-            };
-            execute(
-                runtime,
-                tool.as_deref().unwrap_or_default(),
-                input,
-                json || compact,
-                compact,
-                false,
-                None,
-            )
-            .await
+                // `tools <name>` without json or scheme — show usage hint
+                (Some(name), false, None) => {
+                    eprintln!("Usage: octocode tools {name} '<json>'");
+                    eprintln!("       octocode tools {name} --scheme");
+                    eprintln!("  Or use the tool name directly:");
+                    eprintln!("       octocode {name} '<json>'");
+                    eprintln!("       octocode {name} --scheme");
+                    2
+                }
+                // queries without tool name
+                (None, false, Some(_)) => {
+                    eprintln!("Usage: octocode tools <toolName> '<json>'");
+                    2
+                }
+            }
         }
         Command::Read {
             path,
@@ -501,8 +653,17 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
         Command::Rewrite(args) => human::rewrite(runtime, args).await,
         Command::Def(args) => human::lsp(runtime, "definition", args).await,
         Command::Refs(args) => human::lsp(runtime, "references", args).await,
+        Command::Hover(args) => human::hover(runtime, args).await,
+        Command::Callers(args) => human::callers(runtime, args).await,
+        Command::Callees(args) => human::callees(runtime, args).await,
+        Command::TypeDef(args) => human::type_def(runtime, args).await,
+        Command::Implementation(args) => human::implementation(runtime, args).await,
+        Command::Supertypes(args) => human::supertypes(runtime, args).await,
+        Command::Subtypes(args) => human::subtypes(runtime, args).await,
         Command::Diagnostics(args) => human::lsp(runtime, "diagnostic", args).await,
         Command::Repos(args) => human::repos(runtime, args).await,
+        Command::Code(args) => human::code_search(runtime, args).await,
+        Command::GhTree(args) => human::gh_tree(runtime, args).await,
         Command::Clone(args) => human::clone_repo(runtime, args).await,
         Command::Package(args) => human::package(runtime, args).await,
         Command::History(args) => human::history(runtime, args).await,

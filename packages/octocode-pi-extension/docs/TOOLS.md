@@ -41,8 +41,8 @@ Every direct tool exposes a `queries` batch. The registered schema requires a no
 tool definition. Descriptions distinguish when to choose the tool and the
 consequence of a nearby wrong choice. Field descriptions keep exact constraints;
 registration preserves schema descriptions and example data without truncation.
-Dynamic tool and skill generation import `BEHAVIORAL_PROMPT_GUIDANCE` from
-agent-contracts.
+Dynamic tool and skill generation import `BEHAVIORAL_PROMPT_GUIDANCE` from the
+Pi-local `src/contracts/prompts` modules.
 
 The dynamic capability index is a bounded inventory, not a complete contract.
 Its overflow entry provides an executable `callTool` or `skill` list call.

@@ -907,9 +907,9 @@ fn shape_pr_files(
             if let Some((additions, deletions)) =
                 str_at(&file, "/filename").and_then(|path| ranges.get(path))
             {
-                let filtered_patch = octocode_engine_core::portable::filter_patch(
+                let filtered_patch = octocode_engine::portable::filter_patch(
                     str_at(&file, "/patch").unwrap_or(""),
-                    Some(octocode_engine_core::types::FilterPatchOptions {
+                    Some(octocode_engine::types::FilterPatchOptions {
                         additions: additions.clone(),
                         deletions: deletions.clone(),
                         ..Default::default()
@@ -1490,7 +1490,7 @@ fn history_body_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
         && query.minify.as_deref() != Some("none")
         && query.match_string.is_none()
     {
-        octocode_engine_core::portable::apply_content_view_minification(value, "history.md")
+        octocode_engine::portable::apply_content_view_minification(value, "history.md")
     } else {
         value.to_owned()
     }
@@ -1501,9 +1501,9 @@ fn history_patch_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
         && query.minify.as_deref() != Some("none")
         && query.match_string.is_none()
     {
-        octocode_engine_core::portable::filter_patch(
+        octocode_engine::portable::filter_patch(
             value,
-            Some(octocode_engine_core::types::FilterPatchOptions {
+            Some(octocode_engine::types::FilterPatchOptions {
                 trim_context: Some(true),
                 context_lines: Some(2),
                 ..Default::default()

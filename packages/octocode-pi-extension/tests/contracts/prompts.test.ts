@@ -36,12 +36,12 @@ describe('shared prompts', () => {
     expect(prompt).not.toContain('octocode-graph-eval');
   });
 
-  it('keeps the shared policy host-neutral instead of advertising Pi-only tools', () => {
+  it('routes the Pi-owned policy through advertised host capabilities', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    for (const piOnlyName of ['chromeDebug', 'browser agent', 'askUser', 'localServer']) {
-      expect(prompt).not.toContain(piOnlyName);
-    }
-    expect(prompt).toContain('advertised host capabilities');
+    expect(prompt).toContain('chromeDebug');
+    expect(prompt).toContain('askUser');
+    expect(prompt).toContain('localServer');
+    expect(prompt).toContain('advertised purpose');
   });
 
   it('forbids replaying crash-left effects whose outcome is unknown', () => {

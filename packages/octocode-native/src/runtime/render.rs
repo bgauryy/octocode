@@ -281,9 +281,9 @@ pub fn mcp_result(structured: Value) -> Value {
 }
 
 fn yaml(value: Value, keys: &[&str]) -> String {
-    octocode_engine_core::portable::json_to_yaml_string(
+    octocode_engine::portable::json_to_yaml_string(
         value,
-        Some(octocode_engine_core::types::YamlConversionConfig {
+        Some(octocode_engine::types::YamlConversionConfig {
             sort_keys: Some(false),
             keys_priority: Some(keys.iter().map(|key| (*key).into()).collect()),
         }),

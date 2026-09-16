@@ -56,6 +56,10 @@ pub struct AstArgs {
     pub path: String,
     /// ast-grep structural pattern (e.g. `fn $NAME($$$) { $$$ }`).
     pub pattern: String,
+    /// Language for the AST pattern (required for directories; inferred from file extension).
+    /// Values: rust, typescript, tsx, javascript, python, go, java, kotlin, ruby, php, csharp, cpp, c, swift, scala.
+    #[arg(long, short = 'l')]
+    pub lang: Option<String>,
     #[command(flatten)]
     pub output: OutputOpts,
 }
@@ -234,13 +238,22 @@ pub async fn symbols(runtime: &ToolRuntime, args: SymbolsArgs) -> u8 {
 }
 
 pub async fn ast(runtime: &ToolRuntime, args: AstArgs) -> u8 {
-    run(
-        runtime,
-        "astSearch",
-        json!({"operation":"match","path":args.path,"pattern":args.pattern}),
-        !args.output.pretty,
-    )
-    .await
+    // Infer language from file extension, or require --lang for directories.
+    let lang = args
+        .lang
+        .or_else(|| lang_from_path(&args.path).map(|s| s.to_owned()));
+    if lang.is_none() && std::path::Path::new(&args.path).is_dir() {
+        eprintln!(
+            "ast: cannot infer language for directory `{}`. Add --lang rust (or ts, py, go, …)",
+            args.path
+        );
+        return 2;
+    }
+    let mut query = json!({"operation":"match","path":args.path,"pattern":args.pattern});
+    if let Some(l) = lang {
+        query["langType"] = json!(l);
+    }
+    run(runtime, "astSearch", query, !args.output.pretty).await
 }
 
 pub async fn graph(runtime: &ToolRuntime, args: GraphArgs) -> u8 {
@@ -264,7 +277,10 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
         .lang
         .or_else(|| lang_from_path(&args.path).map(|value| value.to_owned()));
     let Some(lang) = lang else {
-        eprintln!("rewrite requires --lang for this path");
+        eprintln!(
+            "rewrite: cannot infer language from `{}`. Add --lang rust (or ts, py, go, java, …)",
+            args.path
+        );
         return 2;
     };
     run(
@@ -284,10 +300,8 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
 }
 
 pub async fn lsp(runtime: &ToolRuntime, operation: &str, args: LspArgs) -> u8 {
-    let mut query = json!({
-        "operation": args.operation.as_deref().unwrap_or(operation),
-        "uri": args.uri
-    });
+    let op = args.operation.as_deref().unwrap_or(operation);
+    let mut query = json!({"operation": op, "uri": args.uri});
     if let Some(symbol) = args.symbol {
         query["symbolName"] = json!(symbol);
         if let Some(line) = args.line {
@@ -302,10 +316,120 @@ pub async fn lsp(runtime: &ToolRuntime, operation: &str, args: LspArgs) -> u8 {
     run(runtime, "lspSearch", query, !args.output.pretty).await
 }
 
+/// Show hover documentation for a symbol.
+pub async fn hover(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "hover", args).await
+}
+
+/// Find callers of a function (incoming call hierarchy).
+pub async fn callers(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "callers", args).await
+}
+
+/// Find callees of a function (outgoing call hierarchy).
+pub async fn callees(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "callees", args).await
+}
+
+/// Jump to the type definition of a symbol.
+pub async fn type_def(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "typeDefinition", args).await
+}
+
+/// Find all implementations of a trait or interface.
+pub async fn implementation(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "implementation", args).await
+}
+
+/// Find supertypes of a type in the type hierarchy.
+pub async fn supertypes(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "supertypes", args).await
+}
+
+/// Find subtypes of a type in the type hierarchy.
+pub async fn subtypes(runtime: &ToolRuntime, args: LspArgs) -> u8 {
+    lsp(runtime, "subtypes", args).await
+}
+
 pub async fn repos(runtime: &ToolRuntime, args: ReposArgs) -> u8 {
     let mut query = json!({"operation":"repositories","keywords":[args.query]});
     if let Some(owner) = args.owner {
         query["owner"] = json!(owner);
+    }
+    run(runtime, "ghSearch", query, !args.output.pretty).await
+}
+
+/// Search code on GitHub by keyword.
+#[derive(Args, Debug)]
+pub struct CodeArgs {
+    /// Keywords to search for in code.
+    pub query: String,
+    /// Restrict to this GitHub owner (user or org).
+    #[arg(long)]
+    pub owner: Option<String>,
+    /// Restrict to this repository (owner/repo).
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// File path glob filter (e.g. `*.rs`).
+    #[arg(long)]
+    pub path: Option<String>,
+    /// Programming language filter (e.g. `rust`, `typescript`).
+    #[arg(long)]
+    pub lang: Option<String>,
+    #[command(flatten)]
+    pub output: OutputOpts,
+}
+
+pub async fn code_search(runtime: &ToolRuntime, args: CodeArgs) -> u8 {
+    let mut query = json!({"operation":"code","keywords":[args.query]});
+    if let Some(owner) = args.owner {
+        query["owner"] = json!(owner);
+    }
+    if let Some(repo) = args.repo {
+        // Split owner/repo into separate fields if both present
+        if let Some((o, r)) = repo.split_once('/') {
+            query["owner"] = json!(o);
+            query["repo"] = json!(r);
+        } else {
+            query["repo"] = json!(repo);
+        }
+    }
+    if let Some(path) = args.path {
+        query["path"] = json!(path);
+    }
+    if let Some(lang) = args.lang {
+        query["langType"] = json!(lang);
+    }
+    run(runtime, "ghSearch", query, !args.output.pretty).await
+}
+
+/// Browse a known GitHub repository tree.
+#[derive(Args, Debug)]
+pub struct GhTreeArgs {
+    /// GitHub repository in `OWNER/REPO` format.
+    pub repo: String,
+    /// Subdirectory path within the repository (default: root).
+    pub path: Option<String>,
+    /// Branch, tag, or commit SHA (defaults to default branch).
+    #[arg(long)]
+    pub branch: Option<String>,
+    #[command(flatten)]
+    pub output: OutputOpts,
+}
+
+pub async fn gh_tree(runtime: &ToolRuntime, args: GhTreeArgs) -> u8 {
+    let Some((owner, repo)) = args.repo.split_once('/') else {
+        eprintln!("Usage: octocode gh-tree OWNER/REPO [PATH]");
+        return 2;
+    };
+    let mut query = json!({
+        "operation": "tree",
+        "owner": owner,
+        "repo": repo,
+        "path": args.path.as_deref().unwrap_or("")
+    });
+    if let Some(branch) = args.branch {
+        query["branch"] = json!(branch);
     }
     run(runtime, "ghSearch", query, !args.output.pretty).await
 }
@@ -352,26 +476,26 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
             }
             ("ghSearchHistory", query)
         }
-        "pr" | "issue" | "commit" => {
-            let operation = match args.operation.as_str() {
-                "pr" => "pullRequest",
-                "issue" => "issue",
-                _ => "commit",
+        "pr" | "issue" => {
+            let operation = if args.operation == "pr" { "pullRequest" } else { "issue" };
+            let Some(number) = args.number else {
+                eprintln!(
+                    "history {}: requires --number N\n  Usage: octocode history {} --repo {owner}/{repo} --number N",
+                    args.operation, args.operation
+                );
+                return 2;
             };
-            let mut query = json!({"operation":operation,"owner":owner,"repo":repo});
-            if operation == "commit" {
-                match args.r#ref {
-                    Some(sha) => {
-                        query["ref"] = json!(sha);
-                    }
-                    None => {
-                        eprintln!("commit operation requires --ref <SHA>");
-                        return 2;
-                    }
-                }
-            } else if let Some(number) = args.number {
-                query["number"] = json!(number);
-            }
+            let query = json!({"operation":operation,"owner":owner,"repo":repo,"number":number});
+            ("ghGetHistoryItem", query)
+        }
+        "commit" => {
+            let Some(sha) = args.r#ref else {
+                eprintln!(
+                    "history commit: requires --ref <SHA>\n  Usage: octocode history commit --repo {owner}/{repo} --ref <SHA>"
+                );
+                return 2;
+            };
+            let query = json!({"operation":"commit","owner":owner,"repo":repo,"ref":sha});
             ("ghGetHistoryItem", query)
         }
         other => {
@@ -383,7 +507,7 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
 }
 
 /// Group tool names into CLI families.
-fn tool_family(name: &str) -> &'static str {
+pub fn tool_family(name: &str) -> &'static str {
     match name {
         "ghSearch" | "ghGetFileContent" | "ghSearchHistory" | "ghGetHistoryItem"
         | "ghCloneRepo" => "GitHub",
@@ -409,29 +533,50 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
                 println!("{enabled}/{total} tools enabled  protocol:{protocol}");
                 return 0;
             }
-            if full && let Some(text) = catalog["mcpInstructions"].as_str() {
-                println!("{text}");
-                return 0;
+            if full {
+                if let Some(text) = catalog["mcpInstructions"].as_str() {
+                    println!("{text}");
+                    return 0;
+                }
             }
-            // Default: compact agent context block (equivalent to JS `context`)
+            // Default: compact agent context block
             println!("Octocode Native CLI — Agent Context");
             println!("Compact context. Full MCP instructions: `context --full`.");
             println!();
-            println!("Commands:");
-            println!("  tools <name> --scheme          lean schema");
-            println!("  tools <name> '<json>'          run a tool");
-            println!("  search <text> <path>           lexical search");
-            println!("  read <path>                    read a file");
+            println!("Human commands (ergonomic wrappers):");
+            println!("  search <text> [path]           lexical/regex search");
+            println!("  read <path>                    read a local file");
+            println!("  fetch owner/repo/path[@ref]    read a GitHub file");
+            println!("  files <path> [--names '*.rs']  find files by name/glob");
+            println!("  tree <path>                    directory or syntax tree");
             println!("  symbols <path>                 list declarations");
-            println!("  def <file> --line <n>          jump to definition");
+            println!("  ast <path> <pattern> [--lang]  structural pattern match");
+            println!("  graph <path> <analysis>        import graph topology");
+            println!("  rewrite <path> <pat> --to <t>  structural find-and-replace");
+            println!("  def <file> --line <n>          LSP definition");
+            println!("  refs <file> --line <n>         LSP references");
+            println!("  callers <file> --line <n>      LSP incoming calls");
+            println!("  callees <file> --line <n>      LSP outgoing calls");
+            println!("  hover <file> --line <n>        LSP hover docs");
+            println!("  type-def <file> --line <n>     LSP type definition");
+            println!("  implementation <file> --line   LSP implementations");
+            println!("  diagnostics <file>             LSP errors/warnings");
+            println!("  repos <query>                  GitHub repo search");
+            println!("  code <query>                   GitHub code search");
+            println!("  gh-tree OWNER/REPO [path]      GitHub repo tree");
+            println!("  history <op> --repo O/R        PR/issue/commit search");
+            println!("  package <query> [--ecosystem]  package registry lookup");
+            println!("  clone OWNER/REPO               cache a shallow clone");
+            println!();
+            println!("Direct tool dispatch (raw JSON — no wrapper overhead):");
+            println!("  <toolName> '<json>'            e.g. localSearch '{{\"queries\":[...]}}'");
+            println!("  <toolName> --scheme            print tool input schema");
+            println!("  <toolName> --scheme --pretty   indented schema");
             println!();
             println!("Batch independent queries in queries[]; keep dependent probes sequential.");
-            println!(
-                "Follow next.* continuations unchanged. localSearch/astSearch find candidates; lspSearch proves identity."
-            );
+            println!("Follow next.* continuations unchanged. localSearch/astSearch find candidates; lspSearch proves identity.");
             println!();
-            println!("Output: minified JSON by default. --pretty: indented JSON.");
-            println!("Exit:   0 ok · 2 input · 3 not-found · 4 auth · 5 tool · 7 rate-limit");
+            println!("Output: compact JSON by default. --pretty: indented. Exit: 0=ok 2=input 3=notfound 4=auth 5=tool 7=ratelimit");
             println!();
             // Grouped tool list
             if let Some(tools) = tools_arr {

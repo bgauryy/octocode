@@ -98,8 +98,8 @@ the 8k recovery budget for other segments; retained or freshly delivered plans
 are validated without consuming that recovery budget. Runtime physiology is another turn segment, limited to 128 estimated
 tokens and never rehydrated as current state. It carries changed advisory actions
 from fresh host receipts; unavailable sensors do not establish recovery. The
-shared Zod observation contract belongs to `agent-contracts`, thresholds belong to
-Awareness, and actual compaction/retry control remains with Pi. The observer uses
+shared Zod observation contract and thresholds belong to Awareness, while actual
+compaction/retry control remains with Pi. The observer uses
 the same hook composer as lifecycle and prompt middleware, retains only a
 bounded numeric tool-outcome window, and exposes `readPiPhysiology(ctx)` to trusted
 integrations. It adds no model-facing tool or shared SQLite state.

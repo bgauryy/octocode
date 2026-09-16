@@ -1,6 +1,6 @@
 import { buildPlanPrompt as buildSharedPlanPrompt } from '../contracts/prompts/index.js';
 
-/** Pi supplies exact tool syntax; agent-contracts owns the planning and authorization semantics. */
+/** The Pi-local contract owns planning semantics; this adapter supplies exact tool syntax. */
 export function buildPlanPrompt(goal: string): string {
   return buildSharedPlanPrompt(goal, {
     proposalInstruction:

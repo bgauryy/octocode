@@ -38,6 +38,7 @@ it('retains identity enforcement for the shell-owned host', async () => {
   roots.push(root);
   const workspace = join(root, 'repo');
   vi.stubEnv('OCTOCODE_HOME', root);
+  vi.stubEnv('OCTOCODE_AGENT_ID', '');
   writeWorkspacePolicy(workspace, {
     version: 1,
     storage: { repository: 'repo', memory: 'repo' },

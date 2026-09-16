@@ -60,7 +60,7 @@ pub struct ToolRuntime {
             Result<super::github::GitHubServices, crate::providers::github::ProviderError>,
         >,
     >,
-    lsp_pool: Arc<octocode_engine_core::lsp::pool::LspClientPool>,
+    lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,7 +167,7 @@ impl ToolRuntime {
             regex: None,
             github_cache,
             github_services: Arc::new(std::sync::OnceLock::new()),
-            lsp_pool: Arc::new(octocode_engine_core::lsp::pool::LspClientPool::default()),
+            lsp_pool: Arc::new(octocode_engine::lsp::pool::LspClientPool::default()),
         })
     }
 
