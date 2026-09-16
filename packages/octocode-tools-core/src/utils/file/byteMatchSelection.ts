@@ -1,4 +1,4 @@
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../../security/sanitize.js';
 import { contextUtils } from '../contextUtils.js';
 import { countLines } from '../core/lines.js';
 
@@ -11,7 +11,7 @@ export function selectMatchingBytes(
   filePath?: string
 ) {
   // Scan before cutting through tokens; scanning a fragment can miss a secret.
-  const sanitized = ContentSanitizer.sanitizeContent(content, filePath);
+  const sanitized = sanitizeContent(content, filePath);
   const securityLimited = sanitized.secretsDetected.includes(
     'content-size-exceeded'
   );

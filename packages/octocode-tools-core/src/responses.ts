@@ -1,5 +1,5 @@
 import { CallToolResult } from '@modelcontextprotocol/server';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from './security/sanitize.js';
 import { getConfigSync } from '@octocodeai/config';
 import { contextUtils } from './utils/contextUtils.js';
 import type { JsonInput } from '@octocodeai/octocode-engine';
@@ -43,7 +43,7 @@ export function sanitizeStructuredContent(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
 
   if (typeof obj === 'string') {
-    return ContentSanitizer.sanitizeContent(obj).content;
+    return sanitizeContent(obj).content;
   }
 
   if (Array.isArray(obj)) {
@@ -86,7 +86,7 @@ function sanitizeNextMap(next: unknown): unknown {
     const fields = call as Record<string, unknown>;
     const out: Record<string, unknown> = { ...fields };
     if (typeof fields.why === 'string') {
-      out.why = ContentSanitizer.sanitizeContent(fields.why).content;
+      out.why = sanitizeContent(fields.why).content;
     }
     result[name] = out;
   }

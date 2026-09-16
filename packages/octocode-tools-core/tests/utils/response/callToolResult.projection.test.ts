@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const scan = vi.hoisted(() => vi.fn());
-vi.mock('@octocodeai/octocode-engine/security', () => ({
-  ContentSanitizer: { sanitizeContent: scan },
-}));
-vi.mock('@octocodeai/octocode-engine/contentSanitizer', () => ({
-  ContentSanitizer: { sanitizeContent: scan },
+vi.mock('../../../src/security/sanitize.js', () => ({
+  sanitizeContent: scan,
+  maskSensitiveData: vi.fn(),
 }));
 vi.mock('../../../src/utils/contextUtils.js', () => ({ contextUtils: {} }));
 

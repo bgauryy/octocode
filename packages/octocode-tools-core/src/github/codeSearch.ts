@@ -8,7 +8,7 @@ import type { z } from 'zod';
 import type { GitHubCodeSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 type GitHubCodeSearchQuery = z.infer<typeof GitHubCodeSearchQuerySchema>;
 import type { WithOptionalMeta } from '../types/execution.js';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../security/sanitize.js';
 import { compactMatchedFragment } from './codeSearch/compactFragment.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError, isNoResultsSearchError } from './errors.js';
@@ -215,7 +215,7 @@ async function transformToOptimizedFormat(
 
       const processedMatches = await Promise.all(
         (includeFragments ? item.text_matches || [] : []).map(async match => {
-          const sanitizationResult = ContentSanitizer.sanitizeContent(
+          const sanitizationResult = sanitizeContent(
             match.fragment || '',
             item.path
           );

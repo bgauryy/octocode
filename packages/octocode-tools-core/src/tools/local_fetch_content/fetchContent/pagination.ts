@@ -4,7 +4,7 @@ import {
   fullContentLimit,
 } from '../../../utils/file/contentPagination.js';
 import { contextUtils } from '../../../utils/contextUtils.js';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../../../security/sanitize.js';
 import type { LocalFetchToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { FetchContentQuery } from '@octocodeai/octocode-core/schema';
 import { buildNextPageContinuation } from '../../../scheme/pagination.js';
@@ -19,7 +19,7 @@ export function sanitizeReturnedText(
   text: string,
   queryPath: string
 ): { text: string; warning?: string; limited: boolean } {
-  const sanitized = ContentSanitizer.sanitizeContent(text, queryPath);
+  const sanitized = sanitizeContent(text, queryPath);
   return {
     text: sanitized.content,
     limited: sanitized.secretsDetected.includes('content-size-exceeded'),

@@ -1,5 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../../security/sanitize.js';
 import { getOctokit, resolveCacheAuthFingerprint } from '../client.js';
 import { withDataCache } from '../../utils/http/cache/dataCache.js';
 import { generateCacheKey } from '../../utils/http/cache/key.js';
@@ -72,7 +72,7 @@ export async function fetchIssueByNumber(
   const contentPagination: IssueRow['contentPagination'] = {};
 
   if (wantBody) {
-    const rawBody = ContentSanitizer.sanitizeContent(
+    const rawBody = sanitizeContent(
       response.data.body ?? ''
     ).content;
     const windowed = windowText(rawBody, params.charOffset, params.charLength);
@@ -98,7 +98,7 @@ export async function fetchIssueByNumber(
       : commentsResult.data.filter(c => !isBotAuthor(c.user?.login ?? ''));
     row.comments = kept.map(comment => {
       const windowed = windowText(
-        ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+        sanitizeContent(comment.body ?? '').content,
         params.charOffset,
         params.charLength
       );

@@ -1,5 +1,5 @@
 import { PRCommentItem, PRReviewInfo, IssueComment } from '../githubAPI.js';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../../security/sanitize.js';
 import { OctokitWithThrottling } from '../client.js';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { isBotAuthor } from '../botFilter.js';
@@ -45,7 +45,7 @@ export async function fetchPRComments(
     return {
       id: String(comment.id),
       user: comment.user?.login ?? 'unknown',
-      body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+      body: sanitizeContent(comment.body ?? '').content,
       createdAt: comment.created_at ?? '',
       updatedAt: comment.updated_at ?? '',
       commentType: 'discussion',
@@ -103,7 +103,7 @@ export async function fetchPRReviews(
         id: String(review.id),
         user: review.user?.login ?? 'unknown',
         state: review.state ?? '',
-        body: ContentSanitizer.sanitizeContent(review.body ?? '').content,
+        body: sanitizeContent(review.body ?? '').content,
         submittedAt: review.submitted_at ?? undefined,
         commitId: review.commit_id ?? undefined,
       })),
@@ -153,7 +153,7 @@ export async function fetchPRInlineComments(
     return {
       id: String(comment.id),
       user: comment.user?.login ?? 'unknown',
-      body: ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+      body: sanitizeContent(comment.body ?? '').content,
       createdAt: comment.created_at ?? '',
       updatedAt: comment.updated_at ?? '',
       commentType: 'review_inline',

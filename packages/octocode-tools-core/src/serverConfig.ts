@@ -5,7 +5,7 @@ import { getConfigSync } from '@octocodeai/config';
 import { version } from '../package.json';
 import type { ServerConfig, TokenSourceType } from './types/server.js';
 import { CONFIG_ERRORS } from './errors/domainErrors.js';
-import { maskSensitiveData } from '@octocodeai/octocode-engine/mask';
+import { maskSensitiveData } from './security/sanitize.js';
 import { runCacheMaintenanceIfDue } from './cacheMaintenance.js';
 
 let config: ServerConfig | null = null;

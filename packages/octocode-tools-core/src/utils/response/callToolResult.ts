@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/security';
+import { sanitizeContent } from '../../security/sanitize.js';
 import { sanitizeStructuredContent } from '../../responses.js';
 import { normalizeError } from './normalizedError.js';
 
@@ -62,7 +62,7 @@ export function sanitizeCallToolResult(
           typeof item.text === 'string'
         ) {
           try {
-            const { content: text } = ContentSanitizer.sanitizeContent(
+            const { content: text } = sanitizeContent(
               item.text
             );
             return { ...item, text };
