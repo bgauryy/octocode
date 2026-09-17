@@ -82,7 +82,11 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
         .output()
         .expect("codex");
     // codex is a supported IDE: install should succeed
-    assert!(codex.status.success(), "codex install failed: {}", stderr(&codex));
+    assert!(
+        codex.status.success(),
+        "codex install failed: {}",
+        stderr(&codex)
+    );
     let dry = workspace
         .cli()
         .args(["install", "--ide", "cursor", "--dry-run", "--json"])
@@ -647,6 +651,38 @@ fn tools_catalog_lists_enabled_count() {
         text.contains("enabled") || text.contains("Tools"),
         "expected tool listing: {text}"
     );
+}
+
+#[test]
+fn tools_json_emits_compact_discovery_catalog() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["tools", "--json"])
+        .output()
+        .expect("tools json");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        output.stdout.len() < 20_000,
+        "discovery catalog should stay token-efficient, got {} bytes",
+        output.stdout.len()
+    );
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("catalog JSON");
+    assert_eq!(value["kind"], "octocode.toolCatalog");
+    assert_eq!(
+        value["toolCount"],
+        value["tools"].as_array().expect("tools array").len()
+    );
+    assert_eq!(
+        value["commands"]["schema"],
+        "tools <name> --scheme --json --compact"
+    );
+    let first = &value["tools"][0];
+    assert!(first["name"].is_string());
+    assert!(first["fields"].is_string());
+    assert!(first["availability"]["enabled"].is_boolean());
+    assert!(first.get("inputSchema").is_none());
+    assert!(first.get("outputSchema").is_none());
 }
 
 #[test]

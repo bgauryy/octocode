@@ -643,7 +643,11 @@ mod tests {
                 .expect("codex config path")
                 .ends_with(".codex/config.toml")
         );
-        assert!(config_path("goose").expect("goose config path").ends_with("goose/config.yaml"));
+        assert!(
+            config_path("goose")
+                .expect("goose config path")
+                .ends_with("goose/config.yaml")
+        );
     }
 
     #[test]

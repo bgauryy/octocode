@@ -677,8 +677,9 @@ async fn fetch_allowlisted(url: &str) -> Result<Vec<u8>, String> {
 /// Resolve status for a single file: detect its language and whether a
 /// language server is available. Port of `getLspStatus` in manager.ts.
 fn run_status(file_path: Option<&str>, json: bool) -> u8 {
-    use octocode_engine::lsp::config::{default_server_for_file, detect_language_id,
-        is_command_available};
+    use octocode_engine::lsp::config::{
+        default_server_for_file, detect_language_id, is_command_available,
+    };
 
     let Some(path) = file_path else {
         // No file path: report pool status. In a standalone CLI process there is
@@ -703,9 +704,9 @@ fn run_status(file_path: Option<&str>, json: bool) -> u8 {
     let language_id = detect_language_id(path.to_owned());
     let config = default_server_for_file(path.to_owned(), cwd);
 
-    let server_available = config.as_ref().is_some_and(|c| {
-        is_command_available(c.command.clone()).unwrap_or(false)
-    });
+    let server_available = config
+        .as_ref()
+        .is_some_and(|c| is_command_available(c.command.clone()).unwrap_or(false));
     let server_command: Option<String> = config.map(|c| c.command);
     let lang = language_id.as_deref().unwrap_or("unknown");
 
@@ -1108,7 +1109,12 @@ mod tests {
             },
         );
         assert!(!outcome.ok);
-        assert!(outcome.error.expect("error should be set").contains("Checksum mismatch"));
+        assert!(
+            outcome
+                .error
+                .expect("error should be set")
+                .contains("Checksum mismatch")
+        );
     }
 
     #[test]
@@ -1122,7 +1128,12 @@ mod tests {
             |_url| panic!("must not fetch in off mode"),
         );
         assert!(!outcome.ok);
-        assert!(outcome.error.expect("error should be set").contains("Auto-install is off"));
+        assert!(
+            outcome
+                .error
+                .expect("error should be set")
+                .contains("Auto-install is off")
+        );
     }
 
     #[test]

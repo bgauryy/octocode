@@ -29,6 +29,91 @@ fn emit_error(msg: &str, json_errors: bool) {
     }
 }
 
+fn compact_description(description: &str, max_chars: usize) -> String {
+    let mut chars = description.chars();
+    let prefix: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{}…", prefix.trim_end_matches([' ', '.', ',']))
+    } else {
+        prefix
+    }
+}
+
+fn compact_fields(tool: &Value) -> String {
+    let schema = tool
+        .get("querySchema")
+        .and_then(|schema| schema.get("anyOf"))
+        .and_then(Value::as_array)
+        .and_then(|variants| variants.first())
+        .unwrap_or_else(|| tool.get("querySchema").unwrap_or(&Value::Null));
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return "[]".to_owned();
+    };
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<std::collections::HashSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut names = properties.keys().map(String::as_str).collect::<Vec<_>>();
+    names.sort_by_key(|name| (!required.contains(name), *name));
+    const MAX_FIELDS: usize = 8;
+    let truncated = names.len() > MAX_FIELDS;
+    let mut fields = names
+        .into_iter()
+        .take(MAX_FIELDS)
+        .map(|name| format!("{name}{}", if required.contains(name) { "*" } else { "?" }))
+        .collect::<Vec<_>>();
+    if truncated {
+        fields.push("…".to_owned());
+    }
+    format!("[{}]", fields.join(", "))
+}
+
+fn compact_tool_catalog(catalog: &Value) -> Value {
+    let tools = catalog
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .map(|tool| {
+                    let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+                    let description = tool
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    json!({
+                        "name": name,
+                        "category": human::tool_family(name),
+                        "description": compact_description(description, 96),
+                        "fields": compact_fields(tool),
+                        "availability": {
+                            "enabled": tool.get("available").and_then(Value::as_bool).unwrap_or(false)
+                        }
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json!({
+        "kind": "octocode.toolCatalog",
+        "version": 1,
+        "toolCount": tools.len(),
+        "output": "Compact discovery catalog. Inspect one tool before execution.",
+        "commands": {
+            "fullCatalog": "tools --scheme --json --compact",
+            "schema": "tools <name> --scheme --json --compact",
+            "run": "tools <name> --queries '<json>'"
+        },
+        "tools": tools
+    })
+}
+
 fn parse_github_reference(
     reference: &str,
     explicit_branch: Option<String>,
@@ -251,7 +336,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 (None, false, None) => match runtime.catalog() {
                     Ok(catalog) => {
                         if json || compact {
-                            return write_json(&catalog, compact);
+                            return write_json(&compact_tool_catalog(&catalog), compact);
                         }
                         let tools_arr = catalog["tools"]
                             .as_array()
