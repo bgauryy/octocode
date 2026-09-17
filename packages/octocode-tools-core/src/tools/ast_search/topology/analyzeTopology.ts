@@ -3,7 +3,6 @@ import { resolveTopologyQueryPath } from './queryPath.js';
 import {
   buildFileGraph,
   resolveGraphExcludeDirs,
-  type WalkResult,
 } from '../../../graph/buildFileGraph.js';
 import { scanForDeadCode } from './deadCodeScan.js';
 import { resolveEntrypoints } from './entrypoints.js';
@@ -34,15 +33,11 @@ import type {
   TopologyAnalysisQuery,
 } from './analysisTypes.js';
 import { finalizeGraphOutput, paginateGraphResults } from './pagination.js';
+import { analyzeTopologyDrift } from './drift.js';
 
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_DEPTH = 1;
 
-/**
- * Return the graph-relative key for `file`.
- * When `file` is absolute it is made relative to `rootPath` first so that the
- * key matches what buildFileGraph stores (repo-relative paths).
- */
 function resolveFileForGraph(file: string, rootPath: string): string {
   return normalizeGraphFile(isAbsolute(file) ? relative(rootPath, file) : file);
 }
@@ -136,122 +131,13 @@ export async function analyzeTopology(
   }
 
   if (query.operation === 'drift') {
-    if (!query.baseline) {
-      return finalize(
-        errorOutput(query, 'drift requires baseline'),
-        'Retry drift with a baseline root.'
-      );
-    }
-    const baseline = await (context.getGraph?.(
-      query.baseline,
+    return analyzeTopologyDrift(
+      built,
+      query,
+      context,
       excludeDir,
       maxFiles,
-      query.rustWorkspace
-    ) ??
-      buildFileGraph(
-        query.baseline,
-        excludeDir,
-        maxFiles,
-        query.rustWorkspace
-      ));
-    const headFiles = new Set(built.fileGraph.keys());
-    const baseFiles = new Set(baseline.fileGraph.keys());
-    const headEdges = graphEdges(built);
-    const baseEdges = graphEdges(baseline);
-    const results: Array<Record<string, unknown>> = [];
-    for (const edge of [...headEdges.keys()]
-      .filter(key => !baseEdges.has(key))
-      .sort()) {
-      results.push({
-        category: 'relation',
-        change: 'added',
-        ...headEdges.get(edge),
-        confidence: 'syntactic',
-      });
-    }
-    for (const edge of [...baseEdges.keys()]
-      .filter(key => !headEdges.has(key))
-      .sort()) {
-      results.push({
-        category: 'relation',
-        change: 'removed',
-        ...baseEdges.get(edge),
-        confidence: 'syntactic',
-      });
-    }
-    const headCycles = cycleKeys(built);
-    const baseCycles = cycleKeys(baseline);
-    for (const key of [...headCycles.keys()]
-      .filter(key => !baseCycles.has(key))
-      .sort()) {
-      results.push({
-        category: 'cycle',
-        change: 'added',
-        files: headCycles.get(key),
-        confidence: 'syntactic',
-      });
-    }
-    for (const key of [...baseCycles.keys()]
-      .filter(key => !headCycles.has(key))
-      .sort()) {
-      results.push({
-        category: 'cycle',
-        change: 'resolved',
-        files: baseCycles.get(key),
-        confidence: 'syntactic',
-      });
-    }
-    for (const file of [...headFiles]
-      .filter(file => !baseFiles.has(file))
-      .sort()) {
-      results.push({ category: 'file', change: 'added', file });
-    }
-    for (const file of [...baseFiles]
-      .filter(file => !headFiles.has(file))
-      .sort()) {
-      results.push({ category: 'file', change: 'removed', file });
-    }
-    const page = paginateGraphResults(results, query);
-    return finalize(
-      {
-        operation: 'drift',
-        path: query.path,
-        baseline: query.baseline,
-        filesScanned: built.filesScanned,
-        baselineFilesScanned: baseline.filesScanned,
-        ...page,
-        summary: {
-          comparable: true,
-          relationsAdded: results.filter(
-            row => row.category === 'relation' && row.change === 'added'
-          ).length,
-          relationsRemoved: results.filter(
-            row => row.category === 'relation' && row.change === 'removed'
-          ).length,
-          cyclesAdded: results.filter(
-            row => row.category === 'cycle' && row.change === 'added'
-          ).length,
-          cyclesResolved: results.filter(
-            row => row.category === 'cycle' && row.change === 'resolved'
-          ).length,
-          filesAdded: results.filter(
-            row => row.category === 'file' && row.change === 'added'
-          ).length,
-          filesRemoved: results.filter(
-            row => row.category === 'file' && row.change === 'removed'
-          ).length,
-        },
-        ...(built.truncated || baseline.truncated
-          ? {
-              truncated: true,
-              partialReasons: ['maxFiles' as const],
-              warnings: [
-                'one or both graph scans reached maxFiles; drift is partial',
-              ],
-            }
-          : {}),
-      },
-      'Continue topology drift results.'
+      finalize
     );
   }
 
@@ -365,14 +251,9 @@ export async function analyzeTopology(
     const layerByComponent = componentLayerMap(condensed.layers);
     const redundantEdges = findTransitiveEdges(condensed.edges);
     const depth = query.depth ?? DEFAULT_DEPTH;
-    // Every direct neighbor has a one-edge path from the source, so no
-    // intervening node can dominate it. Deeper queries still need the full
-    // reachable graph: paths outside the requested depth can change dominators.
     const immediateDominators =
       depth > 1 ? computeImmediateDominators(graph, file) : undefined;
 
-    // Build importer→target→firstImportLine index from resolved facts.
-    // Used to annotate each edge with the exact import line in the importer file.
     const importLineIndex = new Map<string, Map<string, number>>();
     for (const [importer, fileFacts] of built.facts) {
       const targetMap = new Map<string, number>();
@@ -384,8 +265,6 @@ export async function analyzeTopology(
       if (targetMap.size > 0) importLineIndex.set(importer, targetMap);
     }
 
-    // Compute in-degree (number of scanned files that import each file)
-    // in the original (non-reversed) graph so dependents can show inboundCount.
     const inDegree = new Map<string, number>();
     for (const [, node] of built.fileGraph) {
       for (const tgt of node.importsFiles) {
@@ -396,7 +275,6 @@ export async function analyzeTopology(
     const items = traverseGraph(graph, file, depth).map(result => {
       const resultFile = result.file as string;
       const via = result.via as string;
-      // For dependencies the importer is `via`; for dependents the importer is `resultFile`.
       const importerFile =
         query.operation === 'dependencies' ? via : resultFile;
       const importedFile =
@@ -515,36 +393,4 @@ export async function analyzeTopology(
     },
     'Continue reachability classifications.'
   );
-}
-
-function graphEdges(
-  built: WalkResult
-): Map<string, { from: string; to: string; edgeKind: string }> {
-  const edges = new Map<
-    string,
-    { from: string; to: string; edgeKind: string }
-  >();
-  for (const [from, node] of built.fileGraph) {
-    for (const to of node.importsFiles) {
-      const kinds =
-        node.edgeKinds.get(to) ?? new Set(['static-import' as const]);
-      for (const edgeKind of kinds)
-        edges.set(`${from}\0${edgeKind}\0${to}`, { from, to, edgeKind });
-    }
-  }
-  return edges;
-}
-
-function cycleKeys(built: WalkResult): Map<string, string[]> {
-  const cycles = new Map<string, string[]>();
-  for (const component of findStronglyConnectedComponents(built.fileGraph)) {
-    const files = [...component.files].sort();
-    if (
-      files.length > 1 ||
-      built.fileGraph.get(files[0] ?? '')?.importsFiles.has(files[0] ?? '')
-    ) {
-      cycles.set(files.join('\0'), files);
-    }
-  }
-  return cycles;
 }

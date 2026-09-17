@@ -261,7 +261,7 @@ pub async fn execute(
         "hover" => json!({
             "type": query.operation,
             "uri": query.uri,
-            "lsp": { "serverAvailable": true, "source": "lsp", "provider": "hoverProvider" },
+            "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
             "payload": { "kind": "hover", "hover": client.get_hover(path.clone(), line, character).await.map_err(|error| error.to_string())? }
         }),
         "typeDefinition" => locations(
@@ -514,7 +514,11 @@ fn attach_provider_context(
         if let Some(provider) = provider_for_operation(&query.operation) {
             lsp.insert("provider".into(), json!(provider));
         }
-        lsp.insert("source".into(), json!("lsp"));
+        if anchored {
+            lsp.remove("source");
+        } else {
+            lsp.insert("source".into(), json!("lsp"));
+        }
         lsp.insert("receipt".into(), resolved_server_receipt(config, client));
     }
     if anchored {
@@ -1356,7 +1360,7 @@ fn failure(query: &LspSearchQuery, code: &str, message: &str, server_available: 
         "error": message,
         "type": query.operation,
         "uri": query.uri,
-        "lsp": { "serverAvailable": server_available, "source": "lsp" },
+        "lsp": { "serverAvailable": server_available },
         "hints": [
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
         ]
@@ -1370,7 +1374,7 @@ fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available:
         "status": "empty",
         "type": query.operation,
         "uri": query.uri,
-        "lsp": { "serverAvailable": server_available, "source": "lsp" },
+        "lsp": { "serverAvailable": server_available },
         "payload": { "kind": "empty", "category": category, "reason": reason },
         "hints": [
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
@@ -1613,7 +1617,13 @@ mod tests {
         let envelope = super::items_payload(&query, "documentSymbols", raw);
         assert_eq!(envelope["lsp"]["source"], "lsp");
         assert_eq!(envelope["payload"]["kind"], "documentSymbols");
-        assert_eq!(envelope["payload"]["symbols"].as_array().expect("symbols should be an array").len(), 2);
+        assert_eq!(
+            envelope["payload"]["symbols"]
+                .as_array()
+                .expect("symbols should be an array")
+                .len(),
+            2
+        );
         assert_eq!(envelope["payload"]["symbols"][0]["kind"], "class");
         assert_eq!(envelope["payload"]["symbols"][0]["line"], 3);
         assert_eq!(envelope["payload"]["symbols"][1]["kind"], "method");
@@ -1670,7 +1680,13 @@ mod tests {
         assert_eq!(receipt["argv"], serde_json::json!(["--stdio"]));
         assert_eq!(receipt["source"], "path");
         assert_eq!(receipt["workspaceRoot"], "/repo");
-        assert_eq!(receipt["capabilities"].as_object().expect("capabilities should be an object").len(), 10);
+        assert_eq!(
+            receipt["capabilities"]
+                .as_object()
+                .expect("capabilities should be an object")
+                .len(),
+            10
+        );
         assert_eq!(receipt["capabilities"]["definitionProvider"], false);
         assert!(receipt.get("identity").is_none());
         assert!(

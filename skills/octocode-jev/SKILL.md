@@ -23,7 +23,7 @@ Flow: `FRAME → PREPARE → EVALUATE → VERIFY → APPLY`.
 
 ## Research and logical crossroads
 
-When a supplied evidence set admits competing interpretations, load `references/research.md` to choose a bounded check, build the packet and resolve disagreement. Adapt `assets/research-request.json` for the two-question contract. Use Octocode to acquire evidence; if its tools are unavailable, use already supplied attributable evidence or report the gap—Jev cannot fill it.
+For a research crossroads or an evaluation of Jev's benefit, first classify the supplied evidence with [crossroads routing](references/routing.md), then load `references/research.md` to build the bounded packet and resolve disagreement. Adapt `assets/research-request.json` for the two-question contract. Use Octocode to acquire evidence; if its tools are unavailable, use already supplied attributable evidence or report the gap—Jev cannot fill it.
 
 Useful moments: before asserting a contested conclusion, when two explanations remain plausible, when a plan rests on an uncertain premise, or when a new observation contradicts the current model. Ask Jev to test the scoped conclusion against its strongest supplied counterclaim and both evidence sets. Ask what evidence distinguishes the alternatives; do not ask Jev to rubber-stamp the host's preferred answer. A second model call is not an independent source.
 

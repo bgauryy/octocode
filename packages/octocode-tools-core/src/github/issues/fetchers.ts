@@ -72,9 +72,7 @@ export async function fetchIssueByNumber(
   const contentPagination: IssueRow['contentPagination'] = {};
 
   if (wantBody) {
-    const rawBody = sanitizeContent(
-      response.data.body ?? ''
-    ).content;
+    const rawBody = sanitizeContent(response.data.body ?? '').content;
     const windowed = windowText(rawBody, params.charOffset, params.charLength);
     row.body = windowed.text;
     if (windowed.pagination) contentPagination.body = windowed.pagination;

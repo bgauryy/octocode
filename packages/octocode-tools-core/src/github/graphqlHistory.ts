@@ -89,13 +89,13 @@ export async function fetchGraphqlPullRequestCollections(
   octokit: InstanceType<typeof OctokitWithThrottling>,
   params: GitHubPullRequestsSearchParams
 ): Promise<GraphqlPrCollections | null> {
-  let graphqlEnabled = true;
+  let graphqlEnabled: boolean;
   try {
     graphqlEnabled = getConfigSync().github.graphqlEnabled !== false;
   } catch {
     graphqlEnabled = true;
   }
-  let credentialHost = 'github.com';
+  let credentialHost: string;
   try {
     const api = getConfigSync().github.apiUrl || 'https://api.github.com';
     const host = new URL(api).host;

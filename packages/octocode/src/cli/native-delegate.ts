@@ -35,9 +35,7 @@ import { existsSync } from 'node:fs';
  * `status --sync`, which native now supports at byte parity, so `status`
  * delegates freely.
  */
-export const TS_ONLY_COMMANDS: ReadonlySet<string> = new Set([
-  'skill',
-]);
+export const TS_ONLY_COMMANDS: ReadonlySet<string> = new Set(['skill']);
 
 /**
  * Resolve the native `octocode` binary (or its platform-selecting launcher),

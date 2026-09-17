@@ -40,12 +40,7 @@ const REMOTE_DIRECT = {
 
 type RuntimeToolAttachment = Omit<
   ToolConfig,
-  | 'name'
-  | 'title'
-  | 'description'
-  | 'outputSchema'
-  | 'annotations'
-  | 'direct'
+  'name' | 'title' | 'description' | 'outputSchema' | 'annotations' | 'direct'
 > & {
   direct: Omit<ToolDirectExecutionConfig, 'schema' | 'inputSchema'>;
 };
