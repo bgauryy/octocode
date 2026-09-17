@@ -4,11 +4,8 @@
 // The native Rust runtime (packages/octocode-native, loaded as a NAPI addon and
 // bridged in ./index.mjs) is strictly OPT-IN and only activates when a working
 // addon can be resolved. A blunt default-flip is deliberately NOT done here:
-//   - the native addon is not yet shipped by the platform packages (they carry
-//     the standalone CLI binary, not the `.node` addon), so the only addon
-//     source today is an explicit OCTOCODE_NATIVE_BINDING path; and
 //   - native/tools-core parity must first be proven by the differential harness
-//     (tests/native/response-pagination.mjs).
+//     under tests/native/parity.
 // Until both hold, the default stays tools-core and native selection always
 // falls back safely on any failure.
 import { createRequire } from 'node:module';
@@ -20,21 +17,28 @@ export type RuntimeKind = 'native' | 'tools-core';
  * none is available. A candidate is only accepted when it can be required and
  * exports the `NativeRuntime` class the bridge depends on.
  *
- * Resolution order (extend as platform packages start shipping the addon):
- *   1. explicit `OCTOCODE_NATIVE_BINDING` path.
+ * Resolution order: explicit binding, then the installed platform loader.
  */
 export function resolveNativeAddon(
   env: NodeJS.ProcessEnv = process.env
 ): string | null {
-  const explicit = env.OCTOCODE_NATIVE_BINDING;
-  if (!explicit) return null;
+  const require = createRequire(import.meta.url);
+  let installed: string | undefined;
   try {
-    const require = createRequire(import.meta.url);
-    const binding = require(explicit) as { NativeRuntime?: unknown };
-    return typeof binding.NativeRuntime === 'function' ? explicit : null;
+    installed = require.resolve('@octocodeai/octocode-native/native.cjs');
   } catch {
-    return null;
+    installed = undefined;
   }
+  for (const candidate of [env.OCTOCODE_NATIVE_BINDING, installed]) {
+    if (!candidate) continue;
+    try {
+      const binding = require(candidate) as { NativeRuntime?: unknown };
+      if (typeof binding.NativeRuntime === 'function') return candidate;
+    } catch {
+      // Try the next source.
+    }
+  }
+  return null;
 }
 
 /**

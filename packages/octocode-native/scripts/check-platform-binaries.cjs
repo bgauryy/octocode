@@ -23,7 +23,7 @@ const PLATFORMS = [
 let allOk = true
 
 for (const { dir, binaries } of PLATFORMS) {
-  for (const name of binaries) {
+  for (const name of [...binaries, `octocode-native.${dir}.node`]) {
     const p = join(root, 'npm', dir, name)
     try {
       const { size } = statSync(p)

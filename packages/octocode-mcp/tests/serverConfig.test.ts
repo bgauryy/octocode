@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { allowExpectedStderrWarning } from './warningPolicy.js';
 import {
   initialize,
@@ -80,12 +83,18 @@ function mockTokenResolution(
 
 describe('ServerConfig - Simplified Version', () => {
   const originalEnv = process.env;
+  const originalCwd = process.cwd();
+  let isolatedRoot: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
     cleanup();
 
+    isolatedRoot = mkdtempSync(join(tmpdir(), 'octocode-mcp-config-'));
+    process.chdir(isolatedRoot);
     process.env = { ...originalEnv };
+    process.env.OCTOCODE_HOME = join(isolatedRoot, 'home');
+    mkdirSync(process.env.OCTOCODE_HOME);
     delete process.env.GITHUB_TOKEN;
     delete process.env.GH_TOKEN;
     delete process.env.Authorization;
@@ -105,9 +114,11 @@ describe('ServerConfig - Simplified Version', () => {
   });
 
   afterEach(() => {
+    process.chdir(originalCwd);
     process.env = originalEnv;
     cleanup();
     _resetTokenResolvers();
+    rmSync(isolatedRoot, { recursive: true, force: true });
   });
 
   describe('Configuration Initialization', () => {

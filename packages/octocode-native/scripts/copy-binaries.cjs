@@ -49,4 +49,13 @@ for (const name of ['octocode', 'octocode-regex-worker']) {
   console.log(`  ✔ ${name}${ext}  →  npm/${platform}/${name}${ext}`)
 }
 
+const libraryName = isWindows
+  ? 'octocode_native.dll'
+  : platform.startsWith('darwin')
+    ? 'liboctocode_native.dylib'
+    : 'liboctocode_native.so'
+const addonName = `octocode-native.${platform}.node`
+copyFileSync(join(srcDir, libraryName), join(destDir, addonName))
+console.log(`  ✔ ${addonName}  →  npm/${platform}/${addonName}`)
+
 console.log(`\nCopied binaries for ${platform} (${triple})`)

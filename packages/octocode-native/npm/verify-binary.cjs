@@ -14,12 +14,14 @@ const { statSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } = require('fs'
 const { join } = require('path')
 const { tmpdir } = require('os')
 const { spawnSync } = require('child_process')
+const { getPlatformSuffix } = require('../bin/platform.cjs')
 
 const cwd = process.cwd()
 const pkg = require(join(cwd, 'package.json'))
 const isWindows = pkg.os && pkg.os.includes('win32')
 const ext = isWindows ? '.exe' : ''
-const binaries = [`octocode${ext}`, `octocode-regex-worker${ext}`]
+const packageSuffix = pkg.name.slice('@octocodeai/octocode-native-'.length)
+const binaries = [`octocode${ext}`, `octocode-regex-worker${ext}`, `octocode-native.${packageSuffix}.node`]
 
 for (const name of binaries) {
   let size
@@ -41,12 +43,18 @@ for (const name of binaries) {
   console.log(`prepublishOnly: ${pkg.name} ${name} (${size} bytes) \u2713`)
 }
 
-const nativePlatform = pkg.os?.includes(process.platform) && pkg.cpu?.includes(process.arch)
+const nativePlatform = getPlatformSuffix() === packageSuffix
 if (!nativePlatform) {
   console.log(
     `prepublishOnly: ${pkg.name} executable smoke test skipped on ${process.platform}-${process.arch}`
   )
   process.exit(0)
+}
+
+const addon = require(join(cwd, `octocode-native.${packageSuffix}.node`))
+if (typeof addon.NativeRuntime !== 'function') {
+  console.error(`prepublishOnly: ${pkg.name} native addon does not expose NativeRuntime`)
+  process.exit(1)
 }
 
 const octocode = join(cwd, `octocode${ext}`)

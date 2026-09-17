@@ -12,7 +12,8 @@
   "files": [
     "octocode",
     "octocode-regex-worker",
-    "README.md"
+    "README.md",
+    "octocode-native.linux-x64-gnu.node"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -25,5 +26,6 @@
   },
   "scripts": {
     "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"
-  }
+  },
+  "main": "./octocode-native.linux-x64-gnu.node"
 }

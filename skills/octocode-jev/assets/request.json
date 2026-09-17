@@ -1,0 +1,26 @@
+{
+  "model": "jev-latest",
+  "state": {
+    "message": "My account was charged twice for the same invoice. Can you help?"
+  },
+  "questions": {
+    "department": {
+      "type": "choice",
+      "instructions": "Select the team best suited to handle the customer's message.",
+      "criteria": {
+        "billing": "Charges, invoices, refunds or payment issues",
+        "technical": "Product bugs, setup or integration issues",
+        "other": "No listed team is a suitable match"
+      }
+    },
+    "urgency": {
+      "type": "score",
+      "instructions": "Rate only the urgency explicitly conveyed by the message.",
+      "criteria": ["No urgency expressed", "Time-sensitive but not immediate", "Immediate response explicitly needed"]
+    },
+    "duplicate_charge": {
+      "type": "noul",
+      "instructions": "Does the customer report being charged more than once for the same invoice?"
+    }
+  }
+}

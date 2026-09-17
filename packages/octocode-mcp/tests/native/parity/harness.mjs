@@ -128,7 +128,11 @@ function continuationState(result) {
   const rows = result.structuredContent?.results ?? [];
   for (const row of rows) {
     const data = row?.data;
-    if (data?.pagination?.hasMore !== true) continue;
+    const hasMore =
+      data?.pagination?.hasMore === true ||
+      data?.pagination?.nextOffset !== undefined ||
+      data?.nextOffset !== undefined;
+    if (!hasMore) continue;
     const continuation = Object.values(data.next ?? {}).find(
       value => value?.tool && value?.query
     );

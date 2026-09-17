@@ -10,40 +10,20 @@
 
 const { spawnSync } = require('child_process')
 const { join } = require('path')
-const { existsSync, statSync } = require('fs')
+const { existsSync } = require('fs')
+const { getPlatformSuffix } = require('./platform.cjs')
 
 // ── platform detection ────────────────────────────────────────────────────────
 
 const isWindows = process.platform === 'win32'
 
-/**
- * Detect musl vs gnu on Linux by checking for Alpine's marker file.
- * Falls back to gnu (glibc) on all other Linux distributions.
- */
-function linuxLibc() {
-  try {
-    statSync('/etc/alpine-release')
-    return 'musl'
-  } catch {
-    return 'gnu'
-  }
-}
-
-const PLATFORM_MAP = {
-  'darwin-arm64':  'darwin-arm64',
-  'darwin-x64':    'darwin-x64',
-  'linux-arm64':   `linux-arm64-${linuxLibc()}`,
-  'linux-x64':     `linux-x64-${linuxLibc()}`,
-  'win32-x64':     'win32-x64-msvc',
-}
-
 const key = `${process.platform}-${process.arch}`
-const platformSuffix = PLATFORM_MAP[key]
+const platformSuffix = getPlatformSuffix()
 
 if (!platformSuffix) {
   console.error(
     `octocode: unsupported platform '${key}'.\n` +
-    `Supported: ${Object.keys(PLATFORM_MAP).join(', ')}`
+    'Supported: darwin arm64/x64, Linux arm64 GNU, Linux x64 GNU/musl, Windows x64'
   )
   process.exit(1)
 }

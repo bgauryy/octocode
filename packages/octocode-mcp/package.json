@@ -128,5 +128,8 @@
     "release": "node ../../scripts/release.mjs --target mcp"
   },
   "type": "module",
-  "types": "dist/public.d.ts"
+  "types": "dist/public.d.ts",
+  "optionalDependencies": {
+    "@octocodeai/octocode-native": "0.1.0"
+  }
 }

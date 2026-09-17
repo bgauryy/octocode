@@ -1,0 +1,16 @@
+{
+  "name": "octocode-jev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Research reasoning checks and typed Jev decisions with a minimal Rust client",
+  "type": "module",
+  "bin": { "octocode-jev": "scripts/jev.mjs" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test scripts/test.mjs scripts/research.test.mjs",
+    "jev": "node scripts/jev.mjs",
+    "research": "node scripts/research.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "files": ["SKILL.md", "README.md", "references", "assets", "scripts", "bin", "Cargo.toml", "Cargo.lock", "src"]
+}

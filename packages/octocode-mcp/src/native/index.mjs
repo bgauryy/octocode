@@ -4,14 +4,14 @@ import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
+import { getGrammarCapabilities } from '@octocodeai/octocode-tools-core';
 
 const require = createRequire(import.meta.url);
 
 export function loadNativeBinding(env = process.env) {
-  const bindingPath = env.OCTOCODE_NATIVE_BINDING;
-  if (!bindingPath) {
-    throw new Error('OCTOCODE_NATIVE_BINDING must identify the candidate addon');
-  }
+  const bindingPath = env.OCTOCODE_NATIVE_BINDING
+    ?? require.resolve('@octocodeai/octocode-native/native.cjs');
   const binding = require(bindingPath);
   if (typeof binding.NativeRuntime !== 'function') {
     throw new Error('The candidate addon does not export NativeRuntime');
@@ -38,7 +38,12 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
   };
   const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
-    instructions: catalog.mcpInstructions,
+    instructions: buildMcpInstructions(
+      availableTools.map(tool => tool.name),
+      availableTools.some(tool => tool.name === 'astSearch')
+        ? { grammarCapabilities: getGrammarCapabilities() }
+        : {},
+    ),
   });
 
   const definitions = new Map(
