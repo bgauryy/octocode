@@ -157,7 +157,10 @@ pub fn execute_symbols(
     let start = (page - 1) * size;
     let more = start + size < declarations.len();
     let incomplete = truncated || skipped > 0;
-    let mut out = json!({"operation":"symbols","path":super::display_name(&p.canonical),"snapshot":snapshot,"declarations":declarations.get(start..(start+size).min(declarations.len())).unwrap_or(&[]),"totalDeclarations":declarations.len(),"filesScanned":entries.len(),"filesSkipped":skipped,"diagnostics":diagnostics,"complete":!more&&!incomplete,"isPartial":more||incomplete,"pagination":{"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"hasMore":more}});
+    let mut out = json!({"operation":"symbols","path":super::display_name(&p.canonical),"snapshot":snapshot,"declarations":declarations.get(start..(start+size).min(declarations.len())).unwrap_or(&[]),"totalDeclarations":declarations.len(),"filesScanned":entries.len(),"filesSkipped":skipped,"diagnostics":diagnostics,"complete":!more&&!incomplete,"isPartial":more||incomplete});
+    if more || page > 1 {
+        out["pagination"] = json!({"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"hasMore":more});
+    }
     if incomplete {
         out["terminalLimit"] = json!(true)
     }

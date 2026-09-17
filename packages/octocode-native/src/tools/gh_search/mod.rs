@@ -234,8 +234,8 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
             let total = data.total_count.min(1000);
             let pages = total.div_ceil(per);
             let more = current < pages;
-            let repositories=data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"openIssuesCount":r.open_issues_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>();
-            let mut value = json!({"operation":"repositories","pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":data.total_count>total,"hasMore":more,"nextPage":more.then_some(current+1)},"repositories":repositories});
+            let repositories=data.items.into_iter().map(|r| { let (o,n)=r.full_name.split_once('/').unwrap_or(("",&r.name)); json!({"owner":o,"repo":n,"stars":r.stargazers_count,"forks":r.forks_count,"language":r.language,"license":r.license.and_then(|v|v.spdx_id),"description":r.description,"pushedAt":date(r.pushed_at),"createdAt":date(r.created_at),"updatedAt":date(r.updated_at),"topics":r.topics}) }).collect::<Vec<_>>();
+            let mut value = json!({"operation":"repositories","repositories":repositories,"pagination":{"currentPage":current,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":data.total_count>total,"hasMore":more,"nextPage":more.then_some(current+1)}});
             if !more && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut)
             {
                 page.remove("nextPage");
@@ -244,23 +244,6 @@ pub async fn execute<R: CredentialResolver, C: crate::providers::github::Conditi
                 && let Some(page) = value.get_mut("pagination").and_then(Value::as_object_mut)
             {
                 page.remove("totalMatchesCapped");
-            }
-            if let Some(top) = repositories.first()
-                && let (Some(owner), Some(repo)) = (
-                    top.get("owner").and_then(Value::as_str),
-                    top.get("repo").and_then(Value::as_str),
-                )
-            {
-                value["next"]["viewStructure"] = json!({
-                    "tool": "ghSearch",
-                    "query": {"operation":"tree","owner":owner,"repo":repo,"path":""},
-                    "confidence": "low"
-                });
-                value["next"]["searchCode"] = json!({
-                    "tool": "ghSearch",
-                    "query": {"operation":"code","owner":owner,"repo":repo},
-                    "confidence": "low"
-                });
             }
             add_next(&mut value, query, current, more, "repositories");
             apply_partial(

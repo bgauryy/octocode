@@ -54,18 +54,15 @@ pub async fn execute(
     .await?;
     let has_more = page.next_state.is_some();
     let mut data = json!({
-        "type": query.artifact_type,
         "artifacts": page.artifacts,
         "pagination": {
             "perPage": query.page_size.unwrap_or(page.artifacts.len()),
             "returned": page.artifacts.len(),
             "hasMore": has_more,
             "totalFound": page.total,
-        }
+        },
+        "type": query.artifact_type,
     });
-    if let Some(registry) = page.registry {
-        data["registry"] = json!(registry);
-    }
     if let Some(state) = page.next_state {
         let cursor = serde_json::to_string(&state).map_err(|_| {
             ArtifactError::new("provider_error", "Failed to encode pagination cursor.")

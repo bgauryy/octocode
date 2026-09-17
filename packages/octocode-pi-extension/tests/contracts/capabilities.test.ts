@@ -29,6 +29,28 @@ describe('worker capability contracts', () => {
     expect(() => createWorkerCapabilityGrant({ ...snapshot, nativeTools: ['agent'] }, { workerId: 'worker-1', selection: { nativeTools: ['agent'] } })).toThrow(/recursive/i);
   });
 
+  it('resolves a unique active skill name to its exact capability identity', () => {
+    const grant = createWorkerCapabilityGrant(snapshot, {
+      workerId: 'worker-1', selection: { nativeTools: ['skill'], skills: ['research'] },
+    });
+    expect(grant.skills).toEqual(['skill-research']);
+  });
+
+  it('fails closed when an active skill name is ambiguous', () => {
+    expect(() => createWorkerCapabilityGrant({
+      ...snapshot,
+      skills: [...snapshot.skills, { id: 'skill-research-copy', name: 'research', path: '/skills/research-copy', revision: 'two' }],
+    }, {
+      workerId: 'worker-1', selection: { nativeTools: ['skill'], skills: ['research'] },
+    })).toThrow(/ambiguous.*exact skill identity/i);
+  });
+
+  it('explains that activated MCP proxies must be granted through MCPTool', () => {
+    expect(() => createWorkerCapabilityGrant(snapshot, {
+      workerId: 'worker-1', selection: { nativeTools: ['mcp__octocode__localSearch__hash'] },
+    })).toThrow(/capabilities\.mcpTools.*MCPTool/i);
+  });
+
   it('keeps the canonical forbidden names and rejects case variants', () => {
     expect(FORBIDDEN_WORKER_TOOL_NAMES).toEqual([
       'agent', 'spawnAgent', 'spawnSubagent', 'callTool', 'callSkill', 'tool-smith', 'skill-smith',

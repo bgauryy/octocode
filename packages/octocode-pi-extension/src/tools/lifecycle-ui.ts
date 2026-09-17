@@ -10,6 +10,7 @@ import {
   executionUsage,
   record,
 } from './execution-presentation.js';
+import { getDynamicMcpProxyToolName } from './mcp-tool.js';
 
 /** Observe host facts once. Pi owns messages/results; semantic events reference them. */
 export function registerLifecycleUi(
@@ -40,7 +41,15 @@ export function registerLifecycleUi(
   pi.on('tool_execution_start', async (event, ctx) => {
     const store = runtimeStoreFor(ctx);
     if (!event.toolCallId || !store) return;
-    const tool = executionLabel(event.toolName || 'tool', 64);
+    // Resolve MCP proxy names (mcp__server__tool__hash) to their original tool
+    // name stored in the binding (e.g. "astSearch", "localFetch").  This lets
+    // the UI show "Search pattern /path" instead of the opaque proxy name, and
+    // allows executionToolTitle to apply its known-tool formatting rules.
+    const rawName = event.toolName || 'tool';
+    const resolvedName = rawName.startsWith('mcp__')
+      ? (getDynamicMcpProxyToolName(pi, rawName) ?? rawName)
+      : rawName;
+    const tool = executionLabel(resolvedName, 64);
     const input = calls.get(store) ?? new Map();
     calls.set(store, input);
     input.set(event.toolCallId, {

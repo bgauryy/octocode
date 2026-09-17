@@ -18,7 +18,7 @@ import { startReviewedPlan } from '../src/tools/planning/plan-command.js';
 import { setUnifiedPlanProjectorForTests } from '../src/tools/planning/plan-presentation.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { completeExternalPlanTask } from '@octocodeai/octocode-awareness/host';
-import { activePlanScope, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, setPlan, setPlanRfc, updatePlanCoordination } from '../src/tools/planning/plan-store.js';
+import { activePlanScope, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, setPlan, setPlanEntryAppender, setPlanRfc, updatePlanCoordination } from '../src/tools/planning/plan-store.js';
 import { acceptPlanReview, proposePlanReview } from '../src/tools/planning/plan-lifecycle.js';
 import { configureInteractionBrokerRoute, setInteractionStoreFactoryForTests, submitHostInteractionAnswer } from '../src/tools/interaction-broker.js';
 import { getCurrentPlanReadModel } from '../src/tools/plan-read-model.js';
@@ -38,8 +38,18 @@ function loadTool(): ToolDefinition {
 const ctx = { cwd: CWD } as unknown as PiContext;
 
 afterEach(() => {
+  setPlanEntryAppender(null);
   clearPlan(CWD);
   setUnifiedPlanProjectorForTests();
+});
+
+test('tool results surface authoritative persistence failures', async () => {
+  setPlanEntryAppender(() => { throw new Error('disk unavailable'); });
+  const result = await loadTool().execute('id', {
+    queries: [{ action: 'set', steps: ['memory-only step'] }],
+  }, undefined, undefined, ctx) as { content: Array<{ type: string; text?: string }>; details?: { persistenceWarning?: string } };
+  assert.match(result.content.map((part) => part.text ?? '').join('\n'), /will not survive session recovery/);
+  assert.equal(result.details?.persistenceWarning, 'disk unavailable');
 });
 
 // ─── Schema shape ────────────────────────────────────────────────────────────
@@ -980,26 +990,44 @@ test('set activates the first dependency-ready step rather than a blocked first 
 
 test('consequential proposals require an RFC unless an explicit justified override is supplied', async () => {
   const tool = loadTool();
+  const riskySteps = ['Migrate the public API schema without backward compatibility'];
   const result = await failedToolResult(tool.execute('id', {
     queries: [{
       reasoning: 'exercise inferred consequential review',
       action: 'propose',
-      steps: ['One', 'Two', 'Three', 'Four', 'Five'],
+      steps: riskySteps,
     }],
   }, undefined, undefined, ctx)) as { isError?: boolean; details?: { error?: string } };
   assert.equal(result.isError, true);
   assert.equal(result.details?.error, 'rfc-required');
 
+  const unjustified = await failedToolResult(tool.execute('id', {
+    queries: [{ action: 'propose', steps: riskySteps, consequential: false }],
+  }, undefined, undefined, ctx)) as { isError?: boolean; details?: { error?: string } };
+  assert.equal(unjustified.isError, true);
+  assert.equal(unjustified.details?.error, 'override-reason-required');
+
   const overridden = await tool.execute('id', {
     queries: [{
       reasoning: 'record the explicit local-only exception',
       action: 'propose',
-      steps: ['One', 'Two', 'Three', 'Four', 'Five'],
+      steps: riskySteps,
       consequential: false,
-      reason: 'The steps are independent local test edits with no public or persistent contract change.',
+      reason: 'The fixture uses no persistent data or published contract despite the wording.',
     }],
   }, undefined, undefined, ctx) as { isError?: boolean };
   assert.notEqual(overridden.isError, true);
+});
+
+test('step count and benign cleanup terms do not force an RFC', async () => {
+  const tool = loadTool();
+  const result = await tool.execute('id', {
+    queries: [{
+      action: 'propose',
+      steps: ['Delete stale test fixture', 'Rename helper', 'Update imports', 'Run tests', 'Document result'],
+    }],
+  }, undefined, undefined, ctx) as { isError?: boolean };
+  assert.notEqual(result.isError, true);
 });
 
 test('proposal validation failures settle activity instead of leaving Creating plan stuck', async () => {

@@ -37,6 +37,16 @@ async function connect(server) {
   return client;
 }
 
+function withoutOpaqueCursors(value) {
+  if (Array.isArray(value)) return value.map(withoutOpaqueCursors);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'cursor')
+      .map(([key, nested]) => [key, withoutOpaqueCursors(nested)]),
+  );
+}
+
 async function collect(client) {
   let args = {
     queries: [{ path: source, fullContent: true, goal: 'page', reasoning: 'parity' }],
@@ -76,7 +86,7 @@ try {
     openWorldHint: false,
   });
   const [expected, actual] = await Promise.all([collect(reference), collect(native)]);
-  assert.deepEqual(actual, expected);
+  assert.deepEqual(withoutOpaqueCursors(actual), withoutOpaqueCursors(expected));
 
   const first = actual[0].structuredContent.responsePagination;
   const stale = await native.callTool({

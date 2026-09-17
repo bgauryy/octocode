@@ -27,6 +27,14 @@ export interface SessionScopedState {
   /** Exact previously owned block, used to replace our projection on host echo. */
   managedPromptAddendum: string | undefined;
   capabilityRevision: string | undefined;
+  /**
+   * The capability revision that was last delivered to the model via the
+   * per-turn contextMessage. Tracked separately so the system prompt bytes
+   * remain frozen (no volatile SHA-256 embedded in the cacheable prefix) while
+   * the model still receives the current revision on every turn through the
+   * non-cached turn context.
+   */
+  deliveredCapabilityRevision: string | undefined;
   workerGrantSignature: string | undefined;
   announcedImports: boolean;
   /** Signature of the last plan projection delivered through attributed turn context. */
@@ -39,6 +47,17 @@ export interface SessionScopedState {
   latestAvailableSkills: DiscoveredSkill[] | undefined;
   /** Skill list supplied by the host with the turn's system prompt options. */
   latestPiSkills: SkillInfo[] | undefined;
+  /**
+   * Per-session cache for the rendered `<agents_protocol>` block.
+   * `discoverAgentInstructionFiles` computes a content-hash revision for every
+   * instruction file it discovers.  When those revisions are unchanged the
+   * rendered string is identical to the previous turn, so we can skip
+   * re-allocating it and avoid unnecessary `collectPromptContext` string churn.
+   *
+   * The revision key is the NUL-joined list of all file revisions (plus a
+   * diagnostic count suffix so error changes are also captured).
+   */
+  agentsProtocolCache: { revisionKey: string; rendered: string } | undefined;
 }
 
 export function freshSessionScopedState(): SessionScopedState {
@@ -47,6 +66,7 @@ export function freshSessionScopedState(): SessionScopedState {
     frozenSystemPrompt: undefined,
     managedPromptAddendum: undefined,
     capabilityRevision: undefined,
+    deliveredCapabilityRevision: undefined,
     workerGrantSignature: undefined,
     announcedImports: false,
     deliveredPlanSignature: undefined,
@@ -55,5 +75,6 @@ export function freshSessionScopedState(): SessionScopedState {
     sessionArtifactPathsContext: '',
     latestAvailableSkills: undefined,
     latestPiSkills: undefined,
+    agentsProtocolCache: undefined,
   };
 }

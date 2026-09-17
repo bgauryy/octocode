@@ -66,11 +66,16 @@ describe('task-specific worker runtime', () => {
     }, snapshot)).toThrow(/MCP grants require the native tool "MCPTool"/i);
   });
 
-  it('accepts exact skill identities and keeps binding credentials out of public records', () => {
+  it('accepts exact skill identities and unique active names while keeping credentials private', () => {
     const child = bindSpawnedWorkerCapabilities('one', {
       resourceMode: 'octocode', tools: ['skill'], capabilities: { skills: ['finance-id'] },
     });
     expect(child.params.skills).toEqual(['/skills/finance/SKILL.md']);
+    const namedChild = bindSpawnedWorkerCapabilities('named', {
+      resourceMode: 'octocode', tools: ['skill'], capabilities: { skills: ['finance'] },
+    });
+    expect(namedChild.params.skills).toEqual(['/skills/finance/SKILL.md']);
+    expect(namedChild.grant?.skills).toEqual(['finance-id']);
     const binding = JSON.parse(child.env[WORKER_CAPABILITY_BINDING_ENV]!);
     expect(binding.workerId).toBe('one');
     expect(JSON.stringify(inspectWorkerCapabilityGrants())).not.toContain(binding.token);

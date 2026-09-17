@@ -1177,7 +1177,8 @@ test('public direct palette is exactly 15 queries-only tools with optional bound
       `${name} advertises only execution modes its implementation supports`,
     );
     const queries = schema.properties?.['queries'] as { maxItems?: number };
-    assert.equal(queries.maxItems, 100, `${name} caps batches at 100 queries`);
+    const expectedBatchLimit = name === 'plan' ? 25 : 100;
+    assert.equal(queries.maxItems, expectedBatchLimit, `${name} caps batches at ${expectedBatchLimit} queries`);
     const branches = querySchemaBranches(tools.get(name)!);
     assert.ok(branches.length > 0, `${name} exposes at least one query shape`);
     for (const branch of branches) {

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { Server } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
 
 const require = createRequire(import.meta.url);
 
@@ -16,18 +17,6 @@ export function loadNativeBinding(env = process.env) {
     throw new Error('The candidate addon does not export NativeRuntime');
   }
   return binding;
-}
-
-function toolDescriptor(tool) {
-  const descriptor = {
-    name: tool.name,
-    title: tool.title,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-  };
-  if (tool.outputSchema) descriptor.outputSchema = tool.outputSchema;
-  if (tool.annotations) descriptor.annotations = tool.annotations;
-  return descriptor;
 }
 
 export function createNativeMcp({ env = process.env, binding } = {}) {
@@ -47,31 +36,43 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
     title: 'Octocode MCP',
     version: '0.1.0',
   };
-  const server = new Server(implementation, {
+  const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
     instructions: catalog.mcpInstructions,
   });
 
-  server.setRequestHandler('tools/list', () => ({
-    tools: availableTools.map(toolDescriptor),
-  }));
-
-  server.setRequestHandler('tools/call', async (request, context = {}) => {
-    const signal = context.signal ?? context.mcpReq?.signal;
-    const requestId = String(context.requestId ?? context.mcpReq?.id ?? randomUUID());
-    signal?.throwIfAborted();
-    const cancel = () => runtime.cancel(requestId);
-    signal?.addEventListener('abort', cancel, { once: true });
-    try {
-      return await runtime.executeMcp(
-        requestId,
-        request.params.name,
-        request.params.arguments ?? {},
-      );
-    } finally {
-      signal?.removeEventListener('abort', cancel);
+  const definitions = new Map(
+    DIRECT_TOOL_DEFINITIONS.map(definition => [definition.name, definition]),
+  );
+  for (const tool of availableTools) {
+    const definition = definitions.get(tool.name);
+    if (!definition) {
+      void runtime.close();
+      throw new Error(`Native catalog tool has no octocode-core definition: ${tool.name}`);
     }
-  });
+    server.registerTool(
+      definition.name,
+      {
+        title: definition.title,
+        description: definition.description,
+        inputSchema: definition.inputSchema,
+        outputSchema: definition.outputSchema,
+        annotations: definition.annotations,
+      },
+      async (args, context = {}) => {
+        const signal = context.signal;
+        const requestId = String(context.requestId ?? randomUUID());
+        signal?.throwIfAborted();
+        const cancel = () => runtime.cancel(requestId);
+        signal?.addEventListener('abort', cancel, { once: true });
+        try {
+          return await runtime.executeMcp(requestId, definition.name, args);
+        } finally {
+          signal?.removeEventListener('abort', cancel);
+        }
+      },
+    );
+  }
 
   let closing;
   const close = () => closing ??= (async () => {

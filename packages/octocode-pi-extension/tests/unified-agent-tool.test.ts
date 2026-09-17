@@ -28,7 +28,6 @@ import {
   enterPlanMode,
   evaluateToolCapability,
   getToolEffect,
-  planModeToolGate,
 } from '../src/tools/plan-mode.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -387,6 +386,9 @@ describe('schema', () => {
     expect(Object.keys(schema.definitions?.['customWorkerCapabilities']?.properties ?? {}).sort()).toEqual(['mcpTools', 'skills']);
     expect(schema.definitions?.['customWorkerCapabilities']?.additionalProperties).toBe(false);
     expect(Object.keys(schema.definitions?.['workerCapabilities']?.properties ?? {}).sort()).toEqual(['mcpTools', 'nativeTools', 'skills']);
+    const customProperties = schema.definitions?.['customWorkerCapabilities']?.properties as Record<string, { description?: string }>;
+    expect(customProperties['skills']?.description).toMatch(/active parent skill name.*load.*parent first.*requires.*"skill".*tools\[\]/i);
+    expect(customProperties['mcpTools']?.description).toMatch(/requires.*"MCPTool".*tools\[\].*proxy/i);
 
     const validator = compileMcpSchemaValidator(tool.parameters);
     expect(validator.validate(batch({
@@ -681,18 +683,16 @@ describe('plan Start enforcement', () => {
     },
   );
 
-  it('uses the same resolved effect for the synchronous gate and capability receipt', () => {
+  it('uses the resolved effect in capability receipts', () => {
     const ctx = planContext('receipt');
     enterPlanMode(ctx as never);
     const lifecycle = batch({ type: 'inspect' });
     const spawn = batch({ type: 'spawn', profile: 'researcher', task: 'work' });
 
     expect(getToolEffect('agent', lifecycle)).toBe('coordination-write');
-    expect(planModeToolGate('agent', ctx as never, lifecycle)).toBeUndefined();
     expect(evaluateToolCapability({ toolName: 'agent', toolInput: lifecycle, phase: 'researching' }).effectiveDecision).toBe('allow');
 
     expect(getToolEffect('agent', spawn)).toBe('external-effect');
-    expect(planModeToolGate('agent', ctx as never, spawn)).toBeUndefined();
     expect(evaluateToolCapability({ toolName: 'agent', toolInput: spawn, phase: 'researching' }).effectiveDecision).toBe('allow');
   });
 });

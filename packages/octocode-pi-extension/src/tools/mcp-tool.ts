@@ -211,6 +211,21 @@ export function isDynamicMcpProxyTool(pi: PiInstance, name: string): boolean {
   return dynamicMcpProxyStates.get(pi)?.bindingsByName.has(name) ?? false;
 }
 
+/**
+ * Returns the original MCP tool name (e.g. "astSearch") for a dynamic proxy
+ * tool name (e.g. "mcp__octocode__astsearch__318a18f8a8a3").
+ *
+ * Proxy names embed a schema-digest hash suffix that is opaque and unhelpful
+ * in the UI.  The binding stores the exact server-reported name so the UI
+ * can display "astSearch" / "localFetch" instead of the mangled proxy name.
+ *
+ * Returns undefined when the name is not a registered proxy (caller falls
+ * back to the raw name).
+ */
+export function getDynamicMcpProxyToolName(pi: PiInstance, proxyName: string): string | undefined {
+  return dynamicMcpProxyStates.get(pi)?.bindingsByName.get(proxyName)?.tool;
+}
+
 export function getGrantedDynamicMcpProxyTools(
   pi: PiInstance,
   granted: ReadonlyArray<{ server: string; tool: string; inputSchema?: unknown }>,

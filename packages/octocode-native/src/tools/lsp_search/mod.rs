@@ -5,8 +5,10 @@ use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::config::{LspDiscoveryOptions, default_server_for_file_with_options};
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::resolver::resolve_position;
-use octocode_engine::lsp::types::JsFuzzyPosition;
-use octocode_engine::lsp::uri::uri_to_path as engine_uri_to_path;
+use octocode_engine::lsp::types::{JsFuzzyPosition, JsLanguageServerConfig};
+use octocode_engine::lsp::uri::{
+    path_to_uri as engine_path_to_uri, uri_to_path as engine_uri_to_path,
+};
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -99,6 +101,7 @@ pub async fn execute(
             .to_string_lossy()
             .into_owned()
     };
+    let canonical_uri = engine_path_to_uri(&path).map_err(|error| error.to_string())?;
     let workspace_candidate = query
         .workspace_root
         .clone()
@@ -147,6 +150,7 @@ pub async fn execute(
         ));
     };
     apply_rust_context(&mut config, &query)?;
+    let receipt_config = config.clone();
     let client = match pool.acquire(config).await {
         Ok(Some(client)) => client,
         Ok(None) => {
@@ -211,7 +215,8 @@ pub async fn execute(
             return Ok(failure(&query, "lsp.anchorUnresolved", &error, true));
         }
     };
-    let result = match query.operation.as_str() {
+    let resolved_symbol = present_resolved_symbol(&query, &path, &canonical_uri);
+    let mut result = match query.operation.as_str() {
         "definition" => locations(
             &query,
             paths,
@@ -266,7 +271,7 @@ pub async fn execute(
         ),
         "documentSymbols" => items_payload(
             &query,
-            "symbols",
+            "documentSymbols",
             client
                 .get_document_symbols(path.clone())
                 .await
@@ -312,6 +317,14 @@ pub async fn execute(
             true,
         ),
     };
+    attach_provider_context(
+        &mut result,
+        &query,
+        &canonical_uri,
+        resolved_symbol,
+        &receipt_config,
+        &client,
+    );
     Ok(with_next(&query, result))
 }
 
@@ -398,6 +411,192 @@ fn resolve_anchor(query: &LspSearchQuery, path: &str) -> Result<(u32, u32), Stri
         .ok_or_else(|| "lspSearch requires position or symbolName+lineHint".to_owned())
 }
 
+fn present_resolved_symbol(
+    query: &LspSearchQuery,
+    path: &str,
+    canonical_uri: &str,
+) -> Option<Value> {
+    if matches!(
+        query.operation.as_str(),
+        "documentSymbols" | "workspaceSymbol" | "diagnostic"
+    ) {
+        return None;
+    }
+    if let Some(name) = query.symbol_name.as_deref() {
+        let resolved = resolve_position(
+            path.to_owned(),
+            JsFuzzyPosition {
+                symbol_name: name.to_owned(),
+                line_hint: query.line_hint,
+                order_hint: query.order_hint,
+            },
+        )
+        .ok()?;
+        let mut symbol = json!({
+            "name": name,
+            "position": resolved.position,
+            "uri": canonical_uri,
+            "foundAtLine": resolved.found_at_line
+        });
+        if let Some(order_hint) = query.order_hint {
+            symbol["orderHint"] = json!(order_hint);
+        }
+        if resolved.line_offset != 0 {
+            symbol["lineDeviation"] = json!(resolved.line_offset.unsigned_abs());
+        }
+        return Some(symbol);
+    }
+    query.position.as_ref().map(|position| {
+        json!({
+            "position": position,
+            "uri": canonical_uri,
+            "foundAtLine": position.line + 1
+        })
+    })
+}
+
+fn provider_for_operation(operation: &str) -> Option<&'static str> {
+    match operation {
+        "definition" => Some("definitionProvider"),
+        "references" => Some("referencesProvider"),
+        "hover" => Some("hoverProvider"),
+        "typeDefinition" => Some("typeDefinitionProvider"),
+        "implementation" => Some("implementationProvider"),
+        "documentSymbols" => Some("documentSymbolProvider"),
+        "workspaceSymbol" => Some("workspaceSymbolProvider"),
+        "diagnostic" => Some("diagnosticProvider"),
+        "callers" | "callees" | "callHierarchy" => Some("callHierarchyProvider"),
+        "supertypes" | "subtypes" => Some("typeHierarchyProvider"),
+        _ => None,
+    }
+}
+
+fn attach_provider_context(
+    value: &mut Value,
+    query: &LspSearchQuery,
+    canonical_uri: &str,
+    resolved_symbol: Option<Value>,
+    config: &JsLanguageServerConfig,
+    client: &NativeLspClient,
+) {
+    let Some(envelope) = value.as_object_mut() else {
+        return;
+    };
+    envelope.insert("uri".into(), json!(canonical_uri));
+    let anchored = !matches!(
+        query.operation.as_str(),
+        "documentSymbols" | "workspaceSymbol" | "diagnostic"
+    );
+    if let Some(resolved_symbol) = resolved_symbol {
+        envelope.insert("resolvedSymbol".into(), resolved_symbol);
+    }
+    let lsp = envelope
+        .entry("lsp")
+        .or_insert_with(|| json!({}))
+        .as_object_mut();
+    if let Some(lsp) = lsp {
+        lsp.insert("serverAvailable".into(), json!(true));
+        if let Some(provider) = provider_for_operation(&query.operation) {
+            lsp.insert("provider".into(), json!(provider));
+        }
+        if lsp.get("source").and_then(Value::as_str) == Some("native") {
+            lsp.remove("source");
+        }
+        lsp.insert("receipt".into(), resolved_server_receipt(config, client));
+    }
+    if anchored {
+        let mut ordered = serde_json::Map::new();
+        for key in ["type", "uri", "resolvedSymbol", "lsp"] {
+            if let Some(value) = envelope.shift_remove(key) {
+                ordered.insert(key.into(), value);
+            }
+        }
+        ordered.append(envelope);
+        ordered.insert("workspaceRoot".into(), json!(config.workspace_root));
+        *envelope = ordered;
+    }
+}
+
+fn resolved_server_receipt(config: &JsLanguageServerConfig, client: &NativeLspClient) -> Value {
+    use sha2::{Digest, Sha256};
+
+    const CAPABILITIES: [&str; 10] = [
+        "definitionProvider",
+        "typeDefinitionProvider",
+        "implementationProvider",
+        "referencesProvider",
+        "hoverProvider",
+        "callHierarchyProvider",
+        "typeHierarchyProvider",
+        "documentSymbolProvider",
+        "workspaceSymbolProvider",
+        "diagnosticProvider",
+    ];
+    let capabilities = CAPABILITIES
+        .into_iter()
+        .map(|name| {
+            (
+                name.to_owned(),
+                json!(client.has_capability(name.to_owned())),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    let workspace = Path::new(&config.workspace_root)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(&config.workspace_root).to_path_buf())
+        .to_string_lossy()
+        .into_owned();
+    let configuration = canonical_json(json!([
+        config
+            .initialization_options
+            .clone()
+            .unwrap_or_else(|| json!({})),
+        config.env.clone().unwrap_or_default()
+    ]));
+    let source = if config
+        .args
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .any(|argument| argument.contains("node_modules"))
+    {
+        "bundled"
+    } else {
+        "path"
+    };
+    let mut receipt = json!({
+        "command": config.command,
+        "source": source,
+        "workspaceRoot": config.workspace_root,
+        "workspaceFingerprint": hex::encode(Sha256::digest(workspace.as_bytes())),
+        "configurationFingerprint": hex::encode(Sha256::digest(
+            serde_json::to_vec(&configuration).unwrap_or_default()
+        )),
+        "capabilities": capabilities
+    });
+    if let Some(argv) = config.args.as_ref().filter(|argv| !argv.is_empty()) {
+        receipt["argv"] = json!(argv);
+    }
+    if let Some(readiness) = client.readiness() {
+        receipt["readiness"] = json!(readiness);
+    }
+    receipt
+}
+
+fn canonical_json(value: Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.into_iter().map(canonical_json).collect()),
+        Value::Object(values) => {
+            let sorted = values
+                .into_iter()
+                .map(|(key, value)| (key, canonical_json(value)))
+                .collect::<std::collections::BTreeMap<_, _>>();
+            Value::Object(sorted.into_iter().collect())
+        }
+        other => other,
+    }
+}
+
 fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
     if value
         .pointer("/pagination/hasMore")
@@ -415,7 +614,11 @@ fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
                         .unwrap_or(2)
                 ),
             );
-            if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) {
+            if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str).or_else(|| {
+                value
+                    .pointer("/pagination/snapshot")
+                    .and_then(Value::as_str)
+            }) {
                 object.insert("snapshot".into(), json!(snapshot));
             }
         }
@@ -555,9 +758,9 @@ fn locations(
             apply_context_lines(location, context_lines, paths);
         }
     }
-    if query.format.as_deref() == Some("compact") {
-        locations = locations.into_iter().map(compact_location).collect();
-    }
+    // The public structured contract is already compact: exact provider ranges
+    // plus one-based display ranges, without engine-only fields.
+    locations = locations.into_iter().map(compact_location).collect();
     if locations.is_empty() {
         return empty(
             query,
@@ -570,11 +773,12 @@ fn locations(
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query, snapshot);
     }
-    let (page, pagination) = paginate(
+    let (page, mut pagination) = paginate(
         &locations,
         query.page.unwrap_or(1),
         query.page_size.unwrap_or(40),
     );
+    pagination["snapshot"] = json!(snapshot);
     let mut payload = json!({ "kind": kind, "locations": page });
     if query.group_by_file == Some(true) {
         payload["byFile"] = group_by_file(
@@ -587,8 +791,7 @@ fn locations(
     json!({
         "type": query.operation,
         "uri": query.uri,
-        "snapshot": snapshot,
-        "lsp": { "serverAvailable": true, "source": "native", "provider": provider },
+        "lsp": { "serverAvailable": true, "provider": provider },
         "payload": payload,
         "pagination": pagination
     })
@@ -698,13 +901,51 @@ fn apply_context_lines(location: &mut Value, context_lines: u32, paths: &PathPol
 }
 
 fn compact_location(value: Value) -> Value {
-    json!({
-        "uri": value.get("uri"),
-        "path": value.get("uri").and_then(Value::as_str).map(uri_to_path),
-        "range": value.get("range"),
-        "line": value.pointer("/range/start/line"),
-        "character": value.pointer("/range/start/character")
-    })
+    let mut compact = serde_json::Map::new();
+    if let Some(uri) = value.get("uri").and_then(Value::as_str) {
+        compact.insert("uri".into(), json!(uri));
+    }
+    if let Some(range) = value.get("range") {
+        compact.insert("range".into(), range.clone());
+    }
+    if let Some(content) = value.get("content") {
+        compact.insert("content".into(), content.clone());
+    }
+    let display_range = value
+        .get("displayRange")
+        .or_else(|| value.get("display_range"))
+        .map(normalize_display_range)
+        .or_else(|| {
+            let start = value.pointer("/range/start/line")?.as_u64()?;
+            let end = value.pointer("/range/end/line")?.as_u64()?;
+            Some(json!({ "startLine": start + 1, "endLine": end + 1 }))
+        });
+    if let Some(display_range) = display_range {
+        compact.insert("displayRange".into(), display_range);
+    }
+    let is_definition = value
+        .get("isDefinition")
+        .or_else(|| value.get("is_definition"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if is_definition {
+        compact.insert("isDefinition".into(), json!(true));
+    }
+    Value::Object(compact)
+}
+
+fn normalize_display_range(value: &Value) -> Value {
+    let start = value
+        .get("startLine")
+        .or_else(|| value.get("start_line"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let end = value
+        .get("endLine")
+        .or_else(|| value.get("end_line"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    json!({ "startLine": start, "endLine": end })
 }
 
 fn group_by_file(locations: &[Value]) -> Value {
@@ -861,8 +1102,65 @@ fn snippet_identity(snippet: &octocode_engine::lsp::types::JsCodeSnippet) -> Str
 }
 
 fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
-    let items = as_array(&value);
-    if items.is_empty() {
+    let raw_items = as_array(&value);
+    if kind == "documentSymbols" {
+        let top_level_symbols = raw_items
+            .iter()
+            .filter(|item| {
+                item.as_object()
+                    .is_some_and(|object| object.contains_key("name"))
+            })
+            .count();
+        let mut symbols = Vec::new();
+        for item in &raw_items {
+            flatten_document_symbol(item, &mut symbols, None);
+        }
+        symbols.sort_by_key(|symbol| {
+            (
+                symbol.get("line").and_then(Value::as_u64).unwrap_or(0),
+                symbol.get("character").and_then(Value::as_u64).unwrap_or(0),
+            )
+        });
+        let snapshot = semantic_snapshot(query, kind, &symbols);
+        if snapshot_mismatch(query, &snapshot) {
+            return snapshot_changed(query, snapshot);
+        }
+        let (page, mut pagination) = paginate(
+            &symbols,
+            query.page.unwrap_or(1),
+            query.page_size.unwrap_or(40),
+        );
+        pagination["snapshot"] = json!(snapshot);
+        let mut kinds = serde_json::Map::new();
+        for symbol in &symbols {
+            let key = symbol
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_owned();
+            let count = kinds.get(&key).and_then(Value::as_u64).unwrap_or(0) + 1;
+            kinds.insert(key, json!(count));
+        }
+        return json!({
+            "type": "documentSymbols",
+            "uri": query.uri,
+            "lsp": {
+                "serverAvailable": true,
+                "provider": "documentSymbolProvider",
+                "source": "lsp"
+            },
+            "summary": {
+                "totalSymbols": symbols.len(),
+                "returnedSymbols": page.len(),
+                "topLevelSymbols": top_level_symbols,
+                "kinds": kinds
+            },
+            "payload": { "kind": "documentSymbols", "symbols": page },
+            "pagination": pagination
+        });
+    }
+
+    if raw_items.is_empty() {
         return empty(
             query,
             "noLocations",
@@ -870,23 +1168,104 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
             true,
         );
     }
-    let snapshot = semantic_snapshot(query, kind, &items);
+    let snapshot = semantic_snapshot(query, kind, &raw_items);
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query, snapshot);
     }
-    let (page, pagination) = paginate(
-        &items,
+    let (page, mut pagination) = paginate(
+        &raw_items,
         query.page.unwrap_or(1),
         query.page_size.unwrap_or(40),
     );
+    pagination["snapshot"] = json!(snapshot);
     json!({
         "type": query.operation,
         "uri": query.uri,
-        "snapshot": snapshot,
-        "lsp": { "serverAvailable": true, "source": "native" },
+        "lsp": { "serverAvailable": true },
         "payload": { "kind": kind, "items": page },
         "pagination": pagination
     })
+}
+
+fn flatten_document_symbol(value: &Value, output: &mut Vec<Value>, container_name: Option<&str>) {
+    let Some(symbol) = value.as_object() else {
+        return;
+    };
+    let kind = symbol_kind_name(symbol.get("kind"));
+    let range = symbol
+        .get("range")
+        .or_else(|| symbol.get("location")?.get("range"));
+    if let (Some(name), Some(range)) = (symbol.get("name").and_then(Value::as_str), range) {
+        let mut compact = json!({
+            "name": name,
+            "kind": kind,
+            "line": range.pointer("/start/line").and_then(Value::as_u64).unwrap_or(0) + 1,
+            "character": range.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
+            "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
+            "childCount": symbol.get("children").and_then(Value::as_array).map_or(0, Vec::len)
+        });
+        if let Some(container_name) = container_name {
+            compact["containerName"] = json!(container_name);
+        }
+        output.push(compact);
+    }
+    let structural = matches!(
+        kind.as_str(),
+        "file"
+            | "module"
+            | "namespace"
+            | "package"
+            | "class"
+            | "enum"
+            | "interface"
+            | "markdownHeading"
+            | "struct"
+    );
+    if structural && let Some(children) = symbol.get("children").and_then(Value::as_array) {
+        let parent = symbol
+            .get("name")
+            .and_then(Value::as_str)
+            .or(container_name);
+        for child in children {
+            flatten_document_symbol(child, output, parent);
+        }
+    }
+}
+
+fn symbol_kind_name(kind: Option<&Value>) -> String {
+    if let Some(kind) = kind.and_then(Value::as_str) {
+        return kind.to_owned();
+    }
+    match kind.and_then(Value::as_u64) {
+        Some(1) => "file",
+        Some(2) => "module",
+        Some(3) => "namespace",
+        Some(4) => "package",
+        Some(5) => "class",
+        Some(6) => "method",
+        Some(7) => "property",
+        Some(8) => "field",
+        Some(9) => "constructor",
+        Some(10) => "enum",
+        Some(11) => "interface",
+        Some(12) => "function",
+        Some(13) => "variable",
+        Some(14) => "constant",
+        Some(15) => "string",
+        Some(16) => "number",
+        Some(17) => "boolean",
+        Some(18) => "array",
+        Some(19) => "object",
+        Some(20) => "key",
+        Some(21) => "null",
+        Some(22) => "enumMember",
+        Some(23) => "struct",
+        Some(24) => "event",
+        Some(25) => "operator",
+        Some(26) => "typeParameter",
+        _ => "unknown",
+    }
+    .to_owned()
 }
 
 fn recovery_next(query: &LspSearchQuery) -> Value {
@@ -1142,6 +1521,123 @@ mod tests {
             Some("typeHierarchyProvider")
         );
         assert_eq!(super::required_capability("unknown"), None);
+    }
+
+    #[test]
+    fn document_symbols_use_the_canonical_flat_one_based_public_shape() {
+        let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+            "operation": "documentSymbols",
+            "uri": "file:///repo/src/lib.rs"
+        }))
+        .expect("document symbols query");
+        let raw = serde_json::json!([{
+            "name": "Greeter",
+            "kind": 5,
+            "range": {
+                "start": {"line": 2, "character": 0},
+                "end": {"line": 8, "character": 1}
+            },
+            "selectionRange": {
+                "start": {"line": 2, "character": 7},
+                "end": {"line": 2, "character": 14}
+            },
+            "children": [{
+                "name": "greet",
+                "kind": 6,
+                "range": {
+                    "start": {"line": 3, "character": 2},
+                    "end": {"line": 5, "character": 3}
+                },
+                "selectionRange": {
+                    "start": {"line": 3, "character": 5},
+                    "end": {"line": 3, "character": 10}
+                }
+            }]
+        }]);
+
+        let envelope = super::items_payload(&query, "documentSymbols", raw);
+        assert_eq!(envelope["lsp"]["source"], "lsp");
+        assert_eq!(envelope["payload"]["kind"], "documentSymbols");
+        assert_eq!(envelope["payload"]["symbols"].as_array().unwrap().len(), 2);
+        assert_eq!(envelope["payload"]["symbols"][0]["kind"], "class");
+        assert_eq!(envelope["payload"]["symbols"][0]["line"], 3);
+        assert_eq!(envelope["payload"]["symbols"][1]["kind"], "method");
+        assert_eq!(
+            envelope["summary"],
+            serde_json::json!({
+                "totalSymbols": 2,
+                "returnedSymbols": 2,
+                "topLevelSymbols": 1,
+                "kinds": {"class": 1, "method": 1}
+            })
+        );
+    }
+
+    #[test]
+    fn locations_are_compact_camel_case_and_one_based() {
+        let location = super::compact_location(serde_json::json!({
+            "uri": "file:///repo/src/lib.rs",
+            "range": {
+                "start": {"line": 5, "character": 3},
+                "end": {"line": 5, "character": 8}
+            },
+            "content": "pub fn greet() {}\n",
+            "symbol_kind": "function"
+        }));
+        assert_eq!(location["uri"], "file:///repo/src/lib.rs");
+        assert_eq!(location["range"]["start"]["line"], 5);
+        assert_eq!(
+            location["displayRange"],
+            serde_json::json!({
+                "startLine": 6,
+                "endLine": 6
+            })
+        );
+        assert!(location.get("symbolKind").is_none());
+        assert!(location.get("path").is_none());
+        assert!(location.get("line").is_none());
+    }
+
+    #[test]
+    fn provider_receipt_exposes_effective_invocation_and_omits_empty_optional_fields() {
+        let config = octocode_engine::lsp::types::JsLanguageServerConfig {
+            command: "rust-analyzer".into(),
+            args: Some(vec!["--stdio".into()]),
+            workspace_root: "/repo".into(),
+            language_id: Some("rust".into()),
+            initialization_options: None,
+            env: None,
+        };
+        let client = octocode_engine::lsp::client::NativeLspClient::new(config.clone());
+        let receipt = super::resolved_server_receipt(&config, &client);
+
+        assert_eq!(receipt["command"], "rust-analyzer");
+        assert_eq!(receipt["argv"], serde_json::json!(["--stdio"]));
+        assert_eq!(receipt["source"], "path");
+        assert_eq!(receipt["workspaceRoot"], "/repo");
+        assert_eq!(receipt["capabilities"].as_object().unwrap().len(), 10);
+        assert_eq!(receipt["capabilities"]["definitionProvider"], false);
+        assert!(receipt.get("identity").is_none());
+        assert!(
+            receipt["workspaceFingerprint"]
+                .as_str()
+                .is_some_and(|value| value.len() == 64)
+        );
+        assert!(
+            receipt["configurationFingerprint"]
+                .as_str()
+                .is_some_and(|value| value.len() == 64)
+        );
+        assert!(receipt.get("readiness").is_none());
+
+        let config_without_args = octocode_engine::lsp::types::JsLanguageServerConfig {
+            args: Some(Vec::new()),
+            ..config
+        };
+        let client =
+            octocode_engine::lsp::client::NativeLspClient::new(config_without_args.clone());
+        let receipt = super::resolved_server_receipt(&config_without_args, &client);
+        assert!(receipt.get("argv").is_none());
     }
 
     #[test]

@@ -291,18 +291,6 @@ export function evaluateToolCapability(input: {
   };
 }
 
-/** Plan phase is informational; execution safety remains owned by each tool and host approval gates. */
-export function planModeToolGate(
-  toolName: string | undefined,
-  ctx?: PiContext,
-  input?: Record<string, unknown>,
-): undefined {
-  void toolName;
-  void ctx;
-  void input;
-  return undefined;
-}
-
 export function clearPlanModePoliciesForTests(): void {
   policies.clear();
 }

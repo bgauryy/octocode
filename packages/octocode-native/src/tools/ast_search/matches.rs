@@ -212,10 +212,11 @@ pub fn execute_match(
         json!({"searchEngine":"structural","stats":{"totalStructuralMatches":total_matches}});
     if !groups.is_empty() {
         out["files"] = json!(selected);
-        out["pagination"] = json!({"currentPage":page,"totalPages":groups.len().div_ceil(size).max(1),"filesPerPage":size,"totalFiles":groups.len(),"hasMore":more});
+        out["pagination"] = json!({"currentPage":page,"totalPages":groups.len().div_ceil(size).max(1),"filesPerPage":size,"totalFiles":groups.len()});
         if q.result_view.as_deref() != Some("files") {
             out["pagination"]["totalMatches"] = json!(total_matches);
         }
+        out["pagination"]["hasMore"] = json!(more);
     }
     if !all_diagnostics.is_empty() {
         out["diagnostics"] = json!(all_diagnostics)
@@ -297,9 +298,9 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool) -> Value {
     let mut value = json!({
         "line":m.start_line,
         "endLine":m.end_line,
+        "value":text,
         "column":m.start_col,
-        "endColumn":m.end_col,
-        "value":text
+        "endColumn":m.end_col
     });
     if !metavars.is_empty() {
         value["metavars"] = Value::Object(metavars);

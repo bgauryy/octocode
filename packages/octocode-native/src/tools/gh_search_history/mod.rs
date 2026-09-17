@@ -305,11 +305,14 @@ pub async fn execute<R: CredentialResolver>(
         value["providerPage"] = json!(result.provider_page);
     }
     if matches!(query.operation, HistoryOperation::Issues)
-        && !more
-        && !result.listed
         && let Some(map) = value.as_object_mut()
     {
-        map.remove("pagination");
+        if !more {
+            map.remove("pagination");
+        }
+        if result.listed {
+            map.remove("effectiveQuery");
+        }
     }
     if matches!(query.operation, HistoryOperation::Commits) && more {
         value["pagination"]["nextPage"] = json!(current_page + 1);

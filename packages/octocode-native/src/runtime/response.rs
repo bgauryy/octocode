@@ -371,7 +371,11 @@ pub fn result_row(
         }
     }
     codes.extend(pagination_codes(&data));
-    let mut meta = json!({"evidence":{"kind":kind,"confidence":confidence}});
+    let mut meta = if tool == "ghSearch" {
+        json!({"evidence":{"confidence":confidence,"kind":kind}})
+    } else {
+        json!({"evidence":{"kind":kind,"confidence":confidence}})
+    };
     if partial || !codes.is_empty() {
         let mut diagnostics = Map::new();
         if !codes.is_empty() {
@@ -488,6 +492,41 @@ fn pagination_codes(data: &Value) -> Vec<String> {
         vec!["continuationMissing".into()]
     } else {
         vec![]
+    }
+}
+
+/// `astSearch` formats its row paths relative to the queried root before the
+/// shared envelope compactor runs. Restore the same absolute base emitted by
+/// the TypeScript finalizer so consumers can resolve those paths losslessly.
+pub fn attach_query_base(value: &mut Value, tool: &str, query: &Value) {
+    let has_error = value["results"]
+        .as_array()
+        .is_some_and(|rows| rows.iter().any(|row| row["status"] == "error"));
+    if tool != "astSearch" || has_error {
+        return;
+    }
+    let Some(path) = query.get("path").and_then(Value::as_str) else {
+        return;
+    };
+    let Ok(canonical) = std::fs::canonicalize(path) else {
+        return;
+    };
+    if query.get("operation").and_then(Value::as_str) == Some("topology") {
+        let display_name = canonical
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        if let (Some(name), Some(rows)) = (display_name, value["results"].as_array_mut()) {
+            for row in rows {
+                if row["data"]["path"] == "." {
+                    row["data"]["path"] = json!(name);
+                }
+            }
+        }
+    }
+    if value.get("base").is_none()
+        && let Some(parent) = canonical.parent()
+    {
+        value["base"] = json!(parent.to_string_lossy());
     }
 }
 
@@ -656,9 +695,9 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: &str) {
             if let Some(path) = absolute_path(map)
                 .and_then(|p| p.strip_prefix(&format!("{base}/")).map(str::to_owned))
             {
+                map.shift_remove("absolutePath");
+                map.shift_remove("uri");
                 map.insert("path".into(), json!(path));
-                map.remove("absolutePath");
-                map.remove("uri");
             }
             for (key, child) in map {
                 if !matches!(key.as_str(), "next" | "location") {
@@ -697,6 +736,42 @@ mod tests {
             ),
             "syntactic"
         );
+    }
+
+    #[test]
+    fn ast_search_query_base_uses_the_canonical_parent() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let mut output = json!({"results":[]});
+        attach_query_base(
+            &mut output,
+            "astSearch",
+            &json!({"path":manifest.to_string_lossy()}),
+        );
+        let expected = std::fs::canonicalize(manifest)
+            .expect("manifest path")
+            .parent()
+            .expect("manifest parent")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(output["base"], expected);
+    }
+
+    #[test]
+    fn uri_path_compaction_preserves_field_order_and_appends_path() {
+        let output = envelope(vec![result_row(
+            "lspSearch",
+            0,
+            &json!({}),
+            json!({"type":"documentSymbols","uri":"file:///repo/src/a.ts","lsp":{},"pagination":{"hasMore":false}}),
+            None,
+        )]);
+        let keys = output["results"][0]["data"]
+            .as_object()
+            .expect("data object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["type", "lsp", "pagination", "path"]);
     }
 
     #[test]

@@ -123,6 +123,7 @@ import {
   getPlan,
   getPlanReviewState,
   bumpPlanTurn,
+  releasePlanScope,
   setPlanEntryAppender,
   PLAN_ENTRY_TYPE,
 } from './tools/planning/plan-store.js';
@@ -608,7 +609,10 @@ async function wireOctocodePiExtension(
       // The no-ctx clear-all that used to live in compaction-hooks’ session_shutdown
       // handler races with a concurrently starting session, so we clear only the
       // shutting-down session’s entry here, where the ctx is known.
-      if (ctx) clearCurrentContextSources(ctx);
+      if (ctx) {
+        clearCurrentContextSources(ctx);
+        releasePlanScope(activePlanScope(ctx));
+      }
       const cleanedAgents = cleanupSpawnedAgentsForShutdown();
       await disposeWorkerCapabilityRuntime();
       clearSessionCapabilities(ctx?.cwd ?? process.cwd());
@@ -1110,10 +1114,20 @@ async function wireOctocodePiExtension(
       }
       if (ctx) session.latestAvailableSkills?.forEach(skill => registerSkillContext(ctx, skill));
       const collectPromptContext = (policy: string) => assembleSessionPromptContext({
-        'agents-protocol': renderAgentsProtocolInstructions(ctx, event.systemPromptOptions?.contextFiles, worker || noContext),
+        'agents-protocol': renderAgentsProtocolInstructions(ctx, event.systemPromptOptions?.contextFiles, worker || noContext, {
+          get: () => session.agentsProtocolCache,
+          set: (entry) => { session.agentsProtocolCache = entry; },
+        }),
         'octocode-product-policy': projectPiSystemPromptCapabilities(policy, { mcpTool: hasCapability('MCPTool'), skill: hasCapability('skill') }),
         'mcp-tool-contracts': hasCapability('MCPTool') ? getCachedMcpCatalogAddendum(ctx) : '',
-        'runtime-tool-contracts': [renderRuntimeCapabilitiesAddendum(ctx), session.capabilityRevision ? `<capability_revision>${session.capabilityRevision}</capability_revision>` : ''].filter(Boolean).join('\n'),
+        // capability_revision is intentionally excluded from the system prompt.
+        // It changes every time MCP tools or skills change (it is a SHA-256 of
+        // the full capability snapshot) and embedding it here would mutate the
+        // frozen system prompt bytes on every such turn, busting the provider's
+        // 82 k-token prefix cache.  The revision is delivered instead through
+        // the per-turn contextMessage below so the model always has the current
+        // value without polluting the cacheable prefix.
+        'runtime-tool-contracts': renderRuntimeCapabilitiesAddendum(ctx),
         'dynamic-tool-contracts': worker ? '' : getDynamicCapabilitiesAddendum(session.latestAvailableSkills?.map(skill => skill.name), { tools: hasCapability('callTool'), skills: hasCapability('skill') }),
         'available-skills': hasCapability('skill') ? renderAvailableSkillsAddendum(session.latestAvailableSkills) : '',
         'session-artifact-contract': session.sessionArtifactPathsContext,
@@ -1184,8 +1198,17 @@ async function wireOctocodePiExtension(
       // Combine all per-turn context signals into one message (only one message
       // per turn is supported by BeforeAgentStartEventResult). The plan appears
       // only when first delivered, changed, or cleared.
+      //
+      // capability_revision is delivered here (not in the frozen system prompt)
+      // so the provider's prefix cache survives turns where only the capability
+      // snapshot changes.  The tag is ~20 tokens and arrives on every turn so
+      // the model always has the current value without needing compaction recovery.
+      const capabilityRevisionContent = session.capabilityRevision
+        ? `<capability_revision>${session.capabilityRevision}</capability_revision>`
+        : '';
       const physiologyDelivery = physiologyAdvisory(ctx ? physiology.read(ctx) : undefined);
       const contextAssembly = assembleContextSegments([
+        { id: 'capability-revision', content: capabilityRevisionContent, kind: 'tool-result', origin: 'pi-runtime-state', authority: 'external-data', scope: 'session', visibility: 'inspectable', rehydrate: 'never', tokenBudget: 96 },
         { id: 'user-request-history', content: userRequestContent, kind: 'user-request', origin: 'session-user:history', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: Math.ceil(USER_REQUEST_CONTEXT_MAX_CHARS / 4) },
         { id: 'runtime-physiology', content: physiologyDelivery.content, kind: 'tool-result', origin: 'pi-runtime-observation', authority: 'external-data', scope: 'turn', visibility: 'inspectable', rehydrate: 'never', tokenBudget: 128 },
         { id: 'active-plan', content: planDeliveryContent, kind: 'plan', origin: 'plan-domain', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: 15_000 },
@@ -1206,7 +1229,6 @@ async function wireOctocodePiExtension(
         }
       }
 
-      const stripped = piPrompt !== event.systemPrompt;
       if (session.cachedSystemPromptText === null) {
         session.cachedSystemPromptText = readTextIfExists(getAssetPaths().systemPrompt);
       }
@@ -1278,13 +1300,22 @@ async function wireOctocodePiExtension(
       session.managedPromptAddendum = renderSystemPromptAddendum(prompt);
       session.deliveredPlanSignature = planSig;
       session.deliveredSessionMemorySignature = sessionMemoryUpdate.signature;
+      session.deliveredCapabilityRevision = session.capabilityRevision;
       if (frozenRehydration) {
         pi.appendEntry?.(REHYDRATION_RECEIPT_ENTRY_TYPE, frozenRehydration.receipt);
         frozenRehydration.commit();
       }
       physiologyDelivery.commit();
       pendingPromptScopes.delete(promptScope);
-      if (resolvedPrompt === event.systemPrompt && !stripped) {
+      // Short-circuit when our assembled bytes already match what Pi holds.
+      // With capability_revision removed from the frozen system prompt, the bytes
+      // stabilise after turn 1 and this fires on every steady-state turn, telling
+      // Pi «keep your current prompt» without forcing a new provider request with
+      // different bytes.  The !stripped guard is intentionally absent: in turns
+      // 2+ stripped is always true (we stripped our own managed addendum to
+      // recompose), but if the recomposed result equals event.systemPrompt the
+      // bytes are identical and no update is needed.
+      if (resolvedPrompt === event.systemPrompt) {
         return contextMessage ? { message: contextMessage } : undefined;
       }
       return contextMessage

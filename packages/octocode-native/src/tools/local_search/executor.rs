@@ -259,7 +259,8 @@ pub fn execute_local_search(
     };
     let empty = total_files == 0;
     let snapshot = if !empty
-        && (page < total_pages
+        && (query.snapshot.is_some()
+            || page < total_pages
             || parsed
                 .files
                 .iter()

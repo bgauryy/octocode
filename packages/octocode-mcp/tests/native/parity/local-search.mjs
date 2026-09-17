@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import process from 'node:process';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Harness, CORPUS } from './harness.mjs';
+import { Harness } from './harness.mjs';
 
 const [referenceServer, nativeServer, addon, regexWorker] = process.argv.slice(2);
 assert.ok(
@@ -49,44 +49,58 @@ export { result };
 
   // --- Test 1: lexical search for a unique token ---
   await harness.testTool('localSearch', {
-    path: ws,
-    searchText: 'GREETING_TOKEN',
+    queries: [{ path: ws, searchText: 'GREETING_TOKEN', regex: 'literal' }],
   });
   console.log('  ✓ lexical search: GREETING_TOKEN');
 
   // --- Test 2: regex search ---
   await harness.testTool('localSearch', {
-    path: ws,
-    searchText: 'greet\\(',
-    isRegex: true,
+    queries: [{ path: ws, searchText: 'greet\\(', regex: 'rust' }],
   });
   console.log('  ✓ regex search: greet(');
 
   // --- Test 3: search with file extension filter ---
   await harness.testTool('localSearch', {
-    path: ws,
-    searchText: 'greet',
-    filePattern: '*.ts',
+    queries: [{ path: ws, searchText: 'greet', include: ['*.ts'] }],
   });
   console.log('  ✓ filtered search: *.ts');
 
   // --- Test 4: no results (absent token) ---
   await harness.testTool('localSearch', {
-    path: ws,
-    searchText: 'xyzzy_no_such_token_12345',
+    queries: [{ path: ws, searchText: 'xyzzy_no_such_token_12345' }],
   });
   console.log('  ✓ empty search: no results');
 
   // --- Test 5: invalid input (missing required field) — error envelope parity ---
   await harness.testTool('localSearch', {
     // Missing `path` → both should return a validation error envelope
-    searchText: 'anything',
+    queries: [{ searchText: 'anything' }],
   });
   console.log('  ✓ invalid input: error envelope parity');
 
-  // Mark corpus entry as covered.
-  CORPUS.localSearch.status = 'covered';
-  console.log(JSON.stringify({ tool: 'localSearch', tests: 5, status: 'covered' }));
+  // --- Test 6: executable pagination covers every fixture exactly once ---
+  for (let index = 0; index < 7; index += 1) {
+    await harness.writeFixture(
+      `paged/result-${index}.txt`,
+      `PAGE_UNION_TOKEN ${index}\n`
+    );
+  }
+  const pagination = await harness.testPagination('localSearch', {
+    queries: [{
+      path: ws,
+      searchText: 'PAGE_UNION_TOKEN',
+      resultView: 'paginated',
+      pageSize: 3,
+    }],
+  });
+  const files = pagination.reference.flatMap(page =>
+    page.structuredContent.results[0].data.files.map(file => file.path)
+  );
+  assert.equal(files.length, 7, 'pagination union must return all seven fixtures');
+  assert.equal(new Set(files).size, 7, 'pagination union must not duplicate fixtures');
+  console.log('  ✓ executable pagination union: 7/7 unique files');
+
+  console.log(JSON.stringify({ tool: 'localSearch', tests: 6, status: 'covered' }));
 } finally {
   await harness.close();
 }

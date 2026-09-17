@@ -126,10 +126,12 @@ export function registerUnifiedAgentTool(
         : '#/definitions/workerCapabilities',
     };
   }
-  parameters['definitions'] = {
-    workerCapabilities: toToolSchema(WorkerCapabilitySelectionSchema.describe('Enabled parent identities; omitted fields use role defaults, [] grants none.')),
-    customWorkerCapabilities: toToolSchema(customWorkerCapabilitySelection.describe('Enabled non-native parent identities; omitted=role defaults, []=none. Native tools only from tools[].')),
-  };
+  const workerCapabilities = toToolSchema(WorkerCapabilitySelectionSchema.describe('Enabled parent identities; omitted fields use role defaults, [] grants none.'));
+  const customWorkerCapabilities = toToolSchema(customWorkerCapabilitySelection.describe('Enabled non-native parent identities; omitted=role defaults, []=none. Native tools only from tools[].'));
+  const customCapabilityProperties = customWorkerCapabilities['properties'] as Record<string, { description?: string }>;
+  customCapabilityProperties['skills']!.description = 'Exact skill identities or a unique active parent skill name. Load the skill in the parent first. A non-empty grant requires "skill" in tools[].';
+  customCapabilityProperties['mcpTools']!.description = 'Exact MCP server/tool identities. A non-empty grant requires "MCPTool" in tools[]; grant activated proxy tools here, never as native tools.';
+  parameters['definitions'] = { workerCapabilities, customWorkerCapabilities };
 
   registerFn(pi, registeredToolNames, {
     name: 'agent',
@@ -141,6 +143,7 @@ export function registerUnifiedAgentTool(
       'Delegate only independent lanes with disjoint ownership; otherwise keep the work local.',
       'After spawning, continue non-overlapping parent work. Collect and verify handbacks, then stop completed workers.',
       'Link planStep only to an existing plan task; use Octocode resource mode only when the worker needs granted extension tools.',
+      'Custom non-native grants need their gateways in tools[]: capabilities.skills → skill, capabilities.mcpTools → MCPTool; load a skill in the parent before granting its name, and never put activated mcp__ proxy names in tools[].',
     ],
 
     parameters,

@@ -8,8 +8,8 @@ import type { ToolDefinition } from '../src/types.js';
 import {
   setPlan, clearPlan, getPlan,
   bumpPlanTurn, readPersistedPlanForTests,
-  activePlanScope, adoptPlanFromBranch, setPlanEntryAppender, PLAN_ENTRY_TYPE,
-  getPlanRfc, setPlanRfc, resolveRfcPath, readPersistedRfcForTests,
+  activePlanScope, adoptPlanFromBranch, releasePlanScope, setPlanEntryAppender, PLAN_ENTRY_TYPE,
+  getPlanRfc, setPlanRfc, readPersistedRfcForTests,
   getPlanDecisions, addPlanDecision, setPlanDecisions, readPersistedDecisionsForTests,
   getPlanLifecycle, setPlanLifecycle, finishPlanVerification, getPlanReviewState, readPersistedLifecycleForTests,
   currentRfcRevision, setPlanAwarenessMappings, getPlanCoordination,
@@ -23,7 +23,7 @@ import { renderList } from '../src/tools/planning/plan-presentation.js';
 import { projectPlanStatus } from './helpers/plan-status.js';
 import { renderFooterView } from '../src/tui/footer-view.js';
 import { planArtifactsDir, setPlanOpenerForTests } from '../src/tools/plan-html.js';
-import { isPlanMode, enterPlanMode, exitPlanMode, planModeToolGate } from '../src/tools/plan-mode.js';
+import { isPlanMode, enterPlanMode, exitPlanMode } from '../src/tools/plan-mode.js';
 import { createSessionArtifactContext, readPlanProjection } from '../src/tools/session-artifacts.js';
 import type { PiContext } from '../src/types.js';
 import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
@@ -845,6 +845,20 @@ test('plan mutations write private session-root branch snapshots and a generatio
   }
 });
 
+test('released session scopes evict memory-only plan state', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-scope-release-'));
+  const scope = activePlanScope({ cwd: workspace, sessionManager: { getSessionId: () => 'released' } });
+  setPlanEntryAppender(null);
+  try {
+    setPlan(scope, ['ephemeral']);
+    releasePlanScope(scope);
+    assert.deepEqual(getPlan(scope), []);
+  } finally {
+    releasePlanScope(scope);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test('absent host appender never creates a restorable projection', () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-appender-absent-'));
   const ctx = { cwd: workspace, sessionManager: { getSessionId: () => 'appender-absent' } };
@@ -1109,71 +1123,6 @@ test('rfcPath round-trips through the session snapshot and adoptPlanFromBranch',
   }
 });
 
-test('resolveRfcPath resolves a dir to its RFC.md, and a direct RFC.md file', () => {
-  const { ws, rfcDir, rfcFile } = makeRfcWorkspace();
-  try {
-    const fromDir = resolveRfcPath(ws, rfcDir);
-    assert.equal(fromDir.path, fs.realpathSync(rfcFile), 'a directory resolves to its RFC.md');
-    const fromFile = resolveRfcPath(ws, rfcFile);
-    assert.equal(fromFile.path, fs.realpathSync(rfcFile));
-    const fromRel = resolveRfcPath(ws, path.join('.octocode', 'rfc', 'unify-plan-rfc'));
-    assert.equal(fromRel.path, fs.realpathSync(rfcFile), 'a workspace-relative path resolves too');
-  } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
-  }
-});
-
-test('resolveRfcPath accepts any workspace file, rejects outside workspace, missing paths, and empty dirs', () => {
-  const { ws } = makeRfcWorkspace();
-  const outside = path.join(ws, 'NOTES.md');
-  fs.writeFileSync(outside, '# not an rfc');
-  // Make a subdirectory with no .md files
-  const emptyDir = path.join(ws, '.octocode', 'rfc', 'empty-dir');
-  fs.mkdirSync(emptyDir, { recursive: true });
-  try {
-    // Any file within the workspace is accepted
-    assert.ok(!resolveRfcPath(ws, outside).error, 'a file anywhere in the workspace is accepted');
-    assert.ok(resolveRfcPath(ws, outside).path, 'and it resolves to a path');
-    // Traversal within workspace is fine (resolves to workspace file)
-    const fromTraversal = resolveRfcPath(ws, path.join('.octocode', 'rfc', '..', '..', 'NOTES.md'));
-    assert.ok(!fromTraversal.error, 'traversal that stays within the workspace is accepted');
-    // Non-existent path is rejected
-    assert.ok(resolveRfcPath(ws, path.join('.octocode', 'rfc', 'nope')).error, 'missing path rejected');
-    // Empty input rejected
-    assert.ok(resolveRfcPath(ws, '').error, 'empty input rejected');
-    // Directory with no .md files returns a helpful error
-    assert.ok(resolveRfcPath(ws, emptyDir).error, 'directory with no .md files is rejected');
-    assert.match(resolveRfcPath(ws, emptyDir).error!, /no .md file/);
-    // Path outside the workspace is rejected
-    const parent = path.dirname(ws);
-    const outsideWs = path.join(parent, 'SECRETS.md');
-    fs.writeFileSync(outsideWs, '# outside');
-    try {
-      assert.ok(resolveRfcPath(ws, outsideWs).error, 'path outside workspace is rejected');
-      assert.match(resolveRfcPath(ws, outsideWs).error!, /within the workspace/);
-    } finally {
-      fs.unlinkSync(outsideWs);
-    }
-  } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
-  }
-});
-
-test('resolveRfcPath resolves a dir with a non-RFC.md markdown file', () => {
-  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-rfc-alt-md-'));
-  const rfcDir = path.join(ws, '.octocode', 'rfc', 'design');
-  fs.mkdirSync(rfcDir, { recursive: true });
-  const altMd = path.join(rfcDir, 'DESIGN.md');
-  fs.writeFileSync(altMd, '# Design doc\n');
-  try {
-    const res = resolveRfcPath(ws, rfcDir);
-    assert.ok(!res.error, 'resolves without error');
-    assert.equal(res.path, fs.realpathSync(altMd), 'resolves to the .md file found in the directory');
-  } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
-  }
-});
-
 // ─── Decision log ─────────────────────────────────────────────────────────────
 
 test('addPlanDecision records Q→A, round-trips through disk, and clears with the plan', () => {
@@ -1312,14 +1261,31 @@ test('plan(set) trivial (consequential:false) needs no RFC', async () => {
   });
 });
 
-test('plan(set) with an unresolvable rfcPath is blocked with a resolve error', async () => {
+test('plan(set) with a non-existent rfcPath inside the workspace is accepted as a forward reference', async () => {
   await withTempHome(async () => {
     const { ws } = makeRfcWorkspace();
     try {
       const tool = loadTool();
       const ctx = { cwd: ws } as unknown as PiContext;
       clearPlan(ws);
-      const res = (await tool.execute('id', { action: 'set', steps: ['x'], rfcPath: path.join('.octocode', 'rfc', 'does-not-exist') }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
+      // The agent declares the RFC path before creating the file (forward reference).
+      const res = (await tool.execute('id', { action: 'set', steps: ['x'], rfcPath: path.join('.octocode', 'rfc', 'does-not-exist', 'RFC.md') }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
+      assert.equal(res.isError, undefined, 'forward-reference rfcPath must not error');
+      assert.equal(getPlan(ws).length, 1, 'plan is set with the forward-declared RFC path');
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+test('plan(set) with rfcPath outside workspace is blocked with a resolve error', async () => {
+  await withTempHome(async () => {
+    const { ws } = makeRfcWorkspace();
+    try {
+      const tool = loadTool();
+      const ctx = { cwd: ws } as unknown as PiContext;
+      clearPlan(ws);
+      const res = (await tool.execute('id', { action: 'set', steps: ['x'], rfcPath: path.join('..', 'outside-workspace.md') }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
       assert.equal(res.isError, true);
       assert.match(res.content[0]!.text, /did not resolve/);
       assert.equal(getPlan(ws).length, 0, 'a bad rfcPath does not set the plan');
@@ -1502,9 +1468,6 @@ test('plan mode tracks planning without disabling tools', async () => {
   exitPlanMode(ctx);
   enterPlanMode(ctx);
   assert.equal(isPlanMode(ctx), true);
-  for (const toolName of ['edit', 'Write', 'localSearch', 'bash', 'chromeDebug']) {
-    assert.equal(planModeToolGate(toolName, ctx), undefined, `${toolName} remains available while planning`);
-  }
   assert.ok(calls.status.some((s) => (s as { name: string }).name === 'octocode-plan-mode'), 'status chip shown');
   exitPlanMode(ctx);
   assert.equal(isPlanMode(ctx), false);

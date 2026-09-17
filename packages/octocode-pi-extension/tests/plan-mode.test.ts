@@ -10,7 +10,6 @@ import {
   getToolEffect,
   evaluateToolCapability,
   isPlanMode,
-  planModeToolGate,
   unclassifiedToolNames,
 } from '../src/tools/plan-mode.js';
 
@@ -54,19 +53,6 @@ test('pre-Start policy tracks the phase without blocking tool execution', () => 
   const session = ctx('review-session');
   enterPlanMode(session);
   assert.equal(isPlanMode(session), true);
-  for (const [toolName, toolInput] of [
-    ['plan', undefined],
-    ['askUser', undefined],
-    ['skill', { queries: [{ reasoning: 'create a workflow', type: 'call', skillType: 'release-flow', mode: 'create' }] }],
-    ['file', undefined],
-    ['bash', undefined],
-    ['chromeDebug', undefined],
-    ['agent', { queries: [{ type: 'spawn', profile: 'researcher' }] }],
-    ['MCPTool', { queries: [{ action: 'add', server: 'other' }] }],
-    ['mysteryTool', undefined],
-  ] as const) {
-    assert.equal(planModeToolGate(toolName, session, toolInput), undefined, `${toolName} is not restricted by plan phase`);
-  }
   assert.equal(
     evaluateToolCapability({ toolName: 'file', phase: 'in_review', createdAt: '2026-08-26T00:00:00.000Z' }).effectiveDecision,
     'allow',
@@ -80,8 +66,6 @@ test('policies are isolated by session and only explicit off clears the targeted
   enterPlanMode(one);
   assert.equal(isPlanMode(one), true);
   assert.equal(isPlanMode(two), false);
-  assert.equal(planModeToolGate('edit', one), undefined);
-  assert.equal(planModeToolGate('edit', two), undefined);
   exitPlanMode(two);
   assert.equal(isPlanMode(one), true, 'clearing another session cannot disable this gate');
   exitPlanMode(one);
@@ -99,7 +83,5 @@ test('branch adoption replaces policy atomically and rejects stale same-branch g
   });
   assert.equal(adoptPlanModePolicy(session, { phase: 'accepted', branchSnapshotId: 'branch-b', generation: 1 }), true);
   assert.equal(getPlanModePolicy(session)?.branchSnapshotId, 'branch-b', 'tree switch adopts the active branch even with a lower generation');
-  assert.equal(planModeToolGate('write', session), undefined, 'accepted plans do not disable tools');
   assert.equal(adoptPlanModePolicy(session, { phase: 'executing', branchSnapshotId: 'branch-b', generation: 2 }), true);
-  assert.equal(planModeToolGate('write', session), undefined, 'execution remains unrestricted by plan tracking');
 });

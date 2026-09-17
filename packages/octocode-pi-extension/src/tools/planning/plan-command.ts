@@ -5,6 +5,7 @@
 
 import path from 'node:path';
 import type { PiContext } from '../../types.js';
+import type { PlanScope } from './plan-scope.js';
 import { adoptPlanModePolicy, exitPlanMode } from '../plan-mode.js';
 import {
   consumeHumanAuthorizationReceipt,
@@ -52,7 +53,7 @@ export function setPlanMetricsRefreshForUi(refresh: ((ctx?: PiContext) => void) 
   planMetricsRefresh = refresh;
 }
 
-export function publishPlanActivity(ctx: PiContext | undefined, scope: string, steps: PlanStep[]): void {
+export function publishPlanActivity(ctx: PiContext | undefined, scope: PlanScope, steps: PlanStep[]): void {
   const review = getPlanReviewState(scope);
   switch (review.phase) {
     case 'researching':
@@ -125,11 +126,11 @@ export function setPlanBrowserMessageSender(sender: ((message: string) => void |
   planBrowserMessageSender = sender;
 }
 
-function planMountName(scope: string): string {
+function planMountName(scope: PlanScope): string {
   return `plan-${path.basename(planArtifactsDir(scope))}`;
 }
 
-export function tearDownPlanHtml(scope: string): void {
+export function tearDownPlanHtml(scope: PlanScope): void {
   resetPlanHtmlSync();
   unmount(planMountName(scope));
 }
@@ -158,7 +159,7 @@ export function buildPlanStartAuthorizationOptionId(planId: string, revision: st
 
 /** Bind one explicit Start decision to the current RFC bytes and begin execution. */
 export function startReviewedPlan(
-  scope: string,
+  scope: PlanScope,
   displayedRevision: string,
   ctx?: PiContext,
   authorization?: ReviewedPlanAuthorization,
@@ -249,7 +250,7 @@ export async function openPlanReview(ctx?: PiContext): Promise<string | undefine
   return servePlanPage(ctx, activePlanScope(ctx));
 }
 
-async function servePlanPage(ctx: PiContext | undefined, scope: string): Promise<string | undefined> {
+async function servePlanPage(ctx: PiContext | undefined, scope: PlanScope): Promise<string | undefined> {
   const model = getCurrentPlanReadModel(ctx, scope);
   const phase = model.phase;
   const artifactStatus = phase === 'accepted'

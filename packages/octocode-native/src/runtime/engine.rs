@@ -625,6 +625,7 @@ impl ToolRuntime {
                 let all_failed =
                     row.get("status").and_then(serde_json::Value::as_str) == Some("error");
                 let mut structured = response::envelope(vec![row]);
+                response::attach_query_base(&mut structured, &tool, &query);
                 response::sanitize_fields(&mut structured, &security, &context)?;
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)

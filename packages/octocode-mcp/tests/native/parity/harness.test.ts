@@ -14,7 +14,7 @@ async function importHarness() {
   const mod = await import(join(here, 'harness.mjs'));
   return mod as {
     Harness: { connect: (opts: unknown) => Promise<unknown> };
-    CORPUS: Record<string, { status: string; note: string }>;
+    CORPUS: Record<string, { status: string; note: string; script?: string }>;
     assertCorpusComplete: () => void;
   };
 }
@@ -50,9 +50,8 @@ describe('Parity harness (S6)', () => {
     }
   });
 
-  it('assertCorpusComplete throws when any tool is pending (expected in this state)', async () => {
+  it('assertCorpusComplete throws when any tool is not covered', async () => {
     const { assertCorpusComplete } = await importHarness();
-    // Most entries are 'pending' — assertCorpusComplete must throw until they're all covered.
     expect(() => assertCorpusComplete()).toThrow(/Parity corpus is incomplete/);
   });
 
@@ -63,9 +62,15 @@ describe('Parity harness (S6)', () => {
 
   it('each CORPUS entry has a valid status value', async () => {
     const { CORPUS } = await importHarness();
-    const validStatuses = new Set(['pending', 'covered', 'skipped']);
+    const validStatuses = new Set(['pending', 'partial', 'blocked', 'covered']);
     for (const [tool, entry] of Object.entries(CORPUS)) {
-      expect(validStatuses).toContain(entry.status, `${tool}.status must be pending|covered|skipped`);
+      expect(validStatuses).toContain(
+        entry.status,
+        `${tool}.status must be pending|partial|blocked|covered`
+      );
+      if (entry.status !== 'pending') {
+        expect(entry.script).toBeTruthy();
+      }
     }
   });
 });

@@ -18,9 +18,9 @@ export const CapabilityMcpToolSchema = McpToolIdentitySchema.extend({
   schemaDigest: identity.optional(),
 });
 export const WorkerCapabilitySelectionSchema = z.strictObject({
-  nativeTools: z.array(identity).max(500).optional(),
-  skills: z.array(identity).max(5000).optional(),
-  mcpTools: z.array(McpToolIdentitySchema).max(10_000).optional(),
+  nativeTools: z.array(identity).max(500).optional().describe('Native tool names from the effective parent snapshot. Skill and MCP grants also require their native gateway tools.'),
+  skills: z.array(identity).max(5000).optional().describe('Exact skill identities or unique active parent skill names. Load/enable a skill in the parent first; requires the native "skill" gateway.'),
+  mcpTools: z.array(McpToolIdentitySchema).max(10_000).optional().describe('Exact MCP server/tool identities. Requires the native "MCPTool" gateway; activated proxy names are not native tools.'),
 });
 
 export type McpToolIdentity = z.infer<typeof McpToolIdentitySchema>;
@@ -92,21 +92,36 @@ export function createWorkerCapabilityGrant(
   }
   const native = new Set(snapshot.nativeTools);
   const skills = new Set(snapshot.skills.map(skill => skill.id));
+  const skillIdsByName = new Map<string, string[]>();
+  for (const skill of snapshot.skills) {
+    const ids = skillIdsByName.get(skill.name) ?? [];
+    ids.push(skill.id);
+    skillIdsByName.set(skill.name, ids);
+  }
   const mcp = new Set(snapshot.mcpTools.map(mcpToolIdentityKey));
   for (const tool of selection.nativeTools ?? []) {
     if (isForbiddenWorkerTool(tool)) throw new Error(`Recursive worker tool cannot be granted: ${tool}`);
-    if (!native.has(tool)) throw new Error(`Native tool is unavailable in the effective parent snapshot: ${tool}`);
+    if (!native.has(tool)) {
+      if (tool.startsWith('mcp__')) {
+        throw new Error('Activated MCP proxy tools are not native worker tools; select the server/tool under capabilities.mcpTools and include "MCPTool".');
+      }
+      throw new Error(`Native tool is unavailable in the effective parent snapshot: ${tool}`);
+    }
   }
-  for (const id of selection.skills ?? []) {
-    if (!skills.has(id)) throw new Error(`Skill is unavailable in the effective parent snapshot: ${id}`);
-  }
+  const selectedSkillIds = (selection.skills ?? []).map(selector => {
+    if (skills.has(selector)) return selector;
+    const matches = skillIdsByName.get(selector) ?? [];
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length > 1) throw new Error(`Skill name is ambiguous in the effective parent snapshot: ${selector}. Use an exact skill identity.`);
+    throw new Error(`Skill is unavailable in the effective parent snapshot: ${selector}`);
+  });
   for (const target of selection.mcpTools ?? []) {
     if (!mcp.has(mcpToolIdentityKey(target))) throw new Error(`MCP tool is unavailable in the effective parent snapshot: ${target.server}/${target.tool}`);
   }
   return WorkerCapabilityGrantSchema.parse({
     schemaVersion: 1, workerId: options.workerId, revision: options.revision ?? 1,
     snapshotRevision: snapshot.revision,
-    nativeTools: selection.nativeTools ?? [], skills: selection.skills ?? [], mcpTools: selection.mcpTools ?? [],
+    nativeTools: selection.nativeTools ?? [], skills: selectedSkillIds, mcpTools: selection.mcpTools ?? [],
   });
 }
 

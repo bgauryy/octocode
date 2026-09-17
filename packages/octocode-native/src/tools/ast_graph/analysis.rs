@@ -48,16 +48,6 @@ pub(crate) fn analyze(
         }
     };
     warnings.extend(extra_warnings);
-    if b.diagnostics
-        .iter()
-        .any(|d| d.code == "unsupported-linking")
-        && q.rust_workspace.as_deref() != Some("cargo")
-    {
-        warnings.push(
-            "Pass rustWorkspace:\"cargo\" for workspace metadata linking. syntax graphs leave macro-generated imports unlinked; cargo executes workspace metadata."
-                .into(),
-        );
-    }
     let (page, pagination, limit_truncated, total) = paginate(items, q);
     base.insert("results".into(), Value::Array(page));
     base.insert("pagination".into(), pagination);
