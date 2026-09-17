@@ -68,9 +68,9 @@ pub async fn execute<R: CredentialResolver>(
     let per = query.page_size.unwrap_or(30).min(100);
     let mut query = query.clone();
     let mut rename_warnings = Vec::new();
-    if let (Some(owner), Some(repo)) = (query.owner.clone(), query.repo.clone()) {
+    if let (Some(owner), Some(repo)) = (query.owner.as_deref(), query.repo.as_deref()) {
         let (canonical_owner, canonical_repo, renamed, warnings) = transport
-            .canonical_owner_repo(&owner, &repo, context)
+            .canonical_owner_repo(owner, repo, context)
             .await?;
         if renamed {
             query.owner = Some(canonical_owner);
@@ -282,7 +282,7 @@ pub async fn execute<R: CredentialResolver>(
     }
     if query.include_diff == Some(true)
         && matches!(query.operation, HistoryOperation::Commits)
-        && let (Some(owner), Some(repo)) = (query.owner.clone(), query.repo.clone())
+        && let (Some(owner), Some(repo)) = (query.owner.as_deref(), query.repo.as_deref())
         && let Some(commits) = value.get_mut("commits").and_then(Value::as_array_mut)
     {
         for commit in commits.iter_mut().take(per) {
@@ -290,7 +290,7 @@ pub async fn execute<R: CredentialResolver>(
                 continue;
             };
             if let Ok(item) = transport
-                .history_item(&["repos", &owner, &repo, "commits", &sha], &[], context)
+                .history_item(&["repos", owner, repo, "commits", &sha], &[], context)
                 .await
                 && let Some(files) = item.value.get("files").cloned()
             {

@@ -8,6 +8,7 @@ pub mod cache;
 pub mod config;
 pub mod content;
 pub mod contracts;
+pub mod errors;
 pub mod lsp;
 pub mod policy;
 pub mod providers;

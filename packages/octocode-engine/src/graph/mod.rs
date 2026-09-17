@@ -13,8 +13,9 @@ pub use model::{
     Evidence, EvidenceId, EvidenceSource, GraphBuildMetrics, GraphBuildReceipt, GraphCompleteness,
     GraphFactCall, GraphFactCommonJs, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
     GraphFactImport, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry,
-    GraphFactsTypedScanResult, GraphPosition, GraphRange, NodeId, NodeKind, SemanticRelationInput,
-    ServerReceipt, SnapshotMetadata,
+    GraphFactsTypedScanResult, GraphPosition, GraphRange, NodeId, NodeKind, SemanticObservation,
+    SemanticObservationInput, SemanticOperation, SemanticOutcome, SemanticRelationInput,
+    ServerReceipt, SnapshotMetadata, SymbolAnchor,
 };
 
 use std::{fs, io::Read, path::Path};

@@ -298,25 +298,6 @@ impl RewriteError {
 
 /// Execute one canonical structural-rewrite query. Domain failures are returned
 /// as typed result values so bulk callers retain per-query diagnostics.
-pub fn execute_ast_rewrite(
-    query: Value,
-    paths: &PathPolicy,
-    security: &ContentSecurity,
-    cancellation: &dyn CancellationCheck,
-    allow_apply: bool,
-) -> Value {
-    execute_ast_rewrite_with_options(
-        query,
-        paths,
-        security,
-        cancellation,
-        &AstRewriteRuntimeOptions {
-            allow_apply,
-            ..Default::default()
-        },
-    )
-}
-
 pub fn execute_ast_rewrite_with_options(
     query: Value,
     paths: &PathPolicy,
@@ -2219,16 +2200,16 @@ mod tests {
     #[test]
     fn preview_continuation_is_lossless_and_apply_is_hash_guarded() {
         let (root, policy, security) = fixture();
-        let first = execute_ast_rewrite(query(&root), &policy, &security, &Active, false);
+        let first = execute_ast_rewrite_with_options(query(&root), &policy, &security, &Active, &Default::default());
         assert_eq!(first["mode"], "preview");
         assert_eq!(first["totalMatches"], 2);
         assert_eq!(first["matches"].as_array().map(Vec::len), Some(1));
-        let second = execute_ast_rewrite(
+        let second = execute_ast_rewrite_with_options(
             first["next"]["nextPage"]["query"].clone(),
             &policy,
             &security,
             &Active,
-            false,
+            &Default::default(),
         );
         let ids = [
             first["matches"][0]["id"].clone(),
@@ -2242,7 +2223,7 @@ mod tests {
             first["files"][0]["absolutePath"].as_str().expect("path"):
                 first["files"][0]["beforeHash"].clone()
         });
-        let applied = execute_ast_rewrite(apply, &policy, &security, &Active, true);
+        let applied = execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &AstRewriteRuntimeOptions { allow_apply: true, ..Default::default() });
         assert_eq!(applied["transaction"]["committed"], true);
         assert_eq!(
             fs::read_to_string(root.join("a.ts")).expect("read"),
@@ -2254,7 +2235,7 @@ mod tests {
     #[test]
     fn stale_source_postcondition_and_cancellation_never_mutate() {
         let (root, policy, security) = fixture();
-        let preview = execute_ast_rewrite(query(&root), &policy, &security, &Active, false);
+        let preview = execute_ast_rewrite_with_options(query(&root), &policy, &security, &Active, &Default::default());
         let original = fs::read_to_string(root.join("a.ts")).expect("read");
         fs::write(root.join("a.ts"), format!("{original}// drift\n")).expect("drift");
         let mut apply = query(&root);
@@ -2265,11 +2246,11 @@ mod tests {
                 preview["files"][0]["beforeHash"].clone()
         });
         assert_eq!(
-            execute_ast_rewrite(apply, &policy, &security, &Active, true)["errorCode"],
+            execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &AstRewriteRuntimeOptions { allow_apply: true, ..Default::default() })["errorCode"],
             "ast.rewrite.snapshot_changed"
         );
         assert_eq!(
-            execute_ast_rewrite(query(&root), &policy, &security, &Cancelled, false)["errorCode"],
+            execute_ast_rewrite_with_options(query(&root), &policy, &security, &Cancelled, &Default::default())["errorCode"],
             "ast.rewrite.cancelled"
         );
         assert!(
@@ -2286,7 +2267,7 @@ mod tests {
         let mut preview_query = query(&root);
         preview_query["pageSize"] = json!(100);
         let preview =
-            execute_ast_rewrite(preview_query.clone(), &policy, &security, &Active, false);
+            execute_ast_rewrite_with_options(preview_query.clone(), &policy, &security, &Active, &Default::default());
         let mut apply = preview_query;
         apply["apply"] = json!(true);
         apply["snapshot"] = preview["snapshot"].clone();
@@ -2296,7 +2277,7 @@ mod tests {
                 preview["files"][0]["beforeHash"].clone()
         });
         apply["postconditions"] = json!([{"kind":"remainingMatches","equals":0}]);
-        let failed = execute_ast_rewrite(apply, &policy, &security, &Active, true);
+        let failed = execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &AstRewriteRuntimeOptions { allow_apply: true, ..Default::default() });
         assert_eq!(failed["errorCode"], "ast.rewrite.postcondition_failed");
         assert_eq!(
             fs::read_to_string(root.join("a.ts")).expect("read"),

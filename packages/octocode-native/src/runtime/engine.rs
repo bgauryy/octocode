@@ -197,8 +197,39 @@ impl ToolRuntime {
         self.github_cache.clear();
     }
 
-    fn cursor_scope(&self) -> Result<String, RuntimeError> {
-        super::cursor::scope_digest(&json!({"cwd":self.input.cwd,"home":self.inspect_config().home,"osHome":self.input.os_home,"config":self.config.resolved}))
+    /// Scope digest partitioned by tool family so that toggling local-only
+    /// config (e.g. `enable_clone`) does not invalidate GitHub/remote cursors.
+    fn cursor_scope_for(&self, tool: &str) -> Result<String, RuntimeError> {
+        let home = self.inspect_config().home;
+        let os_home = &self.input.os_home;
+        let scope_value = if matches!(
+            tool,
+            "localSearch" | "localFetch" | "astSearch" | "astRewrite" | "lspSearch" | ""
+        ) {
+            // Local tools need cwd, allowed paths, and LSP config.
+            json!({
+                "cwd": self.input.cwd,
+                "home": home,
+                "osHome": os_home,
+                "local": self.config.resolved.local,
+                "lsp": self.config.resolved.lsp,
+            })
+        } else if matches!(
+            tool,
+            "ghSearch" | "ghGetFileContent" | "ghSearchHistory"
+                | "ghGetHistoryItem" | "ghCloneRepo"
+        ) {
+            // GitHub tools: scoped to API endpoint + home; not local config.
+            json!({
+                "home": home,
+                "osHome": os_home,
+                "github": self.config.resolved.github,
+            })
+        } else {
+            // Artifact and other remote tools: home only.
+            json!({"home": home, "osHome": os_home})
+        };
+        super::cursor::scope_digest(&scope_value)
             .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))
     }
 
@@ -218,8 +249,10 @@ impl ToolRuntime {
                 "Continuation names an unavailable tool",
             ));
         }
+        // Compute scope once with tool-specific partitioning; all branches use it.
+        let scope = self.cursor_scope_for(tool)?;
         if tool == "localSearch" {
-            return super::cursor::ReadCursor::create_search(query.clone(), self.cursor_scope()?)
+            return super::cursor::ReadCursor::create_search(query.clone(), scope)
                 .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")));
         }
         if tool == "localFetch" {
@@ -232,13 +265,13 @@ impl ToolRuntime {
                 .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
             return super::cursor::ReadCursor::create(
                 query.clone(),
-                self.cursor_scope()?,
+                scope,
                 &validated.canonical,
                 source_sha256,
             )
             .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")));
         }
-        super::cursor::UniversalCursor::create(tool, query.clone(), self.cursor_scope()?)
+        super::cursor::UniversalCursor::create(tool, query.clone(), scope)
             .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))
     }
 
@@ -249,8 +282,9 @@ impl ToolRuntime {
         &self,
         token: &str,
     ) -> Result<(String, Value, Option<String>), RuntimeError> {
-        let scope = self.cursor_scope()?;
-        if let Ok(cursor) = super::cursor::ReadCursor::decode(token, &scope) {
+        // ReadCursor is always a local tool — try with the local scope.
+        let local_scope = self.cursor_scope_for("localSearch")?;
+        if let Ok(cursor) = super::cursor::ReadCursor::decode(token, &local_scope) {
             let path = cursor.query["path"]
                 .as_str()
                 .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation path"))?;
@@ -267,9 +301,15 @@ impl ToolRuntime {
             }
             return Ok((cursor.tool, cursor.query, Some(cursor.source_sha256)));
         }
-        let cursor = super::cursor::UniversalCursor::decode(token, &scope)
-            .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))?;
-        Ok((cursor.tool, cursor.query, None))
+        // UniversalCursor may have been issued for any tool family; try each scope.
+        for scope_tool in ["ghSearch", "artifactSearch", ""] {
+            let scope = self.cursor_scope_for(scope_tool)
+                .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))?;
+            if let Ok(cursor) = super::cursor::UniversalCursor::decode(token, &scope) {
+                return Ok((cursor.tool, cursor.query, None));
+            }
+        }
+        Err(RuntimeError::new("invalidCursor", "Token scope does not match any known configuration"))
     }
 
     pub fn is_available(&self, tool: &str) -> bool {
@@ -402,17 +442,49 @@ impl ToolRuntime {
                 format!("Tool {tool} is not available in this native runtime"),
             ));
         }
-        // Parse response-paging options from the raw input before contract
-        // validation; they are envelope-level fields, not query-schema fields.
+        // Cursor shortcut: { cursor: "<token>" } resumes any previous page.
+        // Decoded queries skip prepare_and_validate (already validated; null
+        // placeholders like artifactSearch registry would fail re-validation).
+        // Scope is computed before decoding; for cursor inputs the tool is
+        // unknown until decoded, so we derive scope from the original tool arg.
+        let scope = self.cursor_scope_for(&tool)?;
+        let (tool, input, from_cursor) = match input
+            .as_object()
+            .filter(|m| m.len() == 1 && m.contains_key("cursor"))
+            .and_then(|m| m["cursor"].as_str())
+        {
+            Some(tok) => {
+                let (dt, dq) = super::cursor::UniversalCursor::decode(tok, &scope)
+                    .map(|c| (c.tool, c.query))
+                    .or_else(|_| {
+                        super::cursor::ReadCursor::decode(tok, &scope)
+                            .map(|c| (c.tool, c.query))
+                    })
+                    .map_err(|e| RuntimeError::new("invalidCursor", format!("{e:?}"))) ?;
+                if !self.is_available(&dt) {
+                    return Err(RuntimeError::new(
+                        "toolUnavailable",
+                        format!("Tool {dt} is not available"),
+                    ));
+                }
+                (dt, dq, true)
+            }
+            None => (tool, input, false),
+        };
+        // Parse response-paging options before contract validation.
         let options: ResponsePageOptions =
             serde_json::from_value(input.clone()).unwrap_or_default();
-        let query = contracts::prepare_and_validate(&tool, input, PrepareOptions::default())
-            .map_err(|error| RuntimeError {
-                code: "invalidInput".into(),
-                message: error.to_string(),
-                payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
-                validation_issues: Some(error.issues),
-            })?;
+        let query = if from_cursor {
+            input.as_object().cloned().map(Value::Object).unwrap_or(input)
+        } else {
+            contracts::prepare_and_validate(&tool, input, PrepareOptions::default())
+                .map_err(|error| RuntimeError {
+                    code: "invalidInput".into(),
+                    message: error.to_string(),
+                    payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
+                    validation_issues: Some(error.issues),
+                })?
+        };
         let checked = self.security.validate_input_parameters(&query);
         if !checked.is_valid {
             return Err(RuntimeError::new(
@@ -439,6 +511,7 @@ impl ToolRuntime {
             trust_project_config: self.input.trusted_project,
         };
         let output_tool = tool.clone();
+        let cursor_scope = scope;
         let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
@@ -538,7 +611,7 @@ impl ToolRuntime {
                     row["cache"] = json!(1);
                 }
                 response::apply_hint_policy(&mut row, &tool, &query);
-                let all_failed = row["status"] == "error";
+                let all_failed = row.get("status").and_then(serde_json::Value::as_str) == Some("error");
                 let mut structured = response::envelope(vec![row]);
                 response::sanitize_fields(&mut structured, &security, &context)?;
                 context.check()?;
@@ -563,9 +636,13 @@ impl ToolRuntime {
                         &std::sync::atomic::AtomicBool::new(context.cancellation.is_cancelled()),
                     )
                     .map_err(|_| ExecutionError::WorkerFailed)?;
+                // Stamp cursor tokens on the final envelope, which now includes
+                // responsePagination.next added by the pager.
+                let mut structured_content = prepared.structured_content;
+                inject_cursors(&mut structured_content, &cursor_scope);
                 context.check()?;
                 Ok(ToolOutcome {
-                    structured_content: prepared.structured_content,
+                    structured_content,
                     content: prepared.content,
                     source_digest,
                     failure,
@@ -591,6 +668,42 @@ impl ToolRuntime {
             }
         })?;
         Ok(outcome)
+    }
+}
+
+fn inject_cursors(value: &mut Value, scope: &str) {
+    inject_cursors_inner(value, scope, false);
+}
+
+fn inject_cursors_inner(value: &mut Value, scope: &str, inside_next: bool) {
+    match value {
+        Value::Array(arr) => {
+            for child in arr.iter_mut() {
+                inject_cursors_inner(child, scope, inside_next);
+            }
+        }
+        Value::Object(map) => {
+            if let (true, Some(tool_str), Some(query_val)) = (
+                inside_next && !map.contains_key("cursor"),
+                map.get("tool").and_then(Value::as_str),
+                map.get("query").filter(|v| v.is_object()),
+            ) {
+                let tool = tool_str.to_owned();
+                let query = query_val.clone();
+                if let Ok(token) =
+                    super::cursor::UniversalCursor::create(&tool, query, scope.to_owned())
+                {
+                    map.insert("cursor".into(), Value::String(token));
+                }
+            }
+            let keys: Vec<String> = map.keys().cloned().collect();
+            for key in keys {
+                if let Some(child) = map.get_mut(&key) {
+                    inject_cursors_inner(child, scope, inside_next || key == "next");
+                }
+            }
+        }
+        _ => {}
     }
 }
 

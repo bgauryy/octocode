@@ -2,7 +2,7 @@
 use super::{ExecutionContext, ExecutionError, FailureKind};
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
-use crate::tools::ast_rewrite::execute_ast_rewrite;
+use crate::tools::ast_rewrite::{AstRewriteRuntimeOptions, execute_ast_rewrite_with_options};
 use crate::tools::ast_search::execute_ast;
 use crate::tools::local_fetch::{
     LocalFetchRegex, LocalFetchRequest, execute_local_fetch_with_regex,
@@ -120,7 +120,7 @@ pub(super) fn execute_local(
         },
         "astRewrite" => {
             let data =
-                execute_ast_rewrite(query, paths, security, context, allow_ast_rewrite_apply);
+                execute_ast_rewrite_with_options(query, paths, security, context, &AstRewriteRuntimeOptions { allow_apply: allow_ast_rewrite_apply, ..Default::default() });
             Ok(value_result(data))
         }
         _ => Err(ExecutionError::WorkerFailed),

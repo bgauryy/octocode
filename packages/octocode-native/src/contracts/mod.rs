@@ -44,7 +44,7 @@ pub fn prepare_and_validate(
     // the JSON-Schema validators and normalization rules expect, then unwrap
     // after validation to return a flat single-query Value.
     let wrapped = serde_json::json!({ "queries": [serde_json::Value::Object(prepared.query)] });
-    let mut validated = validate(tool_name, wrapped)?;
+    let mut validated = validate(tool_name, wrapped).map_err(strip_array_prefix)?;
     // Extract the validated, defaulted query from position 0.
     validated["queries"]
         .as_array_mut()
@@ -59,6 +59,19 @@ pub fn prepare_and_validate(
                 received: None,
             }],
         })
+}
+
+/// Strip the internal `["queries", "0", ...]` path prefix from validation errors
+/// so callers see `field` rather than `queries.0.field`.
+fn strip_array_prefix(mut error: ContractValidationError) -> ContractValidationError {
+    for issue in &mut error.issues {
+        if issue.path.first().map(String::as_str) == Some("queries")
+            && issue.path.get(1).map(String::as_str) == Some("0")
+        {
+            issue.path.drain(..2);
+        }
+    }
+    error
 }
 
 /// Fingerprint of the canonical sibling-core contract used for this build.
