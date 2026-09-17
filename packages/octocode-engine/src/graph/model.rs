@@ -25,6 +25,7 @@ pub struct GraphFactDeclaration {
     pub range: GraphRange,
     pub selection_range: GraphRange,
     pub exported: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
 }
 
@@ -35,11 +36,17 @@ pub struct GraphFactImport {
     pub specifier: String,
     pub line: u32,
     pub import_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub local_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_range: Option<GraphRange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub local_range: Option<GraphRange>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub module_scope: Option<Vec<String>>,
 }
 
@@ -50,7 +57,9 @@ pub struct GraphFactExport {
     pub name: String,
     pub line: u32,
     pub export_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub local_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 
@@ -84,6 +93,7 @@ pub struct GraphFactRustModule {
     pub line: u32,
     pub scope: Vec<String>,
     pub inline: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     pub unsupported: bool,
 }
@@ -91,9 +101,12 @@ pub struct GraphFactRustModule {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GraphFactCommonJs {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub specifier: Option<String>,
     pub line: u32,
-    pub binding: Option<String>,
+    pub kind: String,
+    pub binding: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
 
@@ -113,6 +126,7 @@ pub struct GraphFactsDocument {
     pub edges: Vec<GraphFactEdge>,
     pub diagnostics: Vec<String>,
     pub modules: Vec<GraphFactRustModule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_root_unsupported: Option<bool>,
 }
 
@@ -846,12 +860,13 @@ mod tests {
           "edges":[{"id":"e","from":"d","to":"c","relation":"calls","source":"native-ast","line":1,"resolution":"unresolved"}],
           "calls":[{"id":"c","caller":"d","callee":"work","line":1,"range":{"start":{"line":0,"character":7},"end":{"line":0,"character":11}},"kind":"direct"}],
           "modules":[{"name":"child","line":2,"scope":[],"inline":false,"path":"child.rs","unsupported":false}],
-          "commonJs":[{"specifier":"pkg","line":3,"binding":"require"}]
+          "commonJs":[{"specifier":"pkg","line":3,"kind":"commonjs-require","binding":"require"}]
         }"#;
         let facts = GraphFactsDocument::from_json(json).expect("typed facts");
         assert_eq!(facts.declarations[0].selection_range.start.character, 3);
         assert_eq!(facts.edges[0].relation, "calls");
         assert_eq!(facts.modules[0].path.as_deref(), Some("child.rs"));
         assert_eq!(facts.common_js[0].specifier.as_deref(), Some("pkg"));
+        assert_eq!(facts.common_js[0].kind, "commonjs-require");
     }
 }

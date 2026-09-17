@@ -46,7 +46,7 @@ cargo test --manifest-path packages/octocode-engine/Cargo.toml --no-default-feat
 cargo test --manifest-path packages/octocode-native/Cargo.toml tools::ast_graph
 ```
 
-A manual sensor reports file count, edge count, build time, and query time without imposing a flaky CI timing threshold:
+A manual sensor reports file and edge counts, file-topology build time, immutable-snapshot build time, and query time without imposing a flaky CI timing threshold:
 
 ```bash
 cargo test --manifest-path packages/octocode-engine/Cargo.toml --no-default-features --test graph_benchmark measure_frozen_graph_baseline -- --ignored --exact --nocapture

@@ -505,7 +505,7 @@ fn link_file(
                         &file,
                         &mut node,
                         &t,
-                        if c.binding.as_deref() == Some("create-require") {
+                        if c.binding == "create-require" {
                             "create-require"
                         } else {
                             "commonjs-require"
