@@ -90,5 +90,11 @@ export async function startNativeMcp(options) {
   return instance;
 }
 
-const invokedPath = process.argv[1] && pathToFileURL(process.argv[1]).href;
-if (invokedPath === import.meta.url) await startNativeMcp();
+// Only self-start when this module is the process entry point AND was invoked
+// directly as the native entry file. The basename guard prevents misfiring when
+// the module is bundled into or imported by another entry (e.g. index.js).
+const entryArg = process.argv[1] ?? '';
+const invokedPath = entryArg ? pathToFileURL(entryArg).href : '';
+if (invokedPath === import.meta.url && /native[\\/]index\.mjs$/.test(entryArg)) {
+  await startNativeMcp();
+}

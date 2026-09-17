@@ -2,6 +2,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { McpServer, Implementation } from '@modelcontextprotocol/server';
 import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
 import type { McpToolConfig } from './tools/toolConfig.js';
+import { bootRuntime } from './native/select.js';
 import {
   clearAllCache,
   clearOctokitInstances,
@@ -145,27 +146,39 @@ async function createServer(enabledTools: McpToolConfig[]): Promise<McpServer> {
   });
 }
 
-async function startServer() {
+async function startToolsCoreServer() {
   const shutdownState: ShutdownState = { inProgress: false, timeout: null };
 
+  await initialize();
+  configureSecurity({});
+  securityRegistry.addAllowedRoots([getOctocodeDir()]);
+  await initializeProviders();
+
+  const { getEnabledTools } = await import('./tools/toolsManager.js');
+  const enabledTools = await getEnabledTools();
+  const server = await createServer(enabledTools);
+  await registerAllTools(server, enabledTools);
+
+  const gracefulShutdown = createShutdownHandler(server, shutdownState);
+  setupProcessHandlers(gracefulShutdown);
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  startCacheGC(getOctocodeDir());
+}
+
+async function startServer() {
   try {
-    await initialize();
-    configureSecurity({});
-    securityRegistry.addAllowedRoots([getOctocodeDir()]);
-    await initializeProviders();
-
-    const { getEnabledTools } = await import('./tools/toolsManager.js');
-    const enabledTools = await getEnabledTools();
-    const server = await createServer(enabledTools);
-    await registerAllTools(server, enabledTools);
-
-    const gracefulShutdown = createShutdownHandler(server, shutdownState);
-    setupProcessHandlers(gracefulShutdown);
-
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-
-    startCacheGC(getOctocodeDir());
+    // Native is strictly opt-in (OCTOCODE_RUNTIME=native + a resolvable addon)
+    // and falls back to tools-core on any failure. Default stays tools-core.
+    await bootRuntime({
+      startToolsCore: startToolsCoreServer,
+      startNative: async () => {
+        const { startNativeMcp } = await import('./native/index.mjs');
+        await startNativeMcp();
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : String(error ?? 'unknown');

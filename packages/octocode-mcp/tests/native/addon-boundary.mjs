@@ -10,7 +10,7 @@ const runtime = new NativeRuntime({
   cwd: process.cwd(),
 });
 try {
-  assert.equal(runtime.abiVersion, 1);
+  assert.equal(runtime.abiVersion, 2);
   assert.equal(runtime.closed, false);
   await assert.rejects(
     runtime.execute('typed-error', 'localFetch', { queries: [{}] }),
@@ -19,7 +19,9 @@ try {
       assert.equal(detail.kind, 'octocode.nativeError');
       assert.equal(detail.code, 'invalidInput');
       assert.equal(detail.payload.kind, 'octocode.toolError');
-      assert.match(detail.payload.details.join('\n'), /queries\.0\.path/);
+      // The native NAPI boundary strips the internal `queries.0.` envelope
+      // prefix and reports field-level errors (see contracts::validate_query).
+      assert.match(detail.payload.details.join('\n'), /path: Missing required field/);
       return true;
     },
   );
