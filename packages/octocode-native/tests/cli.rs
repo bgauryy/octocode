@@ -81,7 +81,8 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
         .args(["install", "--ide", "codex"])
         .output()
         .expect("codex");
-    assert_eq!(codex.status.code(), Some(2));
+    // codex is a supported IDE: install should succeed
+    assert!(codex.status.success(), "codex install failed: {}", stderr(&codex));
     let dry = workspace
         .cli()
         .args(["install", "--ide", "cursor", "--dry-run", "--json"])

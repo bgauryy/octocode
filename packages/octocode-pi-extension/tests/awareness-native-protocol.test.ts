@@ -56,7 +56,7 @@ async function describeExactSchema(definition: ToolDefinition, operation: string
   return parts.join('');
 }
 
-type NativeCall = { tool: string; queries: { operation: string; params?: Record<string, unknown> }[] };
+type NativeCall = { tool: string; queries: { reasoning?: string; operation: string; params?: Record<string, unknown> }[] };
 
 describe('native Awareness continuations', () => {
   it.each(['next', 'actions', 'continuations', 'undo_preview'])('translates nested %s calls without changing their parameters', key => {

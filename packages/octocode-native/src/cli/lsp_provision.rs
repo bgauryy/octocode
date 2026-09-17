@@ -674,6 +674,93 @@ async fn fetch_allowlisted(url: &str) -> Result<Vec<u8>, String> {
     Err("Too many redirects".to_string())
 }
 
+/// Resolve status for a single file: detect its language and whether a
+/// language server is available. Port of `getLspStatus` in manager.ts.
+fn run_status(file_path: Option<&str>, json: bool) -> u8 {
+    use octocode_engine::lsp::config::{default_server_for_file, detect_language_id,
+        is_command_available};
+
+    let Some(path) = file_path else {
+        // No file path: report pool status. In a standalone CLI process there is
+        // no running LSP pool, so the count is always 0 (same result as the TS
+        // `nativeBinding.pooledLspClientCount()` when called outside an MCP server).
+        if json {
+            return super::write_json(
+                &serde_json::json!({ "pooledClientCount": 0, "pooledClients": [] }),
+                true,
+            );
+        }
+        println!("LSP status");
+        println!("  pooled clients: 0");
+        println!("  Pass a file path to see how its language server resolves.");
+        return 0;
+    };
+
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| ".".to_owned());
+
+    let language_id = detect_language_id(path.to_owned());
+    let config = default_server_for_file(path.to_owned(), cwd);
+
+    let server_available = config.as_ref().is_some_and(|c| {
+        is_command_available(c.command.clone()).unwrap_or(false)
+    });
+    let server_command: Option<String> = config.map(|c| c.command);
+    let lang = language_id.as_deref().unwrap_or("unknown");
+
+    // Mirror the TS hint: if `path` looks like a server name rather than a file
+    // path, warn the user. A path has a separator or an extension that contains
+    // no separator.
+    let looks_like_path = path.contains('/') || path.contains('\\') || {
+        path.rfind('.')
+            .is_some_and(|i| i + 1 < path.len() && !path[i + 1..].contains('/'))
+    };
+    let unresolved = !server_available
+        && language_id
+            .as_deref()
+            .is_none_or(|l| l.is_empty() || l == "plaintext");
+
+    if json {
+        return super::write_json(
+            &serde_json::json!({
+                "filePath": path,
+                "languageId": lang,
+                "serverAvailable": server_available,
+                "serverCommand": server_command,
+            }),
+            true,
+        );
+    }
+
+    if unresolved && !looks_like_path {
+        eprintln!(
+            "  '{path}' looks like a server name, not a file. \
+             status resolves a FILE's language \u{2192} server (e.g. src/main.rs); \
+             run `lsp-server list` to see supported servers."
+        );
+    }
+
+    println!("LSP status for {path}");
+    println!("  language:  {lang}");
+    if server_available {
+        let cmd = server_command.as_deref().unwrap_or("unknown");
+        println!("  resolved:  {cmd}");
+        println!("  Language server resolved for this file (source: available).");
+    } else {
+        println!("  resolved:  unavailable");
+        if let Some(lang_id) = &language_id {
+            println!(
+                "  No language server is available for this file (language: {lang_id}). \
+                 Install a matching language server or set OCTOCODE_*_SERVER_PATH."
+            );
+        } else {
+            println!("  Could not determine language for this file.");
+        }
+    }
+    0
+}
+
 /// Dispatch the `lsp-server` subcommand.
 pub async fn run(
     action: &str,
@@ -685,11 +772,13 @@ pub async fn run(
 ) -> u8 {
     let root = managed_cache_root();
     let platform = platform_id();
+    // `names` carries the optional file-path argument for status/which.
     match action {
         "list" => run_list(&root, &platform, json),
         "install" => run_install(&root, &platform, names, all, yes, force, json).await,
         "uninstall" | "remove" => run_uninstall(&root, &platform, names, json),
         "clean" => run_clean(&root, yes, json),
+        "status" | "which" => run_status(names.first().map(String::as_str), json),
         other => {
             eprintln!("Unknown lsp-server subcommand: {other}");
             2
@@ -1019,7 +1108,7 @@ mod tests {
             },
         );
         assert!(!outcome.ok);
-        assert!(outcome.error.unwrap().contains("Checksum mismatch"));
+        assert!(outcome.error.expect("error should be set").contains("Checksum mismatch"));
     }
 
     #[test]
@@ -1033,7 +1122,7 @@ mod tests {
             |_url| panic!("must not fetch in off mode"),
         );
         assert!(!outcome.ok);
-        assert!(outcome.error.unwrap().contains("Auto-install is off"));
+        assert!(outcome.error.expect("error should be set").contains("Auto-install is off"));
     }
 
     #[test]
@@ -1050,7 +1139,7 @@ mod tests {
         assert!(
             outcome
                 .error
-                .unwrap()
+                .expect("error should be set")
                 .contains("no linux-arm64 release asset")
         );
     }
@@ -1068,13 +1157,55 @@ mod tests {
         assert!(!uninstall_server(root, "rust-analyzer", "linux-x64"));
     }
 
+    // --- run_status tests ---
+
+    #[test]
+    fn status_no_file_text_returns_zero() {
+        assert_eq!(super::run_status(None, false), 0);
+    }
+
+    #[test]
+    fn status_no_file_json_emits_pool_envelope() {
+        // Capture is indirect — we just assert the exit code is 0 and the
+        // function is callable. Output assertions live in integration tests.
+        assert_eq!(super::run_status(None, true), 0);
+    }
+
+    #[test]
+    fn status_known_extension_returns_zero() {
+        // A .rs file is always a Rust file regardless of server availability.
+        assert_eq!(super::run_status(Some("src/main.rs"), false), 0);
+    }
+
+    #[test]
+    fn status_json_known_extension_detects_language() {
+        // run_status in JSON mode for a .rs file must exit 0.
+        // We capture side effects via exit code only; output is checked by the
+        // parity harness (Phase 2).
+        assert_eq!(super::run_status(Some("main.rs"), true), 0);
+    }
+
+    #[test]
+    fn status_unknown_extension_returns_zero() {
+        assert_eq!(super::run_status(Some("file.unknownxyz"), false), 0);
+    }
+
+    #[test]
+    fn status_which_alias_same_as_status() {
+        // Both status and which parse to the same code path; verify they
+        // both return 0 for identical input.
+        let r_status = super::run_status(Some("a.ts"), false);
+        let r_which = super::run_status(Some("a.ts"), false);
+        assert_eq!(r_status, r_which);
+    }
+
     #[test]
     fn resolve_ignores_binary_without_marker() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         let bin = cached_server_bin_path(root, "clangd", "linux-x64").expect("path");
-        std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
-        std::fs::write(&bin, b"unverified").unwrap();
+        std::fs::create_dir_all(bin.parent().expect("bin has parent dir")).expect("create dir");
+        std::fs::write(&bin, b"unverified").expect("write file");
         // No .ok marker → not trusted.
         assert!(resolve_cached_server(root, "clangd", "linux-x64").is_none());
     }

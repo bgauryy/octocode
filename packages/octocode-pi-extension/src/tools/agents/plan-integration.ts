@@ -19,6 +19,9 @@ import {
   type ToolEffect,
 } from '../plan-mode.js';
 import type { QueryRecord } from '../query-envelope.js';
+import { activePlanScope, getPlan, getPlanCoordination } from '../planning/plan-store.js';
+import type { ActivePlanContext } from '../planning/plan-types.js';
+import { findLivePlanWorker } from './ledger.js';
 
 // ─── Profile & operation constants ────────────────────────────────────────────
 
@@ -45,6 +48,33 @@ export const AGENT_OPERATIONS = [
   'kill',
 ] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
+
+export function resolvePlanWorkerAssignment(
+  planStep: string | undefined,
+  task: string,
+  ctx?: ActivePlanContext,
+): { task: string; planId?: string; planScope?: string } {
+  if (!planStep) return { task };
+  const planScope = activePlanScope(ctx);
+  const assigned = getPlan(planScope).find((step) => step.id === planStep);
+  if (!assigned) throw new Error(`agent planStep does not match an existing plan task: ${planStep}`);
+  const planId = getPlanCoordination(planScope).sourcePlanKey;
+  const owner = findLivePlanWorker(planScope, planId, planStep);
+  if (owner) throw new Error(`plan task ${planStep} already has live worker ${owner}`);
+  return {
+    planScope,
+    planId,
+    task: [
+      task,
+      '',
+      `Plan task ID: ${planStep}`,
+      `Plan task: ${assigned.text}`,
+      ...(assigned.paths?.length ? [`Plan paths: ${assigned.paths.join(', ')}`] : []),
+      ...(assigned.acceptance ? [`Plan acceptance: ${assigned.acceptance}`] : []),
+      ...(assigned.checkCommand ? [`Plan check: ${assigned.checkCommand}`] : []),
+    ].join('\n'),
+  };
+}
 
 // ─── Typed-profile → subagent-registry mapping ───────────────────────────────
 

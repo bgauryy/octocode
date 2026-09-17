@@ -246,8 +246,8 @@ pub(super) enum Command {
     },
     /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`).
     LspServer {
-        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, or `clean`.
-        #[arg(value_parser = ["list", "install", "uninstall", "remove", "clean"])]
+        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, `status [file]`, or `which [file]`.
+        #[arg(value_parser = ["list", "install", "uninstall", "remove", "clean", "status", "which"])]
         action: String,
         /// Server names for install/uninstall (e.g. `rust-analyzer`, `clangd`).
         names: Vec<String>,

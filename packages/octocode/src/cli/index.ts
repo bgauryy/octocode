@@ -122,10 +122,19 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   // covers (everything except the TS-only management commands). Keeps
   // `npx octocode` as the interface; the TS path stays the default until
   // native ships via platform packages and parity is proven.
-  if (shouldDelegateToNative(args.command)) {
+  const rawArgv = argv ?? process.argv.slice(2);
+
+  // `install` hybrid: native handles flag-only installs (--ide <id>); the TS
+  // interactive prompt path stays in TS so TTY-driven client detection works.
+  // Only delegate once --ide is explicitly present in argv.
+  const installInteractive =
+    args.command === 'install' &&
+    !rawArgv.some(a => a === '--ide' || a.startsWith('--ide='));
+
+  if (!installInteractive && shouldDelegateToNative(args.command)) {
     const bin = resolveNativeBin();
     if (bin) {
-      process.exitCode = delegateToNative(bin, argv ?? process.argv.slice(2));
+      process.exitCode = delegateToNative(bin, rawArgv);
       return true;
     }
   }

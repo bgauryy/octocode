@@ -39,6 +39,7 @@ import {
 import {
   type AgentProfile,
   PROFILE_TO_SUBAGENT,
+  resolvePlanWorkerAssignment,
 } from './plan-integration.js';
 import {
   SUBAGENT_REGISTRY,
@@ -316,7 +317,8 @@ export async function executeSpawnQuery(
   const cohortId = (query['cohortId'] as string | undefined)?.trim() || undefined;
 
   const planStep = requestedPlanStep;
-  const fullTask = task;
+  const assignment = resolvePlanWorkerAssignment(planStep, task, ctx);
+  const fullTask = assignment.task;
 
   let spawnParams: SpawnAgentParams;
 
@@ -385,7 +387,7 @@ export async function executeSpawnQuery(
     }
 
     const spawnConfig = buildSpawnConfig({
-      task,
+      task: fullTask,
       url,
       port,
       model,
@@ -465,6 +467,8 @@ export async function executeSpawnQuery(
   }
 
   spawnParams.planStep = planStep;
+  spawnParams.planId = assignment.planId;
+  spawnParams.planScope = assignment.planScope;
   spawnParams.cohortId = cohortId;
   spawnParams.capabilityProfile = profile;
   spawnParams.capabilities = query['capabilities'] === undefined ? undefined : WorkerCapabilitySelectionSchema.parse(query['capabilities']);

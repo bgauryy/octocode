@@ -2,7 +2,7 @@
  * Web tool — Pi tool wrapper around runWebTool from src/web.ts.
  * One tool for both web search and page fetch, no API key required.
  * SSRF-hardened: private/loopback/link-local/metadata IPs blocked.
- * Migrated to universal queries[] envelope with per-query reasoning.
+ * Uses the universal queries[] envelope with optional batch labels.
  */
 import { runWebTool, renderWebResult } from '../web.js';
 import { propagateOctocodeEnv, getOctocodeHome } from '@octocodeai/config';

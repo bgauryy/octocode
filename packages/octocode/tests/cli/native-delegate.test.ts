@@ -72,6 +72,20 @@ describe('shouldDelegateToNative', () => {
     expect(shouldDelegateToNative('graph', nativeEnv)).toBe(true);
     expect(shouldDelegateToNative('tools', nativeEnv)).toBe(true);
   });
+
+  it('delegates lsp-server (graduated from TS-only: status/which now native)', () => {
+    expect(shouldDelegateToNative('lsp-server', nativeEnv)).toBe(true);
+  });
+
+  it('delegates install (graduated from TS-only: flag-only path is native)', () => {
+    // Note: interactive install (no --ide) is gated in index.ts, not here.
+    // shouldDelegateToNative returns true; index.ts adds the argv check.
+    expect(shouldDelegateToNative('install', nativeEnv)).toBe(true);
+  });
+
+  it('skill is still TS-only (blocked on pi-extension skill refactor)', () => {
+    expect(shouldDelegateToNative('skill', nativeEnv)).toBe(false);
+  });
 });
 
 describe('delegateToNative', () => {

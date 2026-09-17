@@ -179,4 +179,88 @@ mod contract_owner_tests {
         assert_eq!(query["materialize"], true);
         assert_eq!(query["materializeOffset"], 12);
     }
+
+    /// S8 schema single-source guard (RFC 20260917-finish-rust-migration):
+    /// Assert that no `.rs` source file outside `contracts/generated/` defines
+    /// inline JSON Schema vocabulary (`"$schema"`, `"inputSchema"` as an object
+    /// key inside a `json!()` macro call, or `"properties"` as an *lvalue* in a
+    /// JSON literal). The provenance check above ensures generated schemas
+    /// came from an official clean build of `octocode-core`; this complementary
+    /// scan catches accidental copy-paste of schema fragments into tool runners.
+    ///
+    /// Patterns checked (as substrings in non-comment, non-test lines):
+    ///   - `json!({"$schema":` — top-level JSON Schema declaration
+    ///   - `json!({"inputSchema":` — MCP tool registration schema inline
+    ///   - `"inputSchema": {` — same, written as a field expression
+    #[test]
+    fn no_inline_schema_literals_outside_generated_contracts() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let src_dir = manifest_dir.join("src");
+        let generated_dir = src_dir
+            .join("contracts")
+            .join("generated");
+
+        // Patterns that indicate inline (hand-authored) JSON Schema definition.
+        // We do not check for "properties" broadly because it appears in
+        // schema-reading code (e.g. contracts/validate.rs). Instead we only
+        // flag the two patterns that would only ever appear as schema authors:
+        let forbidden: &[&str] = &[
+            "json!({\"$schema\":",
+            "json!({\"inputSchema\":",
+            "\"inputSchema\": {",
+        ];
+
+        let mut violations: Vec<String> = Vec::new();
+        scan_for_schema_literals(&src_dir, &generated_dir, forbidden, &mut violations);
+
+        assert!(
+            violations.is_empty(),
+            "Hand-authored JSON Schema literals found outside contracts/generated/ \
+             — move them to octocode-core and regenerate:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    fn scan_for_schema_literals(
+        dir: &std::path::Path,
+        skip: &std::path::Path,
+        patterns: &[&str],
+        violations: &mut Vec<String>,
+    ) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Skip the generated directory entirely.
+            if path == skip || path.starts_with(skip) {
+                continue;
+            }
+            if path.is_dir() {
+                scan_for_schema_literals(&path, skip, patterns, violations);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                let Ok(content) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                for (line_no, line) in content.lines().enumerate() {
+                    let trimmed = line.trim();
+                    // Skip comment lines.
+                    if trimmed.starts_with("//") || trimmed.starts_with('*') {
+                        continue;
+                    }
+                    for pattern in patterns {
+                        if trimmed.contains(pattern) {
+                            violations.push(format!(
+                                "{}:{}: suspicious inline schema pattern `{}`",
+                                path.display(),
+                                line_no + 1,
+                                pattern
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

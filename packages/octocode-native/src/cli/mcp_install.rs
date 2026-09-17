@@ -640,22 +640,22 @@ mod tests {
         unsafe { std::env::set_var("HOME", "/tmp/octo-test-home") };
         assert!(
             config_path("codex")
-                .unwrap()
+                .expect("codex config path")
                 .ends_with(".codex/config.toml")
         );
-        assert!(config_path("goose").unwrap().ends_with("goose/config.yaml"));
+        assert!(config_path("goose").expect("goose config path").ends_with("goose/config.yaml"));
     }
 
     #[test]
     fn codex_toml_renders_mcp_servers_table_and_merges() {
         let (rendered, already) = render_codex_toml(None, &default_args()).expect("render");
-        assert!(already == false);
+        assert!(!already);
         // Valid TOML with the codex-native table shape.
         let parsed: toml::Value = toml::from_str(&rendered).expect("valid toml");
         let entry = &parsed["mcp_servers"]["octocode"];
         assert_eq!(entry["command"].as_str(), Some("npx"));
         assert_eq!(
-            entry["args"].as_array().unwrap().len(),
+            entry["args"].as_array().expect("args is array").len(),
             2,
             "npx -y octocode-mcp@latest"
         );

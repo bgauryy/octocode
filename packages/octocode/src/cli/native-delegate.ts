@@ -18,23 +18,24 @@ import { existsSync } from 'node:fs';
 /**
  * Commands the native binary does NOT cover and that therefore stay on the
  * TypeScript implementation:
- *   - `lsp-server`: LSP toolchain provisioning/management (octocode-engine LSP
- *      manager + server manifest) — no native equivalent.
- *   - `install`: native now writes all formats natively (JSON, codex TOML, goose
- *      YAML), but the TS `install` command still owns interactive client
- *      detection/prompts that native's flag-only CLI lacks, so routing stays TS
- *      until interactive parity lands.
  *   - `skill`: native's `skill` command spawns `octocode skill` (this Node CLI),
  *      so it MUST stay TS — delegating it would infinitely re-enter native.
  *      Skill materialization is owned by @octocodeai/octocode-skill-installer.
+ *      BLOCKED on concurrent pi-extension skill refactor landing.
+ *
+ * Graduated commands (no longer TS-only):
+ *   - `lsp-server`: native now covers list/install/uninstall/clean/status/which.
+ *   - `install --ide <id>`: native handles flag-only install for all formats
+ *      (JSON, codex TOML, goose YAML). Interactive mode (no --ide, TTY) stays
+ *      in TS which prompts and then calls the native write path. The delegation
+ *      check in index.ts gates on --ide presence so interactive mode is never
+ *      accidentally forwarded to native.
  *
  * Note: there is no `sync` command — MCP sync analysis is exposed via
  * `status --sync`, which native now supports at byte parity, so `status`
  * delegates freely.
  */
 export const TS_ONLY_COMMANDS: ReadonlySet<string> = new Set([
-  'lsp-server',
-  'install',
   'skill',
 ]);
 

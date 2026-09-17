@@ -1,7 +1,7 @@
 /**
  * Focused tests for plan-tool queries[] envelope contract.
  *
- * Covers: schema shape, per-query reasoning, preflight validation,
+ * Covers: schema shape, optional batch labels, preflight validation,
  * multi-query ordered execution, single-query detail passthrough,
  * flat-call rejection, and renderCall envelope awareness.
  */

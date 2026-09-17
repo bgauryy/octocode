@@ -1430,10 +1430,10 @@ export function preflightMcpQuery(query: QueryRecord): void {
     );
   }
   if (action === "describe") {
-    if (!server) throw new Error('describe requires server — use server:"octocode" for the built-in Octocode research server');
+    if (!server) throw new Error('describe requires a non-empty server; omit it to use the built-in Octocode server');
     if (!tool) throw new Error('describe requires tool — pass the exact MCP tool name, e.g. "localSearch" or "lspSearch"');
   } else if (action === "call") {
-    if (!server) throw new Error('call requires server — use server:"octocode" for the built-in Octocode research server');
+    if (!server) throw new Error('call requires a non-empty server; omit it to use the built-in Octocode server');
     if (!tool) throw new Error('call requires tool — pass the exact MCP tool name, e.g. "localSearch" or "lspSearch"');
   } else if (action === "resources" || action === "prompts") {
     if (!server) throw new Error(`${action} requires server`);
@@ -2272,7 +2272,7 @@ export function registerMcpTool(
         ctx,
         passthroughSingle: true,
         allowParallel: true,
-        preflight(query) {
+        async preflight(query) {
           preflightMcpQuery(query);
           if (proxyState.supported && query["action"] === "call") {
             const server = String(query["server"] ?? "");
@@ -2287,7 +2287,21 @@ export function registerMcpTool(
               mcpToolIdentity(server, tool),
             );
             if (granted && !describedDigest) {
-              throw new Error(schemaRequiredMessage(server, tool));
+              // Auto-describe: load and activate the schema so the call can proceed
+              // without requiring a separate explicit describe step.
+              const describeResult = await handleMcpAction(
+                { action: "describe", server, tool },
+                signal,
+                ctx,
+              );
+              if (describeResult.isError) {
+                const errorText = describeResult.content
+                  .filter((p): p is { type: "text"; text: string } => p.type === "text")
+                  .map(p => p.text)
+                  .join("\n");
+                throw new Error(errorText || schemaRequiredMessage(server, tool));
+              }
+              activateDescribedMcpProxy(pi, proxyState, describeResult, ctx);
             }
           }
           if (params["queryRunType"] !== "parallel") return;

@@ -2439,10 +2439,12 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.doesNotMatch(cachedPrompt, /octocode-roast: Critical review and adversarial critique/, 'pathless metadata cannot shadow an effective skill source');
     assert.doesNotMatch(cachedPrompt, /BEFORE acting/);
 
-    await assert.rejects(
-      invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'guessed' } }),
-      /MCP_SCHEMA_REQUIRED.*fake\/echo/,
-      'the model must inspect the exact schema before using the generic gateway call',
+    // Auto-describe: call without prior describe now auto-describes the schema and proceeds.
+    const autoDescribed = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'guessed' } });
+    assert.match(
+      (autoDescribed.content[0] as { text: string }).text,
+      /echo:guessed/,
+      'call without prior describe auto-describes and succeeds',
     );
 
     const described = await invokeMcp({ action: 'describe', server: 'fake', tool: 'echo' });

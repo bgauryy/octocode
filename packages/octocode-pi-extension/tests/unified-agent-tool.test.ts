@@ -2,7 +2,7 @@
  * unified-agent-tool.test.ts — Phase 4 focused tests.
  *
  * Coverage:
- *   schema       — queries[] envelope, reasoning required, type/profile enums
+ *   schema       — queries[] envelope, optional labels, type/profile enums
  *   dispatch     — correct handler invoked per operation type
  *   browser      — browser profile: routeTask routing + buildSpawnConfig delegation
  *   lifecycle    — spawn → agentId, kill → success, inspect list, message, steer
@@ -581,15 +581,14 @@ describe('plan worker assignment', () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it('passes planStep through as metadata without validation', async () => {
+  it('rejects a planStep that is not in the active plan', async () => {
     const agentProcess = await import('../src/tools/agents/process.js');
     const tools = await loadSut();
-    const result = await run(
+    await expect(run(
       tools.get('agent')!,
       batch({ type: 'spawn', task: 'Independent architecture review', planStep: 'architecture-review-integration' }),
-    );
-    expect(vi.mocked(agentProcess.spawnRpcAgent).mock.calls[0]![0].planStep).toBe('architecture-review-integration');
-    expect(result.text).toMatch(/SPAWNED/i);
+    )).rejects.toThrow(/does not match an existing plan task/i);
+    expect(agentProcess.spawnRpcAgent).not.toHaveBeenCalled();
   });
 
   it('spawns without planStep and does not read plan state', async () => {
