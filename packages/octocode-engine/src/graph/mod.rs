@@ -1,6 +1,16 @@
 mod algorithms;
+mod diff;
 mod model;
+mod policy;
 
+pub use policy::{
+    classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
+    BaselineReport, BoundaryRule, BoundaryViolation, ComponentRule, Severity,
+};
+pub use diff::{
+    diff_graphs, BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta,
+    FileDelta, GraphDiff, MetricDelta, NodeDelta, RelationDelta, RelationKey, StaticDynamicShift,
+};
 pub use algorithms::{
     condense as condense_file_graph, cycle_witness, reachable as reachable_files,
     reverse as reverse_file_graph, scc as strongly_connected_components,

@@ -1,5 +1,7 @@
 use super::{algorithms::*, build::normalize, types::*};
-use crate::{security::ContentSecurity, tools::local_fetch::CancellationCheck};
+use crate::{
+    policy::path::PathPolicy, security::ContentSecurity, tools::local_fetch::CancellationCheck,
+};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -38,6 +40,12 @@ pub(crate) fn analyze(
         GraphAnalysis::Cycles => cycles(&b),
         GraphAnalysis::Reachability => reachability(&b, q, security),
         GraphAnalysis::DeadCode => dead_code(&b, q, security),
+        GraphAnalysis::Drift => {
+            return Err(AstGraphError::new(
+                "invalidGraphQuery",
+                "drift is dispatched before analyze",
+            ));
+        }
     };
     warnings.extend(extra_warnings);
     if b.diagnostics
@@ -675,6 +683,147 @@ fn is_test(f: &str) -> bool {
         || [".test.", ".spec."].iter().any(|x| l.contains(x))
 }
 
+/// Compare the import topology of a baseline root against the head `path` and
+/// report typed structural drift. Builds two independent snapshots and diffs
+/// them through the shared engine so results stay AST-only and deterministic.
+pub(crate) fn drift(
+    q: &AstGraphQuery,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+) -> AstGraphResult {
+    let head = super::build::build_graph(q, paths, security, cancel)?;
+    let baseline_root = q
+        .baseline
+        .clone()
+        .ok_or_else(|| AstGraphError::new("invalidGraphQuery", "drift requires baseline"))?;
+    let mut base_query = q.clone();
+    base_query.path = Some(baseline_root);
+    base_query.baseline = None;
+    let mut base = super::build::build_graph(&base_query, paths, security, cancel)?;
+    cancel
+        .check()
+        .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
+
+    // The native scanner keys every node on a path relative to its own scan
+    // root, so two-root drift shares identity across differing absolute roots.
+    // Equalize the root metadata so the engine's root-mismatch gate — which
+    // protects consumers that key on absolute paths — does not false-refuse this
+    // legitimately comparable pair. The real roots stay visible in `path` /
+    // `baseline` below.
+    base.code_graph.snapshot.root = head.code_graph.snapshot.root.clone();
+    let diff = octocode_engine::graph::diff_graphs(&base.code_graph, &head.code_graph);
+
+    let mut items: Vec<Value> = Vec::new();
+    for rel in &diff.relations.added {
+        items.push(json!({"category":"relation","change":"added","from":rel.from.0,"to":rel.to.0,"edgeKind":format!("{:?}",rel.kind),"confidence":"syntactic"}));
+    }
+    for rel in &diff.relations.removed {
+        items.push(json!({"category":"relation","change":"removed","from":rel.from.0,"to":rel.to.0,"edgeKind":format!("{:?}",rel.kind),"confidence":"syntactic"}));
+    }
+    for rel in &diff.relations.static_to_dynamic {
+        items.push(json!({"category":"transition","change":"staticToDynamic","from":rel.from.0,"to":rel.to.0,"confidence":"syntactic"}));
+    }
+    for rel in &diff.relations.dynamic_to_static {
+        items.push(json!({"category":"transition","change":"dynamicToStatic","from":rel.from.0,"to":rel.to.0,"confidence":"syntactic"}));
+    }
+    for cycle in &diff.cycles.added {
+        items.push(json!({"category":"cycle","change":"added","files":cycle,"confidence":"syntactic"}));
+    }
+    for cycle in &diff.cycles.resolved {
+        items.push(json!({"category":"cycle","change":"resolved","files":cycle,"confidence":"syntactic"}));
+    }
+    for file in &diff.files.added {
+        items.push(json!({"category":"file","change":"added","file":file}));
+    }
+    for file in &diff.files.removed {
+        items.push(json!({"category":"file","change":"removed","file":file}));
+    }
+    for file in &diff.files.changed {
+        items.push(json!({"category":"file","change":"changed","file":file}));
+    }
+
+    let summary = json!({
+        "comparable": diff.comparable,
+        "incompatibilities": serde_json::to_value(&diff.incompatibilities).unwrap_or(Value::Null),
+        "relationsAdded": diff.relations.added.len(),
+        "relationsRemoved": diff.relations.removed.len(),
+        "staticToDynamic": diff.relations.static_to_dynamic.len(),
+        "dynamicToStatic": diff.relations.dynamic_to_static.len(),
+        "cyclesAdded": diff.cycles.added.len(),
+        "cyclesResolved": diff.cycles.resolved.len(),
+        "filesAdded": diff.files.added.len(),
+        "filesRemoved": diff.files.removed.len(),
+        "filesChanged": diff.files.changed.len(),
+        "completeness": serde_json::to_value(&diff.completeness).unwrap_or(Value::Null),
+        "metrics": serde_json::to_value(&diff.metrics).unwrap_or(Value::Null),
+    });
+
+    let mut base_map = Map::new();
+    base_map.insert("operation".into(), json!("topology"));
+    base_map.insert("analysis".into(), json!("drift"));
+    base_map.insert("path".into(), json!(head.display_path));
+    base_map.insert("baseline".into(), json!(base.display_path));
+    base_map.insert("filesScanned".into(), json!(head.facts.len()));
+    base_map.insert("baselineFilesScanned".into(), json!(base.facts.len()));
+
+    let (page, pagination, limit_truncated, total) = paginate(items, q);
+    let has_more = pagination["hasMore"] == json!(true);
+    base_map.insert("results".into(), Value::Array(page));
+    base_map.insert("pagination".into(), pagination);
+    base_map.insert("summary".into(), summary);
+
+    let mut reasons: Vec<&str> = Vec::new();
+    if !diff.comparable {
+        base_map.insert("confidence".into(), json!("low"));
+        base_map.insert(
+            "warnings".into(),
+            json!(["graphs are not comparable — see summary.incompatibilities"]),
+        );
+    }
+    if limit_truncated {
+        base_map.insert("totalAvailable".into(), json!(total));
+        reasons.push("limit");
+    }
+    if head.truncated || base.truncated {
+        reasons.push("maxFiles");
+    }
+    if head.files_skipped > 0 || base.files_skipped > 0 {
+        reasons.push("filesSkipped");
+    }
+    if !reasons.is_empty() {
+        base_map.insert("truncated".into(), json!(true));
+        base_map.insert("partialReasons".into(), json!(reasons));
+    }
+    let results_state = if has_more {
+        "pageable"
+    } else if reasons.is_empty() {
+        "complete"
+    } else {
+        "truncated"
+    };
+    let graph_state = if head.truncated
+        || base.truncated
+        || head.files_skipped > 0
+        || base.files_skipped > 0
+    {
+        "scan-truncated"
+    } else {
+        "complete"
+    };
+    base_map.insert(
+        "completeness".into(),
+        json!({"results":results_state,"graph":graph_state,"diagnostics":"complete"}),
+    );
+    if has_more && q.page < 1000 {
+        base_map.insert(
+            "next".into(),
+            json!({"nextPage": continuation(q, Some(q.page + 1), None, "Continue topology drift results.")}),
+        );
+    }
+    Ok(Value::Object(base_map))
+}
+
 fn paginate(items: Vec<Value>, q: &AstGraphQuery) -> (Vec<Value>, Value, bool, usize) {
     let total = items.len();
     let limited = if let Some(l) = q.limit {
@@ -780,6 +929,7 @@ fn add_next(
             GraphAnalysis::Cycles => "Continue cycle components.",
             GraphAnalysis::Reachability => "Continue reachability classifications.",
             GraphAnalysis::DeadCode => "Continue dead-code candidates.",
+            GraphAnalysis::Drift => "Continue topology drift results.",
         };
         next.insert(
             "nextPage".into(),

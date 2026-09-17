@@ -11,6 +11,7 @@ mod maintenance;
 pub mod render;
 pub mod response;
 
+pub use cursor::CursorError;
 pub use engine::{FailureKind, HostOptions, RuntimeError, ToolOutcome, ToolRuntime};
 pub use lifecycle::{
     ExecutionContext, ExecutionError, RequestAdmission, RequestRuntime, RuntimeLimits,

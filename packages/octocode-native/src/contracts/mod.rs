@@ -9,6 +9,7 @@ pub use instructions::mcp_instructions;
 pub use prepare::{ContractInputError, PrepareOptions, PreparedQuery, prepare};
 pub use validate::{
     ContractValidationError, ValidationIssue, format_input_error, validate, validate_output,
+    validate_query,
 };
 
 /// Embedded contracts are immutable across runtime handles and requests.
@@ -40,38 +41,9 @@ pub fn prepare_and_validate(
             received: None,
         }],
     })?;
-    // Wrap the single query in the canonical { queries: [q] } envelope that
-    // the JSON-Schema validators and normalization rules expect, then unwrap
-    // after validation to return a flat single-query Value.
-    let wrapped = serde_json::json!({ "queries": [serde_json::Value::Object(prepared.query)] });
-    let mut validated = validate(tool_name, wrapped).map_err(strip_array_prefix)?;
-    // Extract the validated, defaulted query from position 0.
-    validated["queries"]
-        .as_array_mut()
-        .and_then(|arr| arr.first_mut())
-        .map(|q| q.take())
-        .ok_or_else(|| ContractValidationError {
-            issues: vec![ValidationIssue {
-                rule_id: "prepare.extract".to_owned(),
-                path: Vec::new(),
-                message: "validated queries array was empty".to_owned(),
-                schema: None,
-                received: None,
-            }],
-        })
-}
-
-/// Strip the internal `["queries", "0", ...]` path prefix from validation errors
-/// so callers see `field` rather than `queries.0.field`.
-fn strip_array_prefix(mut error: ContractValidationError) -> ContractValidationError {
-    for issue in &mut error.issues {
-        if issue.path.first().map(String::as_str) == Some("queries")
-            && issue.path.get(1).map(String::as_str) == Some("0")
-        {
-            issue.path.drain(..2);
-        }
-    }
-    error
+    // Delegate to validate_query which handles the wrap/unwrap internally
+    // and strips the "queries.0." prefix from any validation error paths.
+    validate_query(tool_name, serde_json::Value::Object(prepared.query))
 }
 
 /// Fingerprint of the canonical sibling-core contract used for this build.

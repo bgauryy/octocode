@@ -177,6 +177,38 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
     Ok(input)
 }
 
+/// Validates a single flat query object and returns the validated, defaulted
+/// query. Strips the internal `queries.0.` path prefix from error messages so
+/// callers see `field` rather than `queries.0.field`.
+pub fn validate_query(tool_name: &str, query: Value) -> Result<Value, ContractValidationError> {
+    let wrapped = serde_json::json!({ "queries": [query] });
+    let mut validated = validate(tool_name, wrapped).map_err(strip_queries_prefix)?;
+    validated["queries"]
+        .as_array_mut()
+        .and_then(|arr| arr.first_mut())
+        .map(|q| q.take())
+        .ok_or_else(|| ContractValidationError {
+            issues: vec![ValidationIssue {
+                rule_id: "validate.extract".to_owned(),
+                path: Vec::new(),
+                message: "validated queries array was empty".to_owned(),
+                schema: None,
+                received: None,
+            }],
+        })
+}
+
+fn strip_queries_prefix(mut error: ContractValidationError) -> ContractValidationError {
+    for issue in &mut error.issues {
+        if issue.path.first().map(String::as_str) == Some("queries")
+            && issue.path.get(1).map(String::as_str) == Some("0")
+        {
+            issue.path.drain(..2);
+        }
+    }
+    error
+}
+
 /// Validates a completed structured response against the canonical generated
 /// output contract. Validation uses a clone because schema defaults, if ever
 /// introduced by the contract owner, must not mutate an already produced result.

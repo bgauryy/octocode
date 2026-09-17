@@ -10,6 +10,7 @@ pub enum GraphAnalysis {
     Cycles,
     Reachability,
     DeadCode,
+    Drift,
 }
 
 impl GraphAnalysis {
@@ -21,6 +22,7 @@ impl GraphAnalysis {
             Self::Cycles => "cycles",
             Self::Reachability => "reachability",
             Self::DeadCode => "deadCode",
+            Self::Drift => "drift",
         }
     }
 }
@@ -55,6 +57,9 @@ pub struct AstGraphQuery {
     pub diagnostic_page_size: Option<u32>,
     pub diagnostic_snapshot: Option<String>,
     pub rust_workspace: Option<String>,
+    /// Baseline repository/package root for `analysis:"drift"`; the current
+    /// `path` is the head. Only valid for the drift analysis.
+    pub baseline: Option<String>,
 }
 
 pub(crate) type RawFacts = octocode_engine::graph::GraphFactsDocument;
