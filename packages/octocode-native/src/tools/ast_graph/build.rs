@@ -755,6 +755,7 @@ pub(crate) fn normalize(p: &str) -> String {
 }
 
 fn load_cargo_crates(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
     let mut child = std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--offline"])
         .current_dir(root)
@@ -762,26 +763,60 @@ fn load_cargo_crates(root: &Path) -> Result<BTreeMap<String, String>, String> {
         .stderr(std::process::Stdio::null())
         .spawn()
         .map_err(|error| error.to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "cargo metadata stdout was unavailable".to_owned())?;
+    let reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut stdout = stdout;
+        let mut bytes = Vec::new();
+        let mut chunk = [0_u8; 16 * 1024];
+        let mut exceeded = false;
+        loop {
+            let read = stdout.read(&mut chunk).map_err(|error| error.to_string())?;
+            if read == 0 {
+                break;
+            }
+            if bytes.len().saturating_add(read) <= MAX_METADATA_BYTES {
+                bytes.extend_from_slice(&chunk[..read]);
+            } else {
+                exceeded = true;
+            }
+        }
+        if exceeded {
+            Err("cargo metadata exceeded the 32 MiB output limit".to_owned())
+        } else {
+            Ok(bytes)
+        }
+    });
     let started = std::time::Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => break,
-            Ok(Some(_)) | Err(_) => {
+            Ok(Some(status)) => break status,
+            Err(error) => {
                 let _ = child.kill();
-                return Err("cargo metadata exited unsuccessfully".into());
+                let _ = child.wait();
+                let _ = reader.join();
+                return Err(error.to_string());
             }
             Ok(None) if started.elapsed() > std::time::Duration::from_secs(5) => {
                 let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
                 return Err("cargo metadata timed out".into());
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
         }
+    };
+    let bytes = reader
+        .join()
+        .map_err(|_| "cargo metadata output reader failed".to_owned())??;
+    if !status.success() {
+        return Err("cargo metadata exited unsuccessfully".into());
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| error.to_string())?;
     let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
+        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
     let mut map = BTreeMap::new();
     for package in value
         .get("packages")
@@ -935,5 +970,18 @@ fn export_target(package: &serde_json::Value) -> Option<String> {
                 })
             }),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cargo_metadata_stdout_is_drained_while_the_child_runs() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let crates = super::load_cargo_crates(root).expect("cargo metadata");
+        assert_eq!(
+            crates.get("octocode_native").map(String::as_str),
+            Some("src/lib.rs")
+        );
     }
 }
