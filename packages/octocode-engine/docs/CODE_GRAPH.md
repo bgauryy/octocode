@@ -24,6 +24,12 @@ The implementation is in `src/graph/model.rs`. Native graph-fact extraction cros
 
 `NativeLspClient::graph_server_receipt` and `NativeLspClient::document_version` provide provenance for semantic ingestion. The client rejects unsupported position encodings, collects bounded LSP partial results, and rolls back document versions when synchronization fails.
 
+## Runtime integration status
+
+Native topology construction retains the AST snapshot in `BuiltGraph::code_graph`. `astSearch` remains AST-only because the canonical tool contract has no semantic-enrichment request or budget field. The runtime must not start language servers silently and change latency or availability semantics.
+
+A runtime that opts into enrichment through a future canonical contract must select bounded AST candidates, synchronize their source documents, verify capabilities, attach both the server receipt and the document version, and reject stale generations. It must then call either `mark_semantic_complete` or `mark_semantic_incomplete`. Until then, callers must combine `astSearch` candidates with explicit `lspSearch` proof. This keeps syntax candidates distinct from semantic claims.
+
 ## File topology algorithms
 
 Reusable deterministic algorithms are in `src/graph/algorithms.rs`:
