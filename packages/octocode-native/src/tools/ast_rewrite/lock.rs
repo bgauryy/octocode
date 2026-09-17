@@ -165,14 +165,6 @@ fn paths_overlap(left: &Path, right: &Path) -> bool {
     left.starts_with(right) || right.starts_with(left)
 }
 
-#[cfg(unix)]
 fn process_is_alive(pid: u32) -> bool {
-    // SAFETY: signal 0 does not mutate the target process; it only checks existence/permission.
-    let result = unsafe { libc::kill(pid.cast_signed(), 0) };
-    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-#[cfg(not(unix))]
-fn process_is_alive(_pid: u32) -> bool {
-    true
+    crate::process_status::is_alive(pid)
 }

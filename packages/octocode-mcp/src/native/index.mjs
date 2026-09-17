@@ -10,8 +10,9 @@ import { getGrammarCapabilities } from '@octocodeai/octocode-tools-core';
 const require = createRequire(import.meta.url);
 
 export function loadNativeBinding(env = process.env) {
-  const bindingPath = env.OCTOCODE_NATIVE_BINDING
-    ?? require.resolve('@octocodeai/octocode-native/native.cjs');
+  const bindingPath =
+    env.OCTOCODE_NATIVE_BINDING ??
+    require.resolve('@octocodeai/octocode-native/native.cjs');
   const binding = require(bindingPath);
   if (typeof binding.NativeRuntime !== 'function') {
     throw new Error('The candidate addon does not export NativeRuntime');
@@ -42,18 +43,20 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
       availableTools.map(tool => tool.name),
       availableTools.some(tool => tool.name === 'astSearch')
         ? { grammarCapabilities: getGrammarCapabilities() }
-        : {},
+        : {}
     ),
   });
 
   const definitions = new Map(
-    DIRECT_TOOL_DEFINITIONS.map(definition => [definition.name, definition]),
+    DIRECT_TOOL_DEFINITIONS.map(definition => [definition.name, definition])
   );
   for (const tool of availableTools) {
     const definition = definitions.get(tool.name);
     if (!definition) {
       void runtime.close();
-      throw new Error(`Native catalog tool has no octocode-core definition: ${tool.name}`);
+      throw new Error(
+        `Native catalog tool has no octocode-core definition: ${tool.name}`
+      );
     }
     server.registerTool(
       definition.name,
@@ -75,15 +78,16 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
         } finally {
           signal?.removeEventListener('abort', cancel);
         }
-      },
+      }
     );
   }
 
   let closing;
-  const close = () => closing ??= (async () => {
-    await runtime.close();
-    await server.close();
-  })();
+  const close = () =>
+    (closing ??= (async () => {
+      await runtime.close();
+      await server.close();
+    })());
   return { server, runtime, catalog, close };
 }
 
@@ -101,6 +105,9 @@ export async function startNativeMcp(options) {
 // the module is bundled into or imported by another entry (e.g. index.js).
 const entryArg = process.argv[1] ?? '';
 const invokedPath = entryArg ? pathToFileURL(entryArg).href : '';
-if (invokedPath === import.meta.url && /native[\\/]index\.mjs$/.test(entryArg)) {
+if (
+  invokedPath === import.meta.url &&
+  /native[\\/]index\.mjs$/.test(entryArg)
+) {
   await startNativeMcp();
 }

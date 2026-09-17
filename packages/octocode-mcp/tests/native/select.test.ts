@@ -11,14 +11,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fakeAddon = join(here, 'fixtures/fake-addon.cjs');
 
 describe('resolveNativeAddon', () => {
-  it('returns null when OCTOCODE_NATIVE_BINDING is unset', () => {
-    expect(resolveNativeAddon({})).toBeNull();
+  it('resolves the installed platform loader when the explicit binding is unset', () => {
+    expect(resolveNativeAddon({})).toMatch(/octocode-native[/\\]native\.cjs$/);
   });
 
-  it('returns null when the binding cannot be required', () => {
+  it('falls back to the installed loader when the explicit binding cannot be required', () => {
     expect(
       resolveNativeAddon({ OCTOCODE_NATIVE_BINDING: '/no/such/addon.cjs' })
-    ).toBeNull();
+    ).toMatch(/octocode-native[/\\]native\.cjs$/);
   });
 
   it('returns the path when the addon exports NativeRuntime', () => {
@@ -33,8 +33,8 @@ describe('selectRuntime', () => {
     expect(selectRuntime({})).toBe('tools-core');
   });
 
-  it('stays tools-core when opted in but no addon resolves', () => {
-    expect(selectRuntime({ OCTOCODE_RUNTIME: 'native' })).toBe('tools-core');
+  it('selects native from the installed loader when opted in', () => {
+    expect(selectRuntime({ OCTOCODE_RUNTIME: 'native' })).toBe('native');
   });
 
   it('stays tools-core when an addon exists but opt-in is absent', () => {

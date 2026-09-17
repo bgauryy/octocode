@@ -305,7 +305,7 @@ describe('astSearch topology operation contract', () => {
     scan.mockRestore();
   });
 
-  it('covers all six bounded graph operations through one executor', async () => {
+  it('covers all six single-root graph operations through one executor', async () => {
     const path = await createGraphFixture();
 
     const dependencies = await analyzeTopology({
@@ -380,6 +380,26 @@ describe('astSearch topology operation contract', () => {
     expect(deadCode.summary).toEqual(
       expect.objectContaining({ deadClusters: expect.any(Array) })
     );
+  });
+
+  it('compares two roots with paginated topology drift evidence', async () => {
+    const baseline = await createGraphFixture();
+    const path = await createGraphFixture();
+    await writeFile(join(path, 'b.js'), 'export function b() { return 1; }\n');
+
+    const result = await analyzeTopology({
+      operation: 'drift',
+      path,
+      baseline,
+      pageSize: 1,
+    });
+
+    expect(result.summary).toEqual(
+      expect.objectContaining({ comparable: true, cyclesResolved: 1 })
+    );
+    expect(result.results).toHaveLength(1);
+    expect(result.pagination).toMatchObject({ hasMore: true, currentPage: 1 });
+    expect(result.next?.nextPage).toBeDefined();
   });
 
   it('applies the shared result limit before pagination', async () => {

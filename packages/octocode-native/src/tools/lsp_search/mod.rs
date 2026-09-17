@@ -26,20 +26,35 @@ pub struct LspPosition {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LspSearchQuery {
     pub operation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<LspPosition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line_hint: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub order_hint: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub include_declaration: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub group_by_file: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub depth: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub page_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context_lines: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_context: Option<Value>,
 }
 
@@ -246,7 +261,7 @@ pub async fn execute(
         "hover" => json!({
             "type": query.operation,
             "uri": query.uri,
-            "lsp": { "serverAvailable": true, "source": "native", "provider": "hoverProvider" },
+            "lsp": { "serverAvailable": true, "source": "lsp", "provider": "hoverProvider" },
             "payload": { "kind": "hover", "hover": client.get_hover(path.clone(), line, character).await.map_err(|error| error.to_string())? }
         }),
         "typeDefinition" => locations(
@@ -499,9 +514,7 @@ fn attach_provider_context(
         if let Some(provider) = provider_for_operation(&query.operation) {
             lsp.insert("provider".into(), json!(provider));
         }
-        if lsp.get("source").and_then(Value::as_str) == Some("native") {
-            lsp.remove("source");
-        }
+        lsp.insert("source".into(), json!("lsp"));
         lsp.insert("receipt".into(), resolved_server_receipt(config, client));
     }
     if anchored {
@@ -761,6 +774,7 @@ fn locations(
     // The public structured contract is already compact: exact provider ranges
     // plus one-based display ranges, without engine-only fields.
     locations = locations.into_iter().map(compact_location).collect();
+    locations.sort_by_key(location_sort_key);
     if locations.is_empty() {
         return empty(
             query,
@@ -780,6 +794,23 @@ fn locations(
     );
     pagination["snapshot"] = json!(snapshot);
     let mut payload = json!({ "kind": kind, "locations": page });
+    if kind == "references" {
+        let total_references = locations.len();
+        let total_files = locations
+            .iter()
+            .filter_map(|location| location.get("uri").and_then(Value::as_str))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        payload["totalReferences"] = json!(total_references);
+        payload["totalFiles"] = json!(total_files);
+        payload["warmup"] = json!({
+            "candidates": total_files,
+            "warmedFiles": 0,
+            "skippedLarge": 0,
+            "possiblyTruncated": false
+        });
+        payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
+    }
     if query.group_by_file == Some(true) {
         payload["byFile"] = group_by_file(
             payload["locations"]
@@ -914,7 +945,7 @@ fn compact_location(value: Value) -> Value {
     let display_range = value
         .get("displayRange")
         .or_else(|| value.get("display_range"))
-        .map(normalize_display_range)
+        .and_then(normalize_display_range)
         .or_else(|| {
             let start = value.pointer("/range/start/line")?.as_u64()?;
             let end = value.pointer("/range/end/line")?.as_u64()?;
@@ -934,18 +965,42 @@ fn compact_location(value: Value) -> Value {
     Value::Object(compact)
 }
 
-fn normalize_display_range(value: &Value) -> Value {
+fn normalize_display_range(value: &Value) -> Option<Value> {
     let start = value
         .get("startLine")
         .or_else(|| value.get("start_line"))
-        .cloned()
-        .unwrap_or(Value::Null);
+        .and_then(Value::as_u64)?;
     let end = value
         .get("endLine")
         .or_else(|| value.get("end_line"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    json!({ "startLine": start, "endLine": end })
+        .and_then(Value::as_u64)?;
+    Some(json!({ "startLine": start, "endLine": end }))
+}
+
+fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
+    (
+        location
+            .get("uri")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+        location
+            .pointer("/range/start/line")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        location
+            .pointer("/range/start/character")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        location
+            .pointer("/range/end/line")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        location
+            .pointer("/range/end/character")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+    )
 }
 
 fn group_by_file(locations: &[Value]) -> Value {
@@ -1301,7 +1356,7 @@ fn failure(query: &LspSearchQuery, code: &str, message: &str, server_available: 
         "error": message,
         "type": query.operation,
         "uri": query.uri,
-        "lsp": { "serverAvailable": server_available, "source": "native" },
+        "lsp": { "serverAvailable": server_available, "source": "lsp" },
         "hints": [
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
         ]
@@ -1315,7 +1370,7 @@ fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available:
         "status": "empty",
         "type": query.operation,
         "uri": query.uri,
-        "lsp": { "serverAvailable": server_available, "source": "native" },
+        "lsp": { "serverAvailable": server_available, "source": "lsp" },
         "payload": { "kind": "empty", "category": category, "reason": reason },
         "hints": [
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
@@ -1558,7 +1613,7 @@ mod tests {
         let envelope = super::items_payload(&query, "documentSymbols", raw);
         assert_eq!(envelope["lsp"]["source"], "lsp");
         assert_eq!(envelope["payload"]["kind"], "documentSymbols");
-        assert_eq!(envelope["payload"]["symbols"].as_array().unwrap().len(), 2);
+        assert_eq!(envelope["payload"]["symbols"].as_array().expect("symbols should be an array").len(), 2);
         assert_eq!(envelope["payload"]["symbols"][0]["kind"], "class");
         assert_eq!(envelope["payload"]["symbols"][0]["line"], 3);
         assert_eq!(envelope["payload"]["symbols"][1]["kind"], "method");
@@ -1615,7 +1670,7 @@ mod tests {
         assert_eq!(receipt["argv"], serde_json::json!(["--stdio"]));
         assert_eq!(receipt["source"], "path");
         assert_eq!(receipt["workspaceRoot"], "/repo");
-        assert_eq!(receipt["capabilities"].as_object().unwrap().len(), 10);
+        assert_eq!(receipt["capabilities"].as_object().expect("capabilities should be an object").len(), 10);
         assert_eq!(receipt["capabilities"]["definitionProvider"], false);
         assert!(receipt.get("identity").is_none());
         assert!(

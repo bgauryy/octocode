@@ -11,6 +11,7 @@ pub mod contracts;
 pub mod errors;
 pub mod lsp;
 pub mod policy;
+mod process_status;
 pub mod providers;
 pub mod regex;
 pub mod response;

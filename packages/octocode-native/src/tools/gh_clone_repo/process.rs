@@ -177,6 +177,7 @@ impl GitRunner for SystemGit {
                 format!("git {} failed to start: {error}", request.label),
             )
         })?;
+        let mut process_tree = ProcessTreeGuard::attach(&child)?;
         let stdout = child.stdout.take().ok_or_else(|| {
             CloneError::new("clone.git.spawnFailed", "Git stdout pipe was unavailable")
         })?;
@@ -191,13 +192,13 @@ impl GitRunner for SystemGit {
             .min(control.deadline.saturating_duration_since(started));
         let status = loop {
             if let Err(message) = control.cancellation.check() {
-                terminate_and_reap(&mut child);
+                terminate_and_reap(&mut child, &mut process_tree);
                 join_reader(stdout_reader)?;
                 join_reader(stderr_reader)?;
                 return Err(CloneError::new("clone.execution.cancelled", message));
             }
             if started.elapsed() >= timeout || Instant::now() >= control.deadline {
-                terminate_and_reap(&mut child);
+                terminate_and_reap(&mut child, &mut process_tree);
                 join_reader(stdout_reader)?;
                 join_reader(stderr_reader)?;
                 return Err(CloneError::new(
@@ -209,7 +210,7 @@ impl GitRunner for SystemGit {
                 Ok(Some(status)) => break status,
                 Ok(None) => thread::sleep(Duration::from_millis(20)),
                 Err(error) => {
-                    terminate_and_reap(&mut child);
+                    terminate_and_reap(&mut child, &mut process_tree);
                     join_reader(stdout_reader)?;
                     join_reader(stderr_reader)?;
                     return Err(CloneError::new(
@@ -296,19 +297,102 @@ fn configure_process_group(command: &mut Command) {
 fn configure_process_group(_command: &mut Command) {}
 
 #[cfg(unix)]
-fn terminate_and_reap(child: &mut Child) {
+fn terminate_and_reap(child: &mut Child, process_tree: &mut ProcessTreeGuard) {
     // SAFETY: the child was started as process-group leader; negative pid targets that group.
     unsafe {
         libc::kill(-(child.id() as i32), libc::SIGKILL);
     }
+    process_tree.terminate();
     let _ = child.kill();
     let _ = child.wait();
 }
 
 #[cfg(not(unix))]
-fn terminate_and_reap(child: &mut Child) {
+fn terminate_and_reap(child: &mut Child, process_tree: &mut ProcessTreeGuard) {
+    process_tree.terminate();
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(not(windows))]
+struct ProcessTreeGuard;
+
+#[cfg(not(windows))]
+impl ProcessTreeGuard {
+    fn attach(_child: &Child) -> Result<Self, CloneError> {
+        Ok(Self)
+    }
+
+    fn terminate(&mut self) {}
+}
+
+#[cfg(windows)]
+struct ProcessTreeGuard(Option<windows_sys::Win32::Foundation::HANDLE>);
+
+#[cfg(windows)]
+impl ProcessTreeGuard {
+    fn attach(child: &Child) -> Result<Self, CloneError> {
+        use std::mem::{size_of, zeroed};
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+
+        // SAFETY: null security/name creates an unnamed job owned by the returned handle.
+        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if job.is_null() {
+            return Err(CloneError::new(
+                "clone.git.spawnFailed",
+                format!(
+                    "failed to create Windows job object: {}",
+                    io::Error::last_os_error()
+                ),
+            ));
+        }
+        // SAFETY: the Windows structure is plain data and zero is its documented baseline.
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { zeroed() };
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: job is valid and info points to the correct structure for this information class.
+        let configured = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                (&raw const info).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        } != 0;
+        // SAFETY: child owns a valid process handle while Child is alive.
+        let assigned =
+            configured && unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as _) } != 0;
+        if !assigned {
+            // SAFETY: job is owned by this function.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
+            return Err(CloneError::new(
+                "clone.git.spawnFailed",
+                format!(
+                    "failed to contain Git in a Windows job object: {}",
+                    io::Error::last_os_error()
+                ),
+            ));
+        }
+        Ok(Self(Some(job)))
+    }
+
+    fn terminate(&mut self) {
+        if let Some(job) = self.0.take() {
+            // Closing a kill-on-close job terminates every descendant before pipe readers join.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessTreeGuard {
+    fn drop(&mut self) {
+        self.terminate();
+    }
 }
 
 #[cfg(windows)]

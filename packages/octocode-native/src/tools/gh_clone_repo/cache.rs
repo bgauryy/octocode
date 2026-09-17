@@ -196,29 +196,8 @@ fn recover_stale_lock(path: &Path) -> bool {
     fs::rename(path, &tombstone).is_ok() && fs::remove_dir_all(tombstone).is_ok()
 }
 
-#[cfg(unix)]
 fn process_alive(pid: u32) -> bool {
-    if pid > i32::MAX as u32 {
-        return false;
-    }
-    // SAFETY: signal zero performs no mutation and the pid is validated as a positive u32.
-    let result = unsafe { libc::kill(pid as i32, 0) };
-    result == 0 || io::Error::last_os_error().kind() == io::ErrorKind::PermissionDenied
-}
-
-#[cfg(windows)]
-fn process_alive(pid: u32) -> bool {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-    // SAFETY: OpenProcess owns the returned handle, which is closed exactly once below.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle.is_null() {
-        false
-    } else {
-        // SAFETY: handle is non-null and owned by this function.
-        unsafe { CloseHandle(handle) };
-        true
-    }
+    crate::process_status::is_alive(pid)
 }
 
 pub(super) fn valid_clone(path: &Path, ttl: Duration) -> Option<CacheMeta> {

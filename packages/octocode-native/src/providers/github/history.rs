@@ -33,6 +33,7 @@ pub struct HistoryPage {
     pub skipped_pull_request_pages: usize,
     pub warnings: Vec<String>,
     pub listed: bool,
+    pub has_more: bool,
 }
 impl Default for HistoryPage {
     fn default() -> Self {
@@ -44,6 +45,7 @@ impl Default for HistoryPage {
             skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: false,
+            has_more: false,
         }
     }
 }
@@ -106,15 +108,16 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "invalid GitHub commit list response",
             )
         })?;
-        let seen = (r.page - 1) * r.per_page + items.len();
+        let has_more = response.next.is_some();
         Ok(HistoryPage {
-            total_count: seen + usize::from(response.next.is_some()),
+            total_count: 0,
             incomplete_results: false,
             items,
             provider_page: r.page,
             skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: true,
+            has_more,
         })
     }
     pub async fn canonical_owner_repo(
@@ -217,15 +220,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                         }
                     ));
                 }
-                let seen = items.len();
                 return Ok(HistoryPage {
-                    total_count: seen + usize::from(last_has_more),
+                    total_count: 0,
                     incomplete_results: false,
                     items,
                     provider_page,
                     skipped_pull_request_pages: skipped,
                     warnings,
                     listed: true,
+                    has_more: last_has_more,
                 });
             }
             skipped += 1;
@@ -275,15 +278,16 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "invalid GitHub pull request list response",
             )
         })?;
-        let seen = (request.page - 1) * request.per_page + items.len();
+        let has_more = response.next.is_some();
         Ok(HistoryPage {
-            total_count: seen + usize::from(response.next.is_some()),
+            total_count: 0,
             incomplete_results: false,
             items,
             provider_page: request.page,
             skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: true,
+            has_more,
         })
     }
     pub async fn search_issues(
@@ -351,6 +355,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             skipped_pull_request_pages: 0,
             warnings: Vec::new(),
             listed: false,
+            has_more: false,
         })
     }
 }

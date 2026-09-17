@@ -305,6 +305,8 @@ describe('prepareDirectToolInput', () => {
       'page',
       'metadataPage',
       'include',
+      'materialize',
+      'materializeOffset',
       'pageSize',
     ]);
   });

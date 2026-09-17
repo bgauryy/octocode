@@ -8,54 +8,54 @@
  *   cargo build --release --bins --target aarch64-apple-darwin
  *   node scripts/copy-binaries.cjs darwin-arm64
  */
-'use strict'
+'use strict';
 
-const { copyFileSync, chmodSync, mkdirSync } = require('fs')
-const { join } = require('path')
+const { copyFileSync, chmodSync, mkdirSync } = require('fs');
+const { join } = require('path');
 
 const TARGET_MAP = {
-  'darwin-arm64':    'aarch64-apple-darwin',
-  'darwin-x64':      'x86_64-apple-darwin',
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'darwin-x64': 'x86_64-apple-darwin',
   'linux-arm64-gnu': 'aarch64-unknown-linux-gnu',
-  'linux-x64-gnu':   'x86_64-unknown-linux-gnu',
-  'linux-x64-musl':  'x86_64-unknown-linux-musl',
-  'win32-x64-msvc':  'x86_64-pc-windows-msvc',
-}
+  'linux-x64-gnu': 'x86_64-unknown-linux-gnu',
+  'linux-x64-musl': 'x86_64-unknown-linux-musl',
+  'win32-x64-msvc': 'x86_64-pc-windows-msvc',
+};
 
-const platform = process.argv[2]
+const platform = process.argv[2];
 if (!platform || !TARGET_MAP[platform]) {
-  console.error('Usage: node scripts/copy-binaries.cjs <platform>')
-  console.error(`Valid platforms: ${Object.keys(TARGET_MAP).join(', ')}`)
-  process.exit(1)
+  console.error('Usage: node scripts/copy-binaries.cjs <platform>');
+  console.error(`Valid platforms: ${Object.keys(TARGET_MAP).join(', ')}`);
+  process.exit(1);
 }
 
-const triple = TARGET_MAP[platform]
-const isWindows = platform.startsWith('win32')
-const ext = isWindows ? '.exe' : ''
-const root = join(__dirname, '..')
-const srcDir = join(root, 'target', triple, 'release')
-const destDir = join(root, 'npm', platform)
+const triple = TARGET_MAP[platform];
+const isWindows = platform.startsWith('win32');
+const ext = isWindows ? '.exe' : '';
+const root = join(__dirname, '..');
+const srcDir = join(root, 'target', triple, 'release');
+const destDir = join(root, 'npm', platform);
 
-mkdirSync(destDir, { recursive: true })
+mkdirSync(destDir, { recursive: true });
 
 for (const name of ['octocode', 'octocode-regex-worker']) {
-  const src = join(srcDir, `${name}${ext}`)
-  const dest = join(destDir, `${name}${ext}`)
-  copyFileSync(src, dest)
+  const src = join(srcDir, `${name}${ext}`);
+  const dest = join(destDir, `${name}${ext}`);
+  copyFileSync(src, dest);
   if (!isWindows) {
     // Ensure the binary is executable (cargo strips this on some hosts)
-    chmodSync(dest, 0o755)
+    chmodSync(dest, 0o755);
   }
-  console.log(`  ✔ ${name}${ext}  →  npm/${platform}/${name}${ext}`)
+  console.log(`  ✔ ${name}${ext}  →  npm/${platform}/${name}${ext}`);
 }
 
 const libraryName = isWindows
   ? 'octocode_native.dll'
   : platform.startsWith('darwin')
     ? 'liboctocode_native.dylib'
-    : 'liboctocode_native.so'
-const addonName = `octocode-native.${platform}.node`
-copyFileSync(join(srcDir, libraryName), join(destDir, addonName))
-console.log(`  ✔ ${addonName}  →  npm/${platform}/${addonName}`)
+    : 'liboctocode_native.so';
+const addonName = `octocode-native.${platform}.node`;
+copyFileSync(join(srcDir, libraryName), join(destDir, addonName));
+console.log(`  ✔ ${addonName}  →  npm/${platform}/${addonName}`);
 
-console.log(`\nCopied binaries for ${platform} (${triple})`)
+console.log(`\nCopied binaries for ${platform} (${triple})`);

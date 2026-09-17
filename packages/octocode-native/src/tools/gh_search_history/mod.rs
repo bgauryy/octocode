@@ -208,7 +208,7 @@ pub async fn execute<R: CredentialResolver>(
         }
     }
     let total = if result.listed {
-        result.total_count
+        0
     } else {
         result.total_count.min(1000)
     };
@@ -219,10 +219,12 @@ pub async fn execute<R: CredentialResolver>(
         page
     };
     let more = if result.listed {
-        result.total_count > result.items.len()
+        result.has_more
     } else {
         current_page < pages
     };
+    let exact_list_total =
+        (result.listed && current_page == 1 && !more).then_some(result.items.len());
     let effective = request.query.clone();
     let mut value = match query.operation {
         HistoryOperation::PullRequests => {
@@ -238,7 +240,15 @@ pub async fn execute<R: CredentialResolver>(
                     }
                 })
                 .collect::<Vec<_>>();
-            let mut v = json!({"pullRequests":rows,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"totalPages":pages,"perPage":per,"totalMatches":total,"totalMatchesCapped":!result.listed && result.total_count>total,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
+            let mut v = json!({"pullRequests":rows,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
+            if !result.listed {
+                v["pagination"]["totalPages"] = json!(pages);
+                v["pagination"]["totalMatches"] = json!(total);
+                v["pagination"]["totalMatchesCapped"] = json!(result.total_count > total);
+            } else if let Some(total) = exact_list_total {
+                v["pagination"]["totalMatches"] = json!(total);
+                v["pagination"]["totalPages"] = json!(1);
+            }
             if let Some(number) = v["pullRequests"]
                 .get(0)
                 .and_then(|x| x.get("number"))
@@ -262,10 +272,29 @@ pub async fn execute<R: CredentialResolver>(
                     }
                 })
                 .collect::<Vec<_>>();
-            json!({"type":"issues","owner":query.owner,"repo":query.repo,"issues":issues,"totalCount":total,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}})
+            let mut v = json!({"type":"issues","owner":query.owner,"repo":query.repo,"issues":issues,"effectiveQuery":effective,"pagination":{"currentPage":current_page,"perPage":per,"hasMore":more,"nextPage":more.then_some(current_page+1)}});
+            if let Some(total) = if result.listed {
+                exact_list_total
+            } else {
+                Some(total)
+            } {
+                v["totalCount"] = json!(total);
+            }
+            v
         }
         HistoryOperation::Commits => {
-            json!({"type":"commits","owner":query.owner,"repo":query.repo,"scope":"defaultBranch","commits":result.items.into_iter().map(if query.keywords.as_ref().is_none_or(Vec::is_empty){map_commit_list}else{map_commit}).collect::<Vec<_>>(),"totalCount":total,"incompleteResults":result.incomplete_results,"pagination":{"page":page,"perPage":per,"hasMore":more,"totalMatchesCapped":result.total_count>total}})
+            let mut v = json!({"type":"commits","owner":query.owner,"repo":query.repo,"scope":"defaultBranch","commits":result.items.into_iter().map(if query.keywords.as_ref().is_none_or(Vec::is_empty){map_commit_list}else{map_commit}).collect::<Vec<_>>(),"incompleteResults":result.incomplete_results,"pagination":{"page":page,"perPage":per,"hasMore":more}});
+            if let Some(total) = if result.listed {
+                exact_list_total
+            } else {
+                Some(total)
+            } {
+                v["totalCount"] = json!(total);
+            }
+            if !result.listed {
+                v["pagination"]["totalMatchesCapped"] = json!(result.total_count > total);
+            }
+            v
         }
     };
     if matches!(query.operation, HistoryOperation::Commits)

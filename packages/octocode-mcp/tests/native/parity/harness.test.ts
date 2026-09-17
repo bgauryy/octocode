@@ -84,7 +84,11 @@ describe('Schema single-source guard (S8)', () => {
       here,
       '../../../../octocode-native/src/contracts/generated/contract-provenance.json'
     );
-    let provenance: { sourceDirty: boolean; contractFingerprint: string; sourceRevision: string };
+    let provenance: {
+      sourceDirty: boolean;
+      contractFingerprint: string;
+      sourceRevision: string;
+    };
     expect(() => {
       provenance = JSON.parse(readFileSync(provenancePath, 'utf8'));
     }).not.toThrow();

@@ -1,6 +1,6 @@
 ---
 name: octocode-jev
-description: "Use when an agent needs a critical, two-sided check of a bounded reasoning step: give Jev the goal, current conclusion and concise rationale, evidence for and against, competing explanations, and explicit unknowns. Also use for Jev/TypeSafe typed decisions and API integration. Not for finding missing facts, exact computation, private chain-of-thought inspection, or open-ended deep reasoning."
+description: "Use when an agent needs a critical, two-sided check of a bounded reasoning step: provide the goal, current conclusion and concise rationale, supporting and opposing evidence, alternatives, and unknowns for Jev to judge. Also use when software needs a Jev/TypeSafe typed judgment that code can consume. Not for missing-fact research, exact computation, private chain-of-thought inspection, or open-ended reasoning."
 ---
 # Octocode Jev
 
