@@ -32,7 +32,11 @@ pub(super) fn map_comments(values: Vec<Value>, kind: &str, include_bots: bool) -
         "path":v.get("path"),"line":v.get("line").or_else(||v.get("original_line")),"inReplyToId":v.get("in_reply_to_id")});super::remove_nulls(&mut out);out
 }).collect()
 }
-pub(super) fn compare_identity(raw: &Value, requested_base: &str, requested_head: &str) -> (String, String) {
+pub(super) fn compare_identity(
+    raw: &Value,
+    requested_base: &str,
+    requested_head: &str,
+) -> (String, String) {
     let permalink = raw
         .get("permalink_url")
         .and_then(Value::as_str)
@@ -105,10 +109,16 @@ pub(super) fn is_bot(login: &str) -> bool {
         )
 }
 
-pub(super) fn paginate_text(value: &str, offset: Option<usize>, length: Option<usize>) -> (String, Value) {
+pub(super) fn paginate_text(
+    value: &str,
+    offset: Option<usize>,
+    length: Option<usize>,
+) -> (String, Value) {
     let total = value.chars().count();
     let start = offset.unwrap_or(0).min(total);
-    let len = length.unwrap_or(super::DEFAULT_TEXT_WINDOW).clamp(1, 50_000);
+    let len = length
+        .unwrap_or(super::DEFAULT_TEXT_WINDOW)
+        .clamp(1, 50_000);
     let end = (start + len).min(total);
     let text = value.chars().skip(start).take(end - start).collect();
     (
@@ -116,4 +126,3 @@ pub(super) fn paginate_text(value: &str, offset: Option<usize>, length: Option<u
         json!({"charOffset":start,"charLength":end-start,"totalChars":total,"hasMore":end<total,"nextCharOffset":(end<total).then_some(end)}),
     )
 }
-

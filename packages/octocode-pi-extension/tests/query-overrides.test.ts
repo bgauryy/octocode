@@ -38,7 +38,7 @@ function expectEnvelope(tool: ToolDefinition): void {
   expect(schema.required).toContain('queries');
   expect(schema.properties?.queries?.minItems).toBe(1);
   expect(schema.properties?.queries?.items?.properties).toHaveProperty('reasoning');
-  expect(schema.properties?.queries?.items?.required).toContain('reasoning');
+  expect(schema.properties?.queries?.items?.required ?? []).not.toContain('reasoning');
 }
 
 describe('built-in override query envelopes', () => {

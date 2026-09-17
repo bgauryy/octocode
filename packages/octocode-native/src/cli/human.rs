@@ -906,7 +906,12 @@ fn human_bytes(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / 1_048_576.0)
 }
 
-pub async fn status(runtime: &ToolRuntime, hostname: Option<&str>, json_out: bool) -> u8 {
+pub async fn status(
+    runtime: &ToolRuntime,
+    hostname: Option<&str>,
+    json_out: bool,
+    sync: bool,
+) -> u8 {
     let view = runtime.inspect_config();
     let catalog = runtime.catalog().ok();
     let available = catalog
@@ -940,39 +945,46 @@ pub async fn status(runtime: &ToolRuntime, hostname: Option<&str>, json_out: boo
     let total_cache: u64 = cache_totals.iter().map(|(_, b)| b).sum();
     // keep tmp as the raw dir_size (may overlap); give clone/tree/response their own paths
     cache_totals[0] = ("tmp", dir_size_bytes(&cache_root));
+    let sync_analysis = if sync {
+        let snapshots = super::mcp_sync::read_all_client_configs();
+        Some(super::mcp_sync::analyze(&snapshots))
+    } else {
+        None
+    };
     if json_out {
-        return super::write_json(
-            &json!({
-                "home": view.home,
-                "storage": view.storage_mode,
-                "auth": {
-                    "authenticated": auth,
-                    "username": username,
-                    "hostname": hostname,
-                    "tokenPresent": auth,
-                    "tokenSource": source,
-                },
-                "config": {
-                    "source": "file",
-                    "storageMode": view.storage_mode,
-                },
-                "availableTools": available,
-                "mcpClients": mcp_clients.iter().map(|(ide, has)| json!({
-                    "client": ide,
-                    "octocodeInstalled": has
-                })).collect::<Vec<_>>(),
-                "cache": {
-                    "totalBytes": total_cache,
-                    "details": {
-                        "tmp": cache_totals[0].1,
-                        "clone": cache_totals[1].1,
-                        "tree": cache_totals[2].1,
-                        "response": cache_totals[3].1,
-                    }
+        let mut payload = json!({
+            "home": view.home,
+            "storage": view.storage_mode,
+            "auth": {
+                "authenticated": auth,
+                "username": username,
+                "hostname": hostname,
+                "tokenPresent": auth,
+                "tokenSource": source,
+            },
+            "config": {
+                "source": "file",
+                "storageMode": view.storage_mode,
+            },
+            "availableTools": available,
+            "mcpClients": mcp_clients.iter().map(|(ide, has)| json!({
+                "client": ide,
+                "octocodeInstalled": has
+            })).collect::<Vec<_>>(),
+            "cache": {
+                "totalBytes": total_cache,
+                "details": {
+                    "tmp": cache_totals[0].1,
+                    "clone": cache_totals[1].1,
+                    "tree": cache_totals[2].1,
+                    "response": cache_totals[3].1,
                 }
-            }),
-            true,
-        );
+            }
+        });
+        if let Some(ref analysis) = sync_analysis {
+            payload["sync"] = super::mcp_sync::sync_json(analysis);
+        }
+        return super::write_json(&payload, true);
     }
     // Human output
     let auth_line = match (auth, &username) {
@@ -999,6 +1011,28 @@ pub async fn status(runtime: &ToolRuntime, hostname: Option<&str>, json_out: boo
     println!();
     println!("Tools  ({} enabled):", available.len());
     println!("  {}", available.join(" "));
+    if let Some(ref analysis) = sync_analysis {
+        println!();
+        println!(
+            "Sync  ({} unique MCPs across {} clients)",
+            analysis.summary.total_unique_mcps, analysis.summary.clients_with_config
+        );
+        if analysis.summary.consistent > 0 {
+            println!("  ✓ {} fully synced", analysis.summary.consistent);
+        }
+        if analysis.summary.needs_sync > 0 {
+            println!(
+                "  ○ {} missing in some configs",
+                analysis.summary.needs_sync
+            );
+        }
+        if analysis.summary.conflicts > 0 {
+            println!(
+                "  ! {} conflicts across MCP configs",
+                analysis.summary.conflicts
+            );
+        }
+    }
     0
 }
 

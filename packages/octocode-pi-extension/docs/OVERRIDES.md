@@ -49,9 +49,9 @@ file-mutation route and one schema cost.
 
 | Job | Call |
 |---|---|
-| Targeted existing-file change | `file({queries:[{type:"edit", path, edits, reasoning}]})` |
-| New file or intentional full rewrite | `file({queries:[{type:"write", path, content, reasoning}]})` |
-| Explicitly scoped file/symlink removal | `file({queries:[{type:"delete", path, reasoning}]})` |
+| Targeted existing-file change | `file({queries:[{type:"edit", path, edits}]})` |
+| New file or intentional full rewrite | `file({queries:[{type:"write", path, content}]})` |
+| Explicitly scoped file/symlink removal | `file({queries:[{type:"delete", path}]})` |
 | Builds, tests, package commands, mechanical work | `bash` |
 | Shared Context, Work, Message, Memory, and History operations | Native `awareness` tool → imported package API |
 

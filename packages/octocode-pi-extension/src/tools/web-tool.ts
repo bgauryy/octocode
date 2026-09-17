@@ -57,7 +57,7 @@ export function registerWebTool(
       exaCategory: z.string().optional()
         .describe('Exa category: "research paper", "news", "github", "company", "pdf".'),
     }),
-    { reasoningDescription: 'Concise reason this web fetch or search is necessary.', allowParallel: true },
+    { allowParallel: true },
   );
 
   registerFn(pi, registeredToolNames, {

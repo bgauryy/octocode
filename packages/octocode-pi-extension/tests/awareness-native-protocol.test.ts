@@ -56,7 +56,7 @@ async function describeExactSchema(definition: ToolDefinition, operation: string
   return parts.join('');
 }
 
-type NativeCall = { tool: string; queries: { reasoning: string; operation: string; params?: Record<string, unknown> }[] };
+type NativeCall = { tool: string; queries: { operation: string; params?: Record<string, unknown> }[] };
 
 describe('native Awareness continuations', () => {
   it.each(['next', 'actions', 'continuations', 'undo_preview'])('translates nested %s calls without changing their parameters', key => {
@@ -64,7 +64,7 @@ describe('native Awareness continuations', () => {
     const result = nativeOperationContinuations({ [key]: { retry: call } }) as Record<string, { retry: NativeCall }>;
     const retry = result[key]!.retry;
     expect(retry.tool).toBe('awareness');
-    expect(retry.queries[0]).toEqual({ reasoning: 'Continue the requested Awareness results', ...call });
+    expect(retry.queries[0]).toEqual(call);
     expect(compileMcpSchemaValidator(tool().parameters).validate({ queries: retry.queries }).valid).toBe(true);
     expect(getAwarenessOperationDescriptor(call.operation)!.validate(retry.queries[0]!.params)).toEqual(call.params);
   });

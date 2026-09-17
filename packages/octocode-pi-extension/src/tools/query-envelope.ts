@@ -17,12 +17,11 @@ export type QueryRunType = "sequential" | "parallel";
 
 export interface QueryEnvelopeOptions {
   maxItems?: number;
-  reasoningDescription?: string;
   /** Opt in only when every query handled by the tool is safe to overlap. */
   allowParallel?: boolean;
 }
 
-export type QueryRecord = Record<string, unknown> & { reasoning: string };
+export type QueryRecord = Record<string, unknown> & { reasoning?: string };
 
 export interface PreparedQueryBatchOptions {
   maxItems?: number;
@@ -35,13 +34,13 @@ export interface PreparedQueryBatchOptions {
 
 export interface QueryBatchItemResult {
   index: number;
-  reasoning: string;
+  reasoning?: string;
   result: ToolCallResult;
 }
 
 export interface QueryBatchResultRow {
   index: number;
-  reasoning: string;
+  reasoning?: string;
   status: "success" | "failed" | "not-run";
   summary: string;
   result?: unknown;
@@ -85,11 +84,12 @@ function errorRecovery(error: unknown): unknown {
 
 /**
  * Build the standard query-envelope JSON Schema from a Zod item schema.
- * The item schema owns unknown-field handling. Reasoning is added at this layer.
+ * The item schema owns unknown-field handling. An optional batch label is added
+ * for clients that want descriptive progress receipts.
  */
 function addReasoningToQuerySchema(
   itemSchema: ZodTypeAny,
-  reasoning: z.ZodString,
+  reasoning: z.ZodOptional<z.ZodString>,
 ): ZodTypeAny {
   if (itemSchema instanceof z.ZodObject) return itemSchema.extend({ reasoning });
   if (itemSchema instanceof z.ZodUnion) {
@@ -106,7 +106,7 @@ export function buildQueryEnvelopeSchema(
   itemSchema: ZodTypeAny,
   options: QueryEnvelopeOptions = {},
 ): Record<string, unknown> {
-  const reasoning = z.string().min(1).max(400).describe(options.reasoningDescription ?? 'Why.');
+  const reasoning = z.string().max(400).optional().describe('Optional batch label.');
   const querySchema = addReasoningToQuerySchema(itemSchema, reasoning);
   const schema = z.object({
     queries: z.array(querySchema)
@@ -163,17 +163,16 @@ function assertBatchShape(
       throw new Error(`queries[${index}] must be an object.`);
     }
     const query = value as Record<string, unknown>;
-    const reasoning =
-      typeof query["reasoning"] === "string" ? query["reasoning"].trim() : "";
-    if (!reasoning) {
-      throw new Error(
-        `queries[${index}].reasoning is required and must be non-empty.`,
-      );
+    if (query["reasoning"] !== undefined && typeof query["reasoning"] !== "string") {
+      throw new Error(`queries[${index}].reasoning must be a string when provided.`);
     }
+    const reasoning = typeof query["reasoning"] === "string" ? query["reasoning"].trim() : "";
     if (reasoning.length > 400) {
-      throw new Error(
-        `queries[${index}].reasoning must be at most 400 characters.`,
-      );
+      throw new Error(`queries[${index}].reasoning must be at most 400 characters.`);
+    }
+    if (!reasoning) {
+      const { reasoning: _reasoning, ...rest } = query;
+      return rest as QueryRecord;
     }
     return { ...query, reasoning } as QueryRecord;
   });
@@ -238,17 +237,18 @@ function defaultSummary(result: ToolCallResult): string {
 function progressResult(
   index: number,
   total: number,
-  reasoning: string,
+  reasoning: string | undefined,
   queryRunType: QueryRunType,
 ): ToolCallResult {
+  const label = reasoning ? `: ${reasoning}` : '';
   return {
     content: [
       {
         type: "text",
-        text: `${queryRunType === "parallel" ? "Starting" : "Running"} query ${index + 1}/${total} · ${queryRunType}: ${reasoning}`,
+        text: `${queryRunType === "parallel" ? "Starting" : "Running"} query ${index + 1}/${total} · ${queryRunType}${label}`,
       },
     ],
-    details: { index, total, reasoning, queryRunType },
+    details: { index, total, ...(reasoning ? { reasoning } : {}), queryRunType },
   };
 }
 

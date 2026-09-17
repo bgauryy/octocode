@@ -1,5 +1,10 @@
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
 import { EXIT } from './exit-codes.js';
+import {
+  shouldDelegateToNative,
+  resolveNativeBin,
+  delegateToNative,
+} from './native-delegate.js';
 import type { CLICommand, CLICommandSpec } from './types.js';
 import { setRuntimeSurface } from '@octocodeai/config';
 
@@ -111,6 +116,18 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   if (args.options['no-color'] === true) {
     process.env.NO_COLOR = '1';
+  }
+
+  // Opt-in: run the native Rust binary under the hood for the commands it
+  // covers (everything except the TS-only management commands). Keeps
+  // `npx octocode` as the interface; the TS path stays the default until
+  // native ships via platform packages and parity is proven.
+  if (shouldDelegateToNative(args.command)) {
+    const bin = resolveNativeBin();
+    if (bin) {
+      process.exitCode = delegateToNative(bin, argv ?? process.argv.slice(2));
+      return true;
+    }
   }
 
   if (hasHelpFlag(args)) {

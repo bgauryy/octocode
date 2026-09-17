@@ -86,10 +86,18 @@ pub struct UniversalCursor {
 }
 
 impl CursorFields for UniversalCursor {
-    fn version(&self) -> u32 { self.version }
-    fn contract(&self) -> &str { &self.contract }
-    fn scope(&self) -> &str { &self.scope }
-    fn expires_at(&self) -> u64 { self.expires_at }
+    fn version(&self) -> u32 {
+        self.version
+    }
+    fn contract(&self) -> &str {
+        &self.contract
+    }
+    fn scope(&self) -> &str {
+        &self.scope
+    }
+    fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
 }
 
 impl UniversalCursor {
@@ -131,10 +139,18 @@ pub struct ReadCursor {
 }
 
 impl CursorFields for ReadCursor {
-    fn version(&self) -> u32 { self.version }
-    fn contract(&self) -> &str { &self.contract }
-    fn scope(&self) -> &str { &self.scope }
-    fn expires_at(&self) -> u64 { self.expires_at }
+    fn version(&self) -> u32 {
+        self.version
+    }
+    fn contract(&self) -> &str {
+        &self.contract
+    }
+    fn scope(&self) -> &str {
+        &self.scope
+    }
+    fn expires_at(&self) -> u64 {
+        self.expires_at
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

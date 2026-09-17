@@ -740,14 +740,12 @@ export function registerPlanTool(
     description: DIRECT_TOOL_DESCRIPTIONS.plan!,
     promptSnippet: 'Plan only complex work or an explicit planning request. Routine multi-step work and simple delegation need no plan.',
     promptGuidelines: [
-      '{queries:[{reasoning,action,...}]}; one action branch per query; keep action fields inside that query.',
-      'action:"set" when authorized; action:"propose" when review required; RFC for consequential choices only.',
-      'action:"complete" only after verifying the check; not on worker DONE claim.',
-      'Independent lanes: encode dependsOn, start each runnable, complete each explicit index.',
-      'action:"start" takes optional index; reviewed proposals need revision+authorizationInteractionId.',
+      'Use set for authorized execution and propose when review is required; consequential choices need an RFC.',
+      'Complete only after the declared check succeeds, never from a worker DONE claim.',
+      'Encode independent-lane dependencies, start runnable steps, and complete each explicit step.',
     ],
     parameters: (() => {
-      const reasoning = z.string().min(1).max(400);
+      const reasoning = z.string().max(400).optional().describe('Optional batch label.');
       const scope = z.enum(['auto','session','shared']).optional();
       const step = z.union([
         z.string().min(1),
@@ -811,7 +809,6 @@ export function registerPlanTool(
         ctx,
         passthroughSingle: true,
         preflight(query) {
-          if (!query.reasoning) throw new Error('reasoning is required.');
           const action = String(query['action'] ?? '');
           const VALID_ACTIONS: PlanAction[] = ['set', 'propose', 'clarify', 'add', 'start', 'complete', 'remove', 'clear', 'show'];
           if (!VALID_ACTIONS.includes(action as PlanAction)) {

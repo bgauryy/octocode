@@ -53,11 +53,11 @@ test('schema exposes queries and a sequential-only run policy', () => {
   assert.ok(schema.required?.includes('queries'), 'queries must be in required[]');
 });
 
-test('schema requires per-item reasoning', () => {
+test('schema exposes an optional per-item batch label', () => {
   type QuerySchema = { properties?: { queries?: { items?: { properties?: Record<string, unknown>; required?: string[] } } } };
   const items = (fileTool.parameters as QuerySchema).properties?.queries?.items;
   assert.ok(items?.properties?.['reasoning'], 'queries[].reasoning must exist in schema');
-  assert.ok(items?.required?.includes('reasoning'), 'reasoning must be in per-query required[]');
+  assert.ok(!items?.required?.includes('reasoning'), 'reasoning must remain optional');
 });
 
 test('schema has path and edits in per-query items', () => {
@@ -73,30 +73,8 @@ test('schema sets minItems:1 on the queries array', () => {
   assert.equal(schema.properties?.queries?.minItems, 1);
 });
 
-test('prepareArguments leaves flat edit input unchanged', () => {
-  const input = {
-    path: 'a.txt',
-    edits: [{  oldText: 'old', newText: 'new' }],
-  };
-  assert.deepEqual(fileTool.prepareArguments!(input), input);
-});
-
-test('prepareArguments fills missing query-level reasoning inside queries[]', () => {
-  const result = fileTool.prepareArguments!({
-    queries: [
-      { type: 'edit', path: 'a.txt', edits: [{  oldText: 'x', newText: 'y' }] },
-    ],
-  }) as { queries: { reasoning: string }[] };
-  assert.equal(result.queries[0]!.reasoning, 'file operation');
-});
-
-test('prepareArguments leaves existing query-level reasoning unchanged', () => {
-  const result = fileTool.prepareArguments!({
-    queries: [
-      { type: 'edit', reasoning: 'explicit', path: 'a.txt', edits: [{  oldText: 'x', newText: 'y' }] },
-    ],
-  }) as { queries: { reasoning: string }[] };
-  assert.equal(result.queries[0]!.reasoning, 'explicit');
+test('registration does not install argument-repair shims', () => {
+  assert.equal(fileTool.prepareArguments, undefined);
 });
 
 // ─── Execute: single query (passthroughSingle) ───────────────────────────────
@@ -150,7 +128,7 @@ test('single query returns file and replacement details', async () => {
   assert.equal(fs.readFileSync(path.join(tmpDir, 'a.txt'), 'utf8'), 'goodbye world\n');
 });
 
-test('single query includes query reasoning in result text', async () => {
+test('single query does not repeat its optional batch label in result text', async () => {
   writeFile('b.txt', 'alpha beta\n');
   const result = await run({
     queries: [{ type: 'edit',
@@ -159,7 +137,7 @@ test('single query includes query reasoning in result text', async () => {
       edits: [{  oldText: 'alpha', newText: 'gamma' }],
     }],
   });
-  assert.match((result.content[0] as { text: string }).text, /rename symbol/);
+  assert.doesNotMatch((result.content[0] as { text: string }).text, /rename symbol|Reasoning:/);
 });
 
 // ─── Execute: multiple ordered queries ───────────────────────────────────────
@@ -225,28 +203,24 @@ test('preflight rejects forbidden path before any writes happen', async () => {
 
 // ─── Validation errors ────────────────────────────────────────────────────────
 
-test('missing query-level reasoning throws', async () => {
+test('missing query-level label is accepted', async () => {
   writeFile('v.txt', 'val\n');
-  await assert.rejects(
-    () => run({
-      // Note: no reasoning on the query item — bypasses prepareArguments
-      queries: [{ type: 'edit', path: 'v.txt', edits: [{  oldText: 'val', newText: 'new' }] }],
-    }),
-    /reasoning/i,
-  );
+  const result = await run({
+    queries: [{ type: 'edit', path: 'v.txt', edits: [{ oldText: 'val', newText: 'new' }] }],
+  });
+  assert.equal(result.isError ?? false, false);
+  assert.equal(fs.readFileSync(path.join(tmpDir, 'v.txt'), 'utf8'), 'new\n');
 });
 
-test('empty reasoning on query throws', async () => {
+test('blank query label is omitted', async () => {
   writeFile('v.txt', 'val\n');
-  await assert.rejects(
-    () => run({
-      queries: [{ type: 'edit', reasoning: '   ', path: 'v.txt', edits: [{  oldText: 'val', newText: 'new' }] }],
-    }),
-    /reasoning/i,
-  );
+  const result = await run({
+    queries: [{ type: 'edit', reasoning: '   ', path: 'v.txt', edits: [{ oldText: 'val', newText: 'new' }] }],
+  });
+  assert.doesNotMatch((result.content[0] as { text: string }).text, /Reasoning:/);
 });
 
-test('query reasoning applies to edits without duplicate per-edit reasoning', async () => {
+test('query label is not propagated into edit evidence', async () => {
   writeFile('e.txt', 'data\n');
   const result = await run({
       queries: [{ type: 'edit',
@@ -255,7 +229,7 @@ test('query reasoning applies to edits without duplicate per-edit reasoning', as
         edits: [{ oldText: 'data', newText: 'other' }], // no reasoning
       }],
     });
-  assert.match((result.content[0] as { text: string }).text, /file level ok/);
+  assert.doesNotMatch((result.content[0] as { text: string }).text, /file level ok|Reasoning:/);
   assert.equal(fs.readFileSync(path.join(tmpDir, 'e.txt'), 'utf8'), 'other\n');
 });
 

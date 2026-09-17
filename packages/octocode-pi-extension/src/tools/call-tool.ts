@@ -556,7 +556,6 @@ export function registerCallTool(
           'auto\xb7run\xb7create\xb7enhance\xb7fix\xb7list\xb7delete',
         ),
       }),
-      { reasoningDescription: 'Why.' },
     ),
 
     async execute(id: string, rawParams: Record<string, unknown>, signal, onUpdate, ctx?: PiContext) {

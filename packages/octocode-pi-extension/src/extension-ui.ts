@@ -23,12 +23,11 @@ import type {
 } from './tools/runtime-store.js';
 import { renderFooterView } from './tui/footer-view.js';
 import { paint } from './tui/palette.js';
-import type { PiContext, PiInstance, PiTheme } from './types.js';
+import type { PiContext, PiTheme } from './types.js';
 import {
   buildCapabilitySegments,
   buildWorkingIndicator,
   deriveSessionName,
-  formatBranchSegment,
   formatDurationShort,
   elapsedSince,
   getFooterDensity,
@@ -177,28 +176,7 @@ function buildOctocodeFooterLines(
       token: 'dim',
     },
     { text: `tools ${execution.toolCount}`, token: 'dim' },
-    ...(branch
-      ? [
-          {
-            text: formatBranchSegment(
-              branch,
-              state.gitDirty ?? false,
-              state.gitDirtyFiles
-            ),
-            token: 'dim' as const,
-          },
-        ]
-      : []),
-    ...(state.gitAdditions !== undefined &&
-    state.gitDeletions !== undefined &&
-    (state.gitAdditions > 0 || state.gitDeletions > 0)
-      ? [
-          {
-            text: `tree +${state.gitAdditions} -${state.gitDeletions}`,
-            token: 'path' as const,
-          },
-        ]
-      : []),
+    ...(branch ? [{ text: branch, token: 'dim' as const }] : []),
     ...(permissionLevel && permissionLevel !== 'relaxed'
       ? [{ text: `perm ${permissionLevel}`, token: 'dim' as const }]
       : []),
@@ -333,56 +311,6 @@ export function resetOctocodeFooterRegistration(
     footerFactsByStore.delete(store);
     footerRequestRenderByStore.delete(store);
   }
-}
-
-export async function execGitSummary(
-  pi: PiInstance,
-  args: string[],
-  timeout = 1200
-): Promise<string> {
-  if (!pi.exec) return '';
-  try {
-    const result = await pi.exec('git', args, { timeout });
-    if (result.code !== 0) return '';
-    return result.stdout.trim();
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Refresh the footer's dirty marker on turn/session boundaries. Pi's footerData
- * provider owns branch detection/watching, so this keeps our extra `*` marker
- * without duplicating branch probes.
- */
-export async function refreshFooterDirtyState(
-  pi: PiInstance,
-  ctx: PiContext | undefined
-): Promise<void> {
-  const [porcelain, numstat] = await Promise.all([
-    execGitSummary(pi, ['status', '--porcelain'], 600),
-    execGitSummary(pi, ['diff', 'HEAD', '--numstat'], 600),
-  ]);
-  const totals = numstat.split('\n').reduce(
-    (sum, line) => {
-      const [added, removed] = line.split('\t');
-      if (/^\d+$/.test(added ?? '')) sum.additions += Number(added);
-      if (/^\d+$/.test(removed ?? '')) sum.deletions += Number(removed);
-      return sum;
-    },
-    { additions: 0, deletions: 0 }
-  );
-  runtimeStoreFor(ctx)
-    ?.getState()
-    .setFooter({
-      gitDirty: porcelain !== '',
-      gitAdditions: totals.additions,
-      gitDeletions: totals.deletions,
-      gitDirtyFiles:
-        porcelain === ''
-          ? 0
-          : porcelain.split('\n').filter(line => line.trim()).length,
-    });
 }
 
 /** CustomEntry type for the fresh-session banner card. */

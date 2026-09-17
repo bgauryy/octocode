@@ -86,10 +86,7 @@ export function registerReadMediaTool(
       'Use type:image for screenshots/diagrams (returns inline pixels to the model for vision); type:video for a frame or contact sheet; type:audio for waveform/spectrogram.',
       'Use view:metadata for video/audio when visual content is unnecessary; image inspection returns pixels.',
     ],
-    parameters: buildQueryEnvelopeSchema(readMediaItemSchema, {
-      reasoningDescription: 'Why this media must be inspected.',
-      allowParallel: true,
-    }),
+    parameters: buildQueryEnvelopeSchema(readMediaItemSchema, { allowParallel: true }),
 
     async execute(toolCallId, params, signal, onUpdate, ctx): Promise<ToolCallResult> {
       const cwd = ctx?.cwd ?? process.cwd();

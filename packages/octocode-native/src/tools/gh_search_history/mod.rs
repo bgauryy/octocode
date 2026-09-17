@@ -69,9 +69,8 @@ pub async fn execute<R: CredentialResolver>(
     let mut query = query.clone();
     let mut rename_warnings = Vec::new();
     if let (Some(owner), Some(repo)) = (query.owner.as_deref(), query.repo.as_deref()) {
-        let (canonical_owner, canonical_repo, renamed, warnings) = transport
-            .canonical_owner_repo(owner, repo, context)
-            .await?;
+        let (canonical_owner, canonical_repo, renamed, warnings) =
+            transport.canonical_owner_repo(owner, repo, context).await?;
         if renamed {
             query.owner = Some(canonical_owner);
             query.repo = Some(canonical_repo);

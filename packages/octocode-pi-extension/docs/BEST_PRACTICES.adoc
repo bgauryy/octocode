@@ -254,7 +254,7 @@ Octocode registers a compact direct palette and routes the larger research catal
 
 Continue to require:
 
-* a strict `queries` envelope and bounded per-query reasoning;
+* a strict `queries` envelope with optional bounded batch labels;
 * preflight validation before side effects;
 * explicit sequential or bounded-parallel execution;
 * receipts that distinguish success, failure, and not-run work;

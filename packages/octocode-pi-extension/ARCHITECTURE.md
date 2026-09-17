@@ -64,19 +64,23 @@ previously resolved inventory that could introduce a second source identity.
 
 | Segment key | Content | Budget |
 |---|---|---|
-| `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 20k tokens |
-| `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 2k tokens |
-| `mcp-tool-contracts` | Enabled server/tool routing metadata in `<mcp_catalog_index>`; `MCPTool action:"describe"` loads one exact schema and activates a Pi proxy when the host admits its dynamic name | 18k characters in the initial index; larger catalogs expose an executable continuation |
-| `runtime-tool-contracts` | `<runtime_capabilities>` and current `capability_revision` | 10k tokens |
-| `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 20k tokens |
-| `available-skills` | `<available_skills>` — discovered skill list | 20k tokens |
-| `session-artifact-contract` | Session memory and audit paths | 1k tokens |
-| `agents-protocol` | Exact native `AGENTS.md` content, attributed as user-authority project instructions | 20k tokens |
+| `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 12k tokens |
+| `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 1k tokens |
+| `mcp-tool-contracts` | Enabled server/tool routing metadata in `<mcp_catalog_index>`; `MCPTool action:"describe"` loads one exact schema and activates a Pi proxy when the host admits its dynamic name | 6k tokens; the initial index is also bounded to 18k characters and larger catalogs expose an executable continuation |
+| `runtime-tool-contracts` | `<runtime_capabilities>` and current `capability_revision` | 500 tokens |
+| `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 6k tokens |
+| `available-skills` | `<available_skills>` — discovered skill list | 5k tokens |
+| `session-artifact-contract` | Session memory and audit paths | 500 tokens |
+| `agents-protocol` | Exact native `AGENTS.md` content, attributed as user-authority project instructions | 12k tokens |
+
+Direct Pi tool names, descriptions, schemas, snippets, and guidelines remain on
+Pi's native tool-contract channel; the extension does not duplicate them in a
+second `<native_tools>` system-prompt catalog.
 
 These are per-segment estimated maxima, not reserved allocations. Initial segments
-also share an 80k aggregate ceiling. The final prompt, direct tool contracts, and
-new turn context must fit the smaller of 120k estimated tokens and the selected
-model's valid declared context window. Missing model metadata retains the 120k
+also share a 50k aggregate ceiling. The final prompt, direct tool contracts, and
+new turn context must fit the smaller of 80k estimated tokens and the selected
+model's valid declared context window. Missing model metadata retains the 80k
 fallback. Overflow fails preparation without clipping content. Estimates use
 `ceil(UTF-16 characters / 4)`; they are not tokenizer counts or provider usage.
 Pi owns retained conversation, output allocation, and automatic compaction.
@@ -190,8 +194,9 @@ Registered in `registerSupportToolPhase` in [`src/index.ts`](src/index.ts):
 | `awareness` | `awareness-tool.ts` | Canonical Awareness catalog and direct structured package API |
 | `MCPTool` | `mcp-tool.ts` | MCP 2026-07-28 client → all research tools |
 
-The 14 support tools and guarded `bash` override form the direct palette. The native
-`awareness` facade executes the canonical Context, Work, Message, Memory, and History operations through a host-bound client. Pi owns history capture through its explicit host lifecycle API. The CLI is an external-host adapter. Native Pi registry, event delivery/policy,
+The 14 support tools and guarded `bash` override form the direct palette. Pi publishes
+the active tool contracts directly; the extension adds no parallel native-tool catalog.
+The native `awareness` facade executes the canonical Context, Work, Message, Memory, and History operations through a host-bound client. Pi owns history capture through its explicit host lifecycle API. The CLI is an external-host adapter. Native Pi registry, event delivery/policy,
 mutation guards and plan UI remain active.
 External CLI agents can participate through the same physical SQLite file and
 normalized workspace, using distinct stable IDs. Workers retain their physical
@@ -202,7 +207,8 @@ completed commands with oversized output do not auto-replay mutations. See [the 
 
 ### 3.3 MCP research tools (10 via MCPTool → octocode-mcp server)
 
-These are served through `MCPTool` with `server:"octocode"`. Their schemas are
+These are served through `MCPTool`; omitted `server` defaults to the built-in
+`octocode` server for research, resource, and prompt actions. Their schemas are
 discovered through the gateway instead of registered individually in Pi's direct
 tool palette. Measure the live contracts before estimating context savings.
 
@@ -362,7 +368,6 @@ list. Workers receive the parent-selected subset through their capability grant.
 
 ```ts
 skill({ queries: [{
-  reasoning: "...",
   type: 'load' | 'call',          // default: 'load'
   // type:load fields:
   action: 'load' | 'list',        // default: 'load'

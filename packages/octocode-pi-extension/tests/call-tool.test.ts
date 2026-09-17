@@ -74,10 +74,12 @@ test('registerCallTool registers a callTool with the documented schema', () => {
     assert.deepEqual(Object.keys(schema.properties), ['queries', 'queryRunType']);
   assert.ok(schema.required?.includes('queries'));
   assert.ok(schema.properties.queries?.items?.properties?.['reasoning']);
-  assert.ok(schema.properties.queries?.items?.required?.includes('reasoning'));
+  assert.ok(!schema.properties.queries?.items?.required?.includes('reasoning'));
+  const reasoning = schema.properties.queries?.items?.properties?.['reasoning'] as { description?: string };
+  assert.equal(reasoning.description, 'Optional batch label.');
   assert.ok(schema.properties.queries?.items?.properties?.['toolType']);
   const mode = schema.properties.queries?.items?.properties?.['mode'] as { description?: string };
-  assert.match(mode.description ?? '', /propose creation on a miss/i);
+  assert.match(mode.description ?? '', /auto·run·create·enhance·fix·list·delete/i);
 });
 
 test('callTool executes multiple validated operations in source order', async () => {

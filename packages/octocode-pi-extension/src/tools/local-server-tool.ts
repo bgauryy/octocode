@@ -20,7 +20,7 @@ import { z } from 'zod';
 type RegisterFn = typeof registerUniqueTool;
 
 interface LocalServerQuery {
-  reasoning: string;
+  reasoning?: string;
   action: 'serve' | 'unmount' | 'status' | 'stop';
   name?: string;
   dir?: string;
@@ -91,7 +91,6 @@ export function registerLocalServerTool(
       browser: z.enum(['auto', 'chrome', 'system', 'vscode', 'none']).optional()
         .describe('Browser for action:serve: auto→VS Code→Chrome→system.'),
     }),
-    { reasoningDescription: 'Concise reason this local server operation is necessary.' },
   );
   registerFn(pi, registeredToolNames, {
     name: 'localServer',

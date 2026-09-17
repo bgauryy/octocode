@@ -63,7 +63,6 @@ import { registerReadMediaTool } from './tools/read-media-tool.js';
 import { registerRunFfmpegTool } from './tools/run-ffmpeg-tool.js';
 import { registerMediaTool } from './tools/create-media-tool.js';
 import { renderRuntimeCapabilitiesAddendum } from './tools/image-render.js';
-import { setPeerWipBaseline, setPeerWipStatusPainter } from './tools/peer-wip.js';
 import { registerBashTool } from './tools/bash-tool.js';
 import type { JobManager } from './tools/bash-bg-tool.js';
 import {
@@ -100,7 +99,6 @@ import { disposeWorkerCapabilityRuntime, refreshCurrentWorkerCapabilities, asser
 import { openMcpManager, closeConfiguration } from './tools/mcp/html.js';
 import { getDynamicCapabilitiesAddendum } from './tools/dynamic-catalog.js';
 import { renderAvailableSkillsAddendum } from './tools/skill-catalog.js';
-import { renderNativeToolsAddendum } from './tools/native-tool-catalog.js';
 import { registerPlanTool } from './tools/planning/plan-registration.js';
 import { registerLocalServerTool } from './tools/local-server-tool.js';
 import { registerAskUserTool } from './tools/ask-user-tool.js';
@@ -178,10 +176,8 @@ import { runtimeStoreFor, setManagedActivity, setManagedStatus } from './tools/r
 import { SessionRuntime } from './session-runtime.js';
 import {
   applyOctocodeUi,
-  execGitSummary,
   getThinkingStatus,
   OCTOCODE_BANNER_ENTRY_TYPE,
-  refreshFooterDirtyState,
   resetOctocodeFooterRegistration,
   updateOctocodeMetricsUi,
 } from './extension-ui.js';
@@ -394,7 +390,6 @@ function registerTurnMetricsPhase({ pi, startMetricsTicker, stopMetricsTicker, t
     // (aborted turns) — the map otherwise grows for the session lifetime.
     toolStartTimes.clear();
     toolInputs.clear();
-    await refreshFooterDirtyState(pi, ctx); // dirty state may have changed this turn; branch comes from Pi footerData
     updateOctocodeMetricsUi(ctx);
   });
 }
@@ -623,7 +618,6 @@ async function wireOctocodePiExtension(
       pendingMcpDiscoveryWrite = undefined;
       const closedChrome = closeAllChromeConnections();
       if (closedChrome > 0 && canUseShutdownContext) notify(ctx, `Closed ${closedChrome} cached CDP connection(s).`, 'info');
-      setPeerWipStatusPainter(undefined);
       const interactionWorkspace = ctx?.cwd ?? latestSessionCwd;
       if (interactionWorkspace) {
         clearInMemoryInteractionState({
@@ -737,27 +731,6 @@ async function wireOctocodePiExtension(
           // Session artifacts are continuity aids; initialization must not block Pi startup.
         }
       }
-      // Snapshot the working tree's pre-session dirty set so file can warn
-      // before co-mingling changes into peer/user uncommitted work.
-      if (ctx?.cwd) {
-        const baselineCwd = ctx.cwd;
-        // Wire the peer-WIP chip painter BEFORE the async baseline call so it is
-        // already registered when setPeerWipBaseline fires its statusPainter callback
-        // (the .then() fires as a microtask, but await points above this block could
-        // let it race — wiring first eliminates the race entirely).
-        if (ctx.hasUI) {
-          setPeerWipStatusPainter((count) => {
-            setManagedStatus(
-              ctx,
-              'octocode-peer-wip',
-              count > 0 ? paintUi(ctx.ui, 'warning', `⚑ ${count} pre-existing dirty`) : undefined,
-            );
-          });
-        }
-        void execGitSummary(pi, ['status', '--porcelain'], 800).then((porc) => {
-          if (runtime.isCurrent()) setPeerWipBaseline(baselineCwd, porc);
-        });
-      }
       // A new session gets a fresh checkpoint-card dedupe set. Pi owns all
       // compaction retry/continuation state; Octocode keeps no parallel arbiter.
       resetCompactionCheckpointDedupe();
@@ -790,8 +763,6 @@ async function wireOctocodePiExtension(
         // The execution journal already restored the session clock and counts.
         githubAuth: { status: 'checking' },
         usage: undefined,
-        gitDirty: undefined,
-        gitDirtyFiles: undefined,
       });
       stopMetricsTicker();
       latestSessionCwd = ctx?.cwd;
@@ -821,12 +792,6 @@ async function wireOctocodePiExtension(
                     listSkills: () => discoverSkills(sessionCwd, session.latestAvailableSkills),
         });
       }
-      initializationTasks.push(runtime.runTask({
-        name: 'dirty-state',
-        message: 'checking workspace changes',
-        readyMessage: 'workspace state checked',
-        run: () => refreshFooterDirtyState(pi, ctx),
-      }));
       applyOctocodeUi(ctx, pi.getThinkingLevel?.());
       // Context is not measurable until before_agent_start provides Pi's base
       // prompt and project context. Publish an explicit pending state instead of
@@ -1126,8 +1091,6 @@ async function wireOctocodePiExtension(
       const noContext = Boolean(pi.getFlag?.('no-context'));
       let piPrompt = event.systemPrompt;
       if (session.managedPromptAddendum) piPrompt = piPrompt.replace(session.managedPromptAddendum, '').trim();
-      // Enforce the no-overengineering constraint on every turn.
-      if (!piPrompt.includes('Do not over-engineer.')) piPrompt = `${piPrompt}\n\nDo not over-engineer.`;
       if (noContext) {
         piPrompt = stripProjectContext(piPrompt);
         if (!warnedContextDrift && piPrompt.includes('<project_context>')) {
@@ -1151,7 +1114,6 @@ async function wireOctocodePiExtension(
         'octocode-product-policy': projectPiSystemPromptCapabilities(policy, { mcpTool: hasCapability('MCPTool'), skill: hasCapability('skill') }),
         'mcp-tool-contracts': hasCapability('MCPTool') ? getCachedMcpCatalogAddendum(ctx) : '',
         'runtime-tool-contracts': [renderRuntimeCapabilitiesAddendum(ctx), session.capabilityRevision ? `<capability_revision>${session.capabilityRevision}</capability_revision>` : ''].filter(Boolean).join('\n'),
-        'native-tool-contracts': renderNativeToolsAddendum(activeTools),
         'dynamic-tool-contracts': worker ? '' : getDynamicCapabilitiesAddendum(session.latestAvailableSkills?.map(skill => skill.name), { tools: hasCapability('callTool'), skills: hasCapability('skill') }),
         'available-skills': hasCapability('skill') ? renderAvailableSkillsAddendum(session.latestAvailableSkills) : '',
         'session-artifact-contract': session.sessionArtifactPathsContext,

@@ -7,7 +7,7 @@ export interface McpCatalogPage {
   revision: string; total: number; items: McpCatalogRow[]; partial: boolean;
   fragment?: { row: number; field: 'instructions' | 'description'; start: number; end: number; total: number };
   diagnostic?: { code: 'catalog-revision-changed' | 'invalid-cursor' | 'entry-limit'; message: string };
-  next?: { tool: 'MCPTool'; params: { queries: Array<McpCatalogPageQuery & { reasoning: string; action: 'list' }> } };
+  next?: { tool: 'MCPTool'; params: { queries: Array<McpCatalogPageQuery & { action: 'list' }> } };
 }
 
 /** All bounds have runnable continuations, including one unusually large field. */
@@ -17,7 +17,7 @@ export function readMcpCatalogPage(snapshot: McpCatalogSnapshotV1, query: McpCat
     ...[...server.tools].sort((a, b) => a.name.localeCompare(b.name)).map(tool => ({ kind: 'tool' as const, server: server.name, tool: tool.name, description: tool.description ?? '', schemaDigest: tool.schemaDigest })),
   ]);
   const revision = stableSchemaDigest(rows);
-  const next = (offset: number, textOffset = 0) => ({ tool: 'MCPTool' as const, params: { queries: [{ reasoning: 'Continue the enabled MCP catalog', action: 'list' as const, offset, textOffset, limit: query.limit ?? 50, catalogRevision: revision }] } });
+  const next = (offset: number, textOffset = 0) => ({ tool: 'MCPTool' as const, params: { queries: [{ action: 'list' as const, offset, textOffset, limit: query.limit ?? 50, catalogRevision: revision }] } });
   const offset = query.offset ?? 0;
   const textOffset = query.textOffset ?? 0;
   const page: McpCatalogPage = { revision, total: rows.length, items: [], partial: false };

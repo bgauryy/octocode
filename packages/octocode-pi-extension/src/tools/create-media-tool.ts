@@ -229,9 +229,7 @@ export function registerMediaTool(
       'macOS hw encoding: videoCodec:"h264_videotoolbox" or "hevc_videotoolbox".',
       'Inspect output before presenting; pixels in context only with showToModel:true or a later inspectMedia call.',
     ],
-    parameters: buildQueryEnvelopeSchema(mediaItemSchema, {
-      reasoningDescription: 'Concise reason this media operation is necessary.',
-    }),
+    parameters: buildQueryEnvelopeSchema(mediaItemSchema),
 
     async execute(toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal, onUpdate?: unknown, ctx?: PiContext): Promise<ToolCallResult> {
       const cwd = ctx?.cwd ?? process.cwd();

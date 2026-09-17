@@ -728,10 +728,14 @@ pub(crate) fn drift(
         items.push(json!({"category":"transition","change":"dynamicToStatic","from":rel.from.0,"to":rel.to.0,"confidence":"syntactic"}));
     }
     for cycle in &diff.cycles.added {
-        items.push(json!({"category":"cycle","change":"added","files":cycle,"confidence":"syntactic"}));
+        items.push(
+            json!({"category":"cycle","change":"added","files":cycle,"confidence":"syntactic"}),
+        );
     }
     for cycle in &diff.cycles.resolved {
-        items.push(json!({"category":"cycle","change":"resolved","files":cycle,"confidence":"syntactic"}));
+        items.push(
+            json!({"category":"cycle","change":"resolved","files":cycle,"confidence":"syntactic"}),
+        );
     }
     for file in &diff.files.added {
         items.push(json!({"category":"file","change":"added","file":file}));
@@ -802,15 +806,12 @@ pub(crate) fn drift(
     } else {
         "truncated"
     };
-    let graph_state = if head.truncated
-        || base.truncated
-        || head.files_skipped > 0
-        || base.files_skipped > 0
-    {
-        "scan-truncated"
-    } else {
-        "complete"
-    };
+    let graph_state =
+        if head.truncated || base.truncated || head.files_skipped > 0 || base.files_skipped > 0 {
+            "scan-truncated"
+        } else {
+            "complete"
+        };
     base_map.insert(
         "completeness".into(),
         json!({"results":results_state,"graph":graph_state,"diagnostics":"complete"}),

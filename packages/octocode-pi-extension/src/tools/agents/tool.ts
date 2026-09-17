@@ -48,7 +48,7 @@ export function registerUnifiedAgentTool(
   if (isSubagentProcess()) return;
 
   // ── Discriminated operation schema ───────────────────────────────────────────
-  const reasoning = z.string().min(1).max(400);
+  const reasoning = z.string().max(400).optional().describe('Optional batch label.');
   const customWorkerCapabilitySelection = WorkerCapabilitySelectionSchema.omit({ nativeTools: true });
   const packetFields = {
     goal: z.string().min(1),
@@ -138,9 +138,9 @@ export function registerUnifiedAgentTool(
 
     promptSnippet: 'Spawn or manage bounded workers. Every spawn needs Goal, Context, Scope, Ownership, Acceptance, Return.',
     promptGuidelines: [
-      'Delegate for 2+ independent lanes with disjoint ownership. Custom profile needs tools+systemPrompt.',
-      'Spawn first; parent continues non-overlapping work. type:wait collects results; verify/reconcile handbacks; kill done workers; never persist raw handback as memory.',
-      'Incomplete packets fail preflight. No planStep for standalone. Lean workers: no skill/MCP grants; use resourceMode:"octocode" for extension tools.',
+      'Delegate only independent lanes with disjoint ownership; otherwise keep the work local.',
+      'After spawning, continue non-overlapping parent work. Collect and verify handbacks, then stop completed workers.',
+      'Link planStep only to an existing plan task; use Octocode resource mode only when the worker needs granted extension tools.',
     ],
 
     parameters,

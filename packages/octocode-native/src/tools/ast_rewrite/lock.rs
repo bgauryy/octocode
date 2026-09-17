@@ -1,4 +1,5 @@
 //! Filesystem-level mutual-exclusion lock for concurrent astRewrite root directories.
+use super::{RewriteError, io_error, sha256};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -6,7 +7,6 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use super::{RewriteError, io_error, sha256};
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,4 +176,3 @@ fn process_is_alive(pid: u32) -> bool {
 fn process_is_alive(_pid: u32) -> bool {
     true
 }
-

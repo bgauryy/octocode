@@ -570,7 +570,6 @@ function schemaRequiredMessage(server: string, tool: string): string {
       tool: "MCPTool",
       params: {
         queries: [{
-          reasoning: "Load the selected MCP tool schema",
           action: "describe",
           server,
           tool,
@@ -1374,7 +1373,18 @@ export async function getMcpDiscoverySnapshot(
   return { sources: loaded.sources, servers, warnings: loaded.warnings };
 }
 
+const DEFAULT_SERVER_ACTIONS = new Set<McpAction>([
+  'describe', 'call', 'resources', 'read-resource', 'prompts', 'get-prompt', 'complete',
+]);
+
+function applyDefaultMcpServer(params: Record<string, unknown>): Record<string, unknown> {
+  const action = params['action'] as McpAction | undefined;
+  if (!action || params['server'] !== undefined || !DEFAULT_SERVER_ACTIONS.has(action)) return params;
+  return { ...params, server: DEFAULT_OCTOCODE_MCP_SERVER_NAME };
+}
+
 export const __test__ = {
+  applyDefaultMcpServer,
   registerMcpClientHandlers,
   persistMcpArtifacts,
   trackAsyncWork: trackMcpAsyncWork,
@@ -1402,6 +1412,7 @@ export const __test__ = {
  * the entire batch is validated before the first action executes.
  */
 export function preflightMcpQuery(query: QueryRecord): void {
+  Object.assign(query, applyDefaultMcpServer(query));
   const action = query["action"] as McpAction | undefined;
   const server =
     typeof query["server"] === "string" && query["server"].length > 0
@@ -1645,14 +1656,16 @@ export async function handleMcpAction(
   ctx?: PiContext,
   options: { trustedBrowserAction?: boolean } = {},
 ): Promise<ToolCallResult> {
-  if (isWorkerCapabilityClient()) return dispatchWorkerMcpAction(params, signal);
-  const action = params["action"] as McpAction | undefined;
+  const effectiveParams = applyDefaultMcpServer(params);
+  if (isWorkerCapabilityClient()) return dispatchWorkerMcpAction(effectiveParams, signal);
+  const action = effectiveParams["action"] as McpAction | undefined;
   if (!action)
     return result(
       "MCPTool action is required. Enabled MCP tools are discovered automatically during extension initialization.",
       undefined,
       true,
     );
+  params = effectiveParams;
   const loaded = await loadMcpConfig(ctx);
   const serverName =
     typeof params["server"] === "string" ? params["server"] : undefined;
@@ -2236,10 +2249,7 @@ export function registerMcpTool(
   const itemSchema = mcpGatewayItemSchema();
 
   // Universal ordered queries[] envelope: all queries are preflighted before the first side-effect.
-  const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    reasoningDescription: 'Why.',
-    allowParallel: true,
-  });
+  const parameters = buildQueryEnvelopeSchema(itemSchema, { allowParallel: true });
 
   const execute = async (
     toolCallId: string,
@@ -2249,6 +2259,7 @@ export function registerMcpTool(
     ctx?: PiContext,
   ): Promise<ToolCallResult> => {
     setManagedStatus(ctx, MCP_STATUS_NAME, "mcp · running");
+    const parallelServers = new Set<string>();
     try {
       const output = await executeQueryBatch({
         toolCallId,
@@ -2297,7 +2308,11 @@ export function registerMcpTool(
               `parallel MCP batches do not support the mutating ${action} action`,
             );
           }
-          // The MCP client correlates requests; receipts preserve source order.
+          const server = typeof query["server"] === "string" ? query["server"] : undefined;
+          if (server && parallelServers.has(server)) {
+            throw new Error(`parallel MCP batches require distinct servers; batch same-server ${server} queries inside the target tool arguments`);
+          }
+          if (server) parallelServers.add(server);
         },
         async execute(
           query,
@@ -2341,8 +2356,8 @@ export function registerMcpTool(
     description: DIRECT_TOOL_DESCRIPTIONS.MCPTool!,
     promptSnippet: "Gateway to MCP servers and exact-schema loader. Built-in octocode catalog in <mcp_catalog_index>.",
     promptGuidelines: [
-      `Target fields go in arguments.queries[] only. Use <mcp_catalog_index> to select a server/tool. action:describe loads the exact schema and normally activates a Pi tool; call that tool directly unless describe reports a fixed-allowlist fallback. MCPTool action:call is blocked until the same schema was described.`,
-      "Batch independent Octocode queries inside one arguments.queries[]. Use queryRunType:parallel only for operations targeting different servers.",
+      `Select from <mcp_catalog_index>; omit server for Octocode. Describe only when the target schema is not active, then call the activated Pi tool. Generic action:call requires that same described schema.`,
+      "Batch independent target queries inside arguments.queries[]. Use outer parallel execution only across different servers.",
       "add/remove writes mcp.json; restart/stop manages connections. Do not add untrusted MCP config without user approval.",
     ],
     parameters,

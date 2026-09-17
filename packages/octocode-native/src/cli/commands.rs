@@ -1,6 +1,6 @@
 //! The `Command` enum: maps every CLI sub-command to its argument struct.
-use clap::Subcommand;
 use super::{human, search};
+use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub(super) enum Command {
@@ -178,6 +178,9 @@ pub(super) enum Command {
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
+        /// Include MCP config sync analysis across detected clients.
+        #[arg(long)]
+        sync: bool,
     },
     /// Show GitHub authentication status (token presence and scopes; no secrets printed).
     Auth {
@@ -241,6 +244,24 @@ pub(super) enum Command {
         #[arg(long)]
         rollback: Option<String>,
     },
+    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`).
+    LspServer {
+        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, or `clean`.
+        #[arg(value_parser = ["list", "install", "uninstall", "remove", "clean"])]
+        action: String,
+        /// Server names for install/uninstall (e.g. `rust-analyzer`, `clangd`).
+        names: Vec<String>,
+        /// Install every auto-downloadable server.
+        #[arg(long)]
+        all: bool,
+        /// Confirm destructive operations (clean) or force re-download (install).
+        #[arg(long)]
+        yes: bool,
+        /// Skip the auto-install prompt policy for this run.
+        #[arg(long)]
+        force: bool,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
-
-

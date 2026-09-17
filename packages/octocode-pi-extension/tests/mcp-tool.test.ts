@@ -1676,10 +1676,10 @@ test("prompt guidance distinguishes routing metadata from demand-loaded schemas"
     ...(def.promptGuidelines ?? []),
   ].join("\n");
 
-  assert.match(guidance, /Batch independent Octocode queries inside one arguments\.queries\[\]/);
-  assert.match(guidance, /Use <mcp_catalog_index> to select a server\/tool/);
-  assert.match(guidance, /action:describe loads the exact schema and normally activates a Pi tool/);
-  assert.match(guidance, /action:call is blocked until the same schema was described/);
+  assert.match(guidance, /Batch independent target queries inside arguments\.queries\[\]/);
+  assert.match(guidance, /Select from <mcp_catalog_index>; omit server for Octocode/);
+  assert.match(guidance, /Describe only when the target schema is not active/);
+  assert.match(guidance, /Generic action:call requires that same described schema/);
 });
 
 type GatewayBranch = {
@@ -1704,14 +1704,14 @@ function gatewayBranch(def: ToolDefinition, action: string): GatewayBranch {
   return branch;
 }
 
-test("schema: every MCP action is a strict branch with per-query reasoning", () => {
+test("schema: every MCP action is a strict branch with optional per-query labels", () => {
   const branches = gatewayBranches(buildMcpToolDef());
   assert.equal(branches.length, 16);
   for (const branch of branches) {
     assert.equal(branch.additionalProperties, false);
     assert.equal(branch.properties?.["action"]?.enum?.length, 1);
     assert.ok(branch.required?.includes("action"));
-    assert.ok(branch.required?.includes("reasoning"));
+    assert.ok(!branch.required?.includes("reasoning"));
     assert.ok(branch.properties?.["reasoning"]);
   }
 });
@@ -1720,12 +1720,12 @@ test("schema: call, describe, and list expose only action-valid fields", () => {
   const def = buildMcpToolDef();
   const call = gatewayBranch(def, "call");
   assert.deepEqual(call.properties?.["responseView"]?.enum, ["full", "table"]);
-  assert.ok(call.required?.includes("server"));
+  assert.ok(!call.required?.includes("server"));
   assert.ok(call.required?.includes("tool"));
   assert.ok(call.properties?.["arguments"]);
 
   const describe = gatewayBranch(def, "describe");
-  assert.deepEqual(describe.required, ["action", "server", "tool", "reasoning"]);
+  assert.deepEqual(describe.required, ["action", "tool"]);
   assert.equal(describe.properties?.["arguments"], undefined);
   assert.equal(describe.properties?.["responseView"], undefined);
 
@@ -1743,12 +1743,10 @@ test("schema: queries array enforces minItems:1", () => {
 
 // ─── preflightMcpQuery: action-specific validation ────────────────────────────
 
-test("preflight: describe without server throws", () => {
-  assert.throws(
-    () =>
-      preflightMcpQuery({ reasoning: "r", action: "describe", tool: "myTool" }),
-    /describe requires server/i,
-  );
+test("preflight: describe without server defaults to Octocode", () => {
+  const query = { action: "describe", tool: "myTool" };
+  assert.doesNotThrow(() => preflightMcpQuery(query));
+  assert.equal((query as Record<string, unknown>)["server"], "octocode");
 });
 
 test("preflight: describe without tool throws", () => {
@@ -1763,11 +1761,10 @@ test("preflight: describe without tool throws", () => {
   );
 });
 
-test("preflight: call without server throws", () => {
-  assert.throws(
-    () => preflightMcpQuery({ reasoning: "r", action: "call", tool: "myTool" }),
-    /call requires server/i,
-  );
+test("preflight: call without server defaults to Octocode", () => {
+  const query = { action: "call", tool: "myTool" };
+  assert.doesNotThrow(() => preflightMcpQuery(query));
+  assert.equal((query as Record<string, unknown>)["server"], "octocode");
 });
 
 test("preflight: call without tool throws", () => {
@@ -1828,11 +1825,11 @@ test("preflight: status/config/stop with no server are valid while action is req
 
 test("multi-query: preflight rejects the entire batch before any action runs", async () => {
   const def = buildMcpToolDef();
-  // Query 0 is fine, query 1 is missing server (call requires server).
+  // Query 0 is fine, query 1 is an invalid mutating action.
   const params = {
     queries: [
-      { reasoning: "check status", action: "status" },
-      { reasoning: "call tool", action: "call", tool: "search" }, // no server
+      { action: "status" },
+      { action: "add", config: { command: "node" } },
     ],
   };
   const res = await failedToolResult(def.execute(
@@ -1886,11 +1883,11 @@ test("parallel MCP batches overlap read operations and preserve source-order rec
   }
 });
 
-test("parallel MCP calls may target the same server and report each result independently", async () => {
+test("parallel MCP calls reject duplicate servers and direct callers to target batching", async () => {
   const fixture = createCallGateMcpFixture();
   try {
     const def = buildMcpToolDef();
-    const res = await def.execute(
+    const res = await failedToolResult(def.execute(
       "tc-parallel-same-server",
       {
         queryRunType: "parallel",
@@ -1902,13 +1899,10 @@ test("parallel MCP calls may target the same server and report each result indep
       undefined,
       undefined,
       fixture.ctx,
-    );
-    assert.equal(res.isError ?? false, false);
-    assert.match((res.content[0] as { text: string }).text, /2 queries succeeded · parallel/i);
-    assert.match((res.content[1] as { text: string }).text, /first/i);
-    assert.match((res.content[2] as { text: string }).text, /second/i);
-    assert.equal(fs.readFileSync(fixture.listMarker, "utf8").trim().split("\n").length, 1,
-      "same-server parallel calls must share one schema discovery request");
+    ));
+    assert.equal(res.isError, true);
+    assert.match((res.content[0] as { text: string }).text, /parallel MCP batches require distinct servers/i);
+    assert.equal(fs.existsSync(fixture.listMarker), false, "duplicate-server batches fail before discovery");
   } finally {
     stopAllMcpServers();
     fixture.cleanup();

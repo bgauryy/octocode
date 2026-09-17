@@ -55,13 +55,12 @@ test('plan schema exposes only queries[] at the top level', () => {
   assert.ok(schema.required?.includes('queries'), 'queries is required');
 });
 
-test('plan guidance teaches the required queries[] envelope without function-call shorthand', () => {
+test('plan guidance stays behavioral and leaves call shape to the schema', () => {
   const tool = loadTool();
   const guidance = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
-  assert.match(guidance, /every call.*queries.*reasoning.*action/is);
-  assert.match(guidance, /action:\"set\"/i);
-  assert.match(guidance, /action:\"propose\"/i);
-  assert.match(guidance, /during execution.*optional index.*reviewed proposal.*revision.*authorizationInteractionId.*omit index/is);
+  assert.match(guidance, /set for authorized execution and propose when review is required/i);
+  assert.match(guidance, /Complete only after the declared check succeeds/i);
+  assert.doesNotMatch(guidance, /queries.*reasoning/is);
   assert.doesNotMatch(guidance, /plan\((?:set|propose|clarify|add|start|complete|remove|clear|show)(?::[^)]*)?\)/i);
 });
 
@@ -85,14 +84,15 @@ test('plan schema exposes scope and receipts only on matching action branches', 
   assert.equal(set.properties?.['receipt'], undefined);
 });
 
-test('plan schema requires bounded reasoning on every action branch', () => {
+test('plan schema keeps bounded reasoning optional on every action branch', () => {
   const tool = loadTool();
   const schema = tool.parameters as { properties?: { queries?: { minItems?: number } } };
   assert.equal(schema.properties?.queries?.minItems, 1);
   const branches = planSchemaBranches(tool);
   assert.equal(branches.length, 10);
   for (const branch of branches) {
-    assert.ok(branch.required?.includes('reasoning'));
+    assert.ok(!branch.required?.includes('reasoning'));
+    assert.ok(branch.properties?.['reasoning']);
     assert.ok(branch.required?.includes('action'));
   }
 });
@@ -778,12 +778,10 @@ test('preflight stops batch before first query executes when second query is inv
   assert.equal(getPlan(CWD).length, 0, 'preflight stops before first mutation');
 });
 
-test('missing reasoning on envelope query throws before execution', async () => {
+test('missing batch label is accepted', async () => {
   const tool = loadTool();
-  await assert.rejects(
-    () => tool.execute('id', { queries: [{ action: 'show' }] }, undefined, undefined, ctx),
-    /reasoning/i,
-  );
+  const result = await tool.execute('id', { queries: [{ action: 'show' }] }, undefined, undefined, ctx);
+  assert.equal(result.isError ?? false, false);
 });
 
 test('flat params without queries[] are rejected', async () => {

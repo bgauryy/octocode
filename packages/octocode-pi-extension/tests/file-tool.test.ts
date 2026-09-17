@@ -137,7 +137,7 @@ test('two write queries targeting the same path in one batch are rejected at pre
   );
 });
 
-test('edit uses one query-level reason for every replacement', async () => {
+test('edit does not propagate a batch label into replacement evidence', async () => {
   writeFileSync(join(cwd, 'multi.txt'), 'a b\n');
   const result = await call({
     type: 'edit',
@@ -150,5 +150,5 @@ test('edit uses one query-level reason for every replacement', async () => {
   });
   assert.equal(result.isError, undefined);
   assert.equal(readFileSync(join(cwd, 'multi.txt'), 'utf8'), 'x y\n');
-  assert.match(result.content[0]?.text ?? '', /rename both tokens/);
+  assert.doesNotMatch(result.content[0]?.text ?? '', /rename both tokens|Reasoning:/);
 });

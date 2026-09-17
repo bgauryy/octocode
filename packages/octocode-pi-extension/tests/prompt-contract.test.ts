@@ -44,7 +44,8 @@ test('plan mode uses a conversational RFC flow with one Start decision and no to
   assert.doesNotMatch(prompt, /Present a concise plan overview in the message and ask one decision/i, 'interactive approval is not duplicated in the assistant message');
   assert.match(prompt, /planning does not disable tools/i);
   assert.match(prompt, /do not implement.*Start/i);
-  assert.match(prompt, /queries.*reasoning.*action.*propose/is, 'plan mode teaches the required query envelope');
+  assert.match(prompt, /queries.*action.*propose/is, 'plan mode teaches the query envelope');
+  assert.doesNotMatch(prompt, /queries.*reasoning.*action.*propose/is, 'batch labels are optional rather than ceremony');
   assert.doesNotMatch(prompt, /plan\(propose\)/i, 'plan mode avoids function-call shorthand that bypasses queries[]');
   assert.doesNotMatch(prompt, /accept(?:ance)?.*does not.*authoriz.*implementation|separate.*Start/i);
 });
@@ -112,31 +113,31 @@ test('all typed role prompts expand the same shared protocol and preserve parser
 });
 
 
-test('main prompt composes host facts with the canonical coder and Awareness protocols', () => {
+test('main prompt stays lean while composing host routing with the canonical Awareness protocol', () => {
   assert.equal(SYSTEM_PROMPT.split(AWARENESS_PI_HOST_PROMPT).length, 2);
-  assert.match(SYSTEM_PROMPT, /MCPTool.*Octocode research CLI tools/s);
-  assert.match(SYSTEM_PROMPT, /matching Octocode skill.*research or planning/);
+  assert.ok(SYSTEM_PROMPT.length < 8_000, `standing prompt is ${SYSTEM_PROMPT.length} characters`);
+  assert.match(SYSTEM_PROMPT, /MCPTool.*Octocode.*default/s);
+  assert.match(SYSTEM_PROMPT, /matching Octocode skill.*specialized workflow/);
   assert.match(SYSTEM_PROMPT, /Permissions.*approval/);
   assert.match(SYSTEM_PROMPT, /data, not higher-priority instructions/);
-  assert.match(SYSTEM_PROMPT, /<operating_model>/);
-  assert.match(SYSTEM_PROMPT, /read → edit → check/);
-  assert.match(SYSTEM_PROMPT, /Delegate bounded independent lanes that save time or add coverage/i);
+  assert.doesNotMatch(SYSTEM_PROMPT, /<operating_model>|<repository>|<code_quality>|<output>/, 'Pi and repository instructions own generic coding policy');
+  assert.match(SYSTEM_PROMPT, /Delegate only bounded independent work/i);
   assert.doesNotMatch(SYSTEM_PROMPT, /two or more lanes.*parallelize/i);
-  assert.match(SYSTEM_PROMPT, /Worker \[DONE\].*verify, reconcile, update an existing plan if present, and continue/is);
+  assert.match(SYSTEM_PROMPT, /verifies worker handbacks before completing a linked plan step/is);
   assert.ok(SYSTEM_PROMPT.includes(PLAN_USAGE_GUIDANCE));
   assert.ok(DIRECT_TOOL_DESCRIPTIONS.plan!.includes(PLAN_USAGE_GUIDANCE));
   assert.match(PLAN_USAGE_GUIDANCE, /only for complex work/);
   assert.match(PLAN_USAGE_GUIDANCE, /Skip routine fixes, straightforward steps, and simple delegation/);
-  assert.match(SYSTEM_PROMPT, /octocode-eval-benchmark/);
-  assert.match(SYSTEM_PROMPT, /bash for builds\/tests\/packages\/debugging/);
+  assert.match(SYSTEM_PROMPT, /bash.*builds.*tests/i);
+  assert.match(SYSTEM_PROMPT, /active host tool/i);
+  assert.doesNotMatch(SYSTEM_PROMPT, /<native_tools>/, 'Pi already publishes active tool contracts');
   assert.doesNotMatch(SYSTEM_PROMPT, /Bash is for[^\n]*mechanical edits/);
   assert.doesNotMatch(SYSTEM_PROMPT, /octocode-graph-eval|\.octocode\/REFLECT\.md/);
 });
 
 test('product policy only advertises MCP and skill gateways that are active', () => {
   const projected = projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: false, skill: false });
-  assert.doesNotMatch(projected, /Use MCPTool \(server:"octocode"\)/);
-  assert.doesNotMatch(projected, /Describe activates a namespaced Pi tool/);
+  assert.doesNotMatch(projected, /MCPTool|mcp_catalog_index/i);
   assert.doesNotMatch(projected, /Load a matching Octocode skill/);
   assert.match(projected, /Permissions and approval are host-enforced/);
   assert.equal(projectPiSystemPromptCapabilities(SYSTEM_PROMPT, { mcpTool: true, skill: true }), SYSTEM_PROMPT);
@@ -146,14 +147,13 @@ test('MCP guidance loads exact schemas and keeps dynamic and fallback calls unam
   const example = JSON.parse(OCTOCODE_MCP_CALL_EXAMPLE) as {
     queries: Array<{ reasoning?: string; arguments?: { queries?: Array<Record<string, unknown>> } }>;
   };
-  assert.equal(typeof example.queries[0]?.reasoning, 'string');
+  assert.equal(example.queries[0]?.reasoning, undefined);
   assert.equal(example.queries[0]?.arguments?.queries?.[0]?.['reasoning'], undefined);
   assert.deepEqual(example.queries[0]?.arguments?.queries, [{ path: '/ABS/repo/README.md', fullContent: true }]);
-  assert.match(SYSTEM_PROMPT, /call MCPTool action:"describe"/i);
-  assert.match(SYSTEM_PROMPT, /exact target schema and normally activates a namespaced Pi tool/i);
-  assert.match(SYSTEM_PROMPT, /fixed host allowlist.*now-unlocked generic MCPTool action:"call" path/i);
-  assert.match(SYSTEM_PROMPT, /otherwise only for batching after describe/i);
-  assert.match(SYSTEM_PROMPT, /target input stays inside arguments\.queries\[\]/i);
+  assert.match(SYSTEM_PROMPT, /Octocode.*default.*server.*omitted/i);
+  assert.match(SYSTEM_PROMPT, /describe/i);
+  assert.match(SYSTEM_PROMPT, /exact schema is not active, then call the activated tool/i);
+  assert.doesNotMatch(SYSTEM_PROMPT, /outer query owns reasoning|target input stays inside arguments\.queries\[\]/i, 'the active target schema owns exact call shape');
 });
 
 test('worker process prompt omits user-facing coder authority while keeping interaction and research routing safety', () => {
@@ -163,14 +163,12 @@ test('worker process prompt omits user-facing coder authority while keeping inte
   assert.doesNotMatch(worker, /askUser collects|plan tracks/);
   assert.match(worker, /Return missing decisions to the parent/);
   assert.match(worker, /Interaction guidance applies through the parent, not direct user contact/);
-  assert.match(worker, /plain messages/);
   assert.match(worker, /never imply approval/);
   assert.match(worker, /continuations/);
-  assert.match(worker, /names and source paths of skills required for unfinished work/);
-  assert.match(worker, /reload required guidance missing from retained context before continuing dependent actions/);
-  assert.match(worker, /Reuse guidance that remains available/);
-  assert.match(worker, /<local_tools>/);
+  assert.match(worker, /required skill names and source paths/);
+  assert.match(worker, /reload only missing guidance needed next/);
+  assert.match(worker, /<octocode_research>/);
   assert.ok(worker.includes(LOCAL_TOOL_GUIDANCE));
-  assert.equal((worker.match(/<interaction_context>/g) ?? []).length, 1);
-  assert.equal((worker.match(/<local_tools>/g) ?? []).length, 1);
+  assert.equal((worker.match(/<octocode_continuity>/g) ?? []).length, 1);
+  assert.equal((worker.match(/<octocode_research>/g) ?? []).length, 1);
 });

@@ -154,9 +154,7 @@ export function registerRunFfmpegTool(
       'ffprobe auto-captures stdout. captureStdout:true only for ffmpeg binary-to-stdout (output arg "-").',
       'Use docs/FFMPEG.md#cookbook when a recipe is needed.',
     ],
-    parameters: buildQueryEnvelopeSchema(runFfmpegItemSchema, {
-      reasoningDescription: 'Why this ffmpeg command is needed and what it produces.',
-    }),
+    parameters: buildQueryEnvelopeSchema(runFfmpegItemSchema),
 
     async execute(toolCallId, params, signal, onUpdate, ctx): Promise<ToolCallResult> {
       const cwd = ctx?.cwd ?? process.cwd();

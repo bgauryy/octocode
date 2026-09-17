@@ -29,11 +29,11 @@ All 10 catalogued Octocode research tools (GitHub, local, graph, LSP, npm) are *
 
 **Call pattern:**
 ```js
-MCPTool({queries:[{reasoning:"Search remote code.", action:"call", server:"octocode", tool:"ghSearch",
-  arguments:{queries:[{reasoning:"Find candidate files.", operation:"code", keywords:["..."]}]}}]})
+MCPTool({queries:[{action:"call", tool:"ghSearch",
+  arguments:{queries:[{operation:"code", keywords:["..."]}]}}]})
 ```
 
-Catalogued tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
+Catalogued tools via `MCPTool` (omitted `server` defaults to `octocode`): `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
 
 `warmMcpCatalog()` runs at `session_start`. The prompt receives one deterministic `<mcp_catalog_index>` with enabled server instructions plus tool names and descriptions; input schemas are not injected. The initial index is bounded and exposes an executable `MCPTool action:"list"` continuation when needed. `action:"describe"` returns the exact JSON schema and, when the host admits dynamic names, activates a namespaced Pi proxy whose provider-visible parameters are that schema. Call the returned proxy directly; a fixed host allowlist is reported and uses the generic gateway fallback. Generic gateway calls are blocked until describe and are bound to the described schema digest. Calls also validate against the current enabled `catalog.json` snapshot. The gateway's own `queries[]` schema uses strict action-discriminated branches, so unrelated fields are rejected before execution.
 
@@ -41,7 +41,7 @@ Catalogued tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileConten
 
 ### Support Tools — 14
 
-Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `file`, `web`, `chromeDebug`, `agent`, `callTool`, `skill`, `plan`, `localServer`, `awareness`, `MCPTool`, `askUser`, `inspectMedia`, `media`, and `runFfmpeg`. Together with the guarded `bash` override, these form the 15-tool direct palette. Every direct tool exposes only a top-level `queries[]` array; each query requires concise `reasoning`. `/config` and its `/configuration` alias open the OS browser management page.
+Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `file`, `web`, `chromeDebug`, `agent`, `callTool`, `skill`, `plan`, `localServer`, `awareness`, `MCPTool`, `askUser`, `inspectMedia`, `media`, and `runFfmpeg`. Together with the guarded `bash` override, these form the 15-tool direct palette. Every direct tool exposes only a top-level `queries[]` array; `reasoning` is an optional bounded batch label. `/config` and its `/configuration` alias open the OS browser management page.
 
 | Tool | Label | Description |
 |---|---|---|
@@ -257,7 +257,9 @@ Each Pi session also writes one version 2 contract across `manifest.json`, `sess
 
 ## UI status surfaces
 
-Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
+Transient labels use `ctx.ui.setStatus(name, value)`. The extension deliberately
+avoids persistent widgets and mutable headers; one register-once footer owns live
+session presentation.
 
 | Status key | Content |
 |---|---|
@@ -267,7 +269,7 @@ Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
 | `chrome-debug` | Active CDP action label during `chromeDebug` calls |
 | `octocode-mcp` | MCP connection status label |
 
-The register-once footer owns activity, exact measured context, plan progress, worker attention, and session metadata. Pending decisions stop the motion indicator. The event reducer owns turn timing and tool counts; initialization and provider context remain separate runtime facts. Git line totals describe the whole working tree, including changes that preceded the session. GitHub authentication problems appear as attention; successful checks stay quiet.
+The register-once footer owns activity, exact measured context, plan progress, worker attention, and session metadata. Pending decisions stop the motion indicator. The event reducer owns turn timing and tool counts; initialization and provider context remain separate runtime facts. Pi's footer data supplies the current branch; passive UI lifecycle never starts Git commands. GitHub authentication problems appear as attention; successful checks stay quiet.
 
 `lifecycle-ui.ts` records structured host observations through `execution-runtime.ts` into Pi custom state entries. `execution-events.ts` owns their typed payloads and replay reducer. These entries never enter model context. Pi retains user/assistant text and full tool results; the event journal references those native records instead of copying private reasoning or large output. `/octocode-status` and `/octocode-status events` inspect this state without sending an assistant message. See [UI contract](docs/UI.md).
 

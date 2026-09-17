@@ -94,7 +94,6 @@ function describeOperation(operation: string, descriptor: NonNullable<ReturnType
       next: {
         tool: 'awareness',
         queries: [{
-          reasoning: 'Continue the canonical Awareness schema',
           operation,
           describe: true,
           part: nextPart,
@@ -174,7 +173,6 @@ async function callOperation(
     const retry = {
       tool: 'awareness',
       queries: [{
-        reasoning: 'Read a bounded Awareness History chunk',
         operation,
         params: { ...params, limit: NATIVE_HISTORY_READ_CHUNK_BYTES },
       }],
@@ -248,7 +246,7 @@ async function callOperation(
     canRetry
       ? {
           tool: 'awareness',
-          queries: [{ reasoning: 'Read a smaller Awareness page', operation, params: narrower }],
+          queries: [{ operation, params: narrower }],
         }
       : undefined,
     completedWrite,
@@ -313,10 +311,7 @@ export function registerAwarenessTool(
     params: z.record(z.string(), z.unknown()).optional().describe('Operation params.'),
     timeoutMs: z.number().int().min(1).max(300_000).optional().describe('Deadline ms.'),
   });
-  const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    maxItems: 100,
-    reasoningDescription: 'Why.',
-  });
+  const parameters = buildQueryEnvelopeSchema(itemSchema, { maxItems: 100 });
   const description = DIRECT_TOOL_DESCRIPTIONS.awareness!;
   const promptSnippet = `${operationCount} Awareness operations; start with context.orient.`;
   const promptGuidelines = [

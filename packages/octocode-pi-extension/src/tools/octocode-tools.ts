@@ -31,13 +31,13 @@ export const DIRECT_TOOL_DESCRIPTIONS: Readonly<Record<string, string>> = Object
   localServer: 'Serve a static artifact on 127.0.0.1. Mount minimal scope; unmount when done.',
   askUser: 'Collect one missing choice that changes the next action. Ask once.',
   awareness: 'Shared coordination state. Start with context.orient; batch reads; one mutation per call.',
-  MCPTool: 'Discover MCP tools, resources, and prompts. server:"octocode" = code/GitHub/history/npm research. action:describe loads the exact schema and normally activates a Pi tool.',
+  MCPTool: 'Discover MCP tools, resources, and prompts. Octocode is the default research server. Describe loads an exact schema and normally activates a Pi tool.',
 });
 
 /** One executable discovery recipe; workers inherit it through the MCP gateway. */
-export const MCP_SCHEMA_DISCOVERY_EXAMPLE = '{"queries":[{"reasoning":"Read the selected tool schema","server":"octocode","action":"describe","tool":"<catalog-tool-name>"}]}';
+export const MCP_SCHEMA_DISCOVERY_EXAMPLE = '{"queries":[{"action":"describe","tool":"<catalog-tool-name>"}]}';
 /** One executable Octocode call recipe showing the outer and target query boundaries. */
-export const OCTOCODE_MCP_CALL_EXAMPLE = '{"queries":[{"reasoning":"Read the known file","action":"call","server":"octocode","tool":"localFetch","arguments":{"queries":[{"path":"/ABS/repo/README.md","fullContent":true}]}}]}';
+export const OCTOCODE_MCP_CALL_EXAMPLE = '{"queries":[{"action":"call","tool":"localFetch","arguments":{"queries":[{"path":"/ABS/repo/README.md","fullContent":true}]}}]}';
 
 export interface DirectToolContractStats {
   tools: number;
@@ -65,24 +65,6 @@ export function getDirectToolContractStats(registeredToolNames: Set<string>): Di
   };
 }
 
-function prepareQueryEnvelope(
-  toolName: string,
-  args: unknown,
-): unknown {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return args;
-  const input = args as Record<string, unknown>;
-  if (!Array.isArray(input['queries'])) return args;
-  return {
-    ...input,
-    queries: input['queries'].map((value) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-      const query = value as Record<string, unknown>;
-      const reasoning = typeof query['reasoning'] === 'string' ? query['reasoning'].trim() : '';
-      return reasoning ? query : { ...query, reasoning: `${toolName} operation` };
-    }),
-  };
-}
-
 export function registerUniqueTool(
   pi: { registerTool?(def: ToolDefinition): void },
   registeredToolNames: Set<string>,
@@ -106,10 +88,6 @@ export function registerUniqueTool(
     parameters,
     // Pi flattens guidelines from active tools into one unlabelled section.
     promptGuidelines: toolDefinition.promptGuidelines?.map(guideline => `${toolDefinition.name}: ${guideline}`),
-    prepareArguments: (args: unknown) => prepareQueryEnvelope(
-      toolDefinition.name,
-      toolDefinition.prepareArguments ? toolDefinition.prepareArguments(args) : args,
-    ),
     async execute(id, args, signal, onUpdate, ctx) {
       try {
         const result = await toolDefinition.execute(id, args, signal, onUpdate, ctx);

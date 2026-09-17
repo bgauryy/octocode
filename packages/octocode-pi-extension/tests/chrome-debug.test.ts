@@ -1429,7 +1429,7 @@ describe('chromeDebug queries[] envelope', () => {
     return tools.get('chromeDebug')!;
   }
 
-  test('schema top-level property is queries[] with per-item reasoning required', () => {
+  test('schema top-level property is queries[] with optional per-item labels', () => {
     const tool = makeChromeDebugTool();
     const schema = tool.parameters as Record<string, unknown>;
     const topProps = schema['properties'] as Record<string, unknown>;
@@ -1441,7 +1441,7 @@ describe('chromeDebug queries[] envelope', () => {
     assert.ok(itemProps['reasoning'], 'item schema must have reasoning property');
     assert.ok(itemProps['scheme'], 'item schema must have scheme property');
     const required = items['required'] as string[];
-    assert.ok(Array.isArray(required) && required.includes('reasoning'), 'reasoning must be required in each item');
+    assert.ok(!Array.isArray(required) || !required.includes('reasoning'), 'reasoning must remain optional');
     assert.ok(Array.isArray(required) && required.includes('scheme'), 'scheme must be required in each item');
   });
 

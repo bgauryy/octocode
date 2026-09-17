@@ -91,10 +91,6 @@ export interface RuntimeFooterState {
   activeTurnStartedAt?: number;
   lastTurnMs?: number;
   completedTurns: number;
-  gitDirty?: boolean;
-  gitDirtyFiles?: number;
-  gitAdditions?: number;
-  gitDeletions?: number;
   usage?: { tokens?: number; contextWindow: number };
   githubAuth: { status: 'checking' | 'authenticated' | 'missing' | 'error'; source?: string; message?: string };
 }

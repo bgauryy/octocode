@@ -4,6 +4,7 @@ const nonempty = z.string().min(1);
 const record = (description: string) =>
   z.record(z.string(), z.unknown()).describe(description);
 const scope = z.enum(['project', 'global']).optional().describe('project or global.');
+const researchServer = nonempty.optional().describe('Defaults to octocode.');
 
 /** One strict branch per MCP operation; impossible field combinations never reach runtime. */
 export function mcpGatewayItemSchema() {
@@ -17,32 +18,32 @@ export function mcpGatewayItemSchema() {
     }),
     z.strictObject({
       action: z.enum(['describe']),
-      server: nonempty,
+      server: researchServer,
       tool: nonempty,
     }),
     z.strictObject({
       action: z.enum(['call']),
-      server: nonempty,
+      server: researchServer,
       tool: nonempty,
       arguments: record('Tool input. Octocode nests target calls under arguments.queries[].').optional(),
       responseView: z.enum(['full', 'table']).optional().describe('full (default) or table.'),
     }),
-    z.strictObject({ action: z.enum(['resources']), server: nonempty }),
+    z.strictObject({ action: z.enum(['resources']), server: researchServer }),
     z.strictObject({
       action: z.enum(['read-resource']),
-      server: nonempty,
+      server: researchServer,
       uri: nonempty,
     }),
-    z.strictObject({ action: z.enum(['prompts']), server: nonempty }),
+    z.strictObject({ action: z.enum(['prompts']), server: researchServer }),
     z.strictObject({
       action: z.enum(['get-prompt']),
-      server: nonempty,
+      server: researchServer,
       name: nonempty,
       arguments: record('Prompt arguments.').optional(),
     }),
     z.strictObject({
       action: z.enum(['complete']),
-      server: nonempty,
+      server: researchServer,
       ref: record('Completion reference.'),
       argument: record('Completion argument.'),
     }),

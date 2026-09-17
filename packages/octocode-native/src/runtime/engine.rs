@@ -216,8 +216,11 @@ impl ToolRuntime {
             })
         } else if matches!(
             tool,
-            "ghSearch" | "ghGetFileContent" | "ghSearchHistory"
-                | "ghGetHistoryItem" | "ghCloneRepo"
+            "ghSearch"
+                | "ghGetFileContent"
+                | "ghSearchHistory"
+                | "ghGetHistoryItem"
+                | "ghCloneRepo"
         ) {
             // GitHub tools: scoped to API endpoint + home; not local config.
             json!({
@@ -303,13 +306,17 @@ impl ToolRuntime {
         }
         // UniversalCursor may have been issued for any tool family; try each scope.
         for scope_tool in ["ghSearch", "artifactSearch", ""] {
-            let scope = self.cursor_scope_for(scope_tool)
+            let scope = self
+                .cursor_scope_for(scope_tool)
                 .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))?;
             if let Ok(cursor) = super::cursor::UniversalCursor::decode(token, &scope) {
                 return Ok((cursor.tool, cursor.query, None));
             }
         }
-        Err(RuntimeError::new("invalidCursor", "Token scope does not match any known configuration"))
+        Err(RuntimeError::new(
+            "invalidCursor",
+            "Token scope does not match any known configuration",
+        ))
     }
 
     pub fn is_available(&self, tool: &str) -> bool {
@@ -457,10 +464,9 @@ impl ToolRuntime {
                 let (dt, dq) = super::cursor::UniversalCursor::decode(tok, &scope)
                     .map(|c| (c.tool, c.query))
                     .or_else(|_| {
-                        super::cursor::ReadCursor::decode(tok, &scope)
-                            .map(|c| (c.tool, c.query))
+                        super::cursor::ReadCursor::decode(tok, &scope).map(|c| (c.tool, c.query))
                     })
-                    .map_err(|e| RuntimeError::new("invalidCursor", format!("{e:?}"))) ?;
+                    .map_err(|e| RuntimeError::new("invalidCursor", format!("{e:?}")))?;
                 if !self.is_available(&dt) {
                     return Err(RuntimeError::new(
                         "toolUnavailable",
@@ -475,15 +481,20 @@ impl ToolRuntime {
         let options: ResponsePageOptions =
             serde_json::from_value(input.clone()).unwrap_or_default();
         let query = if from_cursor {
-            input.as_object().cloned().map(Value::Object).unwrap_or(input)
+            input
+                .as_object()
+                .cloned()
+                .map(Value::Object)
+                .unwrap_or(input)
         } else {
-            contracts::prepare_and_validate(&tool, input, PrepareOptions::default())
-                .map_err(|error| RuntimeError {
+            contracts::prepare_and_validate(&tool, input, PrepareOptions::default()).map_err(
+                |error| RuntimeError {
                     code: "invalidInput".into(),
                     message: error.to_string(),
                     payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
                     validation_issues: Some(error.issues),
-                })?
+                },
+            )?
         };
         let checked = self.security.validate_input_parameters(&query);
         if !checked.is_valid {
@@ -611,7 +622,8 @@ impl ToolRuntime {
                     row["cache"] = json!(1);
                 }
                 response::apply_hint_policy(&mut row, &tool, &query);
-                let all_failed = row.get("status").and_then(serde_json::Value::as_str) == Some("error");
+                let all_failed =
+                    row.get("status").and_then(serde_json::Value::as_str) == Some("error");
                 let mut structured = response::envelope(vec![row]);
                 response::sanitize_fields(&mut structured, &security, &context)?;
                 context.check()?;

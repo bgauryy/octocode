@@ -128,9 +128,7 @@ export function registerChromeDebugTool(
         params: z.record(z.string(), z.unknown()).optional().describe('CDP params object for scheme:"raw".'),
         sessionId: z.string().optional().describe('Route to a worker/iframe CDP session.'),
       });
-      return buildQueryEnvelopeSchema(itemSchema, {
-        reasoningDescription: 'Concise reason this Chrome DevTools Protocol operation is necessary.',
-      });
+      return buildQueryEnvelopeSchema(itemSchema);
     })(),
 
     async execute(

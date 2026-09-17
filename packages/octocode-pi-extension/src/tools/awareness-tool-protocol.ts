@@ -58,7 +58,6 @@ export function nativeOperationContinuations(value: unknown, withinContinuation 
     return {
       tool: 'awareness',
       queries: [{
-        reasoning: 'Continue the requested Awareness results',
         operation: object['operation'],
         ...(params ? { params } : {}),
       }],

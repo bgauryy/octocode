@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { validateToolArguments } from '@earendil-works/pi-ai';
 import { buildServerEnv } from '../src/tools/mcp/config.js';
 import { mcpGatewayItemSchema } from '../src/tools/mcp/gateway-contract.js';
+import { preflightMcpQuery } from '../src/tools/mcp-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { buildQueryEnvelopeSchema } from '../src/tools/query-envelope.js';
 import type { ToolDefinition } from '../src/types.js';
@@ -30,14 +31,17 @@ test('built-in MCP receives supported GitHub credentials without exposing them t
   expect(buildServerEnv('third-party', config).GITHUB_PERSONAL_ACCESS_TOKEN).toBeUndefined();
 });
 
-test('registered MCP envelope rejects misplaced target fields and preserves nested arguments', () => {
+test('registered MCP envelope defaults research calls to Octocode and preserves nested arguments', () => {
   const schema = buildQueryEnvelopeSchema(mcpGatewayItemSchema());
-  const query = { reasoning: 'fetch source', action: 'call', server: 'octocode', tool: 'localFetch', arguments: { queries: [{ path: '/fixture.ts' }] } };
+  const query = { action: 'call', tool: 'localFetch', arguments: { queries: [{ path: '/fixture.ts' }] } };
   const validate = (value: unknown) => validateToolArguments(
     { name: 'MCPTool', description: 'MCP gateway', parameters: schema },
     { type: 'toolCall', id: 'registration-fixture', name: 'MCPTool', arguments: value as Record<string, unknown> },
   );
   expect(validate({ queries: [query] })).toEqual({ queries: [query] });
+  const normalized = { ...query };
+  preflightMcpQuery(normalized);
+  expect(normalized).toMatchObject({ server: 'octocode' });
   expect(() => validate({ queries: [{ ...query, path: '/misplaced.ts' }] })).toThrow();
 });
 
@@ -52,6 +56,6 @@ test('registration composes tool-owned input preparation with the shared envelop
   const input = { customInput: true };
   const prepared = registered!.prepareArguments!(input) as { queries: Array<Record<string, unknown>> };
   expect(prepareArguments).toHaveBeenCalledExactlyOnceWith(input);
-  expect(prepared.queries[0]).toMatchObject({ operation: 'read', reasoning: expect.any(String) });
+  expect(prepared.queries[0]).toEqual({ operation: 'read' });
   expect(registered!.parameters).toBe(parameters);
 });

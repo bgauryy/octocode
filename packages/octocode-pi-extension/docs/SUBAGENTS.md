@@ -124,7 +124,6 @@ Use `profile:"custom"` with `resourceMode:"lean"` and `tools:[]` for a parent-on
 
 ```text
 agent({queries:[{
-  reasoning:"Delegate an independent evidence-gathering lane.",
   type:"spawn",
   profile:"researcher",
   goal:"Identify the exact caller and contract.",
@@ -136,6 +135,6 @@ agent({queries:[{
 }]})
 → agentId: "abc123"
 
-agent({queries:[{reasoning:"Collect the worker turn.",type:"wait",agentId:"abc123",timeoutMs:60000}]})
-agent({queries:[{reasoning:"Free the completed worker process.",type:"kill",agentId:"abc123",remove:true}]})
+agent({queries:[{type:"wait",agentId:"abc123",timeoutMs:60000}]})
+agent({queries:[{type:"kill",agentId:"abc123",remove:true}]})
 ```

@@ -32,33 +32,57 @@ pub trait NativeError: std::fmt::Debug {
 // ── Struct-based errors (code + message fields) ───────────────────────────
 
 impl NativeError for crate::tools::ast_graph::AstGraphError {
-    fn error_code(&self) -> &str { &self.code }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        &self.code
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::tools::ast_search::AstError {
-    fn error_code(&self) -> &str { &self.code }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        &self.code
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::tools::gh_clone_repo::CloneError {
-    fn error_code(&self) -> &str { &self.code }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        &self.code
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::tools::local_search::LocalSearchError {
-    fn error_code(&self) -> &str { self.code }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        self.code
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::providers::artifact::ArtifactError {
-    fn error_code(&self) -> &str { &self.code }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        &self.code
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::providers::github::ProviderError {
-    fn error_code(&self) -> &str { "providerError" }
-    fn error_message(&self) -> String { self.message.to_string() }
+    fn error_code(&self) -> &str {
+        "providerError"
+    }
+    fn error_message(&self) -> String {
+        self.message.to_string()
+    }
     fn to_value(&self) -> serde_json::Value {
         let mut v = serde_json::json!({
             "status": "error",
@@ -76,13 +100,21 @@ impl NativeError for crate::providers::github::ProviderError {
 }
 
 impl NativeError for crate::providers::github::GraphQlError {
-    fn error_code(&self) -> &str { "graphql" }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        "graphql"
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::runtime::RuntimeError {
-    fn error_code(&self) -> &str { &self.code }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_code(&self) -> &str {
+        &self.code
+    }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::policy::PolicyError {
@@ -106,7 +138,9 @@ impl NativeError for crate::policy::PolicyError {
             crate::policy::PolicyErrorCode::Io => "io",
         }
     }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::regex::RegexError {
@@ -118,12 +152,18 @@ impl NativeError for crate::regex::RegexError {
             crate::regex::RegexErrorCode::InputTooLarge => "inputTooLarge",
         }
     }
-    fn error_message(&self) -> String { self.message.clone() }
+    fn error_message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 impl NativeError for crate::contracts::ContractInputError {
-    fn error_code(&self) -> &str { "contractInput" }
-    fn error_message(&self) -> String { format!("{self}") }
+    fn error_code(&self) -> &str {
+        "contractInput"
+    }
+    fn error_message(&self) -> String {
+        format!("{self}")
+    }
 }
 
 impl NativeError for crate::contracts::ContractValidationError {

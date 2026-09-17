@@ -490,7 +490,7 @@ export async function executeSpawnQuery(
     ...(ledgerEntry?.planStep ? [`[SPAWNED] plan: ${ledgerEntry.planStep}`] : []),
     ...policyLines,
     '',
-    `[USAGE] agent({queries:[{reasoning:"\u2026", type:"wait", agentId:"${agentId}"}]})`,
+    `[USAGE] agent({queries:[{type:"wait", agentId:"${agentId}"}]})`,
   ].join('\n');
 
   return {

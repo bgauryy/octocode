@@ -6,11 +6,9 @@ import { access } from 'node:fs/promises';
 import { computeLineDiff, computeLineDiffAsync, generateDiffArtifacts as nativeDiffArtifactsSync, generateDiffArtifactsAsync as nativeDiffArtifacts } from '@octocodeai/octocode-extension-rust';
 import { CLI_STATUS_TEXT, cliStatusGlyph, cliStatusToken, cliToolTitle, ansiForToken } from '../tui/cli-design.js';
 import type { ToolCallResult, PiTheme, RenderCallReturn } from '../types.js';
-import { makeComponentRenderer, wrapText } from './render-helpers.js';
-import { collapsedEditRationales } from './edit-render-ux.js';
+import { makeComponentRenderer } from './render-helpers.js';
 import { withFileMutationQueue, checkReadState, type ReadStateCheck } from './file-state.js';
 import { assertFileContentSize, replaceNativeFile } from './native-files.js';
-import { peerWipNotice } from './peer-wip.js';
 import { countMutationLines, createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { normalizeToLF, restoreEditedText, assertWellFormedText } from './file-text.js';
 import { prepareFileMutationTarget, assertFileMutationTargetCurrent, rethrowFileMutationConflict, type FileMutationTarget } from './file-mutation-target.js';
@@ -62,7 +60,6 @@ interface AppliedEditEvidence {
   startLine: number;
   endLine: number;
   mode: MatchMode;
-  reasoning?: string;
   // Removed text fragments (the oldText segments), split by line.
   removedLines: string[];
   // Added text fragments (the newText), split by line.
@@ -79,11 +76,6 @@ export interface PreparedEdit {
   readState: ReadStateCheck;
   diff: string;
   patch: string;
-}
-
-interface EditReasoningEntry {
-  editIndex: number;
-  reasoning: string;
 }
 
 interface RenderableEditFile {
@@ -256,7 +248,6 @@ function validateOperation(edit: unknown, index: number): EditOperation {
     newText: (item['newText'] as string | undefined) ?? '',
     newLines: hasNewLines ? (item['newLines'] as string[]) : undefined,
     replaceAll: item['replaceAll'] === true,
-    reasoning: typeof item['reasoning'] === 'string' ? item['reasoning'] : undefined,
     matchMode,
   };
   if (matchMode === 'lineRange') {
@@ -428,7 +419,6 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
     return stripped.split('\n');
   };
   for (const r of replacements) {
-    const edit = edits[r.editIndex]!;
     const removedText = normalizeToLF(content.slice(r.start, r.end));
     const range = byteToLineRange(r.start, r.end);
     const existing = editEvidenceMap.get(r.editIndex);
@@ -444,7 +434,6 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
         startLine: range.startLine,
         endLine: range.endLine,
         mode: r.mode,
-        reasoning: (edit.reasoning ?? '').trim(),
         removedLines: toLines(removedText),
         addedLines: toLines(r.newText),
       });
@@ -527,26 +516,10 @@ async function generateDiffArtifactsAsync(filePath: string, oldContent: string, 
 }
 
 const EDIT_TOOL_DISPLAY_NAME = 'edit (Octocode)';
-function editReasoningEntries(edits: EditOperation[]): EditReasoningEntry[] {
-  return edits.map((edit, index) => ({ editIndex: index, reasoning: (edit.reasoning ?? '').trim() }));
-}
-
-function reasoningSuffix(editsByFile: Array<{ path: string; edits: EditOperation[] }>): string {
-  const lines = editsByFile.flatMap((file) => editReasoningEntries(file.edits)
-    .map((entry) => entry.reasoning));
-  return lines.length > 0 ? `\nReasoning:\n${lines.map((line) => `- ${line}`).join('\n')}` : '';
-}
 
 function changesSuffix(prepared: PreparedEdit[]): string {
   const blocks = prepared.map((item) => `# ${item.requestPath}\n${colorDiffString(item.diff)}`);
   return `\nChanges:\n${blocks.join('\n')}`;
-}
-
-function renderEditRationaleItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
-  return collapsedEditRationales(files).map((rationale) => ({
-    text: paint(theme, 'muted', `  ${rationale}`),
-    truncate: true,
-  }));
 }
 
 function renderEditDiffItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
@@ -574,10 +547,9 @@ function renderEditDiffItems(files: RenderableEditFile[], theme?: PiTheme): Arra
 }
 
 function renderCollapsedEditDiffLines(header: string, files: RenderableEditFile[], theme?: PiTheme): RenderCallReturn {
-  const rationaleItems = renderEditRationaleItems(files, theme);
   const diffItems = renderEditDiffItems(files, theme);
   const maxPreviewLines = 10;
-  const previewItems = [...rationaleItems, ...diffItems];
+  const previewItems = diffItems;
   const shown = previewItems.slice(0, maxPreviewLines);
   const omitted = previewItems.length - shown.length;
   return makeComponentRenderer((_props, { width: width }) => [
@@ -642,7 +614,6 @@ export async function prepareEdit(query: EditQuery, cwd: string, inheritedRequir
 /** Commit one fully preflighted edit while preserving the lost-update guard. */
 export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortSignal): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error('Operation aborted');
-  const peerNotice = peerWipNotice(prepared.absolutePath, prepared.requestPath);
   let committed: Awaited<ReturnType<typeof replaceNativeFile>>;
   let warnings: string[];
   try {
@@ -661,7 +632,6 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
   const firstChangedLine = prepared.result.firstChangedLine;
   const lineSuffix = firstChangedLine ? ` First changed line: ${firstChangedLine}.` : '';
   const readStates = prepared.readState.state;
-  const reasoning = reasoningSuffix([{ path: prepared.requestPath, edits: prepared.edits }]);
   const changes = changesSuffix([prepared]);
   const mutationMetrics = prepared.result.changes.reduce((total, change) => {
     const removed = prepared.result.baseContent.slice(change.start, change.end);
@@ -674,7 +644,7 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
   return {
     content: [{
       type: 'text',
-      text: `Successfully replaced ${replacements} occurrence(s) across ${editCount} edit(s) in 1 file(s).${lineSuffix} Read state: ${readStates}.${peerNotice}${reasoning}${changes}${warnings.length ? `\n${warnings.join('\n')}` : ''}`,
+      text: `Successfully replaced ${replacements} occurrence(s) across ${editCount} edit(s) in 1 file(s).${lineSuffix} Read state: ${readStates}.${changes}${warnings.length ? `\n${warnings.join('\n')}` : ''}`,
     }],
     details: {
       operation: 'edit',
@@ -690,7 +660,6 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
         firstChangedLine: prepared.result.firstChangedLine,
         usedModes: prepared.result.usedModes,
         readState: prepared.readState,
-        reasoning: editReasoningEntries(prepared.edits),
         edits: prepared.result.edits,
         diff: prepared.diff,
         coloredDiff: colorDiffString(prepared.diff),
@@ -743,14 +712,8 @@ export function renderEditResult(
       : makeComponentRenderer((_props, { width: width }) => [truncateToWidth(`${header}${filesNote}`, width)], undefined);
   }
 
-  // Per file → per edit:
-  //   meta line  (truncatable — always short)
-  //   reasoning  (word-wrapped so full text is visible without exceeding terminal width)
-  //   diff lines (Myers: only genuinely changed lines)
-  type StaticItem = { text: string; truncate: boolean };
-  type DynamicItem = { fn: (width: number) => string[] };
-  type Item = StaticItem | DynamicItem;
-  const items: Item[] = [{ text: header, truncate: true }];
+  // Per file → per edit metadata and changed lines.
+  const items: Array<{ text: string; truncate: boolean }> = [{ text: header, truncate: true }];
   for (const file of details?.files ?? []) {
     items.push({
       text: paint(theme, 'path', `  ${file.path}`),
@@ -763,25 +726,10 @@ export function renderEditResult(
       const metaStr = `    edit #${edit.editIndex + 1} \xb7 ${range} \xb7 ${edit.mode}`;
       items.push({ text: paint(theme, 'dim', metaStr), truncate: true });
 
-      const reasonText = (edit.reasoning ?? '').trim();
-      if (reasonText) {
-        const indent = '      ';
-        items.push({
-          fn: (w) => {
-            const availWidth = Math.max(w - indent.length, 10);
-            return wrapText(reasonText, availWidth).map((line) =>
-              truncateToWidth(`${indent}${paint(theme, 'muted', line)}`, w),
-            );
-          },
-        });
-      }
-
       items.push(...renderEditDiffItems([{ path: file.path, edits: [edit] }], theme).slice(1));
     }
   }
-  return makeComponentRenderer((_props, { width: width }) => items.flatMap((item) =>
-    'fn' in item
-      ? item.fn(width)
-      : [item.truncate ? truncateToWidth(item.text, width) : item.text],
+  return makeComponentRenderer((_props, { width: width }) => items.map((item) =>
+    item.truncate ? truncateToWidth(item.text, width) : item.text,
   ), undefined);
 }

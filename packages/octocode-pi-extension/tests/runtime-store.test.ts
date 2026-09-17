@@ -62,8 +62,6 @@ test('runtime store owns footer metrics as one Zustand state slice', () => {
     sessionStartedAt: 1000,
     completedTurns: 3,
     activeTurnStartedAt: 1200,
-    gitDirty: true,
-    gitDirtyFiles: 4,
     usage: { tokens: 42_000, contextWindow: 200_000 },
     githubAuth: { status: 'authenticated' },
   });
@@ -71,8 +69,6 @@ test('runtime store owns footer metrics as one Zustand state slice', () => {
     sessionStartedAt: 1000,
     completedTurns: 3,
     activeTurnStartedAt: 1200,
-    gitDirty: true,
-    gitDirtyFiles: 4,
     usage: { tokens: 42_000, contextWindow: 200_000 },
     githubAuth: { status: 'authenticated' },
   });

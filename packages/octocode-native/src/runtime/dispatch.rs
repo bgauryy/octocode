@@ -119,8 +119,16 @@ pub(super) fn execute_local(
             )),
         },
         "astRewrite" => {
-            let data =
-                execute_ast_rewrite_with_options(query, paths, security, context, &AstRewriteRuntimeOptions { allow_apply: allow_ast_rewrite_apply, ..Default::default() });
+            let data = execute_ast_rewrite_with_options(
+                query,
+                paths,
+                security,
+                context,
+                &AstRewriteRuntimeOptions {
+                    allow_apply: allow_ast_rewrite_apply,
+                    ..Default::default()
+                },
+            );
             Ok(value_result(data))
         }
         _ => Err(ExecutionError::WorkerFailed),

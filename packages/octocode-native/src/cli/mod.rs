@@ -1,6 +1,8 @@
 mod commands;
 mod human;
+mod lsp_provision;
 mod mcp_install;
+mod mcp_sync;
 mod search;
 use clap::Parser;
 use commands::Command;
@@ -513,9 +515,11 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             minimal,
             json,
         } => human::context(runtime, json, full, minimal).await,
-        Command::Status { hostname, json } => {
-            human::status(runtime, hostname.as_deref(), json).await
-        }
+        Command::Status {
+            hostname,
+            json,
+            sync,
+        } => human::status(runtime, hostname.as_deref(), json, sync).await,
         Command::Auth { json } => human::auth_status(runtime, json).await,
         Command::Login { refresh } => human::login(runtime, refresh).await,
         Command::Logout => human::logout(runtime),
@@ -546,6 +550,14 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             backup,
             rollback,
         }),
+        Command::LspServer {
+            action,
+            names,
+            all,
+            yes,
+            force,
+            json,
+        } => lsp_provision::run(&action, names, all, yes, force, json).await,
     }
 }
 

@@ -10,13 +10,13 @@ import {
 import * as sharedPrompts from '../../src/contracts/prompts/index.js';
 
 describe('shared prompts', () => {
-  it('shares compact widget and context guidance without introducing host tool names', () => {
+  it('shares compact workflow, research, and continuity guidance', () => {
     const prompt = buildOctocodeSystemPrompt('');
-    expect(prompt).toContain('<interaction_context>');
-    expect(prompt).toContain('plain messages');
+    expect(prompt).toContain('<octocode_workflow>');
+    expect(prompt).toContain('<octocode_research>');
+    expect(prompt).toContain('<octocode_continuity>');
     expect(prompt).toContain('never imply approval');
     expect(prompt).toContain('continuations');
-    expect(sharedPrompts).toHaveProperty('INTERACTION_CONTEXT_GUIDANCE');
   });
   it('exports only prompts that participate in a supported runtime flow', () => {
     expect(sharedPrompts).not.toHaveProperty('MULTIDIMENSIONAL_MATHEMATICAL_FRAMEWORK_PROMPT');
@@ -24,47 +24,41 @@ describe('shared prompts', () => {
 
   it('composes the host coordination contract exactly once', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('<authority>');
+    expect(prompt).toContain('<octocode_workflow>');
     expect(prompt.match(/<coordination>shared<\/coordination>/g)).toHaveLength(1);
     expect(prompt.endsWith('\n')).toBe(true);
   });
 
-  it('routes measured improvement loops to the installed eval skill without hijacking ordinary retries', () => {
+  it('does not hardcode a skill inventory into standing policy', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('octocode-eval-benchmark');
-    expect(prompt).toContain('ordinary retries use their direct acceptance check');
+    expect(prompt).not.toContain('octocode-eval-benchmark');
     expect(prompt).not.toContain('octocode-graph-eval');
   });
 
-  it('routes the Pi-owned policy through advertised host capabilities', () => {
+  it('defers tool inventory and call shape to advertised host contracts', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('chromeDebug');
-    expect(prompt).toContain('askUser');
-    expect(prompt).toContain('localServer');
-    expect(prompt).toContain('advertised purpose');
+    expect(prompt).toContain('active host tools through their advertised contracts');
+    expect(prompt).not.toContain('chromeDebug');
+    expect(prompt).not.toContain('localServer');
   });
 
-  it('forbids replaying crash-left effects whose outcome is unknown', () => {
+  it('forbids automatic replay of crash-left effects whose outcome is unknown', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('crash-left `started` effect');
-    expect(prompt).toContain('terminal `uncertain`');
-    expect(prompt).toContain('Never re-execute it');
+    expect(prompt).toContain('Never automatically retry an effect left started or uncertain after a crash');
   });
 
-  it('uses the negotiated catalog and teaches efficient research routing without stale tool inventories', () => {
+  it('teaches efficient research routing without stale tool inventories', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('A catalog selects a tool; its exact schema defines a valid call');
     expect(prompt).toContain(sharedPrompts.LOCAL_TOOL_GUIDANCE);
-    expect(prompt.match(/<local_tools>/g)).toHaveLength(1);
+    expect(prompt.match(/<octocode_research>/g)).toHaveLength(1);
     expect(sharedPrompts).toHaveProperty('LOCAL_TOOL_GUIDANCE');
     expect(prompt).not.toContain('localSearch operation:');
   });
 
   it('defers parameter contracts to live schemas rather than duplicating them in policy', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('live contract owns field names');
-    expect(prompt).toContain('next.* continuations unchanged');
-    expect(prompt).toContain('incomplete or unsupported searches cannot prove absence');
+    expect(prompt).toContain('Use an active target schema directly');
+    expect(prompt).toContain('follow executable continuations');
     expect(prompt).not.toMatch(/fullContent|matchString|namePattern|pathRegex/);
   });
 
@@ -82,11 +76,10 @@ describe('shared prompts', () => {
     expect(prompt).not.toContain('acceptance binds that revision but does not authorize implementation');
   });
 
-  it('does not instruct agents to mutate workspace reflection state', () => {
+  it('does not carry obsolete reflection-state policy', () => {
     const prompt = buildOctocodeSystemPrompt('<coordination>shared</coordination>');
-    expect(prompt).toContain('never hand-edit generated workspace state for reflection');
     expect(prompt).not.toContain('.octocode/REFLECT.md');
-    expect(prompt).toContain('clickable path:line anchors');
+    expect(prompt).not.toContain('generated workspace state for reflection');
   });
 
   it('expands every shared subagent placeholder', () => {

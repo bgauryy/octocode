@@ -60,7 +60,7 @@ type SkillPartialReason = 'content-limit' | 'file-limit' | 'file-depth' | 'file-
 function skillContinuation(tool: 'localFetch' | 'astSearch', query: Record<string, unknown>, why: string) {
   return {
     tool: 'MCPTool' as const,
-    query: { queries: [{ reasoning: why, action: 'call' as const, server: 'octocode', tool, arguments: { queries: [query] } }] },
+    query: { queries: [{ action: 'call' as const, tool, arguments: { queries: [query] } }] },
     why,
   };
 }
@@ -147,7 +147,7 @@ function formatSkillList(skills: DiscoveredSkill[], total = skills.length): stri
     const usedNote = used ? ` (loaded ${used.count}× this session)` : '';
     return `- ${skill.name} [${skill.source}] id:${skill.sourceId ?? skill.path}${usedNote}: ${skill.description || '(no description)'}`;
   });
-  return [`${total} skill(s) available — load one with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…"}]}) when the task matches:`, ...lines].join('\n');
+  return [`${total} skill(s) available — load one with skill({queries:[{type:"load", action:"load", name:"…"}]}) when the task matches:`, ...lines].join('\n');
 }
 
 // ─── Per-query executors ───────────────────────────────────────────────────────
@@ -159,6 +159,8 @@ function executeLoadItem(
   ctx?: PiContext,
 ): ToolCallResult {
   const action = query['action'] === 'list' ? 'list' : 'load';
+  const reason = typeof query['reason'] === 'string' ? query['reason'].trim() : '';
+  if (action === 'load' && !reason) return result('skill load requires reason describing why the workflow matches.', undefined, true);
   const skills: DiscoveredSkill[] = isWorkerCapabilityClient()
     ? (getCurrentWorkerCapabilities()?.snapshot.skills ?? []).map(skill => ({ ...skill, sourceId: skill.id, description: skill.description ?? '', dir: path.dirname(skill.path), source: 'parent grant' }))
     : discoverSkills(cwd, getPiSkills(), undefined, { trusted: ctx?.isProjectTrusted?.() === true });
@@ -168,7 +170,7 @@ function executeLoadItem(
     return result((page.diagnostic?.message ?? formatSkillList(page.skills, page.total)) + continuation, page, Boolean(page.diagnostic));
   }
   const name = typeof query['name'] === 'string' ? query['name'].trim() : '';
-  if (!name) return result('skill load requires name. Use skill({queries:[{reasoning:"…", type:"load", action:"list"}]}) for the catalog.', undefined, true);
+  if (!name) return result('skill load requires name. Use skill({queries:[{type:"load", action:"list"}]}) for the catalog.', undefined, true);
   const skill = skills.find((candidate) => candidate.name === name)
     ?? skills.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
   if (!skill) {
@@ -252,7 +254,7 @@ export function registerSkillTool(
     limit: z.number().int().min(1).max(50).optional().describe('Page size.'),
     catalogRevision: z.string().optional().describe('Catalog revision.'),
     name: z.string().optional().describe('Skill name.'),
-    reason: z.string().optional().describe('Context or creation reason.'),
+    reason: z.string().optional().describe('Why the skill matches or why creation is needed.'),
     skillType: z.string().optional().describe('Workflow id for type:call.'),
     mode: z.enum(['auto', 'use', 'create', 'enhance', 'fix', 'list', 'delete']).optional().describe('auto·use·create·enhance·fix·list·delete'),
     intent: z.string().optional().describe('type:call workflow intent.'),
@@ -260,9 +262,7 @@ export function registerSkillTool(
     force: z.boolean().optional().describe('Bypass triviality heuristic only.'),
   });
 
-  const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    reasoningDescription: 'Why.',
-  });
+  const parameters = buildQueryEnvelopeSchema(itemSchema);
 
   const execute = async (
     toolCallId: string,
@@ -291,6 +291,7 @@ export function registerSkillTool(
           if (['create', 'enhance', 'fix'].includes(String(query['mode'])) && !text('reason')) throw new Error('Skill creation requires reason.');
         } else if (query['action'] !== 'list') {
           if (!text('name')) throw new Error('skill load requires name.');
+          if (!text('reason')) throw new Error('skill load requires reason describing why the workflow matches.');
         }
       },
       execute: async (query) => {

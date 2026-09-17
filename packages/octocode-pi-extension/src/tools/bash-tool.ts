@@ -623,7 +623,6 @@ export function registerBashTool(
       outputOffset: z.number().optional().describe('Output line offset.'),
       lines: z.number().optional().describe('Output line limit.'),
     }),
-    { reasoningDescription: 'Why.', allowParallel: false },
   );
 
   registerFn(pi, registeredToolNames, {
@@ -725,7 +724,7 @@ export function registerBashTool(
                     `${icon} bash (bg) job \`${j.id}\` ${j.status}\n` +
                     `Title:   ${j.title}\nRuntime: ${formatBgElapsed((j.endedAt ?? Date.now()) - j.startedAt)}\n` +
                     `Exit:    ${j.exitCode ?? 'n/a'}\nLog:     ${j.logPath}\n\n` +
-                    `  bash queries=[{action:'output',jobId:'${j.id}',reasoning:'tail output'}]   # read log`;
+                    `  bash queries=[{action:'output',jobId:'${j.id}'}]   # read log`;
                   (ctx as any)?.sendUserMessage?.(msg, { deliverAs: 'followUp' });
                 } catch {}
               },
@@ -736,9 +735,9 @@ export function registerBashTool(
                 `Title:   ${job.title}\nCommand: ${job.command}\nLog:     ${job.logPath}\n` +
                 `Timeout: ${bgTimeout > 0 ? `${bgTimeout}s` : 'none'}\n\n` +
                 `Continue other work — follow-up arrives on completion.\n` +
-                `  bash queries=[{action:'output',jobId:'${job.id}',reasoning:'tail log'}]\n` +
-                `  bash queries=[{action:'status',jobId:'${job.id}',reasoning:'check exit code'}]\n` +
-                `  bash queries=[{action:'kill',  jobId:'${job.id}',reasoning:'stop it'}]`,
+                `  bash queries=[{action:'output',jobId:'${job.id}'}]\n` +
+                `  bash queries=[{action:'status',jobId:'${job.id}'}]\n` +
+                `  bash queries=[{action:'kill',jobId:'${job.id}'}]`,
               }],
               details: { jobId: job.id, logPath: job.logPath, status: 'running' },
             };

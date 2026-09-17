@@ -178,16 +178,6 @@ export function buildCapabilitySegments(
   return segments;
 }
 
-/** `main` · `main (dirty)` · `main (5 changed)` — words instead of `*` / `Δ`. */
-export function formatBranchSegment(
-  branch: string,
-  dirty: boolean,
-  dirtyFiles?: number
-): string {
-  if (!dirty) return branch;
-  return dirtyFiles ? `${branch} (${dirtyFiles} changed)` : `${branch} (dirty)`;
-}
-
 // ─── Worker state projection ───────────────────────────────────────────────────
 
 /** The minimal ledger shape the footer needs (subset of WorkerLedgerEntry). */

@@ -157,9 +157,7 @@ test('write refuses a target changed after batch preflight', async () => {
     tool: 'MCPTool',
     query: {
       queries: [{
-        reasoning: 'Refresh the changed file before retrying the mutation.',
         action: 'call',
-        server: 'octocode',
         tool: 'localFetch',
         arguments: { queries: [{ path: target }] },
       }],

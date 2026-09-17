@@ -1,7 +1,7 @@
 //! Response-shaping helpers: build the tool output Value from prepared rewrite data.
+use super::{AstRewriteQuery, ExecutableReceipt, PreparedFile, PreparedMatch, RewriteError};
 use serde_json::{Map, Value, json};
 use std::path::Path;
-use super::{AstRewriteQuery, ExecutableReceipt, PreparedFile, PreparedMatch, RewriteError};
 
 pub(super) fn success_value(
     query: &AstRewriteQuery,
@@ -149,4 +149,3 @@ pub(super) fn portable_relative(root: &Path, target: &Path) -> Result<String, Re
             )
         })
 }
-

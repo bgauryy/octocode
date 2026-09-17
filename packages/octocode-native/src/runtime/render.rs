@@ -272,8 +272,12 @@ fn order_fields(value: &mut Value, keys: &[&str]) {
 pub fn mcp_result(structured: Value) -> Value {
     let text = render_local_fetch(&structured);
     let rows = structured["results"].as_array();
-    let is_error = rows
-        .is_some_and(|rows| !rows.is_empty() && rows.iter().all(|row| row.get("status").and_then(serde_json::Value::as_str) == Some("error")));
+    let is_error = rows.is_some_and(|rows| {
+        !rows.is_empty()
+            && rows
+                .iter()
+                .all(|row| row.get("status").and_then(serde_json::Value::as_str) == Some("error"))
+    });
     json!({"content":[{"type":"text","text":text}],"structuredContent":structured,"isError":is_error})
 }
 

@@ -7,8 +7,6 @@ const SEGMENTS = [
   { id: 'mcp-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 6_000 },
   // Runtime image/capability flags — 5 short lines.
   { id: 'runtime-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 500 },
-  // Native tool name+description list — ~15 entries × ~100 chars each.
-  { id: 'native-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 2_000 },
   // Dynamic callTool/skill:call catalog — MAX_ENTRIES_PER_KIND=30 × MAX_DESCRIPTION_CHARS=100 each; usually empty.
   { id: 'dynamic-tool-contracts', kind: 'tool-contract', origin: 'octocode-harness', authority: 'product', visibility: 'inspectable', rehydrate: 'always', tokenBudget: 6_000 },
   // Installed skill list — renderAvailableSkillsAddendum caps at 18K chars (~4.5K tokens); 5K gives headroom.

@@ -225,7 +225,6 @@ test('wraps canonical operation continuations in executable Pi envelopes', async
   assert.equal(value.isError, false);
   const packet = JSON.parse(String((value.content[0] as { text?: string }).text));
   assert.deepEqual(packet.next[0].queries[0], {
-    reasoning: 'Continue the requested Awareness results',
     operation: 'context.orient',
     params: { limit: 2, offset: 2 },
   });

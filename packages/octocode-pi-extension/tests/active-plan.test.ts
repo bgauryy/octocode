@@ -719,12 +719,10 @@ test('plan tool gives compact behavioral routing and truthful transition contras
   const tool = loadTool();
   assert.match(tool.description, /Use a plan only for complex work/);
   assert.match(tool.description, /Skip routine fixes, straightforward steps, and simple delegation/);
-  assert.match(tool.description, /complete only after an observed check/i);
   const guidelines = tool.promptGuidelines?.join('\n') ?? '';
-  assert.match(guidelines, /queries.*reasoning.*action/is);
-  assert.match(guidelines, /For complex work.*action:"set".*already authorized.*action:"propose".*review/is);
-  assert.match(guidelines, /Wrong: complete because a worker said DONE.*verify.*action:"complete"/is);
-  assert.match(guidelines, /independent lanes.*dependsOn.*delegation/is);
+  assert.match(guidelines, /set for authorized execution and propose when review is required/i);
+  assert.match(guidelines, /Complete only after the declared check succeeds, never from a worker DONE claim/i);
+  assert.match(guidelines, /independent-lane dependencies.*start runnable steps/is);
   assert.doesNotMatch(guidelines, /plan\(/i);
 });
 

@@ -341,15 +341,14 @@ describe('schema', () => {
     return (items?.anyOf ?? items?.oneOf ?? []) as Array<{ properties?: Record<string, SchemaProperty>; required?: string[] }>;
   }
 
-  it('queries array has minItems:1 and every discriminated branch requires bounded reasoning', async () => {
+  it('queries array has minItems:1 and every discriminated branch permits an optional bounded label', async () => {
     const tools = await loadSut();
     const schema = tools.get('agent')!.parameters as { properties?: { queries?: { minItems?: number } } };
     expect(schema.properties?.queries?.minItems).toBe(1);
     const branches = schemaBranches(tools.get('agent')!.parameters);
     expect(branches.length).toBeGreaterThan(AGENT_OPERATIONS.length);
     for (const branch of branches) {
-      expect(branch.required).toContain('reasoning');
-      expect(branch.properties?.['reasoning']?.minLength).toBe(1);
+      expect(branch.required ?? []).not.toContain('reasoning');
       expect(branch.properties?.['reasoning']?.maxLength).toBe(400);
     }
   });
@@ -462,10 +461,9 @@ describe('schema', () => {
     const tools = await loadSut();
     const tool = tools.get('agent')!;
     const guidance = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
-    expect(guidance).toMatch(/two or more bounded lanes.*independent.*disjoint ownership/is);
-    expect(guidance).toMatch(/continue non-overlapping parent work.*type:wait.*verify.*reconcile.*kill.*continue the user request/is);
-    expect(guidance).toMatch(/rejects incomplete packets before creating a worker/is);
-    expect(guidance).toMatch(/never trust or persist a raw handback/is);
+    expect(guidance).toMatch(/Delegate only independent lanes with disjoint ownership/i);
+    expect(guidance).toMatch(/continue non-overlapping parent work.*Collect and verify handbacks.*stop completed workers/is);
+    expect(guidance).toMatch(/Every spawn needs Goal, Context, Scope, Ownership, Acceptance, Return/i);
   });
 
   it('AGENT_OPERATIONS covers spawn, parent configuration, and lifecycle operations', () => {

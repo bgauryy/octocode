@@ -12,7 +12,6 @@ import {
   resolveFilePath,
   withFileMutationQueue,
 } from './file-state.js';
-import { peerWipNotice } from './peer-wip.js';
 import { countMutationLines, createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { deleteNativeFile, snapshotNativeFile } from './native-files.js';
 import { assertWellFormedText } from './file-text.js';
@@ -83,13 +82,9 @@ async function prepareOperation(query: QueryRecord, index: number, cwd: string):
       throw new Error('edit requires a non-empty edits array.');
     }
     fileItemSchema.parse(query);
-    const edits = query['edits'].map((value) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-      return { ...(value as Record<string, unknown>), reasoning: query.reasoning };
-    });
     const editQuery = validateEditQuery({
       path,
-      edits,
+      edits: query['edits'],
       ...(query['requireRecentRead'] === undefined ? {} : { requireRecentRead: query['requireRecentRead'] }),
     }, index);
     return { operation, edit: await prepareEdit(editQuery, cwd, false) };
@@ -118,7 +113,6 @@ function canonicalDeletePath(absolutePath: string): string {
 
 async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: AbortSignal): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error('Operation aborted');
-  const peerNotice = peerWipNotice(prepared.absolutePath, prepared.path);
   let committed: Awaited<ReturnType<typeof deleteNativeFile>>;
   let warnings: string[];
   try {
@@ -139,7 +133,7 @@ async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: Abor
     rethrowFileMutationConflict(error, { requestPath: prepared.path, canonicalPath: prepared.canonicalPath });
   }
   return {
-    content: [{ type: 'text', text: `Deleted ${prepared.path}.${peerNotice}${warnings.length ? `\n${warnings.join('\n')}` : ''}` }],
+    content: [{ type: 'text', text: `Deleted ${prepared.path}.${warnings.length ? `\n${warnings.join('\n')}` : ''}` }],
     details: {
       operation: 'delete',
       committed: true,
@@ -181,16 +175,12 @@ export function registerFileTool(
     description: DIRECT_TOOL_DESCRIPTIONS.file!,
     promptSnippet: 'Apply scoped file edits, full writes, or deletions.',
     promptGuidelines: [
-      'type:edit=targeted replacements; type:write=new file or full rewrite; type:delete=explicitly in scope only.',
-      'write=path+content; delete=path; edit=path+edits. Extra fields (confirm, force, dryRun) fail preflight.',
       'Read existing files before edit/delete. Prefer exact oldText; lineRange and normalized are opt-in.',
       'requireRecentRead or lineRange-without-oldText requires prior localFetch; shell reads do not count.',
       'Use smallest unique anchor; split large mutations across calls before output limit.',
       'Batch edits to one path per query.',
     ],
-    parameters: buildQueryEnvelopeSchema(fileItemSchema, {
-      reasoningDescription: 'Why this file mutation is necessary.',
-    }),
+    parameters: buildQueryEnvelopeSchema(fileItemSchema),
     async execute(toolCallId, params, signal, onUpdate, ctx): Promise<ToolCallResult> {
       const cwd = ctx?.cwd ?? process.cwd();
       const rawQueries = Array.isArray(params['queries']) ? params['queries'] as Array<Record<string, unknown>> : [];

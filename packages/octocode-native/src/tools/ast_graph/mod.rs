@@ -138,7 +138,10 @@ fn validate_query(query: &AstGraphQuery) -> Result<(), AstGraphError> {
         }
         GraphAnalysis::Drift => {
             if query.path.is_none() {
-                return Err(AstGraphError::new("invalidGraphQuery", "drift requires path"));
+                return Err(AstGraphError::new(
+                    "invalidGraphQuery",
+                    "drift requires path",
+                ));
             }
             if query.baseline.is_none() {
                 return Err(AstGraphError::new(
@@ -203,11 +206,23 @@ mod drift_tests {
         let root = temp.path();
         // Baseline: a <-> b import cycle.
         std::fs::create_dir_all(root.join("base")).unwrap();
-        std::fs::write(root.join("base/a.ts"), "import { b } from './b';\nexport const a = () => b();\n").unwrap();
-        std::fs::write(root.join("base/b.ts"), "import { a } from './a';\nexport const b = () => a();\n").unwrap();
+        std::fs::write(
+            root.join("base/a.ts"),
+            "import { b } from './b';\nexport const a = () => b();\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("base/b.ts"),
+            "import { a } from './a';\nexport const b = () => a();\n",
+        )
+        .unwrap();
         // Head: cycle resolved — b no longer imports a.
         std::fs::create_dir_all(root.join("head")).unwrap();
-        std::fs::write(root.join("head/a.ts"), "import { b } from './b';\nexport const a = () => b();\n").unwrap();
+        std::fs::write(
+            root.join("head/a.ts"),
+            "import { b } from './b';\nexport const a = () => b();\n",
+        )
+        .unwrap();
         std::fs::write(root.join("head/b.ts"), "export const b = () => 1;\n").unwrap();
 
         let head = root.join("head");

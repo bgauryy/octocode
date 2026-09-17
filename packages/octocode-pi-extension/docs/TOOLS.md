@@ -33,7 +33,7 @@ The direct palette contains 15 extension-owned tools: 14 support tools and the g
 | Dynamic capabilities     | `callTool`, `skill`                      |
 | Planning and coordination | `plan`, `awareness`, `askUser`, `localServer` |
 
-Every direct tool exposes a `queries` batch. The registered schema requires a non-empty `reasoning` string of at most 400 characters for each query, and the Pi adapter fills a scoped default when the model omits it. A call accepts at most 100 queries. Preflight checks declared inputs across the batch before execution; live permissions, remote schemas, and mutable state are checked again when needed at execution. This is not a transaction or a promise that every operation will succeed. Sequential mode executes in source order and stops on the first runtime failure. Tools that expose `queryRunType:"parallel"` overlap independent operations, run at most four queries concurrently by default, and return results in source order. Receipts distinguish successful, failed, and not-run items. Partial failures preserve completed child content and returned error diagnostics through the shared output budget; cancellation does not label unstarted queued work as executed. Successful one-query calls preserve the underlying detail shape.
+Every direct tool exposes a `queries` batch. Each query may include a `reasoning` batch label of at most 400 characters; the adapter trims supplied labels, omits blanks, and does not synthesize one. A call accepts at most 100 queries. Preflight checks declared inputs across the batch before execution; live permissions, remote schemas, and mutable state are checked again when needed at execution. This is not a transaction or a promise that every operation will succeed. Sequential mode executes in source order and stops on the first runtime failure. Tools that expose `queryRunType:"parallel"` overlap independent operations, run at most four queries concurrently by default, and return results in source order. Receipts distinguish successful, failed, and not-run items. Partial failures preserve completed child content and returned error diagnostics through the shared output budget; cancellation does not label unstarted queued work as executed. Successful one-query calls preserve the underlying detail shape.
 
 ### Prompt and schema ownership
 
@@ -63,7 +63,7 @@ Colors convey meaning rather than decoration:
 - lavender/link: URL or parallel-policy signal;
 - normal/count: totals and numeric evidence;
 - bright/title: tool identity, action, or current focal value;
-- muted/dim: metadata, previews, reasoning, and disclosure hints.
+- muted/dim: metadata, previews, and disclosure hints.
 
 Renderer limits are view-only. The shared registration and batch boundaries preserve complete returned text and images. Tools that paginate their own results expose partial state and executable continuations; the extension does not apply a second output cap. Do not automatically repeat a mutating tool.
 
@@ -151,7 +151,7 @@ The `awareness` tool exposes canonical operations across Context, Work, Message,
 
 ### `bash`
 
-Execute shell commands in the current working directory. Octocode overrides Pi’s built-in bash with the same shell execution, a path guard on redirect/`tee`/`cp`/`mv` write targets, and a small blocklist of catastrophic commands. Every call requires a non-empty `reasoning` field. Bash streams output to a private ephemeral log and keeps at most about 4,000 model-visible characters: a 1,000-character head and a 3,000-character tail. Renderer metadata contains only the log path and byte/character counts, not a duplicate of stdout or stderr. The in-memory preview source stops at 150,000 characters, but the referenced log continues up to a 64 MiB safety ceiling. Session shutdown deletes the log. Prefer `file` for ordinary mutations; use bash for builds, tests, package commands, and mechanical changes. For more information, see [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
+Execute shell commands in the current working directory. Octocode overrides Pi’s built-in bash with the same shell execution, a path guard on redirect/`tee`/`cp`/`mv` write targets, and a small blocklist of catastrophic commands. Bash streams output to a private ephemeral log and keeps at most about 4,000 model-visible characters: a 1,000-character head and a 3,000-character tail. Renderer metadata contains only the log path and byte/character counts, not a duplicate of stdout or stderr. The in-memory preview source stops at 150,000 characters, but the referenced log continues up to a 64 MiB safety ceiling. Session shutdown deletes the log. Prefer `file` for ordinary mutations; use bash for builds, tests, package commands, and mechanical changes. For more information, see [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
 
 ### `file`
 
@@ -163,7 +163,7 @@ One guarded mutation boundary with `type:"edit" | "write" | "delete"`:
 
 The dedicated extension Rust package executes file I/O and edit-preparation diff in native workers. File reads and mutation content have a 64 MiB limit. Successful receipts include `committed:true`, a separate `durable` sync result, and a versioned `mutation` receipt with applied/no-op classification, pre/post fingerprints, touched byte and line counts, and explicit diff/patch truncation flags. Receipts don't copy file contents. A stale commit returns a runnable `MCPTool` → `localFetch` recovery query. Post-commit sync or bookkeeping failures become warnings. See [FILE_MUTATIONS.md](FILE_MUTATIONS.md) for build requirements, platform support and the native boundary.
 
-Every query requires one concise `reasoning`. Mixed batches reject duplicate paths and fully preflight every operation before the first mutation. All paths use the shared cwd/home/temp/`ALLOWED_PATHS` guard. Use `delete` only when removal is explicitly in scope. Details: [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
+An optional query label is never propagated into mutation evidence. Mixed batches reject duplicate paths and fully preflight every operation before the first mutation. All paths use the shared cwd/home/temp/`ALLOWED_PATHS` guard. Use `delete` only when removal is explicitly in scope. Details: [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
 
 ---
 
@@ -258,7 +258,6 @@ Typed workers use Octocode `MCPTool` and matching skills for repository research
 
 ```text
 agent({queries:[{
-  reasoning:"Delegate an independent browser audit.",
   type:"spawn",
   profile:"browser",
   task:"Audit cookie security on https://example.com",
@@ -267,8 +266,8 @@ agent({queries:[{
 }]})
 → agentId: "abc123"
 
-agent({queries:[{reasoning:"Collect the browser turn.",type:"wait",agentId:"abc123",timeoutMs:60000}]})
-agent({queries:[{reasoning:"Free the completed worker.",type:"kill",agentId:"abc123",remove:true}]})
+agent({queries:[{type:"wait",agentId:"abc123",timeoutMs:60000}]})
+agent({queries:[{type:"kill",agentId:"abc123",remove:true}]})
 ```
 
 Spawn policy is warning-first: task packets should name goal, context, scope, ownership, acceptance, and return shape. Optional `cohortId` groups related workers in bounded, attention-first inspect summaries. The completion policy requests wrap-up at 80% of the step budget and an honest partial handback at the hard limit. Capacity limits block before process creation. Workers never receive the `agent` facade, so recursive spawning is unavailable. Spawn first and use the returned ID in a later call; generated IDs can't be referenced by another item in the same preflighted batch.
@@ -434,7 +433,7 @@ A project entry with the same server name wins.
 | 3          | Workspace | `$OCTOCODE_HOME/extension/workspaces/<workspace-key>/mcp/servers.json`      | Trusted workspaces only |
 
 For an untrusted project config, the gateway records a skipped source and warning but never
-spawns a process. Run `MCPTool({queries:[{reasoning:"Inspect resolved MCP configuration.",action:"config"}]})`
+spawns a process. Run `MCPTool({queries:[{action:"config"}]})`
 to see the resolved servers, sources, and warnings.
 
 ### 2. Add or remove a server
@@ -445,7 +444,6 @@ Use `MCPTool` for the managed path:
 MCPTool({
   queries: [
     {
-      reasoning: "Add the trusted documentation server.",
       action: "add",
       server: "docs",
       scope: "project",

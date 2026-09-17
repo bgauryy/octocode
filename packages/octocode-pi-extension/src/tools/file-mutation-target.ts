@@ -21,9 +21,7 @@ export interface FileMutationRecoveryV1 {
   tool: 'MCPTool';
   query: {
     queries: Array<{
-      reasoning: string;
       action: 'call';
-      server: 'octocode';
       tool: 'localFetch';
       arguments: { queries: Array<{ path: string }> };
     }>;
@@ -42,9 +40,7 @@ export class FileMutationConflictError extends Error {
       tool: 'MCPTool',
       query: {
         queries: [{
-          reasoning: 'Refresh the changed file before retrying the mutation.',
           action: 'call',
-          server: 'octocode',
           tool: 'localFetch',
           arguments: { queries: [{ path: absolutePath }] },
         }],

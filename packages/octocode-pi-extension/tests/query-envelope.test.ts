@@ -53,11 +53,8 @@ describe("query envelope", () => {
     expect(schema.properties?.queries?.maxItems).toBe(100);
     expect(
       schema.properties?.queries?.items?.properties?.reasoning,
-    ).toMatchObject({
-      minLength: 1,
-      maxLength: 400,
-    });
-    expect(schema.properties?.queries?.items?.required).toContain("reasoning");
+    ).toMatchObject({ maxLength: 400 });
+    expect(schema.properties?.queries?.items?.required).not.toContain("reasoning");
     expect(schema.properties?.queries?.items?.properties).toHaveProperty("value");
     expect(schema.properties?.queryRunType).toMatchObject({
       default: "sequential",
@@ -78,7 +75,7 @@ describe("query envelope", () => {
     ]);
   });
 
-  it("preflights every query before execution and rejects invalid reasoning", async () => {
+  it("preflights every query before execution and treats reasoning as an optional label", async () => {
     const preflight = vi.fn(
       async (query: Record<string, unknown>, index: number) => {
         if (query.value === "bad") throw new Error(`bad ${index}`);
@@ -99,8 +96,8 @@ describe("query envelope", () => {
     expect(preflight).toHaveBeenCalledTimes(2);
 
     await expect(
-      prepareQueryBatch({ queries: [{ reasoning: "   ", value: "ok" }] }),
-    ).rejects.toThrow(/queries\[0\].*reasoning/);
+      prepareQueryBatch({ queries: [{ value: "ok" }, { reasoning: "   ", value: "also ok" }] }),
+    ).resolves.toEqual([{ value: "ok" }, { value: "also ok" }]);
 
     await expect(
       prepareQueryBatch({

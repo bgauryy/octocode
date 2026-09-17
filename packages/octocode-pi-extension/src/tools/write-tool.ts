@@ -5,7 +5,6 @@
 import type { ToolCallResult } from '../types.js';
 import { resolveFilePath, withFileMutationQueue } from './file-state.js';
 import { assertFileContentSize, replaceNativeFile } from './native-files.js';
-import { peerWipNotice } from './peer-wip.js';
 import { createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { assertWellFormedText } from './file-text.js';
 import { prepareFileMutationTarget, assertFileMutationTargetCurrent, rethrowFileMutationConflict, type FileMutationTarget } from './file-mutation-target.js';
@@ -30,7 +29,7 @@ export async function prepareWrite(requestPath: string, content: string, cwd: st
   return { operation: 'write', target, content, previousLines };
 }
 
-export function validateWriteParams(params: Record<string, unknown>): { path: string; content: string; reasoning: string } {
+export function validateWriteParams(params: Record<string, unknown>): { path: string; content: string } {
   const rawPath = params['path'];
   if (typeof rawPath !== 'string' || rawPath.trim().length === 0) {
     throw new Error('Write tool input is invalid. path must be a non-empty string.');
@@ -39,7 +38,7 @@ export function validateWriteParams(params: Record<string, unknown>): { path: st
     throw new Error('Write tool input is invalid. content must be a string.');
   }
   assertWellFormedText(params['content'], 'content');
-  return { path: rawPath, content: params['content'], reasoning: typeof params['reasoning'] === 'string' ? params['reasoning'] : '' };
+  return { path: rawPath, content: params['content'] };
 }
 
 /** Execute one path-guarded write after the caller has preflighted the batch. */
@@ -50,7 +49,6 @@ export async function commitWrite(
   const { target, content } = prepared;
   const { requestPath, canonicalPath: absolutePath } = target;
   if (signal?.aborted) throw new Error('Operation aborted');
-  const peerNotice = peerWipNotice(absolutePath, requestPath);
   const created = !target.snapshot.exists;
 
   let committed: Awaited<ReturnType<typeof replaceNativeFile>>;
@@ -70,7 +68,7 @@ export async function commitWrite(
   return {
     content: [{
       type: 'text',
-      text: `Successfully wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${requestPath}${peerNotice}${warnings.length ? `\n${warnings.join('\n')}` : ''}`,
+      text: `Successfully wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${requestPath}${warnings.length ? `\n${warnings.join('\n')}` : ''}`,
     }],
     details: {
       operation: 'write',

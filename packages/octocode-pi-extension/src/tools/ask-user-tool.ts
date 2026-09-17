@@ -972,7 +972,7 @@ export function registerAskUserTool(
       'Back/cancel/timeout/unavailable never select a default; resume durable continuation if present, else ask inline.',
     ],
     parameters: (() => {
-      const reasoning = z.string().min(1).max(400);
+      const reasoning = z.string().max(400).optional().describe('Optional batch label.');
       const question = z.string().min(1);
       const placeholder = z.string().optional();
       const timeoutMs = z.number().int().min(1).max(86_400_000).optional();
@@ -1163,12 +1163,7 @@ export function registerAskUserTool(
       const runQuery = (query: Record<string, unknown>): Promise<ToolCallResult> =>
         observeExecutionQuestion(ctx, `${id}:question:${questionIndex++}`, query.question, () => executeQuestion(query));
 
-      if (queries.length === 1) {
-        const query = queries[0]!;
-        const reasoning = typeof query['reasoning'] === 'string' ? query['reasoning'].trim() : '';
-        if (!reasoning) throw new Error('queries[0] requires non-empty reasoning.');
-        return runQuery(query);
-      }
+      if (queries.length === 1) return runQuery(queries[0]!);
 
       return executeQueryBatch({
         toolCallId: id,

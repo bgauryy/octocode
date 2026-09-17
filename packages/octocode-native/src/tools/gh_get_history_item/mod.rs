@@ -8,8 +8,8 @@ use std::{collections::HashMap, path::Path};
 
 mod util;
 use util::{
-    array, compact, compare_identity, content_flag, is_bot, map_comments,
-    nonzero, paginate_text, str_at, string, usize_at,
+    array, compact, compare_identity, content_flag, is_bot, map_comments, nonzero, paginate_text,
+    str_at, string, usize_at,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 30;
@@ -1366,7 +1366,6 @@ async fn fetch_collection<R: CredentialResolver>(
     .await
 }
 
-
 fn collection_page(q: &GhGetHistoryItemQuery, key: &str, default: usize) -> usize {
     q.collection_pages
         .as_ref()
@@ -1375,12 +1374,6 @@ fn collection_page(q: &GhGetHistoryItemQuery, key: &str, default: usize) -> usiz
         .map(|v| v as usize)
         .unwrap_or(default)
 }
-
-
-
-
-
-
 
 fn history_body_view(value: &str, query: &GhGetHistoryItemQuery) -> String {
     if matches!(query.operation, ItemOperation::PullRequest)

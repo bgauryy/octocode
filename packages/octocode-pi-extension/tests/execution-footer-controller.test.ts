@@ -45,7 +45,6 @@ vi.mock('../src/tools/desktop-notify.js', () => ({
 vi.mock('../src/tools/effort-dial.js', () => ({
   getActiveDialLevel: () => undefined,
 }));
-vi.mock('../src/tools/peer-wip.js', () => ({ peerWipCount: () => 0 }));
 vi.mock('../src/tools/planning/plan-store.js', () => ({
   activePlanScope: () => 'plan',
 }));

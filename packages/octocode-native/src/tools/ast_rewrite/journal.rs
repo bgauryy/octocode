@@ -1,4 +1,9 @@
 //! Transaction journal: write-ahead log, commit, and crash-recovery for applied rewrites.
+use super::{
+    JOURNAL_PREFIX, Journal, JournalFile, PreparedFile, RewriteError, cancelled, io_error, sha256,
+    transaction_id,
+};
+use crate::tools::local_fetch::CancellationCheck;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -6,10 +11,6 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
-use crate::tools::local_fetch::CancellationCheck;
-use super::{Journal, JournalFile, PreparedFile, RewriteError, JOURNAL_PREFIX, cancelled, io_error, sha256, transaction_id};
-
-
 
 pub(super) fn persist_journal(path: &Path, journal: &Journal) -> Result<(), RewriteError> {
     let temp = path.with_extension("json.tmp");
@@ -371,4 +372,3 @@ fn finalize_committed(path: &Path, journal: &Journal) -> Vec<String> {
     }
     errors
 }
-
