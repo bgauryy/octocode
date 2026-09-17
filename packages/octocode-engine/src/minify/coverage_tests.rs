@@ -163,13 +163,15 @@ fn every_configured_extension_preserves_evidence_and_removes_its_comments() {
                 ),
                 ("full", full_minification(&source, &path)),
             ] {
-                assert!(
-                    output.contains(MARKER),
-                    "{extension}/{group:?}/{mode}: marker lost: {output}"
+                assert_eq!(
+                    output.matches(MARKER).count(),
+                    source.matches(MARKER).count(),
+                    "{extension}/{group:?}/{mode}: marker lost or duplicated: {output}"
                 );
-                assert!(
-                    output.contains(LITERAL),
-                    "{extension}/{group:?}/{mode}: string literal changed: {output}"
+                assert_eq!(
+                    output.matches(LITERAL).count(),
+                    source.matches(LITERAL).count(),
+                    "{extension}/{group:?}/{mode}: string literal changed or duplicated: {output}"
                 );
                 assert!(
                     !output.contains(COMMENT),

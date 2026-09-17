@@ -62,7 +62,7 @@ fn frozen_graph_correctness_receipt_is_stable() {
 }
 
 /// Manual, repeatable sensor rather than a CI timing gate. Run with:
-/// `cargo test --test graph_benchmark measure_frozen_graph_baseline -- --ignored --nocapture`.
+/// `cargo test --release --test graph_benchmark measure_frozen_graph_baseline -- --ignored --nocapture`.
 /// The correctness test above remains the non-flaky merge guard.
 #[test]
 #[ignore = "manual performance sensor"]

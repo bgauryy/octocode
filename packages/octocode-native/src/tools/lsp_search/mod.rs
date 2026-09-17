@@ -1027,6 +1027,52 @@ mod tests {
     }
 
     #[test]
+    fn semantic_pagination_continuations_cover_the_full_result_fixture() {
+        let expected = (0..7)
+            .map(|index| serde_json::json!({"name": format!("symbol-{index}")}))
+            .collect::<Vec<_>>();
+        let mut query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({
+            "operation": "documentSymbols",
+            "uri": "/repo/src/lib.rs",
+            "page": 1,
+            "pageSize": 3,
+            "format": "structured",
+            "includeDeclaration": true
+        }))
+        .expect("canonical lsp query");
+        let snapshot = super::semantic_snapshot(&query, "symbols", &expected);
+        query.snapshot = Some(snapshot.clone());
+        let mut actual = Vec::new();
+
+        loop {
+            let (page, pagination) = super::paginate(
+                &expected,
+                query.page.unwrap_or(1),
+                query.page_size.unwrap_or(40),
+            );
+            actual.extend(page);
+            let response = super::with_next(
+                &query,
+                serde_json::json!({
+                    "snapshot": snapshot,
+                    "pagination": pagination
+                }),
+            );
+            if response["pagination"]["hasMore"] != true {
+                assert!(response.get("next").is_none());
+                break;
+            }
+            let continuation = &response["next"]["nextPage"];
+            assert_eq!(continuation["tool"], "lspSearch");
+            query = serde_json::from_value(continuation["query"].clone())
+                .expect("executable continuation query");
+            assert_eq!(query.snapshot.as_deref(), Some(snapshot.as_str()));
+        }
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn document_wide_operations_do_not_require_a_position_anchor() {
         for operation in ["documentSymbols", "workspaceSymbol", "diagnostic"] {
             let query: super::LspSearchQuery = serde_json::from_value(serde_json::json!({

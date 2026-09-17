@@ -55,7 +55,7 @@ cargo test --manifest-path packages/octocode-native/Cargo.toml tools::ast_graph
 A manual sensor reports file and edge counts, file-topology build time, immutable-snapshot build time, and query time without imposing a flaky CI timing threshold:
 
 ```bash
-cargo test --manifest-path packages/octocode-engine/Cargo.toml --no-default-features --test graph_benchmark measure_frozen_graph_baseline -- --ignored --exact --nocapture
+cargo test --manifest-path packages/octocode-engine/Cargo.toml --release --no-default-features --test graph_benchmark measure_frozen_graph_baseline -- --ignored --exact --nocapture
 ```
 
-The sensor writes `$TMPDIR/octocode-graph-benchmark.json`. Set `OCTOCODE_GRAPH_BENCH_REPORT` to choose another report path. Set `OCTOCODE_GRAPH_BENCH_FILES` and `OCTOCODE_GRAPH_BENCH_FANOUT` to scale the frozen graph. Compare any proposed graph library against the same correctness fixture and sensor before adoption. Keep `BTreeMap` and full snapshot rebuilds unless a held-out benchmark demonstrates a material correctness, memory, or latency gain from another representation or incremental parsing.
+The release profile keeps debug instrumentation from distorting the receipt. The sensor writes `$TMPDIR/octocode-graph-benchmark.json`. Set `OCTOCODE_GRAPH_BENCH_REPORT` to choose another report path. Set `OCTOCODE_GRAPH_BENCH_FILES` and `OCTOCODE_GRAPH_BENCH_FANOUT` to scale the frozen graph. Compare any proposed graph library against the same correctness fixture and sensor before adoption. Keep `BTreeMap` and full snapshot rebuilds unless a held-out benchmark demonstrates a material correctness, memory, or latency gain from another representation or incremental parsing.
