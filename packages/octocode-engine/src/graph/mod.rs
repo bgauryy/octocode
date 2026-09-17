@@ -3,20 +3,16 @@ mod diff;
 mod model;
 mod policy;
 
-pub use policy::{
-    classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
-    BaselineReport, BoundaryRule, BoundaryViolation, ComponentRule, Severity,
-};
-pub use diff::{
-    diff_graphs, BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta,
-    FileDelta, GraphDiff, MetricDelta, NodeDelta, RelationDelta, RelationKey, StaticDynamicShift,
-};
 pub use algorithms::{
     condense as condense_file_graph, cycle_witness, reachable as reachable_files,
     reverse as reverse_file_graph, scc as strongly_connected_components,
     scc_unsorted as strongly_connected_components_unsorted, shortest_path as shortest_file_path,
     transitive_edges, traverse as traverse_file_graph, Condensed as CondensedFileGraph,
     Node as FileGraphNode,
+};
+pub use diff::{
+    diff_graphs, BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta,
+    FileDelta, GraphDiff, MetricDelta, NodeDelta, RelationDelta, RelationKey, StaticDynamicShift,
 };
 pub use model::{
     CodeEdge, CodeGraphBuilder, CodeGraphDiagnostic, CodeGraphSnapshot, CodeNode, EdgeKind,
@@ -26,6 +22,10 @@ pub use model::{
     GraphFactsTypedScanResult, GraphPosition, GraphRange, NodeId, NodeKind, SemanticObservation,
     SemanticObservationInput, SemanticOperation, SemanticOutcome, SemanticRelationInput,
     ServerReceipt, SnapshotMetadata, SymbolAnchor,
+};
+pub use policy::{
+    classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
+    BaselineReport, BoundaryRule, BoundaryViolation, ComponentRule, Severity,
 };
 
 use std::{fs, io::Read, path::Path};

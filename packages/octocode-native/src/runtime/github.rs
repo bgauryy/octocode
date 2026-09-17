@@ -522,12 +522,8 @@ fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
 fn search_error(error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
     let message = match error.kind {
-        ProviderErrorKind::Authentication => {
-            "GitHub authentication required".to_owned()
-        }
-        ProviderErrorKind::Permission => {
-            "Access forbidden — insufficient permissions".to_owned()
-        }
+        ProviderErrorKind::Authentication => "GitHub authentication required".to_owned(),
+        ProviderErrorKind::Permission => "Access forbidden — insufficient permissions".to_owned(),
         ProviderErrorKind::NotFound => "Repository or resource not found".to_owned(),
         ProviderErrorKind::RateLimited => error.message.to_string(),
         ProviderErrorKind::Validation if error.status == Some(422) => {
@@ -544,8 +540,7 @@ fn search_error(error: ProviderError) -> DomainResult {
         serde_json::to_value(error.kind).unwrap_or(serde_json::Value::String("unknown".into()));
     let mut data = json!({"error": message, "errorCode": error_code});
     if error.kind == ProviderErrorKind::Authentication {
-        data["hints"] =
-            json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
+        data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
     } else if error.kind == ProviderErrorKind::RateLimited {
         data["hints"] = json!(["Set GITHUB_TOKEN for higher rate limits (5000/hour vs 60/hour)"]);
     }

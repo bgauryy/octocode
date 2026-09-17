@@ -196,9 +196,7 @@ mod contract_owner_tests {
     fn no_inline_schema_literals_outside_generated_contracts() {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let src_dir = manifest_dir.join("src");
-        let generated_dir = src_dir
-            .join("contracts")
-            .join("generated");
+        let generated_dir = src_dir.join("contracts").join("generated");
 
         // Patterns that indicate inline (hand-authored) JSON Schema definition.
         // We do not check for "properties" broadly because it appears in

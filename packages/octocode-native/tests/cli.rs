@@ -686,6 +686,30 @@ fn tools_json_emits_compact_discovery_catalog() {
 }
 
 #[test]
+fn tools_accepts_queries_flag_like_the_node_cli() {
+    let workspace = Workspace::new();
+    let path = workspace.write("query-flag.rs", "fn query_flag() {}\n");
+    let query = serde_json::json!({
+        "path": path,
+        "startLine": 1,
+        "endLine": 1
+    })
+    .to_string();
+    let output = workspace
+        .cli()
+        .args(["tools", "localFetch", "--queries", &query, "--compact"])
+        .output()
+        .expect("tools --queries");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("tool JSON");
+    assert!(
+        value["results"][0]["data"]["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("query_flag"))
+    );
+}
+
+#[test]
 fn search_emits_one_selected_output_mode() {
     let workspace = Workspace::new();
     let path = workspace.write("search.rs", "fn needle() {}\n");

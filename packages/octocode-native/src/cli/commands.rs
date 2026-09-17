@@ -102,6 +102,9 @@ pub(super) enum Command {
         tool: Option<String>,
         /// Raw JSON query object (positional; omit with --scheme to print the schema).
         queries: Option<String>,
+        /// Raw JSON query object. Alias for the positional JSON form, matching the Node CLI.
+        #[arg(long = "queries", value_name = "JSON", conflicts_with = "queries")]
+        queries_flag: Option<String>,
         /// Print the complete contract for the given tool instead of executing it.
         #[arg(long)]
         scheme: bool,

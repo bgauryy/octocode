@@ -251,20 +251,25 @@ mod tests {
         ]);
         let violations = evaluate(&graph, &components(), &[forbid_brain_to_interface()]);
         // Freeze only the first violation.
-        let baseline: BTreeSet<String> =
-            [violations[0].fingerprint()].into_iter().collect();
+        let baseline: BTreeSet<String> = [violations[0].fingerprint()].into_iter().collect();
 
         let report = compare_to_baseline(&violations, &baseline);
         assert_eq!(report.known_violations.len(), 1);
         assert_eq!(report.new_violations.len(), 1);
-        assert!(report.has_blocking(), "a new error-level violation blocks CI");
+        assert!(
+            report.has_blocking(),
+            "a new error-level violation blocks CI"
+        );
     }
 
     #[test]
     fn fully_frozen_violations_do_not_block() {
         let graph = snapshot(&[("brain/a.rs", "interface/x.rs", "rust-use", 1)]);
         let violations = evaluate(&graph, &components(), &[forbid_brain_to_interface()]);
-        let baseline: BTreeSet<String> = violations.iter().map(BoundaryViolation::fingerprint).collect();
+        let baseline: BTreeSet<String> = violations
+            .iter()
+            .map(BoundaryViolation::fingerprint)
+            .collect();
 
         let report = compare_to_baseline(&violations, &baseline);
         assert!(report.new_violations.is_empty());
@@ -274,9 +279,10 @@ mod tests {
 
     #[test]
     fn resolved_violation_is_reported_for_baseline_pruning() {
-        let baseline: BTreeSet<String> = ["stale-rule\u{1f}brain/gone.rs\u{1f}Imports\u{1f}interface/x.rs".to_owned()]
-            .into_iter()
-            .collect();
+        let baseline: BTreeSet<String> =
+            ["stale-rule\u{1f}brain/gone.rs\u{1f}Imports\u{1f}interface/x.rs".to_owned()]
+                .into_iter()
+                .collect();
         let report = compare_to_baseline(&[], &baseline);
 
         assert_eq!(report.resolved_fingerprints.len(), 1);

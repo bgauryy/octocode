@@ -647,9 +647,7 @@ impl CodeGraphBuilder {
     ) -> Result<String, String> {
         let generation = self.generation();
         if input.generation != generation {
-            return Err(
-                "semantic observation generation does not match graph snapshot".to_owned(),
-            );
+            return Err("semantic observation generation does not match graph snapshot".to_owned());
         }
         self.graph.snapshot.generation = generation.clone();
         self.semantic_started = true;
@@ -1043,10 +1041,7 @@ mod tests {
             .add_semantic_observation(observation(first.generation(), SemanticOutcome::NoResult))
             .expect("first observation");
         first
-            .add_semantic_observation(observation(
-                first.generation(),
-                SemanticOutcome::Unresolved,
-            ))
+            .add_semantic_observation(observation(first.generation(), SemanticOutcome::Unresolved))
             .expect("second observation");
         let a = first.finish();
 
@@ -1060,10 +1055,7 @@ mod tests {
             ))
             .expect("second observation");
         second
-            .add_semantic_observation(observation(
-                second.generation(),
-                SemanticOutcome::NoResult,
-            ))
+            .add_semantic_observation(observation(second.generation(), SemanticOutcome::NoResult))
             .expect("first observation");
         let b = second.finish();
 

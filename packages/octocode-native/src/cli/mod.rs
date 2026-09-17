@@ -327,11 +327,13 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
         Command::Tools {
             tool,
             queries,
+            queries_flag,
             scheme,
             json,
             compact,
         } => {
-            match (tool.as_deref(), scheme, queries.as_deref()) {
+            let query = queries_flag.as_deref().or(queries.as_deref());
+            match (tool.as_deref(), scheme, query) {
                 // `tools` or `tools --json` — human-readable catalog
                 (None, false, None) => match runtime.catalog() {
                     Ok(catalog) => {

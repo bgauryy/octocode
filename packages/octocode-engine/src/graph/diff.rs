@@ -61,7 +61,8 @@ impl DiffIncompatibility {
     fn is_hard(&self) -> bool {
         matches!(
             self,
-            DiffIncompatibility::FactsSchemaChanged { .. } | DiffIncompatibility::RootChanged { .. }
+            DiffIncompatibility::FactsSchemaChanged { .. }
+                | DiffIncompatibility::RootChanged { .. }
         )
     }
 }
@@ -505,10 +506,10 @@ mod tests {
 
         let diff = diff_graphs(&base, &head);
         assert!(diff.comparable, "completeness difference only downgrades");
-        assert!(diff.incompatibilities.iter().any(|item| matches!(
-            item,
-            DiffIncompatibility::ScanCompletenessDiffers { .. }
-        )));
+        assert!(diff
+            .incompatibilities
+            .iter()
+            .any(|item| matches!(item, DiffIncompatibility::ScanCompletenessDiffers { .. })));
     }
 
     #[test]
