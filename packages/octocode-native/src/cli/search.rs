@@ -115,7 +115,9 @@ pub struct SearchArgs {
 }
 
 impl SearchArgs {
-    pub fn queries(&self) -> io::Result<Value> {
+    /// Returns one query object per path. Callers iterate and execute each
+    /// query individually — multi-query batching has been removed.
+    pub fn queries(&self) -> io::Result<Vec<Value>> {
         let view = if self.files || self.quiet {
             "files"
         } else if self.count {
@@ -190,7 +192,6 @@ impl SearchArgs {
                 Ok(item)
             })
             .collect::<io::Result<Vec<Value>>>()
-            .map(|queries| json!(queries))
     }
 }
 

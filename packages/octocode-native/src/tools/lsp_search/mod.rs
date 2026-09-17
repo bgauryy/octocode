@@ -174,10 +174,36 @@ pub async fn execute(
             false,
         ));
     }
-    if Path::new(&path).is_file()
-        && let Ok(content) = fs::read_to_string(&path)
+    if let Some(capability) = required_capability(&query.operation)
+        && !client.has_capability(capability.to_owned())
     {
-        let _ = client.open_document(path.clone(), content).await;
+        return Ok(failure(
+            &query,
+            "lsp.capabilityUnavailable",
+            &format!("The language server does not advertise {capability}."),
+            true,
+        ));
+    }
+    if Path::new(&path).is_file() {
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(error) => {
+                return Ok(failure(
+                    &query,
+                    "lsp.documentReadFailed",
+                    &format!("The source document could not be read: {error}"),
+                    false,
+                ));
+            }
+        };
+        if let Err(error) = client.open_document(path.clone(), content).await {
+            return Ok(failure(
+                &query,
+                "lsp.documentSyncFailed",
+                &format!("The source document could not be synchronized: {error}"),
+                true,
+            ));
+        }
     }
     let (line, character) = match resolve_anchor(&query, &path) {
         Ok(anchor) => anchor,
@@ -260,14 +286,21 @@ pub async fn execute(
                     .map_err(|error| error.to_string())?,
             )
         }
-        "diagnostic" => items_payload(
-            &query,
-            "diagnostics",
-            client
-                .get_diagnostics(path.clone())
-                .await
-                .map_err(|error| error.to_string())?,
-        ),
+        "diagnostic" => {
+            let diagnostics = if client.has_capability("diagnosticProvider".to_owned()) {
+                client
+                    .get_diagnostics(path.clone())
+                    .await
+                    .map_err(|error| error.to_string())?
+            } else {
+                client
+                    .get_push_diagnostics(path.clone(), Some(1_500))
+                    .await
+                    .map_err(|error| error.to_string())?
+                    .unwrap_or_else(|| serde_json::json!({"kind":"full","items":[]}))
+            };
+            items_payload(&query, "diagnostics", diagnostics)
+        }
         "callers" | "callees" | "callHierarchy" => {
             hierarchy(&client, &query, &path, line, character).await?
         }
@@ -280,6 +313,21 @@ pub async fn execute(
         ),
     };
     Ok(with_next(&query, result))
+}
+
+fn required_capability(operation: &str) -> Option<&'static str> {
+    match operation {
+        "definition" => Some("definitionProvider"),
+        "references" => Some("referencesProvider"),
+        "hover" => Some("hoverProvider"),
+        "typeDefinition" => Some("typeDefinitionProvider"),
+        "implementation" => Some("implementationProvider"),
+        "documentSymbols" => Some("documentSymbolProvider"),
+        "workspaceSymbol" => Some("workspaceSymbolProvider"),
+        "callers" | "callees" | "callHierarchy" => Some("callHierarchyProvider"),
+        "supertypes" | "subtypes" => Some("typeHierarchyProvider"),
+        _ => None,
+    }
 }
 
 fn apply_rust_context(
@@ -909,17 +957,17 @@ fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value>, Value) {
         .cloned()
         .collect::<Vec<_>>();
     let has_more = current < total_pages;
-    (
-        page_items,
-        json!({
-            "currentPage": current,
-            "totalPages": total_pages,
-            "totalResults": total,
-            "hasMore": has_more,
-            "pageSize": page_size,
-            "nextPage": has_more.then_some(current + 1)
-        }),
-    )
+    let mut pagination = json!({
+        "currentPage": current,
+        "totalPages": total_pages,
+        "totalResults": total,
+        "hasMore": has_more,
+        "pageSize": page_size
+    });
+    if has_more {
+        pagination["nextPage"] = json!(current + 1);
+    }
+    (page_items, pagination)
 }
 
 fn as_array(value: &Value) -> Vec<Value> {
@@ -961,6 +1009,21 @@ mod tests {
             serde_json::to_value(query).expect("serialize")["position"],
             serde_json::json!({ "line": 7, "character": 11 })
         );
+    }
+
+    #[test]
+    fn pagination_omits_nullable_next_page_at_the_terminal_page() {
+        let items = vec![serde_json::json!({"name": "one"})];
+        let (_, terminal) = super::paginate(&items, 1, 20);
+        assert_eq!(terminal["hasMore"], false);
+        assert!(terminal.get("nextPage").is_none());
+
+        let items = vec![
+            serde_json::json!({"name": "one"}),
+            serde_json::json!({"name": "two"}),
+        ];
+        let (_, partial) = super::paginate(&items, 1, 1);
+        assert_eq!(partial["nextPage"], 2);
     }
 
     #[test]
@@ -1016,6 +1079,23 @@ mod tests {
         );
         assert_eq!(continued["next"]["nextPage"]["query"]["page"], 3);
         assert!(continued["next"]["nextPage"]["query"]["snapshot"].is_string());
+    }
+
+    #[test]
+    fn semantic_operations_require_their_advertised_lsp_capability() {
+        assert_eq!(
+            super::required_capability("references"),
+            Some("referencesProvider")
+        );
+        assert_eq!(
+            super::required_capability("callers"),
+            Some("callHierarchyProvider")
+        );
+        assert_eq!(
+            super::required_capability("subtypes"),
+            Some("typeHierarchyProvider")
+        );
+        assert_eq!(super::required_capability("unknown"), None);
     }
 
     #[test]

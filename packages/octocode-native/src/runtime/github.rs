@@ -14,7 +14,6 @@ use crate::{
         local_fetch::LocalFetchRegex,
     },
 };
-use futures_util::{StreamExt, TryStreamExt, stream};
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -82,16 +81,16 @@ impl GitHubServices {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn execute_queries(
+    pub fn execute_query(
         &self,
         tool: &str,
-        queries: &[Value],
+        query: &Value,
         context: &ExecutionContext,
         security: &ContentSecurity,
         regex: &LocalFetchRegex,
         handle: &tokio::runtime::Handle,
         paths: &PathPolicy,
-    ) -> Result<Vec<DomainResult>, ExecutionError> {
+    ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         let host = self
             .provider
@@ -111,16 +110,11 @@ impl GitHubServices {
         let credential = match credential {
             Ok(value) => value,
             Err(error) => {
-                return Ok(queries
-                    .iter()
-                    .map(|query| {
-                        if tool == "ghGetFileContent" {
-                            file_error(error.clone(), query)
-                        } else {
-                            history_error(error.clone())
-                        }
-                    })
-                    .collect());
+                return Ok(if tool == "ghGetFileContent" {
+                    file_error(error, query)
+                } else {
+                    history_error(error)
+                });
             }
         };
         let credential = if credential
@@ -128,7 +122,7 @@ impl GitHubServices {
             .is_some_and(|value| value.source == CredentialSource::Storage)
         {
             // Re-read stored metadata while holding one process-wide refresh
-            // section so concurrent batches cannot exchange the same refresh
+            // section so concurrent calls cannot exchange the same refresh
             // token more than once. The second waiter observes the fresh token.
             let _refresh_guard = self
                 .refresh_lock
@@ -151,16 +145,11 @@ impl GitHubServices {
                         Some(ResolvedCredential::new(token, CredentialSource::Storage))
                     }
                     _ => {
-                        return Ok(queries
-                            .iter()
-                            .map(|query| {
-                                if tool == "ghGetFileContent" {
-                                    file_error(refresh_error.clone(), query)
-                                } else {
-                                    history_error(refresh_error.clone())
-                                }
-                            })
-                            .collect());
+                        return Ok(if tool == "ghGetFileContent" {
+                            file_error(refresh_error, query)
+                        } else {
+                            history_error(refresh_error)
+                        });
                     }
                 },
             }
@@ -171,24 +160,15 @@ impl GitHubServices {
             RequestContext::with_resolved_credential(self.timeout, 16 * 1024 * 1024, credential);
         request_context.deadline = context.deadline.min(Instant::now() + self.timeout);
         request_context.cancellation = context.cancellation.clone();
-        // Futures stay owned by this admitted batch; dropping the stream drops
-        // in-flight HTTP work. Credential acquisition runs once per batch.
-        handle.block_on(
-            stream::iter(queries)
-                .map(|query| {
-                    self.execute_resolved(
-                        tool,
-                        query,
-                        &request_context,
-                        context,
-                        security,
-                        regex,
-                        paths,
-                    )
-                })
-                .buffered(3)
-                .try_collect(),
-        )
+        handle.block_on(self.execute_resolved(
+            tool,
+            query,
+            &request_context,
+            context,
+            security,
+            regex,
+            paths,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]

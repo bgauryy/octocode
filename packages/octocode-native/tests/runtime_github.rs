@@ -2,7 +2,7 @@ mod support;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use serde_json::{Value, json};
+use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -154,33 +154,10 @@ async fn github_clone_is_unavailable_when_disabled() {
     runtime.close().await;
 }
 
-/// Returns the `status` field for every result row in a multi-query outcome.
-fn all_row_statuses(outcome: &octocode_native::runtime::ToolOutcome) -> Vec<&str> {
-    outcome
-        .structured_content
-        .get("results")
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter()
-                .map(|r| {
-                    r.get("status")
-                        .and_then(Value::as_str)
-                        .unwrap_or(if r.get("data").is_some() {
-                            "success"
-                        } else {
-                            ""
-                        })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Exercises the batch `queries` array path and verifies all 3 results succeed.
-/// This proves that `execute_queries` / `.buffered(3)` handles multi-query input
-/// correctly end-to-end through the full tool dispatch stack.
+/// Verifies that three independent single-query calls each succeed end-to-end.
+/// Multi-query batching has been removed; callers send one query per call.
 #[tokio::test]
-async fn batch_of_three_github_queries_all_succeed() {
+async fn three_single_queries_all_succeed() {
     let server = MockServer::start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -209,34 +186,19 @@ async fn batch_of_three_github_queries_all_succeed() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
 
-    let outcome = call(
-        &runtime,
-        "ghGetFileContent",
-        json!({
-            "queries": [
-                {"owner": "a", "repo": "b", "path": "alpha.rs",
-                 "branch": "main", "forceRefresh": true},
-                {"owner": "a", "repo": "b", "path": "beta.rs",
-                 "branch": "main", "forceRefresh": true},
-                {"owner": "a", "repo": "b", "path": "gamma.rs",
-                 "branch": "main", "forceRefresh": true},
-            ]
-        }),
-    )
-    .await
-    .expect("three-query batch");
-
-    let statuses = all_row_statuses(&outcome);
-    assert_eq!(
-        statuses.len(),
-        3,
-        "expected 3 results: {}",
-        outcome.structured_content
-    );
-    for (i, status) in statuses.iter().enumerate() {
+    for name in ["alpha.rs", "beta.rs", "gamma.rs"] {
+        let outcome = call(
+            &runtime,
+            "ghGetFileContent",
+            json!({"owner": "a", "repo": "b", "path": name,
+                   "branch": "main", "forceRefresh": true}),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_ne!(
-            *status, "error",
-            "result[{i}] failed: {}",
+            row_status(&outcome),
+            "error",
+            "{name} failed: {}",
             outcome.structured_content
         );
     }
@@ -244,19 +206,11 @@ async fn batch_of_three_github_queries_all_succeed() {
     runtime.close().await;
 }
 
-/// Verifies that a batch of 3 `ghGetFileContent` queries dispatches all 3
-/// HTTP content requests to the server — the server-side receipt count is the
-/// observable proof that `execute_queries` / `.buffered(3)` actually issues
-/// one HTTP request per query rather than short-circuiting.
-///
-/// Why not a wall-time assertion?  `handle.block_on` drives all 3 futures on
-/// a single blocking thread: the HTTP requests are sent in parallel, but
-/// response processing (JSON parsing, content scanning, minification) runs
-/// sequentially on that one thread.  In a debug build each response takes
-/// ~300–400 ms of CPU time, which swamps any network-delay signal.  A
-/// server-side request count is deterministic and environment-independent.
+/// Verifies that three sequential single-query calls each produce exactly one
+/// server-side HTTP request — `.expect(1)` on each mock endpoint is the
+/// observable proof.
 #[tokio::test]
-async fn three_github_queries_each_produce_a_server_side_http_request() {
+async fn three_sequential_queries_each_hit_the_server() {
     let server = MockServer::start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -288,39 +242,23 @@ async fn three_github_queries_each_produce_a_server_side_http_request() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
 
-    let outcome = call(
-        &runtime,
-        "ghGetFileContent",
-        json!({
-            "queries": [
-                {"owner": "a", "repo": "b", "path": "p.rs",
-                 "branch": "main", "forceRefresh": true},
-                {"owner": "a", "repo": "b", "path": "q.rs",
-                 "branch": "main", "forceRefresh": true},
-                {"owner": "a", "repo": "b", "path": "r.rs",
-                 "branch": "main", "forceRefresh": true},
-            ]
-        }),
-    )
-    .await
-    .expect("three-query dispatch");
-
-    // All three results succeed.
-    let statuses = all_row_statuses(&outcome);
-    assert_eq!(
-        statuses.len(),
-        3,
-        "expected 3 results: {}",
-        outcome.structured_content
-    );
-    for (i, status) in statuses.iter().enumerate() {
+    for name in ["p.rs", "q.rs", "r.rs"] {
+        let outcome = call(
+            &runtime,
+            "ghGetFileContent",
+            json!({"owner": "a", "repo": "b", "path": name,
+                   "branch": "main", "forceRefresh": true}),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
         assert_ne!(
-            *status, "error",
-            "result[{i}] failed: {}",
+            row_status(&outcome),
+            "error",
+            "{name} failed: {}",
             outcome.structured_content
         );
     }
-    // WireMock verifies `.expect(1)` on drop: each content endpoint was hit exactly once.
+    // WireMock verifies `.expect(1)` on drop: each content endpoint hit exactly once.
 
     runtime.close().await;
 }

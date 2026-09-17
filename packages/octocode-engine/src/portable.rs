@@ -51,6 +51,21 @@ pub fn scan_graph_facts_filtered(
         .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
+pub fn scan_typed_graph_facts(
+    options: GraphFactsScanOptions,
+) -> Result<crate::graph::GraphFactsTypedScanResult> {
+    crate::graph::scan_graph_facts_typed(options)
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+}
+
+pub fn scan_typed_graph_facts_filtered(
+    options: GraphFactsScanOptions,
+    allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
+) -> Result<crate::graph::GraphFactsTypedScanResult> {
+    crate::graph::scan_graph_facts_typed_filtered(options, allow_path)
+        .map_err(|message| Error::new(Status::InvalidArg, message))
+}
+
 #[must_use]
 pub fn parse_ripgrep_json(
     stdout: &str,

@@ -11,7 +11,7 @@ mod js_oxc_shared;
 pub(crate) const GRAPH_FACTS_SCHEMA_VERSION: u32 = 1;
 
 pub(crate) struct GraphFactsExtraction {
-    pub facts_json: String,
+    pub facts: crate::graph::GraphFactsDocument,
     pub exported_declaration_names: Vec<String>,
 }
 
@@ -25,7 +25,7 @@ pub(crate) fn extract_graph_facts_with_metadata_inner(
 
 pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
     extract_graph_facts_with_metadata_inner(content, file_path)
-        .map(|extraction| extraction.facts_json)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 pub mod languages;
 pub mod renderer;
@@ -297,12 +297,13 @@ mod tests {
             let extraction = extract_graph_facts_with_metadata_inner(source, path)
                 .expect("graph facts with metadata");
             assert_eq!(extraction.exported_declaration_names, expected_names);
+            let facts_json = serde_json::to_string(&extraction.facts).expect("facts JSON");
             assert_eq!(
-                extraction.facts_json,
+                facts_json,
                 extract_graph_facts_inner(source, path).expect("legacy JSON facts")
             );
             let json: serde_json::Value =
-                serde_json::from_str(&extraction.facts_json).expect("valid facts JSON");
+                serde_json::from_str(&facts_json).expect("valid facts JSON");
             assert!(json.get(producer_field).is_some());
         }
     }

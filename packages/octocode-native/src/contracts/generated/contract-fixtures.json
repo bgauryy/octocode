@@ -13,21 +13,17 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "keywords": [
-            "localSearch"
-          ],
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "match": "file",
-          "page": 1,
-          "pageSize": 5,
-          "operation": "code"
-        }
-      ]
+      "goal": "Execute ghSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "keywords": [
+        "localSearch"
+      ],
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "match": "file",
+      "page": 1,
+      "pageSize": 5,
+      "operation": "code"
     }
   },
   {
@@ -43,20 +39,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "keywords": [
-            "code research"
-          ],
-          "language": "TypeScript",
-          "sort": "best-match",
-          "page": 1,
-          "pageSize": 5,
-          "operation": "repositories"
-        }
-      ]
+      "goal": "Execute ghSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "keywords": [
+        "code research"
+      ],
+      "language": "TypeScript",
+      "sort": "best-match",
+      "page": 1,
+      "pageSize": 5,
+      "operation": "repositories"
     }
   },
   {
@@ -71,20 +63,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages",
-          "maxDepth": 2,
-          "page": 1,
-          "metadataPage": 1,
-          "operation": "tree",
-          "pageSize": 100
-        }
-      ]
+      "goal": "Execute ghSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "packages",
+      "maxDepth": 2,
+      "page": 1,
+      "metadataPage": 1,
+      "operation": "tree",
+      "pageSize": 100
     }
   },
   {
@@ -100,21 +88,17 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "keywords": [
-            "toolSchemas"
-          ],
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "match": "file",
-          "page": 1,
-          "pageSize": 30,
-          "operation": "code"
-        }
-      ]
+      "goal": "Execute ghSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "keywords": [
+        "toolSchemas"
+      ],
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "match": "file",
+      "page": 1,
+      "pageSize": 30,
+      "operation": "code"
     }
   },
   {
@@ -128,19 +112,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "keywords": [
-            "octocode"
-          ],
-          "sort": "best-match",
-          "page": 1,
-          "pageSize": 30,
-          "operation": "repositories"
-        }
-      ]
+      "goal": "Execute ghSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "keywords": [
+        "octocode"
+      ],
+      "sort": "best-match",
+      "page": 1,
+      "pageSize": 30,
+      "operation": "repositories"
     }
   },
   {
@@ -155,20 +135,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages",
-          "maxDepth": 2,
-          "page": 1,
-          "metadataPage": 1,
-          "operation": "tree",
-          "pageSize": 100
-        }
-      ]
+      "goal": "Execute ghSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "packages",
+      "maxDepth": 2,
+      "page": 1,
+      "metadataPage": 1,
+      "operation": "tree",
+      "pageSize": 100
     }
   },
   {
@@ -183,17 +159,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetFileContent via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages/octocode-tools-core/src/responses.ts",
-          "contextLines": 5,
-          "matchString": "export function cleanJsonObject"
-        }
-      ]
+      "goal": "Execute ghGetFileContent via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "packages/octocode-tools-core/src/responses.ts",
+      "contextLines": 5,
+      "matchString": "export function cleanJsonObject"
     }
   },
   {
@@ -207,16 +179,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetFileContent via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages/octocode-tools-core/src/responses.ts",
-          "minify": "symbols"
-        }
-      ]
+      "goal": "Execute ghGetFileContent via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "packages/octocode-tools-core/src/responses.ts",
+      "minify": "symbols"
     }
   },
   {
@@ -230,16 +198,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetFileContent via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "README.md",
-          "minify": "symbols"
-        }
-      ]
+      "goal": "Execute ghGetFileContent via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "README.md",
+      "minify": "symbols"
     }
   },
   {
@@ -253,16 +217,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetFileContent via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "README.md",
-          "fullContent": true
-        }
-      ]
+      "goal": "Execute ghGetFileContent via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "README.md",
+      "fullContent": true
     }
   },
   {
@@ -280,20 +240,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "keywords": [
-            "localSearch"
-          ],
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "concise": true,
-          "pageSize": 5,
-          "operation": "pullRequests"
-        }
-      ]
+      "goal": "Execute ghSearchHistory via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "keywords": [
+        "localSearch"
+      ],
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "concise": true,
+      "pageSize": 5,
+      "operation": "pullRequests"
     }
   },
   {
@@ -311,20 +267,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "keywords": [
-            "schema"
-          ],
-          "state": "open",
-          "pageSize": 5,
-          "operation": "issues"
-        }
-      ]
+      "goal": "Execute ghSearchHistory via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "keywords": [
+        "schema"
+      ],
+      "state": "open",
+      "pageSize": 5,
+      "operation": "issues"
     }
   },
   {
@@ -340,19 +292,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "path": "packages/octocode-tools-core/src",
-          "since": "6m",
-          "pageSize": 10,
-          "page": 1,
-          "operation": "commits"
-        }
-      ]
+      "goal": "Execute ghSearchHistory via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "path": "packages/octocode-tools-core/src",
+      "since": "6m",
+      "pageSize": 10,
+      "page": 1,
+      "operation": "commits"
     }
   },
   {
@@ -366,17 +314,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "keywords": [
-            "schema"
-          ],
-          "pageSize": 30,
-          "operation": "pullRequests"
-        }
-      ]
+      "goal": "Execute ghSearchHistory via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "keywords": [
+        "schema"
+      ],
+      "pageSize": 30,
+      "operation": "pullRequests"
     }
   },
   {
@@ -389,16 +333,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "o",
-          "repo": "r",
-          "pageSize": 30,
-          "operation": "issues"
-        }
-      ]
+      "goal": "Execute ghSearchHistory via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "o",
+      "repo": "r",
+      "pageSize": 30,
+      "operation": "issues"
     }
   },
   {
@@ -411,17 +351,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghSearchHistory via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "o",
-          "repo": "r",
-          "pageSize": 30,
-          "page": 1,
-          "operation": "commits"
-        }
-      ]
+      "goal": "Execute ghSearchHistory via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "o",
+      "repo": "r",
+      "pageSize": 30,
+      "page": 1,
+      "operation": "commits"
     }
   },
   {
@@ -441,24 +377,20 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "pageSize": 30,
-          "content": {
-            "body": true,
-            "patches": {
-              "mode": "all"
-            }
-          },
-          "minify": "standard",
-          "operation": "pullRequest",
-          "number": 1
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "pageSize": 30,
+      "content": {
+        "body": true,
+        "patches": {
+          "mode": "all"
         }
-      ]
+      },
+      "minify": "standard",
+      "operation": "pullRequest",
+      "number": 1
     }
   },
   {
@@ -478,23 +410,19 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "pageSize": 30,
-          "content": {
-            "body": true,
-            "comments": {
-              "discussion": true
-            }
-          },
-          "operation": "issue",
-          "number": 1
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "pageSize": 30,
+      "content": {
+        "body": true,
+        "comments": {
+          "discussion": true
         }
-      ]
+      },
+      "operation": "issue",
+      "number": 1
     }
   },
   {
@@ -508,19 +436,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "pageSize": 30,
-          "includeDiff": false,
-          "filePage": 1,
-          "operation": "commit",
-          "ref": "main"
-        }
-      ]
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "pageSize": 30,
+      "includeDiff": false,
+      "filePage": 1,
+      "operation": "commit",
+      "ref": "main"
     }
   },
   {
@@ -535,21 +459,17 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "base": "main",
-          "head": "update-tools",
-          "pageSize": 30,
-          "includeDiff": false,
-          "page": 1,
-          "filePage": 1,
-          "operation": "compare"
-        }
-      ]
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "base": "main",
+      "head": "update-tools",
+      "pageSize": 30,
+      "includeDiff": false,
+      "page": 1,
+      "filePage": 1,
+      "operation": "compare"
     }
   },
   {
@@ -563,18 +483,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "o",
-          "repo": "r",
-          "pageSize": 30,
-          "minify": "standard",
-          "operation": "pullRequest",
-          "number": 1
-        }
-      ]
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "o",
+      "repo": "r",
+      "pageSize": 30,
+      "minify": "standard",
+      "operation": "pullRequest",
+      "number": 1
     }
   },
   {
@@ -588,17 +504,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "o",
-          "repo": "r",
-          "pageSize": 30,
-          "operation": "issue",
-          "number": 1
-        }
-      ]
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "o",
+      "repo": "r",
+      "pageSize": 30,
+      "operation": "issue",
+      "number": 1
     }
   },
   {
@@ -612,19 +524,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "o",
-          "repo": "r",
-          "pageSize": 30,
-          "includeDiff": false,
-          "filePage": 1,
-          "operation": "commit",
-          "ref": "main"
-        }
-      ]
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "o",
+      "repo": "r",
+      "pageSize": 30,
+      "includeDiff": false,
+      "filePage": 1,
+      "operation": "commit",
+      "ref": "main"
     }
   },
   {
@@ -639,21 +547,17 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghGetHistoryItem via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "o",
-          "repo": "r",
-          "base": "main",
-          "head": "next",
-          "pageSize": 30,
-          "includeDiff": false,
-          "page": 1,
-          "filePage": 1,
-          "operation": "compare"
-        }
-      ]
+      "goal": "Execute ghGetHistoryItem via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "o",
+      "repo": "r",
+      "base": "main",
+      "head": "next",
+      "pageSize": 30,
+      "includeDiff": false,
+      "page": 1,
+      "filePage": 1,
+      "operation": "compare"
     }
   },
   {
@@ -665,14 +569,10 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute artifactSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "type": "npm",
-          "packageName": "zod"
-        }
-      ]
+      "goal": "Execute artifactSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "type": "npm",
+      "packageName": "zod"
     }
   },
   {
@@ -687,18 +587,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute artifactSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "type": "npm",
-          "keywords": [
-            "schema",
-            "validation"
-          ],
-          "pageSize": 10
-        }
-      ]
+      "goal": "Execute artifactSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "type": "npm",
+      "keywords": [
+        "schema",
+        "validation"
+      ],
+      "pageSize": 10
     }
   },
   {
@@ -710,14 +606,10 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghCloneRepo via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode"
-        }
-      ]
+      "goal": "Execute ghCloneRepo via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode"
     }
   },
   {
@@ -730,15 +622,11 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute ghCloneRepo via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "owner": "bgauryy",
-          "repo": "octocode",
-          "sparsePath": "packages/octocode-tools-core"
-        }
-      ]
+      "goal": "Execute ghCloneRepo via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "owner": "bgauryy",
+      "repo": "octocode",
+      "sparsePath": "packages/octocode-tools-core"
     }
   },
   {
@@ -752,24 +640,20 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "searchText": "buildDirectToolCommandPatterns",
-          "path": "/ABS/repo/src",
-          "caseMode": "smart",
-          "matchContentLength": 500,
-          "maxFiles": 20,
-          "multiline": "off",
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "unique": "off",
-          "page": 1,
-          "regex": "literal",
-          "resultView": "paginated"
-        }
-      ]
+      "goal": "Execute localSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "searchText": "buildDirectToolCommandPatterns",
+      "path": "/ABS/repo/src",
+      "caseMode": "smart",
+      "matchContentLength": 500,
+      "maxFiles": 20,
+      "multiline": "off",
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "unique": "off",
+      "page": 1,
+      "regex": "literal",
+      "resultView": "paginated"
     }
   },
   {
@@ -781,23 +665,19 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "searchText": "toolSchemas",
-          "path": ".",
-          "caseMode": "smart",
-          "matchContentLength": 500,
-          "multiline": "off",
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "unique": "off",
-          "page": 1,
-          "regex": "rust",
-          "resultView": "paginated"
-        }
-      ]
+      "goal": "Execute localSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "searchText": "toolSchemas",
+      "path": ".",
+      "caseMode": "smart",
+      "matchContentLength": 500,
+      "multiline": "off",
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "unique": "off",
+      "page": 1,
+      "regex": "rust",
+      "resultView": "paginated"
     }
   },
   {
@@ -810,18 +690,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "symbols",
-          "path": "/ABS/repo/src",
-          "name": "buildDirectToolCommandPatterns",
-          "maxFiles": 2000,
-          "page": 1,
-          "pageSize": 100
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "symbols",
+      "path": "/ABS/repo/src",
+      "name": "buildDirectToolCommandPatterns",
+      "maxFiles": 2000,
+      "page": 1,
+      "pageSize": 100
     }
   },
   {
@@ -835,18 +711,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo",
-          "limit": 20,
-          "page": 1,
-          "includeTests": true,
-          "operation": "topology",
-          "analysis": "deadCode"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo",
+      "limit": 20,
+      "page": 1,
+      "includeTests": true,
+      "operation": "topology",
+      "analysis": "deadCode"
     }
   },
   {
@@ -860,17 +732,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo",
-          "limit": 20,
-          "page": 1,
-          "operation": "topology",
-          "analysis": "cycles"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo",
+      "limit": 20,
+      "page": 1,
+      "operation": "topology",
+      "analysis": "cycles"
     }
   },
   {
@@ -885,18 +753,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo",
-          "page": 1,
-          "file": "src/index.ts",
-          "depth": 2,
-          "operation": "topology",
-          "analysis": "dependencies"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo",
+      "page": 1,
+      "file": "src/index.ts",
+      "depth": 2,
+      "operation": "topology",
+      "analysis": "dependencies"
     }
   },
   {
@@ -911,18 +775,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo",
-          "page": 1,
-          "file": "src/index.ts",
-          "depth": 2,
-          "operation": "topology",
-          "analysis": "dependents"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo",
+      "page": 1,
+      "file": "src/index.ts",
+      "depth": 2,
+      "operation": "topology",
+      "analysis": "dependents"
     }
   },
   {
@@ -937,18 +797,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo",
-          "page": 1,
-          "file": "src/index.ts",
-          "target": "src/responses.ts",
-          "operation": "topology",
-          "analysis": "path"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo",
+      "page": 1,
+      "file": "src/index.ts",
+      "target": "src/responses.ts",
+      "operation": "topology",
+      "analysis": "path"
     }
   },
   {
@@ -962,18 +818,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo",
-          "limit": 20,
-          "page": 1,
-          "includeTests": true,
-          "operation": "topology",
-          "analysis": "reachability"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo",
+      "limit": 20,
+      "page": 1,
+      "includeTests": true,
+      "operation": "topology",
+      "analysis": "reachability"
     }
   },
   {
@@ -987,21 +839,17 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/src",
-          "matchContentLength": 500,
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "langType": "typescript",
-          "page": 1,
-          "operation": "match",
-          "resultView": "content",
-          "pattern": "eval($X)"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/src",
+      "matchContentLength": 500,
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "langType": "typescript",
+      "page": 1,
+      "operation": "match",
+      "resultView": "content",
+      "pattern": "eval($X)"
     }
   },
   {
@@ -1016,20 +864,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "files",
-          "path": "/ABS/repo",
-          "names": [
-            "package.json"
-          ],
-          "detail": "basic",
-          "sort": "modified",
-          "page": 1
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "files",
+      "path": "/ABS/repo",
+      "names": [
+        "package.json"
+      ],
+      "detail": "basic",
+      "sort": "modified",
+      "page": 1
     }
   },
   {
@@ -1042,19 +886,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "tree",
-          "treeKind": "filesystem",
-          "path": "/ABS/repo/src",
-          "detail": "basic",
-          "sort": "name",
-          "maxDepth": 2,
-          "page": 1
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "tree",
+      "treeKind": "filesystem",
+      "path": "/ABS/repo/src",
+      "detail": "basic",
+      "sort": "name",
+      "maxDepth": 2,
+      "page": 1
     }
   },
   {
@@ -1066,17 +906,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "symbols",
-          "path": "/ABS/repo/src/index.ts",
-          "maxFiles": 2000,
-          "page": 1,
-          "pageSize": 100
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "symbols",
+      "path": "/ABS/repo/src/index.ts",
+      "maxFiles": 2000,
+      "page": 1,
+      "pageSize": 100
     }
   },
   {
@@ -1090,21 +926,17 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "matchContentLength": 500,
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "langType": "typescript",
-          "page": 1,
-          "operation": "match",
-          "resultView": "content",
-          "pattern": "console.log($A)"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "matchContentLength": 500,
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "langType": "typescript",
+      "page": 1,
+      "operation": "match",
+      "resultView": "content",
+      "pattern": "console.log($A)"
     }
   },
   {
@@ -1119,20 +951,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "files",
-          "path": ".",
-          "names": [
-            "*.ts"
-          ],
-          "detail": "basic",
-          "sort": "modified",
-          "page": 1
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "files",
+      "path": ".",
+      "names": [
+        "*.ts"
+      ],
+      "detail": "basic",
+      "sort": "modified",
+      "page": 1
     }
   },
   {
@@ -1146,19 +974,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "tree",
-          "treeKind": "filesystem",
-          "path": ".",
-          "detail": "basic",
-          "sort": "name",
-          "maxDepth": 5,
-          "page": 1
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "tree",
+      "treeKind": "filesystem",
+      "path": ".",
+      "detail": "basic",
+      "sort": "name",
+      "maxDepth": 5,
+      "page": 1
     }
   },
   {
@@ -1172,18 +996,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "tree",
-          "treeKind": "syntax",
-          "path": "/repo/src/index.ts",
-          "namedOnly": true,
-          "nodeOffset": 0,
-          "nodeLimit": 100
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "tree",
+      "treeKind": "syntax",
+      "path": "/repo/src/index.ts",
+      "namedOnly": true,
+      "nodeOffset": 0,
+      "nodeLimit": 100
     }
   },
   {
@@ -1195,17 +1015,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "symbols",
-          "path": ".",
-          "maxFiles": 2000,
-          "page": 1,
-          "pageSize": 100
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "symbols",
+      "path": ".",
+      "maxFiles": 2000,
+      "page": 1,
+      "pageSize": 100
     }
   },
   {
@@ -1219,18 +1035,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "page": 1,
-          "file": "src/index.ts",
-          "depth": 1,
-          "operation": "topology",
-          "analysis": "dependencies"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "page": 1,
+      "file": "src/index.ts",
+      "depth": 1,
+      "operation": "topology",
+      "analysis": "dependencies"
     }
   },
   {
@@ -1244,18 +1056,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "page": 1,
-          "file": "src/index.ts",
-          "depth": 1,
-          "operation": "topology",
-          "analysis": "dependents"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "page": 1,
+      "file": "src/index.ts",
+      "depth": 1,
+      "operation": "topology",
+      "analysis": "dependents"
     }
   },
   {
@@ -1270,18 +1078,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "page": 1,
-          "file": "src/index.ts",
-          "target": "src/utils.ts",
-          "operation": "topology",
-          "analysis": "path"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "page": 1,
+      "file": "src/index.ts",
+      "target": "src/utils.ts",
+      "operation": "topology",
+      "analysis": "path"
     }
   },
   {
@@ -1294,16 +1098,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "page": 1,
-          "operation": "topology",
-          "analysis": "cycles"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "page": 1,
+      "operation": "topology",
+      "analysis": "cycles"
     }
   },
   {
@@ -1316,17 +1116,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "page": 1,
-          "includeTests": true,
-          "operation": "topology",
-          "analysis": "reachability"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "page": 1,
+      "includeTests": true,
+      "operation": "topology",
+      "analysis": "reachability"
     }
   },
   {
@@ -1339,17 +1135,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "page": 1,
-          "includeTests": true,
-          "operation": "topology",
-          "analysis": "deadCode"
-        }
-      ]
+      "goal": "Execute astSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "page": 1,
+      "includeTests": true,
+      "operation": "topology",
+      "analysis": "deadCode"
     }
   },
   {
@@ -1364,22 +1156,18 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astRewrite via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/src",
-          "langType": "typescript",
-          "apply": false,
-          "maxFiles": 2000,
-          "maxMatches": 10000,
-          "page": 1,
-          "pageSize": 100,
-          "ruleKind": "pattern",
-          "pattern": "console.log($A)",
-          "rewrite": "logger.info($A)"
-        }
-      ]
+      "goal": "Execute astRewrite via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/src",
+      "langType": "typescript",
+      "apply": false,
+      "maxFiles": 2000,
+      "maxMatches": 10000,
+      "page": 1,
+      "pageSize": 100,
+      "ruleKind": "pattern",
+      "pattern": "console.log($A)",
+      "rewrite": "logger.info($A)"
     }
   },
   {
@@ -1399,26 +1187,22 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astRewrite via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/src",
-          "langType": "typescript",
-          "apply": true,
-          "expectedHashes": {
-            "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          },
-          "maxFiles": 2000,
-          "maxMatches": 10000,
-          "page": 1,
-          "pageSize": 100,
-          "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "ruleKind": "pattern",
-          "pattern": "console.log($A)",
-          "rewrite": "logger.info($A)"
-        }
-      ]
+      "goal": "Execute astRewrite via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/src",
+      "langType": "typescript",
+      "apply": true,
+      "expectedHashes": {
+        "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "maxFiles": 2000,
+      "maxMatches": 10000,
+      "page": 1,
+      "pageSize": 100,
+      "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ruleKind": "pattern",
+      "pattern": "console.log($A)",
+      "rewrite": "logger.info($A)"
     }
   },
   {
@@ -1433,22 +1217,18 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astRewrite via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "langType": "typescript",
-          "apply": false,
-          "maxFiles": 2000,
-          "maxMatches": 10000,
-          "page": 1,
-          "pageSize": 100,
-          "ruleKind": "pattern",
-          "pattern": "console.log($A)",
-          "rewrite": "logger.info($A)"
-        }
-      ]
+      "goal": "Execute astRewrite via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "langType": "typescript",
+      "apply": false,
+      "maxFiles": 2000,
+      "maxMatches": 10000,
+      "page": 1,
+      "pageSize": 100,
+      "ruleKind": "pattern",
+      "pattern": "console.log($A)",
+      "rewrite": "logger.info($A)"
     }
   },
   {
@@ -1468,26 +1248,22 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute astRewrite via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": ".",
-          "langType": "typescript",
-          "apply": true,
-          "expectedHashes": {
-            "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          },
-          "maxFiles": 2000,
-          "maxMatches": 10000,
-          "page": 1,
-          "pageSize": 100,
-          "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "ruleKind": "pattern",
-          "pattern": "console.log($A)",
-          "rewrite": "logger.info($A)"
-        }
-      ]
+      "goal": "Execute astRewrite via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": ".",
+      "langType": "typescript",
+      "apply": true,
+      "expectedHashes": {
+        "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "maxFiles": 2000,
+      "maxMatches": 10000,
+      "page": 1,
+      "pageSize": 100,
+      "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "ruleKind": "pattern",
+      "pattern": "console.log($A)",
+      "rewrite": "logger.info($A)"
     }
   },
   {
@@ -1501,16 +1277,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/packages/octocode-tools-core/package.json",
-          "minify": "none",
-          "startLine": 1,
-          "endLine": 30
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/packages/octocode-tools-core/package.json",
+      "minify": "none",
+      "startLine": 1,
+      "endLine": 30
     }
   },
   {
@@ -1524,16 +1296,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/src/index.ts",
-          "contextLines": 5,
-          "minify": "none",
-          "matchString": "export"
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/src/index.ts",
+      "contextLines": 5,
+      "minify": "none",
+      "matchString": "export"
     }
   },
   {
@@ -1545,14 +1313,10 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/README.md",
-          "minify": "symbols"
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/README.md",
+      "minify": "symbols"
     }
   },
   {
@@ -1564,14 +1328,10 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/ABS/repo/README.md",
-          "fullContent": true
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/ABS/repo/README.md",
+      "fullContent": true
     }
   },
   {
@@ -1585,20 +1345,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
-          "operation": "definition",
-          "symbolName": "buildNextPageContinuation",
-          "lineHint": 72,
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
+      "operation": "definition",
+      "symbolName": "buildNextPageContinuation",
+      "lineHint": 72,
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1613,20 +1369,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "/ABS/repo/src/index.ts",
-          "operation": "references",
-          "symbolName": "run",
-          "lineHint": 10,
-          "orderHint": 0,
-          "includeDeclaration": false,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "/ABS/repo/src/index.ts",
+      "operation": "references",
+      "symbolName": "run",
+      "lineHint": 10,
+      "orderHint": 0,
+      "includeDeclaration": false,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1638,18 +1390,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
-          "operation": "documentSymbols",
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
+      "operation": "documentSymbols",
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1663,20 +1411,16 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "src/index.ts",
-          "operation": "definition",
-          "symbolName": "main",
-          "lineHint": 1,
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "src/index.ts",
+      "operation": "definition",
+      "symbolName": "main",
+      "lineHint": 1,
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1692,22 +1436,18 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "src/index.ts",
-          "operation": "definition",
-          "position": {
-            "line": 0,
-            "character": 0
-          },
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "src/index.ts",
+      "operation": "definition",
+      "position": {
+        "line": 0,
+        "character": 0
+      },
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1719,18 +1459,14 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "src/index.ts",
-          "operation": "documentSymbols",
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "src/index.ts",
+      "operation": "documentSymbols",
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1743,19 +1479,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "uri": "src/index.ts",
-          "operation": "workspaceSymbol",
-          "symbolName": "Schema",
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured"
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "uri": "src/index.ts",
+      "operation": "workspaceSymbol",
+      "symbolName": "Schema",
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured"
     }
   },
   {
@@ -1768,19 +1500,15 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute lspSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "operation": "workspaceSymbol",
-          "symbolName": "Schema",
-          "orderHint": 0,
-          "includeDeclaration": true,
-          "page": 1,
-          "format": "structured",
-          "workspaceRoot": "."
-        }
-      ]
+      "goal": "Execute lspSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "operation": "workspaceSymbol",
+      "symbolName": "Schema",
+      "orderHint": 0,
+      "includeDeclaration": true,
+      "page": 1,
+      "format": "structured",
+      "workspaceRoot": "."
     }
   },
   {
@@ -1791,13 +1519,9 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/fixture/a.ts"
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/fixture/a.ts"
     }
   },
   {
@@ -1810,13 +1534,9 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/fixture/a.ts"
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/fixture/a.ts"
     }
   },
   {
@@ -1830,16 +1550,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/fixture/a.ts",
-          "contextLines": 0,
-          "startLine": 1,
-          "endLine": 1
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/fixture/a.ts",
+      "contextLines": 0,
+      "startLine": 1,
+      "endLine": 1
     }
   },
   {
@@ -1853,16 +1569,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/fixture/a.ts",
-          "contextLines": 100,
-          "startLine": 1000000000,
-          "endLine": 1000000000
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/fixture/a.ts",
+      "contextLines": 100,
+      "startLine": 1000000000,
+      "endLine": 1000000000
     }
   },
   {
@@ -1874,14 +1586,10 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/fixture/a.ts",
-          "fullContent": true
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/fixture/a.ts",
+      "fullContent": true
     }
   },
   {
@@ -1895,16 +1603,12 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localFetch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "path": "/fixture/a.ts",
-          "chunkType": "bytes",
-          "matchString": "needle",
-          "contextBytes": 10
-        }
-      ]
+      "goal": "Execute localFetch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "path": "/fixture/a.ts",
+      "chunkType": "bytes",
+      "matchString": "needle",
+      "contextBytes": 10
     }
   },
   {
@@ -1993,14 +1697,10 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute artifactSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "type": "npm",
-          "packageName": "zod"
-        }
-      ]
+      "goal": "Execute artifactSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "type": "npm",
+      "packageName": "zod"
     }
   },
   {
@@ -2014,17 +1714,13 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute artifactSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "type": "crates",
-          "keywords": [
-            "parser"
-          ],
-          "pageSize": 10
-        }
-      ]
+      "goal": "Execute artifactSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "type": "crates",
+      "keywords": [
+        "parser"
+      ],
+      "pageSize": 10
     }
   },
   {
@@ -2037,15 +1733,11 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute artifactSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "type": "npm",
-          "registry": "https://registry.example.test/base/",
-          "packageName": "x"
-        }
-      ]
+      "goal": "Execute artifactSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "type": "npm",
+      "registry": "https://registry.example.test/base/",
+      "packageName": "x"
     }
   },
   {
@@ -2140,24 +1832,20 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "searchText": "x",
-          "path": "/r",
-          "caseMode": "smart",
-          "matchContentLength": 500,
-          "multiline": "off",
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "unique": "off",
-          "matchWindow": 2,
-          "page": 1,
-          "regex": "rust",
-          "resultView": "matchOnly"
-        }
-      ]
+      "goal": "Execute localSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "searchText": "x",
+      "path": "/r",
+      "caseMode": "smart",
+      "matchContentLength": 500,
+      "multiline": "off",
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "unique": "off",
+      "matchWindow": 2,
+      "page": 1,
+      "regex": "rust",
+      "resultView": "matchOnly"
     }
   },
   {
@@ -2171,23 +1859,19 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "searchText": "x",
-          "path": "/r",
-          "caseMode": "smart",
-          "matchContentLength": 500,
-          "multiline": "off",
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "unique": "list",
-          "page": 1,
-          "regex": "rust",
-          "resultView": "matchOnly"
-        }
-      ]
+      "goal": "Execute localSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "searchText": "x",
+      "path": "/r",
+      "caseMode": "smart",
+      "matchContentLength": 500,
+      "multiline": "off",
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "unique": "list",
+      "page": 1,
+      "regex": "rust",
+      "resultView": "matchOnly"
     }
   },
   {
@@ -2201,23 +1885,19 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "searchText": "x",
-          "path": "/r",
-          "caseMode": "smart",
-          "matchContentLength": 500,
-          "multiline": "off",
-          "sort": "relevance",
-          "rankingProfile": "auto",
-          "unique": "count",
-          "page": 1,
-          "regex": "rust",
-          "resultView": "matchOnly"
-        }
-      ]
+      "goal": "Execute localSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "searchText": "x",
+      "path": "/r",
+      "caseMode": "smart",
+      "matchContentLength": 500,
+      "multiline": "off",
+      "sort": "relevance",
+      "rankingProfile": "auto",
+      "unique": "count",
+      "page": 1,
+      "regex": "rust",
+      "resultView": "matchOnly"
     }
   },
   {
@@ -2230,23 +1910,19 @@
     },
     "accepted": true,
     "normalized": {
-      "queries": [
-        {
-          "goal": "Execute localSearch via fixture",
-          "reasoning": "Executed via fixture tool command",
-          "searchText": "x",
-          "path": "/r",
-          "caseMode": "smart",
-          "matchContentLength": 500,
-          "multiline": "off",
-          "sort": "traversal",
-          "rankingProfile": "auto",
-          "unique": "off",
-          "page": 1,
-          "regex": "rust",
-          "resultView": "paginated"
-        }
-      ]
+      "goal": "Execute localSearch via fixture",
+      "reasoning": "Executed via fixture tool command",
+      "searchText": "x",
+      "path": "/r",
+      "caseMode": "smart",
+      "matchContentLength": 500,
+      "multiline": "off",
+      "sort": "traversal",
+      "rankingProfile": "auto",
+      "unique": "off",
+      "page": 1,
+      "regex": "rust",
+      "resultView": "paginated"
     }
   },
   {

@@ -1,3 +1,22 @@
+mod algorithms;
+mod model;
+
+pub use algorithms::{
+    condense as condense_file_graph, cycle_witness, reachable as reachable_files,
+    reverse as reverse_file_graph, scc as strongly_connected_components,
+    scc_unsorted as strongly_connected_components_unsorted, shortest_path as shortest_file_path,
+    transitive_edges, traverse as traverse_file_graph, Condensed as CondensedFileGraph,
+    Node as FileGraphNode,
+};
+pub use model::{
+    CodeEdge, CodeGraphBuilder, CodeGraphDiagnostic, CodeGraphSnapshot, CodeNode, EdgeKind,
+    Evidence, EvidenceId, EvidenceSource, GraphBuildMetrics, GraphBuildReceipt, GraphCompleteness,
+    GraphFactCall, GraphFactCommonJs, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
+    GraphFactImport, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry,
+    GraphFactsTypedScanResult, GraphPosition, GraphRange, NodeId, NodeKind, SemanticRelationInput,
+    ServerReceipt, SnapshotMetadata,
+};
+
 use std::{fs, io::Read, path::Path};
 
 use rayon::prelude::*;
@@ -11,7 +30,7 @@ const DEFAULT_MAX_FILES: u32 = 20_000;
 const DEFAULT_MAX_FILE_BYTES: u32 = 1_000_000;
 
 enum GraphFactsScanOutcome {
-    Entry(GraphFactsScanEntry),
+    Entry(Box<GraphFactsTypedEntry>),
     Skipped(GraphFactsScanDiagnostic),
 }
 
@@ -33,6 +52,40 @@ pub(crate) fn scan_graph_facts_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
 ) -> Result<GraphFactsScanResult, String> {
+    let typed = scan_graph_facts_typed_filtered(options, allow_path)?;
+    let entries = typed
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let facts_json = serde_json::to_string(&entry.facts)
+                .map_err(|error| format!("graph facts could not be encoded: {error}"))?;
+            Ok(GraphFactsScanEntry {
+                relative_path: entry.relative_path,
+                facts_json,
+                reference_counts: entry.reference_counts,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(GraphFactsScanResult {
+        schema_version: typed.schema_version,
+        entries,
+        skipped: typed.skipped,
+        candidate_paths: typed.candidate_paths,
+        files_skipped: typed.files_skipped,
+        truncated: typed.truncated,
+    })
+}
+
+pub(crate) fn scan_graph_facts_typed(
+    options: GraphFactsScanOptions,
+) -> Result<GraphFactsTypedScanResult, String> {
+    scan_graph_facts_typed_filtered(options, &|_| Ok(true))
+}
+
+pub(crate) fn scan_graph_facts_typed_filtered(
+    options: GraphFactsScanOptions,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+) -> Result<GraphFactsTypedScanResult, String> {
     let max_files = options.max_files.unwrap_or(DEFAULT_MAX_FILES);
     let max_file_bytes = options.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES) as i64;
     let query = crate::search::fs_query::query_file_system_filtered_inner(
@@ -116,18 +169,21 @@ pub(crate) fn scan_graph_facts_filtered(
             }
             let reference_counts =
                 exported_reference_counts(&content, &extraction.exported_declaration_names);
-            Ok(Some(GraphFactsScanOutcome::Entry(GraphFactsScanEntry {
-                relative_path,
-                facts_json: extraction.facts_json,
-                reference_counts,
-            })))
+            Ok(Some(GraphFactsScanOutcome::Entry(Box::new(
+                GraphFactsTypedEntry {
+                    relative_path,
+                    content_digest: crate::index::content_digest(content.as_bytes()),
+                    facts: extraction.facts,
+                    reference_counts,
+                },
+            ))))
         })
         .collect::<Result<Vec<_>, String>>()?;
     let mut entries = Vec::new();
     let mut skipped = Vec::new();
     for outcome in outcomes.into_iter().flatten() {
         match outcome {
-            GraphFactsScanOutcome::Entry(entry) => entries.push(entry),
+            GraphFactsScanOutcome::Entry(entry) => entries.push(*entry),
             GraphFactsScanOutcome::Skipped(diagnostic) => skipped.push(diagnostic),
         }
     }
@@ -135,7 +191,7 @@ pub(crate) fn scan_graph_facts_filtered(
     skipped.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
     let files_skipped = skipped.len() as u32;
 
-    Ok(GraphFactsScanResult {
+    Ok(GraphFactsTypedScanResult {
         schema_version: crate::signatures::GRAPH_FACTS_SCHEMA_VERSION,
         entries,
         skipped,
@@ -304,6 +360,40 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("lib.rs", "beta", 2), ("main.ts", "alpha", 2)]
         );
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn typed_scan_preserves_structural_ids_ranges_edges_and_content_receipt() {
+        let root =
+            std::env::temp_dir().join(format!("octocode-graph-typed-scan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create fixture");
+        fs::write(
+            root.join("lib.rs"),
+            "pub fn alpha() { beta(); }\nfn beta() {}",
+        )
+        .expect("write fixture");
+
+        let result = scan_graph_facts_typed(GraphFactsScanOptions {
+            path: path_string(&root),
+            ..Default::default()
+        })
+        .expect("typed scan");
+        let entry = result.entries.first().expect("entry");
+        assert_eq!(entry.facts.file, "lib.rs");
+        assert!(!entry.content_digest.is_empty());
+        assert!(entry
+            .facts
+            .declarations
+            .iter()
+            .all(|decl| !decl.id.is_empty()));
+        assert!(entry
+            .facts
+            .declarations
+            .iter()
+            .all(|decl| decl.range.end >= decl.range.start));
+        assert!(entry.facts.edges.iter().all(|edge| !edge.id.is_empty()));
         fs::remove_dir_all(root).expect("cleanup fixture");
     }
 

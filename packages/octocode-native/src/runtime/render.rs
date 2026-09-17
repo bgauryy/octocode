@@ -1,17 +1,16 @@
 use serde_json::{Value, json};
 
-pub fn render_tool(tool: &str, response: &Value, queries: &[Value]) -> String {
+pub fn render_tool(tool: &str, response: &Value, query: &Value) -> String {
     if tool == "localFetch" {
         return render_local_fetch(response);
     }
     let mut response = response.clone();
     if tool == "localSearch" {
-        for (index, row) in response
+        for row in response
             .get_mut("results")
             .and_then(Value::as_array_mut)
             .into_iter()
             .flatten()
-            .enumerate()
         {
             let Some(data) = row.get_mut("data") else {
                 continue;
@@ -51,9 +50,7 @@ pub fn render_tool(tool: &str, response: &Value, queries: &[Value]) -> String {
                     ],
                 );
             }
-            if queries
-                .get(index)
-                .is_some_and(|query| query.get("snapshot").is_some())
+            if query.get("snapshot").is_some()
                 && let Some(page) = data.get_mut("pagination")
             {
                 order_fields(

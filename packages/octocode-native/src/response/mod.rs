@@ -15,7 +15,7 @@ pub struct ResponsePageOptions {
 #[derive(Clone, Debug)]
 pub struct ResponseInput {
     pub tool: String,
-    pub queries: Vec<Value>,
+    pub query: Value,
     pub structured: Value,
     pub rendered_text: Option<String>,
     pub is_error: bool,
@@ -124,7 +124,7 @@ impl ResponsePager {
         }
         if let Some(mut pagination) = page.pagination {
             pagination.next =
-                build_continuation(&input.tool, &input.queries, &input.options, &pagination);
+                build_continuation(&input.tool, &input.query, &input.options, &pagination);
             structured.insert(
                 "responsePagination".into(),
                 serde_json::to_value(&pagination).expect("serializable pagination"),
@@ -224,32 +224,28 @@ fn paginate_text(text: &str, options: &ResponsePageOptions) -> Page {
 
 fn build_continuation(
     tool: &str,
-    queries: &[Value],
+    query: &Value,
     request: &ResponsePageOptions,
     page: &ResponsePagination,
 ) -> Option<ResponseContinuation> {
     let next_offset = page.next_char_offset.filter(|_| page.has_more)?;
-    let clean = queries
-        .iter()
-        .map(|query| {
-            let mut object = query.as_object().cloned().unwrap_or_default();
-            object.remove("goal");
-            object.remove("reasoning");
-            Value::Object(object)
-        })
-        .collect::<Vec<_>>();
-    let mut query = Map::new();
-    query.insert("queries".into(), Value::Array(clean));
+    let mut clean = query.as_object().cloned().unwrap_or_default();
+    clean.remove("goal");
+    clean.remove("reasoning");
+    // Emit as { queries: [q] } so continuation tokens round-trip through
+    // the backward-compatible single-element path in prepare().
+    let mut continuation = Map::new();
+    continuation.insert("queries".into(), Value::Array(vec![Value::Object(clean)]));
     if let Some(length) = request.response_char_length {
-        query.insert("responseCharLength".into(), json!(length));
+        continuation.insert("responseCharLength".into(), json!(length));
     }
-    query.insert("responseCharOffset".into(), json!(next_offset));
+    continuation.insert("responseCharOffset".into(), json!(next_offset));
     if page.restart != Some(true) {
-        query.insert("responseSnapshot".into(), json!(page.snapshot));
+        continuation.insert("responseSnapshot".into(), json!(page.snapshot));
     }
     Some(ResponseContinuation {
         tool: tool.into(),
-        query: Value::Object(query),
+        query: Value::Object(continuation),
     })
 }
 
@@ -393,7 +389,7 @@ mod tests {
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    queries: vec![json!({"path":"a", "goal":"g", "reasoning":"r"})],
+                    query: json!({"path":"a", "goal":"g", "reasoning":"r"}),
                     structured: json!({"results":[]}),
                     rendered_text: Some("line1\nline2\nline3".into()),
                     is_error: false,
@@ -404,6 +400,7 @@ mod tests {
             .expect("page");
         assert_eq!(result.content.len(), 1);
         let next = &result.structured_content["responsePagination"]["next"]["query"];
+        // continuation wraps in { queries: [q] } for backward compat
         assert_eq!(next["queries"][0], json!({"path":"a"}));
         assert!(
             next["responseSnapshot"]
@@ -469,7 +466,7 @@ mod tests {
         });
         let input = ResponseInput {
             tool: "tool".into(),
-            queries: vec![],
+            query: json!({}),
             structured: json!({}),
             rendered_text: Some("large".into()),
             is_error: false,

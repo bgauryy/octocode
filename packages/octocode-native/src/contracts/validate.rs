@@ -1570,7 +1570,12 @@ mod tests {
                 fixture["id"],
             );
             if let Ok(normalized) = result {
-                assert_eq!(normalized, fixture["normalized"], "{}", fixture["id"]);
+                let expected = fixture["normalized"]
+                    .get("queries")
+                    .and_then(Value::as_array)
+                    .and_then(|queries| queries.first())
+                    .unwrap_or(&fixture["normalized"]);
+                assert_eq!(&normalized, expected, "{}", fixture["id"]);
             }
         }
     }

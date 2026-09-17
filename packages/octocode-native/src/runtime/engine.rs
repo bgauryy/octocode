@@ -9,7 +9,7 @@ use crate::response::{
 };
 use crate::security::{ContentSecurity, SecurityRegistry};
 use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
-use futures_util::{StreamExt, TryStreamExt, stream};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -76,22 +76,11 @@ pub enum FailureKind {
     Execution,
 }
 
-impl FailureKind {
-    fn priority(self) -> u8 {
-        match self {
-            Self::Execution | Self::Authentication => 0,
-            Self::NotFound => 1,
-            Self::Permission => 2,
-            Self::RateLimited => 3,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ToolOutcome {
     pub structured_content: Value,
     pub content: Vec<TextContent>,
-    pub source_digests: Vec<Option<String>>,
+    pub source_digest: Option<String>,
     pub failure: Option<FailureKind>,
     pub all_failed: bool,
 }
@@ -401,14 +390,18 @@ impl ToolRuntime {
                 format!("Tool {tool} is not available in this native runtime"),
             ));
         }
-        let prepared = contracts::prepare_and_validate(&tool, input, PrepareOptions::default())
+        // Parse response-paging options from the raw input before contract
+        // validation; they are envelope-level fields, not query-schema fields.
+        let options: ResponsePageOptions =
+            serde_json::from_value(input.clone()).unwrap_or_default();
+        let query = contracts::prepare_and_validate(&tool, input, PrepareOptions::default())
             .map_err(|error| RuntimeError {
                 code: "invalidInput".into(),
                 message: error.to_string(),
                 payload: Some(Box::new(contracts::format_input_error(&tool, &error))),
                 validation_issues: Some(error.issues),
             })?;
-        let checked = self.security.validate_input_parameters(&prepared);
+        let checked = self.security.validate_input_parameters(&query);
         if !checked.is_valid {
             return Err(RuntimeError::new(
                 "securityValidationFailed",
@@ -418,14 +411,7 @@ impl ToolRuntime {
                 ),
             ));
         }
-        let prepared = Value::Object(checked.sanitized_params);
-        let options: ResponsePageOptions = serde_json::from_value(prepared.clone())
-            .map_err(|_| RuntimeError::new("invalidInput", "Invalid response options"))?;
-        let queries = prepared
-            .get("queries")
-            .and_then(Value::as_array)
-            .ok_or_else(|| RuntimeError::new("invalidInput", "Expected queries"))?
-            .clone();
+        let query = Value::Object(checked.sanitized_params);
         let paths = self.paths.clone();
         let security = self.security.clone();
         let regex = LocalFetchRegex::new(self.regex.clone());
@@ -444,10 +430,8 @@ impl ToolRuntime {
         let outcome = self
             .requests
             .execute_blocking_admitted(admission, move |context| {
-                let mut rows = Vec::with_capacity(queries.len());
-                let mut source_digests = Vec::with_capacity(queries.len());
-                let mut failure = None;
-                let results = if matches!(
+                // Execute the single query.
+                let result = if matches!(
                     tool.as_str(),
                     "ghGetFileContent"
                         | "ghGetHistoryItem"
@@ -463,128 +447,87 @@ impl ToolRuntime {
                             github_cache.clone(),
                         )
                     }) {
-                        Ok(services) => services.execute_queries(
-                            &tool, &queries, &context, &security, &regex, &handle, &paths,
+                        Ok(services) => services.execute_query(
+                            &tool, &query, &context, &security, &regex, &handle, &paths,
                         )?,
-                        Err(error) => queries
-                            .iter()
-                            .map(|_| super::github::provider_error(error.clone()))
-                            .collect(),
+                        Err(error) => super::github::provider_error(error.clone()),
                     }
                 } else if tool == "artifactSearch" {
                     let _enter = handle.enter();
-                    handle.block_on(
-                        stream::iter(queries.iter().cloned())
-                            .map(|query| {
-                                let context = context.clone();
-                                async move {
-                                    context.check()?;
-                                    match crate::tools::artifact_search::execute(
-                                        &query,
-                                        context.deadline,
-                                        context.cancellation.clone(),
-                                    )
-                                    .await
-                                    {
-                                        Ok(data) => Ok(super::dispatch::value_result(data)),
-                                        Err(error) => Ok(super::dispatch::provider_failure(
-                                            error.message,
-                                            error.code,
-                                            error.hints,
-                                        )),
-                                    }
-                                }
-                            })
-                            .buffered(3)
-                            .try_collect(),
-                    )?
+                    context.check()?;
+                    handle.block_on(async {
+                        match crate::tools::artifact_search::execute(
+                            &query,
+                            context.deadline,
+                            context.cancellation.clone(),
+                        )
+                        .await
+                        {
+                            Ok(data) => super::dispatch::value_result(data),
+                            Err(error) => super::dispatch::provider_failure(
+                                error.message,
+                                error.code,
+                                error.hints,
+                            ),
+                        }
+                    })
                 } else if tool == "lspSearch" {
                     let _enter = handle.enter();
-                    handle.block_on(
-                        stream::iter(queries.iter().cloned())
-                            .map(|query| {
-                                let pool = lsp_pool.clone();
-                                let context = context.clone();
-                                let paths = paths.clone();
-                                let lsp_execution_config = lsp_execution_config.clone();
-                                async move {
-                                    context.check()?;
-                                    match crate::tools::lsp_search::execute(
-                                        query,
-                                        &context,
-                                        &pool,
-                                        &paths,
-                                        &lsp_execution_config,
-                                    )
-                                    .await
-                                    {
-                                        Ok(data) => Ok(super::dispatch::value_result(data)),
-                                        Err(message) => Ok(super::dispatch::provider_failure(
-                                            message,
-                                            "lspUnavailable".into(),
-                                            vec![
-                                                "Use localSearch or astSearch, then localFetch."
-                                                    .into(),
-                                            ],
-                                        )),
-                                    }
-                                }
-                            })
-                            .buffered(3)
-                            .try_collect(),
-                    )?
+                    context.check()?;
+                    handle.block_on(async {
+                        match crate::tools::lsp_search::execute(
+                            query.clone(),
+                            &context,
+                            &lsp_pool,
+                            &paths,
+                            &lsp_execution_config,
+                        )
+                        .await
+                        {
+                            Ok(data) => super::dispatch::value_result(data),
+                            Err(message) => super::dispatch::provider_failure(
+                                message,
+                                "lspUnavailable".into(),
+                                vec!["Use localSearch or astSearch, then localFetch.".into()],
+                            ),
+                        }
+                    })
                 } else {
                     let _enter = handle.enter();
-                    handle.block_on(
-                        stream::iter(queries.iter().cloned())
-                            .map(|query| {
-                                let tool = tool.clone();
-                                let paths = paths.clone();
-                                let security = security.clone();
-                                let regex = regex.clone();
-                                let context = context.clone();
-                                async move {
-                                    context.check()?;
-                                    tokio::task::spawn_blocking(move || {
-                                        super::dispatch::execute_local(
-                                            &tool,
-                                            &query,
-                                            &paths,
-                                            &security,
-                                            &context,
-                                            &regex,
-                                            allow_ast_rewrite_apply,
-                                        )
-                                    })
-                                    .await
-                                    .map_err(|_| ExecutionError::WorkerFailed)?
-                                }
-                            })
-                            .buffered(3)
-                            .try_collect(),
-                    )?
-                };
-                for (index, (query, result)) in queries.iter().zip(results).enumerate() {
                     context.check()?;
-                    source_digests.push(result.source_digest);
-                    if let Some(kind) = result.failure
-                        && failure
-                            .is_none_or(|current: FailureKind| kind.priority() > current.priority())
-                    {
-                        failure = Some(kind);
-                    }
-                    let mut row =
-                        response::result_row(&tool, index, query, result.data, result.status);
-                    response::attach_diagnostics(&mut row, result.diagnostics);
-                    if result.cache {
-                        row["cache"] = json!(1);
-                    }
-                    rows.push(row);
+                    handle.block_on(async {
+                        let tool = tool.clone();
+                        let paths = paths.clone();
+                        let security = security.clone();
+                        let regex = regex.clone();
+                        let context = context.clone();
+                        let query = query.clone();
+                        tokio::task::spawn_blocking(move || {
+                            super::dispatch::execute_local(
+                                &tool,
+                                &query,
+                                &paths,
+                                &security,
+                                &context,
+                                &regex,
+                                allow_ast_rewrite_apply,
+                            )
+                        })
+                        .await
+                        .map_err(|_| ExecutionError::WorkerFailed)?
+                    })?
+                };
+                context.check()?;
+                let source_digest = result.source_digest;
+                let failure = result.failure;
+                let mut row = response::result_row(&tool, 0, &query, result.data, result.status);
+                response::attach_diagnostics(&mut row, result.diagnostics);
+                if result.cache {
+                    row["cache"] = json!(1);
                 }
-                response::apply_hint_policy(&mut rows, &tool, &queries);
-                let all_failed =
-                    !rows.is_empty() && rows.iter().all(|row| row["status"] == "error");
-                let mut structured = response::envelope(rows);
+                response::apply_hint_policy(&mut row, &tool, &query);
+                let all_failed = row["status"] == "error";
+                let mut structured = response::envelope(vec![row]);
                 response::sanitize_fields(&mut structured, &security, &context)?;
                 context.check()?;
                 let render = options.render_text.unwrap_or(mcp)
@@ -593,13 +536,13 @@ impl ToolRuntime {
                     || options.response_char_offset.is_some()
                     || options.response_snapshot.is_some();
                 let rendered_text =
-                    render.then(|| super::render::render_tool(&tool, &structured, &queries));
+                    render.then(|| super::render::render_tool(&tool, &structured, &query));
                 context.check()?;
                 let prepared = ResponsePager::new(ResponsePagerConfig::default())
                     .prepare(
                         ResponseInput {
                             tool,
-                            queries,
+                            query,
                             structured,
                             rendered_text,
                             is_error: all_failed,
@@ -612,7 +555,7 @@ impl ToolRuntime {
                 Ok(ToolOutcome {
                     structured_content: prepared.structured_content,
                     content: prepared.content,
-                    source_digests,
+                    source_digest,
                     failure,
                     all_failed,
                 })
@@ -620,10 +563,16 @@ impl ToolRuntime {
             .await
             .map_err(runtime_execution_error)?;
         contracts::validate_output(&output_tool, &outcome.structured_content).map_err(|error| {
+            let details = error
+                .issues
+                .iter()
+                .map(|issue| format!("{}: {}", issue.path.join("."), issue.message))
+                .collect::<Vec<_>>()
+                .join("; ");
             RuntimeError {
                 code: "outputContractViolation".into(),
                 message: format!(
-                    "{output_tool} produced a response that violates its canonical output contract"
+                    "{output_tool} produced a response that violates its canonical output contract: {details}"
                 ),
                 payload: None,
                 validation_issues: Some(error.issues),

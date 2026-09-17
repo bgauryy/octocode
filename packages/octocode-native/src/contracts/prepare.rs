@@ -37,67 +37,66 @@ impl Default for PrepareOptions<'_> {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PreparedBatch {
-    pub queries: Vec<Map<String, Value>>,
-    #[serde(flatten)]
-    pub envelope: Map<String, Value>,
+pub struct PreparedQuery {
+    pub query: Map<String, Value>,
 }
 
-/// Applies the canonical envelope and meta-field defaults. Shape and relation
-/// validation is a later stage and must never rewrite tool fields or delegate
-/// to Node.
+/// Applies canonical meta-field defaults. Shape and relation validation is a
+/// later stage and must never rewrite tool fields or delegate to Node.
+/// Accepts a single query object directly, or `{ "queries": [q] }` with
+/// exactly one element (kept for backward-compatibility with continuation
+/// tokens). Multiple queries in one call are not supported.
 pub fn prepare(
     tool_name: &str,
     input: Value,
     options: PrepareOptions<'_>,
-) -> Result<PreparedBatch, ContractInputError> {
-    let (queries, envelope) = match input {
-        Value::Array(values) => (values, Map::new()),
-        Value::Object(mut object) => match object.remove("queries") {
-            Some(Value::Array(values)) => (values, object),
-            Some(_) => return Err(ContractInputError::new("queries must be an array")),
-            None => (vec![Value::Object(object)], Map::new()),
-        },
-        _ => {
+) -> Result<PreparedQuery, ContractInputError> {
+    let mut object = match input {
+        Value::Array(_) => {
             return Err(ContractInputError::new(
-                "tool input must be an object or array of objects",
+                "multiple queries are not supported; send one query object directly",
             ));
         }
+        Value::Object(mut object) => match object.remove("queries") {
+            Some(Value::Array(mut values)) => {
+                if values.len() != 1 {
+                    return Err(ContractInputError::new(
+                        "multiple queries are not supported; send one query object directly",
+                    ));
+                }
+                match values.remove(0) {
+                    Value::Object(q) => q,
+                    _ => return Err(ContractInputError::new("query must be an object")),
+                }
+            }
+            Some(_) => return Err(ContractInputError::new("queries must be an array")),
+            None => object,
+        },
+        _ => {
+            return Err(ContractInputError::new("tool input must be an object"));
+        }
     };
-    if queries.is_empty() {
-        return Err(ContractInputError::new("at least one query is required"));
-    }
-    let mut prepared = Vec::with_capacity(queries.len());
-    for query in queries {
-        let Value::Object(mut object) = query else {
-            return Err(ContractInputError::new("each query must be an object"));
-        };
-        default_blank(
-            &mut object,
-            "goal",
-            format!("Execute {tool_name} via {}", options.source_label),
-        );
-        default_blank(
-            &mut object,
-            "reasoning",
-            format!("Executed via {} tool command", options.source_label),
-        );
-        if tool_name == "artifactSearch" {
-            trim_string(&mut object, "packageName");
-            if let Some(Value::Array(keywords)) = object.get_mut("keywords") {
-                for keyword in keywords {
-                    if let Value::String(value) = keyword {
-                        *value = value.trim().to_owned();
-                    }
+    default_blank(
+        &mut object,
+        "goal",
+        format!("Execute {tool_name} via {}", options.source_label),
+    );
+    default_blank(
+        &mut object,
+        "reasoning",
+        format!("Executed via {} tool command", options.source_label),
+    );
+    if tool_name == "artifactSearch" {
+        trim_string(&mut object, "packageName");
+        if let Some(Value::Array(keywords)) = object.get_mut("keywords") {
+            for keyword in keywords {
+                if let Value::String(value) = keyword {
+                    *value = value.trim().to_owned();
                 }
             }
         }
-        prepared.push(object);
     }
-    Ok(PreparedBatch {
-        queries: prepared,
-        envelope,
-    })
+    Ok(PreparedQuery { query: object })
 }
 
 fn trim_string(object: &mut Map<String, Value>, field: &str) {
@@ -123,7 +122,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn wraps_one_query_and_defaults_blank_meta_fields() {
+    fn defaults_blank_meta_fields_for_single_query() {
         let prepared = prepare(
             "localFetch",
             json!({"path":"/tmp/a", "goal":" "}),
@@ -132,20 +131,36 @@ mod tests {
             },
         )
         .expect("valid input");
+        assert_eq!(prepared.query["goal"], "Execute localFetch via native CLI");
         assert_eq!(
-            prepared.queries[0]["goal"],
-            "Execute localFetch via native CLI"
-        );
-        assert_eq!(
-            prepared.queries[0]["reasoning"],
+            prepared.query["reasoning"],
             "Executed via native CLI tool command"
         );
     }
 
     #[test]
-    fn rejects_empty_or_non_object_queries() {
+    fn rejects_arrays_and_multiple_queries() {
         assert!(prepare("localFetch", json!([]), PrepareOptions::default()).is_err());
         assert!(prepare("localFetch", json!([1]), PrepareOptions::default()).is_err());
+        assert!(
+            prepare(
+                "localFetch",
+                json!({"queries":[{"path":"/a"},{"path":"/b"}]}),
+                PrepareOptions::default()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn accepts_single_element_queries_array_for_continuation_compat() {
+        let prepared = prepare(
+            "localFetch",
+            json!({"queries":[{"path":"/tmp/a"}]}),
+            PrepareOptions::default(),
+        )
+        .expect("single-element queries array");
+        assert_eq!(prepared.query["path"], "/tmp/a");
     }
 
     #[test]
@@ -156,7 +171,7 @@ mod tests {
             PrepareOptions::default(),
         )
         .expect("envelope only");
-        assert_eq!(prepared.queries[0]["operation"], "syntax");
-        assert!(prepared.queries[0].get("treeKind").is_none());
+        assert_eq!(prepared.query["operation"], "syntax");
+        assert!(prepared.query.get("treeKind").is_none());
     }
 }

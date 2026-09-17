@@ -57,70 +57,7 @@ pub struct AstGraphQuery {
     pub rust_workspace: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RawFacts {
-    pub schema_version: Option<u32>,
-    pub language: Option<String>,
-    #[serde(default)]
-    pub diagnostics: Vec<String>,
-    #[serde(default)]
-    pub declarations: Vec<RawDeclaration>,
-    #[serde(default)]
-    pub imports: Vec<RawImport>,
-    #[serde(default)]
-    pub calls: Vec<RawCall>,
-    #[serde(default)]
-    pub exports: Vec<RawExport>,
-    #[serde(default)]
-    pub common_js: Vec<RawCommonJs>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct RawDeclaration {
-    pub id: String,
-    pub name: String,
-    pub kind: String,
-    pub line: u32,
-    #[serde(default)]
-    pub exported: bool,
-}
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct RawImport {
-    pub specifier: String,
-    pub local_name: String,
-    pub imported_name: String,
-    pub line: u32,
-    pub import_kind: Option<String>,
-    pub resolution_hint: Option<String>,
-}
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct RawCall {
-    pub caller: String,
-    pub callee: String,
-    pub kind: Option<String>,
-    pub line: Option<u32>,
-}
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct RawExport {
-    pub name: String,
-    pub line: u32,
-    pub local_name: Option<String>,
-    pub export_kind: Option<String>,
-    pub source: Option<String>,
-}
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub(crate) struct RawCommonJs {
-    pub specifier: Option<String>,
-    pub line: u32,
-    pub binding: Option<String>,
-    pub reason: Option<String>,
-}
+pub(crate) type RawFacts = octocode_engine::graph::GraphFactsDocument;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Declaration {
@@ -154,11 +91,7 @@ pub(crate) struct FileFacts {
     pub calls: Vec<Call>,
     pub reference_counts: BTreeMap<String, u32>,
 }
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Node {
-    pub edges: BTreeMap<String, BTreeSet<String>>,
-    pub dynamic_only: BTreeSet<String>,
-}
+pub(crate) type Node = octocode_engine::graph::FileGraphNode;
 
 #[derive(Clone, Debug, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
@@ -176,6 +109,7 @@ pub(crate) struct BuiltGraph {
     pub display_path: String,
     pub facts: BTreeMap<String, FileFacts>,
     pub nodes: BTreeMap<String, Node>,
+    pub code_graph: octocode_engine::graph::CodeGraphSnapshot,
     pub files_skipped: u32,
     pub truncated: bool,
     pub languages: Vec<(String, u32, String)>,

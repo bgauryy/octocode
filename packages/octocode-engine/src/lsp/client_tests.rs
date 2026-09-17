@@ -260,6 +260,25 @@ fn slice_range_includes_end_line_when_end_character_positive() {
     assert_eq!(slice_range_content(content, &r), "beta");
 }
 
+#[test]
+fn graph_server_receipt_is_stable_without_exposing_session_handles() {
+    let client = NativeLspClient::new(JsLanguageServerConfig {
+        command: "/opt/bin/rust-analyzer".to_owned(),
+        args: Some(vec!["--stdio".to_owned()]),
+        workspace_root: "/workspace".to_owned(),
+        language_id: Some("rust".to_owned()),
+        initialization_options: Some(json!({"cargo":{"features":"all"}})),
+        env: None,
+    });
+    let first = client.graph_server_receipt();
+    let second = client.graph_server_receipt();
+    assert_eq!(first.family, "rust-analyzer");
+    assert_eq!(first.configuration_digest, second.configuration_digest);
+    assert!(!first.configuration_digest.is_empty());
+    assert!(first.capabilities.is_empty());
+    assert_eq!(client.document_version("/workspace/src/lib.rs"), None);
+}
+
 fn temp_file(name: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

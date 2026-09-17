@@ -606,7 +606,7 @@ fn schema_alias_prints_the_complete_tool_contract() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["tools", "localSearch", "--schema", "--compact"])
+        .args(["tools", "localSearch", "--scheme", "--compact"])
         .output()
         .expect("schema alias");
     assert!(output.status.success(), "{}", stderr(&output));

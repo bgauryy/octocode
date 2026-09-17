@@ -192,7 +192,8 @@ impl GraphAccumulator {
 
 #[cfg(test)]
 pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
-    extract_graph_facts_with_metadata(content, file_path).map(|extraction| extraction.facts_json)
+    extract_graph_facts_with_metadata(content, file_path)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 
 pub(crate) fn extract_graph_facts_with_metadata(
@@ -226,7 +227,7 @@ fn extract_graph_facts_before(
     deadline: std::time::Instant,
 ) -> Option<String> {
     extract_graph_facts_with_metadata_before(content, file_path, deadline)
-        .map(|extraction| extraction.facts_json)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 
 fn extract_graph_facts_with_metadata_before(
@@ -289,8 +290,9 @@ fn extract_graph_facts_with_metadata_before(
         .map(|declaration| declaration.name.clone())
         .collect();
     let facts_json = serde_json::to_string(&facts).ok()?;
+    let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
     Some(super::GraphFactsExtraction {
-        facts_json,
+        facts,
         exported_declaration_names,
     })
 }

@@ -50,16 +50,20 @@ operation, consuming this engine's per-file facts:
   classes, and functions, normalized into common symbol/relation facts.
 - `src/graph/mod.rs` owns the bounded filesystem walk, parallel file reads,
   native fact extraction, and conservative same-file reference counts behind the
-  async `scanGraphFacts` binding. Per-file omissions are reported in the stable
-  `skipped` diagnostic envelope instead of an aggregate count.
-- `octocode-tools-core` owns graph-policy algorithms: reachability BFS, iterative
-  Tarjan's SCC, and transitive-dead pruning. This engine does not assign
-  dead-code verdicts.
+  async `scanGraphFacts` binding. Rust consumers use typed facts; the JSON form
+  is a compatibility adapter for N-API and TypeScript consumers. Per-file
+  omissions remain in the stable `skipped` diagnostic envelope.
+- `src/graph/model.rs` owns immutable graph snapshots, domain IDs, AST, and LSP
+  evidence, completeness, diagnostics, and deterministic build receipts.
+- `src/graph/algorithms.rs` owns reusable file-topology traversal, shortest-path,
+  SCC, condensation, cycle, and transitive-edge algorithms. Interface packages
+  decide policy and response shape; the engine doesn't assign dead-code verdicts.
 
-LSP is the semantic proof layer for cross-file identity, references, definitions,
+LSP provides semantic evidence for cross-file identity, references, definitions,
 implementations, callers, callees, and call hierarchy. Text/ripgrep is discovery
 only; `astSearch` topology output is candidate-grade and must be confirmed with
-`lspSearch` before a deletion claim.
+`lspSearch` before a deletion claim. See [Code graph architecture](docs/CODE_GRAPH.md)
+for the evidence, freshness, and evaluation contracts.
 
 Structural prefilters derive necessary literals from parsed rules. Native file
 scans report `scanTruncated` when an extra candidate exists beyond `maxFiles`;

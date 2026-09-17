@@ -5,7 +5,7 @@ use crate::lsp::uri::{path_to_uri, uri_to_path};
 #[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -99,6 +99,7 @@ struct NativeLspClientInner {
     stderr_task: Mutex<Option<JoinHandle<()>>>,
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
+    server_info: StdMutex<Option<Value>>,
     /// The `positionEncoding` the server selected in its `InitializeResult`
     /// (LSP 3.17). We advertise UTF-16 only, so this should be `utf-16` or absent
     /// (absent ⇒ utf-16 by spec). Any other value means the server ignored our
@@ -129,6 +130,7 @@ impl NativeLspClient {
                 stderr_task: Mutex::new(None),
                 stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
                 capabilities: StdMutex::new(None),
+                server_info: StdMutex::new(None),
                 position_encoding: StdMutex::new(None),
                 readiness: StdMutex::new(None),
                 progress: ProgressTracker::new(),
@@ -152,6 +154,9 @@ impl NativeLspClient {
         }
         if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
+        }
+        if let Ok(mut server_info) = self.inner.server_info.lock() {
+            *server_info = None;
         }
         if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = None;
@@ -252,6 +257,9 @@ impl NativeLspClient {
         if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = initialize_result.get("capabilities").cloned();
         }
+        if let Ok(mut server_info) = self.inner.server_info.lock() {
+            *server_info = initialize_result.get("serverInfo").cloned();
+        }
         if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = negotiated_encoding;
         }
@@ -282,6 +290,9 @@ impl NativeLspClient {
         }
         if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
+        }
+        if let Ok(mut server_info) = self.inner.server_info.lock() {
+            *server_info = None;
         }
         if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = None;
@@ -337,6 +348,66 @@ impl NativeLspClient {
             .as_ref()
             .map(|value| capability_supported(value, &capability))
             .unwrap_or(false)
+    }
+
+    /// Return a deterministic receipt for semantic graph evidence. Raw server
+    /// handles and opaque LSP `data` never become durable graph identity.
+    pub fn graph_server_receipt(&self) -> crate::graph::ServerReceipt {
+        let capabilities = self
+            .inner
+            .capabilities
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .and_then(|value| value.as_object().cloned())
+            .map(|object| {
+                object
+                    .into_iter()
+                    .filter(|(_, value)| capability_value_supported(value))
+                    .map(|(name, _)| name)
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+        let server_info = self
+            .inner
+            .server_info
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .unwrap_or(Value::Null);
+        let family = server_info
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                std::path::Path::new(&self.inner.config.command)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "language-server".to_owned());
+        let version = server_info
+            .get("version")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let configuration = serde_json::to_vec(&self.inner.config).unwrap_or_default();
+        crate::graph::ServerReceipt {
+            family,
+            version,
+            configuration_digest: crate::index::content_digest(&configuration),
+            capabilities,
+        }
+    }
+
+    /// The synchronized document version attached to semantic evidence.
+    pub fn document_version(&self, file_path: &str) -> Option<i64> {
+        let uri = path_to_uri(file_path).ok()?;
+        self.inner
+            .open_docs
+            .lock()
+            .ok()
+            .and_then(|documents| documents.get(&uri).copied())
+            .map(i64::from)
     }
 
     /// The `positionEncoding` the server selected at initialize time, if any.
@@ -402,7 +473,7 @@ impl NativeLspClient {
             version
         };
 
-        if next_version == 1 {
+        let notification = if next_version == 1 {
             let language_id = crate::lsp::config::detect_language_id(file_path.clone())
                 .or_else(|| self.inner.config.language_id.clone())
                 .unwrap_or_else(|| "plaintext".to_owned());
@@ -421,7 +492,19 @@ impl NativeLspClient {
                 "contentChanges": [{ "text": content }]
             });
             connection.notify("textDocument/didChange", params).await
+        };
+        if notification.is_err() {
+            if let Ok(mut open_docs) = self.inner.open_docs.lock() {
+                if open_docs.get(&uri).copied() == Some(next_version) {
+                    if next_version == 1 {
+                        open_docs.remove(&uri);
+                    } else {
+                        open_docs.insert(uri, next_version - 1);
+                    }
+                }
+            }
         }
+        notification
     }
 
     /// Close a previously opened document (`textDocument/didClose`) and forget
@@ -649,6 +732,9 @@ impl Drop for NativeLspClientInner {
         if let Ok(mut capabilities) = self.capabilities.lock() {
             *capabilities = None;
         }
+        if let Ok(mut server_info) = self.server_info.lock() {
+            *server_info = None;
+        }
     }
 }
 
@@ -680,10 +766,16 @@ impl NativeLspClient {
         let connection = self.connection_handle().await?;
         let mut attempts = 0;
         loop {
-            match connection
-                .request(method, params.clone(), REQUEST_TIMEOUT_MS)
-                .await
-            {
+            let response = if supports_partial_results(method) {
+                connection
+                    .request_with_partials(method, params.clone(), REQUEST_TIMEOUT_MS)
+                    .await
+            } else {
+                connection
+                    .request(method, params.clone(), REQUEST_TIMEOUT_MS)
+                    .await
+            };
+            match response {
                 Ok(value) => return Ok(value),
                 Err(error)
                     if is_content_modified_error(&error) && attempts < CONTENT_MODIFIED_RETRIES =>
@@ -742,6 +834,23 @@ impl Drop for RequestActivity<'_> {
 /// numeric error CODE rather than a free-text `"content modified"` substring,
 /// which would false-positive on hover/diagnostic payloads that merely mention
 /// the phrase (e.g. a doc-comment) and trigger spurious retries.
+fn supports_partial_results(method: &str) -> bool {
+    matches!(
+        method,
+        "textDocument/definition"
+            | "textDocument/references"
+            | "textDocument/typeDefinition"
+            | "textDocument/implementation"
+            | "textDocument/documentSymbol"
+            | "workspace/symbol"
+            | "callHierarchy/incomingCalls"
+            | "callHierarchy/outgoingCalls"
+            | "typeHierarchy/supertypes"
+            | "typeHierarchy/subtypes"
+            | "textDocument/diagnostic"
+    )
+}
+
 fn is_content_modified_error(error: &Error) -> bool {
     reason_has_error_code(&error.reason, -32801)
 }
@@ -780,9 +889,13 @@ fn extract_position_encoding(initialize_result: &Value) -> Option<String> {
 }
 
 fn capability_supported(capabilities: &Value, capability: &str) -> bool {
-    let Some(value) = capabilities.get(capability) else {
-        return false;
-    };
+    capabilities
+        .get(capability)
+        .map(capability_value_supported)
+        .unwrap_or(false)
+}
+
+fn capability_value_supported(value: &Value) -> bool {
     match value {
         Value::Bool(enabled) => *enabled,
         Value::Null => false,

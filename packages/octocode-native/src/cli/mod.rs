@@ -19,8 +19,7 @@ pub struct Args {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Search for text or a regex pattern across local files (alias: s).
-    #[command(alias = "s")]
+    /// Search for text or a regex pattern across local files.
     Search(Box<search::SearchArgs>),
     #[command(external_subcommand)]
     Pattern(Vec<String>),
@@ -116,10 +115,10 @@ enum Command {
     Tools {
         /// Tool to call, e.g. `localSearch`, `astSearch`, `ghSearch`, `lspSearch`.
         tool: Option<String>,
-        /// Raw JSON query object or array (positional; omit with --scheme to print the schema).
+        /// Raw JSON query object (positional; omit with --scheme to print the schema).
         queries: Option<String>,
         /// Print the complete contract for the given tool instead of executing it.
-        #[arg(long, visible_alias = "schema")]
+        #[arg(long)]
         scheme: bool,
         /// Emit structured JSON output.
         #[arg(long)]
@@ -828,9 +827,10 @@ pub(super) async fn execute(
         };
         match result {
             Ok(outcome) => {
-                if expected_source.as_ref().is_some_and(|expected| {
-                    outcome.source_digests.first().and_then(Option::as_ref) != Some(expected)
-                }) {
+                if expected_source
+                    .as_ref()
+                    .is_some_and(|expected| outcome.source_digest.as_ref() != Some(expected))
+                {
                     eprintln!("staleCursor: Source changed during continuation; restart the read.");
                     return 6;
                 }
@@ -857,12 +857,7 @@ pub(super) async fn execute(
                         return code;
                     }
                 }
-                for (index, row) in value["results"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .enumerate()
-                {
+                for row in value["results"].as_array().into_iter().flatten() {
                     if row["status"] == "error" && !structured && !json_errors {
                         let recoverable = matches!(
                             row["data"]["errorCode"].as_str(),
@@ -899,8 +894,7 @@ pub(super) async fn execute(
                                 .or_else(|| row.pointer("/data/next/nextMatchPage"))
                                 .or_else(|| row.pointer("/data/next/nextPage"))
                             {
-                                let digest =
-                                    outcome.source_digests.get(index).and_then(Option::as_deref);
+                                let digest = outcome.source_digest.as_deref();
                                 if digest.is_none()
                                     && row["data"]["content"]
                                         .as_str()
@@ -1066,45 +1060,50 @@ async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs, json_er
         }
     };
     if args.quiet {
-        // Quiet mode still uses the bounded runtime, security and canonical validation.
-        return match runtime
-            .execute("cli-quiet".into(), "localSearch".into(), queries)
-            .await
-        {
-            Ok(result) => {
-                if result.structured_content["results"]
-                    .as_array()
-                    .is_some_and(|rows| {
-                        rows.iter().any(|r| {
-                            r["data"]["files"]
-                                .as_array()
-                                .is_some_and(|files| !files.is_empty())
+        // Quiet mode: check each path independently; succeed on first match.
+        let mut any_failure = false;
+        for query in queries {
+            match runtime
+                .execute("cli-quiet".into(), "localSearch".into(), query)
+                .await
+            {
+                Ok(result) => {
+                    if result.structured_content["results"]
+                        .as_array()
+                        .is_some_and(|rows| {
+                            rows.iter().any(|r| {
+                                r["data"]["files"]
+                                    .as_array()
+                                    .is_some_and(|files| !files.is_empty())
+                            })
                         })
-                    })
-                {
-                    0
-                } else if result.failure.is_some() {
-                    5
-                } else {
-                    1
+                    {
+                        return 0;
+                    }
+                    if result.failure.is_some() {
+                        any_failure = true;
+                    }
+                }
+                Err(error) => {
+                    eprintln!("{}: {}", error.code, error.message);
+                    return if error.code == "invalidInput" { 2 } else { 5 };
                 }
             }
-            Err(error) => {
-                eprintln!("{}: {}", error.code, error.message);
-                if error.code == "invalidInput" { 2 } else { 5 }
-            }
-        };
+        }
+        return if any_failure { 5 } else { 1 };
     }
-    if args.all && args.paths.len() > 1 {
-        // Each source owns its snapshot and continuation chain.
+    if queries.len() > 1 {
+        // Multiple paths: each source owns its snapshot and continuation chain.
         let mut code = 1;
-        for query in queries.as_array().into_iter().flatten() {
+        for query in queries {
             let current = execute(
                 runtime,
                 "localSearch",
-                query.clone(),
+                query,
                 ExecuteOptions {
-                    all: true,
+                    structured: args.json || args.compact,
+                    compact: args.compact,
+                    all: args.all,
                     json_errors,
                     ..ExecuteOptions::default()
                 },
@@ -1122,7 +1121,7 @@ async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs, json_er
     execute(
         runtime,
         "localSearch",
-        queries,
+        queries.into_iter().next().unwrap_or_default(),
         ExecuteOptions {
             structured: args.json || args.compact,
             compact: args.compact,

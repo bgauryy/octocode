@@ -300,11 +300,9 @@ fn visit(value: &mut Value, recovery: bool, seen: &mut std::collections::BTreeSe
 
 /// Match the frozen Node hint policy: one concise recovery hint, and `why`
 /// only on recovery continuations.
-pub(super) fn apply_hint_policy(rows: &mut [Value], tool: &str, queries: &[Value]) {
-    for (index, row) in rows.iter_mut().enumerate() {
-        add_fallback_hint(row, index, tool, queries);
-        visit(row, false, &mut std::collections::BTreeSet::new());
-    }
+pub(super) fn apply_hint_policy(row: &mut Value, tool: &str, query: &Value) {
+    add_fallback_hint(row, 0, tool, std::slice::from_ref(query));
+    visit(row, false, &mut std::collections::BTreeSet::new());
 }
 
 /// Sanitize every string field, including provider diagnostics and metadata.
@@ -400,7 +398,7 @@ fn evidence_kind<'a>(tool: &'a str, query: &Value, data: &Value) -> &'a str {
             _ => "syntactic",
         },
         "lspSearch" => match data.pointer("/lsp/source").and_then(Value::as_str) {
-            Some("native" | "native-graph-facts" | "markdown") => "syntactic",
+            Some("native-graph-facts" | "markdown") => "syntactic",
             _ => "semantic",
         },
         "localSearch" => "lexical",
@@ -680,6 +678,27 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_language_server_results_are_semantic_evidence() {
+        assert_eq!(
+            evidence_kind(
+                "lspSearch",
+                &json!({}),
+                &json!({"lsp": {"source": "native"}}),
+            ),
+            "semantic"
+        );
+        assert_eq!(
+            evidence_kind(
+                "lspSearch",
+                &json!({}),
+                &json!({"lsp": {"source": "native-graph-facts"}}),
+            ),
+            "syntactic"
+        );
+    }
+
     #[test]
     fn path_compaction_never_rewrites_evidence_or_executable_queries() {
         let data = json!({"path":"/repo/src/a.ts","content":"/repo/src/a.ts","pagination":{"hasMore":true},"next":{"continue":{"tool":"localFetch","query":{"path":"/repo/src/a.ts","offset":2}}}});

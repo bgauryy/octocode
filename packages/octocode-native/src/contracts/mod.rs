@@ -6,7 +6,7 @@ mod prepare;
 mod validate;
 
 pub use instructions::mcp_instructions;
-pub use prepare::{ContractInputError, PrepareOptions, PreparedBatch, prepare};
+pub use prepare::{ContractInputError, PrepareOptions, PreparedQuery, prepare};
 pub use validate::{
     ContractValidationError, ValidationIssue, format_input_error, validate, validate_output,
 };
@@ -21,6 +21,11 @@ pub fn parsed_contract() -> Result<&'static serde_json::Value, &'static str> {
         .map_err(String::as_str)
 }
 
+/// Prepare and validate a single tool query. Returns the validated query
+/// `Value` with schema defaults applied. Callers that need response-paging
+/// options (`responseCharLength`, `renderText`, etc.) should parse them from
+/// the raw input *before* calling this function, since those envelope fields
+/// are not part of the per-query contract.
 pub fn prepare_and_validate(
     tool_name: &str,
     input: serde_json::Value,
@@ -35,16 +40,25 @@ pub fn prepare_and_validate(
             received: None,
         }],
     })?;
-    let value = serde_json::to_value(prepared).map_err(|error| ContractValidationError {
-        issues: vec![ValidationIssue {
-            rule_id: "prepare.serialize".to_owned(),
-            path: Vec::new(),
-            message: error.to_string(),
-            schema: None,
-            received: None,
-        }],
-    })?;
-    validate(tool_name, value)
+    // Wrap the single query in the canonical { queries: [q] } envelope that
+    // the JSON-Schema validators and normalization rules expect, then unwrap
+    // after validation to return a flat single-query Value.
+    let wrapped = serde_json::json!({ "queries": [serde_json::Value::Object(prepared.query)] });
+    let mut validated = validate(tool_name, wrapped)?;
+    // Extract the validated, defaulted query from position 0.
+    validated["queries"]
+        .as_array_mut()
+        .and_then(|arr| arr.first_mut())
+        .map(|q| q.take())
+        .ok_or_else(|| ContractValidationError {
+            issues: vec![ValidationIssue {
+                rule_id: "prepare.extract".to_owned(),
+                path: Vec::new(),
+                message: "validated queries array was empty".to_owned(),
+                schema: None,
+                received: None,
+            }],
+        })
 }
 
 /// Fingerprint of the canonical sibling-core contract used for this build.
@@ -165,7 +179,7 @@ mod contract_owner_tests {
 
     #[test]
     fn tree_materialize_fields_survive_generated_validation() {
-        let prepared = prepare_and_validate(
+        let query = prepare_and_validate(
             "ghSearch",
             json!({
                 "operation": "tree",
@@ -177,7 +191,6 @@ mod contract_owner_tests {
             PrepareOptions::default(),
         )
         .expect("materialize fields are in the generated tree contract");
-        let query = &prepared["queries"][0];
         assert_eq!(query["materialize"], true);
         assert_eq!(query["materializeOffset"], 12);
     }

@@ -42,7 +42,7 @@ pub(crate) fn build_graph(
         }
     }
     let max_files = q.max_files.unwrap_or(20_000).clamp(1, 50_000);
-    let scan = octocode_engine::portable::scan_graph_facts_filtered(
+    let scan = octocode_engine::portable::scan_typed_graph_facts_filtered(
         GraphFactsScanOptions {
             path: validated.canonical.to_string_lossy().into_owned(),
             exclude_dir: Some(exclude),
@@ -69,6 +69,10 @@ pub(crate) fn build_graph(
         .check()
         .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
     let known: BTreeSet<String> = scan.candidate_paths.iter().map(|x| normalize(x)).collect();
+    let mut graph_builder = octocode_engine::graph::CodeGraphBuilder::new(
+        validated.canonical.to_string_lossy(),
+        scan.schema_version,
+    );
     let mut built = BuiltGraph {
         root: validated.canonical,
         display_path: paths.redact(&requested_root),
@@ -76,6 +80,9 @@ pub(crate) fn build_graph(
         truncated: scan.truncated,
         ..Default::default()
     };
+    if scan.truncated || scan.files_skipped > 0 {
+        graph_builder.mark_incomplete("scan-incomplete", scan.files_skipped);
+    }
     let rust_cargo_unavailable = q.rust_workspace.as_deref() == Some("cargo")
         && known.iter().any(|file| file.ends_with(".rs"))
         && !has_cargo_manifest(&built.root, &known);
@@ -130,29 +137,23 @@ pub(crate) fn build_graph(
             .check()
             .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
         let file = normalize(&entry.relative_path);
-        let parsed: RawFacts = match serde_json::from_str(&entry.facts_json) {
-            Ok(v) => v,
-            Err(_) => {
-                built.files_skipped += 1;
-                built.diagnostics.push(Diagnostic {
-                    file,
-                    line: None,
-                    code: "facts-decode-failed".into(),
-                    message: "native graph facts could not be decoded".into(),
-                });
-                continue;
-            }
-        };
-        if let Some(version) = parsed.schema_version.filter(|version| *version != 1) {
+        let parsed: RawFacts = entry.facts;
+        if parsed.schema_version != 1 {
             built.files_skipped += 1;
             built.diagnostics.push(Diagnostic {
                 file,
                 line: None,
                 code: "facts-schema-unsupported".into(),
-                message: format!("unsupported graph-fact schema version: {}", version),
+                message: format!(
+                    "unsupported graph-fact schema version: {}",
+                    parsed.schema_version
+                ),
             });
             continue;
         }
+        graph_builder
+            .ingest_facts(&file, entry.content_digest, &parsed)
+            .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
         link_file(
             &mut built,
             &known,
@@ -167,8 +168,10 @@ pub(crate) fn build_graph(
             rust_cargo_unavailable,
             &cargo_crates,
             &workspace_packages,
-        );
+            &mut graph_builder,
+        )?;
     }
+    built.code_graph = graph_builder.finish();
     built.diagnostics.sort();
     built.diagnostics.dedup();
     Ok(built)
@@ -281,9 +284,14 @@ fn link_file(
     rust_cargo_unavailable: bool,
     cargo_crates: &BTreeMap<String, String>,
     workspace_packages: &BTreeMap<String, String>,
-) {
+    graph_builder: &mut octocode_engine::graph::CodeGraphBuilder,
+) -> Result<(), AstGraphError> {
     let ext = extension(&file).to_owned();
-    let language = p.language.clone().unwrap_or_else(|| ext.clone());
+    let language = if p.language.is_empty() {
+        ext.clone()
+    } else {
+        p.language.clone()
+    };
     let link = linking(&ext).to_owned();
     if let Some((_, files, _)) = b
         .languages
@@ -342,7 +350,7 @@ fn link_file(
                 &file,
                 &ext,
                 i.resolution_hint.as_deref(),
-                i.imported_name.as_str(),
+                i.imported_name.as_deref().unwrap_or_default(),
                 known,
                 cargo_crates,
                 workspace_packages,
@@ -359,11 +367,21 @@ fn link_file(
         );
         if let Some(t) = &target {
             add_edge(
+                graph_builder,
+                &file,
                 &mut node,
                 t,
-                edge_kind(&ext, i.import_kind.as_deref().unwrap_or("value")),
-            );
-            if i.imported_name == "*"
+                edge_kind(
+                    &ext,
+                    if i.import_kind.is_empty() {
+                        "value"
+                    } else {
+                        &i.import_kind
+                    },
+                ),
+                i.line,
+            )?;
+            if i.imported_name.as_deref() == Some("*")
                 || matches!(
                     ext.as_str(),
                     "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx"
@@ -373,7 +391,7 @@ fn link_file(
             }
         }
         facts.imports.push(Import {
-            imported_name: i.imported_name,
+            imported_name: i.imported_name.unwrap_or_default(),
             line: i.line,
             target,
         });
@@ -404,25 +422,28 @@ fn link_file(
                 if let Some(t) = target {
                     let kind = if ext == "rs" {
                         "rust-use"
-                    } else if x.export_kind.as_deref() == Some("type") {
+                    } else if x.export_kind == "type" {
                         "type-star-reexport"
                     } else {
                         "star-reexport"
                     };
-                    add_edge(&mut node, &t, kind);
+                    add_edge(graph_builder, &file, &mut node, &t, kind, x.line)?;
                     b.star_reexporters.entry(t).or_default().push(file.clone());
                 }
             } else {
                 if let Some(t) = &target {
                     add_edge(
+                        graph_builder,
+                        &file,
                         &mut node,
                         t,
-                        if x.export_kind.as_deref() == Some("type") {
+                        if x.export_kind == "type" {
                             "type-named-reexport"
                         } else {
                             "named-reexport"
                         },
-                    );
+                        x.line,
+                    )?;
                 }
                 facts.reexports.push(Reexport {
                     local_name: x.name.clone(),
@@ -433,7 +454,7 @@ fn link_file(
         }
     }
     for c in p.calls {
-        if c.kind.as_deref() == Some("dynamic-import") {
+        if c.kind == "dynamic-import" {
             let target = resolve(
                 &c.callee,
                 &file,
@@ -444,17 +465,16 @@ fn link_file(
                 cargo_crates,
                 workspace_packages,
             );
-            record_resolution(
-                b,
-                &file,
-                c.line.unwrap_or(0),
-                &c.callee,
-                &target,
-                false,
-                security,
-            );
+            record_resolution(b, &file, c.line, &c.callee, &target, false, security);
             if let Some(t) = target {
-                add_edge(&mut node, &t, "dynamic-import");
+                add_edge(
+                    graph_builder,
+                    &file,
+                    &mut node,
+                    &t,
+                    "dynamic-import",
+                    c.line,
+                )?;
                 node.dynamic_only.insert(t.clone());
                 b.namespace_targets.insert(t);
             }
@@ -481,6 +501,8 @@ fn link_file(
                 record_resolution(b, &file, c.line, &spec, &target, false, security);
                 if let Some(t) = target {
                     add_edge(
+                        graph_builder,
+                        &file,
                         &mut node,
                         &t,
                         if c.binding.as_deref() == Some("create-require") {
@@ -488,7 +510,8 @@ fn link_file(
                         } else {
                             "commonjs-require"
                         },
-                    );
+                        c.line,
+                    )?;
                     b.namespace_targets.insert(t);
                 }
             }
@@ -508,12 +531,24 @@ fn link_file(
     }
     b.facts.insert(file.clone(), facts);
     b.nodes.insert(file, node);
+    Ok(())
 }
-fn add_edge(node: &mut Node, target: &str, kind: &str) {
+
+fn add_edge(
+    graph_builder: &mut octocode_engine::graph::CodeGraphBuilder,
+    source: &str,
+    node: &mut Node,
+    target: &str,
+    kind: &str,
+    line: u32,
+) -> Result<(), AstGraphError> {
     node.edges
         .entry(target.into())
         .or_default()
         .insert(kind.into());
+    graph_builder
+        .add_file_relation(source, target, kind, line)
+        .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))
 }
 fn record_resolution(
     b: &mut BuiltGraph,

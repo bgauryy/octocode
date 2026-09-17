@@ -2,8 +2,6 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-
 use super::store::{read_source_bytes, CapturedSource};
 use super::{
     query_documents, FreshnessReport, GenerationSpec, IndexConfig, IndexError, IndexQuery,
@@ -549,23 +547,16 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<SymbolRecord> {
     else {
         return Vec::new();
     };
-    let Ok(value) = serde_json::from_str::<Value>(&extraction.facts_json) else {
-        return Vec::new();
-    };
-    value
-        .get("declarations")
-        .and_then(Value::as_array)
+    extraction
+        .facts
+        .declarations
         .into_iter()
-        .flatten()
         .filter_map(|declaration| {
-            let name = declaration.get("name")?.as_str()?.to_owned();
-            let kind = declaration.get("kind")?.as_str()?.to_owned();
-            let range = declaration.get("selectionRange")?;
-            let start = position_to_byte(content, range.get("start")?)?;
-            let end = position_to_byte(content, range.get("end")?)?.max(start);
+            let start = position_to_byte(content, &declaration.selection_range.start)?;
+            let end = position_to_byte(content, &declaration.selection_range.end)?.max(start);
             Some(SymbolRecord {
-                name,
-                kind,
+                name: declaration.name,
+                kind: declaration.kind,
                 start_byte: start as u64,
                 end_byte: end as u64,
             })
@@ -573,9 +564,9 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<SymbolRecord> {
         .collect()
 }
 
-fn position_to_byte(content: &str, position: &Value) -> Option<usize> {
-    let line = usize::try_from(position.get("line")?.as_u64()?).ok()?;
-    let character = usize::try_from(position.get("character")?.as_u64()?).ok()?;
+fn position_to_byte(content: &str, position: &crate::graph::GraphPosition) -> Option<usize> {
+    let line = usize::try_from(position.line).ok()?;
+    let character = usize::try_from(position.character).ok()?;
     let line_text = content.split_inclusive('\n').nth(line)?;
     let line_start = content
         .split_inclusive('\n')
