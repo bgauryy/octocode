@@ -29,6 +29,28 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
 }
 
 #[tokio::test]
+async fn universal_cli_continuations_resume_through_normal_validation() {
+    let workspace = Workspace::new();
+    workspace.write("src/main.rs", "pub fn main_marker() {}\n");
+    let runtime = workspace.runtime(&[]);
+    let query = json!({"operation":"files","path":workspace.workspace,"limit":1});
+    let continuation_call = json!({"tool":"astSearch","query":query});
+    let token = runtime
+        .continuation_token(&continuation_call, None)
+        .expect("continuation token");
+    let (tool, resumed, source_digest) = runtime.resume_token(&token).expect("resume token");
+    assert_eq!(tool, "astSearch");
+    assert_eq!(resumed, query);
+    assert!(source_digest.is_none());
+
+    let outcome = call(&runtime, &tool, resumed)
+        .await
+        .expect("validated resumed query");
+    assert_eq!(row_status(&outcome), "success");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn local_fetch_rejects_unknown_fields_at_the_contract() {
     let workspace = Workspace::new();
     let path = workspace.write("a.txt", "ok\n");

@@ -207,57 +207,69 @@ impl ToolRuntime {
         call: &Value,
         source_sha256: Option<&str>,
     ) -> Result<String, RuntimeError> {
-        if call["tool"] == "localSearch" {
-            return super::cursor::ReadCursor::create_search(
-                call["query"].clone(),
-                self.cursor_scope()?,
-            )
-            .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")));
-        }
-        if call["tool"] != "localFetch" {
-            return Err(RuntimeError::new(
-                "invalidCursor",
-                "Unsupported continuation tool",
-            ));
-        }
+        let tool = call["tool"].as_str().unwrap_or("");
         let query = call
             .get("query")
             .filter(|v| v.is_object())
             .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation query"))?;
-        let path = query["path"]
-            .as_str()
-            .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation path"))?;
-        let validated = self
-            .paths
-            .validate_read(path)
-            .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
-        super::cursor::ReadCursor::create(
-            query.clone(),
-            self.cursor_scope()?,
-            &validated.canonical,
-            source_sha256,
-        )
-        .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))
+        if !self.is_available(tool) {
+            return Err(RuntimeError::new(
+                "invalidCursor",
+                "Continuation names an unavailable tool",
+            ));
+        }
+        if tool == "localSearch" {
+            return super::cursor::ReadCursor::create_search(query.clone(), self.cursor_scope()?)
+                .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")));
+        }
+        if tool == "localFetch" {
+            let path = query["path"]
+                .as_str()
+                .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation path"))?;
+            let validated = self
+                .paths
+                .validate_read(path)
+                .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
+            return super::cursor::ReadCursor::create(
+                query.clone(),
+                self.cursor_scope()?,
+                &validated.canonical,
+                source_sha256,
+            )
+            .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")));
+        }
+        super::cursor::UniversalCursor::create(tool, query.clone(), self.cursor_scope()?)
+            .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))
     }
 
-    pub fn resume_token(&self, token: &str) -> Result<(String, Value, String), RuntimeError> {
-        let cursor = super::cursor::ReadCursor::decode(token, &self.cursor_scope()?)
+    /// Returns `(tool, query, source_digest)` where `source_digest` is `Some`
+    /// only for local-file tools (localFetch/localSearch). The returned query
+    /// remains untrusted and must re-enter normal contract and security validation.
+    pub fn resume_token(
+        &self,
+        token: &str,
+    ) -> Result<(String, Value, Option<String>), RuntimeError> {
+        let scope = self.cursor_scope()?;
+        if let Ok(cursor) = super::cursor::ReadCursor::decode(token, &scope) {
+            let path = cursor.query["path"]
+                .as_str()
+                .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation path"))?;
+            let validated = if cursor.tool == "localFetch" {
+                self.paths.validate_read(path)
+            } else {
+                self.paths.validate(path)
+            }
+            .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
+            if cursor.tool == "localFetch" {
+                cursor
+                    .verify_source(&validated.canonical)
+                    .map_err(|error| RuntimeError::new("staleCursor", format!("{error:?}")))?;
+            }
+            return Ok((cursor.tool, cursor.query, Some(cursor.source_sha256)));
+        }
+        let cursor = super::cursor::UniversalCursor::decode(token, &scope)
             .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))?;
-        let path = cursor.query["path"]
-            .as_str()
-            .ok_or_else(|| RuntimeError::new("invalidCursor", "Missing continuation path"))?;
-        let validated = if cursor.tool == "localFetch" {
-            self.paths.validate_read(path)
-        } else {
-            self.paths.validate(path)
-        }
-        .map_err(|error| RuntimeError::new("invalidCursor", error.message))?;
-        if cursor.tool == "localFetch" {
-            cursor
-                .verify_source(&validated.canonical)
-                .map_err(|error| RuntimeError::new("staleCursor", format!("{error:?}")))?;
-        }
-        Ok((cursor.tool, cursor.query, cursor.source_sha256))
+        Ok((cursor.tool, cursor.query, None))
     }
 
     pub fn is_available(&self, tool: &str) -> bool {

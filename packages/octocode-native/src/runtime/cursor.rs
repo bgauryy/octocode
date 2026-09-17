@@ -10,6 +10,77 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 const MAX_TOKEN_BYTES: usize = 64 * 1024;
 const TOKEN_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
+// ── Universal cursor (all tools) ─────────────────────────────────────────
+// Encodes any (tool, query) pair without a file-system source SHA.
+// The checksum detects corruption; it grants no authority. Callers must run
+// decoded queries through normal contract and security validation.
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UniversalCursor {
+    version: u32,
+    contract: String,
+    scope: String,
+    expires_at: u64,
+    pub tool: String,
+    pub query: Value,
+}
+
+impl UniversalCursor {
+    pub fn create(tool: &str, query: Value, scope: String) -> Result<String, CursorError> {
+        let cursor = Self {
+            version: 1,
+            contract: crate::contracts::contract_fingerprint().into(),
+            scope,
+            expires_at: now()? + TOKEN_LIFETIME.as_secs(),
+            tool: tool.into(),
+            query,
+        };
+        cursor.encode()
+    }
+
+    fn encode(&self) -> Result<String, CursorError> {
+        let bytes = serde_json::to_vec(self).map_err(|_| CursorError::Invalid)?;
+        if bytes.len() > MAX_TOKEN_BYTES {
+            return Err(CursorError::Invalid);
+        }
+        Ok(format!(
+            "{}.{}",
+            URL_SAFE_NO_PAD.encode(&bytes),
+            hex::encode(Sha256::digest(&bytes))
+        ))
+    }
+
+    pub fn decode(token: &str, scope: &str) -> Result<Self, CursorError> {
+        if token.len() > MAX_TOKEN_BYTES * 2 {
+            return Err(CursorError::Invalid);
+        }
+        let (encoded, checksum) = token.split_once('.').ok_or(CursorError::Invalid)?;
+        let bytes = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| CursorError::Invalid)?;
+        if checksum != hex::encode(Sha256::digest(&bytes)) {
+            return Err(CursorError::Invalid);
+        }
+        let cursor: Self = serde_json::from_slice(&bytes).map_err(|_| CursorError::Invalid)?;
+        if cursor.version != 1 || cursor.tool.is_empty() || !cursor.query.is_object() {
+            return Err(CursorError::Invalid);
+        }
+        if cursor.contract != crate::contracts::contract_fingerprint() {
+            return Err(CursorError::StaleContract);
+        }
+        if cursor.scope != scope {
+            return Err(CursorError::ChangedScope);
+        }
+        if cursor.expires_at < now()? {
+            return Err(CursorError::Expired);
+        }
+        Ok(cursor)
+    }
+}
+
+// ── File-backed read cursor (localFetch / localSearch) ────────────────────
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReadCursor {
@@ -178,6 +249,20 @@ impl ReadCursor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn universal_tokens_round_trip_without_granting_execution_authority() {
+        let query = serde_json::json!({"operation":"symbols","path":"/workspace"});
+        let token =
+            UniversalCursor::create("astSearch", query.clone(), "scope".into()).expect("cursor");
+        let cursor = UniversalCursor::decode(&token, "scope").expect("decode");
+        assert_eq!(cursor.tool, "astSearch");
+        assert_eq!(cursor.query, query);
+        assert!(matches!(
+            UniversalCursor::decode(&token, "other-scope"),
+            Err(CursorError::ChangedScope)
+        ));
+    }
+
     #[test]
     fn corrupt_and_foreign_tokens_are_rejected_before_file_access() {
         assert!(matches!(

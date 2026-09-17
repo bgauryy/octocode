@@ -436,7 +436,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     query,
                     ExecuteOptions {
                         all,
-                        expected_source: Some(digest),
+                        expected_source: digest,
                         json_errors,
                         ..ExecuteOptions::default()
                     },
@@ -916,7 +916,7 @@ pub(super) async fn execute(
                                             }
                                             match runtime.resume_token(&token) {
                                                 Ok((_, query, digest)) => {
-                                                    expected_source = Some(digest);
+                                                    expected_source = digest;
                                                     let key = serde_json::to_string(&query)
                                                         .unwrap_or_default();
                                                     if !seen.insert(key) {
