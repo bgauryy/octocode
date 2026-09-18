@@ -1,36 +1,30 @@
-import { mcpGatewayItemSchema } from './mcp/gateway-contract.js';
 import { McpCatalogExecution } from './mcp/catalog-execution.js';
 import { computeReload, createCatalogRefreshQueue } from './mcp/catalog-refresh.js';
 export { computeReload } from './mcp/catalog-refresh.js';
 import {
   formatMcpSchemaValidationErrors,
-  renderMcpCall,
-  renderMcpResult,
-  summarizeMcpBatchResult,
   summarizeSchema,
 } from './mcp/presentation.js';
 export { formatMcpSchemaValidationErrors };
 import { isWorkerCapabilityClient, dispatchWorkerMcpAction, getCurrentWorkerCapabilities } from './worker-capabilities.js';
 import { readMcpCatalogPage } from './mcp/catalog-pages.js';
 import { workerMcpCatalogSnapshot } from './mcp/worker-catalog.js';
-import { DIRECT_TOOL_DESCRIPTIONS } from './octocode-tools.js';
-import fs from "node:fs";
-import path from "node:path";
+export {
+  getDynamicMcpProxyToolName,
+  getGrantedDynamicMcpProxyTools,
+  isDynamicMcpProxyTool,
+} from './mcp/dynamic-proxy.js';
+import { registerMcpGatewayTool } from './mcp/register-tool.js';
+import { createMcpConnectionManager } from './mcp/connection-manager.js';
+import { createMcpConfigWatcher } from './mcp/config-watcher.js';
 import { registerMcpClientHandlers } from './mcp/client-handlers.js';
-import { readOwnVersion } from '../package-metadata.js';
-import {
-  Client,
-  StreamableHTTPClientTransport,
-  type Transport,
-} from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import path from "node:path";
 import {
   getMcpEnablement,
   listMcpOverrides,
   setMcpServerEnabled,
   setMcpToolEnabled,
 } from "../contracts/mcp-state.js";
-import { ensurePrivateDirectory } from '@octocodeai/octocode-awareness/host';
 import { openOctocodeDb } from "./storage-policy.js";
 import type {
   NotifyFn,
@@ -42,19 +36,13 @@ import type {
 import { capMapSize } from "../utils.js";
 import {
   DEFAULT_OCTOCODE_MCP_SERVER_NAME,
-  buildServerHeaders,
-  buildServerEnv,
   configSignature,
-  globalMcpConfigPaths,
-  globalMcpPath,
   isPlainRecord,
   loadMcpConfig,
-  projectMcpConfigPaths,
   projectMcpPath,
   normalizeServerConfig,
   removeServerFromFile,
   requestOptions,
-  resolveServerCwd,
   scopeTargetPath,
   upsertServerInFile,
   type McpLoadedConfig,
@@ -62,18 +50,11 @@ import {
   type McpServerConfig,
 } from "./mcp/config.js";
 
-import { assertPathAllowed } from "./path-guard.js";
-import {
-  buildQueryEnvelopeSchema,
-  executeQueryBatch,
-  type QueryRecord,
-} from "./query-envelope.js";
-import { QueryBatchError } from './query-batch-error.js';
+import type { QueryRecord } from "./query-envelope.js";
 import { runSelectOverlay } from "./ui-overlays.js";
 import {
   publishMcpRuntimeState,
   runtimeStoreFor,
-  setManagedStatus,
 } from "./runtime-renderer.js";
 import { recordFileReadState } from "./file-state.js";
 import {
@@ -93,11 +74,7 @@ import {
   compileMcpSchemaValidator,
   type McpCompiledSchemaValidator,
 } from "./mcp/schema-validator.js";
-import {
-  createMcpOAuthFlow,
-  revokeStoredMcpOAuthCredentials,
-  type McpOAuthFlow,
-} from "./mcp/oauth.js";
+import { revokeStoredMcpOAuthCredentials } from "./mcp/oauth.js";
 import { collectMcpPages, type McpCursorPage } from "./mcp/pagination.js";
 import {
   resolveMcpCallContent,
@@ -115,11 +92,8 @@ import type {
   McpPromptArtifactStatus,
 } from "./mcp/types.js";
 
-const MCP_STATUS_NAME = "octocode-mcp";
 const MCP_DISCOVERY_ATTEMPT_TIMEOUT_MS = 7_500;
 export const MCP_PROMPT_READY_TIMEOUT_MS = 35_000;
-const connections = new Map<string, McpConnection>();
-const pendingConnections = new Map<string, Promise<McpConnection>>();
 const cachedCatalogs = new Map<string, ListedMcpServer[]>();
 const cachedSnapshots = new Map<string, McpCatalogSnapshotV1>();
 const cachedCatalogIndexes = new Map<string, string>();
@@ -169,81 +143,6 @@ const promptReadiness = new Map<string, Promise<boolean>>();
 const warmGenerations = new Map<string, number>();
 /** Bound the cwd-keyed caches so a long-lived process visiting many cwds cannot grow them without limit. */
 const MAX_CACHED_CWDS = 32;
-const MAX_DYNAMIC_MCP_PROXIES = 128;
-const DYNAMIC_MCP_PROXY_PREFIX = "mcp__";
-
-interface DynamicMcpProxyBinding {
-  name: string;
-  server: string;
-  tool: string;
-  schemaDigest: string;
-}
-
-interface DynamicMcpProxyState {
-  supported: boolean;
-  describedSchemas: Map<string, string>;
-  bindingsByName: Map<string, DynamicMcpProxyBinding>;
-  latestByIdentity: Map<string, DynamicMcpProxyBinding>;
-  unavailableNames: Set<string>;
-}
-
-const dynamicMcpProxyStates = new WeakMap<PiInstance, DynamicMcpProxyState>();
-
-function mcpToolIdentity(server: string, tool: string): string {
-  return `${server}\u0000${tool}`;
-}
-
-function dynamicMcpProxySlug(value: string, maxLength: number): string {
-  const slug = value.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
-  return (slug || "tool").slice(0, maxLength);
-}
-
-function dynamicMcpProxyName(server: string, tool: string, inputSchema: unknown): string {
-  const digest = stableSchemaDigest({ server, tool, inputSchema }).slice(0, 12);
-  return `${DYNAMIC_MCP_PROXY_PREFIX}${dynamicMcpProxySlug(server, 12)}__${dynamicMcpProxySlug(tool, 24)}__${digest}`;
-}
-
-function safeDynamicMcpText(value: string, maxLength: number): string {
-  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
-}
-
-export function isDynamicMcpProxyTool(pi: PiInstance, name: string): boolean {
-  return dynamicMcpProxyStates.get(pi)?.bindingsByName.has(name) ?? false;
-}
-
-/**
- * Returns the original MCP tool name (e.g. "astSearch") for a dynamic proxy
- * tool name (e.g. "mcp__octocode__astsearch__318a18f8a8a3").
- *
- * Proxy names embed a schema-digest hash suffix that is opaque and unhelpful
- * in the UI.  The binding stores the exact server-reported name so the UI
- * can display "astSearch" / "localFetch" instead of the mangled proxy name.
- *
- * Returns undefined when the name is not a registered proxy (caller falls
- * back to the raw name).
- */
-export function getDynamicMcpProxyToolName(pi: PiInstance, proxyName: string): string | undefined {
-  return dynamicMcpProxyStates.get(pi)?.bindingsByName.get(proxyName)?.tool;
-}
-
-export function getGrantedDynamicMcpProxyTools(
-  pi: PiInstance,
-  granted: ReadonlyArray<{ server: string; tool: string; inputSchema?: unknown }>,
-): string[] {
-  const state = dynamicMcpProxyStates.get(pi);
-  if (!state) return [];
-  const allowed = new Map(granted.map(item => [
-    mcpToolIdentity(item.server, item.tool),
-    item.inputSchema === undefined ? undefined : stableSchemaDigest(item.inputSchema),
-  ]));
-  return [...state.latestByIdentity.entries()]
-    .filter(([identity, binding]) =>
-      allowed.has(identity) &&
-      state.describedSchemas.get(identity) === binding.schemaDigest &&
-      (allowed.get(identity) === undefined || allowed.get(identity) === binding.schemaDigest))
-    .map(([, binding]) => binding.name);
-}
-
 
 function cacheKey(ctx?: PiContext): string {
   return path.resolve(ctx?.cwd ?? process.cwd());
@@ -262,6 +161,17 @@ function invalidateAllWarmResults(): void {
   for (const key of warmsInFlight.keys()) invalidateWarmResult(key);
 }
 
+const connectionManager = createMcpConnectionManager({
+  onCatalogChanged: refreshChangedMcpServer,
+  onClientInvalidated(name, ctx) {
+    invalidateServerCache(name);
+    markMcpPromptStale(ctx);
+    queueMcpCatalogRefresh(ctx);
+  },
+  onServerInvalidated: invalidateServerCache,
+  trackAsyncWork: trackMcpAsyncWork,
+});
+
 async function ensureConnection(
   name: string,
   config: McpServerConfig,
@@ -269,150 +179,7 @@ async function ensureConnection(
   signal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<McpConnection> {
-  config = normalizeServerConfig(name, config);
-  const sig = configSignature(config);
-  const existing = connections.get(name);
-  if (existing) {
-    // Reuse only if the config is unchanged; otherwise the live process is stale —
-    // reconnect with the new config so mcp.json edits apply without an agent restart.
-    if (existing.configSig === sig) return existing;
-    await stopConnection(name);
-    invalidateServerCache(name);
-  }
-  // Dedupe concurrent connects for the same server: two parallel MCPTool calls
-  // would otherwise both spawn a process and orphan one of them.
-  const pending = pendingConnections.get(name);
-  if (pending) {
-    const conn = await pending;
-    if (conn.configSig === sig) return conn;
-  }
-  const connectPromise = connectServer(
-    name,
-    config,
-    sig,
-    ctx,
-    signal,
-    false,
-    timeoutMs,
-  );
-  pendingConnections.set(name, connectPromise);
-  try {
-    return await connectPromise;
-  } finally {
-    // A replacement session may already own a new connection attempt for the
-    // same server. Only the promise that acquired this slot may release it.
-    if (pendingConnections.get(name) === connectPromise) {
-      pendingConnections.delete(name);
-    }
-  }
-}
-
-async function connectServer(
-  name: string,
-  config: McpServerConfig,
-  sig: string,
-  ctx?: PiContext,
-  signal?: AbortSignal,
-  oauthRetry = false,
-  timeoutMs?: number,
-): Promise<McpConnection> {
-  let transport: Transport;
-  let oauth: McpOAuthFlow | undefined;
-  let stderr:
-    | { on(event: string, listener: (chunk: Buffer) => void): unknown }
-    | null
-    | undefined;
-  if (config.transport === "http" || config.url) {
-    if (config.auth === "oauth")
-      oauth = await createMcpOAuthFlow(name, config.url!, ctx);
-    transport = new StreamableHTTPClientTransport(new URL(config.url!), {
-      requestInit: { headers: buildServerHeaders(config) },
-      ...(oauth ? { authProvider: oauth.provider } : {}),
-    });
-    if (oauth)
-      oauth.attachTransport(transport as StreamableHTTPClientTransport);
-  } else {
-    const cwd = resolveServerCwd(config, ctx);
-    assertPathAllowed(cwd, ctx?.cwd ?? process.cwd(), `mcp:${name}`);
-    const stdio = new StdioClientTransport({
-      command: config.command!,
-      args: config.args ?? [],
-      cwd,
-      env: buildServerEnv(name, config),
-      stderr: "pipe",
-    });
-    transport = stdio;
-    stderr = stdio.stderr;
-  }
-  const client = new Client(
-    { name: "octocode-pi-extension", version: readOwnVersion() ?? "unknown" },
-    {
-      capabilities: {
-        roots: { listChanged: true },
-        sampling: {},
-        elicitation: { form: {}, url: {} },
-      },
-      inputRequired: { autoFulfill: true, maxRounds: 8 },
-      versionNegotiation: { mode: "auto" },
-      listChanged: {
-        tools: { onChanged: () => refreshChangedMcpServer(name, ctx) },
-        prompts: { onChanged: () => refreshChangedMcpServer(name, ctx) },
-        resources: { onChanged: () => refreshChangedMcpServer(name, ctx) },
-      },
-    },
-  );
-  registerMcpClientHandlers(client, name, ctx, () => {
-    invalidateServerCache(name);
-    markMcpPromptStale(ctx);
-    queueMcpCatalogRefresh(ctx);
-  });
-  const connection: McpConnection = {
-    name,
-    config,
-    configSig: sig,
-    client,
-    transport,
-    stderr: [],
-    startedAt: Date.now(),
-    ...(oauth ? { oauth } : {}),
-  };
-  stderr?.on("data", (chunk: Buffer) => {
-    const text = chunk.toString("utf8").trim();
-    if (!text) return;
-    connection.stderr.push(text);
-    while (connection.stderr.length > 20) connection.stderr.shift();
-  });
-  transport.onclose = () => {
-    // Delete only our own entry — a reconnect may already own the slot.
-    if (connections.get(name) === connection) connections.delete(name);
-    connection.oauth?.close();
-  };
-  transport.onerror = (error) => {
-    connection.stderr.push(error.message);
-  };
-  try {
-    await client.connect(
-      transport,
-      requestOptions(
-        { ...config, timeoutMs: config.startupTimeoutMs ?? timeoutMs ?? config.timeoutMs },
-        signal,
-      ),
-    );
-  } catch (error) {
-    const stderrText =
-      connection.stderr.length > 0
-        ? `\nstderr:\n${connection.stderr.join("\n")}`
-        : "";
-    await client.close().catch(() => undefined);
-    const authorized =
-      oauth && !oauthRetry ? await oauth.hasTokens().catch(() => false) : false;
-    oauth?.close();
-    if (authorized)
-      return connectServer(name, config, sig, ctx, signal, true, timeoutMs);
-    throw new Error(`${(error as Error).message}${stderrText}`);
-  }
-  connections.set(name, connection);
-  return connection;
+  return connectionManager.ensure(name, config, ctx, signal, timeoutMs);
 }
 
 function refreshChangedMcpServer(name: string, ctx?: PiContext): void {
@@ -428,146 +195,48 @@ function refreshChangedMcpServer(name: string, ctx?: PiContext): void {
 }
 
 async function stopConnection(name: string): Promise<boolean> {
-  const connection = connections.get(name);
-  if (!connection) return false;
-  connections.delete(name);
-  connection.oauth?.close();
-  await connection.client.close().catch(() => undefined);
-  return true;
+  return connectionManager.stop(name);
 }
 
 export function isMcpServerConnected(name: string): boolean {
-  return connections.has(name);
+  return connectionManager.isConnected(name);
 }
 
 export function stopAllMcpServers(): number {
-  const names = [...connections.keys()];
-  for (const name of names) {
-    const connection = connections.get(name);
-    connections.delete(name);
-    connection?.oauth?.close();
-    if (connection) trackMcpAsyncWork(connection.client.close().catch(() => undefined));
-  }
-  // Drop the injected-catalog cache so a following session in the same process
-  // (/new, /resume) cannot serve tools from now-stopped servers in the system
-  // prompt. Invalidate pending warm generations before clearing so an old async
-  // result cannot repopulate the new session's prompt after shutdown.
+  const count = connectionManager.stopAll();
+  // Invalidate pending warm generations before clearing so old asynchronous
+  // discovery cannot repopulate a replacement session's prompt.
   invalidateAllWarmResults();
-  // The entries are workspace keyed, but their promises are session-context
-  // bound. Detach them now so /new, /resume, and /fork can install work owned by
-  // the replacement context instead of awaiting a stale Pi context.
   warmsInFlight.clear();
   queuedCatalogRefreshes.clear();
   promptReadiness.clear();
-  pendingConnections.clear();
   cachedCatalogs.clear();
   cachedSnapshots.clear();
   cachedCatalogIndexes.clear();
   schemaCatalogs.clear();
   compiledValidators.clear();
-  return names.length;
+  return count;
 }
 
-// ─── mcp.json file watcher: hot-reload on external edits ──────────────────────
-// The config is already re-read per MCPTool call and connections auto-reconnect on
-// drift; the watcher makes that PROACTIVE — it detects external mcp.json edits, drops
-// stale connections + cache immediately, and tells the user, so a long-idle connection
-// never lingers on old config and the model-facing catalog addendum stays honest.
+const configWatcher = createMcpConfigWatcher({
+  runningConfigSignatures: () => connectionManager.configSignatures(),
+  stopConnection,
+  invalidateServer: invalidateServerCache,
+  invalidateWorkspace: invalidateCwdCache,
+  markPromptStale: markMcpPromptStale,
+  queueRefresh: queueMcpCatalogRefresh,
+});
 
-const configWatchers: import("node:fs").FSWatcher[] = [];
-let watchDebounce: ReturnType<typeof setTimeout> | null = null;
-
-async function reconcileMcpConfig(
-  ctx: PiContext | undefined,
-  notify: NotifyFn,
-): Promise<void> {
-  try {
-    const loaded = await loadMcpConfig(ctx);
-    const running = new Map<string, string>();
-    for (const [name, conn] of connections) running.set(name, conn.configSig);
-    const { changed, removed } = computeReload(running, loaded.servers);
-    for (const name of [...changed, ...removed]) {
-      await stopConnection(name);
-      invalidateServerCache(name);
-    }
-    invalidateCwdCache(ctx);
-    markMcpPromptStale(ctx);
-    queueMcpCatalogRefresh(ctx);
-    if (changed.length || removed.length) {
-      const parts: string[] = [];
-      if (changed.length) parts.push(`reloaded ${changed.join(", ")}`);
-      if (removed.length) parts.push(`removed ${removed.join(", ")}`);
-      notify(
-        ctx,
-        `MCP config changed — ${parts.join("; ")}. Execution and routing refresh automatically; the next turn receives the current catalog.`,
-        "info",
-      );
-    }
-  } catch {
-    // Best-effort: a bad transient config write must not crash the watcher.
-  }
-}
-
-/**
- * Start watching all active global + project mcp.json directories for changes.
- * Debounced and best-effort (watching is disabled silently if the platform/dir
- * does not allow it). Call stopMcpConfigWatchers() on session shutdown.
- */
 export function startMcpConfigWatcher(
   ctx: PiContext | undefined,
   notify: NotifyFn,
 ): number {
-  if (isWorkerCapabilityClient()) return 0;
-  stopMcpConfigWatchers();
-  const cwd = ctx?.cwd ?? process.cwd();
-  const dirs = new Set([
-    ...globalMcpConfigPaths().map((filePath) => path.dirname(filePath)),
-    ...projectMcpConfigPaths(cwd).map((filePath) => path.dirname(filePath)),
-  ]);
-  const canonicalGlobalDir = path.dirname(globalMcpPath());
-  for (const dir of dirs) {
-    try {
-      // Keep the existing management target available. Alias and project dirs
-      // are watched only when present; watcher setup must not create them.
-      if (dir === canonicalGlobalDir) ensurePrivateDirectory(dir);
-      else if (!fs.existsSync(dir)) continue;
-      const watcher = fs.watch(
-        dir,
-        { persistent: false },
-        (_event: string, filename: string | Buffer | null) => {
-          // Match mcp.json and our atomic temp writes (mcp.json.<pid>.<ts>.tmp).
-          if (filename && !String(filename).startsWith("mcp.json")) return;
-          if (watchDebounce) clearTimeout(watchDebounce);
-          watchDebounce = setTimeout(() => {
-            void reconcileMcpConfig(ctx, notify);
-          }, 250);
-        },
-      );
-      configWatchers.push(watcher);
-    } catch {
-      // Watching is best-effort; per-call re-read + drift reconnect remain the safety net.
-    }
-  }
-  return configWatchers.length;
+  return configWatcher.start(ctx, notify);
 }
 
 export function stopMcpConfigWatchers(): number {
-  const count = configWatchers.length;
-  for (const watcher of configWatchers) {
-    try {
-      watcher.close();
-    } catch {
-      /* already closed */
-    }
-  }
-  configWatchers.length = 0;
-  if (watchDebounce) {
-    clearTimeout(watchDebounce);
-    watchDebounce = null;
-  }
-  return count;
+  return configWatcher.stop();
 }
-
 
 function result(
   text: string,
@@ -575,129 +244,6 @@ function result(
   isError = false,
 ): ToolCallResult {
   return { content: [{ type: "text", text }], details, isError };
-}
-
-function schemaRequiredMessage(server: string, tool: string): string {
-  return [
-    `MCP_SCHEMA_REQUIRED ${server}/${tool}`,
-    "Load the exact schema before calling through MCPTool:",
-    JSON.stringify({
-      tool: "MCPTool",
-      params: {
-        queries: [{
-          action: "describe",
-          server,
-          tool,
-        }],
-      },
-    }),
-  ].join("\n");
-}
-
-function activateDescribedMcpProxy(
-  pi: PiInstance,
-  state: DynamicMcpProxyState,
-  described: ToolCallResult,
-  ctx?: PiContext,
-): ToolCallResult {
-  if (described.isError || !isPlainRecord(described.details)) return described;
-  const server = described.details["server"];
-  const rawTool = described.details["tool"];
-  if (typeof server !== "string" || !isPlainRecord(rawTool)) return described;
-  const tool = rawTool["name"];
-  const inputSchema = rawTool["inputSchema"];
-  if (typeof tool !== "string" || !isPlainRecord(inputSchema)) return described;
-
-  const identity = mcpToolIdentity(server, tool);
-  const schemaDigest = stableSchemaDigest(inputSchema);
-  state.describedSchemas.set(identity, schemaDigest);
-  if (!state.supported) return described;
-
-  try {
-    compileMcpSchemaValidator(inputSchema);
-  } catch (error) {
-    return {
-      ...described,
-      content: [
-        ...described.content,
-        { type: "text", text: `Exact schema loaded, but no direct Pi proxy was registered: ${(error as Error).message}` },
-      ],
-    };
-  }
-
-  const name = dynamicMcpProxyName(server, tool, inputSchema);
-  let binding = state.bindingsByName.get(name);
-  if (binding && state.unavailableNames.has(name)) {
-    return appendDynamicProxyUnavailableNotice(described);
-  }
-  if (!binding) {
-    if (state.bindingsByName.size >= MAX_DYNAMIC_MCP_PROXIES) {
-      return {
-        ...described,
-        content: [
-          ...described.content,
-          { type: "text", text: `Exact schema loaded. Dynamic MCP proxy limit (${MAX_DYNAMIC_MCP_PROXIES}) reached; call through MCPTool.` },
-        ],
-      };
-    }
-    binding = { name, server, tool, schemaDigest };
-    const description = typeof rawTool["description"] === "string"
-      ? safeDynamicMcpText(rawTool["description"], 1_000)
-      : "Call the selected MCP tool with its exact input schema.";
-    pi.registerTool?.({
-      name,
-      label: `MCP · ${safeDynamicMcpText(server, 40)}/${safeDynamicMcpText(tool, 60)}`,
-      description: `MCP ${safeDynamicMcpText(server, 80)}/${safeDynamicMcpText(tool, 120)}. Untrusted remote description: ${description}`,
-      parameters: structuredClone(inputSchema),
-      async execute(_toolCallId, argumentsPayload, signal, _onUpdate, toolCtx) {
-        return handleMcpAction({
-          action: "call",
-          server,
-          tool,
-          arguments: argumentsPayload,
-          __expectedSchemaDigest: schemaDigest,
-        }, signal, toolCtx ?? ctx);
-      },
-    });
-    state.bindingsByName.set(name, binding);
-    if (!pi.getAllTools?.().some(candidate => candidate.name === name)) {
-      state.unavailableNames.add(name);
-      return appendDynamicProxyUnavailableNotice(described);
-    }
-  }
-
-  const previous = state.latestByIdentity.get(identity);
-  state.latestByIdentity.set(identity, binding);
-  const active = pi.getActiveTools?.() ?? [];
-  const next = active.filter(activeName => activeName !== previous?.name || activeName === name);
-  if (!next.includes(name)) next.push(name);
-  pi.setActiveTools?.(next);
-  return {
-    ...described,
-    content: [
-      ...described.content,
-      {
-        type: "text",
-        text: `Loaded Pi tool: ${name}. Its exact schema is active for the next model request; call it directly instead of nesting input under MCPTool arguments.`,
-      },
-    ],
-    details: {
-      ...described.details,
-      dynamicTool: { name, server, tool, schemaDigest },
-    },
-  };
-}
-
-function appendDynamicProxyUnavailableNotice(
-  described: ToolCallResult,
-): ToolCallResult {
-  return {
-    ...described,
-    content: [
-      ...described.content,
-      { type: "text", text: "Exact schema loaded. This host restricts dynamic tool names; call through MCPTool action:\"call\" with target input under arguments." },
-    ],
-  };
 }
 
 function sortListedCatalog(entries: ListedMcpServer[]): ListedMcpServer[] {
@@ -1270,7 +816,7 @@ export function getCachedMcpCatalogAddendum(ctx?: PiContext): string {
 export async function refreshMcpCapabilities(ctx?: PiContext): Promise<void> {
   if (isWorkerCapabilityClient()) return;
   const loaded = await loadMcpConfig(ctx);
-  const running = new Map([...connections].map(([name, connection]) => [name, connection.configSig]));
+  const running = connectionManager.configSignatures();
   const { changed, removed } = computeReload(running, loaded.servers);
   for (const name of [...changed, ...removed]) {
     await stopConnection(name);
@@ -1495,7 +1041,7 @@ function formatConfig(config: McpLoadedConfig, cwd = process.cwd()): string {
 }
 
 function formatMcpServerStatus(config: McpLoadedConfig): string {
-  const running = [...connections.keys()];
+  const running = connectionManager.connectedNames();
   return [
     "Octocode MCP status",
     `configured: ${config.servers.size === 0 ? "none" : [...config.servers.keys()].join(", ")}`,
@@ -1699,7 +1245,7 @@ export async function handleMcpAction(
     });
   if (action === "status")
     return result(formatMcpServerStatus(loaded), {
-      running: [...connections.keys()],
+      running: connectionManager.connectedNames(),
       warnings: loaded.warnings,
       schema: getMcpSchemaMetrics(ctx),
     });
@@ -2228,172 +1774,11 @@ export function registerMcpTool(
     toolDefinition: ToolDefinition,
   ) => void,
 ): void {
-  const proxyState: DynamicMcpProxyState = {
-    supported:
-      typeof pi.registerTool === "function" &&
-      typeof pi.getActiveTools === "function" &&
-      typeof pi.getAllTools === "function" &&
-      typeof pi.setActiveTools === "function",
-    describedSchemas: new Map(),
-    bindingsByName: new Map(),
-    latestByIdentity: new Map(),
-    unavailableNames: new Set(),
-  };
-  dynamicMcpProxyStates.set(pi, proxyState);
-  if (typeof pi.on === "function") {
-    pi.on("session_start", async () => {
-      proxyState.describedSchemas.clear();
-      proxyState.latestByIdentity.clear();
-      const active = pi.getActiveTools?.();
-      if (active && proxyState.bindingsByName.size > 0) {
-        pi.setActiveTools?.(active.filter(name => !proxyState.bindingsByName.has(name)));
-      }
-    });
-    pi.on("session_compact", async () => {
-      const active = new Set(pi.getActiveTools?.() ?? []);
-      for (const [identity] of proxyState.describedSchemas) {
-        const visible = proxyState.latestByIdentity.get(identity);
-        if (!visible || !active.has(visible.name)) {
-          proxyState.describedSchemas.delete(identity);
-        }
-      }
-    });
-  }
-
-  // ── Per-query item schema: each queries[] entry carries one MCP action + fields. ──
-  const itemSchema = mcpGatewayItemSchema();
-
-  // Universal ordered queries[] envelope: all queries are preflighted before the first side-effect.
-  const parameters = buildQueryEnvelopeSchema(itemSchema, { allowParallel: true });
-
-  const execute = async (
-    toolCallId: string,
-    params: Record<string, unknown>,
-    signal?: AbortSignal,
-    onUpdate?: unknown,
-    ctx?: PiContext,
-  ): Promise<ToolCallResult> => {
-    setManagedStatus(ctx, MCP_STATUS_NAME, "mcp · running");
-    const parallelServers = new Set<string>();
-    try {
-      const output = await executeQueryBatch({
-        toolCallId,
-        raw: params,
-        signal,
-        onUpdate:
-          typeof onUpdate === "function"
-            ? (onUpdate as (u: ToolCallResult) => void)
-            : undefined,
-        ctx,
-        passthroughSingle: true,
-        allowParallel: true,
-        async preflight(query) {
-          preflightMcpQuery(query);
-          if (proxyState.supported && query["action"] === "call") {
-            const server = String(query["server"] ?? "");
-            const tool = String(query["tool"] ?? "");
-            const workerView = isWorkerCapabilityClient()
-              ? getCurrentWorkerCapabilities()
-              : undefined;
-            const granted = !workerView || workerView.snapshot.mcpTools.some(
-              candidate => candidate.server === server && candidate.tool === tool,
-            );
-            const describedDigest = proxyState.describedSchemas.get(
-              mcpToolIdentity(server, tool),
-            );
-            if (granted && !describedDigest) {
-              // Auto-describe: load and activate the schema so the call can proceed
-              // without requiring a separate explicit describe step.
-              const describeResult = await handleMcpAction(
-                { action: "describe", server, tool },
-                signal,
-                ctx,
-              );
-              if (describeResult.isError) {
-                const errorText = describeResult.content
-                  .filter((p): p is { type: "text"; text: string } => p.type === "text")
-                  .map(p => p.text)
-                  .join("\n");
-                throw new Error(errorText || schemaRequiredMessage(server, tool));
-              }
-              activateDescribedMcpProxy(pi, proxyState, describeResult, ctx);
-            }
-          }
-          if (params["queryRunType"] !== "parallel") return;
-          const action = query["action"] as McpAction;
-          if (
-            ![
-              "status",
-              "describe",
-              "call",
-              "resources",
-              "read-resource",
-              "prompts",
-              "get-prompt",
-              "complete",
-            ].includes(action)
-          ) {
-            throw new Error(
-              `parallel MCP batches do not support the mutating ${action} action`,
-            );
-          }
-          const server = typeof query["server"] === "string" ? query["server"] : undefined;
-          if (server && parallelServers.has(server)) {
-            throw new Error(`parallel MCP batches require distinct servers; batch same-server ${server} queries inside the target tool arguments`);
-          }
-          if (server) parallelServers.add(server);
-        },
-        async execute(
-          query,
-          _index,
-          _itemId,
-          batchSignal,
-          _onItemUpdate,
-          itemCtx,
-        ) {
-          const action = query["action"] as McpAction;
-          const identity = action === "call"
-            ? mcpToolIdentity(String(query["server"] ?? ""), String(query["tool"] ?? ""))
-            : undefined;
-          const expectedSchemaDigest = identity
-            ? proxyState.describedSchemas.get(identity)
-            : undefined;
-          const actionResult = await handleMcpAction(
-            expectedSchemaDigest ? { ...query, __expectedSchemaDigest: expectedSchemaDigest } : query,
-            batchSignal,
-            itemCtx,
-          );
-          return action === "describe"
-            ? activateDescribedMcpProxy(pi, proxyState, actionResult, itemCtx)
-            : actionResult;
-        },
-        summarize: summarizeMcpBatchResult,
-      });
-      if (isWorkerCapabilityClient() && output.isError) throw new Error(output.content.filter(part => part.type === 'text').map(part => part.text).join('\n'));
-      return output;
-    } catch (error) {
-      if (isWorkerCapabilityClient()) throw error;
-      if (error instanceof QueryBatchError && error.completedCount > 0) throw error;
-      return result(`[MCP_ERROR] ${(error as Error).message}`, undefined, true);
-    } finally {
-      setManagedStatus(ctx, MCP_STATUS_NAME, undefined);
-    }
-  };
-
-  const common = {
-    label: "MCPTool",
-    description: DIRECT_TOOL_DESCRIPTIONS.MCPTool!,
-    promptSnippet: "Gateway to MCP servers and exact-schema loader. Built-in octocode catalog in <mcp_catalog_index>.",
-    promptGuidelines: [
-      `Select from <mcp_catalog_index>; omit server for Octocode. Describe only when the target schema is not active, then call the activated Pi tool. Generic action:call requires that same described schema.`,
-      "Batch independent target queries inside arguments.queries[]. Use outer parallel execution only across different servers.",
-      "add/remove writes mcp.json; restart/stop manages connections. Do not add untrusted MCP config without user approval.",
-    ],
-    parameters,
-    execute,
-    renderCall: renderMcpCall,
-    renderResult: renderMcpResult,
-  } satisfies Omit<ToolDefinition, "name">;
-
-  registerFn(pi, registeredToolNames, { name: "MCPTool", ...common });
+  registerMcpGatewayTool(
+    pi,
+    registeredToolNames,
+    registerFn,
+    handleMcpAction,
+    preflightMcpQuery,
+  );
 }

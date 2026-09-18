@@ -71,6 +71,7 @@
     "verify": "yarn lint && yarn test"
   },
   "devDependencies": {
+    "@octocodeai/config": "workspace:*",
     "@octocodeai/octocode-skill-installer": "workspace:*",
     "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",

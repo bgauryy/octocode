@@ -426,7 +426,18 @@ test('build copies bundled Octocode skills without secret env files', () => {
   const catalogNames = catalog.tools.map(({ name }) => name);
   assert.equal(catalog.toolCount, catalog.tools.length);
   assert.equal(new Set(catalogNames).size, catalogNames.length, 'tool names are unique');
-  assert.ok(catalog.tools.filter(({ name }) => name !== 'ghCloneRepo').every(({ availability }) => availability.enabled), 'ungated packaged tools are callable');
+  assert.ok(
+    catalog.tools
+      .filter(({ availability }) => availability.envVar === undefined)
+      .every(({ availability }) => availability.enabled),
+    'ungated packaged tools are callable',
+  );
+  assert.ok(
+    catalog.tools
+      .filter(({ availability }) => !availability.enabled)
+      .every(({ availability }) => Boolean(availability.envVar)),
+    'disabled packaged tools identify their availability gate',
+  );
   const cloneTool = catalog.tools.find(({ name }) => name === 'ghCloneRepo');
   assert.ok(cloneTool, 'clone capability remains represented');
   if (!cloneTool.availability.enabled) assert.match(cloneTool.availability.envVar ?? '', /^(ENABLE_CLONE|OCTOCODE_STORAGE_MODE)$/);

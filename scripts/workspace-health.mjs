@@ -96,7 +96,7 @@ function getWorkspaceMap(workspaces) {
 }
 
 function collectInternalDependencies(workspace, workspaceMap) {
-  const dependencyFields = ['dependencies', 'devDependencies', 'peerDependencies'];
+  const dependencyFields = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
   const internalDependencies = new Set();
 
   for (const field of dependencyFields) {
@@ -172,6 +172,67 @@ function printScriptMatrix(workspaces) {
   console.table(rows);
 }
 
+function sourceFiles(root) {
+  const skippedDirectories = new Set([
+    '.git', '.yarn', 'coverage', 'dist', 'node_modules', 'npm', 'out', 'target',
+  ]);
+  const extensions = new Set(['.cjs', '.cts', '.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx']);
+  const files = [];
+
+  function visit(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isDirectory() && skippedDirectories.has(entry.name)) continue;
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolutePath);
+      else if (extensions.has(path.extname(entry.name))) files.push(absolutePath);
+    }
+  }
+
+  visit(root);
+  return files;
+}
+
+function importedPackageNames(source) {
+  const names = new Set();
+  const pattern = /(?:\bfrom\s*|\bimport\s*\(|\brequire\s*\()\s*['"]([^'".][^'"]*)['"]/g;
+  for (const match of source.matchAll(pattern)) {
+    const specifier = match[1];
+    const segments = specifier.split('/');
+    names.add(specifier.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0]);
+  }
+  return names;
+}
+
+function checkDeclaredInternalImports(workspaces) {
+  const workspaceMap = getWorkspaceMap(workspaces);
+  const failures = [];
+
+  for (const workspace of workspaces.filter(candidate => candidate.kind !== 'native-platform')) {
+    const declared = collectInternalDependencies(workspace, workspaceMap);
+    const workspaceRoot = path.join(ROOT, workspace.location);
+    for (const filePath of sourceFiles(workspaceRoot)) {
+      const source = fs.readFileSync(filePath, 'utf8');
+      for (const importedName of importedPackageNames(source)) {
+        if (
+          workspaceMap.has(importedName) &&
+          importedName !== workspace.name &&
+          !declared.has(importedName)
+        ) {
+          failures.push(
+            `${relative(ROOT, filePath)} imports undeclared workspace package ${importedName}`
+          );
+        }
+      }
+    }
+  }
+
+  if (failures.length > 0) {
+    console.error('Workspace dependency declaration check failed:');
+    for (const failure of [...new Set(failures)].sort()) console.error(`- ${failure}`);
+    process.exit(1);
+  }
+}
+
 function checkRequiredScripts(workspaces) {
   const failures = [];
 
@@ -193,6 +254,8 @@ function checkRequiredScripts(workspaces) {
     }
     process.exit(1);
   }
+
+  checkDeclaredInternalImports(workspaces);
 }
 
 function checkBuildOutputs(workspaces) {

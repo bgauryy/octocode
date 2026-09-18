@@ -1,6 +1,6 @@
 # LSP lifecycle and provisioning
 
-For the public query contract, see [`lspSearch`](../../../docs/OCTOCODE_TOOLS.md#lspsearch). For grammar and feature coverage, see [Supported languages and features](SUPPORTED_LANGUAGES_AND_FEATURES.md).
+For the public query contract, see [`lspSearch`](../../../../docs/OCTOCODE_TOOLS.md#lspsearch). For grammar and feature coverage, see [Supported languages and features](SUPPORTED_LANGUAGES_AND_FEATURES.md).
 
 ## Semantic boundary
 

@@ -61,7 +61,7 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 
 ## Packages
 
-11 workspace packages + 1 external core. Each has its own `ARCHITECTURE.md` — read it.
+10 workspace packages + 1 external core. Each has its own `ARCHITECTURE.md` — read it.
 
 ### Core stack
 
@@ -69,7 +69,6 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 |---|---|---|
 | [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | Zero-dep env/config loader. Single source for home, env, protected keys. Used by everything. |
 | [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Two Rust crates: runtime policy/CLI/N-API plus reusable engine primitives. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
-| [`octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | Deprecated JavaScript-only compatibility package that re-exports `@octocodeai/octocode-native/engine`. |
 | [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for the Pi extension: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
 | `@octocodeai/octocode-core` *(external)* | sibling repo | All public tool contracts, schemas, descriptions, examples. Source of truth for what tools exist and how they're described. |
 

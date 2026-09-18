@@ -1,6 +1,7 @@
 /**
- * Verifies that every platform directory under npm/ contains both the
- * octocode and octocode-regex-worker binaries before publishing.
+ * Verifies that every platform directory under npm/ contains the CLI, regex
+ * worker, runtime addon, and engine addon. Host-platform addons are loaded in
+ * subprocesses so a malformed or invalidly signed artifact cannot pass on size.
  *
  * Run: yarn workspace @octocodeai/octocode-native platforms:check
  */
@@ -8,8 +9,11 @@
 
 const { statSync } = require('fs');
 const { join } = require('path');
+const { spawnSync } = require('child_process');
+const { getPlatformSuffix } = require('../bin/platform.cjs');
 
 const root = join(__dirname, '..');
+const hostPlatform = getPlatformSuffix();
 
 const PLATFORMS = [
   { dir: 'darwin-arm64', binaries: ['octocode', 'octocode-regex-worker'] },
@@ -47,6 +51,24 @@ for (const { dir, binaries } of PLATFORMS) {
     } catch {
       console.error(`\u2717 npm/${dir}/${name} is MISSING`);
       allOk = false;
+    }
+  }
+
+  if (dir === hostPlatform) {
+    for (const name of artifacts.filter(candidate => candidate.endsWith('.node'))) {
+      const p = join(root, 'npm', dir, name);
+      const loaded = spawnSync(process.execPath, ['-e', 'require(process.argv[1])', p], {
+        encoding: 'utf8',
+        timeout: 20_000,
+      });
+      if (loaded.status !== 0) {
+        console.error(
+          `\u2717 npm/${dir}/${name} failed to load (status ${loaded.status}, signal ${loaded.signal ?? 'none'}): ${loaded.stderr || loaded.stdout}`,
+        );
+        allOk = false;
+      } else {
+        console.log(`\u2713 npm/${dir}/${name} loads`);
+      }
     }
   }
 }

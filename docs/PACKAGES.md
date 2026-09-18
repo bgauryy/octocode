@@ -1,6 +1,6 @@
 # Octocode package overview
 
-Eleven workspace packages and one external contract package provide the Octocode research and agent-integration stack.
+Ten workspace packages and one external contract package provide the Octocode research and agent-integration stack.
 
 ## Runtime flow
 
@@ -20,10 +20,6 @@ Public tool validation, providers, security, bulk execution, pagination, respons
 ### [`packages/octocode-native`](../packages/octocode-native) — `@octocodeai/octocode-native`
 
 Rust implementation of the public tool catalog and consolidated npm distribution. Six platform packages each ship the native CLI, regex worker, runtime addon, and engine primitive addon. Separate `crates/runtime` and `crates/engine` preserve policy/algorithm boundaries; `.` and `./runtime` expose the runtime while `./engine` exposes primitives.
-
-### [`packages/octocode-engine`](../packages/octocode-engine) — `@octocodeai/octocode-engine`
-
-Deprecated JavaScript-only compatibility wrapper. It re-exports `@octocodeai/octocode-native/engine` and owns no Rust source, platform packages, or native build pipeline.
 
 ### [`packages/octocode-config`](../packages/octocode-config) — `@octocodeai/config`
 
@@ -74,7 +70,6 @@ Private evaluation workspace for controlled comparisons, VRPT scoring, routing r
 - Public tool behavior belongs only in `octocode-native` Rust.
 - Interfaces may register, delegate, render, or provide interactive selection; they may not implement tools.
 - The native `crates/engine` crate and public `./engine` subpath expose primitives, not public tool policy.
-- `@octocodeai/octocode-engine` remains only as a migration wrapper.
 - Public contracts come from `@octocodeai/octocode-core`.
 - Configuration comes from `@octocodeai/config`.
 - Skill filesystem behavior comes from `@octocodeai/octocode-skill-installer`.

@@ -2447,6 +2447,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-awareness@workspace:packages/octocode-awareness"
   dependencies:
+    "@octocodeai/config": "workspace:*"
     "@octocodeai/octocode-extension-rust": "npm:0.1.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
     "@types/node": "npm:^24.13.4"
@@ -2482,14 +2483,6 @@ __metadata:
   checksum: 10c0/5fee8188508b29c2e5dbb4bfc836dbc067e1d1dee411e07c4daeec2b26307785c26aaa55c0f093eb3be13ff5091219347d98e7e21f2e32dd33d4be909da81b31
   languageName: node
   linkType: hard
-
-"@octocodeai/octocode-engine@workspace:packages/octocode-engine":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
-  dependencies:
-    "@octocodeai/octocode-native": "npm:20.0.0"
-  languageName: unknown
-  linkType: soft
 
 "@octocodeai/octocode-extension-rust-darwin-arm64@workspace:*, @octocodeai/octocode-extension-rust-darwin-arm64@workspace:packages/octocode-extension-rust/npm/darwin-arm64":
   version: 0.0.0-use.local

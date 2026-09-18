@@ -29,7 +29,8 @@ const DEFAULT_MAX = 1200;
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // Stand-in for the native `secrets` primitive; conservative, never widening scope.
-function redact(text) {
+// Exported so sibling evidence paths (scout.mjs) share one redaction, not a fork.
+export function redact(text) {
   return text
     .replace(/\b(sk|gh[pousr]|xox[baprs]|apikey)[-_][A-Za-z0-9]{16,}\b/gi, '«redacted-token»')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '«redacted-key»');
@@ -43,7 +44,8 @@ function within(root, abs) {
 // Resolve `path` relative to rootDir, then require it to live inside one of the
 // allowlisted roots (R3 mitigation: a reasoning tool must not read arbitrary
 // files). Absolute paths are rejected; traversal is rejected by containment.
-function boundedRoot(rootDir, allowedRoots, path) {
+// Exported so sibling evidence paths (scout.mjs) share one sandbox, not a fork.
+export function boundedRoot(rootDir, allowedRoots, path) {
   if (typeof path !== 'string' || path.trim().length === 0) throw new Error('contentRef.path expected a nonempty string.');
   if (isAbsolute(path)) throw new Error(`contentRef.path expected a rootDir-relative path; received absolute ${JSON.stringify(path)}.`);
   const abs = resolve(rootDir, path);

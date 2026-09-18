@@ -4,15 +4,11 @@ on:
   pull_request:
     paths:
       - 'packages/octocode-native/**'
-      - 'packages/octocode-engine/src/**'
-      - 'packages/octocode-engine/Cargo.toml'
       - '.github/workflows/rust-tools-core.yml'
   push:
     branches: [main]
     paths:
       - 'packages/octocode-native/**'
-      - 'packages/octocode-engine/src/**'
-      - 'packages/octocode-engine/Cargo.toml'
       - '.github/workflows/rust-tools-core.yml'
 
 permissions:
@@ -39,14 +35,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/octocode-native
-      - name: Test
+      - name: Test runtime and engine crates
         working-directory: packages/octocode-native
-        run: cargo test --all-targets
+        run: cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features
         env:
           RUST_BACKTRACE: 1
-      - name: Clippy
+      - name: Clippy runtime and engine crates
         working-directory: packages/octocode-native
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy -p octocode-native --no-default-features --all-targets -- -D warnings && cargo clippy -p octocode-engine --all-targets --all-features -- -D warnings
 
   package:
     name: Package ${{ matrix.target }}
@@ -72,7 +68,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: yarn
       - uses: dtolnay/rust-toolchain@stable
         with:

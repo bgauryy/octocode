@@ -48,7 +48,7 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 | `adapter_napi` | Host conversion and native runtime lifecycle | An alternate execution path |
 | `cli` | Arguments, human output, and shell exits | Node, N-API, or duplicated tools |
 
-`crates/engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. Its N-API bindings are published at `@octocodeai/octocode-native/engine` but are not an alternate Octocode tool runtime. The deprecated `@octocodeai/octocode-engine` package is only a JavaScript re-export.
+`crates/engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. Its N-API bindings are published at `@octocodeai/octocode-native/engine` but are not an alternate Octocode tool runtime.
 
 ## Safety and lifecycle invariants
 
@@ -64,7 +64,7 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 
 ## Contract generation
 
-`@octocodeai/octocode-core` is the external contract authoring owner. Its generator emits `src/contracts/generated/` with the contract JSON, Rust constant, validation fixtures, provenance revision, and fingerprint. Tests reject stale, dirty, or fingerprint-mismatched provenance. Generated files are not hand edited.
+`@octocodeai/octocode-core` is the external contract authoring owner. Its generator emits `crates/runtime/src/contracts/generated/` with the contract JSON, Rust constant, validation fixtures, provenance revision, and fingerprint. Tests reject stale, dirty, or fingerprint-mismatched provenance. Generated files are not hand edited.
 
 ## Build modes
 
@@ -72,4 +72,6 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 - Addon builds enable `napi-addon` and expose the same runtime to MCP.
 - Each platform package contains the optimized native CLI, regex worker, runtime addon, and engine addon.
 - Root entrypoints are lazy and independent: `.`/`./runtime` load only the runtime addon, while `./engine` loads only the engine addon.
+- Darwin addons are ad-hoc signed after staging because target-specific linker signatures are not a sufficient loadability guarantee.
+- Host-platform staging and platform verification load both addons in subprocesses before release acceptance.
 - Release acceptance exercises the direct native CLI, the built Node launcher, direct N-API calls, and real stdio MCP calls.

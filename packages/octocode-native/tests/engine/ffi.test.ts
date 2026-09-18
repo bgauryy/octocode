@@ -50,10 +50,10 @@ const addonExists =
       )));
 
 // A missing addon must FAIL the suite — silent skipping masks broken builds.
-// Run `yarn build:dev` in packages/octocode-engine to build the addon.
+// Run `yarn workspace @octocodeai/octocode-native build:engine:dev` to build the addon.
 if (!addonExists) {
   throw new Error(
-    'FFI addon not built — run `yarn build:dev` in packages/octocode-engine before running tests.'
+    'FFI addon not built — run `yarn workspace @octocodeai/octocode-native build:engine:dev` before running tests.'
   );
 }
 

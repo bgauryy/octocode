@@ -565,6 +565,7 @@ impl ToolRuntime {
             .to_owned();
         let jev_timeout = Duration::from_millis(self.config.resolved.network.timeout as u64);
         let jev_retries = self.config.resolved.network.max_retries as u32;
+        let stats_enabled = config::is_stats_enabled(&self.config.resolved);
         let output_tool = tool.clone();
         let cursor_scope = scope;
         let outcome = self
@@ -618,7 +619,10 @@ impl ToolRuntime {
                             )
                             .await
                             {
-                                Ok(data) => super::dispatch::value_result(data),
+                                Ok(data) => {
+                                    super::session_stats::record_jev(&home, stats_enabled, &data);
+                                    super::dispatch::value_result(data)
+                                }
                                 Err(error) => super::dispatch::provider_failure(
                                     error.message,
                                     error.code,

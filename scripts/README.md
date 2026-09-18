@@ -19,8 +19,9 @@ running a script directly, unless you need `--fix`/flags.
   workspace resolutions plus the sibling core; `prepublish.mjs --fix` removes them
   before publishing. Always follow either with `yarn install`.
 - **Don't re-add package-local version-sync scripts.** Workspace packages version
-  independently; engine-specific scripts own platform-package version checks.
+  independently; native-package scripts own platform-package version checks.
 - **Final publish gate** lives in the package:
   `packages/octocode/scripts/check-no-workspace-protocol.mjs` (run from each
   package's `prepublishOnly`) blocks local dependency protocols from shipping.
-  Consolidated runtime/engine version and four-artifact checks live under `packages/octocode-native/`; `packages/octocode-engine/` is a JavaScript-only compatibility package.
+  Consolidated runtime/engine version and four-artifact checks live under
+  `packages/octocode-native/`.

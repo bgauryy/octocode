@@ -18,7 +18,6 @@ export function workspaceResolutionPackages(nativePackage) {
     '@octocodeai/octocode-awareness',
     '@octocodeai/octocode-skill-installer',
     '@octocodeai/config',
-    '@octocodeai/octocode-engine',
     '@octocodeai/octocode-extension-rust',
     '@octocodeai/octocode-native',
     ...nativePlatformPackages(nativePackage),

@@ -34,21 +34,20 @@ Use this page to find the document that owns each topic. The root [README](../RE
 
 ## Package guides
 
-The monorepo contains 12 workspace packages. Read the package README for its public purpose and its architecture page for ownership, dependencies, and invariants.
+The monorepo contains 10 primary workspace packages. Read the package README for its public purpose and its architecture page for ownership, dependencies, and invariants.
 
 | Package | Purpose | Guides |
 |---------|---------|--------|
 | `octocode` | Agent-oriented CLI and toolkit entry point | [README](../packages/octocode/README.md) · [Architecture](../packages/octocode/ARCHITECTURE.md) · [CLI guide](../packages/octocode/docs/OCTOCODE_CLI.md) |
 | `octocode-mcp` | Thin stdio MCP interface | [README](../packages/octocode-mcp/README.md) · [Architecture](../packages/octocode-mcp/ARCHITECTURE.md) |
-| `octocode-mcp-vscode` | VS Code OAuth and multi-editor MCP setup | [README](../packages/octocode-vscode/README.md) |
+| `octocode-mcp-vscode` | VS Code OAuth and multi-editor MCP setup | [README](../packages/octocode-vscode/README.md) · [Architecture](../packages/octocode-vscode/ARCHITECTURE.md) |
 | `@octocodeai/pi-extension` | Pi host integration and Pi-owned contracts | [README](../packages/octocode-pi-extension/README.md) · [Architecture](../packages/octocode-pi-extension/ARCHITECTURE.md) · [Docs index](../packages/octocode-pi-extension/docs/README.md) |
 | `@octocodeai/octocode-native` | Consolidated CLI/runtime/engine distribution with separate Rust crates | [README](../packages/octocode-native/README.md) · [Architecture](../packages/octocode-native/ARCHITECTURE.md) · [LSP lifecycle](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
-| `@octocodeai/octocode-engine` | Deprecated JavaScript compatibility wrapper for native `/engine` | [README](../packages/octocode-engine/README.md) · [Architecture](../packages/octocode-engine/ARCHITECTURE.md) |
 | `@octocodeai/octocode-extension-rust` | Native workspace snapshots, mutations, history, and diffs | [README](../packages/octocode-extension-rust/README.md) · [Architecture](../packages/octocode-extension-rust/ARCHITECTURE.md) |
-| `@octocodeai/config` | Shared environment and configuration loader | [README](../packages/octocode-config/README.md) |
+| `@octocodeai/config` | Shared environment and configuration loader | [README](../packages/octocode-config/README.md) · [Architecture](../packages/octocode-config/ARCHITECTURE.md) |
 | `@octocodeai/octocode-skill-installer` | Durable cross-platform Agent Skill installation | [README](../packages/octocode-skill-installer/README.md) · [Architecture](../packages/octocode-skill-installer/ARCHITECTURE.md) |
 | `@octocodeai/octocode-awareness` | Coordination, workspace history, and shared host primitives | [README](../packages/octocode-awareness/README.md) · [Architecture](../packages/octocode-awareness/ARCHITECTURE.md) · [Docs index](../packages/octocode-awareness/docs/README.md) |
-| `@octocodeai/octocode-benchmark` | Research benchmarks, evals, graders, and reports | [README](../packages/octocode-benchmark/README.md) · [Results](../packages/octocode-benchmark/results/README.md) |
+| `@octocodeai/octocode-benchmark` | Research benchmarks, evals, graders, and reports | [README](../packages/octocode-benchmark/README.md) · [Architecture](../packages/octocode-benchmark/ARCHITECTURE.md) · [Results](../packages/octocode-benchmark/results/README.md) |
 
 The separately versioned `@octocodeai/octocode-core` package owns public tool schemas, descriptions, and shared MCP/CLI instructions. See the [root package explanation](../README.md#packages) for its relationship to this monorepo.
 

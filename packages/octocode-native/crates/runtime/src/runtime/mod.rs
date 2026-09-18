@@ -10,6 +10,7 @@ mod lifecycle;
 mod maintenance;
 pub mod render;
 pub mod response;
+mod session_stats;
 
 pub use cursor::CursorError;
 pub use engine::{FailureKind, HostOptions, RuntimeError, ToolOutcome, ToolRuntime};

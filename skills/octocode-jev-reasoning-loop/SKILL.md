@@ -54,6 +54,7 @@ The runner routes deterministically, skips inert and direct-check calls, validat
 
 ## Conditional depth
 
+- Many candidate files, reading all wastes context → `references/scout.md` (typed read-prioritization; provisional, never evidence).
 - When routing or gating is disputed → `references/routing-policy.md`, then `references/routing.md`.
 - When packet/API, configuration, context, or composition details affect execution → `references/protocol.md`, `references/configuration.md`, `references/context.md`, `references/patterns.md`.
 - When debugging a runner failure → `references/research.md`; it owns `scripts/route-decision.mjs`, `scripts/build-decision-packet.mjs`, `scripts/validate-decision-packet.mjs`, `scripts/jev.mjs`, `scripts/research.mjs`, `scripts/check-research.mjs`, and `scripts/apply-response.mjs`. Normal use stays on `run-loop.mjs`.

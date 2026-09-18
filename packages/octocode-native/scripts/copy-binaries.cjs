@@ -12,6 +12,8 @@
 
 const { copyFileSync, chmodSync, mkdirSync } = require('fs');
 const { join } = require('path');
+const { spawnSync } = require('child_process');
+const { getPlatformSuffix } = require('../bin/platform.cjs');
 
 const TARGET_MAP = {
   'darwin-arm64': 'aarch64-apple-darwin',
@@ -55,11 +57,40 @@ const libraryName = isWindows
     ? 'liboctocode_native.dylib'
     : 'liboctocode_native.so';
 const addonName = `octocode-native.${platform}.node`;
-copyFileSync(join(srcDir, libraryName), join(destDir, addonName));
+const addonPath = join(destDir, addonName);
+copyFileSync(join(srcDir, libraryName), addonPath);
 console.log(`  ✔ ${addonName}  →  npm/${platform}/${addonName}`);
 
 const engineAddonName = `octocode-engine.${platform}.node`;
-copyFileSync(join(root, engineAddonName), join(destDir, engineAddonName));
+const engineAddonPath = join(destDir, engineAddonName);
+copyFileSync(join(root, engineAddonName), engineAddonPath);
 console.log(`  ✔ ${engineAddonName}  →  npm/${platform}/${engineAddonName}`);
 
-console.log(`\nCopied four artifacts for ${platform} (${triple})`);
+if (platform.startsWith('darwin')) {
+  for (const artifact of [addonPath, engineAddonPath]) {
+    const signed = spawnSync('codesign', ['--force', '--sign', '-', artifact], {
+      encoding: 'utf8',
+    });
+    if (signed.status !== 0) {
+      throw new Error(`Failed to ad-hoc sign ${artifact}: ${signed.stderr || signed.stdout}`);
+    }
+  }
+}
+
+if (getPlatformSuffix() === platform) {
+  for (const artifact of [addonPath, engineAddonPath]) {
+    const loaded = spawnSync(
+      process.execPath,
+      ['-e', 'require(process.argv[1])', artifact],
+      { encoding: 'utf8', timeout: 20_000 },
+    );
+    if (loaded.status !== 0) {
+      throw new Error(
+        `Packaged addon smoke failed for ${artifact} (status ${loaded.status}, signal ${loaded.signal ?? 'none'}): ${loaded.stderr || loaded.stdout}`,
+      );
+    }
+  }
+  console.log(`  ✔ runtime and engine addons load for ${platform}`);
+}
+
+console.log(`\nCopied and verified four artifacts for ${platform} (${triple})`);
