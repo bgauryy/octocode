@@ -56,6 +56,12 @@ Every public request contains a bounded reasoning summary (`observations` and `u
 
 If claim status and selected basis disagree, the runner blocks and emits a deterministic observed-facts narrowing. Reopen its evidence before using the narrower claim; never repeat-vote unchanged state.
 
+## Scout and source profile
+
+Use `scripts/scout.mjs` to prioritize which candidates to read. Use `scripts/profile.mjs` after sources are selected to obtain typed semantic judgments without loading their bytes into the host-model context first. A profile accepts root-relative paths or inline text, sends every independent aspect for one source in a single request, and evaluates separate sources concurrently. See `references/scout.md`, `references/profile.md`, and `assets/profile-input.schema.json`. Both outputs are provisional; reopen source before asserting behavior.
+
+The frozen bug-triage evaluation is owned by `benchmark/CONTRACT.md`; persisted artifacts are cataloged in `benchmark/INDEX.md`.
+
 ## Contracts and low-level debugging
 
 Request schemas are under `assets/`; `assets/default-policy.json` owns host thresholds. For packet internals and direct wrappers, read `references/research.md`, then use `route-decision.mjs`, `build-decision-packet.mjs`, `validate-decision-packet.mjs`, `jev.mjs`, `research.mjs`, `check-research.mjs`, or `apply-response.mjs`. Normal execution should stay on `run-loop.mjs`.

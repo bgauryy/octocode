@@ -77,7 +77,7 @@ fn compact_fields(tool: &Value) -> String {
 fn availability_env_var(name: &str) -> Option<&'static str> {
     match name {
         "ghCloneRepo" => Some("OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
-        "jevReasoning" => Some("OCTOCODE_JEV_KEY"),
+        "jevReasoning" | "jevScout" => Some("OCTOCODE_JEV_KEY"),
         "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch" => {
             Some("OCTOCODE_LOCAL")
         }
@@ -224,6 +224,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 "ghCloneRepo",
                 "artifactSearch",
                 "jevReasoning",
+                "jevScout",
             ];
             if let Some(tool_name) = args.first().map(|s| s.as_str())
                 && KNOWN_TOOLS.contains(&tool_name)

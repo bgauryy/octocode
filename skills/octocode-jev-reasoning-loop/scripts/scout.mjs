@@ -95,7 +95,8 @@ export function locateSpans(file, anchors, { rootDir, allowedRoots, window = WIN
   return { spans, coverage: raw.length ? Number((judged / raw.length).toFixed(3)) : 0, fileChars: raw.length };
 }
 
-const qid = file => file.replace(/[^a-zA-Z0-9]/g, '_');
+const questionId = (candidateIndex, dim, single) =>
+  single ? `candidate_${candidateIndex}` : `candidate_${candidateIndex}__${dim.key}`;
 
 // Multi-dimension support: several independent "courts" judge every candidate
 // in the SAME request — the expensive spans are shared state, so extra
@@ -125,10 +126,10 @@ export function buildScoutRequest(input, located) {
   const dims = normalizeDimensions(input);
   const state = { task: `For each candidate, judge every listed question about: ${input.claim}.`, candidates: {} };
   const questions = {};
-  for (const [file, loc] of Object.entries(located)) {
+  for (const [candidateIndex, [file, loc]] of Object.entries(located).entries()) {
     state.candidates[file] = loc.spans.length ? loc.spans : 'no anchor matches in this file';
     for (const dim of dims) {
-      questions[dims.length === 1 ? qid(file) : `${qid(file)}__${dim.key}`] = {
+      questions[questionId(candidateIndex, dim, dims.length === 1)] = {
         type: 'score',
         instructions: {
           judge: `${dim.key}: ${dim.claim}`,
@@ -180,10 +181,21 @@ export function runScout(input, options = {}) {
   if (!itemsMode && (!Array.isArray(input.anchors) || !input.anchors.length)) throw new Error('scout input requires claim and anchors[].');
   const pool = itemsMode ? input.items : input.candidates;
   if (pool.length < 2 || pool.length > 12) throw new Error('scout input requires 2..12 candidates.');
+  const identities = itemsMode ? pool.map(item => item?.id) : pool;
+  if (identities.every(identity => typeof identity === 'string') && new Set(identities).size !== identities.length) {
+    throw new Error('scout candidate paths or item IDs must be unique.');
+  }
   if (normalizeDimensions(input).length * pool.length > 24) throw new Error('scout allows at most 24 questions (candidates x dimensions).');
   let located;
   if (itemsMode) {
-    located = locateItems(input.items, input.spanBudget);
+    const itemSpanBudget = input.itemSpanBudget ?? input.spanBudget;
+    if (input.itemSpanBudget !== undefined && (!Number.isInteger(input.itemSpanBudget) || input.itemSpanBudget < 200 || input.itemSpanBudget > 8000)) {
+      throw new Error('scout itemSpanBudget must be an integer from 200 to 8000.');
+    }
+    if (input.itemSpanBudget === undefined && input.spanBudget !== undefined && (!Number.isInteger(input.spanBudget) || input.spanBudget < 1 || input.spanBudget > 8000)) {
+      throw new Error('scout legacy spanBudget must be an integer from 1 to 8000.');
+    }
+    located = locateItems(input.items, itemSpanBudget);
   } else {
     const rootDir = resolve(input.root || process.cwd());
     const sandbox = { rootDir, allowedRoots: [rootDir], window: input.window, spanBudget: input.spanBudget };
@@ -211,9 +223,9 @@ export function runScout(input, options = {}) {
   const primary = dims.find(d => d.role === 'primary');
   const results = {};
   let bytesOffHost = 0;
-  for (const file of Object.keys(located)) {
+  for (const [candidateIndex, file] of Object.keys(located).entries()) {
     const loc = located[file];
-    const answerFor = dim => response.answers[dims.length === 1 ? qid(file) : `${qid(file)}__${dim.key}`] || {};
+    const answerFor = dim => response.answers[questionId(candidateIndex, dim, dims.length === 1)] || {};
     const answer = answerFor(primary);
     const policy = applyPolicy(answer, loc, primary.levels);
     // deterministic multi-court combiner: a veto court at its bottom level

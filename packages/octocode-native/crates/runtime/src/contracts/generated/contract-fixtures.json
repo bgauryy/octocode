@@ -2645,7 +2645,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "itemSpanBudget": 3000
         }
       ]
     }
@@ -2692,7 +2693,8 @@
                 "source": "octocode/octocode#2"
               }
             ]
-          }
+          },
+          "itemSpanBudget": 3000
         }
       ]
     }

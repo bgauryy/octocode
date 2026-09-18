@@ -43,9 +43,9 @@ test('buildScoutRequest: one shared state, one score question per candidate, str
   };
   const req = buildScoutRequest({ claim: 'does X', candidates: ['a.mjs', 'b.mjs'] }, located);
   assert.equal(Object.keys(req.questions).length, 2);
-  assert.equal(req.questions.a_mjs.type, 'score');
-  assert.equal(req.questions.a_mjs.criteria.length, LEVELS4);
-  assert.equal(typeof req.questions.a_mjs.instructions, 'object'); // structured, not prose
+  assert.equal(req.questions.candidate_0.type, 'score');
+  assert.equal(req.questions.candidate_0.criteria.length, LEVELS4);
+  assert.equal(typeof req.questions.candidate_0.instructions, 'object'); // structured, not prose
   assert.equal(req.state.candidates['b.mjs'], 'no anchor matches in this file');
 });
 
@@ -71,9 +71,15 @@ test('items mode: pre-fetched rows judged without locate, bounded and redacted',
     ]
   }, { dryRun: true });
   assert.equal(dry.status, 'dry-run');
-  assert.equal(dry.request.questions.PR_12.type, 'score');
+  assert.equal(dry.request.questions.candidate_0.type, 'score');
   assert.match(JSON.stringify(dry.request.state.candidates['PR#12']), /«redacted-token»/);
   assert.equal(dry.candidates['PR#9'].coverage, 1);
+  const bounded = runScout({
+    claim: 'x', itemSpanBudget: 200,
+    items: [{ id: 'a', content: 'a'.repeat(400) }, { id: 'b', content: 'b'.repeat(400) }]
+  }, { dryRun: true });
+  assert.equal(bounded.request.state.candidates.a[0].content, 'a'.repeat(200));
+  assert.equal(bounded.candidates.a.coverage, 0.5);
   // exactly one of items|candidates
   assert.throws(() => runScout({ claim: 'x', items: [{ id: 'a', content: 'b' }, { id: 'c', content: 'd' }], candidates: ['x', 'y'] }), /exactly one/);
 });
@@ -87,7 +93,10 @@ test('multi-dimension: shared state, per-dimension questions, veto only demotes 
     claim: 'which PR fixes X', dimensions: dims,
     items: [{ id: 'a', content: 'fixes X properly' }, { id: 'b', content: 'docs update' }]
   }, { dryRun: true });
-  assert.deepEqual(Object.keys(dry.request.questions).sort(), ['a__is_fix', 'a__relevance', 'b__is_fix', 'b__relevance']);
+  assert.deepEqual(Object.keys(dry.request.questions).sort(), [
+    'candidate_0__is_fix', 'candidate_0__relevance',
+    'candidate_1__is_fix', 'candidate_1__relevance'
+  ]);
   // exactly one primary enforced
   assert.throws(() => runScout({
     claim: 'x', dimensions: [{ key: 'a', role: 'veto', levels: dims[0].levels }],
@@ -101,6 +110,19 @@ test('multi-dimension: shared state, per-dimension questions, veto only demotes 
   }, { dryRun: true }), /at most 24 questions/);
 });
 
+test('question IDs cannot collide when candidate IDs normalize alike', () => {
+  const dry = runScout({
+    claim: 'implements X',
+    items: [{ id: 'a-b', content: 'one' }, { id: 'a/b', content: 'two' }]
+  }, { dryRun: true });
+  assert.deepEqual(Object.keys(dry.request.questions), ['candidate_0', 'candidate_1']);
+  assert.equal(dry.request.questions.candidate_0.instructions.candidate, 'a-b');
+  assert.equal(dry.request.questions.candidate_1.instructions.candidate, 'a/b');
+  assert.throws(() => runScout({
+    claim: 'x', items: [{ id: 'same', content: 'one' }, { id: 'same', content: 'two' }]
+  }, { dryRun: true }), /unique/);
+});
+
 test('runScout validates input and supports dry-run without any Jev call', async () => {
   const d = await dir({ 'a.mjs': 'const h = createHash("sha256")', 'b.mjs': 'export const x = 1' });
   try {
@@ -108,7 +130,7 @@ test('runScout validates input and supports dry-run without any Jev call', async
     assert.throws(() => runScout({ anchors: ['y'], candidates: ['a', 'b'] }), /claim/);
     const dry = runScout({ claim: 'computes a hash', anchors: ['createHash'], candidates: ['a.mjs', 'b.mjs'], root: d }, { dryRun: true });
     assert.equal(dry.status, 'dry-run');
-    assert.equal(dry.request.questions.a_mjs.type, 'score');
+    assert.equal(dry.request.questions.candidate_0.type, 'score');
     assert.deepEqual(dry.candidates['a.mjs'].spans, ['a.mjs:L1-L1']);
     assert.equal(dry.candidates['b.mjs'].coverage, 0);
   } finally { await rm(d, { recursive: true, force: true }); }

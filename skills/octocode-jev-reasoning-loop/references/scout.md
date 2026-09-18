@@ -40,7 +40,9 @@ JSON, not prose: pass exclusions and distinctions as fields
 
 `items: [{id, content, source?}]` replaces `candidates`+`anchors` when the host
 already holds cheap rows (PR/commit/issue titles from a search): the scout
-judges the rows so only the top items get their expensive diffs opened.
+judges the rows so only the top items get their expensive diffs opened. Item
+IDs and candidate paths must be unique. `itemSpanBudget` bounds each inline item
+(200–8000 characters; default 3000).
 `dimensions: [{key, role, claim, levels}]` (1–4, ≤24 questions total) sends
 several independent courts over the SAME shared state in one request — spans
 amortize; each answer is independent, so the vector is combined by
@@ -75,7 +77,9 @@ node scripts/scout.mjs --input scout.json --dry-run   # build + inspect the pack
 node scripts/scout.mjs --input scout.json             # one live batched judgment
 ```
 
-Input: `{ claim, anchors[], candidates[2..12], root?, levels?, window?, spanBudget? }`.
+Input: local `{ claim, anchors[], candidates[2..12], root?, levels?, window?, spanBudget? }`
+or inline `{ claim, items[2..12], itemSpanBudget?, levels? }`; either mode may add
+`dimensions`.
 Output per candidate: `action`, taxonomy `level`, `score`, `probabilities`,
 `coverage`, `anchors`, `provisional: true`. Confidence is distribution
 concentration, never correctness — act on probability mass, and treat a soft

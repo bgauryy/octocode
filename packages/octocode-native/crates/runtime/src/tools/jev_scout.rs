@@ -287,6 +287,7 @@ fn locate_items(
     span_budget: u64,
 ) -> Result<Vec<(String, Located)>, JevProviderError> {
     let mut located = Vec::with_capacity(items.len());
+    let mut identities = std::collections::HashSet::new();
     for item in items {
         let id = item
             .get("id")
@@ -303,6 +304,13 @@ fn locate_items(
                 ));
             }
         };
+        if !identities.insert(id) {
+            return Err(err(
+                "invalidJevRequest",
+                "scout item IDs must be unique.",
+                "Give every pre-fetched item a distinct id.",
+            ));
+        }
         let full_chars = utf16_len(content);
         let bounded = truncate_utf16(content, span_budget as usize);
         let redacted = redact(&bounded);
@@ -427,23 +435,11 @@ fn normalize_dimensions(query: &Value, claim: &str) -> Result<Vec<Dim>, JevProvi
 // Request build: port of scout.mjs buildScoutRequest (byte-faithful).
 // ---------------------------------------------------------------------------
 
-fn qid(file: &str) -> String {
-    file.chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-fn question_id(file: &str, dim: &Dim, single: bool) -> String {
+fn question_id(candidate_index: usize, dim: &Dim, single: bool) -> String {
     if single {
-        qid(file)
+        format!("candidate_{candidate_index}")
     } else {
-        format!("{}__{}", qid(file), dim.key)
+        format!("candidate_{candidate_index}__{}", dim.key)
     }
 }
 
@@ -464,11 +460,11 @@ fn build_request(claim: &str, model: &str, located: &[(String, Located)], dims: 
     let single = dims.len() == 1;
     let mut candidates = Map::new();
     let mut questions = Map::new();
-    for (file, loc) in located {
+    for (candidate_index, (file, loc)) in located.iter().enumerate() {
         candidates.insert(file.clone(), spans_value(loc));
         for dim in dims {
             questions.insert(
-                question_id(file, dim, single),
+                question_id(candidate_index, dim, single),
                 json!({
                     "type": "score",
                     "instructions": {
@@ -698,6 +694,31 @@ fn parse_and_locate(query: &Value, default_model: &str) -> Result<Parsed, JevPro
                 "Reduce candidates or dimensions so their product is <= 24.",
             ));
         }
+        let candidate_paths: Vec<&str> = candidates
+            .iter()
+            .map(|candidate| {
+                candidate.as_str().ok_or_else(|| {
+                    err(
+                        "invalidJevRequest",
+                        "scout candidates[] must be strings.",
+                        "Provide candidate paths as strings.",
+                    )
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        if candidate_paths
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            != candidate_paths.len()
+        {
+            return Err(err(
+                "invalidJevRequest",
+                "scout candidate paths must be unique.",
+                "Provide each candidate path once.",
+            ));
+        }
         let anchor_list: Vec<String> = anchors_raw
             .iter()
             .filter_map(|anchor| anchor.as_str().map(str::to_owned))
@@ -727,14 +748,7 @@ fn parse_and_locate(query: &Value, default_model: &str) -> Result<Parsed, JevPro
         let root_str = local.get("root").and_then(Value::as_str).unwrap_or(".");
         let root_dir = lexical_normalize(&cwd.join(root_str));
         let mut located = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            let file = candidate.as_str().ok_or_else(|| {
-                err(
-                    "invalidJevRequest",
-                    "scout candidates[] must be strings.",
-                    "Provide candidate paths as strings.",
-                )
-            })?;
+        for file in candidate_paths {
             let loc = locate_spans(&root_dir, file, &anchor_list, window, span_budget)?;
             located.push((file.to_owned(), loc));
         }
@@ -757,8 +771,7 @@ fn parse_and_locate(query: &Value, default_model: &str) -> Result<Parsed, JevPro
             ));
         }
         let span_budget = query
-            .get("source")
-            .and_then(|source| source.get("spanBudget"))
+            .get("itemSpanBudget")
             .and_then(Value::as_u64)
             .unwrap_or(SPAN_BUDGET);
         locate_items(items, span_budget)?
@@ -788,11 +801,11 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
 
     let mut results = Map::new();
     let mut reads: Vec<Value> = Vec::new();
-    for (file, loc) in &parsed.located {
+    for (candidate_index, (file, loc)) in parsed.located.iter().enumerate() {
         let has_spans = !loc.spans.is_empty();
         let answer_for = |dim: &Dim| -> Value {
             answers
-                .get(&question_id(file, dim, single))
+                .get(&question_id(candidate_index, dim, single))
                 .cloned()
                 .unwrap_or_else(|| json!({}))
         };
@@ -1036,15 +1049,15 @@ mod tests {
         let request = build_request(claim, "jev-latest", &located, &dims);
         let questions = request["questions"].as_object().expect("questions");
         assert_eq!(questions.len(), 2);
-        assert_eq!(request["questions"]["a_mjs"]["type"], "score");
+        assert_eq!(request["questions"]["candidate_0"]["type"], "score");
         assert_eq!(
-            request["questions"]["a_mjs"]["criteria"]
+            request["questions"]["candidate_0"]["criteria"]
                 .as_array()
                 .expect("criteria")
                 .len(),
             4
         );
-        assert!(request["questions"]["a_mjs"]["instructions"].is_object());
+        assert!(request["questions"]["candidate_0"]["instructions"].is_object());
         assert_eq!(
             request["state"]["candidates"]["b.mjs"],
             "no anchor matches in this file"
@@ -1106,8 +1119,52 @@ mod tests {
         keys.sort();
         assert_eq!(
             keys,
-            vec!["a__is_fix", "a__relevance", "b__is_fix", "b__relevance"]
+            vec![
+                "candidate_0__is_fix",
+                "candidate_0__relevance",
+                "candidate_1__is_fix",
+                "candidate_1__relevance",
+            ]
         );
+    }
+
+    #[test]
+    fn request_ids_do_not_collide_for_similar_candidate_names() {
+        let dims = vec![Dim {
+            key: "main".to_owned(),
+            role: "primary".to_owned(),
+            claim: "implements X".to_owned(),
+            levels: default_levels(),
+        }];
+        let located = vec![
+            (
+                "a-b".to_owned(),
+                Located {
+                    spans: vec![Span {
+                        source: "a-b".to_owned(),
+                        content: "one".to_owned(),
+                    }],
+                    coverage: 1.0,
+                    file_chars: 3,
+                },
+            ),
+            (
+                "a/b".to_owned(),
+                Located {
+                    spans: vec![Span {
+                        source: "a/b".to_owned(),
+                        content: "two".to_owned(),
+                    }],
+                    coverage: 1.0,
+                    file_chars: 3,
+                },
+            ),
+        ];
+        let request = build_request("implements X", "jev-latest", &located, &dims);
+        let questions = request["questions"].as_object().expect("questions");
+        assert_eq!(questions.len(), 2);
+        assert!(questions.contains_key("candidate_0"));
+        assert!(questions.contains_key("candidate_1"));
     }
 
     // ---- policy v2 table --------------------------------------------------
@@ -1189,8 +1246,8 @@ mod tests {
             "model": "jev-1",
             "usage": {},
             "answers": {
-                "a__relevance": score_answer(&[(0, 0.0), (1, 0.1), (2, 0.9)], 2.0),
-                "a__is_fix": score_answer(&[(0, 0.8), (1, 0.2)], 0.2),
+                "candidate_0__relevance": score_answer(&[(0, 0.0), (1, 0.1), (2, 0.9)], 2.0),
+                "candidate_0__is_fix": score_answer(&[(0, 0.8), (1, 0.2)], 0.2),
             }
         });
         let out = build_results(&parsed, &response);
@@ -1204,8 +1261,8 @@ mod tests {
             "model": "jev-1",
             "usage": {},
             "answers": {
-                "a__relevance": score_answer(&[(0, 0.0), (1, 0.1), (2, 0.9)], 2.0),
-                "a__is_fix": score_answer(&[(0, 0.2), (1, 0.8)], 0.8),
+                "candidate_0__relevance": score_answer(&[(0, 0.0), (1, 0.1), (2, 0.9)], 2.0),
+                "candidate_0__is_fix": score_answer(&[(0, 0.2), (1, 0.8)], 0.8),
             }
         });
         let out = build_results(&parsed, &response);
@@ -1335,6 +1392,35 @@ mod tests {
         let error = parse_and_locate(&query, "jev-latest").expect_err("too few candidates");
         assert!(
             error.message.contains("2..12"),
+            "message: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn parse_uses_item_span_budget_and_rejects_duplicate_ids() {
+        let query = json!({
+            "claim": "x",
+            "itemSpanBudget": 200,
+            "source": { "items": [
+                {"id":"a","content":"a".repeat(400)},
+                {"id":"b","content":"b".repeat(400)}
+            ] }
+        });
+        let parsed = parse_and_locate(&query, "jev-latest").expect("valid items");
+        assert_eq!(parsed.located[0].1.spans[0].content, "a".repeat(200));
+        assert_eq!(parsed.located[0].1.coverage, 0.5);
+
+        let duplicate = json!({
+            "claim": "x",
+            "source": { "items": [
+                {"id":"same","content":"one"},
+                {"id":"same","content":"two"}
+            ] }
+        });
+        let error = parse_and_locate(&duplicate, "jev-latest").expect_err("duplicate IDs");
+        assert!(
+            error.message.contains("unique"),
             "message: {}",
             error.message
         );

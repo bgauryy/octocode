@@ -505,6 +505,24 @@ fn validate_jev_scout_queries(input: &Value) -> Result<(), ContractValidationErr
             .and_then(|l| l.get("candidates"))
             .and_then(Value::as_array)
         {
+            let mut paths = std::collections::HashSet::new();
+            if !candidates
+                .iter()
+                .filter_map(Value::as_str)
+                .all(|path| paths.insert(path))
+            {
+                return Err(issue(
+                    "jevScout.candidates",
+                    vec![
+                        "queries".into(),
+                        index.to_string(),
+                        "source".into(),
+                        "local".into(),
+                        "candidates".into(),
+                    ],
+                    "candidate paths must be unique".to_string(),
+                ));
+            }
             for candidate in candidates {
                 if candidate
                     .as_str()
@@ -522,6 +540,25 @@ fn validate_jev_scout_queries(input: &Value) -> Result<(), ContractValidationErr
                         "candidate paths must be root-relative, not absolute".to_string(),
                     ));
                 }
+            }
+        }
+        if let Some(items) = items.and_then(Value::as_array) {
+            let mut ids = std::collections::HashSet::new();
+            if !items
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .all(|id| ids.insert(id))
+            {
+                return Err(issue(
+                    "jevScout.items",
+                    vec![
+                        "queries".into(),
+                        index.to_string(),
+                        "source".into(),
+                        "items".into(),
+                    ],
+                    "item IDs must be unique".to_string(),
+                ));
             }
         }
         if let Some(dimensions) = query.get("dimensions").and_then(Value::as_array) {
