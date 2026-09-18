@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  byteSlice,
   byteToCharIndex,
   charToByteIndex,
+  convertByteMatchToChar,
+  getByteLength,
   sliceContent,
 } from '../../../src/utils/file/byteOffset.js';
 
@@ -19,6 +22,17 @@ describe('byte offset helpers contract', () => {
     expect(byteToCharIndex(content, 1)).toBe(1);
     expect(byteToCharIndex(content, 5)).toBe(3);
     expect(byteToCharIndex(content, 6)).toBe(4);
+  });
+
+  it('converts complete native byte ranges back to UTF-16 match metadata', () => {
+    const content = 'a🌍b';
+    expect(byteSlice(content, 1, 5)).toBe('🌍');
+    expect(getByteLength(content)).toBe(6);
+    expect(convertByteMatchToChar(content, 1, 4)).toEqual({
+      charOffset: 1,
+      charLength: 2,
+      text: '🌍',
+    });
   });
 
   it('reports slice offsets and lengths as JavaScript UTF-16 indexes', () => {

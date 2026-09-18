@@ -1146,8 +1146,7 @@ pub fn rewrite_files(
                 return None;
             }
             let content = String::from_utf8(bytes).ok()?;
-            let matches =
-                super::rewrite::rewrite(&content, (*rule_config).clone()).ok()?;
+            let matches = super::rewrite::rewrite(&content, (*rule_config).clone()).ok()?;
             if matches.is_empty() {
                 return None;
             }

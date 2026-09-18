@@ -217,6 +217,32 @@ try {
       );
     }
   );
+  await check('native MCP preserves ordered bulk query results', async () => {
+    const response = await invoke('localFetch', {
+      queries: [
+        {
+          reasoning: 'Read the first bulk fixture through native MCP.',
+          debug: false,
+          path: path.join(fixture, 'math.ts'),
+          startLine: 1,
+          endLine: 1,
+        },
+        {
+          reasoning: 'Read the second bulk fixture through native MCP.',
+          debug: false,
+          path: path.join(fixture, 'entry.ts'),
+          startLine: 1,
+          endLine: 1,
+        },
+      ],
+    });
+    assert.equal(response.isError, false);
+    const rows = response.structuredContent?.results;
+    assert.equal(rows?.length, 2);
+    assert.deepEqual(rows.map(row => row.index), [0, 1]);
+    assert.ok(rows[0].data.content.includes('Arithmetic fixture'));
+    assert.ok(rows[1].data.content.includes('import'));
+  });
   await check('localFetch line and byte chunks preserve selected views through real MCP', async () => {
     const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'fetch-chunks-'));
     const file = path.join(directory, 'source.txt');
@@ -307,7 +333,9 @@ try {
         pattern: 'oldCall($A)', rewrite: 'newCall($A)', apply: true,
         pageSize: 10,
         snapshot: preview.snapshot,
-        expectedHashes: Object.fromEntries(preview.files.map(item => [item.absolutePath, item.beforeHash])),
+        expectedHashes: Object.fromEntries(
+          preview.files.map(item => [path.join(directory, item.path), item.beforeHash])
+        ),
       });
       assert.equal(applied.mode, 'apply');
       assert.equal(applied.transaction.committed, true);
@@ -471,7 +499,7 @@ try {
       assert.ok(
         data.payload.locations.some(
           location =>
-            location.uri.endsWith('/math.ts') &&
+            location.path.endsWith('math.ts') &&
             location.displayRange.startLine === 2
         )
       );

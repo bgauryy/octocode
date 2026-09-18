@@ -7,10 +7,9 @@
 // few management commands the native binary does not (yet) own, so those stay
 // on the TS path — see TS_ONLY_COMMANDS. Everything else can be delegated.
 //
-// Delegation is currently OPT-IN (`OCTOCODE_RUNTIME=native`) with the TS path
-// as the safe default, mirroring the octocode-mcp runtime selector. The default
-// flips to native once the native binary is shipped through platform packages
-// and parity is proven by a differential harness.
+// Native execution is the default and only implementation path for covered
+// commands. The TypeScript path remains solely for the explicitly listed
+// management commands that do not execute public tools.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
@@ -59,18 +58,17 @@ export function resolveNativeBin(
 }
 
 /**
- * Decide whether a parsed command should be delegated to the native binary.
- * Requires opt-in (`OCTOCODE_RUNTIME=native`), a command native covers, and a
- * resolvable native binary.
+ * Decide whether a parsed command is owned by the native binary. Availability
+ * is checked separately so a missing installation fails closed instead of
+ * silently running the retired TypeScript implementation.
  */
 export function shouldDelegateToNative(
   command: string | null | undefined,
-  env: NodeJS.ProcessEnv = process.env
+  _env: NodeJS.ProcessEnv = process.env
 ): boolean {
   if (!command) return false;
-  if (env.OCTOCODE_RUNTIME?.trim().toLowerCase() !== 'native') return false;
   if (TS_ONLY_COMMANDS.has(command)) return false;
-  return resolveNativeBin(env) !== null;
+  return true;
 }
 
 /**

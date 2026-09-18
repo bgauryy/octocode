@@ -2,9 +2,9 @@
 
 `octocode-mcp` exposes Octocode research tools over the Model Context Protocol
 using a stdio transport. It is a thin adapter: tool contracts come from
-`@octocodeai/octocode-core`, execution comes from
-`@octocodeai/octocode-tools-core`, and native operations come from
-`@octocodeai/octocode-engine`.
+`@octocodeai/octocode-core`, while `@octocodeai/octocode-native` owns tool
+execution, policy, and response shaping. A missing native runtime is a startup
+error; there is no JavaScript execution fallback.
 
 ## Requirements
 

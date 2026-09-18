@@ -71,7 +71,8 @@ function nativeToAstGrepMatch(
   const transformed: Record<string, string> = {};
   for (const [name, cap] of Object.entries(m.captures ?? {})) {
     if (cap.kind === 'single') single[name] = { text: cap.texts[0] ?? '' };
-    else if (cap.kind === 'multi') multi[name] = cap.texts.map(t => ({ text: t }));
+    else if (cap.kind === 'multi')
+      multi[name] = cap.texts.map(t => ({ text: t }));
     else if (cap.kind === 'transformed') transformed[name] = cap.texts[0] ?? '';
   }
   const hasCaptures = Object.keys(m.captures ?? {}).length > 0;

@@ -118,10 +118,8 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     process.env.NO_COLOR = '1';
   }
 
-  // Opt-in: run the native Rust binary under the hood for the commands it
-  // covers (everything except the TS-only management commands). Keeps
-  // `npx octocode` as the interface; the TS path stays the default until
-  // native ships via platform packages and parity is proven.
+  // Covered commands execute only in the native Rust runtime. `npx octocode`
+  // remains the interface; TypeScript handles only explicit management seams.
   const rawArgv = argv ?? process.argv.slice(2);
 
   // `install` hybrid: native handles flag-only installs (--ide <id>); the TS
@@ -133,10 +131,13 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   if (!installInteractive && shouldDelegateToNative(args.command)) {
     const bin = resolveNativeBin();
-    if (bin) {
-      process.exitCode = delegateToNative(bin, rawArgv);
-      return true;
+    if (!bin) {
+      throw new Error(
+        'The native Octocode runtime is unavailable for this platform or installation.'
+      );
     }
+    process.exitCode = delegateToNative(bin, rawArgv);
+    return true;
   }
 
   if (hasHelpFlag(args)) {

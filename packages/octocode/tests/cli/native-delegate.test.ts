@@ -40,11 +40,11 @@ describe('resolveNativeBin', () => {
 
 describe('shouldDelegateToNative', () => {
   const bin = makeFakeBin('process.exit(0)');
-  const nativeEnv = { OCTOCODE_RUNTIME: 'native', OCTOCODE_NATIVE_BIN: bin };
+  const nativeEnv = { OCTOCODE_NATIVE_BIN: bin };
 
-  it('does not delegate without the opt-in flag', () => {
+  it('delegates covered commands without an opt-in flag', () => {
     expect(shouldDelegateToNative('search', { OCTOCODE_NATIVE_BIN: bin })).toBe(
-      false
+      true
     );
   });
 
@@ -58,16 +58,15 @@ describe('shouldDelegateToNative', () => {
     }
   });
 
-  it('does not delegate when opted in but the explicit binary is missing', () => {
+  it('keeps native ownership when the binary is missing so the caller fails closed', () => {
     expect(
       shouldDelegateToNative('search', {
-        OCTOCODE_RUNTIME: 'native',
         OCTOCODE_NATIVE_BIN: '/no/such/octocode',
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it('delegates a covered command when opted in and binary resolves', () => {
+  it('delegates covered commands when the binary resolves', () => {
     expect(shouldDelegateToNative('ast', nativeEnv)).toBe(true);
     expect(shouldDelegateToNative('graph', nativeEnv)).toBe(true);
     expect(shouldDelegateToNative('tools', nativeEnv)).toBe(true);

@@ -20,6 +20,56 @@ async fn runtime_requires_explicit_non_blank_reasoning() {
 }
 
 #[tokio::test]
+async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
+    let workspace = Workspace::new();
+    let first = workspace.write("first.txt", "first\n");
+    let second = workspace.write("second.txt", "second\n");
+    let missing = workspace.workspace.join("missing.txt");
+    let runtime = workspace.runtime(&[]);
+
+    let successful = runtime
+        .execute(
+            "bulk-success".into(),
+            "localFetch".into(),
+            json!({"queries":[
+                {"path":first,"reasoning":"Read the first fixture."},
+                {"path":second,"reasoning":"Read the second fixture."}
+            ]}),
+        )
+        .await
+        .expect("bulk success");
+    let rows = successful.structured_content["results"]
+        .as_array()
+        .expect("result rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["index"], 0);
+    assert_eq!(rows[1]["index"], 1);
+    assert_eq!(rows[0]["data"]["content"], "first\n");
+    assert_eq!(rows[1]["data"]["content"], "second\n");
+    assert!(!successful.all_failed);
+
+    let mixed = runtime
+        .execute(
+            "bulk-mixed".into(),
+            "localFetch".into(),
+            json!({"queries":[
+                {"path":missing,"reasoning":"Exercise one missing fixture."},
+                {"path":first,"reasoning":"Retain the successful fixture."}
+            ]}),
+        )
+        .await
+        .expect("mixed bulk result");
+    let rows = mixed.structured_content["results"]
+        .as_array()
+        .expect("mixed rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["status"], "error");
+    assert!(rows[1].get("status").is_none());
+    assert!(!mixed.all_failed);
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn local_fetch_pages_and_unions_through_the_runtime() {
     let workspace = Workspace::new();
     let path = workspace.write("source.txt", "one\ntwo 😀\nthree\n");
@@ -181,6 +231,23 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
         status == "error" || status == "empty" || status == "success",
         "unexpected status {status}: {}",
         outcome.structured_content
+    );
+    let symbol_failure = call(
+        &runtime,
+        "lspSearch",
+        json!({
+            "operation": "definition",
+            "uri": path,
+            "symbolName": "title",
+            "lineHint": 1
+        }),
+    )
+    .await
+    .expect("symbol recovery output satisfies its contract");
+    assert_eq!(row_status(&symbol_failure), "error");
+    assert_eq!(
+        row_data(&symbol_failure)["next"]["readFile"]["tool"],
+        "localFetch"
     );
     runtime.close().await;
 }

@@ -238,10 +238,7 @@ pub async fn execute(
             paths,
             "definition",
             "definitionProvider",
-            client
-                .get_definition(path.clone(), line, character)
-                .await
-                .map_err(|error| error.to_string())?,
+            resolve_definition_chain(&client, &path, line, character).await?,
         ),
         "references" => {
             let snippets = client
@@ -1026,6 +1023,58 @@ fn group_by_file(locations: &[Value]) -> Value {
     Value::Object(files)
 }
 
+async fn resolve_definition_chain(
+    client: &NativeLspClient,
+    path: &str,
+    line: u32,
+    character: u32,
+) -> Result<Vec<octocode_engine::lsp::types::JsCodeSnippet>, String> {
+    let mut current = client
+        .get_definition(path.to_owned(), line, character)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut visited = std::collections::HashSet::new();
+    for _ in 0..4 {
+        let mut next = Vec::new();
+        let mut advanced = false;
+        for snippet in current.iter().cloned() {
+            let identity = snippet_identity(&snippet);
+            if !visited.insert(identity.clone()) {
+                next.push(snippet);
+                continue;
+            }
+            let target = uri_to_path(&snippet.uri);
+            if let Ok(source) = fs::read_to_string(&target) {
+                let _ = client.open_document(target.clone(), source).await;
+            }
+            let nested = client
+                .get_definition(
+                    target,
+                    snippet.range.start.line,
+                    snippet.range.start.character,
+                )
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|candidate| snippet_identity(candidate) != identity)
+                .collect::<Vec<_>>();
+            if nested.is_empty() {
+                next.push(snippet);
+            } else {
+                advanced = true;
+                next.extend(nested);
+            }
+        }
+        let mut identities = std::collections::HashSet::new();
+        next.retain(|snippet| identities.insert(snippet_identity(snippet)));
+        current = next;
+        if !advanced {
+            break;
+        }
+    }
+    Ok(current)
+}
+
 async fn recover_aliases(
     client: &NativeLspClient,
     query: &LspSearchQuery,
@@ -1335,26 +1384,14 @@ fn recovery_next(query: &LspSearchQuery) -> Value {
         .map(uri_to_path)
         .or_else(|| query.workspace_root.clone())
         .unwrap_or_default();
-    let symbol = query.symbol_name.clone().unwrap_or_default();
-    if symbol.trim().is_empty() {
-        return json!({
-            "readFile": {
-                "tool": "localFetch",
-                "query": { "path": path },
-                "confidence": "exact"
-            }
-        });
-    }
     json!({
-        "searchText": {
-            "tool": "localSearch",
-            "query": { "path": path, "searchText": symbol },
-            "confidence": "medium"
-        },
-        "syntax": {
-            "tool": "astSearch",
-            "query": { "operation": "match", "path": path, "pattern": symbol },
-            "confidence": "medium"
+        "readFile": {
+            "tool": "localFetch",
+            "query": {
+                "path": path,
+                "reasoning": "Read the source directly because semantic navigation is unavailable."
+            },
+            "confidence": "exact"
         }
     })
 }
@@ -1743,10 +1780,10 @@ mod tests {
         };
         let empty = super::with_next(&query, super::empty(&query, "noLocations", "none", true));
         assert_eq!(empty["status"], "empty");
-        assert_eq!(empty["next"]["searchText"]["confidence"], "medium");
+        assert_eq!(empty["next"]["readFile"]["confidence"], "exact");
         let down = super::failure(&query, "lsp.serverUnavailable", "missing", false);
         assert_eq!(down["status"], "error");
         assert_eq!(down["errorCode"], "lsp.serverUnavailable");
-        assert_eq!(down["next"]["syntax"]["tool"], "astSearch");
+        assert_eq!(down["next"]["readFile"]["tool"], "localFetch");
     }
 }

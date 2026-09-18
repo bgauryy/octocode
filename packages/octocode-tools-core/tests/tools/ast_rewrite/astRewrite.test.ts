@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { rename } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:net';
 import { recoverTransactions } from '../../../src/tools/ast_rewrite/transaction.js';
 
 import {
@@ -126,6 +127,37 @@ async function previewForApply(
 }
 
 describe('runAstRewrite', () => {
+  it('reports a non-file rewrite root as invalid', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'octocode-ast-rewrite-socket-'));
+    roots.push(root);
+    const socketPath = join(root, 'rewrite.sock');
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      await expect(runAstRewrite(query(socketPath), {})).resolves.toMatchObject({
+        status: 'error',
+        errorCode: 'ast.rewrite.root_invalid',
+      });
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it('uses a stable fallback for non-Error native scan failures', async () => {
+    const { root } = fixture();
+    withRewriteMock({
+      structuralRewriteFiles: vi.fn().mockRejectedValue('native failure'),
+    });
+    await expect(runAstRewrite(query(root), {})).resolves.toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.execution_failed',
+      error: 'Native structural rewrite failed.',
+    });
+  });
+
   it.skip('reports a process output cap as a terminal evidence limit without writing', () => {
     // maxProcessOutputBytes was a binary-process output cap.
     // The native engine streams results directly; there is no subprocess output
@@ -245,6 +277,123 @@ describe('runAstRewrite', () => {
     expect(result).toMatchObject({
       status: 'error',
       errorCode: 'ast.rewrite.snapshot_required',
+    });
+  });
+
+  it('rejects page or pageSize less than 1', async () => {
+    const { root } = fixture();
+    const r1 = await runAstRewrite({ ...query(root), page: 0 }, {});
+    const r2 = await runAstRewrite({ ...query(root), pageSize: 0 }, {});
+    expect(r1).toMatchObject({ status: 'error', errorCode: 'ast.rewrite.pagination_invalid' });
+    expect(r2).toMatchObject({ status: 'error', errorCode: 'ast.rewrite.pagination_invalid' });
+  });
+
+  it('rejects a root path that does not exist', async () => {
+    const { root } = fixture();
+    const result = await runAstRewrite(
+      { ...query(join(root, 'NONEXISTENT_DIR')) },
+      {}
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.root_unavailable',
+    });
+  });
+
+  it('executes a rule with constraints to restrict capture types', async () => {
+    const { root } = fixture();
+    // constraints restrict matches to only those where $A is a number literal.
+    const result = await runAstRewrite(
+      {
+        path: root,
+        langType: 'ts',
+        ruleKind: 'rule',
+        rule: { pattern: 'oldCall($A)' },
+        fix: 'newCall($A)',
+        constraints: { A: { kind: 'number' } },
+      },
+      {}
+    );
+    expect(result.status, JSON.stringify(result)).toBeUndefined();
+    if (result.status !== undefined) return;
+    expect(result.totalMatches).toBeGreaterThanOrEqual(1);
+  });
+
+  it('generates a patch with leading context when the change is not at line 1', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'octocode-ast-rewrite-ctx-'));
+    roots.push(root);
+    // line 1 has no match; line 2 has oldCall → leading context expected in patch
+    const source = '// noop\noldCall(1);\n';
+    writeFileSync(join(root, 'source.ts'), source);
+    const result = await runAstRewrite(query(root), {});
+    expect(result.status, JSON.stringify(result)).toBeUndefined();
+    if (result.status !== undefined) return;
+    const patch = result.files[0]?.patch ?? '';
+    // The patch should include the leading unchanged line as context
+    expect(patch).toContain(' // noop');
+    expect(patch).toContain('-oldCall(1);');
+    expect(patch).toContain('+newCall(1);');
+  });
+
+  it('rejects expectedHashes with invalid paths or digests', async () => {
+    const { root } = fixture();
+    const preview = await previewForApply(root);
+
+    // Scenario A: relative path is rejected by isAbsolute check
+    const resultRelative = await runAstRewrite(
+      {
+        ...query(root),
+        apply: true,
+        ...preview,
+        expectedHashes: {
+          ...preview.expectedHashes,
+          'relative/invalid.ts': '0'.repeat(64),
+        },
+      },
+      { allowApply: true }
+    );
+    expect(resultRelative).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.expected_hash_invalid',
+    });
+
+    // Scenario B: absolute path within root but the file doesn’t exist
+    const resultMissing = await runAstRewrite(
+      {
+        ...query(root),
+        apply: true,
+        ...preview,
+        expectedHashes: {
+          ...preview.expectedHashes,
+          [join(root, 'NONEXISTENT_FILE.ts')]: '0'.repeat(64),
+        },
+      },
+      { allowApply: true }
+    );
+    expect(resultMissing).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.expected_hash_invalid',
+    });
+
+    // Scenario C: absolute path that exists but is outside the root boundary
+    const outsideDir = mkdtempSync(join(tmpdir(), 'octocode-ast-rewrite-outside-'));
+    roots.push(outsideDir);
+    writeFileSync(join(outsideDir, 'outside.ts'), 'outside\n');
+    const resultOutside = await runAstRewrite(
+      {
+        ...query(root),
+        apply: true,
+        ...preview,
+        expectedHashes: {
+          ...preview.expectedHashes,
+          [join(outsideDir, 'outside.ts')]: '0'.repeat(64),
+        },
+      },
+      { allowApply: true }
+    );
+    expect(resultOutside).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.expected_hash_invalid',
     });
   });
 

@@ -8,7 +8,7 @@ pub struct ContractInputError {
 }
 
 impl ContractInputError {
-    fn new(message: impl Into<String>) -> Self {
+    pub(super) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
         }
@@ -43,19 +43,25 @@ pub struct PreparedQuery {
 
 /// Applies canonical meta-field defaults. Shape and relation validation is a
 /// later stage and must never rewrite tool fields or delegate to Node.
-/// Accepts a single query object directly, or `{ "queries": [q] }` with
-/// exactly one element (kept for backward-compatibility with continuation
-/// tokens). Multiple queries in one call are not supported.
+/// Accepts a single query object directly, `[q]`, or `{ "queries": [q] }`
+/// with exactly one element (kept for CLI and continuation compatibility).
+/// Multiple queries in one call are not supported.
 pub fn prepare(
     tool_name: &str,
     input: Value,
     options: PrepareOptions<'_>,
 ) -> Result<PreparedQuery, ContractInputError> {
     let mut object = match input {
-        Value::Array(_) => {
-            return Err(ContractInputError::new(
-                "multiple queries are not supported; send one query object directly",
-            ));
+        Value::Array(mut values) => {
+            if values.len() != 1 {
+                return Err(ContractInputError::new(
+                    "multiple queries are not supported; send one query object directly",
+                ));
+            }
+            match values.remove(0) {
+                Value::Object(query) => query,
+                _ => return Err(ContractInputError::new("query must be an object")),
+            }
         }
         Value::Object(mut object) => match object.remove("queries") {
             Some(Value::Array(mut values)) => {
@@ -135,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_arrays_and_multiple_queries() {
+    fn rejects_empty_invalid_and_multiple_query_arrays() {
         assert!(prepare("localFetch", json!([]), PrepareOptions::default()).is_err());
         assert!(prepare("localFetch", json!([1]), PrepareOptions::default()).is_err());
         assert!(
@@ -149,14 +155,15 @@ mod tests {
     }
 
     #[test]
-    fn accepts_single_element_queries_array_for_continuation_compat() {
-        let prepared = prepare(
-            "localFetch",
+    fn accepts_single_element_arrays_for_cli_and_continuation_compat() {
+        for input in [
+            json!([{"path":"/tmp/a"}]),
             json!({"queries":[{"path":"/tmp/a"}]}),
-            PrepareOptions::default(),
-        )
-        .expect("single-element queries array");
-        assert_eq!(prepared.query["path"], "/tmp/a");
+        ] {
+            let prepared = prepare("localFetch", input, PrepareOptions::default())
+                .expect("single-element query array");
+            assert_eq!(prepared.query["path"], "/tmp/a");
+        }
     }
 
     #[test]

@@ -349,6 +349,7 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
         // An empty preview has no transaction to apply; return it unchanged.
         return super::write_json(&preview.structured_content, !pretty);
     };
+    let preview_root = data.get("root").and_then(Value::as_str).map(Path::new);
     let mut expected_hashes = serde_json::Map::new();
     for file in data
         .get("files")
@@ -356,11 +357,18 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
         .into_iter()
         .flatten()
     {
-        if let (Some(path), Some(hash)) = (
-            file.get("absolutePath").and_then(Value::as_str),
-            file.get("beforeHash").and_then(Value::as_str),
-        ) {
-            expected_hashes.insert(path.to_owned(), json!(hash));
+        let path = file
+            .get("absolutePath")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                let relative = file.get("path").and_then(Value::as_str)?;
+                let root = preview_root?;
+                let boundary = if root.is_dir() { root } else { root.parent()? };
+                Some(boundary.join(relative).to_string_lossy().into_owned())
+            });
+        if let (Some(path), Some(hash)) = (path, file.get("beforeHash").and_then(Value::as_str)) {
+            expected_hashes.insert(path, json!(hash));
         }
     }
     if expected_hashes.is_empty() {

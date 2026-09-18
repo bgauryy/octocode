@@ -566,8 +566,17 @@ fn find_node_module_file_from(start: &Path, package_relative_path: &str) -> Opti
 fn current_node_command() -> Option<String> {
     std::env::current_exe()
         .ok()
+        .filter(|path| is_executable_path(path) && is_node_executable(path))
+        .or_else(|| which::which("node").ok())
         .filter(|path| is_executable_path(path))
+        .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
         .map(|path| path.to_string_lossy().into_owned())
+}
+
+fn is_node_executable(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("node"))
 }
 
 fn find_python_user_script(script_name: &str) -> Option<String> {
@@ -597,8 +606,9 @@ mod tests {
     use super::{
         command_is_tsgo, command_resolves_to_executable, current_node_command,
         default_server_for_file, default_server_for_file_with_options, detect_language_id,
-        is_command_available, is_rust_analyzer_command, resolve_known_server_command,
-        resolve_server_invocation, resolve_server_invocation_with_environment, LspDiscoveryOptions,
+        is_command_available, is_node_executable, is_rust_analyzer_command,
+        resolve_known_server_command, resolve_server_invocation,
+        resolve_server_invocation_with_environment, LspDiscoveryOptions,
     };
     use std::path::PathBuf;
 
@@ -612,6 +622,17 @@ mod tests {
             "/opt/node_modules/.bin/typescript-language-server"
         ));
         assert!(!command_is_tsgo("tsserver"));
+    }
+
+    #[test]
+    fn node_launcher_never_treats_the_native_octocode_binary_as_node() {
+        assert!(is_node_executable(std::path::Path::new(
+            "/usr/local/bin/node"
+        )));
+        assert!(is_node_executable(std::path::Path::new("C:/node.exe")));
+        assert!(!is_node_executable(std::path::Path::new(
+            "/usr/local/bin/octocode"
+        )));
     }
 
     #[test]

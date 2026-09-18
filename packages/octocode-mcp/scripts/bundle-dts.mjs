@@ -4,10 +4,8 @@
  * light declaration file.
  *
  * Why this exists: the MCP package publishes one stable declaration entry point.
- * rollup-plugin-dts resolves the tools-core types used by that public surface and
- * inlines them, while preserving the public SDK and zod imports as dependencies.
- * The JavaScript build keeps tools-core external; declaration bundling does not
- * change that runtime package boundary.
+ * rollup-plugin-dts resolves the local native-adapter declarations into the
+ * published surface while preserving MCP SDK imports as dependencies.
  *
  * Flow (driven by the `build:types` script):
  *   1. tsc --emitDeclarationOnly --outDir dist/.types   (per-file .d.ts in a temp dir)
@@ -26,19 +24,13 @@ const typesDir = join(distDir, '.types');
 const entry = join(typesDir, 'public.d.ts');
 const out = join(distDir, 'public.d.ts');
 
-// Inline only the tools-core declarations used by the MCP public API. Keep every
-// other bare specifier external so dependencies such as the MCP SDK and zod are
-// resolved through this package's manifest.
-const INLINE = /^@octocodeai\/octocode-tools-core(\/.*)?$/;
-
 const bundle = await rollup({
   input: entry,
   plugins: [dts({ respectExternal: true })],
   external: (id, _importer, isResolved) => {
     if (isResolved) return false; // already-resolved file path → bundle
     if (id.startsWith('.') || id.startsWith('/')) return false; // relative → bundle
-    if (INLINE.test(id)) return false; // tools-core → follow & inline
-    return true; // any other bare specifier → external
+    return true; // bare package specifier → external
   },
 });
 
@@ -50,5 +42,5 @@ await bundle.close();
 await rm(typesDir, { recursive: true, force: true });
 
 console.log(
-  '✓ bundled dist/public.d.ts (tools-core types inlined, SDK/zod external)'
+  '✓ bundled dist/public.d.ts (native adapter surface, MCP SDK external)'
 );

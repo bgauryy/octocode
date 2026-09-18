@@ -7105,7 +7105,6 @@ __metadata:
     "@modelcontextprotocol/server": "npm:^2.0.0"
     "@octocodeai/octocode-core": "npm:19.0.1"
     "@octocodeai/octocode-native": "npm:0.1.0"
-    "@octocodeai/octocode-tools-core": "npm:19.2.0"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
     "@vitest/ui": "npm:^5.0.0"
@@ -7117,9 +7116,6 @@ __metadata:
     vite: "npm:^8.3.0"
     vitest: "npm:^5.0.0"
     zod: "npm:^4.6.2"
-  dependenciesMeta:
-    "@octocodeai/octocode-native":
-      optional: true
   bin:
     octocode-mcp: dist/index.js
   languageName: unknown
@@ -7146,6 +7142,7 @@ __metadata:
     "@inquirer/prompts": "npm:^8.7.2"
     "@octocodeai/config": "npm:20.0.0"
     "@octocodeai/octocode-engine": "npm:19.2.0"
+    "@octocodeai/octocode-native": "npm:0.1.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
     "@octocodeai/octocode-tools-core": "npm:19.2.0"
     "@octokit/auth-oauth-device": "npm:^8.0.5"

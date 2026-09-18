@@ -205,6 +205,29 @@ describe('astRewrite S6 breadth', () => {
     expect(result.affectedFiles).toBe(1);
   });
 
+  it('captures multi-variable metaVariables from a rule query', async () => {
+    // $$$ARGS is a wildcard capturing multiple children, yielding kind:"multi".
+    const directory = root();
+    writeFileSync(join(directory, 'source.ts'), 'call(a, b, c);\n');
+    const result = await runAstRewrite(
+      {
+        path: directory,
+        langType: 'typescript',
+        ruleKind: 'rule',
+        rule: { pattern: 'call($$$ARGS)' },
+        fix: 'newCall($$$ARGS)',
+      },
+      {}
+    );
+    // The native engine should find the call and produce multi captures.
+    expect(result.status, JSON.stringify(result)).toBeUndefined();
+    if (result.status !== undefined) return;
+    expect(result.totalMatches).toBeGreaterThanOrEqual(1);
+    // The ARGS capture (if returned) should be multi-kind.
+    const args = result.matches[0]?.captures['ARGS'];
+    if (args) expect(args.kind).toBe('multi');
+  });
+
   it('returns a typed terminal limit instead of truncating matches', async () => {
     const directory = root();
     writeFileSync(join(directory, 'source.ts'), 'oldCall(1); oldCall(2);\n');

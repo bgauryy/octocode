@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   printToolsContext: vi.fn().mockResolvedValue(undefined),
 }));
 
+// These tests cover the TypeScript-only management router in isolation. Native
+// ownership and process delegation are covered by native-delegate.test.ts.
+vi.mock('../../src/cli/native-delegate.js', () => ({
+  shouldDelegateToNative: () => false,
+  resolveNativeBin: () => null,
+  delegateToNative: () => 0,
+}));
+
 vi.mock('../../src/cli/commands/index.js', () => ({
   loadCommand: mocks.loadCommand,
   isRegisteredCommand: (name: string) =>

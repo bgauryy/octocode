@@ -1,18 +1,61 @@
-/**
- * Narrow public API for programmatic Octocode consumers.
- *
- * This package is the MCP interface, so this facade only exposes the pieces a
- * non-MCP caller needs to initialize metadata/config state and run the same
- * tool executors through core. MCP registration internals and direct-tool
- * catalog helpers intentionally stay out of this surface.
- */
+import type { McpServer } from '@modelcontextprotocol/server';
+import {
+  createNativeMcp as createNativeMcpImpl,
+  loadNativeBinding as loadNativeBindingImpl,
+  startNativeMcp as startNativeMcpImpl,
+} from './native/index.mjs';
 
-export type { CompleteMetadata } from '@octocodeai/octocode-tools-core';
+export interface NativeRuntime {
+  catalog(): NativeCatalog;
+  executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
+  cancel(requestId: string): boolean;
+  close(): Promise<void>;
+}
 
-export {
-  executeDirectTool,
-  initialize,
-  initializeProviders,
-} from '@octocodeai/octocode-tools-core';
+export interface NativeRuntimeBinding {
+  NativeRuntime: new (options?: Record<string, unknown>) => NativeRuntime;
+}
 
-export { DIRECT_TOOL_DISCOVERY_DEFINITIONS } from '@octocodeai/octocode-core/schema';
+export interface NativeCatalogTool {
+  name: string;
+  title?: string;
+  description?: string;
+  available: boolean;
+  inputSchema: unknown;
+  outputSchema?: unknown;
+  annotations?: unknown;
+}
+
+export interface NativeCatalog {
+  server?: { name: string; title?: string; version: string };
+  mcpInstructions?: string;
+  tools: NativeCatalogTool[];
+}
+
+export interface NativeMcp {
+  server: McpServer;
+  runtime: NativeRuntime;
+  catalog: NativeCatalog;
+  close(): Promise<void>;
+}
+
+export interface NativeMcpOptions {
+  env?: NodeJS.ProcessEnv;
+  binding?: NativeRuntimeBinding;
+}
+
+export function loadNativeBinding(
+  env?: NodeJS.ProcessEnv
+): NativeRuntimeBinding {
+  return loadNativeBindingImpl(env) as NativeRuntimeBinding;
+}
+
+export function createNativeMcp(options?: NativeMcpOptions): NativeMcp {
+  return createNativeMcpImpl(options) as NativeMcp;
+}
+
+export async function startNativeMcp(
+  options?: NativeMcpOptions
+): Promise<NativeMcp> {
+  return (await startNativeMcpImpl(options)) as NativeMcp;
+}

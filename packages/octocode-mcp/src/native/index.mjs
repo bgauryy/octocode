@@ -4,8 +4,6 @@ import { pathToFileURL } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
-import { buildMcpInstructions } from '@octocodeai/octocode-core/mcp';
-import { getGrammarCapabilities } from '@octocodeai/octocode-tools-core';
 
 const require = createRequire(import.meta.url);
 
@@ -39,12 +37,7 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
   };
   const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
-    instructions: buildMcpInstructions(
-      availableTools.map(tool => tool.name),
-      availableTools.some(tool => tool.name === 'astSearch')
-        ? { grammarCapabilities: getGrammarCapabilities() }
-        : {}
-    ),
+    instructions: catalog.mcpInstructions,
   });
 
   const definitions = new Map(
@@ -54,12 +47,10 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
     const definition = definitions.get(tool.name);
     if (!definition) {
       void runtime.close();
-      throw new Error(
-        `Native catalog tool has no octocode-core definition: ${tool.name}`
-      );
+      throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
     server.registerTool(
-      definition.name,
+      tool.name,
       {
         title: definition.title,
         description: definition.description,
@@ -74,7 +65,7 @@ export function createNativeMcp({ env = process.env, binding } = {}) {
         const cancel = () => runtime.cancel(requestId);
         signal?.addEventListener('abort', cancel, { once: true });
         try {
-          return await runtime.executeMcp(requestId, definition.name, args);
+          return await runtime.executeMcp(requestId, tool.name, args);
         } finally {
           signal?.removeEventListener('abort', cancel);
         }

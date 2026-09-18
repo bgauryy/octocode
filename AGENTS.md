@@ -30,6 +30,8 @@ $OCTO tools <name> --scheme --json --compact    # schema before calling
 
 **Skills are first-class.** They're wired to the same tools and should be your default entry point for research, architecture, and eval flows.
 
+**Dogfood the reasoning loop.** When semantic uncertainty could change the next action—competing explanations, contradictory evidence, an expensive check, or a claim nearing assertion—load and follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md). Use its typed judgment to choose the next evidence step; do not replace a deterministic lookup or test with judgment.
+
 ### Reflect and critique after every tool/skill use
 
 After using a local tool or skill, note: _Did it work well? Was the output useful? Any friction, gaps, or wrong defaults?_ Log friction in a comment or open an issue — do not silently bypass or workaround. If dogfooding hurts, fix it.
@@ -112,7 +114,7 @@ Full reference: [`docs/OCTOCODE_TOOLS.md`](docs/OCTOCODE_TOOLS.md) · live: `$OC
 - `astSearch` topology edges are **candidates** — confirm with `lspSearch` references/callers before any delete claim
 - Pagination: never drop results silently; always provide a schema-valid executable `next.*` continuation or an explicit terminal-limit diagnostic
 
-**Field gotchas:** `localSearch` takes `path` (absolute) + `searchText` — no `operation`, no `directory`, no `maxResults` (use `limit`). Check live schema first: `$OCTO tools <name> --scheme --brief`.
+**Field gotchas:** `localSearch` takes `path` (absolute) + `searchText` — no `operation`, no `directory`, no `maxResults`, no `limit` (use `maxFiles`, `pageSize`, or `maxMatchesPerFile`). Check live schema first: `$OCTO tools <name> --scheme --json --compact`.
 
 ---
 

@@ -1,25 +1,49 @@
-// Type surface for the native MCP bridge (implemented in index.mjs). Only the
-// members consumed by TypeScript callers are declared here.
-export interface NativeMcpInstance {
-  server: {
-    connect(transport: unknown): Promise<void>;
+import type { McpServer } from '@modelcontextprotocol/server';
+
+export interface NativeRuntimeBinding {
+  NativeRuntime: new (options?: Record<string, unknown>) => {
+    catalog(): NativeCatalog;
+    executeMcp(
+      requestId: string,
+      tool: string,
+      input: unknown
+    ): Promise<unknown>;
+    cancel(requestId: string): boolean;
     close(): Promise<void>;
   };
-  runtime: unknown;
-  catalog: unknown;
-  close(): Promise<void>;
 }
 
-export function loadNativeBinding(env?: NodeJS.ProcessEnv): {
-  NativeRuntime: new (options?: unknown) => unknown;
-};
+export interface NativeCatalogTool {
+  name: string;
+  title?: string;
+  description?: string;
+  available: boolean;
+  inputSchema: unknown;
+  outputSchema?: unknown;
+  annotations?: unknown;
+}
+
+export interface NativeCatalog {
+  server?: { name: string; title?: string; version: string };
+  mcpInstructions?: string;
+  tools: NativeCatalogTool[];
+}
+
+export function loadNativeBinding(
+  env?: NodeJS.ProcessEnv
+): NativeRuntimeBinding;
 
 export function createNativeMcp(options?: {
   env?: NodeJS.ProcessEnv;
-  binding?: { NativeRuntime: new (options?: unknown) => unknown };
-}): NativeMcpInstance;
+  binding?: NativeRuntimeBinding;
+}): {
+  server: McpServer;
+  runtime: InstanceType<NativeRuntimeBinding['NativeRuntime']>;
+  catalog: NativeCatalog;
+  close(): Promise<void>;
+};
 
 export function startNativeMcp(options?: {
   env?: NodeJS.ProcessEnv;
-  binding?: { NativeRuntime: new (options?: unknown) => unknown };
-}): Promise<NativeMcpInstance>;
+  binding?: NativeRuntimeBinding;
+}): Promise<ReturnType<typeof createNativeMcp>>;

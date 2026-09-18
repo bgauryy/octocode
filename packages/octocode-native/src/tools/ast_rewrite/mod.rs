@@ -7,15 +7,8 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    sync::Mutex,
 };
 
 mod journal;
@@ -33,17 +26,12 @@ const DEFAULT_MAX_MATCHES: usize = 10_000;
 const DEFAULT_PAGE_SIZE: usize = 100;
 const DEFAULT_MAX_PATCH_BYTES: usize = 512 * 1024;
 const MAX_FILE_BYTES: usize = 1_000_000;
-const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const DEFAULT_MAX_OUTPUT_BYTES: usize = 10 * 1024 * 1024;
 const JOURNAL_PREFIX: &str = ".octocode-ast-rewrite-journal-";
 static APPLY_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug)]
 pub struct AstRewriteRuntimeOptions {
     pub allow_apply: bool,
-    pub executable: Option<PathBuf>,
-    pub timeout_ms: u64,
-    pub max_output_bytes: usize,
     pub max_patch_bytes: usize,
 }
 
@@ -51,9 +39,6 @@ impl Default for AstRewriteRuntimeOptions {
     fn default() -> Self {
         Self {
             allow_apply: false,
-            executable: None,
-            timeout_ms: DEFAULT_TIMEOUT_MS,
-            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             max_patch_bytes: DEFAULT_MAX_PATCH_BYTES,
         }
     }
@@ -123,7 +108,6 @@ struct PrepareContext<'a> {
     security: &'a ContentSecurity,
     cancellation: &'a dyn CancellationCheck,
     options: &'a AstRewriteRuntimeOptions,
-    executable: &'a ExecutableReceipt,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -372,21 +356,7 @@ fn execute(
     })?;
     let lock = RootLock::acquire(&boundary)?;
     recover_transactions(&boundary, cancellation)?;
-    let executable = attest_executable(options, cancellation)?;
-    if query
-        .rule_kind
-        .as_deref()
-        .is_some_and(|kind| kind != "pattern")
-        && !executable
-            .capabilities
-            .iter()
-            .any(|capability| capability == "inline-rules")
-    {
-        return Err(RewriteError::new(
-            "ast.rewrite.capability_incompatible",
-            "This ast-grep executable does not support isolated inline rules.",
-        ));
-    }
+    let executable = embedded_engine_receipt();
     let prepared = prepare(
         &query,
         &root,
@@ -396,7 +366,6 @@ fn execute(
             security,
             cancellation,
             options,
-            executable: &executable,
         },
     )?;
     let snapshot = snapshot(&query, &root, &prepared, &executable);
@@ -435,7 +404,7 @@ fn execute(
     };
     let transaction = if query.apply {
         validate_expected_hashes(&query, &result_files, &boundary, paths)?;
-        validate_postconditions(&query, &result_files, cancellation, options, &executable)?;
+        validate_postconditions(&query, &result_files, cancellation)?;
         Some(commit_transaction(&boundary, &result_files, cancellation)?)
     } else {
         None
@@ -514,407 +483,122 @@ fn validate_query(query: &AstRewriteQuery) -> Result<(), RewriteError> {
     Ok(())
 }
 
-#[derive(Debug)]
-struct ProcessOutput {
-    success: bool,
-    exit_code: Option<i32>,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
+fn embedded_engine_receipt() -> ExecutableReceipt {
+    ExecutableReceipt {
+        path: PathBuf::from("native"),
+        version: "embedded".to_owned(),
+        sha256: String::new(),
+        capability_digest: "native".to_owned(),
+        capabilities: vec![
+            "pattern".to_owned(),
+            "inline-rules".to_owned(),
+            "experimental".to_owned(),
+        ],
+    }
 }
 
-fn discover_executable(explicit: Option<&Path>) -> Option<PathBuf> {
-    let validate = |candidate: &Path| {
-        fs::canonicalize(candidate)
-            .ok()
-            .filter(|resolved| fs::metadata(resolved).is_ok_and(|metadata| metadata.is_file()))
-    };
-    if let Some(explicit) = explicit {
-        return validate(explicit);
-    }
-    let mut directories = std::env::var_os("PATH")
-        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default();
-    for common in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
-        let common = PathBuf::from(common);
-        if !directories.contains(&common) {
-            directories.push(common);
-        }
-    }
-    let names: &[&str] = if cfg!(windows) {
-        &["ast-grep.exe", "sg.exe", "ast-grep.cmd", "sg.cmd"]
-    } else {
-        &["ast-grep", "sg"]
-    };
-    directories
-        .iter()
-        .flat_map(|directory| names.iter().map(move |name| directory.join(name)))
-        .find_map(|candidate| validate(&candidate))
-}
-
-fn attest_executable(
-    options: &AstRewriteRuntimeOptions,
-    cancellation: &dyn CancellationCheck,
-) -> Result<ExecutableReceipt, RewriteError> {
-    let path = discover_executable(options.executable.as_deref()).ok_or_else(|| {
-        RewriteError::new(
-            "ast.rewrite.executable_unavailable",
-            "No executable ast-grep binary was found. Install ast-grep or configure an explicit executable.",
-        )
-    })?;
-    let version_output = run_process(
-        &path,
-        &["--version".to_owned()],
-        None,
-        options.timeout_ms,
-        64 * 1024,
-        cancellation,
-    )?;
-    let version_text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&version_output.stdout),
-        String::from_utf8_lossy(&version_output.stderr)
-    );
-    let version_re = regex::Regex::new(r"(?:^|\s)v?(\d+)\.(\d+)\.(\d+)(?:[-+\s]|$)")
-        .map_err(|error| RewriteError::new("ast.rewrite.version_unreadable", error.to_string()))?;
-    let parsed = version_re.captures(&version_text).and_then(|captures| {
-        Some((
-            format!(
-                "{}.{}.{}",
-                captures.get(1)?.as_str(),
-                captures.get(2)?.as_str(),
-                captures.get(3)?.as_str()
-            ),
-            [
-                captures.get(1)?.as_str().parse::<u64>().ok()?,
-                captures.get(2)?.as_str().parse::<u64>().ok()?,
-                captures.get(3)?.as_str().parse::<u64>().ok()?,
-            ],
-        ))
-    });
-    let Some((version, tuple)) = parsed.filter(|_| version_output.success) else {
-        return Err(RewriteError::new(
-            "ast.rewrite.version_unreadable",
-            "The discovered ast-grep executable did not report a valid version.",
-        ));
-    };
-    if tuple < [0, 40, 0] || tuple[0] != 0 || tuple[1] > 45 {
-        return Err(RewriteError::new(
-            "ast.rewrite.version_incompatible",
-            format!("ast-grep {version} is outside the tested 0.40.x–0.45.x compatibility window."),
-        ));
-    }
-    let help = run_process(
-        &path,
-        &["run".to_owned(), "--help".to_owned()],
-        None,
-        options.timeout_ms,
-        256 * 1024,
-        cancellation,
-    )?;
-    if !help.success {
-        return Err(RewriteError::new(
-            "ast.rewrite.capability_unreadable",
-            "The discovered ast-grep executable did not expose run capabilities.",
-        ));
-    }
-    let help_text = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&help.stdout),
-        String::from_utf8_lossy(&help.stderr)
-    );
-    let required = [
-        "color", "globs", "json", "lang", "pattern", "rewrite", "threads",
-    ];
-    let mut capabilities = required
-        .iter()
-        .filter(|capability| help_text.contains(&format!("--{capability}")))
-        .map(|value| (*value).to_owned())
-        .collect::<Vec<_>>();
-    let missing = required
-        .iter()
-        .filter(|capability| !capabilities.iter().any(|value| value == **capability))
-        .copied()
-        .collect::<Vec<_>>();
-    if !missing.is_empty() {
-        return Err(RewriteError::new(
-            "ast.rewrite.capability_incompatible",
-            format!(
-                "ast-grep {version} is missing required run capabilities: {}.",
-                missing.join(", ")
-            ),
-        ));
-    }
-    let scan_help = run_process(
-        &path,
-        &["scan".to_owned(), "--help".to_owned()],
-        None,
-        options.timeout_ms,
-        256 * 1024,
-        cancellation,
-    )?;
-    if scan_help.success
-        && format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&scan_help.stdout),
-            String::from_utf8_lossy(&scan_help.stderr)
-        )
-        .contains("--inline-rules")
+fn engine_error(error: String) -> RewriteError {
+    let code = if error.contains("structural.rewrite.invalid")
+        || error.contains("structural.rewrite.json")
     {
-        capabilities.push("inline-rules".to_owned());
-    }
-    let executable_bytes = fs::read(&path).map_err(|_| {
-        RewriteError::new(
-            "ast.rewrite.executable_unreadable",
-            "The discovered ast-grep executable could not be attested.",
-        )
-    })?;
-    let executable_sha256 = sha256(executable_bytes);
-    let capability_digest = sha256(
-        serde_json::to_vec(&json!({
-            "contract":1,
-            "version":version,
-            "executableSha256":executable_sha256,
-            "capabilities":capabilities
-        }))
-        .unwrap_or_default(),
-    );
-    Ok(ExecutableReceipt {
-        path,
-        version,
-        sha256: executable_sha256,
-        capability_digest,
-        capabilities,
-    })
-}
-
-fn scan_args(query: &AstRewriteQuery, target: &Path) -> Result<Vec<String>, RewriteError> {
-    let mut args = if matches!(query.rule_kind.as_deref(), Some("rule" | "experimental")) {
-        vec![
-            "scan".to_owned(),
-            "--inline-rules".to_owned(),
-            serde_json::to_string(&rule_config(query)).map_err(|error| {
-                RewriteError::new("ast.rewrite.input_invalid", error.to_string())
-            })?,
-        ]
+        "ast.rewrite.input_invalid"
+    } else if error.contains("structural.rewrite.matchLimit") {
+        "ast.rewrite.match_limit"
     } else {
-        vec![
-            "run".to_owned(),
-            "--pattern".to_owned(),
-            query.pattern.clone().unwrap_or_default(),
-            "--rewrite".to_owned(),
-            query.rewrite.clone().unwrap_or_default(),
-            "--lang".to_owned(),
-            query.lang_type.clone(),
-        ]
+        "ast.rewrite.execution_failed"
     };
-    args.extend([
-        "--json=compact".to_owned(),
-        "--color".to_owned(),
-        "never".to_owned(),
-        "--threads".to_owned(),
-        "1".to_owned(),
-    ]);
-    for glob in query.include.as_ref().into_iter().flatten() {
-        args.extend(["--globs".to_owned(), glob.clone()]);
-    }
-    for glob in query.exclude.as_ref().into_iter().flatten() {
-        args.extend([
-            "--globs".to_owned(),
-            if glob.starts_with('!') {
-                glob.clone()
-            } else {
-                format!("!{glob}")
-            },
-        ]);
-    }
-    args.push(target.to_string_lossy().into_owned());
-    Ok(args)
+    RewriteError::new(code, error)
 }
 
 fn run_scan(
     query: &AstRewriteQuery,
     target: &Path,
-    executable: &ExecutableReceipt,
-    options: &AstRewriteRuntimeOptions,
     cancellation: &dyn CancellationCheck,
 ) -> Result<Vec<RawMatch>, RewriteError> {
-    let isolation = make_temp_dir("octocode-ast-rewrite-run-")?;
-    let output = run_process(
-        &executable.path,
-        &scan_args(query, target)?,
-        Some(&isolation),
-        options.timeout_ms,
-        options.max_output_bytes,
-        cancellation,
-    );
-    let _ = fs::remove_dir_all(&isolation);
-    let output = output?;
-    let decoded = serde_json::from_slice::<Vec<RawMatch>>(&output.stdout).ok();
-    let accepted_empty = output.exit_code == Some(1)
-        && output.stderr.iter().all(u8::is_ascii_whitespace)
-        && !output.stdout.iter().all(u8::is_ascii_whitespace)
-        && decoded.as_ref().is_some_and(Vec::is_empty);
-    if !output.success && !accepted_empty {
-        let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Err(RewriteError::new(
-            "ast.rewrite.execution_failed",
-            if message.is_empty() {
-                "ast-grep failed.".to_owned()
-            } else {
-                message
-            },
-        ));
-    }
-    decoded.ok_or_else(|| {
-        RewriteError::new(
-            "ast.rewrite.output_invalid",
-            "ast-grep returned output that does not match its versioned JSON contract.",
-        )
-    })
-}
-
-fn make_temp_dir(prefix: &str) -> Result<PathBuf, RewriteError> {
-    for attempt in 0..100u32 {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos());
-        let path =
-            std::env::temp_dir().join(format!("{prefix}{}-{}-{attempt}", std::process::id(), now));
-        match fs::create_dir(&path) {
-            Ok(()) => return Ok(path),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(io_error(error)),
-        }
-    }
-    Err(RewriteError::new(
-        "ast.rewrite.io",
-        "Could not allocate an isolated temporary directory.",
-    ))
-}
-
-fn run_process(
-    executable: &Path,
-    args: &[String],
-    cwd: Option<&Path>,
-    timeout_ms: u64,
-    max_output_bytes: usize,
-    cancellation: &dyn CancellationCheck,
-) -> Result<ProcessOutput, RewriteError> {
     cancellation.check().map_err(cancelled)?;
-    let mut command = Command::new(executable);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env_clear()
-        .env("LANG", "C.UTF-8")
-        .env("LC_ALL", "C.UTF-8")
-        .env("NO_COLOR", "1");
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|error| RewriteError::new("ast.rewrite.execution_failed", error.to_string()))?;
-    let stdout = child.stdout.take().ok_or_else(|| {
+    let config = rule_config(query);
+    octocode_engine::structural::structural_rewrite("", config.clone()).map_err(engine_error)?;
+    let max_files = u32::try_from(query.max_files).map_err(|_| {
         RewriteError::new(
-            "ast.rewrite.execution_failed",
-            "Could not capture ast-grep stdout.",
+            "ast.rewrite.input_invalid",
+            "maxFiles exceeds the native engine limit.",
         )
     })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-        RewriteError::new(
-            "ast.rewrite.execution_failed",
-            "Could not capture ast-grep stderr.",
-        )
-    })?;
-    let total = Arc::new(AtomicUsize::new(0));
-    let exceeded = Arc::new(AtomicBool::new(false));
-    let stdout_thread = drain_output(
-        stdout,
-        max_output_bytes,
-        Arc::clone(&total),
-        Arc::clone(&exceeded),
-    );
-    let stderr_thread = drain_output(
-        stderr,
-        max_output_bytes,
-        Arc::clone(&total),
-        Arc::clone(&exceeded),
-    );
-    let started = Instant::now();
-    let status = loop {
-        if let Err(message) = cancellation.check() {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_thread.join();
-            let _ = stderr_thread.join();
-            return Err(cancelled(message));
-        }
-        if exceeded.load(Ordering::Acquire) {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_thread.join();
-            let _ = stderr_thread.join();
-            return Err(RewriteError::new(
-                "ast.rewrite.output_limit",
-                "ast-grep exceeded the bounded process output limit.",
-            )
-            .terminal());
-        }
-        if started.elapsed() >= Duration::from_millis(timeout_ms) {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_thread.join();
-            let _ = stderr_thread.join();
-            return Err(RewriteError::new(
-                "ast.rewrite.timeout",
-                "ast-grep exceeded the bounded execution timeout.",
-            ));
-        }
-        match child.try_wait().map_err(io_error)? {
-            Some(status) => break status,
-            None => thread::sleep(Duration::from_millis(5)),
-        }
-    };
-    let stdout = stdout_thread.join().map_err(|_| {
-        RewriteError::new("ast.rewrite.execution_failed", "stdout reader failed.")
-    })??;
-    let stderr = stderr_thread.join().map_err(|_| {
-        RewriteError::new("ast.rewrite.execution_failed", "stderr reader failed.")
-    })??;
-    Ok(ProcessOutput {
-        success: status.success(),
-        exit_code: status.code(),
-        stdout,
-        stderr,
-    })
-}
+    let files = octocode_engine::structural::rewrite_files(
+        octocode_engine::structural::StructuralRewriteFilesOptions {
+            path: target.to_string_lossy().into_owned(),
+            rule_config_json: serde_json::to_string(&config).map_err(|error| {
+                RewriteError::new("ast.rewrite.input_invalid", error.to_string())
+            })?,
+            include: query.include.clone(),
+            exclude: query.exclude.clone(),
+            exclude_dir: None,
+            hidden: Some(false),
+            no_ignore: Some(false),
+            max_depth: None,
+            max_files: Some(max_files),
+            max_file_bytes: Some(1_000_000),
+        },
+    )
+    .map_err(engine_error)?;
+    cancellation.check().map_err(cancelled)?;
 
-fn drain_output<R: Read + Send + 'static>(
-    mut reader: R,
-    limit: usize,
-    total: Arc<AtomicUsize>,
-    exceeded: Arc<AtomicBool>,
-) -> thread::JoinHandle<Result<Vec<u8>, RewriteError>> {
-    thread::spawn(move || {
-        let mut output = Vec::new();
-        let mut buffer = [0u8; 8192];
-        loop {
-            let read = reader.read(&mut buffer).map_err(io_error)?;
-            if read == 0 {
-                break;
+    let mut raw = Vec::new();
+    for file in files {
+        for matched in file.matches {
+            let mut meta_variables = RawMetaVariables::default();
+            for (name, capture) in matched.captures {
+                match capture.kind.as_str() {
+                    "single" => {
+                        meta_variables.single.insert(
+                            name,
+                            RawCapture {
+                                text: capture.texts.first().cloned().unwrap_or_default(),
+                            },
+                        );
+                    }
+                    "multi" => {
+                        meta_variables.multi.insert(
+                            name,
+                            capture
+                                .texts
+                                .into_iter()
+                                .map(|text| RawCapture { text })
+                                .collect(),
+                        );
+                    }
+                    "transformed" => {
+                        meta_variables
+                            .transformed
+                            .insert(name, capture.texts.first().cloned().unwrap_or_default());
+                    }
+                    _ => {}
+                }
             }
-            let previous = total.fetch_add(read, Ordering::AcqRel);
-            if previous.saturating_add(read) > limit {
-                exceeded.store(true, Ordering::Release);
-                break;
-            }
-            output.extend_from_slice(&buffer[..read]);
+            raw.push(RawMatch {
+                file: file.path.clone(),
+                range: RawRange {
+                    byte_offset: RawByteRange {
+                        start: matched.byte_start as usize,
+                        end: matched.byte_end as usize,
+                    },
+                    start: RawPosition {
+                        line: matched.range.start.line,
+                        column: matched.range.start.column,
+                    },
+                    end: RawPosition {
+                        line: matched.range.end.line,
+                        column: matched.range.end.column,
+                    },
+                },
+                text: matched.replaced_text,
+                replacement: matched.replacement,
+                replacement_offsets: None,
+                meta_variables,
+            });
         }
-        Ok(output)
-    })
+    }
+    Ok(raw)
 }
 
 fn prepare(
@@ -922,13 +606,7 @@ fn prepare(
     root: &Path,
     context: &PrepareContext<'_>,
 ) -> Result<Vec<PreparedFile>, RewriteError> {
-    let raw_matches = run_scan(
-        query,
-        root,
-        context.executable,
-        context.options,
-        context.cancellation,
-    )?;
+    let raw_matches = run_scan(query, root, context.cancellation)?;
     if raw_matches.len() > query.max_matches {
         return Err(RewriteError::new(
             "ast.rewrite.match_limit",
@@ -952,14 +630,14 @@ fn prepare(
         let metadata = fs::symlink_metadata(&unresolved).map_err(|_| {
             RewriteError::new(
                 "ast.rewrite.target_unavailable",
-                "ast-grep returned a target that could not be verified.",
+                "The native engine returned a target that could not be verified.",
             )
             .detail(json!({"path":matched.file}))
         })?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(RewriteError::new(
                 "ast.rewrite.symlink_target",
-                "ast-grep returned a symlink or non-file target; no changes were prepared.",
+                "The native engine returned a symlink or non-file target; no changes were prepared.",
             )
             .detail(json!({"path":matched.file})));
         }
@@ -972,7 +650,7 @@ fn prepare(
         {
             return Err(RewriteError::new(
                 "ast.rewrite.path_escape",
-                "ast-grep returned a target outside the real requested root.",
+                "The native engine returned a target outside the real requested root.",
             )
             .detail(json!({"path":matched.file})));
         }
@@ -1296,8 +974,6 @@ fn validate_postconditions(
     query: &AstRewriteQuery,
     files: &[PreparedFile],
     cancellation: &dyn CancellationCheck,
-    options: &AstRewriteRuntimeOptions,
-    executable: &ExecutableReceipt,
 ) -> Result<(), RewriteError> {
     let Some(postconditions) = query.postconditions.as_ref() else {
         return Ok(());
@@ -1305,33 +981,27 @@ fn validate_postconditions(
     if postconditions.is_empty() {
         return Ok(());
     }
-    let mirror = make_temp_dir("octocode-ast-rewrite-postcondition-")?;
-    let staged = (|| -> Result<(), RewriteError> {
-        for file in files {
-            cancellation.check().map_err(cancelled)?;
-            let target = mirror.join(&file.path);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent).map_err(io_error)?;
-            }
-            fs::write(&target, &file.after).map_err(io_error)?;
-            fs::set_permissions(&target, file.permissions.clone()).map_err(io_error)?;
-        }
-        Ok(())
-    })();
-    if let Err(error) = staged {
-        let _ = fs::remove_dir_all(&mirror);
-        return Err(error);
-    }
-    let scan = run_scan(query, &mirror, executable, options, cancellation);
-    let _ = fs::remove_dir_all(&mirror);
-    let remaining = scan
-        .map_err(|_| {
+    let config = rule_config(query);
+    let mut remaining = 0usize;
+    for file in files {
+        cancellation.check().map_err(cancelled)?;
+        let content = std::str::from_utf8(&file.after).map_err(|_| {
             RewriteError::new(
                 "ast.rewrite.postcondition_execution_failed",
-                "The postcondition scan could not be completed; no files were changed.",
+                "The staged source is not valid UTF-8; no files were changed.",
             )
-        })?
-        .len();
+        })?;
+        remaining = remaining.saturating_add(
+            octocode_engine::structural::structural_rewrite(content, config.clone())
+                .map_err(|_| {
+                    RewriteError::new(
+                        "ast.rewrite.postcondition_execution_failed",
+                        "The postcondition scan could not be completed; no files were changed.",
+                    )
+                })?
+                .len(),
+        );
+    }
     for postcondition in postconditions {
         if postcondition.kind != "remainingMatches" || postcondition.equals != remaining {
             return Err(RewriteError::new(
@@ -1493,7 +1163,10 @@ mod tests {
     use super::journal::{journal_directory, persist_journal};
     use super::*;
     use crate::{policy::path::PathPolicyConfig, security::SecurityRegistry};
-    use std::sync::Arc;
+    use std::{
+        sync::Arc,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct Active;
     impl CancellationCheck for Active {
@@ -1506,6 +1179,15 @@ mod tests {
         fn check(&self) -> Result<(), String> {
             Err("cancelled by test".to_owned())
         }
+    }
+
+    fn make_temp_dir(prefix: &str) -> Result<PathBuf, RewriteError> {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let path = std::env::temp_dir().join(format!("{prefix}{}-{unique}", std::process::id()));
+        fs::create_dir(&path).map_err(io_error)?;
+        Ok(path)
     }
 
     fn fixture() -> (PathBuf, PathPolicy, ContentSecurity) {
@@ -1766,90 +1448,27 @@ mod tests {
         fs::remove_dir_all(root).expect("cleanup");
     }
 
-    #[cfg(unix)]
-    fn executable_script(root: &Path, name: &str, body: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
-        let path = root.join(name);
-        fs::write(&path, body).expect("script");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).expect("chmod");
-        path
-    }
-
-    #[cfg(unix)]
     #[test]
-    fn executable_hash_timeout_and_output_caps_are_enforced() {
+    fn embedded_engine_supports_inline_rules_without_an_executable() {
         let (root, policy, security) = fixture();
-        let forwarding = executable_script(
-            &root,
-            "ast-grep-forwarder",
-            "#!/bin/sh\nexec /opt/homebrew/bin/ast-grep \"$@\"\n",
+        let result = execute_ast_rewrite_with_options(
+            json!({
+                "path":root,
+                "langType":"typescript",
+                "ruleKind":"rule",
+                "rule":{"pattern":"oldCall($A)"},
+                "fix":"newCall($A)",
+                "pageSize":100
+            }),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
         );
-        let options = AstRewriteRuntimeOptions {
-            allow_apply: true,
-            executable: Some(forwarding.clone()),
-            ..Default::default()
-        };
-        let preview =
-            execute_ast_rewrite_with_options(query(&root), &policy, &security, &Active, &options);
-        assert!(preview.get("snapshot").is_some());
-        fs::write(
-            &forwarding,
-            "#!/bin/sh\n# changed executable bytes\nexec /opt/homebrew/bin/ast-grep \"$@\"\n",
-        )
-        .expect("replace executable");
-        let mut apply = query(&root);
-        apply["apply"] = json!(true);
-        apply["snapshot"] = preview["snapshot"].clone();
-        apply["expectedHashes"] = json!({
-            preview["files"][0]["absolutePath"].as_str().expect("path"):
-                preview["files"][0]["beforeHash"].clone()
-        });
-        assert_eq!(
-            execute_ast_rewrite_with_options(apply, &policy, &security, &Active, &options)["errorCode"],
-            "ast.rewrite.snapshot_changed"
-        );
-
-        let noisy = executable_script(
-            &root,
-            "ast-grep-noisy",
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'ast-grep 0.45.0'; exit 0; fi\nif [ \"$2\" = \"--help\" ]; then printf '%s' '--color --globs --json --lang --pattern --rewrite --threads --inline-rules'; exit 0; fi\nprintf 'this-output-is-deliberately-too-large-for-the-process-output-cap'\n",
-        );
-        let noisy_options = AstRewriteRuntimeOptions {
-            executable: Some(noisy),
-            max_output_bytes: 24,
-            ..Default::default()
-        };
-        assert_eq!(
-            execute_ast_rewrite_with_options(
-                query(&root),
-                &policy,
-                &security,
-                &Active,
-                &noisy_options,
-            )["errorCode"],
-            "ast.rewrite.output_limit"
-        );
-
-        let hanging = executable_script(
-            &root,
-            "ast-grep-hanging",
-            "#!/bin/sh\nwhile :; do :; done\n",
-        );
-        let timeout_options = AstRewriteRuntimeOptions {
-            executable: Some(hanging),
-            timeout_ms: 20,
-            ..Default::default()
-        };
-        assert_eq!(
-            execute_ast_rewrite_with_options(
-                query(&root),
-                &policy,
-                &security,
-                &Active,
-                &timeout_options,
-            )["errorCode"],
-            "ast.rewrite.timeout"
-        );
+        assert_eq!(result["totalMatches"], 2);
+        assert_eq!(result["executable"]["path"], "native");
+        assert_eq!(result["executable"]["version"], "embedded");
+        assert_eq!(result["executable"]["capabilityDigest"], "native");
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

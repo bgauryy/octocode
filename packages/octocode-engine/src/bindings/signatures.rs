@@ -162,11 +162,11 @@ pub fn structural_search_files_detailed(
 /// Returns a JSON string of `StructuralRewriteMatch[]`.
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 #[napi(js_name = "structuralRewriteContent")]
-pub fn structural_rewrite_content(
-    content: String,
-    rule_config_json: String,
-) -> Result<String> {
-    Ok(crate::portable::structural_rewrite_content(&content, &rule_config_json)?)
+pub fn structural_rewrite_content(content: String, rule_config_json: String) -> Result<String> {
+    Ok(crate::portable::structural_rewrite_content(
+        &content,
+        &rule_config_json,
+    )?)
 }
 
 /// In-process structural rewrite over a file tree. Walks files in parallel,

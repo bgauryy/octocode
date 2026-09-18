@@ -718,15 +718,24 @@ fn tools_json_emits_compact_discovery_catalog() {
 }
 
 #[test]
-fn tools_accepts_queries_flag_like_the_node_cli() {
+fn tools_accepts_bulk_queries_like_the_node_cli() {
     let workspace = Workspace::new();
-    let path = workspace.write("query-flag.rs", "fn query_flag() {}\n");
-    let query = serde_json::json!({
-        "path": path,
-        "startLine": 1,
-        "endLine": 1,
-        "reasoning": "Verify the native tools --queries adapter."
-    })
+    let first = workspace.write("query-one.rs", "fn query_one() {}\n");
+    let second = workspace.write("query-two.rs", "fn query_two() {}\n");
+    let query = serde_json::json!([
+        {
+            "path": first,
+            "startLine": 1,
+            "endLine": 1,
+            "reasoning": "Verify the first native bulk query."
+        },
+        {
+            "path": second,
+            "startLine": 1,
+            "endLine": 1,
+            "reasoning": "Verify the second native bulk query."
+        }
+    ])
     .to_string();
     let output = workspace
         .cli()
@@ -735,10 +744,19 @@ fn tools_accepts_queries_flag_like_the_node_cli() {
         .expect("tools --queries");
     assert!(output.status.success(), "{}", stderr(&output));
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("tool JSON");
+    let rows = value["results"].as_array().expect("bulk rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["index"], 0);
+    assert_eq!(rows[1]["index"], 1);
     assert!(
-        value["results"][0]["data"]["content"]
+        rows[0]["data"]["content"]
             .as_str()
-            .is_some_and(|content| content.contains("query_flag"))
+            .is_some_and(|content| content.contains("query_one"))
+    );
+    assert!(
+        rows[1]["data"]["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("query_two"))
     );
 }
 

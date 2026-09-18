@@ -32,7 +32,55 @@ pub fn prepare_and_validate(
     input: serde_json::Value,
     options: PrepareOptions<'_>,
 ) -> Result<serde_json::Value, ContractValidationError> {
-    let prepared = prepare(tool_name, input, options).map_err(|error| ContractValidationError {
+    let prepared = prepare(tool_name, input, options).map_err(prepare_validation_error)?;
+    // Delegate to validate_query which handles the wrap/unwrap internally
+    // and strips the "queries.0." prefix from any validation error paths.
+    validate_query(tool_name, serde_json::Value::Object(prepared.query))
+}
+
+/// Prepare and validate every query in the canonical bulk envelope. A flat
+/// object and a single-element array remain accepted for direct CLI parity.
+/// Defaults are applied per query before validating the complete envelope, so
+/// cross-query limits and indexed diagnostics remain contract-owned.
+pub fn prepare_many_and_validate(
+    tool_name: &str,
+    input: serde_json::Value,
+    options: PrepareOptions<'_>,
+) -> Result<Vec<serde_json::Value>, ContractValidationError> {
+    let is_bulk = input.is_array()
+        || input
+            .as_object()
+            .is_some_and(|object| object.contains_key("queries"));
+    if !is_bulk {
+        return prepare_and_validate(tool_name, input, options).map(|query| vec![query]);
+    }
+
+    let mut envelope = match input {
+        serde_json::Value::Array(queries) => serde_json::json!({"queries": queries}),
+        serde_json::Value::Object(object) => serde_json::Value::Object(object),
+        _ => unreachable!("bulk input is an array or object"),
+    };
+    let queries = envelope
+        .get_mut("queries")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(|| {
+            prepare_validation_error(ContractInputError::new("queries must be an array"))
+        })?;
+    for query in queries.iter_mut() {
+        let prepared =
+            prepare(tool_name, query.take(), options.clone()).map_err(prepare_validation_error)?;
+        *query = serde_json::Value::Object(prepared.query);
+    }
+    let validated = validate(tool_name, envelope)?;
+    Ok(validated
+        .get("queries")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn prepare_validation_error(error: ContractInputError) -> ContractValidationError {
+    ContractValidationError {
         issues: vec![ValidationIssue {
             rule_id: "prepare.envelope".to_owned(),
             path: Vec::new(),
@@ -40,10 +88,7 @@ pub fn prepare_and_validate(
             schema: None,
             received: None,
         }],
-    })?;
-    // Delegate to validate_query which handles the wrap/unwrap internally
-    // and strips the "queries.0." prefix from any validation error paths.
-    validate_query(tool_name, serde_json::Value::Object(prepared.query))
+    }
 }
 
 /// Fingerprint of the canonical sibling-core contract used for this build.
@@ -66,7 +111,10 @@ pub const fn contract_provenance_json() -> &'static str {
 
 #[cfg(test)]
 mod contract_owner_tests {
-    use super::{PrepareOptions, contract_provenance_json, prepare_and_validate, validate_output};
+    use super::{
+        PrepareOptions, contract_provenance_json, prepare_and_validate, prepare_many_and_validate,
+        validate_output,
+    };
     use serde_json::json;
 
     #[test]
@@ -82,6 +130,24 @@ mod contract_owner_tests {
                 "reasoning must be caller-supplied and nonblank: {result:?}"
             );
         }
+    }
+
+    #[test]
+    fn bulk_queries_are_defaulted_and_validated_with_stable_order() {
+        let queries = prepare_many_and_validate(
+            "localFetch",
+            json!({"queries":[
+                {"path":"/tmp/a","reasoning":"Read a."},
+                {"path":"/tmp/b","reasoning":"Read b."}
+            ]}),
+            PrepareOptions::default(),
+        )
+        .expect("valid bulk input");
+        assert_eq!(queries.len(), 2);
+        assert_eq!(queries[0]["path"], "/tmp/a");
+        assert_eq!(queries[1]["path"], "/tmp/b");
+        assert_eq!(queries[0]["debug"], false);
+        assert_eq!(queries[1]["debug"], false);
     }
 
     #[test]

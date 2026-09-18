@@ -154,10 +154,9 @@ async fn github_clone_is_unavailable_when_disabled() {
     runtime.close().await;
 }
 
-/// Verifies that three independent single-query calls each succeed end-to-end.
-/// Multi-query batching has been removed; callers send one query per call.
+/// Verifies that GitHub queries use the Rust-owned bulk orchestration path.
 #[tokio::test]
-async fn three_single_queries_all_succeed() {
+async fn three_github_bulk_queries_preserve_order() {
     let server = MockServer::start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -186,22 +185,36 @@ async fn three_single_queries_all_succeed() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
 
-    for name in ["alpha.rs", "beta.rs", "gamma.rs"] {
-        let outcome = call(
-            &runtime,
-            "ghGetFileContent",
-            json!({"owner": "a", "repo": "b", "path": name,
-                   "branch": "main", "forceRefresh": true}),
+    let queries = ["alpha.rs", "beta.rs", "gamma.rs"].map(|name| {
+        json!({
+            "owner": "a",
+            "repo": "b",
+            "path": name,
+            "branch": "main",
+            "forceRefresh": true,
+            "reasoning": format!("Read {name} through the GitHub bulk path."),
+            "debug": true
+        })
+    });
+    let outcome = runtime
+        .execute(
+            "github-bulk".into(),
+            "ghGetFileContent".into(),
+            json!({"queries": queries}),
         )
         .await
-        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
-        assert_ne!(
-            row_status(&outcome),
-            "error",
-            "{name} failed: {}",
-            outcome.structured_content
-        );
-    }
+        .expect("GitHub bulk result");
+    let rows = outcome.structured_content["results"]
+        .as_array()
+        .expect("GitHub result rows");
+    assert_eq!(rows.len(), 3);
+    assert_eq!(
+        rows.iter()
+            .map(|row| row["index"].as_u64())
+            .collect::<Vec<_>>(),
+        [Some(0), Some(1), Some(2)]
+    );
+    assert!(rows.iter().all(|row| row.get("status").is_none()));
 
     runtime.close().await;
 }

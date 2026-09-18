@@ -52,11 +52,10 @@ its compiled data is initialized once. The additional dependency size and locale
 matrix remain measurement gates. Tree listings share the GitHub content cache
 (ETag conditional GET, optional disk persist under `{OCTOCODE_HOME}/tmp/response`
 when storage is persistent). Crate tests are Tokio/`cargo test` against
-`ToolRuntime` and the `octocode` binary. They do not spawn Python or the frozen
-Node CLI.
-Structural rewrite's baseline uses the attested native ast-grep executable.
-The embedded ast-grep experiment is behind core's optional
-`embedded-ast-grep-rewrite` feature and is excluded from `portable-default`.
+`ToolRuntime` and the `octocode` binary. They do not spawn Python, Node, or
+external search/rewrite executables. Structural rewrite calls the embedded
+`octocode-engine` primitive through its `embedded-ast-grep-rewrite` feature;
+the runtime retains transaction, hash, policy, and response orchestration.
 
 Canonical instructions are generated for enabled-tool combinations and selected
 in Rust. Embedded contracts are parsed once into immutable data. Prepare fills
