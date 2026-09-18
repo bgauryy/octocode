@@ -12,6 +12,7 @@ import {
 import { checkResearch, hashResearchRequest } from './check-research.mjs';
 import { resolveEvidenceRefs } from './resolve-content-ref.mjs';
 import { parseFlags, print, readJson, stop } from './cli-json.mjs';
+import { getConfigSync } from './octocode-config.mjs';
 
 const launcher = fileURLToPath(new URL('./jev.mjs', import.meta.url));
 const LIMIT = 4 * 1024 * 1024;
@@ -46,6 +47,22 @@ function workspaceRoot(start) {
     if (parent === current) return resolve(start);
     current = parent;
   }
+}
+
+// R3 mitigation: contentRef reads are sandboxed to the workspace root plus any
+// octocode local.allowedPaths / local.workspaceRoot. Falls back to the git root
+// if config cannot be read, so a reasoning tool never reads arbitrary files.
+function buildSandbox(cwd) {
+  const root = workspaceRoot(cwd);
+  const roots = new Set([root]);
+  try {
+    const local = getConfigSync()?.local;
+    if (typeof local?.workspaceRoot === 'string' && local.workspaceRoot) roots.add(resolve(local.workspaceRoot));
+    for (const p of Array.isArray(local?.allowedPaths) ? local.allowedPaths : []) {
+      if (typeof p === 'string' && p) roots.add(resolve(p));
+    }
+  } catch { /* config unreadable: workspace root only */ }
+  return { rootDir: root, allowedRoots: [...roots] };
 }
 
 function defaultOutput() {
@@ -103,7 +120,10 @@ function metricBlock(input, request, response, apiCalls, refs) {
 
 export function runLoop(input, options = {}, policy = DEFAULT_POLICY) {
   const authoredBytes = Buffer.byteLength(JSON.stringify(input));
-  const resolution = resolveEvidenceRefs(input, { rootDir: options.rootDir || process.cwd() });
+  const sandbox = options.rootDir
+    ? { rootDir: options.rootDir, allowedRoots: options.allowedRoots || [options.rootDir] }
+    : buildSandbox(process.cwd());
+  const resolution = resolveEvidenceRefs(input, sandbox);
   input = resolution.input;
   const refs = { stats: resolution.stats, authoredBytes };
   const prepared = prepareCompactRun(input, policy);

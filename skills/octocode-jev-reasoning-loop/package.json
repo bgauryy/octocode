@@ -7,7 +7,7 @@
   "bin": { "octocode-jev-reasoning-loop": "scripts/run-loop.mjs" },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test scripts/test.mjs scripts/research.test.mjs scripts/decision.test.mjs scripts/run-loop.test.mjs scripts/resolve-content-ref.test.mjs && node scripts/verify-reasoning-loop.mjs && node scripts/eval-decision-loop.mjs && node scripts/eval-run-loop.mjs && node scripts/eval-recovery-heldout.mjs",
+    "test": "node --test scripts/test.mjs scripts/research.test.mjs scripts/decision.test.mjs scripts/run-loop.test.mjs scripts/resolve-content-ref.test.mjs && node scripts/verify-reasoning-loop.mjs && node scripts/eval-decision-loop.mjs && node scripts/eval-run-loop.mjs && node scripts/eval-recovery-heldout.mjs && node scripts/eval-content-ref.mjs",
     "run": "node scripts/run-loop.mjs",
     "jev": "node scripts/jev.mjs",
     "research": "node scripts/research.mjs",

@@ -52,9 +52,24 @@ test('redacts obvious secrets', async () => {
 test('rejects path traversal and absolute paths', async () => {
   const dir = await fixtureDir({ 'a.txt': SAMPLE });
   try {
-    assert.throws(() => resolveRef({ path: '../escape.txt', lines: '1' }, dir), /escapes rootDir/);
+    assert.throws(() => resolveRef({ path: '../escape.txt', lines: '1' }, dir), /escapes the allowed sandbox/);
     assert.throws(() => resolveRef({ path: '/etc/hosts', lines: '1' }, dir), /absolute/);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('enforces allowedRoots sandbox (R3)', async () => {
+  const inside = await fixtureDir({ 'a.txt': SAMPLE });
+  const outside = await fixtureDir({ 'b.txt': SAMPLE });
+  try {
+    // rootDir points at `outside`, but only `inside` is allowlisted -> reject
+    assert.throws(() => resolveRef({ path: 'b.txt', lines: '1' }, outside, [inside]), /escapes the allowed sandbox/);
+    // a second allowlisted root admits it
+    const ok = resolveRef({ path: 'b.txt', lines: '1' }, outside, [inside, outside]);
+    assert.equal(ok.content, 'line one');
+  } finally {
+    await rm(inside, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });
 
 test('walks state.evidence and fills content, keeping backward compat', async () => {

@@ -35,12 +35,22 @@ function redact(text) {
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '«redacted-key»');
 }
 
-function boundedRoot(rootDir, path) {
+function within(root, abs) {
+  const rel = relative(root, abs);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
+
+// Resolve `path` relative to rootDir, then require it to live inside one of the
+// allowlisted roots (R3 mitigation: a reasoning tool must not read arbitrary
+// files). Absolute paths are rejected; traversal is rejected by containment.
+function boundedRoot(rootDir, allowedRoots, path) {
   if (typeof path !== 'string' || path.trim().length === 0) throw new Error('contentRef.path expected a nonempty string.');
   if (isAbsolute(path)) throw new Error(`contentRef.path expected a rootDir-relative path; received absolute ${JSON.stringify(path)}.`);
   const abs = resolve(rootDir, path);
-  const rel = relative(rootDir, abs);
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) throw new Error(`contentRef.path escapes rootDir: ${JSON.stringify(path)}.`);
+  const roots = allowedRoots && allowedRoots.length ? allowedRoots : [rootDir];
+  if (!roots.some(root => within(root, abs))) {
+    throw new Error(`contentRef.path escapes the allowed sandbox: ${JSON.stringify(path)}.`);
+  }
   return abs;
 }
 
@@ -51,9 +61,9 @@ function clampMax(maxChars) {
 }
 
 // Resolve one contentRef -> { content, source, meta }
-export function resolveRef(ref, rootDir) {
+export function resolveRef(ref, rootDir, allowedRoots) {
   if (!isObject(ref)) throw new Error('contentRef expected an object.');
-  const abs = boundedRoot(rootDir, ref.path);
+  const abs = boundedRoot(rootDir, allowedRoots, ref.path);
   const raw = readFileSync(abs, 'utf8');
   const lines = raw.split('\n');
   const hasLines = ref.lines !== undefined;
@@ -89,10 +99,10 @@ export function resolveRef(ref, rootDir) {
   return { content, source, meta: { startLine, endLine, truncated, fileChars: raw.length, injectedChars: content.length } };
 }
 
-function resolveEvidenceItem(item, rootDir, stats) {
+function resolveEvidenceItem(item, rootDir, allowedRoots, stats) {
   if (!isObject(item) || item.contentRef === undefined) return item;
   if (item.content !== undefined) throw new Error(`evidence ${item.id ?? '?'} supplied both content and contentRef.`);
-  const { content, source, meta } = resolveRef(item.contentRef, rootDir);
+  const { content, source, meta } = resolveRef(item.contentRef, rootDir, allowedRoots);
   stats.refsResolved += 1;
   stats.fileCharsRead += meta.fileChars;
   stats.contentCharsInjected += meta.injectedChars;
@@ -102,16 +112,17 @@ function resolveEvidenceItem(item, rootDir, stats) {
 
 // Walk state.evidence[] and state.newEvidence, resolving any contentRef.
 // Backward compatible: inputs without contentRef are returned unchanged.
-export function resolveEvidenceRefs(input, { rootDir = process.cwd() } = {}) {
+// `allowedRoots` (absolute dirs) sandboxes reads; defaults to [rootDir].
+export function resolveEvidenceRefs(input, { rootDir = process.cwd(), allowedRoots } = {}) {
   const stats = { refsResolved: 0, fileCharsRead: 0, contentCharsInjected: 0 };
   if (!isObject(input) || !isObject(input.state)) return { input, stats };
   const clone = structuredClone(input);
   const state = clone.state;
   if (Array.isArray(state.evidence)) {
-    state.evidence = state.evidence.map(item => resolveEvidenceItem(item, rootDir, stats));
+    state.evidence = state.evidence.map(item => resolveEvidenceItem(item, rootDir, allowedRoots, stats));
   }
   if (isObject(state.newEvidence)) {
-    state.newEvidence = resolveEvidenceItem(state.newEvidence, rootDir, stats);
+    state.newEvidence = resolveEvidenceItem(state.newEvidence, rootDir, allowedRoots, stats);
   }
   return { input: clone, stats };
 }
