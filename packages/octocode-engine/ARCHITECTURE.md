@@ -4,7 +4,7 @@
 Octocode. It owns all algorithm primitives (search, LSP, signatures, structural
 analysis, minification, security, graph, index, text) plus the Node.js N-API
 bindings that expose them to JavaScript. When built with the `napi-addon`
-feature it produces the platform `.node` binary consumed by `octocode-tools-core`,
+feature it produces the platform `.node` binary consumed by `octocode-native`,
 `octocode`, and `octocode-pi-extension`. `octocode-native` links this crate as a
 pure `rlib` (no N-API) for the native CLI and MCP runtime.
 
@@ -30,7 +30,7 @@ pure `rlib` (no N-API) for the native CLI and MCP runtime.
 - TypeScript under the package's `src/lsp/` owns Node-only command
   discovery/provisioning, workspace-root detection, URI/path validation, symbol
   resolution, and the compatibility manager API. Its pool wrapper delegates
-  lifecycle ownership to the native facade. `octocode-tools-core` consumes this
+  lifecycle ownership to the native facade. `octocode-native` consumes this
   tier through the `./lsp/*` subpath exports.
 - `src/security/` owns secret detection and sanitization. TypeScript wrappers
   retain Node orchestration such as `withSecurityValidation`, registries,

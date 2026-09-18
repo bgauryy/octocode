@@ -479,7 +479,7 @@ graph LR
     CLI["octocode<br/>CLI"]
     MCP["octocode-mcp<br/>MCP server, stdio"]
     VSC["VS Code extension<br/>OAuth + install"]
-    CORE["octocode-tools-core<br/>tools, GitHub client, auth, pagination, security bridge"]
+    CORE["octocode-native<br/>tools, GitHub client, auth, pagination, security bridge"]
     ENGINE["octocode-engine (Rust)<br/>secrets, minify, AST, signatures, ripgrep/diff/YAML, LSP"]
     EXT["GitHub API, local FS + ripgrep, language servers"]
 
@@ -511,7 +511,7 @@ Each workspace package owns one layer of the toolkit. Package architecture pages
 | Interface | [`packages/octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) · `octocode-mcp` | Thin stdio MCP server that publishes the enabled tool catalog and forwards validated calls to the shared runtime. |
 | Interface | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) · `octocode-mcp-vscode` | VS Code extension for GitHub OAuth, token synchronization, and MCP installation across supported editors. |
 | Host | [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) · `@octocodeai/pi-extension` | Full Pi integration and canonical owner of Pi prompt, protocol, capability, discovery, path, and control-database contracts. |
-| Research runtime | [`packages/octocode-tools-core`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-tools-core) · `@octocodeai/octocode-tools-core` | Shared execution layer for every public tool: provider clients, credentials, sessions, pagination, response shaping, and security integration. |
+| Research runtime | [`packages/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) · `@octocodeai/octocode-native` | Shared execution layer for every public tool: provider clients, credentials, sessions, pagination, response shaping, and security integration. |
 | Native research | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) · `@octocodeai/octocode-engine` | Rust/napi primitives for search, minification, syntax analysis, topology analysis, LSP orchestration, serialization, and secret detection. |
 | Native workspace | [`packages/octocode-extension-rust`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-extension-rust) · `@octocodeai/octocode-extension-rust` | Separate Rust/napi boundary for workspace snapshots, guarded mutations, durable history, and line-level diffs used by agent hosts and Awareness. |
 | Configuration | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Zero-dependency loader for Octocode home resolution, environment propagation, `.env`, and `.octocoderc`; the single configuration source for the monorepo. |
@@ -519,7 +519,7 @@ Each workspace package owns one layer of the toolkit. Package architecture pages
 | Coordination | [`packages/octocode-awareness`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-awareness) · `@octocodeai/octocode-awareness` | Local SQLite coordination and canonical shared entity, permission, embedding, physiology, and SQLite primitives exposed to hosts through its host API. |
 | Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private benchmark and eval workspace for head-to-head research studies, routing regressions, graders, reports, and reproducible run artifacts. |
 
-The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package owns the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts; `octocode-tools-core` owns their execution.
+The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package owns the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts; `octocode-native` owns their execution.
 
 ---
 

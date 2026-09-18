@@ -24,7 +24,7 @@ provide LSP and security services, including content sanitization, path and
 command validation, masking, and the security registry.
 
 Application-facing research behavior belongs in
-`@octocodeai/octocode-tools-core`; this package stays at the native and
+`@octocodeai/octocode-native`; this package stays at the native and
 language-service boundary.
 
 ## Development

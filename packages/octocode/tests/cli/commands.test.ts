@@ -1,38 +1,30 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-describe('CLI command registry', () => {
-  it('does not expose removed commands', async () => {
-    const { isRegisteredCommand, loadCommand } =
-      await import('../../src/cli/commands/index.js');
+import {
+  REGISTERED_COMMAND_NAMES,
+  isRegisteredCommand,
+  loadCommand,
+} from '../../src/cli/commands/index.js';
 
-    const removed = [
-      'token',
-      'skills',
-      'cat',
-      'ls',
-      'find',
-      'diff',
-      'history',
-      'repo',
-      'pkg',
-      'binary',
-      'unzip',
-      'grep',
-      'lsp',
-    ];
-    for (const name of removed) {
+describe('Node command registry', () => {
+  it('contains only skill materialization', async () => {
+    expect(REGISTERED_COMMAND_NAMES).toEqual(['skill']);
+    expect(isRegisteredCommand('skill')).toBe(true);
+    expect((await loadCommand('skill'))?.name).toBe('skill');
+  });
+
+  it('does not duplicate native commands', async () => {
+    for (const name of [
+      'tools',
+      'context',
+      'install',
+      'status',
+      'login',
+      'logout',
+      'lsp-server',
+    ]) {
       expect(isRegisteredCommand(name)).toBe(false);
       expect(await loadCommand(name)).toBeUndefined();
     }
-  });
-
-  it('keeps status as the read-only token/auth command', async () => {
-    const { isRegisteredCommand, loadCommand } =
-      await import('../../src/cli/commands/index.js');
-    const cmd = await loadCommand('status');
-
-    expect(isRegisteredCommand('status')).toBe(true);
-    expect(cmd).toBeDefined();
-    expect(cmd!.name).toBe('status');
   });
 });

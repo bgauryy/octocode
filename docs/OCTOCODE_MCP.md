@@ -1,6 +1,6 @@
 # Octocode MCP server
 
-The Octocode MCP server is the toolkit's standard interface for AI coding clients. It exposes Octocode's research tools through the Model Context Protocol over stdio. The server is intentionally thin: it registers schemas and transports requests, while tool behavior lives in `@octocodeai/octocode-tools-core` and native primitives live in `@octocodeai/octocode-engine`.
+The Octocode MCP server is the toolkit's standard interface for AI coding clients. It exposes Octocode's research tools through the Model Context Protocol over stdio. The server is intentionally thin: it registers schemas and transports requests, while tool behavior lives in `@octocodeai/octocode-native` and native primitives live in `@octocodeai/octocode-engine`.
 
 Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. For every tool, see [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md). For settings, GitHub tokens, and encrypted credential storage, see [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
@@ -14,7 +14,7 @@ MCP gives assistants a stable tool catalog instead of making them shell out by h
 | Tools core | GitHub/package/local/LSP runners, credentials, config, session, pagination, response shaping |
 | Engine | native ripgrep, structural AST search, minify/signatures, secret scan, LSP orchestration |
 
-A request flows through catalog registration → strict schema validation → security/config gates → tools-core runner → provider, filesystem, graph, or language-server boundary → sanitized structured/text response. The outer batch envelope, `goal`/`reasoning`, result indexes, partial failures, and continuation layers are documented once in [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works). MCP does not maintain a second copy of those contracts.
+A request flows through catalog registration → strict schema validation → security/config gates → native runtime runner → provider, filesystem, graph, or language-server boundary → sanitized structured/text response. The outer batch envelope, `goal`/`reasoning`, result indexes, partial failures, and continuation layers are documented once in [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works). MCP does not maintain a second copy of those contracts.
 
 ## Quick start
 
@@ -148,7 +148,7 @@ Maintenance removes expired owned cache entries while preserving unrelated files
 
 ## Session persistence
 
-`@octocodeai/octocode-tools-core/session` keeps lightweight runtime identity and usage stats across Octocode runs. It stays small: one in-memory session, deferred disk writes, and a synchronous flush on process exit.
+`@octocodeai/octocode-native/session` keeps lightweight runtime identity and usage stats across Octocode runs. It stays small: one in-memory session, deferred disk writes, and a synchronous flush on process exit.
 
 ### Storage
 
@@ -222,7 +222,7 @@ Testing helper: `_resetSessionState()` clears the cache, the timer, and the exit
 ### Related documentation
 
 - [Token priority order](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#token-priority-order)
-- [Tools core package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/README.md)
+- [Tools core package](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/README.md)
 
 ## See also
 

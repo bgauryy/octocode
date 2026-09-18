@@ -21,7 +21,7 @@ function fixture(): { root: string; built: string; changed: string } {
   roots.push(root);
   const built = join(root, 'out', 'chunks', 'cli.js');
   const entry = join(root, 'src', 'cli', 'index.ts');
-  const changed = join(root, 'src', 'cli', 'main-help.ts');
+  const changed = join(root, 'src', 'cli', 'interactive-install.ts');
   mkdirSync(join(root, 'out', 'chunks'), { recursive: true });
   mkdirSync(join(root, 'src', 'cli'), { recursive: true });
   writeFileSync(built, 'built');
@@ -44,7 +44,7 @@ afterEach(() => {
 describe('stale build detection', () => {
   it('detects changes anywhere under src, not only cli/index.ts', () => {
     const { built } = fixture();
-    expect(findStaleSourceInput(built)).toBe('src/cli/main-help.ts');
+    expect(findStaleSourceInput(built)).toBe('src/cli/interactive-install.ts');
   });
 
   it('does not warn while executing source directly', () => {
@@ -61,7 +61,7 @@ describe('stale build detection', () => {
     maybeWarnAboutStaleBuild({ currentFile: built, env: {}, warn });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('src/cli/main-help.ts')
+      expect.stringContaining('src/cli/interactive-install.ts')
     );
   });
 });

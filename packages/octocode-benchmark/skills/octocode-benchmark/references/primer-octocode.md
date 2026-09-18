@@ -190,7 +190,7 @@ octocode-mcp-host/packages/octocode-core/src/toolContract/input/resources/tools/
     localFetch.ts     ← FetchContentQuery schema + validation
     _toolkit.ts       ← pageNumber(), intRange(), MAX_LOCAL_ITEMS_PER_PAGE ...
 
-octocode/packages/octocode-tools-core/src/tools/ast_search/filesystem/
+octocode/packages/octocode-native/src/tools/ast_search/filesystem/
     files.ts          ← runtime: native calls, result formatting, pagination
     tree.ts           ← runtime: directory traversal output
 ```
@@ -201,11 +201,11 @@ octocode/packages/octocode-tools-core/src/tools/ast_search/filesystem/
 - field constraints, `pageNumber()`, `intRange()` helpers
 - `_toolkit.ts` shared schema utilities
 
-**Search in:** `octocode-mcp-host/packages/octocode-core/src/toolContract/` — NOT `packages/octocode-tools-core/src/`
+**Search in:** `octocode-mcp-host/packages/octocode-core/src/toolContract/` — NOT `packages/octocode-native/src/`
 
 ```bash
 # WRONG — astFiles.ts is not here:
-npx octocode tools localFetch --queries '{"path":"/Users/.../octocode/packages/octocode-tools-core/src/tools/ast_search/filesystem/astFiles.ts"}'
+npx octocode tools localFetch --queries '{"path":"/Users/.../octocode/packages/octocode-native/src/tools/ast_search/filesystem/astFiles.ts"}'
 
 # CORRECT:
 npx octocode tools localFetch --queries '{"path":"/Users/.../octocode-mcp-host/packages/octocode-core/src/toolContract/input/resources/tools/astFiles.ts","fullContent":true}'

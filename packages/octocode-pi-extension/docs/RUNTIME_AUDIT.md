@@ -128,9 +128,9 @@ floor, or runtime assertion was weakened to obtain the passing result.
 | Awareness tests | 1,022 tests passed |
 | CLI, MCP server, and VS Code tests | 952, 818, and 42 tests passed, respectively |
 | Documentation and workspace health | Passed |
-| Root test command | Passed with final source frozen. Tools-core's 4,262 tests passed and branch coverage reached 79.71%, above its unchanged 79.7% floor. |
+| Root test command | Passed with final source frozen. The retired TypeScript runtime's 4,262 tests passed and branch coverage reached 79.71%, above its unchanged 79.7% floor. |
 
-An earlier root run failed the tools-core branch gate at 79.69%. The passing rerun
+An earlier root run failed the retired-runtime branch gate at 79.69%. The passing rerun
 does not explain that variation. A separate Pi run overlapped the final confidence
 parser edit and failed three new cases; the rebuilt, source-frozen run above passed
 all three along with the full suite.

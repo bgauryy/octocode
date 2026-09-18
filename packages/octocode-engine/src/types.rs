@@ -300,7 +300,7 @@ pub struct RipgrepSearchOptions {
     /// frequency, sorted by count descending.
     pub count_unique: Option<bool>,
     /// Native collection guard: stop after this many matched files have been
-    /// collected. Distinct from tools-core maxFiles, which is a per-page UI
+    /// collected. Distinct from native runtime maxFiles, which is a per-page UI
     /// size, not an engine resource cap.
     pub max_collected_files: Option<u32>,
 }

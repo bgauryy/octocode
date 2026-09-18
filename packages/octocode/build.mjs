@@ -17,8 +17,8 @@ const nodeExternals = [
 ];
 
 // Published runtime dependencies stay external. This keeps the CLI a true
-// interface package and leaves tools-core responsible for its own dependency
-// graph instead of partially inlining it into this bundle.
+// interface package and leaves native and shared packages responsible for their dependency graphs
+// instead of partially inlining them into this bundle.
 const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
 const external = [...nodeExternals, ...runtimeExternals];

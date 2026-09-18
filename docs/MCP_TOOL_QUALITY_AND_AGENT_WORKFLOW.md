@@ -28,7 +28,7 @@ unavailable capabilities with each acceptance run. Enabling a tool does not
 install its external language server or grant provider access.
 
 Public schemas, descriptions, and shared instructions belong to `@octocodeai/octocode-core`.
-[Tools-core](https://github.com/bgauryy/octocode/blob/main/packages/octocode-tools-core/ARCHITECTURE.md) owns execution and response shaping. CLI and MCP expose
+[Native runtime](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/ARCHITECTURE.md) owns execution and response shaping. CLI and MCP expose
 those contracts through their respective interfaces. Test both when changing
 registration, schema projection, output formatting, or continuation rendering.
 
@@ -167,7 +167,7 @@ and parity checks; an ignored annotation alone is not a passing receipt.
 ## Record release evidence
 
 Follow the [monorepo verification instructions](https://github.com/bgauryy/octocode/blob/main/AGENTS.md) and the affected
-package's build/test commands. Rebuild changed engine and tools-core packages,
+package's build/test commands. Rebuild changed engine and native runtime packages,
 then rebuild the CLI before exercising the real tool path. Run relevant unit and
 integration tests, lint, type checks, and the affected CLI/MCP acceptance calls.
 

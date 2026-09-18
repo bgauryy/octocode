@@ -52,7 +52,7 @@ core. Do not benchmark `npx octocode`, a global binary, or a published dependenc
 in for a changed workspace package.
 
 The `prepare` command below builds the sibling canonical core, then the native engine,
-tools-core, and workspace CLI. Preflight rejects a published/semver canonical-core resolution,
+native runtime, and workspace CLI. Preflight rejects a published/semver canonical-core resolution,
 a local resolution aimed anywhere except the sibling source package, stale sibling exports,
 or an installed export fingerprint that differs from that build. If local development resolutions are not already
 active, follow the repository's `yarn devScript` and `yarn install` development setup before

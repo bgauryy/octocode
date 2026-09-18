@@ -88,11 +88,11 @@ To run that comparison correctly between agents—fresh isolated runners per que
 
 CLI and MCP are thin fronts over one shared path: receive the goal, validate and secure the request, run against GitHub / npm / local code, then return a bounded result with continuation hints.
 
-![Left-to-right request path: Goal → CLI/MCP → tools-core → Validate & secure → Provider/engine → Bounded result](./assets/octocode-request-flow.png)
+![Left-to-right request path: Goal → CLI/MCP → native runtime → Validate & secure → Provider/engine → Bounded result](./assets/octocode-request-flow.png)
 
 Under the hood, remote providers fetch GitHub and npm evidence. A Rust/napi engine handles local search, minification, structural analysis, and LSP. Caching avoids repeat fetches; line-aware pages and security sanitization keep payloads lean and safe.
 
-![Architecture: CLI and MCP into shared tools-core, with arrows to metadata, remote evidence, and native engine, plus layered safety](./assets/octocode-architecture.png)
+![Architecture: CLI and MCP into shared native runtime, with arrows to metadata, remote evidence, and native engine, plus layered safety](./assets/octocode-architecture.png)
 
 ## Octocode context-engineering main approach
 

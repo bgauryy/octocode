@@ -15,10 +15,10 @@ The CLI discovery catalog includes disabled tools: eleven tools are discoverable
 |---|---|---|
 | Names, descriptions, input schemas, relations | `@octocodeai/octocode-core/schema` in the sibling `octocode-mcp-host` repository | Public requests and tool selection, independent of execution. |
 | Shared server instructions | `@octocodeai/octocode-core/mcp`: `buildMcpInstructions(enabledToolNames)` | Workflow and evidence guidance for the exposed tool subset. |
-| Execution, provider mapping, topology algorithms | [tools-core registry and runners](../packages/octocode-tools-core/src/tools/toolConfig.ts) | Validated request dispatch, provider calls, and result construction. |
-| Search, syntax, minification, LSP primitives | [engine](../packages/octocode-engine/ARCHITECTURE.md) | Native and language-server operations used by tools-core. |
-| Output TypeScript types | [bulk envelope](../packages/octocode-tools-core/src/types/toolOutput.ts) and per-tool types | Compile-time descriptions; these types do not validate external data at runtime. |
-| Response shaping and pagination | [bulk response](../packages/octocode-tools-core/src/utils/response/bulk/response.ts) | Row status, evidence, presentation, and executable continuations. |
+| Execution, provider mapping, topology algorithms | [native runtime registry and runners](../packages/octocode-native/src/tools/toolConfig.ts) | Validated request dispatch, provider calls, and result construction. |
+| Search, syntax, minification, LSP primitives | [engine](../packages/octocode-engine/ARCHITECTURE.md) | Native and language-server operations used by native runtime. |
+| Output TypeScript types | [bulk envelope](../packages/octocode-native/src/types/toolOutput.ts) and per-tool types | Compile-time descriptions; these types do not validate external data at runtime. |
+| Response shaping and pagination | [bulk response](../packages/octocode-native/src/utils/response/bulk/response.ts) | Row status, evidence, presentation, and executable continuations. |
 | MCP registration | [registration adapter](../packages/octocode-mcp/src/tools/registerTool.ts) | Publishes input schemas and forwards requests to the shared runners. |
 
 MCP publishes no `outputSchema`. It returns `structuredContent` and text content, but clients cannot discover a per-tool output JSON Schema from `tools/list`. This is an output-discovery limitation, not proof that responses are untyped internally. MCP makes output schemas optional; when a server advertises one, its structured results must conform. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema).

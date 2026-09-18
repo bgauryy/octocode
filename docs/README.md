@@ -44,7 +44,7 @@ The monorepo contains 12 workspace packages. Read the package README for its pub
 | `octocode-mcp` | Thin stdio MCP interface | [README](../packages/octocode-mcp/README.md) · [Architecture](../packages/octocode-mcp/ARCHITECTURE.md) |
 | `octocode-mcp-vscode` | VS Code OAuth and multi-editor MCP setup | [README](../packages/octocode-vscode/README.md) |
 | `@octocodeai/pi-extension` | Pi host integration and Pi-owned contracts | [README](../packages/octocode-pi-extension/README.md) · [Architecture](../packages/octocode-pi-extension/ARCHITECTURE.md) · [Docs index](../packages/octocode-pi-extension/docs/README.md) |
-| `@octocodeai/octocode-tools-core` | Shared tool execution and response shaping | [README](../packages/octocode-tools-core/README.md) · [Architecture](../packages/octocode-tools-core/ARCHITECTURE.md) |
+| `@octocodeai/octocode-native` | Shared tool execution and response shaping | [README](../packages/octocode-native/README.md) · [Architecture](../packages/octocode-native/ARCHITECTURE.md) |
 | `@octocodeai/octocode-engine` | Native search, syntax, LSP, minification, and security primitives | [README](../packages/octocode-engine/README.md) · [Architecture](../packages/octocode-engine/ARCHITECTURE.md) · [LSP lifecycle](../packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
 | `@octocodeai/octocode-extension-rust` | Native workspace snapshots, mutations, history, and diffs | [README](../packages/octocode-extension-rust/README.md) · [Architecture](../packages/octocode-extension-rust/ARCHITECTURE.md) |
 | `@octocodeai/config` | Shared environment and configuration loader | [README](../packages/octocode-config/README.md) |

@@ -6,7 +6,7 @@ MCP client setup.
 
 The CLI is a presentation layer. Tool contracts come from
 `@octocodeai/octocode-core`, execution comes from
-`@octocodeai/octocode-tools-core`, and native search and LSP support come from
+`@octocodeai/octocode-native`, and native search and LSP support come from
 `@octocodeai/octocode-engine`.
 
 ## Requirements

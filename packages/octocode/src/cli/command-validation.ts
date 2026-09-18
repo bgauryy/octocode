@@ -1,5 +1,4 @@
 import type { CLICommand, ParsedArgs } from './types.js';
-import { findStaticCommandHelp } from './command-help-specs.js';
 import { c, bold, dim } from '../utils/colors.js';
 
 // Flags accepted on every command, regardless of its own option list.
@@ -14,21 +13,11 @@ const GLOBAL_FLAGS = new Set([
   'version',
 ]);
 
-/**
- * The set of option names a command legitimately accepts: its own declared
- * options ∪ the static help spec options ∪ the always-on global flags.
- * Unioning both sources guarantees we never reject a flag a handler reads.
- */
 export function getAllowedOptionNames(command: CLICommand): Set<string> {
-  const names = new Set<string>(GLOBAL_FLAGS);
-  for (const opt of command.options ?? []) {
-    names.add(opt.name);
-  }
-  const spec = findStaticCommandHelp(command.name);
-  for (const opt of spec?.options ?? []) {
-    names.add(opt.name);
-  }
-  return names;
+  return new Set([
+    ...GLOBAL_FLAGS,
+    ...(command.options ?? []).map(option => option.name),
+  ]);
 }
 
 export function findUnknownOptions(
@@ -37,44 +26,6 @@ export function findUnknownOptions(
 ): string[] {
   const allowed = getAllowedOptionNames(command);
   return Object.keys(args.options).filter(key => !allowed.has(key));
-}
-
-// Flags that must be non-negative integers wherever they appear. Validated
-// centrally so every command rejects a bad value the same way — instead of
-// silently ignoring it or passing NaN down to the tool.
-const NUMERIC_FLAGS = new Set([
-  'page',
-  'page-size',
-  'items-per-page',
-  'limit',
-  'depth',
-  'line',
-  'pr',
-  'context-lines',
-  'max-matches',
-  'max-files',
-  'match-length',
-  'match-page',
-  'start-line',
-  'end-line',
-  'char-offset',
-  'char-length',
-  'min-depth',
-  'max-depth',
-]);
-
-/** Returns `--flag=value` strings for any numeric flag given a non-integer value. */
-export function findInvalidNumericOptions(args: ParsedArgs): string[] {
-  const bad: string[] = [];
-  for (const [key, val] of Object.entries(args.options)) {
-    if (args.command === 'cache' && key === 'depth') continue;
-    if (!NUMERIC_FLAGS.has(key) || typeof val !== 'string') continue;
-    const n = Number.parseInt(val, 10);
-    if (!Number.isInteger(n) || String(n) !== val.trim() || n < 0) {
-      bad.push(`--${key}=${val}`);
-    }
-  }
-  return bad;
 }
 
 /** Levenshtein distance — used for "did you mean" suggestions. */

@@ -4,7 +4,7 @@
 //! file once with tree-sitter and label each match with the kind of the
 //! smallest named node covering it: declaration, import, export, callsite,
 //! identifier, comment, string, config key, or heading. This is the AST signal
-//! the tools-core ranker prefers over its regex line heuristics (Phase 1).
+//! the native runtime ranker prefers over its regex line heuristics (Phase 1).
 //!
 //! Properties:
 //!   * Stable labels: each completed classification depends on content + position.
@@ -69,7 +69,7 @@ pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
     }
 }
 
-/// Stable kind labels shared with the tools-core ranker.
+/// Stable kind labels shared with the native runtime ranker.
 pub const KIND_DECLARATION: &str = "declaration";
 pub const KIND_IMPORT: &str = "import";
 pub const KIND_EXPORT: &str = "export";

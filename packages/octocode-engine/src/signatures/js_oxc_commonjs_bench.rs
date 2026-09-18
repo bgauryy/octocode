@@ -30,17 +30,17 @@ fn corpus() -> Vec<(&'static str, &'static str, String, usize, &'static str)> {
     vec![
         ("generated_esm", "fixture.mjs", esm, 0, "train"),
         (
-            "repository_graph_builder",
+            "repository_cli_dispatch",
             "fixture.ts",
-            include_str!("../../../octocode-tools-core/src/graph/buildFileGraph.ts").to_owned(),
+            include_str!("../../../octocode/src/cli/index.ts").to_owned(),
             0,
             "train",
         ),
         ("generated_commonjs", "fixture.cjs", cjs, 180, "train"),
         (
-            "repository_import_resolver",
+            "repository_installer",
             "fixture.ts",
-            include_str!("../../../octocode-tools-core/src/graph/importResolver.ts").to_owned(),
+            include_str!("../../../octocode/src/features/install.ts").to_owned(),
             0,
             "held-out",
         ),

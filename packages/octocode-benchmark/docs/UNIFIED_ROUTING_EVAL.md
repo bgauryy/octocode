@@ -22,8 +22,7 @@ It is held out from implementation work and records a fixed contract:
 - all three exact-content views execute, with Unicode and CRLF preserved;
 - returned continuation queries are schema-valid and representative page unions
   are executed;
-- no legacy export or runner module remains in `tools-core` source contracts or
-  built output;
+- no legacy export or runner module remains in the native runtime source or built output;
 - anchored LSP is attempted and is skipped only when its provider is absent or
   not ready.
 

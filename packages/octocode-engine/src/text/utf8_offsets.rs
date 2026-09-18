@@ -1,6 +1,6 @@
 /// Zero-allocation UTF-8 offset helpers and content slicer.
 ///
-/// Replaces `utils/file/byteOffset.ts` in octocode-tools-core, which used
+/// Replaces `utils/file/byteOffset.ts` in octocode-native, which used
 /// `Buffer.from(content, 'utf8')` — a full copy of the content — for every
 /// char↔byte conversion, and called it 4–6 times per `applyPagination` invocation.
 ///

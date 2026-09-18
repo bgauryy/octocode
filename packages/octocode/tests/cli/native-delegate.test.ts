@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  TS_ONLY_COMMANDS,
+  NODE_OWNED_COMMANDS,
   resolveNativeBin,
   shouldDelegateToNative,
   delegateToNative,
@@ -48,12 +48,12 @@ describe('shouldDelegateToNative', () => {
     );
   });
 
-  it('does not delegate with no command', () => {
-    expect(shouldDelegateToNative(undefined, nativeEnv)).toBe(false);
+  it('delegates top-level help when no command is present', () => {
+    expect(shouldDelegateToNative(undefined, nativeEnv)).toBe(true);
   });
 
-  it('does not delegate TS-only commands', () => {
-    for (const command of TS_ONLY_COMMANDS) {
+  it('does not delegate Node-owned commands', () => {
+    for (const command of NODE_OWNED_COMMANDS) {
       expect(shouldDelegateToNative(command, nativeEnv)).toBe(false);
     }
   });
@@ -72,17 +72,16 @@ describe('shouldDelegateToNative', () => {
     expect(shouldDelegateToNative('tools', nativeEnv)).toBe(true);
   });
 
-  it('delegates lsp-server (graduated from TS-only: status/which now native)', () => {
+  it('delegates lsp-server', () => {
     expect(shouldDelegateToNative('lsp-server', nativeEnv)).toBe(true);
   });
 
-  it('delegates install (graduated from TS-only: flag-only path is native)', () => {
-    // Note: interactive install (no --ide) is gated in index.ts, not here.
-    // shouldDelegateToNative returns true; index.ts adds the argv check.
+  it('delegates flag-only install', () => {
+    // Interactive install is selected in index.ts from the absence of --ide.
     expect(shouldDelegateToNative('install', nativeEnv)).toBe(true);
   });
 
-  it('skill is still TS-only (blocked on pi-extension skill refactor)', () => {
+  it('keeps skill materialization in Node to avoid native re-entry', () => {
     expect(shouldDelegateToNative('skill', nativeEnv)).toBe(false);
   });
 });

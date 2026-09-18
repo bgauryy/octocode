@@ -157,7 +157,7 @@ assert(
 for (const path of files.filter((path) => path.startsWith('out/') && !path.startsWith('out/skills/') && /\.(?:m?js)$/.test(path))) {
   const source = readFileSync(join(packageRoot, path), 'utf8');
   assert(
-    !source.includes('@octocodeai/octocode-tools-core') && !source.includes('packages/octocode/out/octocode.js'),
+    !source.includes('packages/octocode/out/octocode.js'),
     `${path} must not bundle or delegate to the Octocode research CLI`,
   );
 }

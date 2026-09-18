@@ -3,7 +3,7 @@
 Load when tool selection, transport, availability, or recovery is unclear. The live catalog and schemas are authoritative; this file is an invocation guide, not a second schema.
 
 ## Discover and invoke
-Prefer exposed Octocode MCP tools with current public contracts. If unavailable, use the built checkout CLI; an installed skill can use `npx -y octocode`. These share core-owned contracts and tools-core runners. Do not substitute a legacy tool with different fields.
+Prefer exposed Octocode MCP tools with current public contracts. If unavailable, use the built checkout CLI; an installed skill can use `npx -y octocode`. These share core-owned contracts and the native Rust runtime. Do not substitute a legacy tool with different fields.
 
 ```bash
 node packages/octocode/out/octocode.js context --compact

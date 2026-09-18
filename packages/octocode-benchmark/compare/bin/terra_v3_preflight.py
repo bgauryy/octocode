@@ -39,12 +39,12 @@ FROZEN_COMMITS = {
 DEFAULT_PUBLIC_ORACLES = Path(__file__).resolve().parent.parent / "terra-v3/suite/public-oracles.json"
 BUILD_COMMANDS = (
     ("yarn", "workspace", "@octocodeai/octocode-engine", "build:dev"),
-    ("yarn", "workspace", "@octocodeai/octocode-tools-core", "build"),
+    ("yarn", "workspace", "@octocodeai/octocode-native", "build:dev"),
     ("yarn", "workspace", "octocode", "build:dev"),
 )
 SOURCE_ROOTS = (
     "packages/octocode-engine/src",
-    "packages/octocode-tools-core/src",
+    "packages/octocode-native/src",
     "packages/octocode-config/src",
     "packages/octocode/src",
 )
@@ -52,7 +52,8 @@ SOURCE_FILES = (
     "packages/octocode-engine/Cargo.toml",
     "packages/octocode-engine/build.rs",
     "packages/octocode-engine/package.json",
-    "packages/octocode-tools-core/package.json",
+    "packages/octocode-native/Cargo.toml",
+    "packages/octocode-native/package.json",
     "packages/octocode-config/package.json",
     "packages/octocode/package.json",
     "yarn.lock",
@@ -129,7 +130,7 @@ def _export_fingerprint(package_root: Path) -> tuple[dict[str, str], str]:
 
 def _resolve_core_exports(workspace: Path) -> tuple[Path, dict[str, dict[str, str]]]:
     specs = ["@octocodeai/octocode-core", "@octocodeai/octocode-core/schema", "@octocodeai/octocode-core/mcp"]
-    parent = workspace / "packages/octocode-tools-core/src/index.ts"
+    parent = workspace / "packages/octocode/src/index.ts"
     script = (
         "import {pathToFileURL} from 'node:url';"
         "const parent=pathToFileURL(process.argv[1]).href;"
@@ -142,7 +143,7 @@ def _resolve_core_exports(workspace: Path) -> tuple[Path, dict[str, dict[str, st
         cwd=workspace, text=True, capture_output=True, check=False,
     )
     if result.returncode != 0:
-        raise PreflightError(f"cannot resolve canonical-core exports from tools-core: {result.stderr.strip()}")
+        raise PreflightError(f"cannot resolve canonical-core exports from the CLI workspace: {result.stderr.strip()}")
     try:
         resolved_urls = json.loads(result.stdout)
     except json.JSONDecodeError as exc:

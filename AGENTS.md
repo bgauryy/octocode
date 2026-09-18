@@ -45,13 +45,13 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 ```
  INTERFACES      octocode-mcp  ·  octocode (CLI)  ·  octocode-vscode  ·  octocode-pi-extension
                        └────────────────────────────┴─── depend on ───┐
- BRAIN           @octocodeai/octocode-tools-core   (all tool runners, security, response shaping)
+ BRAIN           @octocodeai/octocode-native       (Rust tool runtime, security, response shaping)
                        ├── contracts ──▶  @octocodeai/octocode-core    (schemas / descriptions / types — sibling repo)
-                       ├── native   ───▶  @octocodeai/octocode-engine  (Rust/napi: ripgrep, AST, LSP, minify, secrets)
+                       ├── primitives ─▶  @octocodeai/octocode-engine  (Rust: ripgrep, AST, LSP, minify, secrets)
                        └── config   ───▶  @octocodeai/config           (env + home — zero-dep, single source)
 ```
 
-**Flow:** A tool call arrives at an interface (MCP stdio or CLI) → handed to tools-core for execution + security → delegates heavy search/parse to engine (Rust/napi) → shapes and returns response. Interface packages only register, configure, and render — zero business logic.
+**Flow:** A tool call arrives at MCP or CLI → the native Rust runtime validates, executes, secures, and shapes it → the interface registers or renders the result. Interfaces contain no tool business logic and have no TypeScript execution fallback.
 
 **Contracts:** Public schemas, descriptions, and instructions live in `@octocodeai/octocode-core` (sibling repo `../octocode-mcp-host/packages/octocode-core`). Import from `…/schema` for names/schemas/relations and `…/mcp` for `buildMcpInstructions` / `buildCliToolContext`. Never hand-write tool guidance in interface packages.
 
@@ -61,14 +61,14 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 
 ## Packages
 
-11 workspace packages + 1 external core. Each has its own `ARCHITECTURE.md` — read it.
+10 workspace packages + 1 external core. Each has its own `ARCHITECTURE.md` — read it.
 
 ### Core stack
 
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | Zero-dep env/config loader. Single source for home, env, protected keys. Used by everything. |
-| [`octocode-tools-core`](packages/octocode-tools-core) | `@octocodeai/octocode-tools-core` | **Brain.** All tool runners, GitHub/Octokit client, security, credentials, session. Tool registry: `src/tools/toolConfig.ts`. |
+| [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain.** Rust runtime for all public tools, providers, security, bulk execution, response shaping, native CLI, and N-API MCP adapter. |
 | [`octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | Rust/napi primitives: ripgrep, AST structural search, LSP pool, minify, secret detection. |
 | [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for the Pi extension: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
 | `@octocodeai/octocode-core` *(external)* | sibling repo | All public tool contracts, schemas, descriptions, examples. Source of truth for what tools exist and how they're described. |
@@ -127,11 +127,11 @@ yarn test · yarn lint · yarn typecheck · yarn verify
 yarn build:native:all · yarn platforms:check
 ```
 
-**End-to-end after engine/tools-core/CLI changes:**
+**End-to-end after engine/native/CLI changes:**
 
 ```bash
 yarn workspace @octocodeai/octocode-engine build:dev
-yarn workspace @octocodeai/octocode-tools-core build
+yarn workspace @octocodeai/octocode-native build:dev
 yarn workspace octocode build:dev        # or: yarn workspace octocode-mcp build:dev
 $OCTO context --compact && $OCTO tools --json
 ```

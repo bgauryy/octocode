@@ -3,7 +3,6 @@ import type { CLICommand } from '../types.js';
 type CommandLoader = () => Promise<CLICommand>;
 
 const commandLoaders: Record<string, CommandLoader> = {
-  install: async () => (await import('./install.js')).installCommand,
   skill: async () => (await import('./skill.js')).skillCommand,
 };
 

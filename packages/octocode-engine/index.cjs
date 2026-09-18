@@ -128,7 +128,7 @@ function loadNativeBinding() {
 // addon from an embedded asset and publish it on globalThis — the only path
 // that works when this loader is inlined into a bundle with no node_modules
 // on disk. The decoration below mutates that same object, so every consumer
-// (loader exports, lsp/security wrappers, tools-core) shares one binding.
+// (loader exports, LSP/security wrappers, native adapters) shares one binding.
 const nativeBinding =
   globalThis.__OCTOCODE_ENGINE_BINDING__ ?? loadNativeBinding();
 

@@ -1,53 +1,20 @@
-import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
-import { EXIT } from './exit-codes.js';
-import {
-  shouldDelegateToNative,
-  resolveNativeBin,
-  delegateToNative,
-} from './native-delegate.js';
-import type { CLICommand, CLICommandSpec } from './types.js';
 import { setRuntimeSurface } from '@octocodeai/config';
+import {
+  findUnknownOptions,
+  printUnknownOptionError,
+} from './command-validation.js';
+import { loadCommand } from './commands/index.js';
+import { findCommandSpec } from './commands/specs.js';
+import { EXIT } from './exit-codes.js';
+import { showCommandHelp } from './help.js';
+import {
+  delegateToNative,
+  resolveNativeBin,
+  shouldDelegateToNative,
+} from './native-delegate.js';
+import { hasHelpFlag, hasVersionFlag, parseArgs } from './parser.js';
 
 declare const __APP_VERSION__: string;
-
-async function loadCommandsModule(): Promise<{
-  loadCommand(name: string): Promise<CLICommand | undefined>;
-  isRegisteredCommand(name: string): boolean;
-}> {
-  return import('./commands/index.js');
-}
-
-async function loadStaticCommandHelpModule(): Promise<{
-  findStaticCommandHelp(name: string): CLICommandSpec | undefined;
-}> {
-  return import('./command-help-specs.js');
-}
-
-async function loadMainHelpModule(): Promise<{
-  showHelp(): Promise<void>;
-}> {
-  return import('./main-help.js');
-}
-
-async function loadHelpModule(): Promise<{
-  showCommandHelp(command: CLICommandSpec): void;
-}> {
-  return import('./help.js');
-}
-
-const KNOWN_TOP_LEVEL_OPTIONS = new Set([
-  'no-color',
-  'help',
-  'version',
-  // Global output modifiers (help FLAGS line). With no command they are no-ops
-  // that fall through to the main help (exit 0) rather than "unknown options".
-  'json',
-  'compact',
-  'brief',
-  'pretty',
-  'minimal',
-  'raw',
-]);
 
 function showVersion(): void {
   const version =
@@ -58,73 +25,51 @@ function showVersion(): void {
 export async function runCLI(argv?: string[]): Promise<boolean> {
   const { maybeWarnAboutStaleBuild } = await import('./stale-build.js');
   maybeWarnAboutStaleBuild();
-
-  // Declare the CLI surface before any config is read: local and clone support
-  // default to enabled here, while still honoring explicit env/file disables.
   setRuntimeSurface('cli');
 
-  const args = parseArgs(argv);
-
-  if (args.options['no-color'] === true) {
-    process.env.NO_COLOR = '1';
-  }
-
-  // Covered commands execute only in the native Rust runtime. `npx octocode`
-  // remains the interface; TypeScript handles only explicit management seams.
   const rawArgv = argv ?? process.argv.slice(2);
+  const args = parseArgs(rawArgv);
+  if (args.options['no-color'] === true) process.env.NO_COLOR = '1';
 
-  // `install` hybrid: native handles flag-only installs (--ide <id>); the TS
-  // interactive prompt path stays in TS so TTY-driven client detection works.
-  // Only delegate once --ide is explicitly present in argv.
-  const installInteractive =
+  // Node owns only skill materialization and the TTY client picker for a bare
+  // install command. Every operation after selection is native-owned.
+  const hasExplicitIde = rawArgv.some(
+    value => value === '--ide' || value.startsWith('--ide=')
+  );
+  const interactiveInstall =
     args.command === 'install' &&
-    !rawArgv.some(a => a === '--ide' || a.startsWith('--ide='));
+    !hasExplicitIde &&
+    !hasHelpFlag(args) &&
+    !hasVersionFlag(args) &&
+    args.options.list !== true &&
+    args.options.json !== true &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true;
+  const nodeOwned = interactiveInstall || !shouldDelegateToNative(args.command);
 
-  if (!installInteractive && shouldDelegateToNative(args.command)) {
+  if (!nodeOwned || interactiveInstall) {
     const bin = resolveNativeBin();
     if (!bin) {
       throw new Error(
         'The native Octocode runtime is unavailable for this platform or installation.'
       );
     }
-    process.exitCode = delegateToNative(bin, rawArgv);
+    if (interactiveInstall) {
+      const { runInteractiveInstall } =
+        await import('./interactive-install.js');
+      process.exitCode = await runInteractiveInstall(bin, rawArgv);
+    } else {
+      process.exitCode = delegateToNative(bin, rawArgv);
+    }
     return true;
   }
 
   if (hasHelpFlag(args)) {
-    if (args.command) {
-      const [{ isRegisteredCommand }, { findStaticCommandHelp }] =
-        await Promise.all([
-          loadCommandsModule(),
-          loadStaticCommandHelpModule(),
-        ]);
-      const registered =
-        isRegisteredCommand(args.command) || args.command === 'context';
-      if (registered) {
-        const helpModule = await loadHelpModule();
-        const staticCommand = findStaticCommandHelp(args.command);
-        if (staticCommand) {
-          helpModule.showCommandHelp(staticCommand);
-          return true;
-        }
-        console.log();
-        console.log(`  Missing command help spec for: ${args.command}`);
-        console.log();
-        process.exitCode = EXIT.TOOL;
-        return true;
-      }
-
-      console.log();
-      console.log(`  Unknown command: ${args.command}`);
-      console.log(`  Run '--help' to see available commands.`);
-      console.log();
-      process.exitCode = EXIT.NOT_FOUND;
+    const spec = args.command ? findCommandSpec(args.command) : undefined;
+    if (spec) {
+      showCommandHelp(spec);
       return true;
     }
-
-    const { showHelp } = await loadMainHelpModule();
-    await showHelp();
-    return true;
   }
 
   if (hasVersionFlag(args)) {
@@ -132,55 +77,15 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     return true;
   }
 
-  if (!args.command) {
-    const unknownOption = Object.keys(args.options).find(
-      option => !KNOWN_TOP_LEVEL_OPTIONS.has(option)
-    );
-    if (unknownOption) {
-      const { suggestFlag } = await import('./command-validation.js');
-      const hint = suggestFlag(unknownOption, KNOWN_TOP_LEVEL_OPTIONS);
-      const suggestion = hint ? ` (did you mean --${hint}?)` : '';
-      console.log();
-      console.log(`  Unknown option: --${unknownOption}${suggestion}`);
-      console.log(`  Run '--help' to see available commands.`);
-      console.log();
-      process.exitCode = EXIT.NOT_FOUND;
-      return true;
-    }
-    return false;
-  }
-
-  const { loadCommand } = await loadCommandsModule();
-  const command = await loadCommand(args.command);
-
+  const command = args.command ? await loadCommand(args.command) : undefined;
   if (!command) {
-    console.log();
-    console.log(`  Unknown command: ${args.command}`);
-    console.log(`  Run '--help' to see available commands.`);
-    console.log();
     process.exitCode = EXIT.NOT_FOUND;
     return true;
   }
 
-  const {
-    findUnknownOptions,
-    printUnknownOptionError,
-    findInvalidNumericOptions,
-  } = await import('./command-validation.js');
   const unknownOptions = findUnknownOptions(command, args);
   if (unknownOptions.length > 0) {
     printUnknownOptionError(command, unknownOptions);
-    process.exitCode = EXIT.USAGE;
-    return true;
-  }
-
-  const badNumeric = findInvalidNumericOptions(args);
-  if (badNumeric.length > 0) {
-    console.log();
-    console.log(
-      `  Invalid numeric value: ${badNumeric.join(', ')} — must be a whole number >= 0.`
-    );
-    console.log();
     process.exitCode = EXIT.USAGE;
     return true;
   }

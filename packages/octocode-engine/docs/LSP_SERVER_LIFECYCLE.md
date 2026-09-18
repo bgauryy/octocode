@@ -11,7 +11,7 @@ For language and feature coverage, see
 | Layer | What it is | Speed | Answers |
 |---|---|---|---|
 | **Tree-sitter / OXC** | parser compiled into the engine | sub-ms/file | *"what does this code look like?"* — outlines, shapes, calls, imports (`structural/`, `signatures/`, `grammar.rs`) |
-| **LSP** | a real language server, spawned over stdio | cold 1–120s, warm <100ms | *"what does this symbol mean?"* — cross-file definition identity, all references, call/type graph (`lsp/client.rs`, `manager.ts`, tools-core `semantic_content/execution.ts`) |
+| **LSP** | a real language server, spawned over stdio | cold 1–120s, warm <100ms | *"what does this symbol mean?"* — cross-file definition identity, all references, call/type graph (`lsp/client.rs`, `manager.ts`, native runtime `semantic_content/execution.ts`) |
 
 These are **not** interchangeable. Tree-sitter cannot resolve a symbol across files, infer a type, or follow an import — that needs a language server.
 

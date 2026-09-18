@@ -655,7 +655,7 @@ export declare const enum PatchLineType {
 /**
  * Cross-platform filesystem traversal and metadata filtering for local tools.
  *
- * Replaces the POSIX `find`/`ls` execution paths in octocode-tools-core while
+ * Replaces the POSIX `find`/`ls` execution paths in octocode-native while
  * keeping MCP response shaping in TypeScript.
  */
 export declare function queryFileSystem(
@@ -932,7 +932,7 @@ export interface RipgrepSearchOptions {
    * (char-boundary safe), marking trimmed sides with `…`. 0/unset = bare span.
    */
   matchWindow?: number;
-  /** Native collection guard distinct from tools-core per-page maxFiles. */
+  /** Native collection guard distinct from native runtime per-page maxFiles. */
   maxCollectedFiles?: number;
 }
 

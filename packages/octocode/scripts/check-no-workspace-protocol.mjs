@@ -26,7 +26,6 @@ const repoRoot = resolve(join(packageRoot, '..', '..'));
 
 const PUBLISHED_PACKAGE_DIRS = [
   'packages/octocode-config',
-  'packages/octocode-tools-core',
   'packages/octocode-mcp',
   'packages/octocode-engine',
   'packages/octocode',

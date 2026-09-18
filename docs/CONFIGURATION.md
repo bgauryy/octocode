@@ -525,7 +525,7 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 
 ### Advanced runtime — env var only
 
-`octocode-tools-core` reads these lower-level knobs directly. They have **no** `.octocoderc` equivalent — set them in your shell or MCP `env` block.
+`octocode-native` reads these lower-level knobs directly. They have **no** `.octocoderc` equivalent — set them in your shell or MCP `env` block.
 
 `storage.mode="memory"` takes precedence over settings that otherwise enable disk caching or stats persistence.
 

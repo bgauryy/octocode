@@ -3,7 +3,7 @@
 This audit covers all 10 public Octocode tools as exposed by the built CLI and
 the MCP stdio server on 2026-09-01. All tools executed successfully. Executable
 input contracts now have one owner, and a committed offline matrix replays every
-tool—including a second continuation page—through tools-core, CLI, and MCP.
+tool—including a second continuation page—through native runtime, CLI, and MCP.
 
 This is a historical snapshot of the 2026-09-01 audit, not production approval.
 Later fixes and verification can supersede its scores and open items. Use
@@ -15,7 +15,7 @@ for acceptance guidance and [`OCTOCODE_TOOLS.md`](https://github.com/bgauryy/oct
 - Catalog: 10 tools.
 - CLI execution: 10 of 10 representative calls succeeded.
 - MCP execution: 10 of 10 representative calls succeeded through stdio.
-- Change-specific contract tests cover tools-core, MCP, and CLI.
+- Change-specific contract tests cover native runtime, MCP, and CLI.
 - Input verdict: strict envelopes and retired-alias rejection are in place.
 - Output verdict: CLI and MCP discovery publish no output schemas. Runtime
   responses retain plain TypeScript contracts and the shared result envelope.
@@ -44,7 +44,7 @@ provider or the completeness of every operation variant.
 | `@octocodeai/octocode-core` | **9.8/10** | Output-types-only surface; redundant 13-entry registry, executable schemas, CLI generator, generated resources, and duplicate skill bundle removed; lint, typecheck, build, and focused surface tests pass | The aligned package has not been published and consumed from npm yet |
 | `octocode-mcp` | **9.8/10** | Exact ten-tool SDK catalog, no output schemas, shared titles/descriptions/input schemas, ten-tool offline execution/continuation parity, real stdio call, full suite and build pass | Live provider drift remains an authenticated smoke concern |
 | `octocode` CLI | **9.8/10** | Exact ten-tool catalog, all ten representative calls pass, local command-spec ownership, ten-tool parity, full suite/build pass, and brief-schema output is 20.5% smaller | Operation-specific runtime shapes and provider drift remain inherent |
-| HTTP MCP host | **9.6/10** | Local canonical five-remote-tool selection, fail-closed catalog guard, 412 tests, lint, and build pass | Requires the aligned tools-core npm release plus deployed authenticated list/call smoke |
+| HTTP MCP host | **9.6/10** | Local canonical five-remote-tool selection, fail-closed catalog guard, 412 tests, lint, and build pass | Requires the aligned native runtime npm release plus deployed authenticated list/call smoke |
 
 ## Complete tool scorecard
 
@@ -67,16 +67,16 @@ output schemas are intentionally not published.
 
 ## Alignment gaps
 
-### P0: Publish the canonical tools-core catalog before enabling the HTTP host
+### P0: Publish the canonical native runtime catalog before enabling the HTTP host
 
 The migrated sibling HTTP host selects the five canonical remote tools directly
-from `@octocodeai/octocode-tools-core`. The latest published package
+from `@octocodeai/octocode-native`. The latest published package
 (`18.1.2`) still exports the retired 15-tool catalog, so the host cannot start
 against npm without reintroducing aliases or duplicated schemas.
 
 Acceptance criteria:
 
-- Publish the aligned 10-tool tools-core package.
+- Publish the aligned 10-tool native runtime package.
 - Update the host dependency and remove the temporary workspace-resolution
   boundary.
 - Run a real authenticated HTTP MCP `tools/list` and one tool invocation.
@@ -91,7 +91,7 @@ for GitHub/npm provider drift; it must not weaken or replace offline CI.
 
 - CLI and MCP discovery no longer publish output schemas or compact output-field
   summaries.
-- Tools-core now owns all executable input schemas, relations, validation, names,
+- The native Rust runtime now owns all executable input schemas, relations, validation, names,
   descriptions, titles, availability, and runtime attachments. An architecture
   test rejects imports from the external core's retired schema/MCP surfaces.
 - `@octocodeai/octocode-core` is output-types only. Its 13-entry
@@ -100,7 +100,7 @@ for GitHub/npm provider drift; it must not weaken or replace offline CI.
 - CLI command-help types and specs now live with the CLI runtime; the retired
   core `/cli` entry point and the stale `clone` help record are gone.
 - The committed ten-tool fixture proves schema identity, success, row errors,
-  whole-call errors, and executable page-two continuations through tools-core,
+  whole-call errors, and executable page-two continuations through native runtime,
   CLI, and MCP.
 - A held-out ten-case routing eval preserved 10/10 correctness and 10 calls while
   reducing schema bytes 16.08%, prompt bytes 79.02%, and total routing bytes
@@ -179,7 +179,7 @@ for GitHub/npm provider drift; it must not weaken or replace offline CI.
   metadata are not repository-search semantics.
 ## Recommended implementation order
 
-1. Publish the aligned tools-core release.
+1. Publish the aligned native runtime release.
 2. Switch the HTTP host from its local workspace boundary to that release.
 3. Run authenticated deployed HTTP catalog and execution smoke checks.
 4. Add isolated model-trajectory trials before claiming routing-accuracy gains.
@@ -196,7 +196,7 @@ The audit used the built monorepo artifacts, not source-only mocks:
   tools with no legacy public names.
 - Requests for each removed tool return an unknown-tool error with exit code 3.
 - The real MCP SDK catalog test lists the same 10 names and no output schemas.
-- The offline parity matrix passes for all 10 tools in tools-core, CLI, and MCP.
+- The offline parity matrix passes for all 10 tools in native runtime, CLI, and MCP.
 - The held-out routing benchmark passes 12 tests and its ACCEPT gates.
 
 Current ownership and verification paths:
@@ -204,17 +204,17 @@ Current ownership and verification paths:
 - `@octocodeai/octocode-core/schema` in the sibling `octocode-mcp-host`
   repository owns the public definitions, schemas, relations, examples, and
   input preparation.
-- `packages/octocode-tools-core/src/tools/directToolCatalog.exec.ts` and
-  `packages/octocode-tools-core/src/tools/toolConfig.ts` attach execution and
+- `packages/octocode-native/src/tools/directToolCatalog.exec.ts` and
+  `packages/octocode-native/src/tools/toolConfig.ts` attach execution and
   runtime availability.
-- `packages/octocode-tools-core/tests/tools/schemaOwnership.architecture.test.ts`
+- `packages/octocode-native/tests/tools/schemaOwnership.architecture.test.ts`
   enforces the ownership boundary.
 - `packages/octocode-mcp/src/tools/toolConfig.ts` and
   `packages/octocode-mcp/tests/scheme/all-tools.schema-contract.test.ts` cover
   MCP selection and schema parity.
 
 For the implementation audited on 2026-09-01, see the pinned
-[`directToolCatalog`](https://github.com/bgauryy/octocode/tree/e9121070fb8988aba0b9cc4b5cfccd7b2190240c/packages/octocode-tools-core/src/tools/directToolCatalog)
+[`directToolCatalog`](https://github.com/bgauryy/octocode/tree/e9121070fb8988aba0b9cc4b5cfccd7b2190240c/packages/octocode-native/src/tools/directToolCatalog)
 and
-[`toolContract`](https://github.com/bgauryy/octocode/tree/e9121070fb8988aba0b9cc4b5cfccd7b2190240c/packages/octocode-tools-core/src/toolContract)
+[`toolContract`](https://github.com/bgauryy/octocode/tree/e9121070fb8988aba0b9cc4b5cfccd7b2190240c/packages/octocode-native/src/toolContract)
 snapshots.

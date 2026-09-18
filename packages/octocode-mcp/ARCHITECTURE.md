@@ -17,7 +17,7 @@ select, sanitize, or execute tools in TypeScript.
   execution, response shaping, sanitization, pagination, and shutdown of tool
   resources.
 
-There is no tools-core fallback or runtime selector. If the native binding is
+There is no TypeScript tool fallback or runtime selector. If the native binding is
 missing or invalid, startup fails closed.
 
 ## Tool registration

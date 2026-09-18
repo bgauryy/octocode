@@ -17,7 +17,7 @@ to code — locally and on GitHub.
                        │ all depend on
 ┌──────────────────────▼──────────────────────────────────┐
 │  BRAIN                                                   │
-│  octocode-tools-core  ← all tool runners live here      │
+│  octocode-native  ← all tool runners live here      │
 │       ├── contracts ── octocode-core  (external sibling) │
 │       ├── native ───── octocode-engine  (Rust/napi)     │
 │       └── config ───── octocode-config                  │
@@ -36,7 +36,7 @@ to code — locally and on GitHub.
 
 `npx octocode` / `npm install -g octocode` / `brew install bgauryy/octocode/octocode`
 
-Thin shell over `octocode-tools-core`. Handles human CLI commands (`search`,
+Thin shell over `octocode-native`. Handles human CLI commands (`search`,
 `files`, `symbols`, `ast`, `graph`, `def`, `refs`, `repos`, `code`, `history`,
 `clone`, `package`, `context`, `auth`, `install`, `skill`), interactive IDE
 management, auth flows, and skill install. Bundled with esbuild into a single
@@ -54,7 +54,7 @@ Registers the full 11-tool catalog (localSearch, localFetch, astSearch,
 lspSearch, ghSearch, ghGetFileContent, ghSearchHistory, ghGetHistoryItem,
 ghCloneRepo, artifactSearch, astRewrite) as MCP tools. Zero business logic —
 lifecycle, security, registration, sanitized output only. All execution
-delegates to `octocode-tools-core`.
+delegates to `octocode-native`.
 
 ---
 
@@ -72,7 +72,7 @@ addon so the MCP/Node path can call into the Rust runtime directly.
 
 ---
 
-### `octocode-tools-core` — npm: `@octocodeai/octocode-tools-core`
+### `octocode-native` — npm: `@octocodeai/octocode-native`
 **The brain. All 11 tool runners live here.**
 
 Never installed by users directly — depended on by `octocode`, `octocode-mcp`,
@@ -84,12 +84,12 @@ shaping. Delegates home/env to `@octocodeai/config`, native primitives to
 ---
 
 ### `octocode-engine` — npm: `@octocodeai/octocode-engine`
-**Rust/napi primitives consumed by tools-core.**
+**Rust/napi primitives consumed by native runtime.**
 
 Not a user-facing package. Provides the fast Rust implementations of: ripgrep
 search, AST structural search (tree-sitter), context minification, secret
 detection, and an LSP client pool (definition, references, hover, callers,
-types, diagnostics). Built as a `.node` napi addon, consumed by tools-core via
+types, diagnostics). Built as a `.node` napi addon, consumed by native runtime via
 `require()`. Platform packages: `@octocodeai/octocode-engine-darwin-arm64`
 etc.
 
@@ -174,7 +174,7 @@ skill. Lives in `packages/octocode-benchmark/`. Raises the bar, does not ship.
 | `octocode` | `octocode` | ✅ v19.2.0 | Main Node CLI |
 | `octocode-mcp` | `octocode-mcp` | ✅ v19.2.0 | MCP server |
 | `octocode-native` | `@octocodeai/octocode-native` | 🔜 v0.1.0 | Native CLI — see [PUBLISHING.md](../packages/octocode-native/docs/PUBLISHING.md) |
-| `octocode-tools-core` | `@octocodeai/octocode-tools-core` | ✅ v19.2.0 | Brain |
+| `octocode-native` | `@octocodeai/octocode-native` | ✅ v19.2.0 | Brain |
 | `octocode-engine` | `@octocodeai/octocode-engine` | ✅ v19.2.0 | Rust/napi engine |
 | `octocode-config` | `@octocodeai/config` | ✅ v20.0.0 | Config loader |
 | `octocode-awareness` | `@octocodeai/octocode-awareness` | ✅ v2.1.0 | Agent coordination |
@@ -188,10 +188,10 @@ skill. Lives in `packages/octocode-benchmark/`. Raises the bar, does not ship.
 
 ## Key rules
 
-- **Tool execution** lives only in `octocode-tools-core`. Never duplicate in interface packages.
+- **Tool execution** lives only in `octocode-native`. Never duplicate in interface packages.
 - **Config/env** flows only through `@octocodeai/config`. Never reimplement `getOctocodeHome`.
 - **Contracts** (tool names, schemas, descriptions) live in the external sibling `@octocodeai/octocode-core`. Import from there, don't hand-write.
-- **Native primitives** live in `octocode-engine` (consumed by tools-core) or `octocode-extension-rust` (consumed by Pi extension only). Never duplicate Rust logic.
+- **Native primitives** live in `octocode-engine` (consumed by native runtime) or `octocode-extension-rust` (consumed by Pi extension only). Never duplicate Rust logic.
 - **Skill install** logic lives in `octocode-skill-installer` — both CLI and Awareness bundle it.
 
 ## Related

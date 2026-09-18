@@ -384,7 +384,7 @@ client must retain. Removed compatibility names are rejected.
 | `skill` | Installs bundled Agent Skills locally; no MCP transport required. |
 
 The code boundary is intentionally thin:
-- `@octocodeai/octocode-tools-core` owns tool schemas, descriptions, and execution logic.
+- `@octocodeai/octocode-native` owns tool schemas, descriptions, and execution logic.
 - `@octocodeai/octocode-core` supplies reusable output types.
 - `@octocodeai/octocode-engine` owns native primitives (minify, structural search, LSP, secret scanning).
 - `octocode` renders commands in a terminal.

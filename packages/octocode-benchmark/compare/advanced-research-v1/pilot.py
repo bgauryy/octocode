@@ -656,7 +656,7 @@ def runtime_manifest(root):
 
 
 def fingerprint(cli):
-    packages = ["packages/octocode/src", "packages/octocode-tools-core/src",
+    packages = ["packages/octocode/src", "packages/octocode-native/src",
                 "packages/octocode-engine/src", "packages/octocode-config/src",
                 "packages/octocode-pi-extension/src/contracts",
                 "packages/octocode-awareness/src", "yarn.lock"]
@@ -671,8 +671,8 @@ def fingerprint(cli):
         if directory.exists():
             result["engineRuntime:" + directory.name] = runtime_manifest(directory)
     core = WORKSPACE.parent / "octocode-mcp-host/packages/octocode-core"
-    tools_core_dist = WORKSPACE / "packages/octocode-tools-core/dist"
-    result["toolsCoreRuntimeFiles"] = runtime_manifest(tools_core_dist)
+    native_runtime = WORKSPACE / "packages/octocode-native"
+    result["nativeRuntimeFiles"] = runtime_manifest(native_runtime / "npm")
     if core.exists():
         result["siblingCoreSourceFiles"] = source_manifest(core, ["src"])
         for name in ("out", "dist"):

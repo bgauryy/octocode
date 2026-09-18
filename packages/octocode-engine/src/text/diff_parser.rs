@@ -1,6 +1,6 @@
 /// Unified diff parser and filter.
 ///
-/// Replaces `utils/parsers/diff.ts` in octocode-tools-core which called
+/// Replaces `utils/parsers/diff.ts` in octocode-native which called
 /// `patch.split('\n')` independently in both `filterPatch` and `trimDiffContext`,
 /// allocating the line array twice per invocation. This module processes a diff
 /// in a single pass combining both operations.

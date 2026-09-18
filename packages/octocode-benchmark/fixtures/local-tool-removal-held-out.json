@@ -29,7 +29,7 @@
       "timingsAreObservational": true
     },
     "heldOut": "cases",
-    "decisionRule": "ACCEPT only when every held-out behavior assertion and guardrail passes, both retired names are rejected, and no legacy export or runner module is present in tools-core source or built output. Timing is diagnostic only and is not used to claim a speedup."
+    "decisionRule": "ACCEPT only when every held-out behavior assertion and guardrail passes, both retired names are rejected, and no legacy export or runner module is present in the native runtime source or built output. Timing is diagnostic only and is not used to claim a speedup."
   },
   "publicSurface": {
     "tools": ["localSearch", "astSearch", "localFetch", "lspSearch"]

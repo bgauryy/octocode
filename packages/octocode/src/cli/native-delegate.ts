@@ -1,40 +1,15 @@
-// Native-delegation seam: run the compiled Rust `octocode` binary
-// (packages/octocode-native, backed by octocode-engine) under the hood while
-// keeping `npx octocode` as the entry point.
-//
-// The goal is to make this Node package a thin interface over the native
-// runtime. Full removal of the TypeScript implementation is blocked only by a
-// few management commands the native binary does not (yet) own, so those stay
-// on the TS path — see TS_ONLY_COMMANDS. Everything else can be delegated.
-//
-// Native execution is the default and only implementation path for covered
-// commands. The TypeScript path remains solely for the explicitly listed
-// management commands that do not execute public tools.
+// Thin Node-to-Rust delegation boundary. Public tools and flag-only management
+// commands execute in the compiled native CLI; Node retains only interactive
+// installation and skill materialization.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync } from 'node:fs';
 
 /**
- * Commands the native binary does NOT cover and that therefore stay on the
- * TypeScript implementation:
- *   - `skill`: native's `skill` command spawns `octocode skill` (this Node CLI),
- *      so it MUST stay TS — delegating it would infinitely re-enter native.
- *      Skill materialization is owned by @octocodeai/octocode-skill-installer.
- *      BLOCKED on concurrent pi-extension skill refactor landing.
- *
- * Graduated commands (no longer TS-only):
- *   - `lsp-server`: native now covers list/install/uninstall/clean/status/which.
- *   - `install --ide <id>`: native handles flag-only install for all formats
- *      (JSON, codex TOML, goose YAML). Interactive mode (no --ide, TTY) stays
- *      in TS which prompts and then calls the native write path. The delegation
- *      check in index.ts gates on --ide presence so interactive mode is never
- *      accidentally forwarded to native.
- *
- * Note: there is no `sync` command — MCP sync analysis is exposed via
- * `status --sync`, which native now supports at byte parity, so `status`
- * delegates freely.
+ * `skill` remains in Node because the native command intentionally invokes this
+ * launcher for shared skill materialization. Delegating it would recurse.
  */
-export const TS_ONLY_COMMANDS: ReadonlySet<string> = new Set(['skill']);
+export const NODE_OWNED_COMMANDS: ReadonlySet<string> = new Set(['skill']);
 
 /**
  * Resolve the native `octocode` binary (or its platform-selecting launcher),
@@ -66,8 +41,8 @@ export function shouldDelegateToNative(
   command: string | null | undefined,
   _env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  if (!command) return false;
-  if (TS_ONLY_COMMANDS.has(command)) return false;
+  if (!command) return true;
+  if (NODE_OWNED_COMMANDS.has(command)) return false;
   return true;
 }
 

@@ -83,8 +83,7 @@ Therefore these lanes are unavailable or invalid here:
 - Container-backed isolation: no Docker or Podman.
 
 The workspace CLI originally identified itself as `octocode v19.1.0`, but its artifact
-predated current benchmark-relevant sources. The engine build was refreshed, but tools-core
-and CLI rebuild are intentionally blocked until the local sibling core resolution is
+predated current benchmark-relevant sources. The engine build was refreshed, but native runtime and CLI rebuild are intentionally blocked until the local sibling core resolution is
 authorized; no stale CLI result is a candidate comparison result.
 
 Commands:

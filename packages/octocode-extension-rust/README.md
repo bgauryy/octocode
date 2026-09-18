@@ -6,7 +6,7 @@ boundary used by the Octocode Pi extension and Awareness local history.
 It provides bounded snapshots, atomic file replacement, deletion receipts,
 private directory creation, line diffs, Awareness evidence fingerprints, and
 verified loose Git object reads. It is separate from the research engine and
-does not depend on Pi, tools-core, or the MCP server.
+does not depend on Pi, the Node launcher, or the MCP server.
 
 Prebuilt addons are distributed through platform-specific optional packages.
 Consumers should install the root package and allow its loader to select the

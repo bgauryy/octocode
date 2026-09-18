@@ -1,7 +1,7 @@
 # Extension native boundary
 
 The extension calls a narrow N-API library. Filesystem and asynchronous diff work
-run on libuv worker threads; no subprocess service, Pi SDK, tools-core, or engine
+run on libuv worker threads; no subprocess service, Pi SDK, Node tool runtime, or engine
 dependency enters this package. A small synchronous diff entry point supports UI
 callers; expensive callers should use `computeLineDiffAsync`. Edit preparation
 uses `generateDiffArtifactsAsync` to compute and format both diff and patch in a

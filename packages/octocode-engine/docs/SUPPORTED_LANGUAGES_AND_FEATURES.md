@@ -35,7 +35,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | **Data/markup (structural, no functions):** CSS/SCSS, HTML, JSON/JSONC, SQL, YAML | `css` `scss` `htm` `html` `json` `jsonc` `sql` `yaml` `yml` | ✅ representative fixtures | CSS, SCSS, HTML, and SQL have direct pattern fixtures. HTML `<$TAG>` covers ordinary, script, style, and self-closing start tags while excluding tag-shaped raw text. The inventory matrix also exercises representative whole-source patterns for JSON and YAML. Unknown YAML-rule node kinds fail at compile time |
 
 The default build registers **42 extensions across 21 grammar families**.
-`packages/octocode-tools-core/tests/tools/localGrammarMatrix.test.ts` exercises
+`packages/octocode-native/tests/tools/localGrammarMatrix.test.ts` exercises
 the full extension inventory through public tools. Its cases cover
 representative syntax, views, and continuations; they do not prove every grammar
 construct or minification transformation correct.
@@ -136,7 +136,7 @@ Pagination continuations carry a result snapshot. Execute the returned `next`
 query unchanged. If the result set or query changes between pages, the tool
 returns `paginationChanged` and a restart query, without stale page rows.
 
-Production acceptance tests live in tools-core:
+Production acceptance tests live in native runtime:
 `tests/tools/lsp/routeMatrix.test.ts` checks all 43 extension routes, uppercase
 extensions, and types without built-in routes; `productionMatrix.test.ts`
 checks all 13 operations, missing servers, startup failures, missing capabilities,
@@ -171,7 +171,7 @@ Run the package tests with these commands:
 ```bash
 yarn workspace @octocodeai/octocode-engine test:rust
 yarn workspace @octocodeai/octocode-engine test
-yarn workspace @octocodeai/octocode-tools-core test
+yarn workspace @octocodeai/octocode-native test
 ```
 
 ## `localSearch` lexical search (ripgrep-backed)

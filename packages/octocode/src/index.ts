@@ -1,20 +1,9 @@
 import { dim } from './utils/colors.js';
 import { terminateForSignal } from './cli/process-lifecycle.js';
 
-async function showTopLevelHelp(): Promise<void> {
-  const { showHelp } = await import('./cli/main-help.js');
-  showHelp();
-}
-
 async function main(): Promise<void> {
   const { runCLI } = await import('./cli/index.js');
-  const handled = await runCLI();
-
-  if (handled) {
-    return;
-  }
-
-  await showTopLevelHelp();
+  await runCLI();
 }
 
 process.on('SIGINT', () => terminateForSignal('SIGINT'));
