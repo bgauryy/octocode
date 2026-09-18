@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -31,19 +32,40 @@ describe('consolidated native distribution', () => {
     expect(engineAddons.some(name => name.startsWith('octocode-native.'))).toBe(false);
   });
 
-  it('preserves root, runtime, legacy, and compatibility identities', () => {
+  it('preserves root, runtime, legacy-loader, and engine identities', () => {
     const root = require(resolve(packageRoot));
     const runtime = require(resolve(packageRoot, 'js/runtime.cjs'));
     const legacy = require(resolve(packageRoot, 'native.cjs'));
     const engine = require(resolve(packageRoot, 'js/engine.cjs'));
-    const compatibility = require(resolve(packageRoot, '../octocode-engine'));
 
     expect(root.NativeRuntime).toBe(runtime.NativeRuntime);
     expect(legacy.NativeRuntime).toBe(runtime.NativeRuntime);
+    expect(engine.minifyContent).toBeTypeOf('function');
+    expect(existsSync(resolve(packageRoot, '../octocode-engine'))).toBe(false);
     const runtimeInstance = new runtime.NativeRuntime();
     expect(runtimeInstance.abiVersion).toBe(2);
     runtimeInstance.close();
-    expect(compatibility.minifyContent).toBe(engine.minifyContent);
+  });
+
+  it('loads the exact staged host addons and verifies Darwin signatures', () => {
+    const { getPlatformSuffix } = require(resolve(packageRoot, 'bin/platform.cjs')) as {
+      getPlatformSuffix(): string;
+    };
+    const suffix = getPlatformSuffix();
+    const runtimePath = resolve(packageRoot, 'npm', suffix, `octocode-native.${suffix}.node`);
+    const enginePath = resolve(packageRoot, 'npm', suffix, `octocode-engine.${suffix}.node`);
+
+    for (const addonPath of [runtimePath, enginePath]) {
+      expect(existsSync(addonPath)).toBe(true);
+      expect(() => require(addonPath)).not.toThrow();
+      if (process.platform === 'darwin') {
+        expect(() => execFileSync('codesign', ['--verify', '--strict', addonPath])).not.toThrow();
+      }
+    }
+    const runtime = require(runtimePath) as { NativeRuntime: new () => { abiVersion: number; close(): void } };
+    const instance = new runtime.NativeRuntime();
+    expect(instance.abiVersion).toBe(2);
+    instance.close();
   });
 
   it('declares four-artifact platform contracts', () => {

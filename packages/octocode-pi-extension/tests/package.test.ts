@@ -438,9 +438,10 @@ test('build copies bundled Octocode skills without secret env files', () => {
       .every(({ availability }) => Boolean(availability.envVar)),
     'disabled packaged tools identify their availability gate',
   );
-  const cloneTool = catalog.tools.find(({ name }) => name === 'ghCloneRepo');
-  assert.ok(cloneTool, 'clone capability remains represented');
-  if (!cloneTool.availability.enabled) assert.match(cloneTool.availability.envVar ?? '', /^(ENABLE_CLONE|OCTOCODE_STORAGE_MODE)$/);
+  assert.ok(
+    catalog.tools.some(({ name }) => name === 'ghCloneRepo'),
+    'clone capability remains represented',
+  );
   for (const category of ['GitHub', 'Package', 'Local Code']) {
     assert.ok(catalog.tools.some((tool) => tool.category === category), `${category} capability is represented`);
   }

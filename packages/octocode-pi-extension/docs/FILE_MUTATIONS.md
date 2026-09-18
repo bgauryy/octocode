@@ -3,7 +3,7 @@
 ## Ownership
 
 `@octocodeai/octocode-extension-rust` is the extension's dedicated native package.
-It has no dependency on the research tools' `octocode-engine`, Pi, the agent host,
+It has no dependency on the research engine addon in `@octocodeai/octocode-native`, Pi, the agent host,
 or a database service. Filesystem algorithms are adapted from the local
 `octocode-agent` Rust filesystem service; host contracts are not copied.
 

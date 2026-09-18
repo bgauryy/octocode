@@ -194,7 +194,7 @@ function sourceFiles(root) {
 
 function importedPackageNames(source) {
   const names = new Set();
-  const pattern = /(?:\bfrom\s*|\bimport\s*\(|\brequire\s*\()\s*['"]([^'".][^'"]*)['"]/g;
+  const pattern = /(?:\bfrom\s*|\bimport\s+|\bimport\s*\(|\brequire\s*\()\s*['"]([^'".][^'"]*)['"]/g;
   for (const match of source.matchAll(pattern)) {
     const specifier = match[1];
     const segments = specifier.split('/');
@@ -219,7 +219,7 @@ function checkDeclaredInternalImports(workspaces) {
           !declared.has(importedName)
         ) {
           failures.push(
-            `${relative(ROOT, filePath)} imports undeclared workspace package ${importedName}`
+            `${path.relative(ROOT, filePath)} imports undeclared workspace package ${importedName}`
           );
         }
       }

@@ -329,6 +329,7 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
             Some("lsp_rust_context") => validate_lsp_queries(input),
             Some("jev_reasoning") => validate_jev_queries(input),
+            Some("jev_scout") => validate_jev_scout_queries(input),
             Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
             Some("history_content_selection") => validate_history_content_selection(input),
             Some(opcode) => {
@@ -472,6 +473,86 @@ fn validate_ast_rewrite_rules(input: &Value) -> Result<(), ContractValidationErr
                     "ast-rewrite.experimental-rewrite",
                     vec!["queries".into(), index.to_string(), "transform".into()],
                     "experimental rules require a rewrite transformation",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+// jevScout cross-field rules the JSON schema cannot express: source exclusivity,
+// exactly one primary dimension with unique keys, the 24-question budget, and
+// no absolute candidate paths. Mirrors the core contract's superRefine; the
+// tool re-validates fail-closed at execution.
+fn validate_jev_scout_queries(input: &Value) -> Result<(), ContractValidationError> {
+    for (index, query) in query_values(input) {
+        let source = &query["source"];
+        let local = source.get("local");
+        let items = source.get("items");
+        if local.is_some() == items.is_some() {
+            return Err(issue(
+                "jevScout.source",
+                vec!["queries".into(), index.to_string(), "source".into()],
+                "source requires exactly one of local or items".to_string(),
+            ));
+        }
+        let pool_len = local
+            .and_then(|l| l.get("candidates"))
+            .or(items)
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        if let Some(candidates) = local
+            .and_then(|l| l.get("candidates"))
+            .and_then(Value::as_array)
+        {
+            for candidate in candidates {
+                if candidate
+                    .as_str()
+                    .is_some_and(|path| path.starts_with('/') || path.starts_with('~'))
+                {
+                    return Err(issue(
+                        "jevScout.candidates",
+                        vec![
+                            "queries".into(),
+                            index.to_string(),
+                            "source".into(),
+                            "local".into(),
+                            "candidates".into(),
+                        ],
+                        "candidate paths must be root-relative, not absolute".to_string(),
+                    ));
+                }
+            }
+        }
+        if let Some(dimensions) = query.get("dimensions").and_then(Value::as_array) {
+            let primaries = dimensions
+                .iter()
+                .filter(|d| d.get("role").and_then(Value::as_str) == Some("primary"))
+                .count();
+            if primaries != 1 {
+                return Err(issue(
+                    "jevScout.dimensions",
+                    vec!["queries".into(), index.to_string(), "dimensions".into()],
+                    "dimensions require exactly one primary".to_string(),
+                ));
+            }
+            let mut keys = std::collections::HashSet::new();
+            if !dimensions
+                .iter()
+                .filter_map(|d| d.get("key").and_then(Value::as_str))
+                .all(|key| keys.insert(key))
+            {
+                return Err(issue(
+                    "jevScout.dimensions",
+                    vec!["queries".into(), index.to_string(), "dimensions".into()],
+                    "dimension keys must be unique".to_string(),
+                ));
+            }
+            if pool_len * dimensions.len() > 24 {
+                return Err(issue(
+                    "jevScout.dimensions",
+                    vec!["queries".into(), index.to_string(), "dimensions".into()],
+                    "candidates x dimensions must not exceed 24 questions".to_string(),
                 ));
             }
         }

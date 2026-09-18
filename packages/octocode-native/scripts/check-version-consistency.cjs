@@ -29,12 +29,4 @@ for (const suffix of readdirSync(join(root, 'npm'))) {
   if (platform.version !== version) fail(`${platform.name} is ${platform.version}, expected ${version}`);
 }
 
-const compatibility = json(join(root, '..', 'octocode-engine', 'package.json'));
-if (compatibility.version !== version) {
-  fail(`compatibility package is ${compatibility.version}, expected ${version}`);
-}
-if (compatibility.dependencies?.[pkg.name] !== version) {
-  fail(`compatibility dependency must pin ${pkg.name}@${version}`);
-}
-
 console.log(`version:check ok: consolidated distribution is ${version}`);

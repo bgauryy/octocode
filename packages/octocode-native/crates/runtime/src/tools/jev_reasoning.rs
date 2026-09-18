@@ -81,7 +81,7 @@ fn deterministic_gate(query: &Value) -> Option<Value> {
     })
 }
 
-fn endpoint(base_url: &str) -> Result<Url, JevProviderError> {
+pub(crate) fn endpoint(base_url: &str) -> Result<Url, JevProviderError> {
     let base = Url::parse(base_url).map_err(|_| {
         JevProviderError::new(
             "invalidJevConfiguration",
@@ -179,7 +179,7 @@ fn transport_error() -> JevProviderError {
     )
 }
 
-async fn post(
+pub(crate) async fn post(
     request: &Value,
     key: &SecretString,
     endpoint: Url,

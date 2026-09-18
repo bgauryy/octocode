@@ -334,7 +334,7 @@ impl ToolRuntime {
                 tool,
                 "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch"
             );
-        let jev = tool == "jevReasoning"
+        let jev = matches!(tool, "jevReasoning" | "jevScout")
             && self
                 .config
                 .env_value("OCTOCODE_JEV_KEY")
@@ -621,6 +621,39 @@ impl ToolRuntime {
                             {
                                 Ok(data) => {
                                     super::session_stats::record_jev(&home, stats_enabled, &data);
+                                    super::dispatch::value_result(data)
+                                }
+                                Err(error) => super::dispatch::provider_failure(
+                                    error.message,
+                                    error.code,
+                                    error.hints,
+                                ),
+                            }
+                        })
+                    } else if tool == "jevScout" {
+                        let _enter = handle.enter();
+                        context.check()?;
+                        let Some(key) = jev_key.clone() else {
+                            return Err(ExecutionError::WorkerFailed);
+                        };
+                        let configured_deadline = Instant::now() + jev_timeout;
+                        let deadline = context.deadline.min(configured_deadline);
+                        handle.block_on(async {
+                            match crate::tools::jev_scout::execute(
+                                query,
+                                key,
+                                &jev_base_url,
+                                &jev_model,
+                                crate::tools::jev_reasoning::budget(
+                                    deadline,
+                                    context.cancellation.clone(),
+                                ),
+                                jev_retries,
+                            )
+                            .await
+                            {
+                                Ok(data) => {
+                                    super::session_stats::record_scout(&home, stats_enabled, &data);
                                     super::dispatch::value_result(data)
                                 }
                                 Err(error) => super::dispatch::provider_failure(

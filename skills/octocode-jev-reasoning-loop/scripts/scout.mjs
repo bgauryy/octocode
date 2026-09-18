@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // scout.mjs — batched Jev scout: rank which candidate files the host should READ.
 //
+// STATUS: reference implementation and skills-only fallback. The production
+// path is the native `jevScout` tool (octocode-core contract + crates/runtime
+// tools/jev_scout.rs — see .octocode/rfc/jev-scout-production/). This file is
+// the parity source of truth: the native port must reproduce its verdicts
+// row-for-row on the frozen suites before any interface exposure.
+//
 // The host (System-2) supplies a capability claim, anchor patterns, and candidate
 // files; the scout locates ALL anchor-matched spans per candidate server-side
 // (sandboxed, redacted, bounded), sends ONE Jev request with a per-candidate

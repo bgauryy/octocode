@@ -80,6 +80,67 @@ pub fn record_jev(home: &Path, enabled: bool, payload: &Value) {
     }
 }
 
+/// Record one jevScout per-query payload into `<home>/stats.json`.
+/// Aggregates calls, billed tokens, and the action split so classic+jev
+/// accounting can attribute avoided reads (skips) per session.
+pub fn record_scout(home: &Path, enabled: bool, payload: &Value) {
+    if !enabled {
+        return;
+    }
+    let Some(results) = payload.get("results").and_then(Value::as_object) else {
+        return;
+    };
+    let count = |action: &str| {
+        results
+            .values()
+            .filter(|row| row.get("action").and_then(Value::as_str) == Some(action))
+            .count() as u64
+    };
+    let usage = payload.get("usage");
+    let token = |key: &str| {
+        usage
+            .and_then(|u| u.get(key))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
+
+    let path = home.join("stats.json");
+    let mut root: Value = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({ "version": 1, "stats": {} }));
+    let Some(root_map) = root.as_object_mut() else {
+        return;
+    };
+    let stats = root_map.entry("stats").or_insert_with(|| json!({}));
+    if !stats.is_object() {
+        *stats = json!({});
+    }
+    let scout = stats
+        .as_object_mut()
+        .expect("stats normalized to object")
+        .entry("jevScout")
+        .or_insert_with(|| json!({}));
+    if !scout.is_object() {
+        *scout = json!({});
+    }
+    let scout_map = scout.as_object_mut().expect("scout normalized to object");
+    bump(scout_map, "calls", 1);
+    bump(scout_map, "input_tokens", token("input_tokens"));
+    bump(scout_map, "output_tokens", token("output_tokens"));
+    bump(scout_map, "reads", count("read"));
+    bump(scout_map, "skips", count("skip"));
+    bump(scout_map, "gray_reads", count("gray_read"));
+
+    let tmp = path.with_extension("json.tmp");
+    if let Ok(serialized) = serde_json::to_string_pretty(&root)
+        && fs::write(&tmp, serialized).is_ok()
+    {
+        let _ = fs::rename(&tmp, &path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +181,41 @@ mod tests {
         record_jev(dir.path(), false, &payload("judgment", Some((1, 1)), false));
         record_jev(dir.path(), true, &json!({ "unrelated": true }));
         assert!(!dir.path().join("stats.json").exists());
+    }
+
+    #[test]
+    fn records_scout_action_split_and_usage() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let scout = json!({
+            "status": "scouted",
+            "results": {
+                "a.rs": { "action": "read" },
+                "b.rs": { "action": "skip" },
+                "c.rs": { "action": "skip" },
+                "d.rs": { "action": "gray_read" }
+            },
+            "usage": { "input_tokens": 900, "output_tokens": 40 }
+        });
+        record_scout(dir.path(), true, &scout);
+        record_scout(dir.path(), true, &scout);
+        record_scout(dir.path(), false, &scout); // disabled: ignored
+        let stats: Value = serde_json::from_str(
+            &fs::read_to_string(dir.path().join("stats.json")).expect("stats written"),
+        )
+        .expect("valid json");
+        let scout_stats = &stats["stats"]["jevScout"];
+        assert_eq!(scout_stats["calls"], 2);
+        assert_eq!(scout_stats["input_tokens"], 1800);
+        assert_eq!(scout_stats["reads"], 2);
+        assert_eq!(scout_stats["skips"], 4);
+        assert_eq!(scout_stats["gray_reads"], 2);
+        // resultless payloads write nothing new
+        record_scout(dir.path(), true, &json!({ "unrelated": true }));
+        let again: Value = serde_json::from_str(
+            &fs::read_to_string(dir.path().join("stats.json")).expect("stats"),
+        )
+        .expect("valid json");
+        assert_eq!(again["stats"]["jevScout"]["calls"], 2);
     }
 
     #[test]

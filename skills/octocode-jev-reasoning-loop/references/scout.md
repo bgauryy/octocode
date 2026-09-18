@@ -60,6 +60,14 @@ is evaluating them; policy changes require a fresh held-out confirmation
 pre-suite gave C=0.37× read-everything, 0.49× lexical prefilter, zero
 false-skips across TypeScript and Rust, Brier 0.001).
 
+## Production path
+
+When the native `jevScout` tool is available (MCP/CLI catalogs list it; requires
+`OCTOCODE_JEV_KEY`), prefer it — same contract, native redaction and sandbox.
+`scripts/scout.mjs` remains the reference implementation, the skills-only
+fallback, and the row-for-row parity source for the native port
+(`.octocode/rfc/jev-scout-production/`).
+
 ## Run
 
 ```sh

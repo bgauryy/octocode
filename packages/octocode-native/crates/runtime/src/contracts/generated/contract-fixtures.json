@@ -2564,6 +2564,140 @@
     }
   },
   {
+    "id": "jevScout.curated-1",
+    "tool": "jevScout",
+    "input": {
+      "reasoning": "Use jevScout for the local file scout example.",
+      "claim": "owns the redirect policy that refuses 3xx",
+      "source": {
+        "local": {
+          "root": ".",
+          "candidates": [
+            "src/redirect.ts",
+            "src/policy.ts"
+          ],
+          "anchors": [
+            "redirect",
+            "Policy"
+          ]
+        }
+      },
+      "dimensions": [
+        {
+          "key": "relevance",
+          "role": "primary",
+          "levels": [
+            {
+              "level": "owns",
+              "meaning": "This file implements the capability."
+            },
+            {
+              "level": "related",
+              "meaning": "This file references the capability."
+            },
+            {
+              "level": "unrelated",
+              "meaning": "This file is unrelated to the claim."
+            }
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute jevScout via fixture",
+          "reasoning": "Use jevScout for the local file scout example.",
+          "debug": false,
+          "claim": "owns the redirect policy that refuses 3xx",
+          "source": {
+            "local": {
+              "root": ".",
+              "candidates": [
+                "src/redirect.ts",
+                "src/policy.ts"
+              ],
+              "anchors": [
+                "redirect",
+                "Policy"
+              ],
+              "window": 6,
+              "spanBudget": 3000
+            }
+          },
+          "dimensions": [
+            {
+              "key": "relevance",
+              "role": "primary",
+              "levels": [
+                {
+                  "level": "owns",
+                  "meaning": "This file implements the capability."
+                },
+                {
+                  "level": "related",
+                  "meaning": "This file references the capability."
+                },
+                {
+                  "level": "unrelated",
+                  "meaning": "This file is unrelated to the claim."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "jevScout.curated-2",
+    "tool": "jevScout",
+    "input": {
+      "reasoning": "Use jevScout for the pre-fetched item scout example.",
+      "claim": "fixes the redirect policy regression",
+      "source": {
+        "items": [
+          {
+            "id": "PR-1",
+            "content": "Title and body describing the redirect fix.",
+            "source": "octocode/octocode#1"
+          },
+          {
+            "id": "PR-2",
+            "content": "Unrelated documentation update.",
+            "source": "octocode/octocode#2"
+          }
+        ]
+      }
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute jevScout via fixture",
+          "reasoning": "Use jevScout for the pre-fetched item scout example.",
+          "debug": false,
+          "claim": "fixes the redirect policy regression",
+          "source": {
+            "items": [
+              {
+                "id": "PR-1",
+                "content": "Title and body describing the redirect fix.",
+                "source": "octocode/octocode#1"
+              },
+              {
+                "id": "PR-2",
+                "content": "Unrelated documentation update.",
+                "source": "octocode/octocode#2"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
     "id": "local-fetch.default",
     "tool": "localFetch",
     "input": {
