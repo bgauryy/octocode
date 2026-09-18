@@ -4,7 +4,7 @@
  * Pi's published types define host contracts; local interfaces describe
  * Octocode's tool results, runtime state, and UI projections.
  */
-import type { PromptMode } from '@octocodeai/agent-contracts/protocols';
+import type { PromptMode } from './contracts/protocols.js';
 
 import type {
   BuildSystemPromptOptions as PiBuildSystemPromptOptions,
@@ -326,7 +326,7 @@ export interface PiContext {
     complete?(
       model: PiModel,
       context: { systemPrompt?: string; messages: Array<{ role: 'user'; content: string; timestamp: number }> },
-      options?: { signal?: AbortSignal },
+      options?: { signal?: AbortSignal; maxTokens?: number; temperature?: number },
     ): Promise<unknown>;
   };
 }

@@ -1,250 +1,203 @@
 import {
   ROUTINE_AWARENESS_OPERATIONS,
-  getAwarenessCommandDescriptor,
   getAwarenessOperationDescriptor,
-  type AwarenessCommandEffect,
   type AwarenessExecutableCall,
 } from '@octocodeai/octocode-awareness';
 import { z } from 'zod';
 import type { PiContext, PiInstance, PiTheme, ToolCallResult } from '../types.js';
+import { truncateToWidth } from '../tui/width.js';
+import { paint } from '../tui/palette.js';
 import { DIRECT_TOOL_DESCRIPTIONS, type registerUniqueTool } from './octocode-tools.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
-import { nativeContinuations } from './awareness-continuations.js';
 import { awarenessWriteReceipt } from './awareness-output.js';
 import { buildAwarenessContext } from './awareness-context.js';
 import { assertPersistentAwarenessEnabled } from './storage-policy.js';
 import { requestApproval } from './approval.js';
 import {
-  runAwarenessCommand,
-  type AwarenessCommandRunner,
-} from './awareness-command-runner.js';
+  runAwarenessOperation,
+  type AwarenessOperationRunner,
+} from './awareness-operation-runner.js';
 import { makeComponentRenderer } from './render-helpers.js';
-import { compileMcpSchemaValidator } from './mcp/schema-validator.js';
-import { truncateToWidth } from '../tui/width.js';
-import { paint } from '../tui/palette.js';
 import {
   AWARENESS_OUTPUT_MAX_CHARS,
-  RESERVED_PARAMS,
-  STIER_HINT,
-  approvalRequest,
   boundedOutput,
-  describeCommand,
-  listCommands,
-  markLegacyContinuationEnvelopes,
-  nativeInputSchema,
   nativeOperationContinuations,
   record,
   result,
   routineApproval,
-  routineEffect,
   validateRoutineParams,
 } from './awareness-tool-protocol.js';
 
 type RegisterFn = typeof registerUniqueTool;
+const NATIVE_HISTORY_READ_CHUNK_BYTES = 6 * 1024;
+export const AWARENESS_CONTRACT_MAX_UTF8_BYTES = 2_000;
 
-async function callCommand(
-  runner: AwarenessCommandRunner,
-  query: Record<string, unknown>,
-  signal?: AbortSignal,
-  ctx?: PiContext
-): Promise<ToolCallResult> {
-  assertPersistentAwarenessEnabled();
-  const command = String(query['command'] ?? '').trim();
-  const descriptor = getAwarenessCommandDescriptor(command);
-  if (!descriptor)
-    return result(
-      `Unknown Awareness command: "${command}". ${STIER_HINT}`,
-      { status: 'unknown', command },
-      true
-    );
-  if (descriptor.piMode === 'external-host-only') {
-    return result(
-      `${command} is external-host-only and cannot run through Pi's native Awareness facade.`,
-      { status: 'unsupported', command, piMode: descriptor.piMode },
-      true
+const AWARENESS_SCHEMA_PART_MAX_UTF8_BYTES = 1_200;
+
+function assertContractBudget(operation: string, text: string): string {
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > AWARENESS_CONTRACT_MAX_UTF8_BYTES) {
+    throw new Error(
+      `Awareness ${operation} contract exceeds the ${AWARENESS_CONTRACT_MAX_UTF8_BYTES}-UTF-8-byte ceiling (${bytes} bytes)`,
     );
   }
-
-  const params = record(query['params']) ?? {};
-  const reservedOverride = Object.keys(params).find(key =>
-    RESERVED_PARAMS.has(key)
-  );
-  if (reservedOverride) {
-    return result(
-      `${reservedOverride} is host-injected and cannot be overridden`,
-      {
-        status: 'invalid',
-        command,
-        effect: descriptor.effect,
-        field: reservedOverride,
-      },
-      true
-    );
-  }
-  const validation = compileMcpSchemaValidator(
-    nativeInputSchema(descriptor)
-  ).validate(params);
-  if (!validation.valid) {
-    return result(
-      `Invalid parameters for Awareness ${command}: ${validation.errors.map(error => `${error.instancePath || '/'} ${error.message}`).join('; ')}`,
-      {
-        status: 'invalid',
-        command,
-        effect: descriptor.effect,
-        errors: validation.errors,
-      },
-      true
-    );
-  }
-
-  const request = approvalRequest(descriptor, params);
-  if (request) {
-    const approval = await requestApproval(ctx, request, signal);
-    if (!approval.approved) {
-      return result(
-        `Approval declined for Awareness ${command}.`,
-        { status: 'denied', command, effect: descriptor.effect, approval },
-        true
-      );
-    }
-  }
-
-  const bindings = buildAwarenessContext(ctx);
-  const timeoutMs =
-    typeof query['timeoutMs'] === 'number' ? query['timeoutMs'] : undefined;
-  let execution;
-  try {
-    execution = await runner(
-      { command, params },
-      { ...bindings, signal, timeoutMs }
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return result(
-      `Awareness ${command} failed: ${message}`,
-      {
-        status: signal?.aborted ? 'cancelled' : 'failed',
-        command,
-        effect: descriptor.effect,
-        error: message,
-      },
-      true
-    );
-  }
-
-  const parsedOutput = markLegacyContinuationEnvelopes(
-    nativeContinuations(execution.payload, RESERVED_PARAMS, command)
-  );
-  const rawText = execution.text ?? JSON.stringify(parsedOutput);
-  const diagnostics = execution.diagnostics?.join('\n');
-  // History limits count bytes, not rows. A one-byte retry preserves correctness
-  // but can turn one read into tens of thousands of model/tool round trips.
-  const limitSchema = record(record(descriptor.inputSchema['properties'])?.['limit']);
-  const historyContent = command === 'history read' ? record(parsedOutput)?.['content'] : undefined;
-  const currentLimit = typeof historyContent === 'string'
-    ? Buffer.byteLength(historyContent, 'base64')
-    : Number(params['limit'] ?? limitSchema?.['default']);
-  const retryLimit = command === 'history read' && Number.isSafeInteger(currentLimit) && currentLimit > 1
-    ? Math.max(1, Math.min(currentLimit - 1, Math.floor(currentLimit * AWARENESS_OUTPUT_MAX_CHARS * 0.75 / rawText.length)))
-    : 1;
-  const narrower = { ...params, limit: retryLimit };
-  const canRetry =
-    descriptor.effect === 'read' &&
-    rawText.length > AWARENESS_OUTPUT_MAX_CHARS &&
-    params['limit'] !== 1 &&
-    Object.hasOwn(
-      record(descriptor.inputSchema['properties']) ?? {},
-      'limit'
-    ) &&
-    compileMcpSchemaValidator(nativeInputSchema(descriptor)).validate(narrower)
-      .valid;
-  const completedWrite = descriptor.effect !== 'read' && execution.exitCode === 0 && !execution.cancelled;
-  const bounded = boundedOutput(
-    rawText,
-    canRetry
-      ? {
-          tool: 'awareness',
-          queries: [
-            {
-              reasoning: 'Read a smaller Awareness page',
-              operation: 'legacy',
-              action: 'call',
-              command,
-              params: narrower,
-            },
-          ],
-        }
-      : undefined,
-    completedWrite,
-    completedWrite && rawText.length > AWARENESS_OUTPUT_MAX_CHARS ? awarenessWriteReceipt(parsedOutput) : undefined
-  );
-  const boundedStderr = diagnostics ? boundedOutput(diagnostics) : undefined;
-  const validReportExit =
-    execution.exitCode !== null &&
-    descriptor.resultExitCodes?.includes(execution.exitCode) === true &&
-    record(parsedOutput)?.['ok'] === true;
-  const accepted =
-    !execution.cancelled && (execution.exitCode === 0 || validReportExit);
-  const status = execution.cancelled
-    ? 'cancelled'
-    : execution.exitCode === 0
-      ? 'ok'
-      : validReportExit
-        ? 'attention'
-        : execution.exitCode === 2
-          ? 'blocked'
-          : 'failed';
-  return result(
-    bounded.text,
-    {
-      status,
-      command,
-      effect: descriptor.effect,
-      piMode: descriptor.piMode,
-      code: execution.exitCode,
-      killed: Boolean(execution.cancelled),
-      output: bounded.truncated && !completedWrite
-        ? { truncated: true, totalChars: bounded.totalChars }
-        : parsedOutput,
-      truncated: bounded.truncated,
-      totalChars: bounded.totalChars,
-      ...(boundedStderr
-        ? {
-            stderr: boundedStderr.text,
-            stderrTruncated: boundedStderr.truncated,
-          }
-        : {}),
-    },
-    !accepted
-  );
+  return text;
 }
 
-async function callOperation(
-  runner: AwarenessCommandRunner,
-  query: Record<string, unknown>,
-  signal?: AbortSignal,
-  ctx?: PiContext
-): Promise<ToolCallResult> {
-  assertPersistentAwarenessEnabled();
+function descriptorContract(
+  operation: string,
+  descriptor: NonNullable<ReturnType<typeof getAwarenessOperationDescriptor>>,
+  payload: Record<string, unknown>,
+): string {
+  const guided = JSON.stringify({ operation, use: descriptor.use, effects: descriptor.effects, ...payload });
+  if (Buffer.byteLength(guided, 'utf8') <= AWARENESS_CONTRACT_MAX_UTF8_BYTES) return guided;
+  return assertContractBudget(operation, JSON.stringify({ operation, ...payload }));
+}
+
+function splitSchemaText(text: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let bytes = 0;
+  for (const char of text) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    if (bytes + charBytes > AWARENESS_SCHEMA_PART_MAX_UTF8_BYTES && current) {
+      parts.push(current);
+      current = '';
+      bytes = 0;
+    }
+    current += char;
+    bytes += charBytes;
+  }
+  if (current || parts.length === 0) parts.push(current);
+  return parts;
+}
+
+function describeOperation(operation: string, descriptor: NonNullable<ReturnType<typeof getAwarenessOperationDescriptor>>, part?: number): string {
+  const inputSchemaText = descriptor.inputSchemaText;
+  const completeBytes = Buffer.byteLength(JSON.stringify({ operation, inputSchemaText }), 'utf8');
+  if (completeBytes <= AWARENESS_CONTRACT_MAX_UTF8_BYTES) {
+    if (part !== undefined && part !== 0) throw new Error(`Awareness ${operation} schema has only part 0`);
+    return descriptorContract(operation, descriptor, { inputSchemaText });
+  }
+
+  const parts = splitSchemaText(inputSchemaText);
+  const index = part ?? 0;
+  if (!Number.isSafeInteger(index) || index < 0 || index >= parts.length) {
+    throw new Error(`Awareness ${operation} schema part must be an integer from 0 to ${parts.length - 1}`);
+  }
+  const nextPart = index + 1 < parts.length ? index + 1 : undefined;
+  return descriptorContract(operation, descriptor, {
+    partial: true,
+    inputSchemaTextPart: parts[index],
+    schemaPart: { index, total: parts.length },
+    ...(nextPart === undefined ? {} : {
+      next: {
+        tool: 'awareness',
+        queries: [{
+          operation,
+          describe: true,
+          part: nextPart,
+        }],
+      },
+    }),
+    hint: 'Concatenate inputSchemaTextPart values in schemaPart.index order before parsing the executable schema.',
+  });
+}
+
+function validateOperationQuery(query: Record<string, unknown>): void {
   const operation = String(query['operation'] ?? '').trim();
   const descriptor = getAwarenessOperationDescriptor(operation);
-  if (!descriptor)
-    return result(`Unknown Awareness operation: "${operation}".`, { status: 'unknown', operation }, true);
+  if (!descriptor) throw new Error(`Unknown Awareness operation: "${operation}"`);
+  const obsoleteField = ['action', 'command', 'noun', 'all', 'page', 'pageSize']
+    .find(field => query[field] !== undefined);
+  if (obsoleteField) throw new Error(`${obsoleteField} is not part of the canonical Awareness surface`);
+  if (query['describe'] === true) {
+    if (query['params'] !== undefined) throw new Error('Awareness describe cannot include params; describe reads only the operation schema');
+    if (query['part'] !== undefined && (!Number.isSafeInteger(query['part']) || Number(query['part']) < 0)) {
+      throw new Error('Awareness schema part must be a non-negative integer');
+    }
+    return;
+  }
+  if (query['part'] !== undefined) throw new Error('Awareness part is available only with describe:true');
   const params = record(query['params']) ?? {};
   try {
     validateRoutineParams(descriptor, params);
   } catch (error) {
-    return result(error instanceof Error ? error.message : String(error), {
-      status: 'invalid', operation,
-    }, true);
+    throw new Error(`Invalid parameters for Awareness ${operation}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const effect = routineEffect(descriptor, params);
+}
+
+async function callOperation(
+  runner: AwarenessOperationRunner,
+  query: Record<string, unknown>,
+  signal?: AbortSignal,
+  ctx?: PiContext,
+): Promise<ToolCallResult> {
+  const operation = String(query['operation'] ?? '').trim();
+  const descriptor = getAwarenessOperationDescriptor(operation);
+  if (!descriptor)
+    return result(`Unknown Awareness operation: "${operation}".`, { status: 'unknown', operation }, true);
+  if (query['describe'] === true) {
+    const text = describeOperation(
+      operation,
+      descriptor,
+      typeof query['part'] === 'number' ? query['part'] : undefined,
+    );
+    return result(text, {
+      status: 'ok',
+      operation,
+      effect: 'read',
+      truncated: false,
+      totalChars: text.length,
+    });
+  }
+  assertPersistentAwarenessEnabled();
+  const params = record(query['params']) ?? {};
+  const effect = descriptor.effect(params);
   const request = routineApproval(descriptor, params);
   if (request) {
     const approval = await requestApproval(ctx, request, signal);
     if (!approval.approved)
-      return result(`Approval declined for Awareness ${operation}.`, { status: 'denied', operation, effect, approval }, true);
+      return result(
+        `Approval declined for Awareness ${operation}.`,
+        { status: 'denied', operation, effect, approval },
+        true,
+      );
   }
+
+  // The canonical History read defaults to 64 KiB. Base64 expansion makes that
+  // exceed both the client and Pi model-output budgets, and the client's generic
+  // one-row fallback would turn a byte stream into one-byte pages. Preflight an
+  // omitted limit into a bounded byte continuation before any history read.
+  if (operation === 'history.read' && params['limit'] === undefined) {
+    const retry = {
+      tool: 'awareness',
+      queries: [{
+        operation,
+        params: { ...params, limit: NATIVE_HISTORY_READ_CHUNK_BYTES },
+      }],
+    };
+    const payload = {
+      partial: true,
+      partialReasons: ['output_limit'],
+      diagnostic: {
+        kind: 'output-limit',
+        code: 'AWARENESS_OUTPUT_LIMIT',
+        limit: AWARENESS_OUTPUT_MAX_CHARS,
+      },
+      next: { retry },
+      hint: 'History read defaults exceed the native output budget. Continue with the bounded byte limit.',
+    };
+    return result(JSON.stringify(payload), {
+      status: 'partial',
+      operation,
+      effect,
+      code: 2,
+      output: payload,
+      truncated: true,
+    });
+  }
+
   const bindings = buildAwarenessContext(ctx);
   const timeoutMs = typeof query['timeoutMs'] === 'number' ? query['timeoutMs'] : undefined;
   const sessionId = ctx?.sessionManager?.getSessionId?.();
@@ -257,13 +210,15 @@ async function callOperation(
         signal,
         timeoutMs,
         ...(sessionId ? { sessionId } : {}),
-      }
+      },
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return result(`Awareness ${operation} failed: ${message}`, {
-      status: signal?.aborted ? 'cancelled' : 'failed', operation, effect, error: message,
-    }, true);
+    return result(
+      `Awareness ${operation} failed: ${message}`,
+      { status: signal?.aborted ? 'cancelled' : 'failed', operation, effect, error: message },
+      true,
+    );
   }
 
   const parsedOutput = nativeOperationContinuations(execution.payload);
@@ -271,143 +226,113 @@ async function callOperation(
   const diagnostics = execution.diagnostics?.join('\n');
   const readOnly = effect === 'read';
   const currentLimit = Number(params['limit'] ?? 0);
-  const canRetry = readOnly && rawText.length > AWARENESS_OUTPUT_MAX_CHARS && params['limit'] !== 1;
-  const narrower = { ...params, limit: Number.isSafeInteger(currentLimit) && currentLimit > 1 ? Math.max(1, Math.floor(currentLimit / 2)) : 1 };
+  let canRetry = readOnly && rawText.length > AWARENESS_OUTPUT_MAX_CHARS && params['limit'] !== 1;
+  const narrower = {
+    ...params,
+    limit: Number.isSafeInteger(currentLimit) && currentLimit > 1
+      ? Math.max(1, Math.floor(currentLimit / 2))
+      : 1,
+  };
+  if (canRetry) {
+    try {
+      descriptor.validate(narrower);
+    } catch {
+      canRetry = false;
+    }
+  }
   const completedWrite = !readOnly && execution.exitCode === 0 && !execution.cancelled;
   const bounded = boundedOutput(
     rawText,
-    canRetry ? {
-      tool: 'awareness',
-      queries: [{ reasoning: 'Read a smaller Awareness page', operation, params: narrower }],
-    } : undefined,
+    canRetry
+      ? {
+          tool: 'awareness',
+          queries: [{ operation, params: narrower }],
+        }
+      : undefined,
     completedWrite,
-    completedWrite && rawText.length > AWARENESS_OUTPUT_MAX_CHARS ? awarenessWriteReceipt(parsedOutput) : undefined
+    completedWrite && rawText.length > AWARENESS_OUTPUT_MAX_CHARS
+      ? awarenessWriteReceipt(parsedOutput)
+      : undefined,
   );
   const boundedStderr = diagnostics ? boundedOutput(diagnostics) : undefined;
-  const validAttention = operation === 'work.verify' && params['action'] === 'audit'
-    && execution.exitCode === 1 && record(parsedOutput)?.['ok'] === true;
-  const accepted = !execution.cancelled && (execution.exitCode === 0 || validAttention);
-  const status = execution.cancelled ? 'cancelled'
-    : execution.exitCode === 0 ? 'ok'
-      : validAttention ? 'attention'
-        : execution.exitCode === 2 ? 'blocked' : 'failed';
-  return result(bounded.text, {
-    status,
-    operation,
-    effect,
-    code: execution.exitCode,
-    killed: Boolean(execution.cancelled),
-    output: bounded.truncated && !completedWrite ? { truncated: true, totalChars: bounded.totalChars } : parsedOutput,
-    truncated: bounded.truncated,
-    totalChars: bounded.totalChars,
-    ...(boundedStderr ? { stderr: boundedStderr.text, stderrTruncated: boundedStderr.truncated } : {}),
-  }, !accepted);
-}
-
-function preflightAwarenessQuery(query: Record<string, unknown>): void {
-  // Old programmatic callers can still reach the bounded legacy lane. The
-  // model-facing schema always requires an explicit operation.
-  const operation = String(query['operation'] ?? (query['action'] ? 'legacy' : '')).trim();
-  if (operation !== 'legacy') {
-    const descriptor = getAwarenessOperationDescriptor(operation);
-    if (!descriptor) throw new Error(`Unknown Awareness operation: "${operation}"`);
-    const legacyField = ['action', 'command', 'all', 'page', 'pageSize'].find(field => query[field] !== undefined);
-    if (legacyField) throw new Error(`${legacyField} is only valid with operation:"legacy"`);
-    assertPersistentAwarenessEnabled();
-    validateRoutineParams(descriptor, record(query['params']) ?? {});
-    return;
-  }
-  const action = String(query['action'] ?? '');
-  if (!action) throw new Error('operation:"legacy" requires action');
-  if (action === 'list') return;
-  const command = String(query['command'] ?? '').trim();
-  if (!command) throw new Error(`${action} requires a non-empty command`);
-  const descriptor = getAwarenessCommandDescriptor(command);
-  if (!descriptor)
-    throw new Error(`Unknown Awareness command: "${command}". ${STIER_HINT}`);
-  if (action === 'describe') return;
-  if (action !== 'call') throw new Error(`Unknown legacy Awareness action: ${action}`);
-  assertPersistentAwarenessEnabled();
-  if (descriptor.piMode === 'external-host-only') {
-    throw new Error(
-      `${command} is external-host-only; this callback is invoked by the host lifecycle`
-    );
-  }
-  const params = record(query['params']) ?? {};
-  const reservedOverride = Object.keys(params).find(key =>
-    RESERVED_PARAMS.has(key)
+  const validAttention = operation === 'work.verify'
+    && params['action'] === 'audit'
+    && execution.exitCode === 1
+    && record(parsedOutput)?.['ok'] === true;
+  const validPartial = readOnly
+    && execution.exitCode === 2
+    && record(execution.payload)?.['error_code'] === 'OUTPUT_BUDGET_EXCEEDED';
+  const accepted = !execution.cancelled && (execution.exitCode === 0 || validAttention || validPartial);
+  const status = execution.cancelled
+    ? 'cancelled'
+    : execution.exitCode === 0
+      ? 'ok'
+      : validPartial
+        ? 'partial'
+      : validAttention
+        ? 'attention'
+        : execution.exitCode === 2
+          ? 'blocked'
+          : 'failed';
+  return result(
+    bounded.text,
+    {
+      status,
+      operation,
+      effect,
+      code: execution.exitCode,
+      killed: Boolean(execution.cancelled),
+      output: bounded.truncated && !completedWrite
+        ? { truncated: true, totalChars: bounded.totalChars }
+        : parsedOutput,
+      truncated: bounded.truncated,
+      totalChars: bounded.totalChars,
+      ...(boundedStderr
+        ? { stderr: boundedStderr.text, stderrTruncated: boundedStderr.truncated }
+        : {}),
+    },
+    !accepted,
   );
-  if (reservedOverride)
-    throw new Error(
-      `${reservedOverride} is host-injected and cannot be overridden`
-    );
-  const validation = compileMcpSchemaValidator(
-    nativeInputSchema(descriptor)
-  ).validate(params);
-  if (!validation.valid) {
-    throw new Error(
-      `Invalid parameters for Awareness ${command}: ${validation.errors.map(error => `${error.instancePath || '/'} ${error.message}`).join('; ')}`
-    );
-  }
 }
 
 export function registerAwarenessTool(
   pi: PiInstance,
   registeredToolNames: Set<string>,
   registerFn: RegisterFn,
-  runner: AwarenessCommandRunner = runAwarenessCommand
+  runner: AwarenessOperationRunner = runAwarenessOperation,
 ): void {
-  const itemSchema = z.object({
-    operation: z
-      .enum([...ROUTINE_AWARENESS_OPERATIONS, 'legacy'])
-      .describe('Direct routine operation. Use legacy only for explicit operator or recovery commands.'),
-    action: z.enum(['list', 'describe', 'call']).optional()
-      .describe('Legacy-only action; routine operations execute directly.'),
-    command: z
-      .string()
-      .optional()
-      .describe(
-        'Legacy command, or top-level noun filter for legacy list. Required for legacy describe/call.'
-      ),
-    params: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe(
-        'Operation parameters. Pi injects database, workspace, and actor; never include those fields.'
-      ),
-    all: z.boolean().optional().describe('Legacy list only: include routine backing commands too.'),
-    page: z.number().int().min(1).optional().describe('list page, 1-based.'),
-    timeoutMs: z
-      .number()
-      .int()
-      .min(1)
-      .max(300_000)
-      .optional()
-      .describe(
-        'Cooperative call deadline in milliseconds; default 120000. Atomic operations finish before cancellation is reported.'
-      ),
+  const operationCount = ROUTINE_AWARENESS_OPERATIONS.length;
+  const itemSchema = z.strictObject({
+    operation: z.enum(ROUTINE_AWARENESS_OPERATIONS)
+      .describe(`${operationCount} canonical operations.`),
+    describe: z.boolean().optional()
+      .describe('Return its schema; omit params.'),
+    part: z.number().int().min(0).optional().describe('Schema page from describe.'),
+    params: z.record(z.string(), z.unknown()).optional().describe('Operation params.'),
+    timeoutMs: z.number().int().min(1).max(300_000).optional().describe('Deadline ms.'),
   });
-  const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    maxItems: 100,
-    reasoningDescription:
-      'Concise reason this Awareness operation is necessary.',
-  });
+  const parameters = buildQueryEnvelopeSchema(itemSchema, { maxItems: 100 });
+  const description = DIRECT_TOOL_DESCRIPTIONS.awareness!;
+  const promptSnippet = `${operationCount} Awareness operations; start with context.orient.`;
+  const promptGuidelines = [
+    'queries[{operation,params?}]. Use {"describe":true} (no params) for schema discovery. Follow returned continuations.',
+  ];
+  assertContractBudget('standing', [
+    description,
+    promptSnippet,
+    ...promptGuidelines,
+    JSON.stringify(parameters),
+  ].join('\n'));
 
   registerFn(pi, registeredToolNames, {
     name: 'awareness',
     label: 'awareness',
-    description: DIRECT_TOOL_DESCRIPTIONS.awareness!,
-    promptSnippet:
-      'Call one of 19 bound Awareness operations directly. Start with context.orient.',
-    promptGuidelines: [
-      'Use queries[] with reasoning, operation, and optional params. Example: {"queries":[{"reasoning":"Orient once","operation":"context.orient"}]}.',
-      'Pi binds database, workspace, session, and actor. Follow executable next continuations; exit 2 means blocked.',
-      'Use operation:"legacy" with action:"list" or "describe" only for an explicit operator/recovery command.',
-    ],
+    description,
+    promptSnippet,
+    promptGuidelines,
     parameters,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       let stateChangingCalls = 0;
-      let routineCalls = 0;
       const batchSize = Array.isArray(record(params)?.['queries'])
         ? (record(params)?.['queries'] as unknown[]).length
         : 0;
@@ -419,94 +344,52 @@ export function registerAwarenessTool(
         ctx,
         passthroughSingle: true,
         summarize: (value, query) => {
-          const resultDetails = record(value.details);
-          const operation = String(query['operation'] ?? 'legacy');
-          const target = operation === 'legacy'
-            ? `${String(query['action'] ?? '')} ${String(query['command'] ?? '')}`.trim()
-            : operation;
-          return `${target} · ${String(resultDetails?.['status'] ?? (value.isError ? 'failed' : 'ok'))}`;
+          const status = String(record(value.details)?.['status'] ?? (value.isError ? 'failed' : 'ok'));
+          return `${String(query['operation'] ?? '')} · ${status}`;
         },
         preflight: query => {
-          preflightAwarenessQuery(query);
-          const operation = String(query['operation'] ?? 'legacy');
-          let effect: AwarenessCommandEffect = 'read';
-          if (operation === 'legacy') {
-            if (query['action'] !== 'call') return;
-            const descriptor = getAwarenessCommandDescriptor(String(query['command'] ?? '').trim());
-            if (!descriptor) return;
-            effect = descriptor.effect;
-          } else {
-            routineCalls += 1;
-            const descriptor = getAwarenessOperationDescriptor(operation);
-            if (!descriptor) return;
-            effect = routineEffect(descriptor, record(query['params']) ?? {});
-            if (effect !== 'read' && batchSize > 1) {
-              throw new Error('A batch may contain at most one state-changing Awareness operation; routine mutations must be the only query because committed operations are not rolled back.');
-            }
-            if (effect === 'read' && stateChangingCalls > 0) {
-              throw new Error('Routine reads cannot share a batch with a state-changing legacy command.');
-            }
-          }
+          validateOperationQuery(query);
+          if (query['describe'] === true) return;
+          assertPersistentAwarenessEnabled();
+          const descriptor = getAwarenessOperationDescriptor(String(query['operation']));
+          if (!descriptor) return;
+          const effect = descriptor.effect(record(query['params']) ?? {});
           if (effect === 'read') return;
           stateChangingCalls += 1;
-          if (operation === 'legacy' && routineCalls > 0) {
-            throw new Error('Legacy mutations cannot share a batch with routine operations.');
-          }
-          if (stateChangingCalls > 1) {
+          if (batchSize > 1 || stateChangingCalls > 1) {
             throw new Error(
-              operation === 'legacy'
-                ? 'A batch may contain at most one state-changing Awareness command because committed commands are not rolled back. Split mutations into separate tool calls.'
-                : 'A batch may contain at most one state-changing Awareness operation because committed operations are not rolled back. Split mutations into separate tool calls.'
+              'A batch may contain at most one state-changing Awareness operation because committed operations are not rolled back.',
             );
           }
         },
-        execute: async query => {
-          const operation = String(query['operation'] ?? 'legacy');
-          if (operation !== 'legacy') return callOperation(runner, query, signal, ctx);
-          const action = String(query['action'] ?? '');
-          if (action === 'list') return listCommands(query);
-          if (action === 'describe') return describeCommand(query);
-          if (action === 'call') return callCommand(runner, query, signal, ctx);
-          return result(
-            `Unknown Awareness action: ${action}`,
-            { status: 'unknown', action },
-            true
-          );
-        },
+        execute: query => callOperation(runner, query, signal, ctx),
       });
     },
     renderCall(args: unknown, theme?: PiTheme) {
       const queries = record(args)?.['queries'];
       const first = Array.isArray(queries) ? record(queries[0]) : undefined;
-      const operation = String(first?.['operation'] ?? 'legacy');
-      const target = operation === 'legacy'
-        ? `${String(first?.['action'] ?? '')} ${String(first?.['command'] ?? '')}`.trim()
-        : operation;
+      const operation = String(first?.['operation'] ?? '');
       return makeComponentRenderer(
         (_props, { width }) => [
           truncateToWidth(
-            `${paint(theme, 'brand', '◆ awareness')} ${paint(theme, 'dim', '·')} ${paint(theme, 'title', target)}`,
-            width
+            `${paint(theme, 'brand', '◆ awareness')} ${paint(theme, 'dim', '·')} ${paint(theme, 'title', operation)}`,
+            width,
           ),
         ],
-        undefined
+        undefined,
       );
     },
     renderResult(value: ToolCallResult, _opts, theme?: PiTheme) {
-      const status = String(
-        record(value.details)?.['status'] ?? (value.isError ? 'failed' : 'ok')
-      );
-      const icon = value.isError
-        ? paint(theme, 'error', '✗')
-        : paint(theme, 'success', '✓');
+      const status = String(record(value.details)?.['status'] ?? (value.isError ? 'failed' : 'ok'));
+      const icon = value.isError ? paint(theme, 'error', '✗') : paint(theme, 'success', '✓');
       return makeComponentRenderer(
         (_props, { width }) => [
           truncateToWidth(
             `${icon} ${paint(theme, 'title', 'awareness')} ${paint(theme, 'dim', `· ${status}`)}`,
-            width
+            width,
           ),
         ],
-        undefined
+        undefined,
       );
     },
   });

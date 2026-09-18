@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROUTINE_AWARENESS_OPERATIONS } from '../src/schema/operation-types.js';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tempRoots: string[] = [];
@@ -49,41 +50,30 @@ describe('published package artifact', () => {
     expect(existsSync(resolve(PACKAGE_ROOT, 'LICENSE'))).toBe(true);
   });
 
-  it('runs every schema command from an isolated package with no dependencies', { timeout: 60_000 }, () => {
+  it('runs the complete canonical schema surface from an isolated package with no dependencies', { timeout: 60_000 }, () => {
     const root = isolatedPackage();
     const cli = resolve(root, 'out/octocode-awareness.js');
-    const schema = cli;
-
-    const listed = spawnSync(process.execPath, [cli, 'schema', 'list', '--compact'], {
+    const listed = spawnSync(process.execPath, [cli, 'schema', 'commands', '--compact'], {
       cwd: root,
       encoding: 'utf8',
       timeout: 10_000,
     });
     expect(listed.status, listed.stderr || listed.stdout).toBe(0);
-    const names = JSON.parse(listed.stdout) as string[];
+    const names = (JSON.parse(listed.stdout) as { operations: string[] }).operations;
+    expect(names).toEqual(ROUTINE_AWARENESS_OPERATIONS);
 
     for (const name of names) {
-      const jsonSchema = spawnSync(process.execPath, [schema, 'schema', 'json-schema', name, '--compact'], {
+      const jsonSchema = spawnSync(process.execPath, [cli, 'schema', 'command', ...name.split('.'), '--compact'], {
         cwd: root,
         encoding: 'utf8',
         timeout: 5_000,
       });
       expect(jsonSchema.status, `${name}: ${jsonSchema.stderr || jsonSchema.stdout}`).toBe(0);
-
-      const example = spawnSync(process.execPath, [schema, 'schema', 'example', name, '--compact'], {
-        cwd: root,
-        encoding: 'utf8',
-        timeout: 5_000,
-      });
-      expect(example.status, `${name}: ${example.stderr || example.stdout}`).toBe(0);
-
-      const validation = spawnSync(process.execPath, [schema, 'schema', 'validate', name, '-', '--compact'], {
-        cwd: root,
-        encoding: 'utf8',
-        input: example.stdout,
-        timeout: 5_000,
-      });
-      expect(validation.status, `${name}: ${validation.stderr || validation.stdout}`).toBe(0);
+      expect(JSON.parse(jsonSchema.stdout)).toMatchObject({ 'x-awareness-operation': name });
     }
+    const entities = spawnSync(process.execPath, [cli, 'schema', 'entities', '--compact'], {
+      cwd: root, encoding: 'utf8', timeout: 5_000,
+    });
+    expect(entities.status, entities.stderr || entities.stdout).toBe(0);
   });
 });

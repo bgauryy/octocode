@@ -59,6 +59,9 @@ export type IssuesResult = {
     perPage: number;
     hasMore: boolean;
     nextPage?: number;
+    requestedPage?: number;
+    skippedPullRequestPages?: number;
+    providerPagesFetched?: number;
     totalMatches?: number;
     reportedTotalMatches?: number;
     totalMatchesKind?: 'reported';

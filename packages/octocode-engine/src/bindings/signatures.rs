@@ -3,7 +3,7 @@ use crate::bindings::tasks::{
     SyntaxTreeInspectTask,
 };
 use napi::bindgen_prelude::AsyncTask;
-use napi::{Error, Result, Status};
+use napi::Result;
 use napi_derive::napi;
 
 /// Native exports.
@@ -16,15 +16,7 @@ pub const SIGNATURES_ONLY_HINT: &str = crate::signatures::SIGNATURES_ONLY_HINT;
 /// and any skeleton that would not be smaller than the source.
 #[napi(js_name = "extractSignatures")]
 pub fn extract_signatures(content: String, file_path: String) -> Option<String> {
-    // See `signatures::run_on_deep_stack`: the tree-sitter parse + skeleton
-    // render below is regular Rust recursion once inside this crate's own
-    // walkers, and napi's calling thread has less native stack headroom than
-    // a test thread — pathologically nested input (deep `(`/`[`/`{`) can
-    // crash the whole process here even though the same content is fine in a
-    // `cargo test` run.
-    crate::signatures::run_on_deep_stack(move || {
-        crate::signatures::extract_signatures_inner(&content, &file_path)
-    })
+    crate::portable::extract_signatures(&content, &file_path)
 }
 
 /// Native JS/TS document symbols (server-free) as a JSON `DocumentSymbol[]`.
@@ -40,7 +32,7 @@ pub fn extract_signatures(content: String, file_path: String) -> Option<String> 
 /// no extractable top-level symbols.
 #[napi(js_name = "extractJsSymbols")]
 pub fn extract_js_symbols(content: String, file_path: String) -> Option<String> {
-    crate::signatures::js_oxc::extract_js_symbols(&content, &file_path)
+    crate::portable::extract_js_symbols(&content, &file_path)
 }
 
 /// Canonical list of file extensions (lowercase, no leading dot) handled by the
@@ -49,10 +41,7 @@ pub fn extract_js_symbols(content: String, file_path: String) -> Option<String> 
 /// Rust and JS sides never drift.
 #[napi(js_name = "getSupportedJsTsExtensions")]
 pub fn get_supported_js_ts_extensions() -> Vec<String> {
-    crate::text::file_extension::JS_TS_EXTENSIONS
-        .iter()
-        .map(|ext| (*ext).to_owned())
-        .collect()
+    crate::portable::supported_js_ts_extensions()
 }
 
 /// Native in-file references (server-free) for the JS/TS symbol under
@@ -70,7 +59,7 @@ pub fn find_in_file_references(
     line: u32,
     character: u32,
 ) -> Option<String> {
-    crate::signatures::js_oxc::find_in_file_references(&content, &file_path, line, character)
+    crate::portable::find_in_file_references(&content, &file_path, line, character)
 }
 
 /// Native graph facts as JSON.
@@ -81,7 +70,7 @@ pub fn find_in_file_references(
 /// Cross-file identity and type-aware proof remain LSP work.
 #[napi(js_name = "extractGraphFacts")]
 pub fn extract_graph_facts(content: String, file_path: String) -> Option<String> {
-    crate::signatures::extract_graph_facts_inner(&content, &file_path)
+    crate::portable::extract_graph_facts(&content, &file_path)
 }
 
 /// Canonical lowercase extensions (no leading dot) that can produce native
@@ -89,14 +78,14 @@ pub fn extract_graph_facts(content: String, file_path: String) -> Option<String>
 /// inventory. LSP proof is still required for semantic reference certainty.
 #[napi(js_name = "getSupportedGraphFactExtensions")]
 pub fn get_supported_graph_fact_extensions() -> Vec<String> {
-    crate::signatures::graph_facts::graph_fact_extensions()
+    crate::portable::supported_graph_fact_extensions()
 }
 
 /// JSON array describing graph fact coverage by extension/language. This is an
 /// agent-facing capability matrix, not proof that every fact family is complete.
 #[napi(js_name = "getGraphFactCapabilities")]
 pub fn get_graph_fact_capabilities() -> String {
-    crate::signatures::graph_facts::graph_fact_capabilities_json()
+    crate::portable::graph_fact_capabilities()
 }
 
 /// Canonical parser-family inventory for runtime selectors and agent context.
@@ -105,26 +94,7 @@ pub fn get_graph_fact_capabilities() -> String {
 /// detection; consumers must not maintain a parallel language table.
 #[napi(js_name = "getGrammarCapabilities")]
 pub fn get_grammar_capabilities() -> Vec<crate::types::GrammarCapability> {
-    crate::signatures::languages::all_entries()
-        .iter()
-        .map(|entry| crate::types::GrammarCapability {
-            language: entry.name.to_owned(),
-            language_id: entry.language_id.map(str::to_owned),
-            selector_aliases: entry
-                .selector_aliases
-                .iter()
-                .map(|alias| (*alias).to_owned())
-                .collect(),
-            extensions: entry
-                .extensions
-                .iter()
-                .map(|extension| (*extension).to_owned())
-                .collect(),
-            structural_search: true,
-            signature_outline: !entry.body_query.is_empty(),
-            graph_facts: !entry.body_query.is_empty(),
-        })
-        .collect()
+    crate::portable::grammar_capabilities()
 }
 
 /// Structural (AST) search — octocode's L2 layer. Resolves the grammar from
@@ -160,22 +130,12 @@ pub fn structural_search_detailed(
     pattern: Option<String>,
     rule: Option<String>,
 ) -> Result<crate::structural::StructuralSearchDetailedResult> {
-    let ext = crate::text::file_extension::get_extension_internal(&file_path, true, "txt");
-    std::panic::catch_unwind(|| {
-        crate::structural::search_detailed(
-            &content,
-            &file_path,
-            &ext,
-            pattern.as_deref(),
-            rule.as_deref(),
-        )
-    })
-    .map_err(|_| {
-        Error::new(
-            Status::GenericFailure,
-            "structural detailed search failed on pathological input",
-        )
-    })
+    Ok(crate::portable::structural_search_detailed(
+        &content,
+        &file_path,
+        pattern.as_deref(),
+        rule.as_deref(),
+    )?)
 }
 
 /// Runs on libuv's worker pool — the directory walk + per-file parse is
@@ -194,16 +154,38 @@ pub fn structural_search_files(
 pub fn structural_search_files_detailed(
     options: crate::structural::StructuralSearchFilesOptions,
 ) -> Result<crate::structural::StructuralSearchFilesDetailedResult> {
-    std::panic::catch_unwind(|| crate::structural::search_files_detailed(options))
-        .unwrap_or_else(|_| {
-            Err("structural detailed file search failed on pathological input".to_string())
-        })
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    Ok(crate::portable::structural_search_files_detailed(options)?)
+}
+
+/// In-process structural rewrite for a single file content. `rule_config_json`
+/// is a complete ast-grep inline-rule JSON string (language, rule, fix, etc.).
+/// Returns a JSON string of `StructuralRewriteMatch[]`.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+#[napi(js_name = "structuralRewriteContent")]
+pub fn structural_rewrite_content(
+    content: String,
+    rule_config_json: String,
+) -> Result<String> {
+    Ok(crate::portable::structural_rewrite_content(&content, &rule_config_json)?)
+}
+
+/// In-process structural rewrite over a file tree. Walks files in parallel,
+/// applies the inline rule to each, and returns a JSON string of
+/// `Array<{ path: string; matches: StructuralRewriteMatch[] }>`.
+/// Runs on the libuv worker pool — returns a Promise.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+#[napi(js_name = "structuralRewriteFiles")]
+pub fn structural_rewrite_files(
+    options: crate::structural::StructuralRewriteFilesOptions,
+) -> AsyncTask<crate::bindings::tasks::StructuralRewriteFilesTask> {
+    AsyncTask::new(crate::bindings::tasks::StructuralRewriteFilesTask {
+        options: Some(options),
+    })
 }
 
 #[napi(js_name = "getSupportedStructuralExtensions")]
 pub fn get_supported_structural_extensions() -> Vec<String> {
-    crate::structural::supported_extensions()
+    crate::portable::supported_structural_extensions()
 }
 
 /// Return a bounded, paginated syntax-tree view using the structural grammar
@@ -247,12 +229,7 @@ pub fn get_semantic_boundary_offsets(
 /// excluded because they produce no outline.
 #[napi(js_name = "getSupportedSignatureExtensions")]
 pub fn get_supported_signature_extensions() -> Vec<String> {
-    let mut exts: Vec<String> = crate::signatures::languages::signature_extensions()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    exts.sort();
-    exts
+    crate::portable::supported_signature_extensions()
 }
 
 #[cfg(test)]

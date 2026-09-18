@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read in-memory record manager list_keys and async delegation implementation.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/core/langchain_core/indexing/in_memory.py\",\"matchString\":\"def list_keys\",\"contextLines\":70},{\"reasoning\":\"Read record-manager public list_keys signature and documented limit semantics.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/core/langchain_core/indexing/base.py\",\"matchString\":\"def list_keys\",\"contextLines\":55},{\"reasoning\":\"Read unit tests for in-memory record-manager key listing.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/core/tests/unit_tests/indexing/test_in_memory_record_manager.py\",\"fullContent\":true}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:54:37.391Z",
+  "endedAt": "2026-09-18T08:54:38.976Z",
+  "elapsedMs": 1584,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "6a541b09721643f7a6ff03435b6678da74ca1b145bf3996c8e3d689a7ea56d97",
+  "requestSha256": null
+}

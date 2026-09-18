@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q3",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"operation\":\"commit\",\"owner\":\"pallets\",\"repo\":\"flask\",\"ref\":\"705e5268\",\"includeDiff\":true,\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:37.158Z",
+  "endedAt": "2026-09-18T08:27:37.489Z",
+  "elapsedMs": 330,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "e3368e987f37af7456108854f5076620d4def5748103f0b24e2a30d4d683881a",
+  "stdoutBytes": 4363,
+  "requestSha256": null
+}

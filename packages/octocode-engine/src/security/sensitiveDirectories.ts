@@ -20,10 +20,10 @@ export const SENSITIVE_DIRECTORY_NAMES = [
 ] as const;
 
 function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export const SENSITIVE_DIRECTORY_PATTERNS: RegExp[] =
   SENSITIVE_DIRECTORY_NAMES.map(
-    (name) => new RegExp(`(?:^|/)${escapeRegex(name)}(?:/|$)`),
+    name => new RegExp(`(?:^|/)${escapeRegex(name)}(?:/|$)`)
   );

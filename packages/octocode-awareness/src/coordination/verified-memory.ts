@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { bytesToEmbedding, cosineSimilarity, isEmbeddingEnabled, runHostEmbedder } from '@octocodeai/agent-contracts/embed';
+import { bytesToEmbedding, cosineSimilarity, isEmbeddingEnabled, runHostEmbedder } from '../embed.js';
 import { canonicalMemoryInstant } from '../memory-scoring.js';
 import { insertPreparedMemory } from '../memory-write.js';
 import { containsSecretLikeText, MEMORY_EVALUATION_CORPUS_V1, runMemoryEvaluationCorpus, type MemoryEvaluationCorpusV1, type MemoryEvaluationReportV1, type MemoryRecallModeV1 } from '../memory-hardening.js';
@@ -9,6 +9,21 @@ import { normalizeArtifact, normalizeLabel, normalizeReferences, normalizeTags }
 import { DEFAULT_SEMANTIC_MIN_SIMILARITY, splitTags, now } from './coordination-shared.js';
 import { decodeMemoryContent, encodeMemoryContent, renderMemoryContent } from '../memory-content.js';
 import { repositoryWorkspacePaths } from '../git.js';
+import type {
+  VerifiedMemoryHost,
+  VerifiedMemoryPageV1,
+  VerifiedMemoryRecallParams,
+  VerifiedMemoryStoreParams,
+  VerifiedMemoryV1,
+} from './verified-memory-types.js';
+export type {
+  VerifiedMemoryHost,
+  VerifiedMemoryPageV1,
+  VerifiedMemoryPartialReason,
+  VerifiedMemoryRecallParams,
+  VerifiedMemoryStoreParams,
+  VerifiedMemoryV1,
+} from './verified-memory-types.js';
 
 const MAX_TEXT = 4000;
 const MAX_SOURCE_DIGEST = 512;
@@ -16,85 +31,6 @@ const MAX_LIMIT = 50;
 const MAX_OFFSET = 1_000_000_000;
 const SEMANTIC_CANDIDATE_LIMIT = 2000;
 const MAX_PAGE_BYTES = 16 * 1024;
-export type VerifiedMemoryPartialReason = 'limit' | 'terminal-limit' | 'snapshot_changed';
-
-export interface VerifiedMemoryV1 {
-  version: 1;
-  memoryId: string;
-  workspacePath: string;
-  label: string;
-  text: string;
-  scope: 'project' | 'artifact';
-  artifact?: string;
-  sourceDigest: string;
-  verifiedAt: string;
-  validUntil?: string;
-  importance: number;
-  file?: string[];
-  area?: string;
-  why?: string;
-  constraint?: string;
-  historyRef?: string;
-  historyEvidence?: {
-    state: 'recorded' | 'incomplete' | 'unavailable';
-    reason: string;
-    next?: { call: { command: 'history inspect'; params: { operation_id: string; source_workspace: string } } };
-  };
-  explanation?: string;
-}
-
-export interface VerifiedMemoryPageV1 {
-  memories: VerifiedMemoryV1[];
-  partial: boolean;
-  partialReasons: VerifiedMemoryPartialReason[];
-  revision: string;
-  terminalLimit?: { code: 'MEMORY_SEMANTIC_LIMIT'; candidateLimit: number; message: string };
-  warnings?: string[];
-  next?: { call: { command: 'memory recall-verified'; params: Record<string, unknown> } };
-}
-
-export interface VerifiedMemoryHost {
-  readonly db: DatabaseSync;
-  readonly canonicalWorkspace: string;
-  writeTransaction<T>(operation: () => T): T;
-  embedMemory(memoryId: string, text: string): boolean;
-}
-
-export interface VerifiedMemoryStoreParams {
-  label: string;
-  text: string;
-  scope?: 'project' | 'artifact';
-  artifact?: string;
-  sourceDigest: string;
-  verifiedAt?: string;
-  validUntil?: string;
-  importance?: number;
-  tags?: string | string[] | null;
-  file?: string | string[] | null;
-  area?: string;
-  why?: string;
-  constraint?: string;
-  historyRef?: string;
-  supersedes?: string[];
-}
-
-export interface VerifiedMemoryRecallParams {
-  memoryId?: string;
-  query?: string;
-  label?: string;
-  sourceDigest?: string;
-  scope?: 'project' | 'artifact';
-  artifact?: string;
-  limit?: number;
-  offset?: number;
-  now?: string;
-  mode?: MemoryRecallModeV1;
-  minSimilarity?: number;
-  file?: string | string[];
-  area?: string;
-  revision?: string;
-  strictScope?: boolean;
-}
 function boundedText(value: string, field: string, max: number): string {
   const text = value.trim();
   if (!text) throw new Error(`${field} is required`);
@@ -157,8 +93,9 @@ function assertHistoryReference(db: DatabaseSync, workspace: string, reference: 
 
 function verifiedReferences(params: VerifiedMemoryStoreParams, workspace: string): string[] {
   const historyRef = normalizeHistoryRef(params.historyRef);
-  const refs = [...normalizeFiles(params.file, workspace), ...(historyRef ? [historyRef] : [])];
+  const refs = [...normalizeFiles(params.file, workspace), ...(historyRef ? [historyRef] : []), ...(params.references ?? [])];
   if (refs.length > 20) throw new Error('verified memory references exceed the maximum of 20');
+  if (refs.some(ref => ref.length > 512)) throw new Error('memory reference exceeds the maximum length of 512');
   return normalizeReferences(refs);
 }
 
@@ -178,9 +115,26 @@ function historyEvidence(db: DatabaseSync, workspace: string, reference: string)
       (SELECT COUNT(*) FROM local_history_versions WHERE operation_id = local_history_operations.operation_id) AS version_count
       FROM local_history_operations WHERE operation_id = ? AND workspace_path = ?`).get(operationId, workspace);
     if (!operation) return { state: 'unavailable', reason: 'The referenced history operation is unavailable in its source workspace.' };
-    const next = { call: { command: 'history inspect' as const, params: { operation_id: operationId, source_workspace: workspace } } };
-    if (operation.status !== 'complete') return { state: 'incomplete', reason: `History capture is ${String(operation.status)}; inspect the available evidence before relying on it.`, next };
-    if (!operation.after_commit_oid || !Number(operation.version_count)) return { state: 'incomplete', reason: 'Completed history metadata is missing its snapshot or file versions; inspect before relying on it.', next };
+    if (operation.status !== 'complete') return { state: 'incomplete', reason: `History capture is ${String(operation.status)}; it has no executable byte-read continuation.` };
+    const readable = db.prepare(`SELECT file_path,
+      CASE
+        WHEN after_status = 'captured' AND after_oid IS NOT NULL THEN 'after'
+        WHEN before_status = 'captured' AND before_oid IS NOT NULL THEN 'before'
+        ELSE NULL
+      END AS side
+      FROM local_history_versions
+      WHERE operation_id = ?
+      ORDER BY ordinal, file_path
+      LIMIT 1`).get(operationId) as { file_path?: string; side?: 'before' | 'after' | null } | undefined;
+    if (!operation.after_commit_oid || !Number(operation.version_count) || !readable?.file_path || !readable.side) {
+      return { state: 'incomplete', reason: 'Completed history metadata has no readable captured file side.' };
+    }
+    const next = { call: { operation: 'history.read' as const, params: {
+      operation_id: operationId,
+      file: readable.file_path,
+      side: readable.side,
+      source_workspace: workspace,
+    } } };
     return { state: 'recorded', reason: 'History metadata records a completed capture; inspect it to check byte availability. This does not establish current file freshness.', next };
   } catch (error) {
     if (error instanceof Error && error.message.includes('no such table')) return { state: 'unavailable', reason: 'The local history store is unavailable.' };
@@ -220,7 +174,7 @@ export function storeVerifiedMemory(host: VerifiedMemoryHost, params: VerifiedMe
   if (scope !== 'project' && scope !== 'artifact') throw new Error('scope must be project or artifact');
   const artifact = normalizeArtifact(params.artifact === undefined ? undefined : boundedText(params.artifact, 'artifact', 256));
   if (scope === 'artifact' && !artifact) throw new Error('artifact is required when scope is artifact');
-  if (containsSecretLikeText(`${label}\n${text}\n${params.why ?? ''}\n${params.constraint ?? ''}`)) throw new Error('memory rejected: secret-like content must never enter durable memory');
+  if (containsSecretLikeText(JSON.stringify(params))) throw new Error('memory rejected: secret-like content must never enter durable memory');
   const verifiedAt = canonicalMemoryInstant(params.verifiedAt ?? now(), 'verifiedAt')!;
   const validUntil = params.validUntil === undefined ? undefined : canonicalMemoryInstant(params.validUntil, 'validUntil');
   if (validUntil != null && validUntil <= verifiedAt) throw new Error('valid_until must be after verified_at');
@@ -234,6 +188,7 @@ export function storeVerifiedMemory(host: VerifiedMemoryHost, params: VerifiedMe
     ...(params.area ? { area: boundedText(params.area, 'area', 256) } : {}),
     ...(params.why ? { why: boundedText(params.why, 'why', 1000) } : {}),
     ...(params.constraint ? { constraint: boundedText(params.constraint, 'constraint', 1000) } : {}),
+    ...(params.knowledge ? { knowledge: params.knowledge } : {}),
   });
   const references = verifiedReferences(params, host.canonicalWorkspace);
   if (Buffer.byteLength(JSON.stringify({ observation, tags, references, sourceDigest }), 'utf8') > 8192) throw new Error('verified memory exceeds the 8192-byte evidence budget');
@@ -252,7 +207,7 @@ export function storeVerifiedMemory(host: VerifiedMemoryHost, params: VerifiedMe
     if (duplicate && normalizedSupersedes.length === 0) return { memory: toVerified(host.db, duplicate), inserted: false };
     const inserted = insertPreparedMemory(host.db, { agentId: 'awareness', taskContext: label, observation, importance, label, tags, references, supersedes: normalizedSupersedes, workspacePath: host.canonicalWorkspace, artifact, validFrom: verifiedAt, validTo: validUntil });
     host.db.prepare(`UPDATE awareness_memories SET scope_kind = ?, source_digest = ?, verified_at = ?, secret_scan_status = 'passed' WHERE memory_id = ?`)
-      .run(scope, sourceDigest, verifiedAt, inserted.memoryId);
+      .run(scope, sourceDigest, params.knowledge ? null : verifiedAt, inserted.memoryId);
     const row = host.db.prepare('SELECT * FROM awareness_memories WHERE memory_id = ?').get(inserted.memoryId) as Record<string, unknown>;
     return { memory: toVerified(host.db, row), inserted: true };
   });
@@ -286,20 +241,20 @@ function baseClauses(host: VerifiedMemoryHost, params: VerifiedMemoryRecallParam
 
 function nextCall(params: VerifiedMemoryRecallParams, offset: number, stamp: string, revision: string): VerifiedMemoryPageV1['next'] {
   // Keep the validity instant stable across every page of one recall.
-  const nextParams: Record<string, unknown> = { offset, limit: params.limit ?? 10, now: stamp };
+  const nextParams: VerifiedMemoryRecallParams = { offset, limit: params.limit ?? 10, now: stamp };
   nextParams.revision = revision;
   if (params.query !== undefined) nextParams.query = params.query;
   if (params.label !== undefined) nextParams.label = params.label;
-  if (params.sourceDigest !== undefined) nextParams.source_digest = params.sourceDigest;
+  if (params.sourceDigest !== undefined) nextParams.sourceDigest = params.sourceDigest;
   if (params.scope !== undefined) nextParams.scope = params.scope;
   if (params.artifact !== undefined) nextParams.artifact = params.artifact;
   if (params.mode !== undefined) nextParams.mode = params.mode;
-  if (params.minSimilarity !== undefined) nextParams.min_similarity = params.minSimilarity;
+  if (params.minSimilarity !== undefined) nextParams.minSimilarity = params.minSimilarity;
   if (params.file !== undefined) nextParams.file = params.file;
   if (params.area !== undefined) nextParams.area = params.area;
-  if (params.memoryId !== undefined) nextParams.memory_id = params.memoryId;
-  if (params.strictScope !== undefined) nextParams.strict_scope = params.strictScope;
-  return { call: { command: 'memory recall-verified', params: nextParams } };
+  if (params.memoryId !== undefined) nextParams.memoryId = params.memoryId;
+  if (params.strictScope !== undefined) nextParams.strictScope = params.strictScope;
+  return { params: nextParams };
 }
 
 function memoryRevision(host: VerifiedMemoryHost, clauses: string[], values: Array<string | number>, params: VerifiedMemoryRecallParams, mode: MemoryRecallModeV1): string {

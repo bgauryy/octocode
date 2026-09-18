@@ -50,6 +50,26 @@ function collectMarkdownFiles(rootDir) {
   return files.sort();
 }
 
+function listPackageRoots() {
+  const packagesRoot = path.join(ROOT, 'packages');
+  const packageRoots = fs
+    .readdirSync(packagesRoot, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => path.join(packagesRoot, entry.name));
+  const nativePackageRoots = packageRoots.flatMap(packageRoot => {
+    const npmRoot = path.join(packageRoot, 'npm');
+    if (!fs.existsSync(npmRoot)) return [];
+    return fs
+      .readdirSync(npmRoot, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => path.join(npmRoot, entry.name));
+  });
+
+  return [...packageRoots, ...nativePackageRoots].filter(packageRoot =>
+    fs.existsSync(path.join(packageRoot, 'package.json'))
+  );
+}
+
 function readMarkdownLinks(content) {
   const links = [];
   const linkPattern = /!?\[[^\]]*]\(([^)]+)\)/g;
@@ -69,7 +89,7 @@ function readMarkdownLinks(content) {
 function validateDocsLinks() {
   const failures = [];
 
-  const packageRoots = fs.readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => path.join(ROOT, 'packages', entry.name));
+  const packageRoots = listPackageRoots();
   const entryDocs = [ROOT, ...packageRoots].flatMap(dir => fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile() && entry.name.endsWith('.md')).map(entry => path.join(dir, entry.name)));
   const docFiles = [...new Set([...DOC_ROOTS.flatMap(collectMarkdownFiles), ...entryDocs])];
   for (const filePath of docFiles) {
@@ -108,6 +128,57 @@ function validateDocsLinks() {
         }
       }
     }
+  }
+
+  return failures;
+}
+
+function validatePackageReadmes() {
+  const failures = [];
+  const rootReadme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const ownersByContent = new Map();
+  const checkScripts = (manifest, manifestPath) => {
+    for (const [scriptName, command] of Object.entries(manifest.scripts ?? {})) {
+      if (scriptName === 'readme:sync' || command.includes('sync-package-readmes')) {
+        failures.push(
+          `${manifestPath} retains removed README synchronization in scripts.${scriptName}`
+        );
+      }
+    }
+  };
+
+  for (const packageRoot of listPackageRoots()) {
+    const packagePath = path.relative(ROOT, packageRoot);
+    const readmePath = path.join(packageRoot, 'README.md');
+    if (!fs.existsSync(readmePath)) {
+      failures.push(`${packagePath} is missing its package-owned README.md`);
+      continue;
+    }
+
+    const readme = fs.readFileSync(readmePath, 'utf8');
+    if (readme === rootReadme) {
+      failures.push(`${packagePath}/README.md duplicates the root README.md`);
+    }
+    const priorOwner = ownersByContent.get(readme);
+    if (priorOwner) {
+      failures.push(`${packagePath}/README.md duplicates ${priorOwner}/README.md`);
+    } else {
+      ownersByContent.set(readme, packagePath);
+    }
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')
+    );
+    checkScripts(manifest, `${packagePath}/package.json`);
+  }
+
+  const rootManifest = JSON.parse(
+    fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')
+  );
+  checkScripts(rootManifest, 'package.json');
+
+  if (fs.existsSync(path.join(ROOT, 'scripts', 'sync-package-readmes.mjs'))) {
+    failures.push('scripts/sync-package-readmes.mjs must not overwrite package-owned READMEs');
   }
 
   return failures;
@@ -313,11 +384,6 @@ function validatePrimaryToolGuidance() {
       forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
     },
     {
-      file: 'skills/octocode-skills/references/octocode.md',
-      required: ['tools ghSearch', '"operation":"code"'],
-      forbidden: ['ghSearchCode', 'ghSearchRepos', 'ghViewRepoStructure'],
-    },
-    {
       file: 'docs/CONFIGURATION.md',
       required: ['Example: ["ghSearch", "localSearch", "artifactSearch"]'],
       forbidden: ['Example: `["ghSearchCode", "localSearch"]`'],
@@ -356,6 +422,7 @@ function validatePrimaryToolGuidance() {
 function main() {
   const failures = [
     ...validateDocsLinks(),
+    ...validatePackageReadmes(),
     ...validateWorkflowReadme(),
     ...validateDocumentationContracts(),
     ...validatePrimaryToolGuidance(),

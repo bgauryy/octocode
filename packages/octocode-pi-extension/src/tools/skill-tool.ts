@@ -8,17 +8,15 @@ import { DIRECT_TOOL_DESCRIPTIONS, type registerUniqueTool } from './octocode-to
 import { makeComponentRenderer } from './render-helpers.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
 import { orchestrate } from './call-skill.js';
-import { MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS } from './tool-result-budget.js';
 import { discoverSkills, type DiscoveredSkill } from './skill-discovery.js';
 import { readSkillPage } from './skill-pages.js';
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilityDefinitionRevision } from '../contracts/capability-sources.js';
 import { isWorkerCapabilityClient, getCurrentWorkerCapabilities, refreshCurrentWorkerCapabilities, assertCurrentWorkerNativeTool } from './worker-capabilities.js';
 
 import { z } from 'zod';
 type RegisterFn = typeof registerUniqueTool;
 
-// Leave room for identity, file discovery, and recovery calls inside the current
-// model-visible tool-result budget; otherwise the initial page itself spills.
+// Page long instructions with an executable continuation.
 const SKILL_CONTENT_CAP = 8_000;
 
 const SKILL_FILE_LIST_CAP = 30;
@@ -59,10 +57,13 @@ function result(text: string, details?: unknown, isError = false): ToolCallResul
 
 type SkillPartialReason = 'content-limit' | 'file-limit' | 'file-depth' | 'file-filter' | 'file-read-error';
 
-function skillContinuation(tool: 'localFetch' | 'astSearch', query: Record<string, unknown>, why: string) {
+function skillContinuation(
+  tool: 'localFetch' | 'astSearch', query: Record<string, unknown>, why: string,
+  invocation: { reasoning: string; debug: boolean },
+) {
   return {
     tool: 'MCPTool' as const,
-    query: { queries: [{ reasoning: why, action: 'call' as const, server: 'octocode', tool, arguments: { queries: [query] } }] },
+    query: { queries: [{ action: 'call' as const, tool, arguments: { queries: [{ ...invocation, ...query }] } }] },
     why,
   };
 }
@@ -97,7 +98,7 @@ function listSkillFiles(dir: string): { files: string[]; partialReasons: SkillPa
   return { files, partialReasons: [...partialReasons] };
 }
 
-function loadSkill(skill: DiscoveredSkill): ToolCallResult {
+function loadSkill(skill: DiscoveredSkill, invocation: { reasoning: string; debug: boolean }): ToolCallResult {
   let text: string;
   try {
     text = fs.readFileSync(skill.path, 'utf8');
@@ -114,10 +115,10 @@ function loadSkill(skill: DiscoveredSkill): ToolCallResult {
     const next = {
       ...(contentPartial ? { content: skillContinuation('localFetch', {
         path: skill.path, minify: 'none', chunkType: 'bytes', offset: Buffer.byteLength(text.slice(0, returnedChars)), limit: SKILL_CONTENT_CAP,
-      }, 'Read the next page of skill instructions before acting.') } : {}),
+      }, 'Read the next page of skill instructions before acting.', invocation) } : {}),
       ...(filePartialReasons.length ? { files: skillContinuation('astSearch', {
         operation: 'files', path: skill.dir, entryType: 'f', excludeDir: [], maxDepth: 100, limit: 10_000, pageSize: 50, sort: 'path',
-      }, 'Discover all supporting files; merge with this preview and follow returned continuations.') } : {}),
+      }, 'Discover all supporting files; merge with this preview and follow returned continuations.', invocation) } : {}),
     };
     const isPartial = partialReasons.length > 0;
     const lines = [
@@ -137,14 +138,7 @@ function loadSkill(skill: DiscoveredSkill): ToolCallResult {
       ...(isPartial ? { next } : {}),
     });
   };
-  let page = buildPage();
-  let pageChars = (page.content[0] as { text: string }).text.length;
-  while (returnedChars > 0 && pageChars > MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS) {
-    returnedChars = Math.max(0, returnedChars - (pageChars - MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS));
-    if (returnedChars > 0 && returnedChars < text.length && (text.charCodeAt(returnedChars - 1) & 0xFC00) === 0xD800) returnedChars -= 1;
-    page = buildPage();
-    pageChars = (page.content[0] as { text: string }).text.length;
-  }
+  const page = buildPage();
   recordSkillLoad(skill.name);
   return page;
 }
@@ -156,7 +150,7 @@ function formatSkillList(skills: DiscoveredSkill[], total = skills.length): stri
     const usedNote = used ? ` (loaded ${used.count}× this session)` : '';
     return `- ${skill.name} [${skill.source}] id:${skill.sourceId ?? skill.path}${usedNote}: ${skill.description || '(no description)'}`;
   });
-  return [`${total} skill(s) available — load one with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}) when the task matches:`, ...lines].join('\n');
+  return [`${total} skill(s) available — load one with skill({queries:[{type:"load", action:"load", name:"…"}]}) when the task matches:`, ...lines].join('\n');
 }
 
 // ─── Per-query executors ───────────────────────────────────────────────────────
@@ -168,6 +162,8 @@ function executeLoadItem(
   ctx?: PiContext,
 ): ToolCallResult {
   const action = query['action'] === 'list' ? 'list' : 'load';
+  const reason = typeof query['reason'] === 'string' ? query['reason'].trim() : '';
+  if (action === 'load' && !reason) return result('skill load requires reason describing why the workflow matches.', undefined, true);
   const skills: DiscoveredSkill[] = isWorkerCapabilityClient()
     ? (getCurrentWorkerCapabilities()?.snapshot.skills ?? []).map(skill => ({ ...skill, sourceId: skill.id, description: skill.description ?? '', dir: path.dirname(skill.path), source: 'parent grant' }))
     : discoverSkills(cwd, getPiSkills(), undefined, { trusted: ctx?.isProjectTrusted?.() === true });
@@ -177,16 +173,17 @@ function executeLoadItem(
     return result((page.diagnostic?.message ?? formatSkillList(page.skills, page.total)) + continuation, page, Boolean(page.diagnostic));
   }
   const name = typeof query['name'] === 'string' ? query['name'].trim() : '';
-  if (!name) return result('skill load requires name. Use skill({queries:[{reasoning:"…", type:"load", action:"list"}]}) for the catalog.', undefined, true);
-  const reason = typeof query['reason'] === 'string' ? query['reason'].trim() : '';
-  if (!reason) return result('skill load requires reason explaining why it matches the current task.', undefined, true);
+  if (!name) return result('skill load requires name. Use skill({queries:[{type:"load", action:"list"}]}) for the catalog.', undefined, true);
   const skill = skills.find((candidate) => candidate.name === name)
     ?? skills.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
   if (!skill) {
     return result(`Unknown skill: ${name}\nAvailable: ${skills.map((s) => s.name).join(', ') || 'none'}`, { skills: skills.map((s) => s.name) }, true);
   }
   if (!skill.path) return result(`skill "${skill.name}" has no resolvable SKILL.md path.`, undefined, true);
-  return loadSkill(skill);
+  const invocationReasoning = typeof query['reasoning'] === 'string' && query['reasoning'].trim()
+    ? query['reasoning'].trim()
+    : reason;
+  return loadSkill(skill, { reasoning: invocationReasoning, debug: query['debug'] === true });
 }
 
 async function executeCallItem(
@@ -256,30 +253,22 @@ export function registerSkillTool(
 ): void {
   // ── Per-item schema: type:"load" | type:"call" with explicit typed fields ──
   const itemSchema = z.looseObject({
-    type: z.enum(['load', 'call']).optional().describe(
-      'load (default): work with installed SKILL.md skills (load or list). call: manage dynamic skills (reuse, create, enhance, fix, list, delete).',
-    ),
-    action: z.enum(['load', 'list']).optional().describe(
-      'load (default): bounded SKILL.md and file preview. list: enabled skill identities and descriptions; follow next when partial.',
-    ),
-    offset: z.number().int().min(0).optional().describe('Catalog continuation row (action:list).'),
-    textOffset: z.number().int().min(0).optional().describe('Description continuation offset (action:list).'),
-    limit: z.number().int().min(1).max(50).optional().describe('Catalog page size (action:list).'),
-    catalogRevision: z.string().optional().describe('Copy from the catalog continuation to detect discovery changes.'),
-    name: z.string().optional().describe('Skill name for type:load action:load (exact name from <available_skills> or action:list).'),
-    reason: z.string().optional().describe('Required for type:load action:load. One concise, user-facing clause explaining why this skill matches the current task. Also used as skill creation reason for type:call.'),
-    skillType: z.string().optional().describe('Skill name / workflow id (lowercase a-z, 0-9, hyphens). Required for type:call.'),
-    mode: z.enum(['auto', 'use', 'create', 'enhance', 'fix', 'list', 'delete']).optional().describe(
-      'auto (default) · use (reuse only) · create (after user approval) · enhance/fix (revise existing) · list · delete.',
-    ),
-    intent: z.string().optional().describe('What the workflow does (type:call). Guides skill-smith authoring and keyword matching.'),
-    approveCreate: z.boolean().optional().describe('type:call: attest existing user approval for creation in auto mode; never self-authorize.'),
-    force: z.boolean().optional().describe('type:call: bypass only the triviality heuristic when reuse is justified; grants no authority.'),
+    type: z.enum(['load', 'call']).optional().describe('load: SKILL.md skills. call: dynamic skill lifecycle.'),
+    action: z.enum(['load', 'list']).optional().describe('load: SKILL.md preview. list: catalog.'),
+    offset: z.number().int().min(0).optional().describe('Continuation row.'),
+    textOffset: z.number().int().min(0).optional().describe('Text offset.'),
+    limit: z.number().int().min(1).max(50).optional().describe('Page size.'),
+    catalogRevision: z.string().optional().describe('Catalog revision.'),
+    name: z.string().optional().describe('Skill name.'),
+    reason: z.string().optional().describe('Why the skill matches or why creation is needed.'),
+    skillType: z.string().optional().describe('Workflow id for type:call.'),
+    mode: z.enum(['auto', 'use', 'create', 'enhance', 'fix', 'list', 'delete']).optional().describe('auto·use·create·enhance·fix·list·delete'),
+    intent: z.string().optional().describe('type:call workflow intent.'),
+    approveCreate: z.boolean().optional().describe('Attest user approval for creation.'),
+    force: z.boolean().optional().describe('Bypass triviality heuristic only.'),
   });
 
-  const parameters = buildQueryEnvelopeSchema(itemSchema, {
-    reasoningDescription: 'Concise reason this query is necessary.',
-  });
+  const parameters = buildQueryEnvelopeSchema(itemSchema);
 
   const execute = async (
     toolCallId: string,
@@ -308,7 +297,7 @@ export function registerSkillTool(
           if (['create', 'enhance', 'fix'].includes(String(query['mode'])) && !text('reason')) throw new Error('Skill creation requires reason.');
         } else if (query['action'] !== 'list') {
           if (!text('name')) throw new Error('skill load requires name.');
-          if (!text('reason')) throw new Error('skill load requires reason explaining why it matches the current task.');
+          if (!text('reason')) throw new Error('skill load requires reason describing why the workflow matches.');
         }
       },
       execute: async (query) => {
@@ -376,9 +365,8 @@ export function registerSkillTool(
     description: DIRECT_TOOL_DESCRIPTIONS.skill!,
     promptSnippet: 'Load a specialized workflow when needed; manage recurring dynamic skills on request.',
     promptGuidelines: [
-      'type:"load" selects installed instructions by exact catalog name and a short reason. Read required continuation pages before following a partial skill.',
-      'type:"call" owns recurring multi-step workflows; callTool owns reusable functions; agent owns bounded independent work. A routine edit needs none of these by default.',
-      'On a creation proposal, check existing capabilities and prepare the smallest useful workflow. mode:"create" requires user approval; approveCreate records existing approval, not model consent.',
+      'type:load selects installed SKILL.md by exact name. Read continuation pages before following a partial skill.',
+      'type:call for recurring workflows; mode:create requires user approval.',
     ],
     parameters,
     execute,

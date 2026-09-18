@@ -5,7 +5,6 @@ import { SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { historyExamples, historySchemas, HISTORY_ROUTE_DESCRIPTORS } from '../src/schema/definitions-history.js';
 import { assertCanonicalSchemaFingerprint } from '../src/db-introspection.js';
 import { schemas } from '../src/schema/registry.js';
-import { commandIndex } from '../src/schema/command-catalog.js';
 import { CLI_REQUIRED, cliAllowedFlags } from '../src/schema/cli-contract.js';
 
 describe('local history canonical contracts', () => {
@@ -61,9 +60,6 @@ describe('local history canonical contracts', () => {
   it('registers every history route from the canonical descriptors', () => {
     for (const route of HISTORY_ROUTE_DESCRIPTORS) {
       expect(schemas).toHaveProperty(route.schema);
-      expect(commandIndex).toContainEqual(expect.objectContaining({
-        command: route.command, schema: route.schema, use: route.use, example: route.example,
-      }));
       expect(CLI_REQUIRED[route.command]).toEqual(route.required);
       expect(cliAllowedFlags(route.command)).toEqual(route.allowed);
     }

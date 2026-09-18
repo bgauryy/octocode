@@ -64,7 +64,7 @@ export interface FlatQueryResult {
   /** Present only when this query's response was served from cache. */
   cache?: 1;
   status?: QueryStatus;
-  meta: ToolResultMeta;
+  meta?: ToolResultMeta;
   data: Record<string, unknown>;
 }
 

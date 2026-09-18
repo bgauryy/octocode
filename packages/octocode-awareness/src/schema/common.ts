@@ -28,7 +28,7 @@ export const memoryLabel = z.preprocess(normalizeMemoryLabel, z.enum(MEMORY_LABE
 export const memorySort = z.enum(['smart', 'score', 'importance', 'recent', 'accessed']).default('smart').describe('Sort order.');
 export const importanceLevel = z.number().int().min(1).max(10).describe('1-10 importance.');
 export const targetFiles = z.array(z.string().trim().min(1).max(1024)).min(1).max(200).describe('Files to lock.');
-export const awarenessQueryView = z.enum(['all', 'repo-profile', 'memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'locks', 'agents', 'signals', 'refinements', 'files', 'activity', 'workboard', 'developer-review']).default('all').describe('Awareness read view.');
+export const awarenessQueryView = z.enum(['all', 'repo-profile', 'memories', 'gotchas', 'lessons', 'plans', 'tasks', 'runs', 'locks', 'agents', 'signals', 'files', 'activity', 'workboard']).default('all').describe('Awareness read view.');
 export const awarenessOutputFormat = z.enum(['json', 'table', 'csv', 'markdown', 'html']).default('json').describe('Output format.');
 // Signals — repo-scoped agent-to-agent messages. The `kind` enum is the
 // "smart" part: typed messages let recipients filter (e.g. only blockers) and
@@ -37,14 +37,3 @@ export const NOTIFICATION_KINDS = NOTIFICATION_KIND_VALUES;
 export const notificationKind = z.enum(NOTIFICATION_KINDS);
 export const fileList = z.array(z.string().trim().min(1).max(1024)).max(200).default([]).describe('Related files.');
 export const refIds = z.array(z.string().trim().min(1).max(128)).max(50).default([]).describe('Related ids.');
-export const evalFailure = z
-  .object({
-    id: z.string().trim().min(1).max(128).describe('Eval id.'),
-    dimension: z.string().trim().min(1).max(128).optional().describe('Eval dimension.'),
-    failure_signature: z.string().trim().min(1).max(256).optional().describe('Failure cluster key.'),
-    suggested_lesson: z.string().trim().min(1).max(1000).optional().describe('Eval lesson.'),
-  })
-  .strict()
-  .refine((d) => d.failure_signature !== undefined || d.suggested_lesson !== undefined, {
-    message: 'eval failure needs failure_signature or suggested_lesson.',
-  });

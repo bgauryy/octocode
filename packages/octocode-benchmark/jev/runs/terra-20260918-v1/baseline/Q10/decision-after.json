@@ -1,0 +1,1 @@
+{"hypotheses":["Confirmed axios repository/language metadata.","Confirmed main and CommonJS exports target; source index reaches lib/axios.js."],"currentDirection":"Distinguish package-resolution target from source entry trace.","uncertainty":"Generated CJS bundle was not unpacked." ,"actualNextCheck":"Tree metadata, package manifest, source index, and lib entry read."}

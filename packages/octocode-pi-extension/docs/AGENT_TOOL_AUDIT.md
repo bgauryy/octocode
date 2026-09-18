@@ -29,7 +29,7 @@ The remaining tools each own a distinct effect or capability boundary. Scores us
 | Tool | Score | Decision | Agent value / remaining cost |
 |---|---:|---|---|
 | `file` | 9.7 | Keep | One guarded create/edit/delete boundary with effect discrimination, full-batch preflight, atomic writes, stale/lost-update checks, and diffs. |
-| `bash` | 9.5 | Keep | Build, test, and process execution; guarded mutation paths and visible reasoning. |
+| `bash` | 9.5 | Keep | Build, test, and process execution with guarded mutation paths. |
 | `readMedia` | 9.1 | Keep | One read-only perception route for images, video, and audio. |
 | `media` | 9.0 | Keep | One write boundary for image/PDF authoring and media transformation. |
 | `web` | 8.2 | Keep | Current external information and URL retrieval; repository research remains MCP-owned. |
@@ -71,7 +71,7 @@ Measured from the built extension by summing every direct tool's top-level descr
 | Contract characters | 40,377 |
 | Approximate tokens (4 chars/token) | 10,095 |
 
-All public descriptions now come from one curated catalog. Registration recursively normalizes whitespace and caps every schema description at 180 characters. Tests enforce catalog coverage, a 360-character top-level cap, the 180-character schema cap, and a 45,000-character whole-palette budget.
+Direct-tool descriptions come from one curated catalog. Registration preserves supplied schemas rather than rewriting descriptions or literal data. MCP catalogs preserve server descriptions and exact input schemas; generated routing notes supplement them. See [tool registration](../src/tools/octocode-tools.ts) and [MCP catalogs](../src/tools/mcp/catalog.ts).
 
 ## Recorded follow-up priority
 

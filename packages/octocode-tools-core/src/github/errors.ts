@@ -57,8 +57,15 @@ export function handleGitHubAPIError(error: unknown): GitHubAPIError {
 function handleRequestError(error: RequestError): GitHubAPIError {
   const { status, message, response } = error;
 
+  if (
+    (status === 403 || status === 429) &&
+    RATE_LIMIT_PATTERNS.SECONDARY.test(message)
+  ) {
+    return handleSecondaryRateLimit(status, response?.headers);
+  }
+
   if (status === 403) {
-    return handle403Error(message, response);
+    return handle403Error(response);
   }
 
   if (status === 429) {
@@ -124,15 +131,8 @@ function handle429RateLimit(
   });
 }
 
-function handle403Error(
-  message: string,
-  response?: RequestError['response']
-): GitHubAPIError {
+function handle403Error(response?: RequestError['response']): GitHubAPIError {
   const headers = response?.headers;
-
-  if (RATE_LIMIT_PATTERNS.SECONDARY.test(message)) {
-    return handleSecondaryRateLimit(headers);
-  }
 
   const remaining = headers?.['x-ratelimit-remaining'];
   const isGraphQLRateLimited = checkGraphQLRateLimit(response);
@@ -148,23 +148,35 @@ function handle403Error(
 }
 
 function handleSecondaryRateLimit(
+  status: 403 | 429,
   headers?: Record<string, unknown>
 ): GitHubAPIError {
-  const parsed = Number(headers?.['retry-after']);
-  const retryAfter = !isNaN(parsed)
-    ? parsed
-    : RATE_LIMIT_CONFIG.SECONDARY_FALLBACK_SECONDS;
+  const remaining = parseHeaderInteger(headers, 'x-ratelimit-remaining');
+  const reset = parseHeaderInteger(headers, 'x-ratelimit-reset');
+  const resetMs = reset === undefined ? undefined : reset * 1000;
+  const retryAfter =
+    parseHeaderInteger(headers, 'retry-after') ??
+    (remaining === 0 && resetMs !== undefined
+      ? Math.max(
+          Math.ceil((resetMs - Date.now()) / 1000) +
+            RATE_LIMIT_CONFIG.RESET_BUFFER_SECONDS,
+          0
+        )
+      : RATE_LIMIT_CONFIG.SECONDARY_FALLBACK_SECONDS);
 
   recordRateLimit({
     limit_type: 'secondary',
     retry_after_seconds: retryAfter,
+    rate_limit_remaining: remaining,
+    rate_limit_reset_ms: resetMs,
     provider: 'github',
   });
 
   return createErrorResponse(ERROR_CODES.RATE_LIMIT_SECONDARY, {
     error: ERROR_MESSAGES[ERROR_CODES.RATE_LIMIT_SECONDARY].message(retryAfter),
-    status: 403,
-    rateLimitRemaining: 0,
+    status,
+    rateLimitRemaining: remaining,
+    rateLimitReset: resetMs,
     retryAfter,
     scopesSuggestion:
       ERROR_MESSAGES[ERROR_CODES.RATE_LIMIT_SECONDARY].suggestion,

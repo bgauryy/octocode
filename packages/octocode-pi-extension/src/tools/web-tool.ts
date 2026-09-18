@@ -2,7 +2,7 @@
  * Web tool — Pi tool wrapper around runWebTool from src/web.ts.
  * One tool for both web search and page fetch, no API key required.
  * SSRF-hardened: private/loopback/link-local/metadata IPs blocked.
- * Migrated to universal queries[] envelope with per-query reasoning.
+ * Uses the universal queries[] envelope with optional batch labels.
  */
 import { runWebTool, renderWebResult } from '../web.js';
 import { propagateOctocodeEnv, getOctocodeHome } from '@octocodeai/config';
@@ -37,27 +37,27 @@ export function registerWebTool(
   const parameters = buildQueryEnvelopeSchema(
     z.looseObject({
       url: z.string().optional().describe('Absolute http(s) URL to fetch and read as text.'),
-      query: z.string().optional().describe('Web search query (used when no url is given).'),
+      query: z.string().optional().describe('Search query; omit when url is given.'),
       maxResults: z.number().int().min(1).max(20).optional()
         .describe('Search: max results (default 5).'),
       maxChars: z.number().int().min(500).max(50000).optional()
-        .describe('Fetch: max characters of page text to return per page (default 15000).'),
+        .describe('Max chars of page text per page (default 15000).'),
       page: z.number().int().min(1).max(20).optional()
-        .describe('Fetch: page number for long documents (default 1). Each page is maxChars chars. Pass page: 2, 3… when the result shows truncated: true.'),
+        .describe('Page for long docs (default 1); maxChars chars each. Advance when truncated:true.'),
       engine: z.enum(['tavily', 'serper', 'exa', 'duckduckgo']).optional()
-        .describe('Search: force a provider — "tavily", "serper", "exa", or "duckduckgo" (default: auto by available key).'),
+        .describe('Force provider: tavily|serper|exa|duckduckgo (default: auto).'),
       timeRange: z.enum(['day', 'week', 'month', 'year']).optional()
-        .describe('Search: recency filter — "day", "week", "month", or "year".'),
+        .describe('Recency: day|week|month|year.'),
       includeDomains: z.array(z.string()).optional()
-        .describe('Search (Tavily): allowlist domains, e.g. ["docs.python.org"].'),
+        .describe('Tavily allowlist domains, e.g. ["docs.python.org"].'),
       excludeDomains: z.array(z.string()).optional()
-        .describe('Search (Tavily): blocklist domains to drop noise.'),
+        .describe('Tavily blocklist domains.'),
       exaType: z.enum(['auto', 'neural', 'keyword']).optional()
-        .describe('Search (Exa): result type — "auto" (default), "neural", or "keyword". "neural" for semantic/AI-native queries; "keyword" for exact-match.'),
+        .describe('Exa result type: auto (default), neural (semantic), keyword (exact-match).'),
       exaCategory: z.string().optional()
-        .describe('Search (Exa): category filter — "research paper", "news", "github", "company", "pdf". Narrows Exa results to a specific content type.'),
+        .describe('Exa category: "research paper", "news", "github", "company", "pdf".'),
     }),
-    { reasoningDescription: 'Concise reason this web fetch or search is necessary.', allowParallel: true },
+    { allowParallel: true },
   );
 
   registerFn(pi, registeredToolNames, {
@@ -67,11 +67,11 @@ export function registerWebTool(
       DIRECT_TOOL_DESCRIPTIONS.web!,
     promptSnippet: 'Search the web or fetch and read a page',
     promptGuidelines: [
-      'Provide url or query; if both are present, url takes precedence. Fetch a discovered URL before its page contents count as evidence.',
-      'When truncated:true, continue the same URL with the next page and maxChars until the needed evidence is read. A partial page cannot prove absence.',
-      'For a bot challenge, 403, or empty page, use a search-discovered alternative or another provider. Repeating the blocked fetch adds no evidence.',
-      'Omit engine to select automatically by available key. Tavily alone applies includeDomains/excludeDomains; other engines ignore them. A provider key requires authorized configuration.',
-      'Timeouts are fixed: 15s for a fetch including redirects and body, 30s for search. No per-call override.',
+      'url takes precedence over query. Fetch a discovered URL before using as evidence.',
+      'On truncated:true, continue same URL with next page+maxChars; partial page cannot prove absence.',
+      'On 403/bot/empty: use search-discovered alternative; repeating blocked fetch adds no evidence.',
+      'Omit engine for auto-select. Tavily only: includeDomains/excludeDomains. Provider key needs config.',
+      'Timeouts fixed: 15s fetch, 30s search. No per-call override.',
     ],
     parameters,
 

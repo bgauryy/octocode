@@ -64,14 +64,14 @@ describe('canonical local history domain', () => {
     for (let i = 0; i < 3; i++) await before(`edit-${i}`);
     const first = await call('timeline', { limit: 2 });
     expect(first.operations).toHaveLength(2);
-    expect(first.next).toMatchObject({ command: 'history timeline', args: { workspace, limit: 2 } });
-    const next = first.next as { args: Record<string, unknown> };
-    const second = await call('timeline', next.args);
+    expect(first.next).toMatchObject({ operation: 'history.timeline', params: { limit: 2 } });
+    const next = first.next as { params: Record<string, unknown> };
+    const second = await call('timeline', next.params);
     expect(second.operations).toHaveLength(1);
     expect(second.next).toBeNull();
     const page = await call('read', { operation_id: 'edit-1', file: 'a.ts', side: 'before', limit: 2 });
-    expect(page).toMatchObject({ content: Buffer.from('be').toString('base64'), next: { command: 'history read', args: { offset: 2 } } });
-    await expect(call('timeline', { ...(next.args), file: 'b.ts' })).rejects.toMatchObject({ code: 'HISTORY_CURSOR_INVALID' });
+    expect(page).toMatchObject({ content: Buffer.from('be').toString('base64'), next: { operation: 'history.read', params: { offset: 2 } } });
+    await expect(call('timeline', { ...(next.params), file: 'b.ts' })).rejects.toMatchObject({ code: 'HISTORY_CURSOR_INVALID' });
   });
   it('requires exact post-capture paths and does not claim unknown checkpoint preimages', async () => {
     await before();

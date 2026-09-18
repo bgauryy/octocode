@@ -10,7 +10,10 @@ import type {
   GitHubRepositoryStructureResult,
   GitHubRepositoryStructureError,
 } from '../../tools/github_view_repo_structure/types.js';
-import { GITHUB_STRUCTURE_DEFAULTS as STRUCTURE_DEFAULTS } from '../../tools/github_view_repo_structure/constants.js';
+import {
+  GITHUB_STRUCTURE_DEFAULTS as STRUCTURE_DEFAULTS,
+  CONTENTS_DIRECTORY_LIMIT,
+} from '../../tools/github_view_repo_structure/constants.js';
 import {
   getOctokit,
   resolveDefaultBranch,
@@ -29,6 +32,9 @@ import { applyStructurePagination } from '../repoStructurePagination.js';
 import {
   fetchDirectoryContentsRecursivelyAPI,
   getRecursiveFetchFailureCount,
+  hasRecursiveContentsLimit,
+  recoverContentsDirectory,
+  shouldPropagateStructureError,
 } from '../repoStructureRecursive.js';
 import {
   fetchStructureViaGitTree,
@@ -157,10 +163,10 @@ async function viewGitHubRepositoryStructureAPIInternal(
     const rawItems = Array.isArray(data) ? data : [data];
     let allItems = mapApiItems(rawItems);
     let partialTreeFailures = 0;
+    let contentsLimitReached = false;
 
     if (depth > 1) {
-      // Contents fallback: recursive fetch already loads the root path — do not
-      // keep the duplicate root listing from resolveContentWithBranchFallback.
+      // Reuse the resolved raw root; recursion owns its accounting and recovery.
       const recursiveItems = await fetchDirectoryContentsRecursivelyAPI(
         octokit,
         owner,
@@ -168,11 +174,24 @@ async function viewGitHubRepositoryStructureAPIInternal(
         workingBranch,
         cleanPath,
         1,
-        depth
+        depth,
+        undefined,
+        { data }
       );
       partialTreeFailures = getRecursiveFetchFailureCount(recursiveItems);
       rawResponseChars = getRawResponseChars(recursiveItems) ?? 0;
       allItems = recursiveItems;
+      contentsLimitReached = hasRecursiveContentsLimit(recursiveItems);
+    } else {
+      const recovered = await recoverContentsDirectory(
+        octokit,
+        { owner, repo, branch: workingBranch, path: cleanPath },
+        rawItems.length,
+        allItems
+      );
+      allItems = recovered.items;
+      rawResponseChars += recovered.rawResponseChars;
+      contentsLimitReached = recovered.contentsLimitReached;
     }
 
     return {
@@ -186,13 +205,16 @@ async function viewGitHubRepositoryStructureAPIInternal(
         allItems,
         partialTreeFailures,
         incompleteTree: false,
+        contentsLimitReached,
         rawResponseChars,
         includeSizes: params.includeSizes === true,
         itemsPerPage: params.itemsPerPage,
         page: params.page,
       }),
       // Soft ETag only for single-call depth-1 Contents (stable body ↔ etag).
-      ...(depth === 1 && etag ? { etag } : {}),
+      ...(depth === 1 && rawItems.length < CONTENTS_DIRECTORY_LIMIT && etag
+        ? { etag }
+        : {}),
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);
@@ -232,6 +254,9 @@ async function viewStructureViaTrees(
       result: {
         error: REPOSITORY_ERRORS.NOT_FOUND.message(owner, repo, apiError.error),
         status: apiError.status,
+        rateLimitRemaining: apiError.rateLimitRemaining,
+        rateLimitReset: apiError.rateLimitReset,
+        retryAfter: apiError.retryAfter,
       },
     };
   }
@@ -248,6 +273,7 @@ async function viewStructureViaTrees(
     });
   } catch (error: unknown) {
     // Trees failed (missing ref, etc.) — fall back to Contents recursion.
+    if (shouldPropagateStructureError(error)) throw error;
     const resolution = await resolveContentWithBranchFallback(
       octokit,
       owner,
@@ -264,7 +290,9 @@ async function viewStructureViaTrees(
       resolution.workingBranch,
       cleanPath,
       1,
-      depth
+      depth,
+      undefined,
+      { data: resolution.data }
     );
     return {
       result: buildStructureResult({
@@ -277,6 +305,7 @@ async function viewStructureViaTrees(
         allItems: recursiveItems,
         partialTreeFailures: getRecursiveFetchFailureCount(recursiveItems),
         incompleteTree: false,
+        contentsLimitReached: hasRecursiveContentsLimit(recursiveItems),
         rawResponseChars: getRawResponseChars(recursiveItems) ?? 0,
         includeSizes: params.includeSizes === true,
         itemsPerPage: params.itemsPerPage,
@@ -300,6 +329,7 @@ async function viewStructureViaTrees(
   let partialTreeFailures = 0;
   let rawResponseChars = treeResult.rawResponseChars;
   const incompleteTree = treeResult.truncated;
+  let contentsLimitReached = false;
   const extraHints: string[] = [];
 
   if (incompleteTree) {
@@ -317,14 +347,15 @@ async function viewStructureViaTrees(
         depth
       );
       partialTreeFailures = getRecursiveFetchFailureCount(recursiveItems);
+      contentsLimitReached = hasRecursiveContentsLimit(recursiveItems);
       rawResponseChars += getRawResponseChars(recursiveItems) ?? 0;
       const combined = [...allItems, ...recursiveItems];
       allItems = combined.filter(
         (item, index, array) =>
           array.findIndex(i => i.path === item.path) === index
       );
-    } catch {
-      void 0;
+    } catch (error) {
+      if (shouldPropagateStructureError(error)) throw error;
     }
   }
 
@@ -339,6 +370,7 @@ async function viewStructureViaTrees(
       allItems,
       partialTreeFailures,
       incompleteTree,
+      contentsLimitReached,
       rawResponseChars,
       includeSizes: params.includeSizes === true,
       itemsPerPage: params.itemsPerPage,

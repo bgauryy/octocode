@@ -5,7 +5,7 @@ import { insertMemory } from '../src/memory-write.js';
 import { storeEmbedding } from '../src/memory-embeddings.js';
 import { recallMemory } from '../src/memory-semantic.js';
 
-vi.mock('@octocodeai/agent-contracts/embed', async (importOriginal) => ({
+vi.mock('../src/embed.js', async (importOriginal) => ({
   ...await importOriginal<Record<string, unknown>>(),
   resolveEmbedCommand: () => 'fixture-embedder',
   runHostEmbedder: () => ({ embedding: new Float32Array([1, 0]), model: 'fixture' }),

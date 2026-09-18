@@ -1,0 +1,16 @@
+{
+  "arm": "treatment",
+  "caseId": "Q2",
+  "kind": "jev",
+  "args": [
+    "/Users/bgaryy/code/octocode/packages/octocode-benchmark/jev/runs/terra-20260918-v1/treatment/Q2/request.json"
+  ],
+  "startedAt": "2026-09-18T08:26:58.476Z",
+  "endedAt": "2026-09-18T08:27:00.315Z",
+  "elapsedMs": 1838,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "7ce4df922540c3eda3825f76b02bdad9890849b261aa604e7ea9ec1f7105439f",
+  "stdoutBytes": 305,
+  "requestSha256": "9540dff6d999bfeb30a106f17547f46781e124ff468a932187d10c8f5e0ce820"
+}

@@ -1,5 +1,6 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RequestError } from 'octokit';
 
 const mocks = vi.hoisted(() => ({
   reposGet: vi.fn(),
@@ -14,7 +15,8 @@ vi.mock('../../src/serverConfig.js', () => ({
   })),
 }));
 
-vi.mock('octokit', () => {
+vi.mock('octokit', async importOriginal => {
+  const actual = await importOriginal<typeof import('octokit')>();
   const MockOctokit = vi.fn(function (options?: { auth?: string }) {
     return {
       rest: {
@@ -27,7 +29,7 @@ vi.mock('octokit', () => {
     };
   });
   Object.assign(MockOctokit, { plugin: vi.fn(() => MockOctokit) });
-  return { Octokit: MockOctokit };
+  return { ...actual, Octokit: MockOctokit };
 });
 
 vi.mock('@octokit/plugin-throttling', () => ({ throttling: {} }));
@@ -62,6 +64,90 @@ describe('resolveDefaultBranch cache workflow', () => {
   afterEach(() => {
     vi.useRealTimers();
     clearOctokitInstances();
+  });
+
+  it.each([401, 403, 404, 429, 500, 503])(
+    'preserves metadata HTTP %i without probing other endpoints',
+    async status => {
+      const failure = new RequestError('Metadata request failed', status, {
+        request: { method: 'GET', url: '/repos/o/r', headers: {} },
+        response: {
+          status,
+          url: 'https://api.github.com/repos/o/r',
+          headers: { 'retry-after': '120', 'x-ratelimit-remaining': '0' },
+          data: {},
+        },
+      });
+      mocks.reposGet.mockRejectedValue(failure);
+      mocks.reposGetBranch.mockRejectedValue(failure);
+
+      const result = resolveDefaultBranch('o', 'r');
+
+      await expect(result).rejects.toBe(failure);
+      expect(mocks.reposGet).toHaveBeenCalledTimes(1);
+      expect(mocks.reposGetBranch).not.toHaveBeenCalled();
+    }
+  );
+
+  it('preserves network failures without probing branch endpoints', async () => {
+    const failure = new TypeError('fetch failed');
+    mocks.reposGet.mockRejectedValue(failure);
+    mocks.reposGetBranch.mockRejectedValue(failure);
+
+    await expect(resolveDefaultBranch('o', 'r')).rejects.toBe(failure);
+    expect(mocks.reposGet).toHaveBeenCalledTimes(1);
+    expect(mocks.reposGetBranch).not.toHaveBeenCalled();
+  });
+
+  it('does not treat an ordinary permission denial as a missing branch', async () => {
+    const failure = new RequestError('Resource not accessible', 403, {
+      request: { method: 'GET', url: '/repos/o/r', headers: {} },
+    });
+    mocks.reposGet.mockRejectedValue(failure);
+
+    await expect(resolveDefaultBranch('o', 'r')).rejects.toBe(failure);
+    expect(mocks.reposGet).toHaveBeenCalledTimes(1);
+    expect(mocks.reposGetBranch).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, '', '   '])(
+    'probes and caches an existing branch when metadata has no usable default (%s)',
+    async defaultBranch => {
+      mocks.reposGet.mockResolvedValue({
+        data: { default_branch: defaultBranch },
+      });
+      mocks.reposGetBranch
+        .mockRejectedValueOnce(
+          new RequestError('Branch not found', 404, {
+            request: {
+              method: 'GET',
+              url: '/repos/o/r/branches/main',
+              headers: {},
+            },
+          })
+        )
+        .mockResolvedValueOnce({ data: { name: 'master' } });
+
+      await expect(resolveDefaultBranch('o', 'r')).resolves.toBe('master');
+      await expect(resolveDefaultBranch('o', 'r')).resolves.toBe('master');
+      expect(mocks.reposGet).toHaveBeenCalledTimes(1);
+      expect(mocks.reposGetBranch.mock.calls).toEqual([
+        [undefined, { owner: 'o', repo: 'r', branch: 'main' }],
+        [undefined, { owner: 'o', repo: 'r', branch: 'master' }],
+      ]);
+    }
+  );
+
+  it('stops fallback probes when the first branch request is rate limited', async () => {
+    mocks.reposGet.mockResolvedValue({ data: {} });
+    const failure = new RequestError('Secondary rate limit', 429, {
+      request: { method: 'GET', url: '/repos/o/r/branches/main', headers: {} },
+    });
+    mocks.reposGetBranch.mockRejectedValue(failure);
+
+    await expect(resolveDefaultBranch('o', 'r')).rejects.toBe(failure);
+    expect(mocks.reposGet).toHaveBeenCalledTimes(1);
+    expect(mocks.reposGetBranch).toHaveBeenCalledTimes(1);
   });
 
   it('reuses a branch only within the same authentication identity', async () => {

@@ -20,6 +20,7 @@ import { withDataCache } from '../utils/http/cache/dataCache.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
 import { normalizeResponseHeaders } from './responseHeaders.js';
+import { rejectUnreachableSearchPage } from './searchWindow.js';
 
 import {
   GITHUB_SEARCH_DEFAULT_LIMIT,
@@ -288,6 +289,8 @@ async function searchGitHubReposAPIInternal(
       GITHUB_SEARCH_MAX_LIMIT
     );
     const currentPage = params.page || 1;
+    const windowError = rejectUnreachableSearchPage(currentPage, perPage);
+    if (windowError) return windowError;
 
     const searchParams: SearchReposParameters = {
       q: query,
@@ -318,8 +321,7 @@ async function searchGitHubReposAPIInternal(
         repo: repoName,
         defaultBranch: repo.default_branch,
         stars: repo.stargazers_count || 0,
-        // P6: full description (no silent 150-char '...' cut); the unified
-        // response char-pagination losslessly windows oversized output.
+        // Response pagination preserves full descriptions.
         description: repo.description ? repo.description : 'No description',
         url: repo.html_url,
         createdAt: repo.created_at,

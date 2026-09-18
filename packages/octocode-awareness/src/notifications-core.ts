@@ -11,6 +11,7 @@ import { normalizeArtifact, normalizeNotificationKind, utcNow, parseJsonList } f
 import { fillScope, repositoryWorkspacePaths } from './git.js';
 import { insertOutboxEvent } from './event-outbox.js';
 import { SIGNALS_SELECT_PARENT, SIGNALS_INSERT } from './sql/signals.js';
+import { signalExpiresAt } from './message-lifecycle.js';
 import type { InsertNotificationParams, InsertNotificationResult, NotificationRecord, NotificationKind, NotificationStatus } from './types/notifications-agents.js';
 
 /**
@@ -50,6 +51,7 @@ export interface NotificationRow {
   importance: number;
   status: string;
   created_at: string;
+  expires_at: string;
 }
 
 export function rowToNotification(r: NotificationRow): NotificationRecord {
@@ -72,6 +74,7 @@ export function rowToNotification(r: NotificationRow): NotificationRecord {
     importance: r.importance,
     status: r.status as NotificationStatus,
     created_at: r.created_at,
+    expires_at: r.expires_at,
   };
 }
 
@@ -129,11 +132,12 @@ export function insertNotification(
       threadId = signalId;
     }
 
+    const expiresAt = signalExpiresAt(normalizedKind, createdAt);
     db.prepare(SIGNALS_INSERT).run(
       signalId, wsPath, scope.artifact, scope.repo, scope.ref,
       agentId, toAgent, normalizedKind, subject, body,
       JSON.stringify(files), JSON.stringify(refIds),
-      threadId, inReplyTo, importance, createdAt,
+      threadId, inReplyTo, importance, createdAt, expiresAt,
     );
     // Signals are the sole durable message record. Publish their native
     // delivery event in this same write boundary so a committed signal never

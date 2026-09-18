@@ -21,6 +21,7 @@ import {
 
 import { buildSearchNextMap, type SearchNextMap } from './searchNext.js';
 import type { LocalSearchEngine } from './types.js';
+import { nativeSearchPartialReasons } from '../searchCompleteness.js';
 
 export type { LocalSearchEngine } from './types.js';
 
@@ -35,7 +36,7 @@ type LocalSearchResultWithNext = LocalSearchCodeToolResult & {
   next?: SearchNextMap;
   terminalLimit?: boolean;
   truncated?: boolean;
-  partialReasons?: Array<'maxFiles' | 'nativeResultCap'>;
+  partialReasons?: Array<'maxFiles' | 'nativeResultCap' | 'nativeSearchError'>;
 };
 
 export async function buildSearchResult(
@@ -204,9 +205,9 @@ export async function buildSearchResult(
   );
 
   const filesWithMoreMatches = finalFiles.filter(f => f.pagination?.hasMore);
-  const nativeResultCapReached = stats?.capped === true;
+  const nativePartialReasons = nativeSearchPartialReasons(stats);
   const terminalLimit =
-    nativeResultCapReached ||
+    nativePartialReasons.length > 0 ||
     (currentPage < totalFilePages && currentPage >= MAX_PAGE_NUMBER) ||
     (filesWithMoreMatches.length > 0 &&
       (aligned.matchPage || 1) >= MAX_PAGE_NUMBER) ||
@@ -229,6 +230,9 @@ export async function buildSearchResult(
     ...(stats ? { stats } : {}),
     files: finalFiles,
     pagination: {
+      ...(configuredQuery.snapshot
+        ? { snapshot: configuredQuery.snapshot }
+        : {}),
       currentPage,
       totalPages: totalFilePages,
       filesPerPage,
@@ -243,12 +247,12 @@ export async function buildSearchResult(
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(Object.keys(next).length > 0 ? { next } : {}),
     ...(terminalLimit ? { terminalLimit: true } : {}),
-    ...(stats?.capReached === true || nativeResultCapReached
+    ...(stats?.capReached === true || nativePartialReasons.length > 0
       ? {
           truncated: true,
           partialReasons: [
             ...(stats?.capReached === true ? (['maxFiles'] as const) : []),
-            ...(nativeResultCapReached ? (['nativeResultCap'] as const) : []),
+            ...nativePartialReasons,
           ],
         }
       : {}),

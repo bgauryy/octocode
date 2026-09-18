@@ -7,7 +7,7 @@ import type {
   LspSearchQuery,
   LspSemanticEnvelope,
 } from '../../../src/tools/lsp/shared/semanticTypes.js';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../../helpers/prepareDirectToolInput.js';
 
 /**
  * The tool description promises: "Empty/incomplete: re-anchor or fall back to
@@ -48,6 +48,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     operation: 'definition' | 'references'
   ): { query: LspSearchQuery; result: LspSemanticEnvelope } => {
     const query = {
+      reasoning: 'Exercise LSP semantic empty fallback continuations.',
+      debug: true,
       operation,
       uri: 'file:///repo/src/foo.ts',
       symbolName: 'doThing',
@@ -55,7 +57,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     } as LspSearchQuery;
     const result = failedAnchorEnvelope(
       query,
-      'Could not find symbol "doThing"'
+      'Could not find symbol "doThing"',
+      'symbolNotFound'
     );
     expect(result.payload).toMatchObject({
       kind: 'empty',
@@ -87,6 +90,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     expectExecutableContinuations(withSemanticNext(query, result));
 
     const documentQuery = {
+      reasoning: 'Exercise document-symbol fallback continuations.',
+      debug: true,
       operation: 'documentSymbols',
       uri: 'file:///repo/src/Big.js',
     } as LspSearchQuery;
@@ -222,7 +227,7 @@ describe('withSemanticNext — empty-state fallback', () => {
       operation: 'documentSymbols',
       uri: 'src/foo.ts',
     } as LspSearchQuery;
-    const result = failedAnchorEnvelope(query, 'anchor failed');
+    const result = failedAnchorEnvelope(query, 'anchor failed', 'anchorFailed');
     const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
     expect(withNext.next).toBeUndefined();
   });
@@ -255,13 +260,14 @@ describe('withSemanticNext — empty-state fallback', () => {
 
   it('turns pagination.nextPage into an executable schema-valid continuation', () => {
     const query = {
+      reasoning: 'Exercise LSP semantic pagination continuations.',
+      debug: true,
       operation: 'documentSymbols',
       uri: 'file:///repo/src/foo.ts',
       page: 1,
       pageSize: 1,
       format: 'compact',
       goal: 'auto-filled goal',
-      reasoning: 'auto-filled reasoning',
     } as LspSearchQuery & Record<string, unknown>;
     const result: LspSemanticEnvelope = {
       type: 'documentSymbols',
@@ -295,7 +301,10 @@ describe('withSemanticNext — empty-state fallback', () => {
       confidence: 'exact',
     });
     expect(nextPage?.query).not.toHaveProperty('goal');
-    expect(nextPage?.query).not.toHaveProperty('reasoning');
+    expect(nextPage?.query).toMatchObject({
+      reasoning: 'Exercise LSP semantic pagination continuations.',
+      debug: true,
+    });
     expect(() =>
       prepareDirectToolInput('lspSearch', nextPage?.query ?? {}, {
         rejectUnknownFields: true,
@@ -376,6 +385,36 @@ describe('withSemanticNext — empty-state fallback', () => {
         },
       },
     });
+  });
+
+  it('reports a terminal warmup limitation when an exact position has no name', () => {
+    const query: LspSearchQuery = {
+      operation: 'references',
+      uri: '/repo/source.ts',
+      position: { line: 0, character: 3 },
+    };
+    const result: LspSemanticEnvelope = {
+      type: 'references',
+      uri: query.uri!,
+      lsp: { serverAvailable: true },
+      payload: {
+        kind: 'references',
+        locations: [],
+        totalReferences: 0,
+        totalFiles: 0,
+        warmup: {
+          candidates: 0,
+          warmedFiles: 0,
+          skippedLarge: 0,
+          possiblyTruncated: true,
+          incompleteReasons: ['anchorName'],
+        },
+      },
+    };
+    const withNext = withSemanticNext(query, result) as LspSemanticEnvelope;
+    expect(withNext.terminalLimit).toBe(true);
+    expect(withNext.partialReasons).toEqual(['warmupIncomplete']);
+    expect(withNext.next?.verifyCompleteness).toBeUndefined();
   });
 
   it('expands call depth below the schema maximum and terminalizes fixed budgets', () => {

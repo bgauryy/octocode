@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -9,9 +9,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
 
-// The outer verifier invokes yarn pack; its prepack recursively invokes this
-// script. The inner pass only needs the build, so stop before packing again.
-if (process.env.OCTOCODE_VERIFY_PACKAGE_INNER === '1') process.exit(0);
+// The outer verifier invokes yarn pack; its prepack rebuilds and recursively
+// invokes this script. Stop the inner invocation before packing recursively.
+if (process.env.OCTOCODE_VERIFY_PACKAGE_INNER === '1') {
+  process.exit(0);
+}
 
 // Same discovery rule as build.mjs — kept independent (not imported) so this
 // verification catches a real build-vs-source mismatch instead of trivially
@@ -51,18 +53,12 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function strictObjectSchemaBranches(schema, name) {
-  const branches = schema?.type === 'object'
-    ? [schema]
-    : (Array.isArray(schema?.oneOf) ? schema.oneOf : null);
-  assert(branches?.length, `${name} json-schema must be an object schema or oneOf strict object schemas`);
-  for (const [index, branch] of branches.entries()) {
-    assert(
-      branch && branch.type === 'object' && branch.properties && branch.additionalProperties === false,
-      `${name} json-schema branch ${index + 1} must be a strict object schema`,
-    );
+function assertStrictOperationSchema(schema, operation) {
+  const branches = schema?.type === 'object' ? [schema] : schema?.oneOf ?? schema?.anyOf;
+  assert(Array.isArray(branches) && branches.length > 0, `${operation} must expose an object schema`);
+  for (const branch of branches) {
+    assert(branch?.type === 'object' && branch.additionalProperties === false, `${operation} must expose only strict object-schema branches`);
   }
-  return branches;
 }
 
 const packRunner = process.env.npm_execpath;
@@ -115,6 +111,11 @@ for (const required of [
   'out/types/src/index.d.ts',
   'out/octocode-awareness.js',
   'out/schema-api.js',
+  'out/types/src/schema-api.d.ts',
+  'out/host-api.js',
+  'out/types/src/host-api.d.ts',
+  'out/admin-api.js',
+  'out/types/src/admin-api.d.ts',
   'out/docs/README.md',
   'out/assets/logo.png',
 ]) {
@@ -184,95 +185,98 @@ try {
     }
     const runner = join(skill, 'scripts/awareness.mjs');
     const help = run(process.execPath, [runner, '--help'], installedOptions);
-    assert(help.includes(join(installed, tree)), `${tree} runner must discover its own bundled skill`);
-    const docs = JSON.parse(run(process.execPath, [runner, 'docs', 'show', 'architecture', '--compact'], installedOptions));
-    assert(docs.ok === true, `${tree} runner cannot load its skill references`);
+    assert(help.includes('instructions') && help.includes('context'), `${tree} runner must expose canonical agent discovery`);
   }
   const help = run(process.execPath, [cli, '--help'], installedOptions);
-  assert(help.includes(join(installed, 'out/skills')), 'published CLI must discover its bundled skill tree');
   assert(help.includes('octocode-awareness'), 'published CLI must name its bundled skill');
-  const skillHelp = run(process.execPath, [cli, 'skill', '--help'], installedOptions);
-  assert(skillHelp.includes('skill install'), 'published CLI must explain how to install its bundled skill');
-  const docsHelp = run(process.execPath, [cli, 'docs', '--help'], installedOptions);
-  assert(docsHelp.includes('docs list'), 'published CLI must advertise the command backed by bundled skill docs');
-  const skillProject = join(isolated, 'skill-project');
-  mkdirSync(skillProject, { recursive: true });
-  const skillDestination = join(skillProject, '.agents/skills/octocode-awareness');
-  const preview = JSON.parse(run(process.execPath, [cli, 'skill', 'install', '--platform', 'shared', '--project-dir', skillProject, '--dry-run', '--compact'], installedOptions));
-  assert(preview.ok === true && preview.action === 'dry-run', 'published CLI skill install preview failed');
-  assert(preview.skills?.[0]?.destinations?.[0]?.destination === skillDestination, 'published CLI skill install preview resolved the wrong destination');
-  assert(!existsSync(skillDestination), 'published CLI skill install preview wrote files');
-  const skillInstall = JSON.parse(run(process.execPath, [cli, 'skill', 'install', '--platform', 'shared', '--project-dir', skillProject, '--compact'], installedOptions));
+  assert(help.includes('ONE SURFACE') && help.includes('FIVE CONCEPTS'), 'published CLI must advertise the canonical concepts');
   assert(
-    skillInstall.ok === true
-      && skillInstall.skills?.[0]?.canonicalStatus === 'installed'
-      && skillInstall.skills?.[0]?.destinations?.[0]?.status === 'linked',
-    'published CLI did not install and link its bundled skill',
+    help.includes('maintenance retention') && help.includes('maintenance store-retire'),
+    'published CLI must advertise both explicit operator maintenance commands',
   );
-  assert(lstatSync(skillDestination).isSymbolicLink(), 'published CLI destination must be a directory symlink');
-  assert(
-    realpathSync(skillDestination) === realpathSync(skillInstall.skills[0].canonical),
-    'published CLI destination must link to the durable canonical copy',
-  );
-  assert(readFileSync(join(skillDestination, 'SKILL.md')).equals(readFileSync(join(installed, 'out/skills/octocode-awareness/SKILL.md'))), 'installed skill differs from the CLI bundle');
-  const evidenceWorkspace = join(isolated, 'evidence-workspace');
-  mkdirSync(evidenceWorkspace);
-  writeFileSync(join(evidenceWorkspace, 'source.ts'), 'export const fixture = 1;\n');
-  const standaloneRunner = join(skillDestination, 'scripts/awareness.mjs');
-  for (const [name, entry] of [['CLI', cli], ['installed standalone skill', standaloneRunner]]) {
-    run(process.execPath, [entry, 'maintenance', 'self-test', '--compact'], installedOptions);
-    const binding = ['--workspace', evidenceWorkspace, '--db', join(isolated, `${name.replaceAll(' ', '-')}.sqlite3`), '--agent-id', 'pack-check', '--compact'];
-    for (const [operation, expected] of [
-      [['memory', 'record', '--task-context', 'capture fixture', '--observation', 'inspect source bytes', '--importance', '5', '--file', 'source.ts', '--capture-fingerprint'], /source_inaccessible/],
-      [['history', 'capture', '--phase', 'before', '--file', 'source.ts'], /native filesystem is unavailable/],
-    ]) {
-      const failed = spawnSync(process.execPath, [entry, ...operation, ...binding], { ...installedOptions, encoding: 'utf8', timeout: 30_000 });
-      assert(!failed.error && failed.status !== null && failed.status !== 0,
-        `${name} must reject explicit file evidence when the optional native addon is absent`);
-      assert(expected.test(`${failed.stdout}\n${failed.stderr}`), `${name} reported the wrong unavailable-native failure: ${failed.stdout} ${failed.stderr}`);
-    }
-    const recalled = JSON.parse(run(process.execPath, [entry, 'memory', 'recall', ...binding.filter((value, index) => value !== '--agent-id' && binding[index - 1] !== '--agent-id')], installedOptions));
-    assert(recalled.count === 0, `${name} persisted a weaker memory after failed fingerprint capture`);
-    assert(readFileSync(join(evidenceWorkspace, 'source.ts'), 'utf8') === 'export const fixture = 1;\n', `${name} modified source bytes during a failed capture`);
-  }
-  // Schemas are served dynamically by the CLI — no static out/schemas files.
-  const names = JSON.parse(run(process.execPath, [cli, 'schema', 'list', '--compact'], installedOptions));
-  assert(Array.isArray(names) && names.length > 0, 'schema list must return a non-empty schema name array');
-  assert(!existsSync(join(installed, 'out/schemas')), 'static out/schemas must not ship — schemas are served dynamically');
-  for (const name of names) {
-    const schema = JSON.parse(run(process.execPath, [cli, 'schema', 'json-schema', name, '--compact'], installedOptions));
-    strictObjectSchemaBranches(schema, name);
-    const example = run(process.execPath, [cli, 'schema', 'example', name, '--compact'], installedOptions);
-    run(process.execPath, [cli, 'schema', 'validate', name, '-', '--compact'], { ...installedOptions, input: example });
+  for (const removed of ['docs list', 'skill install', 'refinement']) {
+    assert(!help.includes(removed), `published CLI help still advertises removed surface: ${removed}`);
   }
 
-  run(process.execPath, [cli, 'maintenance', 'self-test', '--compact'], installedOptions);
+  const surface = JSON.parse(run(process.execPath, [cli, 'schema', 'commands', '--compact'], installedOptions));
+  assert(surface.ok === true, 'schema commands failed');
+  assert(Object.keys(surface.concepts ?? {}).join(',') === 'context,work,message,memory,history', 'schema commands returned the wrong concepts');
+  assert(Array.isArray(surface.operations), 'schema commands must return an operation list');
+  for (const operation of ['context.observe', 'context.feedback', 'memory.set', 'memory.get', 'memory.revalidate', 'history.experience']) {
+    assert(surface.operations.includes(operation), `${operation} must be callable from the packed CLI`);
+  }
+  for (const operation of surface.operations) {
+    const [concept, action] = operation.split('.');
+    const schema = JSON.parse(run(process.execPath, [cli, 'schema', 'command', concept, action, '--compact'], installedOptions));
+    assertStrictOperationSchema(schema, operation);
+    assert(schema['x-awareness-operation'] === operation, `${operation} descriptor identity drifted`);
+  }
+  for (const operation of ['maintenance.retention', 'maintenance.store-retire']) {
+    const [concept, action] = operation.split('.');
+    const schema = JSON.parse(run(process.execPath, [cli, 'schema', 'command', concept, action, '--compact'], installedOptions));
+    assertStrictOperationSchema(schema, operation);
+    assert(schema['x-awareness-operation'] === operation, `${operation} operator descriptor identity drifted`);
+    assert(!surface.operations.includes(operation), `${operation} must remain outside routine agent discovery`);
+  }
+  const entities = JSON.parse(run(process.execPath, [cli, 'schema', 'entities', '--compact'], installedOptions));
+  assert(entities.ok === true && Array.isArray(entities.families) && entities.families.length > 0, 'schema entities must expose canonical storage entities');
+  assert(!existsSync(join(installed, 'out/schemas')), 'static out/schemas must not ship — schemas are served dynamically');
+
+  const evidenceWorkspace = join(isolated, 'evidence-workspace');
+  mkdirSync(evidenceWorkspace);
+  const standaloneRunner = join(installed, 'out/skills/octocode-awareness/scripts/awareness.mjs');
+  for (const [name, entry] of [['CLI', cli], ['standalone skill', standaloneRunner]]) {
+    const binding = ['--workspace', evidenceWorkspace, '--db', join(isolated, `${name.replaceAll(' ', '-')}.sqlite3`), '--agent-id', 'pack-check', '--compact'];
+    const oriented = JSON.parse(run(process.execPath, [entry, 'context', 'orient', ...binding], installedOptions));
+    assert(oriented.self?.actorId === 'pack-check' && oriented.partial === false, `${name} canonical context orient failed`);
+    const recorded = JSON.parse(run(process.execPath, [entry, 'memory', 'record', '--task-context', 'package verification', '--observation', `${name} executed the canonical surface`, '--importance', '5', ...binding], installedOptions));
+    assert(recorded.ok === true, `${name} canonical memory record failed`);
+    const recalled = JSON.parse(run(process.execPath, [entry, 'memory', 'recall', ...binding], installedOptions));
+    assert(recalled.count === 1, `${name} canonical memory recall did not return the recorded fact`);
+  }
+
   const libraryImport = run(process.execPath, [
     '--input-type=module',
     '--eval',
     `
       import assert from 'node:assert/strict';
       import { createRequire } from 'node:module';
-      import { DatabaseSync } from 'node:sqlite';
       const entry = ${JSON.stringify(pathToFileURL(join(installed, 'out/index.js')).href)};
       const require = createRequire(entry);
       assert.throws(() => require.resolve('@octocodeai/octocode-extension-rust'), { code: 'MODULE_NOT_FOUND' });
-      const m = await import(entry);
-      assert.ok(Object.keys(m).length);
-      const db = new DatabaseSync(':memory:');
-      try {
-        m.initDb(db);
-        const workspace = ${JSON.stringify(evidenceWorkspace)};
-        const params = { taskContext: 'fixture', observation: 'inspect file evidence', importance: 5, workspacePath: workspace, cwd: workspace, references: ['file:source.ts'] };
-        await assert.rejects(m.insertMemory(db, { ...params, captureFingerprint: true }), /source_inaccessible/);
-        assert.equal((await m.getMemory(db, { workspacePath: workspace })).count, 0);
-        await m.insertMemory(db, { ...params, fileTreeFingerprint: 'awareness-evidence-v1:' + 'a'.repeat(64) });
-        const unchecked = await m.getMemory(db, { workspacePath: workspace });
-        assert.equal(unchecked.memories[0].evidence.reason, 'unchecked');
-        const checked = await m.getMemory(db, { workspacePath: workspace, checkFingerprint: true });
-        assert.equal(checked.memories[0].evidence.state, 'unknown');
-        assert.equal(checked.memories[0].evidence.reason, 'source_inaccessible');
-      } finally { db.close(); }
+      const root = await import(entry);
+      assert.deepEqual(root.ROUTINE_AWARENESS_OPERATIONS, ${JSON.stringify(surface.operations)}, 'packed CLI and root operation catalogs must agree');
+      assert.equal(new Set(root.ROUTINE_AWARENESS_OPERATIONS).size, root.ROUTINE_AWARENESS_OPERATIONS.length, 'operation catalog must not contain duplicates');
+      assert.deepEqual(Object.keys(root).sort(), [
+        'AWARENESS_AGENT_INSTRUCTION_SECTIONS',
+        'AWARENESS_CONCEPTS',
+        'AWARENESS_MESSAGE_PARAMETER_GUIDANCE',
+        'ROUTINE_AWARENESS_OPERATIONS',
+        'createAwarenessClient',
+        'getAwarenessAgentInstructions',
+        'getAwarenessOperationDescriptor',
+        'listAwarenessOperationDescriptors',
+      ]);
+      const schema = await import(${JSON.stringify(pathToFileURL(join(installed, 'out/schema-api.js')).href)});
+      assert.deepEqual(schema.ROUTINE_AWARENESS_OPERATIONS, root.ROUTINE_AWARENESS_OPERATIONS, 'schema and root operation catalogs must agree');
+      assert.deepEqual(Object.keys(schema).sort(), [
+        'AWARENESS_CONCEPTS',
+        'ROUTINE_AWARENESS_OPERATIONS',
+        'getAwarenessOperationDescriptor',
+        'listAwarenessOperationDescriptors',
+      ]);
+      const host = await import(${JSON.stringify(pathToFileURL(join(installed, 'out/host-api.js')).href)});
+      assert.equal(typeof host.createAwarenessHost, 'function');
+      assert.equal(typeof host.claimNativeHookOwner, 'function');
+      const admin = await import(${JSON.stringify(pathToFileURL(join(installed, 'out/admin-api.js')).href)});
+      assert.deepEqual(Object.keys(admin).sort(), [
+        'StoreRetirementError',
+        'applyDatabaseMigration',
+        'applyStoreRetirement',
+        'previewDatabaseMigration',
+        'reportStoreRetirement',
+        'verifyDatabaseMigration',
+      ]);
     `,
   ], installedOptions);
   assert(libraryImport === '', 'importing the library entry must not run the CLI or write output');

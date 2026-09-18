@@ -12,6 +12,7 @@ export const CANONICAL_ADAPTER_TOOL_NAMES = [
   'ghCloneRepo',
   'localSearch',
   'astSearch',
+  'astRewrite',
   'localFetch',
   'lspSearch',
 ] as const;
@@ -77,6 +78,14 @@ const CASE_QUERIES: Readonly<
     file: 'src/index.ts',
     depth: 1,
   },
+  astRewrite: {
+    path: '/adapter-parity/fixture',
+    langType: 'typescript',
+    ruleKind: 'pattern',
+    pattern: 'oldName($A)',
+    rewrite: 'newName($A)',
+    pageSize: 1,
+  },
   localFetch: {
     path: '/adapter-parity/fixture.ts',
     startLine: 1,
@@ -91,7 +100,11 @@ const CASE_QUERIES: Readonly<
 
 export const ADAPTER_PARITY_CASES: readonly AdapterParityCase[] =
   CANONICAL_ADAPTER_TOOL_NAMES.map(name => {
-    const query = CASE_QUERIES[name];
+    const query = {
+      reasoning: `Exercise ${name} adapter parity.`,
+      debug: true,
+      ...CASE_QUERIES[name],
+    };
     return { name, query, input: { queries: [query, query] } };
   });
 

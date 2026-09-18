@@ -1,17 +1,12 @@
-import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { initDb } from '../src/db-init.js';
 import { attendAwareness } from '../src/attend-query.js';
-import { tsxCli } from './helpers/tsx-cli.js';
+import { createAwarenessClient } from '../src/client.js';
 
-const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const SOURCE_SCRIPT = resolve(PACKAGE_ROOT, 'bin/awareness.ts');
-const TSX_SCRIPT = tsxCli;
 const cleanups: Array<() => void> = [];
 
 afterEach(() => cleanups.splice(0).forEach(cleanup => cleanup()));
@@ -33,7 +28,7 @@ function activePlan(db: DatabaseSync, workspace: string): void {
 }
 
 describe('attend structured-next adversarial review', () => {
-  it('uses a literal read-only task-show route for ready work when identity is unknown', () => {
+  it('uses a canonical read-only task-show operation for ready work when identity is unknown', async () => {
     const { db, dbPath, workspace } = fixture();
     const now = new Date().toISOString();
     activePlan(db, workspace);
@@ -46,20 +41,15 @@ describe('attend structured-next adversarial review', () => {
 
     expect(packet.next).toMatchObject({
       action: 'inspect_ready_task', target: { task_id: 'task_ready' },
-      command: {
-        name: 'task show',
-        args: ['--db', dbPath, '--task-id', 'task_ready', '--compact'],
-      },
+      operation: { operation: 'work.show', params: { kind: 'task', task_id: 'task_ready' } },
     });
-    const executable = spawnSync(process.execPath, [TSX_SCRIPT, SOURCE_SCRIPT, 'task', 'show', ...packet.next.command!.args], {
-      cwd: workspace, encoding: 'utf8', timeout: 30_000,
-    });
-    expect(executable.status, executable.stderr || executable.stdout).toBe(0);
-    expect(JSON.parse(executable.stdout)).toMatchObject({ ok: true });
+    const executable = await createAwarenessClient({ workspace, database: dbPath, agentId: 'anonymous-reader' })
+      .execute(packet.next.operation!);
+    expect(executable).toMatchObject({ exitCode: 0, payload: { ok: true } });
     expect(db.prepare("SELECT status, updated_at FROM awareness_tasks WHERE task_id = 'task_ready'").get()).toEqual(before);
   });
 
-  it('inspects scoped peer work without claiming it when caller identity is unknown', () => {
+  it('inspects scoped peer work without claiming it when caller identity is unknown', async () => {
     const { db, dbPath, workspace } = fixture();
     const now = new Date().toISOString();
     const file = join(workspace, 'src', 'shared.ts');
@@ -76,27 +66,14 @@ describe('attend structured-next adversarial review', () => {
     expect(packet.next).toMatchObject({
       action: 'inspect_overlap',
       target: { file: 'src/shared.ts' },
-      command: {
-        name: 'work show',
-        args: [
-          '--db', dbPath,
-          '--workspace', workspace,
-          '--kind', 'presence',
-          '--file', 'src/shared.ts',
-          '--compact',
-        ],
-      },
+      operation: { operation: 'work.show', params: { kind: 'presence', file: ['src/shared.ts'] } },
     });
     expect(packet.next).not.toHaveProperty('claim');
     expect(packet.next).not.toHaveProperty('heartbeat');
 
-    const executable = spawnSync(process.execPath, [TSX_SCRIPT, SOURCE_SCRIPT, 'work', 'show', ...packet.next.command!.args], {
-      cwd: workspace,
-      encoding: 'utf8',
-      timeout: 30_000,
-    });
-    expect(executable.status, executable.stderr || executable.stdout).toBe(0);
-    expect(JSON.parse(executable.stdout)).toMatchObject({ ok: true });
+    const executable = await createAwarenessClient({ workspace, database: dbPath, agentId: 'anonymous-reader' })
+      .execute(packet.next.operation!);
+    expect(executable).toMatchObject({ exitCode: 0, payload: { ok: true } });
     expect(db.prepare("SELECT status, agent_id, updated_at FROM task_runs WHERE run_id = 'run_peer'").get()).toEqual(before);
   });
 

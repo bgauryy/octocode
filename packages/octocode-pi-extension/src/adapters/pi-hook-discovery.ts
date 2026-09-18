@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { parse as parseToml } from 'smol-toml';
-import { capabilitySourcePaths, capabilityDefinitionRevision, stableCapabilitySourceId } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilitySourcePaths, capabilityDefinitionRevision, stableCapabilitySourceId } from '../contracts/capability-sources.js';
 import {
   HookCatalog,
   parseCodexHooks,

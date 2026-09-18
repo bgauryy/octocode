@@ -90,3 +90,17 @@ test('SessionRuntime immediately settles a cleanup registered after disposal', a
 
   assert.deepEqual(calls, ['late-registration']);
 });
+
+test('SessionRuntime drains resource cleanups even when renderer teardown throws', async () => {
+  const calls: string[] = [];
+  const runtime = new SessionRuntime({
+    bindRenderer: () => () => { throw new Error('UI teardown failed'); },
+    onDispose: () => { calls.push('resources closed'); },
+  });
+  await runtime.dispose('quit');
+  await runtime.dispose('quit');
+  assert.deepEqual(calls, ['resources closed']);
+  assert.equal(runtime.store.getState().phase, 'disposed');
+  assert.equal(runtime.signal.aborted, true);
+  assert.deepEqual(runtime.getCleanupFailures(), ['UI teardown failed']);
+});

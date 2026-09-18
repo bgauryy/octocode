@@ -114,7 +114,7 @@ describe('astSearch topology deadCode pagination', () => {
     expect(result.results).toHaveLength(1);
   });
 
-  it('emits a schema-valid executable next page without auto-filled metadata', async () => {
+  it('emits a schema-valid next page with caller metadata but without auto-filled goal', async () => {
     const dir = await createWideGraphFixture();
     const result = await analyzeTopology({
       operation: 'reachability',
@@ -123,7 +123,8 @@ describe('astSearch topology deadCode pagination', () => {
       includeTests: false,
       pageSize: 1,
       goal: 'must not leak into continuations',
-      reasoning: 'must not leak into continuations',
+      reasoning: 'Continue the reachability analysis page.',
+      debug: true,
     } as never);
 
     expect(result.pagination?.hasMore).toBe(true);
@@ -131,7 +132,10 @@ describe('astSearch topology deadCode pagination', () => {
       { tool?: string; query?: Record<string, unknown> } | undefined;
     expect(continuation?.tool).toBe('ast.topology');
     expect(continuation?.query).not.toHaveProperty('goal');
-    expect(continuation?.query).not.toHaveProperty('reasoning');
+    expect(continuation?.query).toMatchObject({
+      reasoning: 'Continue the reachability analysis page.',
+      debug: true,
+    });
 
     const parsed = GraphAnalysisQuerySchema.safeParse(continuation?.query);
     expect(parsed.success).toBe(true);
@@ -330,6 +334,11 @@ describe('astSearch topology deadCode pagination', () => {
       truncated: true,
       partialReasons: ['filesSkipped'],
       terminalLimit: true,
+    });
+    expect(row?.data?.coverage?.diagnostics).toContainEqual({
+      file: 'oversized.js',
+      code: 'scan-skip',
+      message: 'graph.scan.fileTooLarge: file exceeds the graph scan byte limit',
     });
     expect(row?.meta?.diagnostics?.partial).toBe(true);
     expect(row?.meta?.diagnostics?.codes).toContain('terminalLimitReached');

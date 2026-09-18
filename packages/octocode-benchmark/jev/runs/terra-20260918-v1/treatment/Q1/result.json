@@ -1,0 +1,21 @@
+{
+  "caseId": "Q1",
+  "model": "gpt-5.6-terra",
+  "reasoningEffort": "high",
+  "startedAt": "2026-09-18T08:22:00Z",
+  "endedAt": "2026-09-18T08:25:54Z",
+  "conclusion": "getRouteRegex is in packages/next/src/shared/lib/router/utils/route-regex.ts, calls getParametrizedRoute, and returns re and groups.",
+  "sources": ["https://github.com/vercel/next.js/blob/canary/packages/next/src/shared/lib/router/utils/route-regex.ts"],
+  "unsupportedClaims": [],
+  "gaps": ["The separate RouteRegex declaration was not located by the selected bounded check; this does not affect the direct return literal."],
+  "confidence": "high",
+  "hostInputTokens": null,
+  "hostOutputTokens": null,
+  "tokenTelemetryReason": "Host token telemetry unavailable.",
+  "adviceApplied": true,
+  "decisionChanged": false,
+  "adviceExplanation": "Jev-selected C2 was performed; it supplied no contrary evidence, so the direction stayed with the direct source.",
+  "directionBefore": "Direct literal answer; ordinary policy skip Jev.",
+  "directionAfter": "Direct literal answer after bounded type search.",
+  "normalPolicyWouldSkipJev": true
+}

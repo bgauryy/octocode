@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151637",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "[{\"reasoning\":\"Read the cited pending-search feature pull request and patch establishing the status row introduction.\",\"operation\":\"pullRequest\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"number\":146938,\"content\":{\"body\":true,\"changedFiles\":true,\"patches\":{\"mode\":\"all\"},\"comments\":{\"discussion\":true,\"includeBots\":true}},\"filePage\":1,\"collectionPages\":{\"changedFiles\":1,\"discussion\":1}}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:55:07.215Z",
+  "endedAt": "2026-09-18T08:55:09.197Z",
+  "elapsedMs": 1981,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "d7d5391b960486e770a1379a7ee6ca2bebac45d4c563de5932393f80fa2b9903",
+  "requestSha256": null
+}

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { AGENT_APPLICATION_ID } from '@octocodeai/agent-contracts/schema';
+import { AGENT_APPLICATION_ID } from '../src/agent-store-schema.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { copyLegacyHandoffSignals, legacyHandoffEvents } from '../src/db-consolidation-handoffs.js';
 import {
@@ -240,7 +240,8 @@ describe('legacy handoff conversion boundaries', () => {
     destination.exec(`CREATE TABLE signals(
       signal_id TEXT, workspace_path TEXT, from_agent TEXT, to_agent TEXT, kind TEXT,
       subject TEXT, body TEXT, files_json TEXT, refs_json TEXT, thread_id TEXT,
-      reply_to TEXT, importance INTEGER, status TEXT, resolved_at TEXT, created_at TEXT
+      reply_to TEXT, importance INTEGER, status TEXT, resolved_at TEXT, created_at TEXT,
+      expires_at TEXT NOT NULL
     )`);
     copyLegacyHandoffSignals(source, destination);
     expect(destination.prepare('SELECT signal_id,status,resolved_at FROM signals').get()).toEqual({

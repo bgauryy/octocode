@@ -1,0 +1,31 @@
+{
+  "name": "@octocodeai/octocode-native-darwin-x64",
+  "description": "octocode-native CLI — darwin-x64 (Intel Mac)",
+  "version": "0.1.0",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "cpu": [
+    "x64"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "files": [
+    "octocode",
+    "octocode-regex-worker",
+    "README.md",
+    "octocode-native.darwin-x64.node"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-native"
+  },
+  "scripts": {
+    "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"
+  },
+  "main": "./octocode-native.darwin-x64.node"
+}

@@ -1,5 +1,10 @@
 import { parseArgs, hasHelpFlag, hasVersionFlag } from './parser.js';
 import { EXIT } from './exit-codes.js';
+import {
+  shouldDelegateToNative,
+  resolveNativeBin,
+  delegateToNative,
+} from './native-delegate.js';
 import type { CLICommand, CLICommandSpec } from './types.js';
 import { setRuntimeSurface } from '@octocodeai/config';
 
@@ -111,6 +116,27 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   if (args.options['no-color'] === true) {
     process.env.NO_COLOR = '1';
+  }
+
+  // Opt-in: run the native Rust binary under the hood for the commands it
+  // covers (everything except the TS-only management commands). Keeps
+  // `npx octocode` as the interface; the TS path stays the default until
+  // native ships via platform packages and parity is proven.
+  const rawArgv = argv ?? process.argv.slice(2);
+
+  // `install` hybrid: native handles flag-only installs (--ide <id>); the TS
+  // interactive prompt path stays in TS so TTY-driven client detection works.
+  // Only delegate once --ide is explicitly present in argv.
+  const installInteractive =
+    args.command === 'install' &&
+    !rawArgv.some(a => a === '--ide' || a.startsWith('--ide='));
+
+  if (!installInteractive && shouldDelegateToNative(args.command)) {
+    const bin = resolveNativeBin();
+    if (bin) {
+      process.exitCode = delegateToNative(bin, rawArgv);
+      return true;
+    }
   }
 
   if (hasHelpFlag(args)) {

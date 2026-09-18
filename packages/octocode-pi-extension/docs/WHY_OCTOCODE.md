@@ -22,7 +22,7 @@ These profiles describe how the extension should be explained and configured. Th
 |---|---|---|
 | Lite | First run, cautious users, MCP/web tasks | Guarded file/bash, MCPTool, web, askUser, and basic docs. |
 | Default | Daily coding | Lite + local/GitHub/LSP/npm research, skills, plan, Awareness memory/checks, image tools. |
-| Pro | Large repos, parallel work, deep debugging | Default + `agent` worker/browser profiles, Chrome DevTools, cron/session jobs, watch mode, and the full Awareness workflow. |
+| Pro | Large repos, parallel work, deep debugging | Default + `agent` worker/browser profiles, Chrome DevTools, watch mode, and the full Awareness workflow. |
 
 ## Where Octocode should win
 

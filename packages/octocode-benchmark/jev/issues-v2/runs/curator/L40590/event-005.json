@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40590",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read ChatGroq configuration and validation for n and streaming.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/partners/groq/langchain_groq/chat_models.py\",\"matchString\":\"n:\",\"contextLines\":60},{\"reasoning\":\"Read the ChatGroq model validator that applies n constraints.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/partners/groq/langchain_groq/chat_models.py\",\"matchString\":\"n > 1\",\"contextLines\":50},{\"reasoning\":\"Read existing integration test documenting unsupported multiple Groq completions.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/partners/groq/tests/integration_tests/test_chat_models.py\",\"startLine\":790,\"endLine\":830}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:54:37.391Z",
+  "endedAt": "2026-09-18T08:54:39.315Z",
+  "elapsedMs": 1923,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "7c6440bb1a23c57ca35dbe32de7ad9380548de3ba10b4dab076897ad04bbf43b",
+  "requestSha256": null
+}

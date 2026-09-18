@@ -1,4 +1,3 @@
-import type { PiContext } from '../types.js';
 import type { QueryBatchResultRow, QueryRunType } from './query-envelope.js';
 import { ToolResultError } from './tool-result-error.js';
 
@@ -42,7 +41,7 @@ export class QueryBatchError extends Error {
   }
 
   /** Pi recognizes thrown failures only; preserve evidence in its text error channel. */
-  withHostReceipt(ctx: PiContext | undefined, toolCallId: string): this {
+  withHostReceipt(): this {
     if (this.hostReceiptAttached) return this;
     const error = new ToolResultError({
       isError: true,
@@ -55,7 +54,7 @@ export class QueryBatchError extends Error {
         completedCount: this.completedCount,
         results: this.rows.map(({ content: _content, ...row }) => row),
       },
-    }, ctx, toolCallId, 'query-batch');
+    }, 'query-batch');
     this.message = error.message;
     this.hostReceiptAttached = true;
     return this;

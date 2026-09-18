@@ -35,7 +35,7 @@ import { CLI_GLYPH } from '../../tui/cli-design.js';
 import { paint } from '../../tui/palette.js';
 
 import { z } from 'zod';
-import { WorkerCapabilitySelectionSchema } from '@octocodeai/agent-contracts/capabilities';
+import { WorkerCapabilitySelectionSchema } from '../../contracts/capabilities.js';
 type RegisterFn = typeof registerUniqueTool;
 
 /** Register the single public agent tool. */
@@ -48,7 +48,8 @@ export function registerUnifiedAgentTool(
   if (isSubagentProcess()) return;
 
   // ── Discriminated operation schema ───────────────────────────────────────────
-  const reasoning = z.string().min(1).max(400);
+  const reasoning = z.string().max(400).optional().describe('Optional batch label.');
+  const customWorkerCapabilitySelection = WorkerCapabilitySelectionSchema.omit({ nativeTools: true });
   const packetFields = {
     goal: z.string().min(1),
     context: z.string().min(1),
@@ -58,13 +59,13 @@ export function registerUnifiedAgentTool(
     returnShape: z.string().min(1),
     task: z.string().optional(),
     name: z.string().optional(),
-    model: z.string().optional().describe('Model id from `pi -ne --list-models`.'),
+    model: z.string().optional().describe('Model override.'),
     provider: z.string().optional(),
     thinking: z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
     noSession: z.boolean().optional(),
     isolation: z.enum(['shared', 'worktree']).optional(),
     includeUncommitted: z.boolean().optional(),
-    planStep: z.string().optional().describe('Plan task ID only; omit for standalone delegation.'),
+    planStep: z.string().optional().describe('Plan task ID; omit for standalone.'),
     cohortId: z.string().min(1).max(80).optional(),
     capabilities: WorkerCapabilitySelectionSchema.optional(),
     snapshotRevision: z.string().min(1).optional(),
@@ -96,6 +97,7 @@ export function registerUnifiedAgentTool(
     type: z.enum(['spawn']),
     profile: z.enum(['custom']),
     ...packetFields,
+    capabilities: customWorkerCapabilitySelection.optional(),
     tools: z.array(z.string()),
     systemPrompt: z.string().min(1),
     resourceMode: z.enum(['lean', 'octocode', 'default']).optional(),
@@ -109,33 +111,39 @@ export function registerUnifiedAgentTool(
   const kill = z.strictObject({ reasoning, type: z.enum(['kill']), agentId: z.string().min(1), remove: z.boolean().optional(), full: z.boolean().optional() });
   const query = z.union([typedSpawn, browserSpawn, customSpawn, inspect, configure, wait, message, steer, abort, kill]);
   const parameters = toToolSchema(z.strictObject({
-    queries: z.array(query).min(1).max(100).describe('Operations run one-by-one in source order.'),
+    queries: z.array(query).min(1).max(100).describe('Operations, sequential.'),
     queryRunType: z.enum(['sequential']).default('sequential').optional(),
   }));
-  // One shared definition preserves strict branch validation without repeating
-  // the complete selection contract in each profile and configure operation.
+  // Shared definitions preserve strict profile-specific validation without
+  // repeating the selection contracts in every spawn/configure branch.
   const branches = (parameters['properties'] as { queries: { items: { anyOf: Array<{ properties: Record<string, unknown> }> } } }).queries.items.anyOf;
   for (const branch of branches) {
-    if (branch.properties['capabilities']) branch.properties['capabilities'] = { $ref: '#/definitions/workerCapabilities' };
+    if (!branch.properties['capabilities']) continue;
+    const profile = branch.properties['profile'] as { enum?: string[] } | undefined;
+    branch.properties['capabilities'] = {
+      $ref: profile?.enum?.includes('custom')
+        ? '#/definitions/customWorkerCapabilities'
+        : '#/definitions/workerCapabilities',
+    };
   }
-  parameters['definitions'] = { workerCapabilities: toToolSchema(WorkerCapabilitySelectionSchema.describe('Enabled parent identities; omitted fields use role defaults, [] grants none.')) };
+  const workerCapabilities = toToolSchema(WorkerCapabilitySelectionSchema.describe('Enabled parent identities; omitted fields use role defaults, [] grants none.'));
+  const customWorkerCapabilities = toToolSchema(customWorkerCapabilitySelection.describe('Enabled non-native parent identities; omitted=role defaults, []=none. Native tools only from tools[].'));
+  const customCapabilityProperties = customWorkerCapabilities['properties'] as Record<string, { description?: string }>;
+  customCapabilityProperties['skills']!.description = 'Exact skill identities or a unique active parent skill name. Load the skill in the parent first. A non-empty grant requires "skill" in tools[].';
+  customCapabilityProperties['mcpTools']!.description = 'Exact MCP server/tool identities. A non-empty grant requires "MCPTool" in tools[]; grant activated proxy tools here, never as native tools.';
+  parameters['definitions'] = { workerCapabilities, customWorkerCapabilities };
 
   registerFn(pi, registeredToolNames, {
     name: 'agent',
     label: 'Agent',
     description: DIRECT_TOOL_DESCRIPTIONS.agent!,
 
-    promptSnippet:
-      'Spawn or manage bounded workers. Every spawn requires Goal, Context, Scope, Ownership, Acceptance, and Return; the parent must verify and integrate the handback.',
+    promptSnippet: 'Spawn or manage bounded workers. Every spawn needs Goal, Context, Scope, Ownership, Acceptance, Return.',
     promptGuidelines: [
-      'Delegate when two or more bounded lanes are independent with disjoint ownership, or a specialist materially improves coverage. Keep dependent/shared-file work serial.',
-      'Route evidence→researcher, dependency plan→planner, root cause/design→architect, owned code+check→implementer, independent acceptance check→reviewer, CDP evidence→browser; custom requires explicit least-capability tools and systemPrompt.',
-      'The tool rejects incomplete packets before creating a worker. Wrong: spawn and reference its unknown agentId in one batch. Right: spawn first; use inspect, wait, message, steer, abort, or kill later.',
-      'After spawning, continue non-overlapping parent work; use type:wait to collect results. Verify findings/checks, reconcile an existing plan if present, kill or reuse the worker, and continue the user request. Never trust or persist a raw handback as verified memory.',
-      'Standalone delegation needs no plan: omit planStep. Include planStep only when an executing parent plan already owns the work, and copy its exact stable task id; never invent one.',
-      'Grant enabled parent identities only. Workers request missing access; configure with snapshotRevision replaces selected arrays. Removals apply now; additions before the next turn.',
-      'Discover skill IDs with skill action:list and server/tool pairs with MCPTool action:list. Get the current snapshotRevision with agent type:inspect (no agentId) or capability_revision.',
-      'Lean workers expose selected Pi builtins and keep skill/MCP grants empty; use resourceMode:"octocode" for extension tools.',
+      'Delegate only independent lanes with disjoint ownership; otherwise keep the work local.',
+      'After spawning, continue non-overlapping parent work. Collect and verify handbacks, then stop completed workers.',
+      'Link planStep only to an existing plan task; use Octocode resource mode only when the worker needs granted extension tools.',
+      'Custom non-native grants need their gateways in tools[]: capabilities.skills → skill, capabilities.mcpTools → MCPTool; load a skill in the parent before granting its name, and never put activated mcp__ proxy names in tools[].',
     ],
 
     parameters,
@@ -177,6 +185,10 @@ export function registerUnifiedAgentTool(
             }
             if (profile === 'custom') {
               if (!Array.isArray(query['tools'])) throw new Error(`queries[${index}]: custom profile requires tools[].`);
+              const capabilities = query['capabilities'];
+              if (capabilities && typeof capabilities === 'object' && Object.hasOwn(capabilities, 'nativeTools')) {
+                throw new Error(`queries[${index}]: custom profile uses tools[] as its native-tool selector; omit capabilities.nativeTools.`);
+              }
               if (!String(query['systemPrompt'] ?? '').trim()) throw new Error(`queries[${index}]: custom profile requires a non-empty systemPrompt.`);
             }
             return;

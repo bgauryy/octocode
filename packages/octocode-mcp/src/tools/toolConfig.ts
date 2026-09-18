@@ -9,7 +9,6 @@ import type {
   ToolInvocationCallback,
 } from '@octocodeai/octocode-tools-core';
 import { ALL_TOOLS as CORE_ALL_TOOLS } from '@octocodeai/octocode-tools-core';
-import { STATIC_TOOL_NAMES } from '@octocodeai/octocode-core/schema';
 
 import { createToolRegistration } from './registerTool.js';
 
@@ -18,17 +17,16 @@ export interface McpToolConfig extends ToolConfig {
 }
 
 function createCoreToolRegistration(tool: ToolConfig): McpToolConfig['fn'] {
-  const mayMaterializeLocalCache =
-    tool.isClone || tool.name === STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT;
   const common = {
     name: tool.name,
     title: tool.title,
     description: tool.description,
     inputSchema: tool.direct.inputSchema,
+    outputSchema: tool.outputSchema,
     executionFn: tool.direct.executionFn as unknown as (
       args: ToolExecutionArgs<unknown>
     ) => Promise<CallToolResult>,
-    annotations: mayMaterializeLocalCache ? { readOnlyHint: false } : undefined,
+    annotations: tool.annotations,
     security: tool.direct.security,
     timeoutMs: tool.direct.timeoutMs,
   };

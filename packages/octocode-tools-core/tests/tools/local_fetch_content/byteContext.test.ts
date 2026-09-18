@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { fetchContent } from '../../../src/tools/local_fetch_content/fetchContent.js';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../../helpers/prepareDirectToolInput.js';
 import { executeFetchContent } from '../../../src/tools/local_fetch_content/execution.js';
 
 let directory: string;

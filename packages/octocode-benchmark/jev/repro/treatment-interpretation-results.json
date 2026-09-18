@@ -1,0 +1,120 @@
+{
+  "kind": "actual-react-dom-runtime",
+  "mode": "treatment-interpretation",
+  "patched": true,
+  "results": [
+    {
+      "scenario": "double-context",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": false,
+      "messages": []
+    },
+    {
+      "scenario": "single",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": false,
+      "messages": []
+    },
+    {
+      "scenario": "same-promise",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": false,
+      "messages": []
+    },
+    {
+      "scenario": "state-between",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useState",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": false,
+      "messages": []
+    },
+    {
+      "scenario": "adjacent",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": false,
+      "messages": []
+    },
+    {
+      "scenario": "debug-value",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useDebugValue",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": false,
+      "messages": []
+    },
+    {
+      "scenario": "genuine-mismatch",
+      "reactVersion": "19.2.8",
+      "text": "rendered 1",
+      "debugHookTypes": [
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useContext",
+        "useState",
+        "useEffect"
+      ],
+      "hookOrderWarning": true,
+      "messages": [
+        "React has detected a change in the order of Hooks called by %s. This will lead to bugs and errors if not fixed. For more information, read the Rules of Hooks: https://react.dev/link/rules-of-hooks\n\n   Previous render            Next render\n   ------------------------------------------------------\n%s   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n Page 1. useContext                 useContext\n2. useContext                 useContext\n3. useContext                 useContext\n4. useContext                 useDebugValue\n"
+      ]
+    }
+  ]
+}

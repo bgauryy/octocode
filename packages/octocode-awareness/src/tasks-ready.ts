@@ -1,4 +1,4 @@
-import type { CreateTaskParams, PlanTaskRecord, TaskStatus } from '@octocodeai/agent-contracts/entities';
+import type { CreateTaskParams, PlanTaskRecord, TaskStatus } from './entities.js';
 import { beginWrite } from './db-transaction.js';
 /** Durable plan tasks, dependencies, leases, and execution runs. */
 import { randomUUID } from 'node:crypto';

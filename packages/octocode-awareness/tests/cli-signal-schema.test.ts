@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { schemas } from '../src/schema/registry.js';
 import { cliAllowedFlags, projectCliProperties } from '../src/schema/cli-contract.js';
+import { projectCommandInput } from '../src/schema/command-input.js';
 
 describe('signal CLI schema routing fields', () => {
   for (const command of ['signal publish', 'signal reply']) {
@@ -33,22 +30,10 @@ describe('task CLI action contracts', () => {
   it('includes the supported retry action in the shared schema', () => {
     expect(schemas.task.safeParse({ action: 'retry', task_id: 'task_fixture', agent_id: 'reviewer' }).success).toBe(true);
   });
-  it('rejects ignored create-time run options before any task is created', () => {
-    const root = mkdtempSync(join(tmpdir(), 'aw-create-options-'));
-    try {
-      for (const option of [['--test-plan', 'node --version'], ['--lease-minutes', '10']]) {
-        const result = spawnSync(process.execPath, [resolve(import.meta.dirname, '../out/octocode-awareness.js'), 'task', 'create', '--db', join(root, 'aw.sqlite3'), '--agent-id', 'lead', '--plan-id', 'missing-plan', '--title', 'Fixture', '--reasoning', 'Check options', '--acceptance', 'Check runs', '--path', 'fixture.ts', ...option], {
-          cwd: root, env: { ...process.env, OCTOCODE_HOME: join(root, 'home') }, encoding: 'utf8', timeout: 10000,
-        });
-        expect(result.status).toBe(1);
-        expect(result.stdout).toContain('task claim');
-      }
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
 });
 
 describe('CLI-only discovery fields', () => {
-  for (const [command, schema] of [['plan list', schemas.plan], ['task list', schemas.task], ['task ready', schemas.task], ['refinement get', schemas.refine_query]] as const) {
+  for (const [command, schema] of [['plan list', schemas.plan], ['task list', schemas.task], ['task ready', schemas.task]] as const) {
     it(`${command} exposes its supported row limit and full output flag`, () => {
       const properties = structuredClone(z.toJSONSchema(schema).properties!) as Record<string, unknown>;
       projectCliProperties(properties, command);
@@ -61,5 +46,17 @@ describe('CLI-only discovery fields', () => {
     projectCliProperties(properties, 'signal list');
     expect(properties.kind).toMatchObject({ type: 'array' });
     expect(properties.all).toMatchObject({ type: 'boolean' });
+  });
+});
+
+describe('projected conditional command contracts', () => {
+  it.each([
+    ['history recovery', 'history_recovery', { workspace: '/repo', action: 'reconcile' }, { workspace: '/repo', action: 'reconcile', confirm: 'reconcile' }],
+    ['history evidence', 'history_evidence', { workspace: '/repo', action: 'reclaim' }, { workspace: '/repo', action: 'reclaim', confirm: 'reclaim' }],
+  ] as const)('%s requires its explicit mutation confirmation', (command, schemaName, invalid, valid) => {
+    const projected = z.fromJSONSchema(projectCommandInput(command, schemas[schemaName]));
+    expect(projected.safeParse(invalid).success).toBe(false);
+    expect(projected.safeParse(valid).success).toBe(true);
+    expect(projected.safeParse({ workspace: '/repo' }).success).toBe(true);
   });
 });

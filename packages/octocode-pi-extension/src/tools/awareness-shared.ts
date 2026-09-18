@@ -11,17 +11,29 @@ import type { PiContext } from '../types.js';
  */
 let generatedAgentId: string | undefined;
 
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/** Restart-stable identity for session-scoped routing and durable event cursors. */
+export function resolveAwarenessSessionAgentId(ctx?: PiContext): string | undefined {
+  const sessionId = nonEmptyString(ctx?.sessionManager?.getSessionId?.());
+  if (sessionId) return `pi:${sessionId}`;
+  const sessionFile = nonEmptyString(ctx?.sessionManager?.getSessionFile?.());
+  if (!sessionFile) return undefined;
+  const digest = createHash('sha256').update(path.resolve(sessionFile)).digest('hex').slice(0, 24);
+  return `pi:file:${digest}`;
+}
+
 export function getAwarenessAgentId(ctx?: PiContext): string {
   const configured = process.env.OCTOCODE_AGENT_ID;
   if (configured && configured !== generatedAgentId) return configured;
-  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
-  const sessionId = ctx?.sessionManager?.getSessionId?.()
-    ?? (sessionFile ? `file:${createHash('sha256').update(path.resolve(sessionFile)).digest('hex').slice(0, 24)}` : undefined);
-  if (!sessionId && configured) return configured;
-  const agentId = `pi:${sessionId || process.pid}`;
-  generatedAgentId = agentId;
-  process.env.OCTOCODE_AGENT_ID = agentId;
-  return agentId;
+  const sessionAgentId = resolveAwarenessSessionAgentId(ctx);
+  if (!sessionAgentId && configured) return configured;
+  const resolvedAgentId = sessionAgentId ?? `pi:${process.pid}`;
+  generatedAgentId = resolvedAgentId;
+  process.env.OCTOCODE_AGENT_ID = resolvedAgentId;
+  return resolvedAgentId;
 }
 
 /** Human labels are separate from routing IDs; provider labels are reported, never guessed. */

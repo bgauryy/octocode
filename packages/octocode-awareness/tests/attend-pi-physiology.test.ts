@@ -7,7 +7,7 @@ const observation = {
   source: 'pi_runtime',
   session: { owner: 'pi', session_id: 'session', generation: 1, observed_at: 100 },
   context: { measurement: 'host_reported', current_tokens: 95, measured_at: 100, input_limit_tokens: 100, remaining_input_tokens: 5, saturation_basis_points: 9_500 },
-  tools: { window: 32, observed: 2, failed: 1, cancelled: 0, blocked: 0 },
+  tools: { window: 32, observed: 2, total_observed: 2, latest_outcome: 'failed', failed: 1, cancelled: 0, blocked: 0 },
   compaction: { owner: 'pi', committed: 1, failed: 0 },
 } as const;
 

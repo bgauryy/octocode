@@ -10,16 +10,13 @@ export const AWARENESS_QUERY_VIEWS = [
   'locks',
   'agents',
   'signals',
-  'refinements',
   'files',
   'activity',
   'workboard',
-  'developer-review',
 ] as const;
 
 export type AwarenessQueryView = (typeof AWARENESS_QUERY_VIEWS)[number];
 export type AwarenessQueryFormat = 'json' | 'table' | 'csv' | 'markdown' | 'html';
-export type RepoContextMode = 'local' | 'share';
 
 export interface AwarenessQueryParams {
   view?: string | null;
@@ -29,6 +26,7 @@ export interface AwarenessQueryParams {
   ref?: string | null;
   query?: string | null;
   limit?: number | null;
+  offset?: number | null;
   agentId?: string | null;
   /** Prefer this owner before bounded workboard selection; does not filter totals. */
   preferAgentId?: string | null;
@@ -45,7 +43,7 @@ export interface AwarenessQueryParams {
 }
 
 export interface QueryContinuationState {
-  next?: { list: { command: { name: 'query'; args: string[] } } };
+  next?: { list: { operation: 'work.list'; params: Record<string, unknown> } };
   terminal_limit?: { code: 'QUERY_VIEW_LIMIT'; view: AwarenessQueryView; limit: number };
 }
 
@@ -71,36 +69,10 @@ export interface AwarenessQueryResult extends QueryContinuationState {
   total: number | null;
   omitted_count: number | null;
   is_partial: boolean;
+  partial: boolean;
   continuation: string | null;
   sections?: Record<string, AwarenessQuerySection>;
   filters: Record<string, unknown>;
-}
-
-export interface RepoContextInjectParams extends AwarenessQueryParams {
-  outDir?: string | null;
-  out_dir?: string | null;
-  mode?: string | null;
-  includeView?: boolean | null;
-  include_view?: boolean | null;
-  pruneOrphans?: boolean | null;
-  prune_orphans?: boolean | null;
-  check?: boolean | null;
-  /** Actual resolved store path for this run; reported verbatim as manifest source.canonical. */
-  dbPath?: string | null;
-}
-
-export interface RepoContextInjectResult {
-  ok: true;
-  generated_at: string;
-  workspace_path: string;
-  out_dir: string;
-  mode: RepoContextMode;
-  count: number;
-  files: string[];
-  warnings: string[];
-  orphan_candidates: string[];
-  pruned_orphans: string[];
-  manifest: Record<string, unknown>;
 }
 
 export type AwarenessQueryRow = Record<string, string | number | boolean | null | string[]>;
@@ -189,10 +161,14 @@ export interface QueryCompleteness {
 }
 
 export function continuationFor(view: AwarenessQueryView, requestedLimit: number): string {
+  if (view === 'agents') return 'follow next.list to read the next stable agent page';
   if (requestedLimit < 500) {
-    return `query ${view} --limit ${Math.min(500, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
+    if (view === 'workboard') {
+      return `work list --kind workboard --limit ${Math.min(50, Math.max(requestedLimit + 1, requestedLimit * 2))}; narrow filters if the result remains partial`;
+    }
+    return `No routine continuation exposes ${view}; narrow filters to reduce the result`;
   }
-  return `query ${view} reached the 500-row safety cap; narrow workspace, state, label, file, time, or text filters`;
+  return `${view} reached the 500-row safety cap; narrow workspace, state, label, file, time, or text filters`;
 }
 
 export function boundedRows(view: AwarenessQueryView, probedRows: AwarenessQueryRow[], requestedLimit: number): QueryCompleteness {

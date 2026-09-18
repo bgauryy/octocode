@@ -10,7 +10,7 @@ import type { ToolDefinition } from '../src/types.js';
 import { registerFileTool } from '../src/tools/file-tool.js';
 import { atomicWriteUtf8, checkReadState, clearReadStatesForTests, withFileMutationQueue } from '../src/tools/file-state.js';
 import { assertPathAllowed } from '../src/tools/path-guard.js';
-import { QueryBatchError } from '../src/tools/query-envelope.js';
+import { QueryBatchError } from '../src/tools/query-batch-error.js';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -157,9 +157,7 @@ test('write refuses a target changed after batch preflight', async () => {
     tool: 'MCPTool',
     query: {
       queries: [{
-        reasoning: 'Refresh the changed file before retrying the mutation.',
         action: 'call',
-        server: 'octocode',
         tool: 'localFetch',
         arguments: { queries: [{ path: target }] },
       }],

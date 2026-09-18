@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { findDirectToolDefinition } from '@octocodeai/octocode-core/schema';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 
 describe('localSearch lexical contract', () => {
@@ -24,18 +24,23 @@ describe('localSearch lexical contract', () => {
   });
 
   it('accepts lexical queries without operation and rejects AST/legacy fields', () => {
+    const reasoning = 'Validate the lexical localSearch contract.';
     const schema = findDirectToolDefinition('localSearch')?.inputSchema;
     expect(
-      schema?.safeParse({ queries: [{ path: root, searchText: 'needle' }] })
+      schema?.safeParse({ queries: [{ reasoning, path: root, searchText: 'needle' }] })
         .success
     ).toBe(true);
     expect(
       schema?.safeParse({
-        queries: [{ path: root, searchText: 'needle', operation: 'text' }],
+        queries: [
+          { reasoning, path: root, searchText: 'needle', operation: 'text' },
+        ],
       }).success
     ).toBe(false);
     expect(
-      schema?.safeParse({ queries: [{ path: root, pattern: 'const $X = $Y' }] })
+      schema?.safeParse({
+        queries: [{ reasoning, path: root, pattern: 'const $X = $Y' }],
+      })
         .success
     ).toBe(false);
   });

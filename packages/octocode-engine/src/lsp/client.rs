@@ -1,12 +1,16 @@
+use crate::error::{Error, Result, Status};
 use crate::lsp::json_rpc::{ClientRequestContext, JsonRpcConnection, ProgressTracker};
 use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
-use napi::{Error, Result, Status};
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use serde_json::{json, Value};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::process::Stdio;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex as StdMutex,
+};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin};
 use tokio::sync::Mutex;
@@ -76,8 +80,13 @@ fn executable_has_node_shebang(path: &str) -> Result<bool> {
     Ok(first_line.starts_with("#!") && first_line.contains("node"))
 }
 
-#[napi]
+#[cfg_attr(feature = "napi-addon", napi)]
+#[derive(Clone)]
 pub struct NativeLspClient {
+    inner: Arc<NativeLspClientInner>,
+}
+
+struct NativeLspClientInner {
     config: JsLanguageServerConfig,
     child: Mutex<Option<Child>>,
     // Stored behind an `Arc` so callers can clone a handle out from under the
@@ -90,71 +99,88 @@ pub struct NativeLspClient {
     stderr_task: Mutex<Option<JoinHandle<()>>>,
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
+    server_info: StdMutex<Option<Value>>,
     /// The `positionEncoding` the server selected in its `InitializeResult`
     /// (LSP 3.17). We advertise UTF-16 only, so this should be `utf-16` or absent
     /// (absent ⇒ utf-16 by spec). Any other value means the server ignored our
-    /// capability and our offsets may be misaligned on non-ASCII lines — surfaced
-    /// as a stderr warning at start time.
+    /// capability. Startup rejects it before serving positions in the wrong units.
     position_encoding: StdMutex<Option<String>>,
+    readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
+    active_requests: AtomicUsize,
     /// Open-document lifecycle state: `uri -> last sent version`. Drives the
     /// LSP `didOpen` (once) → `didChange` (incrementing version) → `didClose`
     /// protocol so servers never see a second `didOpen` for the same document.
     open_docs: StdMutex<HashMap<String, i32>>,
 }
 
-#[napi]
+/// Portable name for the stateful JSON-RPC transport. The historical native
+/// name remains the N-API class name when the addon feature is enabled.
+pub type LspClient = NativeLspClient;
+
+#[cfg_attr(feature = "napi-addon", napi)]
 impl NativeLspClient {
-    #[napi(constructor)]
+    #[cfg_attr(feature = "napi-addon", napi(constructor))]
     pub fn new(config: JsLanguageServerConfig) -> Self {
         Self {
-            config,
-            child: Mutex::new(None),
-            connection: Mutex::new(None),
-            stderr_task: Mutex::new(None),
-            stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
-            capabilities: StdMutex::new(None),
-            position_encoding: StdMutex::new(None),
-            progress: ProgressTracker::new(),
-            open_docs: StdMutex::new(HashMap::new()),
+            inner: Arc::new(NativeLspClientInner {
+                config,
+                child: Mutex::new(None),
+                connection: Mutex::new(None),
+                stderr_task: Mutex::new(None),
+                stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
+                capabilities: StdMutex::new(None),
+                server_info: StdMutex::new(None),
+                position_encoding: StdMutex::new(None),
+                readiness: StdMutex::new(None),
+                progress: ProgressTracker::new(),
+                active_requests: AtomicUsize::new(0),
+                open_docs: StdMutex::new(HashMap::new()),
+            }),
         }
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn start(&self) -> Result<()> {
-        let mut child_guard = self.child.lock().await;
+        let mut child_guard = self.inner.child.lock().await;
         if child_guard.is_some() {
             return Err(Error::new(
                 Status::GenericFailure,
                 "LSP client already started",
             ));
         }
-        if let Ok(mut stderr_lines) = self.stderr_lines.lock() {
+        if let Ok(mut stderr_lines) = self.inner.stderr_lines.lock() {
             stderr_lines.clear();
         }
-        if let Ok(mut capabilities) = self.capabilities.lock() {
+        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
         }
-        if let Ok(mut encoding) = self.position_encoding.lock() {
+        if let Ok(mut server_info) = self.inner.server_info.lock() {
+            *server_info = None;
+        }
+        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = None;
         }
-        if let Ok(mut open_docs) = self.open_docs.lock() {
+        if let Ok(mut readiness) = self.inner.readiness.lock() {
+            *readiness = None;
+        }
+        if let Ok(mut open_docs) = self.inner.open_docs.lock() {
             open_docs.clear();
         }
 
         let validated_command =
-            crate::lsp::validation::validate_lsp_server_path(self.config.command.clone())?;
-        let mut command_args = self.config.args.clone().unwrap_or_default();
+            crate::lsp::validation::validate_lsp_server_path(self.inner.config.command.clone())?;
+        let mut command_args = self.inner.config.args.clone().unwrap_or_default();
         let command_program = lsp_spawn_program(&validated_command, &mut command_args)?;
         let mut command = tokio::process::Command::new(&command_program);
         command
             .args(command_args)
-            .current_dir(&self.config.workspace_root)
+            .current_dir(&self.inner.config.workspace_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        if let Some(env) = &self.config.env {
+        if let Some(env) = &self.inner.config.env {
             for (key, value) in env {
                 command.env(key, value);
             }
@@ -169,7 +195,7 @@ impl NativeLspClient {
         let stderr_task = child
             .stderr
             .take()
-            .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.stderr_lines)));
+            .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.inner.stderr_lines)));
         let Some(stdout) = child.stdout.take() else {
             cleanup_failed_start(&mut child, stderr_task).await;
             return Err(Error::new(
@@ -185,7 +211,7 @@ impl NativeLspClient {
             ));
         };
 
-        let root_uri = match path_to_uri(&self.config.workspace_root) {
+        let root_uri = match path_to_uri(&self.inner.config.workspace_root) {
             Ok(uri) => uri,
             Err(error) => {
                 cleanup_failed_start(&mut child, stderr_task).await;
@@ -197,42 +223,44 @@ impl NativeLspClient {
             stdin,
             ClientRequestContext {
                 configuration: self
+                    .inner
                     .config
                     .initialization_options
                     .clone()
                     .unwrap_or_else(|| json!({})),
                 workspace_folders: json!([{ "uri": root_uri, "name": "workspace" }]),
             },
-            Arc::clone(&self.progress),
+            Arc::clone(&self.inner.progress),
         ));
-        let initialize_result = match initialize(&connection, &self.config).await {
+        let initialize_result = match initialize(&connection, &self.inner.config).await {
             Ok(value) => value,
             Err(error) => {
                 cleanup_failed_start(&mut child, stderr_task).await;
                 return Err(error);
             }
         };
-        if let Ok(mut capabilities) = self.capabilities.lock() {
-            *capabilities = initialize_result.get("capabilities").cloned();
-        }
-        // Reconcile the negotiated position encoding (LSP 3.17). We only emit
-        // UTF-16, so anything else means the server ignored our advertised
-        // capability and our offsets may be wrong on non-ASCII lines — make that
-        // observable instead of silently returning mis-positioned results.
+        // Positions are UTF-16 throughout the tool contract. A server that
+        // ignores our advertised encoding cannot supply trustworthy locations.
         let negotiated_encoding = extract_position_encoding(&initialize_result);
         if let Some(encoding) = negotiated_encoding.as_deref() {
             if encoding != "utf-16" {
-                push_stderr_line(
-                    &self.stderr_lines,
+                cleanup_failed_start(&mut child, stderr_task).await;
+                return Err(Error::new(
+                    Status::GenericFailure,
                     format!(
-                        "[octocode] WARNING: language server negotiated positionEncoding \
-                         '{encoding}' but octocode only emits utf-16; positions on lines with \
-                         non-ASCII characters may be misaligned"
+                        "Unsupported language server positionEncoding '{encoding}': \
+                         octocode advertises utf-16; semantic positions cannot be resolved safely"
                     ),
-                );
+                ));
             }
         }
-        if let Ok(mut encoding) = self.position_encoding.lock() {
+        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
+            *capabilities = initialize_result.get("capabilities").cloned();
+        }
+        if let Ok(mut server_info) = self.inner.server_info.lock() {
+            *server_info = initialize_result.get("serverInfo").cloned();
+        }
+        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = negotiated_encoding;
         }
         if let Err(error) = connection.notify("initialized", json!({})).await {
@@ -240,33 +268,39 @@ impl NativeLspClient {
             return Err(error);
         }
 
-        *self.connection.lock().await = Some(connection);
-        *self.stderr_task.lock().await = stderr_task;
+        *self.inner.connection.lock().await = Some(connection);
+        *self.inner.stderr_task.lock().await = stderr_task;
         *child_guard = Some(child);
         Ok(())
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn stop(&self) -> Result<()> {
-        let connection = self.connection.lock().await.take();
+        let connection = self.inner.connection.lock().await.take();
         if let Some(connection) = connection {
             let _ = connection.request("shutdown", Value::Null, 1_000).await;
             let _ = connection.notify("exit", Value::Null).await;
         }
-        if let Some(mut child) = self.child.lock().await.take() {
+        if let Some(mut child) = self.inner.child.lock().await.take() {
             wait_for_graceful_exit(&mut child, Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS))
                 .await;
         }
-        if let Some(task) = self.stderr_task.lock().await.take() {
+        if let Some(task) = self.inner.stderr_task.lock().await.take() {
             task.abort();
         }
-        if let Ok(mut capabilities) = self.capabilities.lock() {
+        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
         }
-        if let Ok(mut encoding) = self.position_encoding.lock() {
+        if let Ok(mut server_info) = self.inner.server_info.lock() {
+            *server_info = None;
+        }
+        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
             *encoding = None;
         }
-        if let Ok(mut open_docs) = self.open_docs.lock() {
+        if let Ok(mut readiness) = self.inner.readiness.lock() {
+            *readiness = None;
+        }
+        if let Ok(mut open_docs) = self.inner.open_docs.lock() {
             open_docs.clear();
         }
         Ok(())
@@ -276,15 +310,20 @@ impl NativeLspClient {
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
     /// one that never reported progress or is still busy. The returned string
     /// is one of `"progressIdle"`, `"settledFallback"`, or `"timeout"`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-        Ok(self
+        let readiness = self
+            .inner
             .progress
             .wait_until_idle(timeout_ms)
             .await
             .as_str()
-            .to_owned())
+            .to_owned();
+        if let Ok(mut slot) = self.inner.readiness.lock() {
+            *slot = Some(readiness.clone());
+        }
+        Ok(readiness)
     }
 
     /// `false` if the client was never started/already stopped, or if its
@@ -292,17 +331,17 @@ impl NativeLspClient {
     /// Lets the JS client pool evict a stale pooled entry at the next
     /// `acquire()` instead of returning a client whose requests will just
     /// fail until the idle timer eventually reaps it.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn is_alive(&self) -> bool {
-        match self.connection.lock().await.as_ref() {
+        match self.inner.connection.lock().await.as_ref() {
             Some(connection) => connection.is_alive(),
             None => false,
         }
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub fn has_capability(&self, capability: String) -> bool {
-        let Ok(capabilities) = self.capabilities.lock() else {
+        let Ok(capabilities) = self.inner.capabilities.lock() else {
             return false;
         };
         capabilities
@@ -311,21 +350,92 @@ impl NativeLspClient {
             .unwrap_or(false)
     }
 
+    /// Return a deterministic receipt for semantic graph evidence. Raw server
+    /// handles and opaque LSP `data` never become durable graph identity.
+    pub fn graph_server_receipt(&self) -> crate::graph::ServerReceipt {
+        let capabilities = self
+            .inner
+            .capabilities
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .and_then(|value| value.as_object().cloned())
+            .map(|object| {
+                object
+                    .into_iter()
+                    .filter(|(_, value)| capability_value_supported(value))
+                    .map(|(name, _)| name)
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+        let server_info = self
+            .inner
+            .server_info
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+            .unwrap_or(Value::Null);
+        let family = server_info
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| {
+                std::path::Path::new(&self.inner.config.command)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "language-server".to_owned());
+        let version = server_info
+            .get("version")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let configuration = serde_json::to_vec(&self.inner.config).unwrap_or_default();
+        crate::graph::ServerReceipt {
+            family,
+            version,
+            configuration_digest: crate::index::content_digest(&configuration),
+            capabilities,
+        }
+    }
+
+    /// The synchronized document version attached to semantic evidence.
+    pub fn document_version(&self, file_path: &str) -> Option<i64> {
+        let uri = path_to_uri(file_path).ok()?;
+        self.inner
+            .open_docs
+            .lock()
+            .ok()
+            .and_then(|documents| documents.get(&uri).copied())
+            .map(i64::from)
+    }
+
     /// The `positionEncoding` the server selected at initialize time, if any.
     /// `None` means the server omitted it (implying the spec default, utf-16) or
     /// the client has not started yet. octocode advertises utf-16 only, so a
     /// value other than `Some("utf-16")` indicates a non-conformant server.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub fn position_encoding(&self) -> Option<String> {
-        self.position_encoding
+        self.inner
+            .position_encoding
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
     }
 
-    #[napi(js_name = "getRecentStderr")]
+    #[cfg_attr(feature = "napi-addon", napi(js_name = "getReadiness"))]
+    pub fn readiness(&self) -> Option<String> {
+        self.inner
+            .readiness
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    }
+
+    #[cfg_attr(feature = "napi-addon", napi(js_name = "getRecentStderr"))]
     pub fn get_recent_stderr(&self) -> Vec<String> {
-        self.stderr_lines
+        self.inner
+            .stderr_lines
             .lock()
             .map(|lines| lines.iter().cloned().collect())
             .unwrap_or_default()
@@ -337,7 +447,7 @@ impl NativeLspClient {
     /// incremented version and a full-document content change. Re-sending
     /// `didOpen` (as before) is ignored or rejected by many servers and can make
     /// changed content resolve against the stale original.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
         let uri = path_to_uri(&file_path)?;
 
@@ -354,6 +464,7 @@ impl NativeLspClient {
         // across an await).
         let next_version = {
             let mut open_docs = self
+                .inner
                 .open_docs
                 .lock()
                 .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
@@ -362,9 +473,9 @@ impl NativeLspClient {
             version
         };
 
-        if next_version == 1 {
+        let notification = if next_version == 1 {
             let language_id = crate::lsp::config::detect_language_id(file_path.clone())
-                .or_else(|| self.config.language_id.clone())
+                .or_else(|| self.inner.config.language_id.clone())
                 .unwrap_or_else(|| "plaintext".to_owned());
             let params = json!({
                 "textDocument": {
@@ -381,16 +492,29 @@ impl NativeLspClient {
                 "contentChanges": [{ "text": content }]
             });
             connection.notify("textDocument/didChange", params).await
+        };
+        if notification.is_err() {
+            if let Ok(mut open_docs) = self.inner.open_docs.lock() {
+                if open_docs.get(&uri).copied() == Some(next_version) {
+                    if next_version == 1 {
+                        open_docs.remove(&uri);
+                    } else {
+                        open_docs.insert(uri, next_version - 1);
+                    }
+                }
+            }
         }
+        notification
     }
 
     /// Close a previously opened document (`textDocument/didClose`) and forget
     /// its version, so a later `open_document` starts a fresh `didOpen`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn close_document(&self, file_path: String) -> Result<()> {
         let uri = path_to_uri(&file_path)?;
         let was_open = {
             let mut open_docs = self
+                .inner
                 .open_docs
                 .lock()
                 .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
@@ -409,7 +533,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_definition(
         &self,
         file_path: String,
@@ -420,7 +544,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_references(
         &self,
         file_path: String,
@@ -438,7 +562,7 @@ impl NativeLspClient {
         snippets_from_locations(result).await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_hover(&self, file_path: String, line: u32, character: u32) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -451,7 +575,7 @@ impl NativeLspClient {
         .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_type_definition(
         &self,
         file_path: String,
@@ -462,7 +586,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_implementation(
         &self,
         file_path: String,
@@ -473,7 +597,7 @@ impl NativeLspClient {
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_document_symbols(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -483,7 +607,7 @@ impl NativeLspClient {
         .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn prepare_call_hierarchy(
         &self,
         file_path: String,
@@ -501,13 +625,13 @@ impl NativeLspClient {
         .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn incoming_calls(&self, item: Value) -> Result<Value> {
         self.request("callHierarchy/incomingCalls", json!({ "item": item }))
             .await
     }
 
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn outgoing_calls(&self, item: Value) -> Result<Value> {
         self.request("callHierarchy/outgoingCalls", json!({ "item": item }))
             .await
@@ -516,7 +640,7 @@ impl NativeLspClient {
     /// Project-wide fuzzy symbol search — `workspace/symbol`.
     /// Returns `WorkspaceSymbol[] | SymbolInformation[]` (raw JSON).
     /// `query` is the fuzzy name string; empty string returns all symbols.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn workspace_symbol(&self, query: String) -> Result<Value> {
         self.request("workspace/symbol", json!({ "query": query }))
             .await
@@ -524,7 +648,7 @@ impl NativeLspClient {
 
     /// Prepare a type-hierarchy item at a given position — `textDocument/prepareTypeHierarchy`.
     /// Returns `TypeHierarchyItem[] | null` (raw JSON).
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn prepare_type_hierarchy(
         &self,
         file_path: String,
@@ -544,7 +668,7 @@ impl NativeLspClient {
 
     /// Retrieve supertypes (base classes / implemented interfaces) — `typeHierarchy/supertypes`.
     /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn type_hierarchy_supertypes(&self, item: Value) -> Result<Value> {
         self.request("typeHierarchy/supertypes", json!({ "item": item }))
             .await
@@ -552,7 +676,7 @@ impl NativeLspClient {
 
     /// Retrieve subtypes (subclasses / implementors) — `typeHierarchy/subtypes`.
     /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn type_hierarchy_subtypes(&self, item: Value) -> Result<Value> {
         self.request("typeHierarchy/subtypes", json!({ "item": item }))
             .await
@@ -562,7 +686,7 @@ impl NativeLspClient {
     /// Returns `DocumentDiagnosticReport` with `kind: "full"|"unchanged"` and `items: Diagnostic[]`.
     /// Prefer pull diagnostics over push (`publishDiagnostics`) for agent/CLI use: you control
     /// *when* to request them and avoid a notification firehose.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_diagnostics(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -574,7 +698,7 @@ impl NativeLspClient {
 
     /// Return the latest bounded `textDocument/publishDiagnostics` payload for
     /// a file, waiting briefly when the server has not published one yet.
-    #[napi]
+    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_push_diagnostics(
         &self,
         file_path: String,
@@ -583,6 +707,7 @@ impl NativeLspClient {
         let uri = path_to_uri(&file_path)?;
         let connection = self.connection_handle().await?;
         let min_version = self
+            .inner
             .open_docs
             .lock()
             .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?
@@ -595,7 +720,7 @@ impl NativeLspClient {
     }
 }
 
-impl Drop for NativeLspClient {
+impl Drop for NativeLspClientInner {
     fn drop(&mut self) {
         self.connection.get_mut().take();
         if let Some(task) = self.stderr_task.get_mut().take() {
@@ -607,6 +732,9 @@ impl Drop for NativeLspClient {
         if let Ok(mut capabilities) = self.capabilities.lock() {
             *capabilities = None;
         }
+        if let Ok(mut server_info) = self.server_info.lock() {
+            *server_info = None;
+        }
     }
 }
 
@@ -617,7 +745,8 @@ impl NativeLspClient {
     /// LSP requests are NOT serialized and cannot head-of-line block one
     /// another. Returns an error if the client has not been started.
     async fn connection_handle(&self) -> Result<Arc<JsonRpcConnection<ChildStdin>>> {
-        self.connection
+        self.inner
+            .connection
             .lock()
             .await
             .as_ref()
@@ -625,17 +754,28 @@ impl NativeLspClient {
             .ok_or_else(|| Error::new(Status::GenericFailure, "LSP client not initialized"))
     }
 
+    pub(crate) fn has_active_requests(&self) -> bool {
+        self.inner.active_requests.load(Ordering::Acquire) > 0
+    }
+
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        let _activity = RequestActivity::begin(&self.inner.active_requests);
         // Acquire a cloned handle and DROP the guard before awaiting, so the
         // request + content-modified retry loop never holds the connection
         // mutex across `.await`.
         let connection = self.connection_handle().await?;
         let mut attempts = 0;
         loop {
-            match connection
-                .request(method, params.clone(), REQUEST_TIMEOUT_MS)
-                .await
-            {
+            let response = if supports_partial_results(method) {
+                connection
+                    .request_with_partials(method, params.clone(), REQUEST_TIMEOUT_MS)
+                    .await
+            } else {
+                connection
+                    .request(method, params.clone(), REQUEST_TIMEOUT_MS)
+                    .await
+            };
+            match response {
                 Ok(value) => return Ok(value),
                 Err(error)
                     if is_content_modified_error(&error) && attempts < CONTENT_MODIFIED_RETRIES =>
@@ -672,6 +812,21 @@ impl NativeLspClient {
     }
 }
 
+struct RequestActivity<'a>(&'a AtomicUsize);
+
+impl<'a> RequestActivity<'a> {
+    fn begin(active: &'a AtomicUsize) -> Self {
+        active.fetch_add(1, Ordering::AcqRel);
+        Self(active)
+    }
+}
+
+impl Drop for RequestActivity<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Detects the LSP `ContentModified` (-32801) error so the request can be retried.
 ///
 /// The reason string is the JSON error object rendered by [`read_loop`], e.g.
@@ -679,6 +834,23 @@ impl NativeLspClient {
 /// numeric error CODE rather than a free-text `"content modified"` substring,
 /// which would false-positive on hover/diagnostic payloads that merely mention
 /// the phrase (e.g. a doc-comment) and trigger spurious retries.
+fn supports_partial_results(method: &str) -> bool {
+    matches!(
+        method,
+        "textDocument/definition"
+            | "textDocument/references"
+            | "textDocument/typeDefinition"
+            | "textDocument/implementation"
+            | "textDocument/documentSymbol"
+            | "workspace/symbol"
+            | "callHierarchy/incomingCalls"
+            | "callHierarchy/outgoingCalls"
+            | "typeHierarchy/supertypes"
+            | "typeHierarchy/subtypes"
+            | "textDocument/diagnostic"
+    )
+}
+
 fn is_content_modified_error(error: &Error) -> bool {
     reason_has_error_code(&error.reason, -32801)
 }
@@ -717,9 +889,13 @@ fn extract_position_encoding(initialize_result: &Value) -> Option<String> {
 }
 
 fn capability_supported(capabilities: &Value, capability: &str) -> bool {
-    let Some(value) = capabilities.get(capability) else {
-        return false;
-    };
+    capabilities
+        .get(capability)
+        .map(capability_value_supported)
+        .unwrap_or(false)
+}
+
+fn capability_value_supported(value: &Value) -> bool {
     match value {
         Value::Bool(enabled) => *enabled,
         Value::Null => false,
@@ -752,11 +928,11 @@ async fn initialize(
                 "positionEncodings": ["utf-16"]
             },
             "textDocument": {
-                "definition": { "dynamicRegistration": false, "linkSupport": false },
+                "definition": { "dynamicRegistration": false, "linkSupport": true },
                 "references": { "dynamicRegistration": false },
                 "hover": { "dynamicRegistration": false, "contentFormat": ["markdown", "plaintext"] },
-                "typeDefinition": { "dynamicRegistration": false, "linkSupport": false },
-                "implementation": { "dynamicRegistration": false, "linkSupport": false },
+                "typeDefinition": { "dynamicRegistration": false, "linkSupport": true },
+                "implementation": { "dynamicRegistration": false, "linkSupport": true },
                 "documentSymbol": { "dynamicRegistration": false, "hierarchicalDocumentSymbolSupport": true },
                 "callHierarchy": { "dynamicRegistration": false },
                 // LSP 3.17: type hierarchy — navigate supertypes (base classes/interfaces)
@@ -855,13 +1031,22 @@ async fn snippet_from_location_like(
     let (Some(uri), Some(range_value)) = (uri, range_value) else {
         return Ok(None);
     };
-    let range = parse_range(range_value)?;
+    let context_range = parse_range(range_value)?;
+    // LocationLink separates the symbol selection from its enclosing declaration.
+    // Keep provider selection coordinates for navigation and enclosing source for context.
+    let range = match value.get("targetSelectionRange") {
+        Some(selection) => parse_range(selection)?,
+        None => context_range.clone(),
+    };
     let file_path = uri_to_path(uri)?;
     // A read failure here is real evidence ("target file is missing/unreadable/
     // generated"), not "no useful definition". Surface it as explicit content
     // instead of an empty string so callers don't misread it — and keep the
     // request resilient (one bad target must not drop the other locations).
-    let content = match content_cache.read_range_content(&file_path, &range).await {
+    let content = match content_cache
+        .read_range_content(&file_path, &context_range)
+        .await
+    {
         Ok(text) => text,
         Err(err) => format!("[content unavailable — could not read {uri}: {err}]"),
     };
@@ -870,7 +1055,16 @@ async fn snippet_from_location_like(
         range,
         content,
         symbol_kind: None,
-        display_range: None,
+        display_range: value.get("targetSelectionRange").map(|_| {
+            json!({
+                "startLine": context_range.start.line + 1,
+                "endLine": if context_range.end.character == 0 {
+                    context_range.end.line.max(context_range.start.line + 1)
+                } else {
+                    context_range.end.line + 1
+                }
+            })
+        }),
     }))
 }
 

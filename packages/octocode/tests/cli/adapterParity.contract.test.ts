@@ -78,6 +78,7 @@ describe('raw tools command adapter parity', () => {
       'localSearch',
       'localFetch',
       'astSearch',
+      'astRewrite',
       'lspSearch',
       'ghCloneRepo',
     ];

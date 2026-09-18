@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40590",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read current ChatGroq validator conditions for invalid n values.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/partners/groq/langchain_groq/chat_models.py\",\"matchString\":\"self.n < 1\",\"contextLines\":35},{\"reasoning\":\"Read current ChatGroq request parameter construction for n forwarding.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/partners/groq/langchain_groq/chat_models.py\",\"matchString\":\"\\\"n\\\": self.n\",\"contextLines\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:36.766Z",
+  "endedAt": "2026-09-18T08:56:37.200Z",
+  "elapsedMs": 433,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "d9337e9bba176ed18f74f46d82969505ebed1fc44500f41407c12920d0c6de30",
+  "requestSha256": null
+}

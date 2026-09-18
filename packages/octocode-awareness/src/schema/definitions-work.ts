@@ -1,12 +1,24 @@
 /* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { z } from 'zod';
-import { TASK_STATUSES } from '@octocodeai/agent-contracts/entities';
+import { TASK_STATUSES } from '../entities.js';
 import {
-  agentId, nonEmptyText, tags, workspacePath, artifactScope, repoScope,
-  refScope, targetFiles,
+  agentId, nonEmptyText, workspacePath, artifactScope, targetFiles, repoScope, refScope,
 } from './common.js';
 
 export const workSchemas = {
+  agents: z
+    .object({
+      workspace: workspacePath.optional().describe("Host-bound workspace used for linked-checkout visibility."),
+      artifact: artifactScope.optional(),
+      repo: repoScope.optional().describe("Repository scope filter."),
+      ref: refScope.optional().describe("Git ref scope filter."),
+      query: z.string().trim().max(1000).default("").describe("Agent id, name, or context filter."),
+      limit: z.number().int().min(1).max(500).default(50),
+      offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0)
+        .describe("Zero-based offset in the stable, deduplicated agent projection."),
+    })
+    .strict()
+    .describe("List every visible agent identity in the bound store and workspace scope."),
 task: z
     .object({
       action: z.enum(["create", "list", "ready", "show", "claim", "heartbeat", "submit", "release", "depend", "retry"]),
@@ -90,76 +102,6 @@ task: z
     })
     .strict()
     .describe("Wait for locks."),
-  lock_prune: z
-    .object({
-      older_than_minutes: z.number().int().min(1).max(10080).default(20),
-      expired_only: z.boolean().default(false),
-      agent_id: agentId.optional().describe("Holder filter."),
-      workspace: workspacePath.optional(),
-      artifact: artifactScope.optional(),
-      target_files: z.array(z.string().trim().min(1).max(1024)).max(200).default([]),
-      dry_run: z.boolean().default(false),
-    })
-    .strict()
-    .describe("Prune stale locks."),
-  mine_weakness: z
-    .object({
-      agent_id: agentId.optional().describe("Agent filter."),
-      workspace: workspacePath.optional(),
-      artifact: artifactScope.optional(),
-      min_count: z.number().int().min(1).max(100).default(2),
-      limit: z.number().int().min(1).max(200).default(20),
-      cwd: z.string().trim().min(1).max(1024).optional().describe("Scope cwd."),
-    })
-    .strict()
-    .describe("Mine failure clusters."),
-  doc_staleness: z
-    .object({
-      targets_json: z
-        .string()
-        .trim()
-        .min(1)
-        .max(20000)
-        .describe("Doc/source JSON."),
-      workspace: workspacePath.optional(),
-      artifact: artifactScope.optional(),
-      min_edits: z.number().int().min(1).max(10000).default(5),
-      min_lines: z.number().int().min(1).max(1000000).default(50),
-      propose: z.boolean().default(false),
-      agent_id: agentId.optional(),
-      session_id: z.string().trim().min(1).max(128).optional(),
-    })
-    .strict()
-    .describe("Check doc staleness."),
-  docs_catalog: z
-    .object({
-      action: z.enum(["list", "show"]).default("list"),
-      name: z.string().trim().min(1).max(256).optional().describe("Skill-ref name for docs show."),
-      full: z.boolean().default(false).describe("Include abs path/root on docs list."),
-    })
-    .strict()
-    .describe("List or show skill reference docs."),
-  digest: z
-    .object({
-      retention_days: z.number().int().min(1).max(3650).default(90),
-      refinement_handoff_retention_days: z.number().int().min(1).max(3650).default(7),
-      handoff_signal_retention_days: z.number().int().min(1).max(3650).default(1)
-        .describe("Auto-resolve old broadcast handoff signals; handoff refinements keep their separate retention."),
-      refinement_done_retention_days: z.number().int().min(1).max(3650).default(30),
-      operational_retention_days: z.number().int().min(1).max(3650).default(90)
-        .describe("Compact old terminal standalone WORK/HOOK rows; receipts remain."),
-      pressure_age_days: z.number().int().min(1).max(3650).default(1)
-        .describe("Report old pending runs/signals/missing refs without mutating them."),
-      fail_stale_active_runs: z.boolean().default(true)
-        .describe("Mark ACTIVE runs with expired presence as FAILED during digest; use false for preview-only recovery."),
-      dry_run: z.boolean().default(false),
-      export_doc: z.union([z.boolean(), z.string().trim().min(1).max(1024)]).optional()
-        .describe("Write report."),
-      workspace: workspacePath.optional().describe("Workspace filter."),
-      artifact: artifactScope.optional(),
-    })
-    .strict()
-    .describe("Prune/archive/reindex."),
   lock_release: z
     .object({
       agent_id: agentId,
@@ -186,6 +128,7 @@ task: z
         .default([])
         .describe("Exact runs covered by the observed check; required unless all_pending is true."),
       all_pending: z.boolean().default(false).describe("Select all pending runs in workspace/artifact scope only when the observed check covers every selected run."),
+      adopt_verification: z.boolean().default(false).describe("Explicitly let this actor verify one run owned by another actor; requires one run_id and workspace."),
       status: z.enum(["SUCCESS", "FAILED"]).default("SUCCESS").describe("Observed check result. Unrun checks remain pending; never use SUCCESS to clear debt."),
       message: z.string().trim().min(1).max(2000).optional().describe("Observed command and result; required for SUCCESS. Worker confidence alone is not a receipt."),
     })
@@ -199,6 +142,9 @@ task: z
       }
       if (value.all_pending && !value.workspace && !value.artifact) {
         ctx.addIssue({ code: "custom", path: ["all_pending"], message: "all_pending requires workspace or artifact scope." });
+      }
+      if (value.adopt_verification && (value.all_pending || value.run_id.length !== 1 || !value.workspace)) {
+        ctx.addIssue({ code: "custom", path: ["adopt_verification"], message: "adopt_verification requires one run_id and workspace." });
       }
     })
     .describe("Record an observed check against selected runs. Ending work leaves it pending; only evidence establishes SUCCESS or FAILED."),
@@ -220,55 +166,4 @@ task: z
     })
     .strict()
               .describe("Read-only listing of unverified and stale ACTIVE runs."),
-  forget_memory: z
-    .object({
-      memory_id: z
-        .array(z.string().trim().min(1).max(128))
-        .max(200)
-        .default([])
-        .describe("Memory ids."),
-      tags,
-      before: z
-        .string()
-        .trim()
-        .min(1)
-        .max(64)
-        .optional()
-        .describe("Before ISO."),
-      max_importance: z
-        .number()
-        .int()
-        .min(1)
-        .max(10)
-        .optional()
-        .describe("Importance ceiling."),
-      workspace_path: workspacePath.optional().describe("Workspace scope."),
-      artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Repo scope."),
-      ref: refScope.optional().describe("Ref scope."),
-      dry_run: z.boolean().default(false).describe("Preview only."),
-    })
-    .strict()
-    .refine(
-      (data) =>
-        data.memory_id.length > 0 ||
-        data.tags.length > 0 ||
-        data.before !== undefined ||
-        data.max_importance !== undefined,
-      { message: "forget requires at least one selector: memory_id, tags, before, or max_importance." },
-    )
-    .describe("Forget memories."),
-  memory_lifecycle: z
-    .object({
-      action: z.enum(["archive", "restore"]).describe("Lifecycle operation selected by the CLI noun/verb command."),
-      memory_id: z.array(z.string().trim().min(1).max(128)).min(1).max(200)
-        .describe("Explicit memory ids; lifecycle changes never use broad selectors."),
-      workspace_path: workspacePath.optional().describe("Workspace scope."),
-      artifact: artifactScope.optional(),
-      repo: repoScope.optional().describe("Repo scope."),
-      ref: refScope.optional().describe("Ref scope."),
-      dry_run: z.boolean().default(false).describe("Preview selected ids without mutation."),
-    })
-    .strict()
-    .describe("Reversibly archive memories or restore archived rows; replacement history cannot be restored.")
 };

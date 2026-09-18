@@ -1,0 +1,1 @@
+{"note":"Q1-Q6 result.json timestamps were entered as rough progress estimates and some exceed wrapper event times/current clock. They are not measured telemetry. Preserve wrapper event timestamps as authoritative. Q7-Q10 and BUG result timestamps were corrected to first/last wrapper-event boundaries."}

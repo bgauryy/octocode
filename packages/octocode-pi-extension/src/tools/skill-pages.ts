@@ -1,4 +1,4 @@
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilityDefinitionRevision } from '../contracts/capability-sources.js';
 import type { DiscoveredSkill } from './skill-discovery.js';
 
 export interface SkillPageQuery { offset?: number; textOffset?: number; limit?: number; catalogRevision?: string }
@@ -6,14 +6,14 @@ export interface SkillPage {
   revision: string; total: number; skills: DiscoveredSkill[]; partial: boolean;
   fragment?: { row: number; field: 'description'; start: number; end: number; total: number };
   diagnostic?: { code: 'catalog-revision-changed' | 'invalid-cursor' | 'entry-limit'; message: string };
-  next?: { tool: 'skill'; params: { queries: Array<SkillPageQuery & { reasoning: string; type: 'load'; action: 'list' }> } };
+  next?: { tool: 'skill'; params: { queries: Array<SkillPageQuery & { type: 'load'; action: 'list' }> } };
 }
 
 /** Bounded metadata pages retain exact descriptions and concrete grant identities. */
 export function readSkillPage(skills: DiscoveredSkill[], query: SkillPageQuery = {}): SkillPage {
   const rows = [...skills].sort((a, b) => a.name.localeCompare(b.name));
   const revision = capabilityDefinitionRevision(rows);
-  const next = (offset: number, textOffset = 0) => ({ tool: 'skill' as const, params: { queries: [{ reasoning: 'Continue the effective skill catalog', type: 'load' as const, action: 'list' as const, offset, textOffset, limit: query.limit ?? 50, catalogRevision: revision }] } });
+  const next = (offset: number, textOffset = 0) => ({ tool: 'skill' as const, params: { queries: [{ type: 'load' as const, action: 'list' as const, offset, textOffset, limit: query.limit ?? 50, catalogRevision: revision }] } });
   const page: SkillPage = { revision, total: rows.length, skills: [], partial: false };
   const offset = query.offset ?? 0;
   const textOffset = query.textOffset ?? 0;

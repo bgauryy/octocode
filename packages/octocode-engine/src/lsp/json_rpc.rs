@@ -1,4 +1,4 @@
-use napi::{Error, Result, Status};
+use crate::error::{Error, Result, Status};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -12,6 +12,65 @@ const MAX_JSON_RPC_CONTENT_LENGTH: usize = 64 * 1024 * 1024;
 const MAX_PUSH_DIAGNOSTIC_DOCUMENTS: usize = 256;
 const MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT: usize = 2_000;
 const MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 256 * 1024;
+const MAX_PARTIAL_RESULT_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Default)]
+struct PartialResultBuffer {
+    values: Vec<Value>,
+    bytes: usize,
+    overflowed: bool,
+}
+
+#[derive(Default)]
+struct PartialResultStore {
+    buffers: StdMutex<HashMap<String, PartialResultBuffer>>,
+}
+
+impl PartialResultStore {
+    fn begin(&self, token: String) {
+        if let Ok(mut buffers) = self.buffers.lock() {
+            buffers.insert(token, PartialResultBuffer::default());
+        }
+    }
+
+    fn record(&self, token: &str, value: &Value) {
+        let Ok(mut buffers) = self.buffers.lock() else {
+            return;
+        };
+        let Some(buffer) = buffers.get_mut(token) else {
+            return;
+        };
+        let bytes = serde_json::to_vec(value).map_or(MAX_PARTIAL_RESULT_BYTES + 1, |v| v.len());
+        if buffer.bytes.saturating_add(bytes) > MAX_PARTIAL_RESULT_BYTES {
+            buffer.overflowed = true;
+            return;
+        }
+        buffer.bytes += bytes;
+        buffer.values.push(value.clone());
+    }
+
+    fn finish(&self, token: &str, final_result: Value) -> Result<Value> {
+        let buffer = self
+            .buffers
+            .lock()
+            .ok()
+            .and_then(|mut buffers| buffers.remove(token))
+            .unwrap_or_default();
+        if buffer.overflowed {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "LSP partial results exceeded the bounded collection limit",
+            ));
+        }
+        Ok(buffer
+            .values
+            .into_iter()
+            .rev()
+            .fold(final_result, |accumulated, partial| {
+                merge_partial_result(partial, accumulated)
+            }))
+    }
+}
 
 #[derive(Clone)]
 struct PushDiagnosticsRecord {
@@ -304,6 +363,7 @@ where
     /// crashed one at `acquire()` time instead of only via the idle timer.
     failed: Arc<AtomicBool>,
     push_diagnostics: Arc<PushDiagnosticsStore>,
+    partial_results: Arc<PartialResultStore>,
 }
 
 impl<W> JsonRpcConnection<W>
@@ -323,6 +383,7 @@ where
         let writer = Arc::new(Mutex::new(writer));
         let failed = Arc::new(AtomicBool::new(false));
         let push_diagnostics = PushDiagnosticsStore::new();
+        let partial_results = Arc::new(PartialResultStore::default());
         tokio::spawn(read_loop(
             reader,
             Arc::clone(&pending),
@@ -331,6 +392,7 @@ where
             Arc::clone(&progress),
             Arc::clone(&failed),
             Arc::clone(&push_diagnostics),
+            Arc::clone(&partial_results),
         ));
         Self {
             writer,
@@ -338,6 +400,7 @@ where
             pending,
             failed,
             push_diagnostics,
+            partial_results,
         }
     }
 
@@ -404,6 +467,36 @@ where
         }
     }
 
+    pub async fn request_with_partials(
+        &self,
+        method: &str,
+        mut params: Value,
+        timeout_ms: u32,
+    ) -> Result<Value> {
+        let token = format!(
+            "octocode-partial-{}",
+            self.next_id.fetch_add(1, Ordering::SeqCst)
+        );
+        let Some(object) = params.as_object_mut() else {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "LSP partial-result params must be an object",
+            ));
+        };
+        object.insert(
+            "partialResultToken".to_owned(),
+            Value::String(token.clone()),
+        );
+        self.partial_results.begin(token.clone());
+        match self.request(method, params, timeout_ms).await {
+            Ok(result) => self.partial_results.finish(&token, result),
+            Err(error) => {
+                let _ = self.partial_results.finish(&token, Value::Null);
+                Err(error)
+            }
+        }
+    }
+
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         let message = json!({"jsonrpc":"2.0","method":method,"params":params});
         // didOpen/initialized/exit writes must not hold startup or shutdown open
@@ -444,6 +537,7 @@ async fn read_loop<R, W>(
     progress: Arc<ProgressTracker>,
     failed: Arc<AtomicBool>,
     push_diagnostics: Arc<PushDiagnosticsStore>,
+    partial_results: Arc<PartialResultStore>,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -478,7 +572,7 @@ async fn read_loop<R, W>(
         if let Some(method) = value.get("method").and_then(Value::as_str) {
             // Track $/progress begin/end so wait_for_ready can gate on indexing completion.
             if method == "$/progress" {
-                handle_progress_notification(&value, &progress).await;
+                handle_progress_notification(&value, &progress, &partial_results).await;
             }
             if method == "textDocument/publishDiagnostics" {
                 if let Some(params) = value.get("params") {
@@ -524,7 +618,11 @@ fn parse_response_id(id: &Value) -> Option<u64> {
         .or_else(|| id.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
 }
 
-async fn handle_progress_notification(value: &Value, progress: &Arc<ProgressTracker>) {
+async fn handle_progress_notification(
+    value: &Value,
+    progress: &Arc<ProgressTracker>,
+    partial_results: &Arc<PartialResultStore>,
+) {
     let params = value.get("params");
     let token = params.and_then(|p| p.get("token")).and_then(|t| {
         t.as_str()
@@ -538,7 +636,33 @@ async fn handle_progress_notification(value: &Value, progress: &Arc<ProgressTrac
     match (token, kind) {
         (Some(token), Some("begin")) => progress.on_begin(token).await,
         (Some(token), Some("end")) => progress.on_end(&token).await,
+        (Some(token), None) => {
+            if let Some(value) = params.and_then(|params| params.get("value")) {
+                partial_results.record(&token, value);
+            }
+        }
         _ => {}
+    }
+}
+
+fn merge_partial_result(partial: Value, final_result: Value) -> Value {
+    match (partial, final_result) {
+        (Value::Array(mut partial), Value::Array(final_values)) => {
+            partial.extend(final_values);
+            Value::Array(partial)
+        }
+        (Value::Object(partial), Value::Object(mut final_values)) => {
+            for (key, partial_value) in partial {
+                let merged = final_values
+                    .remove(&key)
+                    .map(|final_value| merge_partial_result(partial_value.clone(), final_value))
+                    .unwrap_or(partial_value);
+                final_values.insert(key, merged);
+            }
+            Value::Object(final_values)
+        }
+        (partial, Value::Null) => partial,
+        (_, final_result) => final_result,
     }
 }
 
@@ -650,6 +774,87 @@ fn io_error(err: std::io::Error) -> Error {
 mod tests {
     use super::*;
     use tokio::io::{duplex, sink};
+
+    #[test]
+    fn partial_result_store_merges_array_and_object_chunks_in_protocol_order() {
+        let store = PartialResultStore::default();
+        store.begin("locations".to_owned());
+        store.record("locations", &json!([{"uri":"a"}]));
+        store.record("locations", &json!([{"uri":"b"}]));
+        assert_eq!(
+            store
+                .finish("locations", json!([{"uri":"c"}]))
+                .expect("merge"),
+            json!([{"uri":"a"},{"uri":"b"},{"uri":"c"}])
+        );
+
+        store.begin("diagnostics".to_owned());
+        store.record("diagnostics", &json!({"items":[{"message":"first"}]}));
+        assert_eq!(
+            store
+                .finish(
+                    "diagnostics",
+                    json!({"kind":"full","items":[{"message":"last"}]})
+                )
+                .expect("merge"),
+            json!({
+                "kind":"full",
+                "items":[{"message":"first"},{"message":"last"}]
+            })
+        );
+    }
+
+    #[test]
+    fn request_with_partials_collects_progress_before_final_response() {
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (client_w, server_r) = duplex(8192);
+            let (mut server_w, client_r) = duplex(8192);
+            let connection = JsonRpcConnection::new(
+                client_r,
+                client_w,
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+            );
+            let server = tokio::spawn(async move {
+                let mut reader = BufReader::new(server_r);
+                let HeaderOutcome::Frame(length) =
+                    read_headers(&mut reader).await.expect("request header")
+                else {
+                    panic!("request frame expected");
+                };
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).await.expect("request body");
+                let request: Value = serde_json::from_slice(&body).expect("request json");
+                let token = request["params"]["partialResultToken"].clone();
+                let id = request["id"].clone();
+                for message in [
+                    json!({
+                        "jsonrpc":"2.0","method":"$/progress",
+                        "params":{"token":token,"value":[{"uri":"partial"}]}
+                    }),
+                    json!({"jsonrpc":"2.0","id":id,"result":[{"uri":"final"}]}),
+                ] {
+                    let body = serde_json::to_vec(&message).expect("response json");
+                    server_w
+                        .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+                        .await
+                        .expect("response header");
+                    server_w.write_all(&body).await.expect("response body");
+                }
+            });
+
+            let result = connection
+                .request_with_partials("textDocument/references", json!({}), 1_000)
+                .await
+                .expect("partial request");
+            server.await.expect("server");
+            assert_eq!(result, json!([{"uri":"partial"},{"uri":"final"}]));
+        });
+    }
 
     #[test]
     fn read_headers_is_case_insensitive_for_content_length() {
@@ -891,6 +1096,7 @@ mod tests {
                 ProgressTracker::new(),
                 Arc::new(AtomicBool::new(false)),
                 PushDiagnosticsStore::new(),
+                Arc::new(PartialResultStore::default()),
             )
             .await;
 
@@ -1104,6 +1310,7 @@ mod tests {
                 ProgressTracker::new(),
                 Arc::new(AtomicBool::new(false)),
                 PushDiagnosticsStore::new(),
+                Arc::new(PartialResultStore::default()),
             )
             .await;
 
@@ -1145,6 +1352,7 @@ mod tests {
                 ProgressTracker::new(),
                 Arc::new(AtomicBool::new(false)),
                 PushDiagnosticsStore::new(),
+                Arc::new(PartialResultStore::default()),
             )
             .await;
 

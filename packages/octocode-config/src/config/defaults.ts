@@ -13,6 +13,7 @@ import type {
 
 export const DEFAULT_GITHUB_CONFIG: RequiredGitHubConfig = {
   apiUrl: 'https://api.github.com',
+  graphqlEnabled: true,
 };
 
 export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
@@ -22,6 +23,8 @@ export const DEFAULT_LOCAL_CONFIG: RequiredLocalConfig = {
   // Clone is opt-in: set ENABLE_CLONE=true or local.enableClone: true in .octocoderc.
   // Requires storage.mode="persistent" (the default) to function.
   enableClone: false,
+  // Structural rewrite mutation is separately opt-in; previews remain read-only.
+  enableAstRewriteApply: false,
   allowedPaths: [],
   workspaceRoot: undefined,
 };

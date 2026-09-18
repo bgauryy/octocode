@@ -23,13 +23,13 @@ import type {
 } from './tools/runtime-store.js';
 import { renderFooterView } from './tui/footer-view.js';
 import { paint } from './tui/palette.js';
-import type { PiContext, PiInstance, PiTheme } from './types.js';
+import type { PiContext, PiTheme } from './types.js';
 import {
   buildCapabilitySegments,
   buildWorkingIndicator,
   deriveSessionName,
-  formatBranchSegment,
   formatDurationShort,
+  elapsedSince,
   getFooterDensity,
 } from './ui-extras.js';
 import { activePlanScope } from './tools/planning/plan-store.js';
@@ -61,18 +61,18 @@ export function getThinkingStatus(
   return level ?? '';
 }
 
-// Footer registration is idempotent per session context. Pi's documented
+// Footer registration is idempotent per runtime store. Pi's documented
 // contract (docs/tui.md "Custom Footer": setFooter ONCE + tui.requestRender for
 // live updates) — the previous code re-called setFooter on every 1s ticker and
 // every agent-ledger event during a turn, which churned the whole footer
 // component and leaked a new onBranchChange subscription per call. That churn
 // showed up as message-area flicker and scroll jumps mid-turn. Now the factory
 // reads live state at render time; updateOctocodeMetricsUi only asks Pi to
-// repaint. Keyed by ctx (WeakMap/WeakSet) so a new session re-registers and old
-// contexts are GC'd; session_start deletes the entry so the current session
+// repaint. Keyed by store so fresh callback contexts share one footer and a new
+// session re-registers; session_start deletes the entry so the current session
 // always re-registers with its own tui/theme.
-const footerRegisteredCtxs = new WeakSet<object>();
-const footerRequestRenderByCtx = new WeakMap<object, () => void>();
+const footerRegisteredStores = new WeakSet<object>();
+const footerRequestRenderByStore = new WeakMap<object, () => void>();
 interface FooterFacts {
   plan: PlanReadModelV1;
   workers: ReturnType<typeof listVisibleWorkerLedgerEntries>;
@@ -82,7 +82,7 @@ interface FooterFacts {
   dial: ReturnType<typeof getActiveDialLevel>;
   density: StatusDensity;
 }
-const footerFactsByCtx = new WeakMap<object, FooterFacts>();
+const footerFactsByStore = new WeakMap<object, FooterFacts>();
 
 function statusDensity(): StatusDensity {
   const density = getFooterDensity();
@@ -123,9 +123,10 @@ function buildOctocodeFooterLines(
   footerData: { getGitBranch?: () => string | null | undefined } | undefined
 ): string[] {
   const now = Date.now();
-  const runtimeState = runtimeStoreFor(ctx)?.getState();
-  if (!runtimeState) return [];
-  const facts = footerFactsByCtx.get(ctx);
+  const store = runtimeStoreFor(ctx);
+  if (!store) return [];
+  const runtimeState = store.getState();
+  const facts = footerFactsByStore.get(store);
   if (!facts) return [];
   const { workers, plan, awareness: cachedAwareness } = facts;
   const currentTask =
@@ -171,32 +172,11 @@ function buildOctocodeFooterLines(
       : []),
     { text: ctx.model?.id ?? 'model unavailable', token: 'muted' },
     {
-      text: `${state.activeTurnStartedAt !== undefined ? 'turn' : 'session'} ${formatDurationShort(state.activeTurnStartedAt !== undefined ? now - state.activeTurnStartedAt : now - state.sessionStartedAt)}`,
+      text: `${state.activeTurnStartedAt !== undefined ? 'turn' : 'session'} ${formatDurationShort(elapsedSince(state.activeTurnStartedAt ?? state.sessionStartedAt, now))}`,
       token: 'dim',
     },
     { text: `tools ${execution.toolCount}`, token: 'dim' },
-    ...(branch
-      ? [
-          {
-            text: formatBranchSegment(
-              branch,
-              state.gitDirty ?? false,
-              state.gitDirtyFiles
-            ),
-            token: 'dim' as const,
-          },
-        ]
-      : []),
-    ...(state.gitAdditions !== undefined &&
-    state.gitDeletions !== undefined &&
-    (state.gitAdditions > 0 || state.gitDeletions > 0)
-      ? [
-          {
-            text: `tree +${state.gitAdditions} -${state.gitDeletions}`,
-            token: 'path' as const,
-          },
-        ]
-      : []),
+    ...(branch ? [{ text: branch, token: 'dim' as const }] : []),
     ...(permissionLevel && permissionLevel !== 'relaxed'
       ? [{ text: `perm ${permissionLevel}`, token: 'dim' as const }]
       : []),
@@ -241,7 +221,7 @@ export function updateOctocodeMetricsUi(
   if (!store) return;
   const plan = getCurrentPlanReadModel(ctx, activePlanScope(ctx));
   const workers = listVisibleWorkerLedgerEntries();
-  footerFactsByCtx.set(ctx, {
+  footerFactsByStore.set(store, {
     plan,
     workers,
     awareness: getCachedAwarenessStatus(ctx.cwd ?? process.cwd()),
@@ -269,10 +249,10 @@ export function updateOctocodeMetricsUi(
 
   // The consolidated branded footer is the SINGLE metrics surface — context /
   // tokens / plan / task / agents / git. No second persistent state panel exists.
-  if (!footerRegisteredCtxs.has(ctx)) {
-    footerRegisteredCtxs.add(ctx);
+  if (!footerRegisteredStores.has(store)) {
+    footerRegisteredStores.add(store);
     setManagedFooter(ctx, (tui: unknown, theme, footerData) => {
-      footerRequestRenderByCtx.set(ctx, () =>
+      footerRequestRenderByStore.set(store, () =>
         (tui as { requestRender?: () => void } | undefined)?.requestRender?.()
       );
       const renderer = makeComponentRenderer(
@@ -289,7 +269,7 @@ export function updateOctocodeMetricsUi(
       );
       const repaint = () => {
         renderer.invalidate();
-        footerRequestRenderByCtx.get(ctx)?.();
+        footerRequestRenderByStore.get(store)?.();
       };
       const unsubscribeBranch = footerData?.onBranchChange?.(repaint);
       // Smart subscription: only repaint when slices the footer actually reads
@@ -319,78 +299,29 @@ export function updateOctocodeMetricsUi(
   }
   // Live update: repaint the already-registered footer with fresh state instead
   // of re-registering it (which is what caused the flicker).
-  footerRequestRenderByCtx.get(ctx)?.();
+  footerRequestRenderByStore.get(store)?.();
 }
 
 export function resetOctocodeFooterRegistration(
   ctx: PiContext | undefined
 ): void {
-  if (ctx) {
-    footerRegisteredCtxs.delete(ctx);
-    footerFactsByCtx.delete(ctx);
-    footerRequestRenderByCtx.delete(ctx);
+  const store = runtimeStoreFor(ctx);
+  if (store) {
+    footerRegisteredStores.delete(store);
+    footerFactsByStore.delete(store);
+    footerRequestRenderByStore.delete(store);
   }
-}
-
-export async function execGitSummary(
-  pi: PiInstance,
-  args: string[],
-  timeout = 1200
-): Promise<string> {
-  if (!pi.exec) return '';
-  try {
-    const result = await pi.exec('git', args, { timeout });
-    if (result.code !== 0) return '';
-    return result.stdout.trim();
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Refresh the footer's dirty marker on turn/session boundaries. Pi's footerData
- * provider owns branch detection/watching, so this keeps our extra `*` marker
- * without duplicating branch probes.
- */
-export async function refreshFooterDirtyState(
-  pi: PiInstance,
-  ctx: PiContext | undefined
-): Promise<void> {
-  const [porcelain, numstat] = await Promise.all([
-    execGitSummary(pi, ['status', '--porcelain'], 600),
-    execGitSummary(pi, ['diff', 'HEAD', '--numstat'], 600),
-  ]);
-  const totals = numstat.split('\n').reduce(
-    (sum, line) => {
-      const [added, removed] = line.split('\t');
-      if (/^\d+$/.test(added ?? '')) sum.additions += Number(added);
-      if (/^\d+$/.test(removed ?? '')) sum.deletions += Number(removed);
-      return sum;
-    },
-    { additions: 0, deletions: 0 }
-  );
-  runtimeStoreFor(ctx)
-    ?.getState()
-    .setFooter({
-      gitDirty: porcelain !== '',
-      gitAdditions: totals.additions,
-      gitDeletions: totals.deletions,
-      gitDirtyFiles:
-        porcelain === ''
-          ? 0
-          : porcelain.split('\n').filter(line => line.trim()).length,
-    });
 }
 
 /** CustomEntry type for the fresh-session banner card. */
 export const OCTOCODE_BANNER_ENTRY_TYPE = 'octocode-banner';
 
 /**
- * Per-context guard: setWorkingIndicator / setWorkingMessage / setHiddenThinkingLabel
- * never change within a session, so we only apply them once to avoid the micro-flicker
- * that repeated calls (model_select, thinking_level_select, input) would produce.
+ * Pi creates a fresh context for each event. Retain the applied indicator by
+ * runtime identity so model/input events do not restart it, while theme changes
+ * and replacement runtimes still receive their current frames.
  */
-const workingUiInitCtxs = new WeakSet<object>();
+const workingIndicatorByRuntime = new WeakMap<object, string>();
 
 export function applyOctocodeUi(
   ctx: PiContext | undefined,
@@ -424,16 +355,15 @@ export function applyOctocodeUi(
     'octocode-thinking',
     thinkingStatus ? paint(ui.theme, 'dim', thinkingStatus) : undefined
   );
-  // One-time per context: working indicator frames, branded message, and the hidden
-  // thinking label. These never change within a session; re-applying them on every
-  // model/thinking/input event would cause unnecessary redraws and micro-flicker.
-  if (!workingUiInitCtxs.has(ctx)) {
-    workingUiInitCtxs.add(ctx);
+  const indicator = buildWorkingIndicator(ui.theme);
+  const indicatorKey = JSON.stringify(indicator);
+  const runtimeKey = runtimeStoreFor(ctx) ?? ctx.sessionManager ?? ctx;
+  if (workingIndicatorByRuntime.get(runtimeKey) !== indicatorKey) {
+    workingIndicatorByRuntime.set(runtimeKey, indicatorKey);
     ui.setHiddenThinkingLabel?.('Octocode thinking');
     // Glyph-only indicator + branded message: Pi renders these side-by-side,
     // so keeping "Octocode" out of the frames avoids "Octocode Octocode …".
-    const theme = ui.theme;
-    setManagedWorkingIndicator(ctx, buildWorkingIndicator(theme));
+    setManagedWorkingIndicator(ctx, indicator);
     // Visibility is derived from runtime phase/activity. The footer owns its
     // lifecycle text, so the working row contains only this animated glyph.
   }

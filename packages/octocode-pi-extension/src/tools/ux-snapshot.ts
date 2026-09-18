@@ -9,6 +9,7 @@ import {
   type ExecutionState,
 } from './execution-events.js';
 import { classifyEvidenceAuthority } from './evidence-authority.js';
+import { elapsedSince, formatDurationShort } from '../ui-extras.js';
 import { projectUxAgents, type UxAgentV1 } from './ux-agent-projection.js';
 
 export type { UxAgentV1 } from './ux-agent-projection.js';
@@ -17,7 +18,7 @@ export type UxPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4';
 export type UxSeverity = 'info' | 'warning' | 'error';
 export type UxProgressMode = 'linear' | 'graph' | 'dynamic' | 'indeterminate';
 export type UxVerificationState =
-  'pending' | 'running' | 'passed' | 'failed' | 'waived';
+  'unverified' | 'pending' | 'running' | 'passed' | 'failed' | 'waived';
 
 export interface UxSessionV1 {
   phase: RuntimeState['phase'];
@@ -154,7 +155,8 @@ function taskVerification(
   task: PlanReadModelTaskV1,
   phase: PlanReadModelV1['phase']
 ): UxVerificationState {
-  if (task.status === 'done') return 'passed';
+  // The plan projection contains task state, not check receipts.
+  if (task.status === 'done') return 'unverified';
   if (task.status === 'doing' && phase === 'verifying') return 'running';
   return 'pending';
 }
@@ -393,9 +395,9 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
       priority: 'P3',
       severity: 'warning',
       actor: 'Awareness',
-      reason: `Last observed ${Math.max(0, now - input.awareness!.observedAt)}ms ago`,
-      requiredAction: 'Inspect coordination status',
-      detailRoute: 'awareness',
+      reason: `Coordination status last updated ${formatDurationShort(elapsedSince(input.awareness!.observedAt, now))} ago`,
+      requiredAction: 'Inspect session details',
+      detailRoute: '/octocode-status',
       createdAt: input.awareness!.observedAt,
     });
 
@@ -418,7 +420,7 @@ export function deriveUxSnapshot(input: UxSnapshotInput): UxSnapshotV1 {
           presentation.since ??
           ('since' in activity ? activity.since : undefined),
       },
-      elapsedMs: Math.max(0, now - input.runtime.footer.sessionStartedAt),
+      elapsedMs: elapsedSince(input.runtime.footer.sessionStartedAt, now) ?? 0,
       ...(contextPressure !== undefined
         ? {
             contextPressure,

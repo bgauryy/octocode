@@ -16,6 +16,7 @@ use super::languages;
 #[serde(rename_all = "camelCase")]
 struct GraphFacts {
     kind: &'static str,
+    schema_version: u32,
     source: &'static str,
     language: String,
     file: String,
@@ -55,6 +56,10 @@ struct GraphImport {
     local_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imported_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imported_range: Option<Range>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_range: Option<Range>,
     #[serde(skip_serializing_if = "Option::is_none")]
     resolution_hint: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -185,29 +190,51 @@ impl GraphAccumulator {
     }
 }
 
+#[cfg(test)]
 pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
+    extract_graph_facts_with_metadata(content, file_path)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
+
+pub(crate) fn extract_graph_facts_with_metadata(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
     if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        extract_graph_facts_inner(content, file_path)
+        extract_graph_facts_with_metadata_inner(content, file_path)
     }))
     .unwrap_or(None)
 }
 
-fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
-    extract_graph_facts_before(
+fn extract_graph_facts_with_metadata_inner(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
+    extract_graph_facts_with_metadata_before(
         content,
         file_path,
         std::time::Instant::now() + super::extractor::AST_EXECUTION_TIMEOUT,
     )
 }
 
+#[cfg(test)]
 fn extract_graph_facts_before(
     content: &str,
     file_path: &str,
     deadline: std::time::Instant,
 ) -> Option<String> {
+    extract_graph_facts_with_metadata_before(content, file_path, deadline)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
+
+fn extract_graph_facts_with_metadata_before(
+    content: &str,
+    file_path: &str,
+    deadline: std::time::Instant,
+) -> Option<super::GraphFactsExtraction> {
     let ext = get_extension_internal(file_path, true, "txt");
     if !graph_fact_extensions().iter().any(|item| item == &ext) {
         return None;
@@ -243,6 +270,7 @@ fn extract_graph_facts_before(
 
     let facts = GraphFacts {
         kind: "graphFacts",
+        schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
         source: "native-ast",
         language: language_label(&ext, entry.language_id),
         file: file_path.to_owned(),
@@ -255,7 +283,18 @@ fn extract_graph_facts_before(
         modules: acc.modules,
         rust_root_unsupported,
     };
-    serde_json::to_string(&facts).ok()
+    let exported_declaration_names = facts
+        .declarations
+        .iter()
+        .filter(|declaration| declaration.exported)
+        .map(|declaration| declaration.name.clone())
+        .collect();
+    let facts_json = serde_json::to_string(&facts).ok()?;
+    let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+    Some(super::GraphFactsExtraction {
+        facts,
+        exported_declaration_names,
+    })
 }
 
 pub fn graph_fact_extensions() -> Vec<String> {
@@ -470,6 +509,8 @@ fn collect_node_facts(
                     import_kind: "module",
                     local_name: Some(name.clone()),
                     imported_name: Some(name),
+                    imported_range: None,
+                    local_range: None,
                     resolution_hint: unsupported.then_some("unsupported"),
                     module_scope: Some(scope),
                 });
@@ -510,6 +551,8 @@ fn collect_node_facts(
                 import_kind: "value",
                 local_name: None,
                 imported_name: None,
+                imported_range: None,
+                local_range: None,
                 resolution_hint: None,
                 module_scope: None,
             });
@@ -708,17 +751,20 @@ fn collect_rust_imports(
                 }
             }
             _ => {
-                let (path, alias) = if node.kind() == "use_as_clause" {
+                let (path_node, alias_node) = if node.kind() == "use_as_clause" {
                     (
-                        node.child_by_field_name("path")
-                            .and_then(|n| node_text(n, content))
-                            .unwrap_or(text),
-                        node.child_by_field_name("alias")
-                            .and_then(|n| node_text(n, content)),
+                        node.child_by_field_name("path").unwrap_or(node),
+                        node.child_by_field_name("alias"),
                     )
                 } else {
-                    (text, None)
+                    (node, None)
                 };
+                let path = node_text(path_node, content).unwrap_or(text);
+                let alias = alias_node.and_then(|alias| node_text(alias, content));
+                let imported_node = path_node.child_by_field_name("name").unwrap_or(path_node);
+                let imported_node =
+                    matches!(imported_node.kind(), "identifier" | "type_identifier")
+                        .then_some(imported_node);
                 let specifier = if path == "self" && !prefix.is_empty() {
                     prefix.to_owned()
                 } else if prefix.is_empty() {
@@ -739,6 +785,8 @@ fn collect_rust_imports(
                     import_kind: "value",
                     local_name: Some(alias.unwrap_or(&imported).to_owned()),
                     imported_name: Some(imported),
+                    imported_range: imported_node.map(|name| index.range(name)),
+                    local_range: alias_node.or(imported_node).map(|name| index.range(name)),
                     resolution_hint: unsupported.then_some("unsupported"),
                     module_scope: Some(module_scope.to_vec()),
                 });
@@ -846,15 +894,16 @@ fn is_import_node(kind: &str) -> bool {
     )
 }
 
-fn push_language_import(
-    acc: &mut GraphAccumulator,
+fn push_language_import<'a>(
+    acc: &'a mut GraphAccumulator,
     specifier: String,
     line: u32,
     import_kind: &'static str,
     local_name: Option<String>,
     imported_name: Option<String>,
     hint: &'static str,
-) {
+) -> &'a mut GraphImport {
+    let index = acc.imports.len();
     acc.imports.push(GraphImport {
         id: format!("import:{}:{}", line, acc.imports.len()),
         specifier,
@@ -862,9 +911,12 @@ fn push_language_import(
         import_kind,
         local_name,
         imported_name,
+        imported_range: None,
+        local_range: None,
         resolution_hint: Some(hint),
         module_scope: None,
     });
+    &mut acc.imports[index]
 }
 
 fn collect_python_imports(
@@ -884,11 +936,10 @@ fn collect_python_imports(
         let Some(name) = node_text(name_node, content) else {
             continue;
         };
-        let alias = item
-            .child_by_field_name("alias")
-            .and_then(|alias| node_text(alias, content));
+        let alias_node = item.child_by_field_name("alias");
+        let alias = alias_node.and_then(|alias| node_text(alias, content));
         let specifier = module.unwrap_or(name);
-        push_language_import(
+        let binding = push_language_import(
             acc,
             specifier.to_owned(),
             line,
@@ -911,6 +962,16 @@ fn collect_python_imports(
                 "python-absolute"
             },
         );
+        // Synthetic module imports ("*") have no imported-name token.
+        binding.imported_range = module.map(|_| li.range(name_node));
+        let local_node = alias_node.unwrap_or_else(|| {
+            if module.is_some() {
+                name_node
+            } else {
+                name_node.named_child(0).unwrap_or(name_node)
+            }
+        });
+        binding.local_range = Some(li.range(local_node));
     }
     if names.is_empty() {
         if let Some(module) = module {
@@ -1108,6 +1169,84 @@ fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn rust_import_ranges_do_not_invent_synthetic_name_tokens() {
+        let value = facts(
+            "use crate::origin::{self as module_alias, *};\nuse crate::origin::plain;\n",
+            "imports.rs",
+        );
+        let imports = value["imports"].as_array().unwrap();
+        assert!(imports[0].get("importedRange").is_none());
+        assert!(imports[0].get("localRange").is_some());
+        assert!(imports[1].get("importedRange").is_none());
+        assert!(imports[1].get("localRange").is_none());
+        assert_eq!(imports[2]["localRange"], imports[2]["importedRange"]);
+        assert!(imports[2].get("importedRange").is_some());
+    }
+
+    #[test]
+    fn rust_import_binding_ranges_are_exact_utf16() {
+        let value = facts("/*😀*/ use crate::origin::{target as first, target as second};\nuse crate::origin::{\n target as third,\n};\nuse crate::origin::target as fourth;\n", "aliases.rs");
+        let imports = value["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 4);
+        for (index, (line, imported, local, length)) in [
+            (0, 27, 37, 5),
+            (0, 44, 54, 6),
+            (2, 1, 11, 5),
+            (4, 19, 29, 6),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                imports[index]["importedRange"],
+                serde_json::json!({"start":{"line":line,"character":imported},"end":{"line":line,"character":imported+6}})
+            );
+            assert_eq!(
+                imports[index]["localRange"],
+                serde_json::json!({"start":{"line":line,"character":local},"end":{"line":line,"character":local+length}})
+            );
+        }
+    }
+
+    #[test]
+    fn python_import_ranges_do_not_invent_synthetic_name_tokens() {
+        let value = facts(
+            "import package.sub as alias\nfrom origin import plain\nfrom origin import *\n",
+            "imports.py",
+        );
+        let imports = value["imports"].as_array().unwrap();
+        assert!(imports[0].get("importedRange").is_none());
+        assert_eq!(
+            imports[0]["localRange"],
+            serde_json::json!({"start":{"line":0,"character":22},"end":{"line":0,"character":27}})
+        );
+        assert_eq!(imports[1]["localRange"], imports[1]["importedRange"]);
+        assert!(imports[2].get("importedRange").is_none());
+        assert!(imports[2].get("localRange").is_none());
+    }
+
+    #[test]
+    fn python_import_binding_ranges_are_exact_utf16() {
+        let value = facts("marker = \"😀\"; from origin import target as first, target as second\nfrom origin import (\n    target as third,\n)\n", "aliases.py");
+        let imports = value["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 3);
+        for (index, (line, imported, local, length)) in
+            [(0, 34, 44, 5), (0, 51, 61, 6), (2, 4, 14, 5)]
+                .into_iter()
+                .enumerate()
+        {
+            assert_eq!(
+                imports[index]["importedRange"],
+                serde_json::json!({"start":{"line":line,"character":imported},"end":{"line":line,"character":imported+6}})
+            );
+            assert_eq!(
+                imports[index]["localRange"],
+                serde_json::json!({"start":{"line":line,"character":local},"end":{"line":line,"character":local+length}})
+            );
+        }
+    }
 
     #[test]
     fn rust_cfg_and_path_attributes_survive_comments_and_inner_attributes() {
@@ -1393,6 +1532,7 @@ pub fn distance(point: Point) -> f64 {
 }
 "#;
         let graph = facts(src, "geo.rs");
+        assert_eq!(graph["schemaVersion"], 1);
         assert!(graph
             .get("language")
             .is_some_and(|language| language == "rust"));

@@ -10,6 +10,7 @@
     "noUnusedParameters": false,
     "skipLibCheck": true,
     "strict": false,
+    "strictNullChecks": true,
     "noImplicitAny": false
   },
   "include": ["src/**/*"],

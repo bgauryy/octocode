@@ -1,0 +1,27 @@
+{
+  "version": 3,
+  "model": "gpt-5.6-terra",
+  "passes": 3,
+  "roles": {
+    "runner": {
+      "reasoningEffort": "high",
+      "freshContext": true,
+      "sees": ["outcome prompt", "assigned tool primer", "frozen budget", "corpus receipt"],
+      "cannotSee": ["other arm answer", "answer key", "judge verdict"]
+    },
+    "judge": {
+      "reasoningEffort": "high",
+      "freshContext": true,
+      "blind": true,
+      "reasonBeforeScores": true,
+      "labels": ["X", "Y"]
+    },
+    "confirmationJudge": {
+      "reasoningEffort": "high",
+      "freshContext": true,
+      "blind": true,
+      "orderReversed": true,
+      "requiredFor": ["decisive", "contested"]
+    }
+  }
+}

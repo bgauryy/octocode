@@ -74,7 +74,7 @@ test('the reported flat MCPTool call explains the missing outer envelope', () =>
       { operation: 'text', path: '/repo/packages/octocode-pi-extension', searchText: 'subagent|research|session memory', pageSize: 100 },
     ] },
   };
-  assert.deepEqual(tools.get('MCPTool')!.prepareArguments?.(flat), flat, 'do not silently accept a retired flat contract');
+  assert.equal(tools.get('MCPTool')!.prepareArguments, undefined, 'do not install a flat-contract compatibility shim');
   assert.throws(() => validate('MCPTool', flat), (error: Error) => {
     const rendered = tools.get('MCPTool')!.renderResult!(
       { content: [{ type: 'text', text: error.message }] }, { expanded: false }, undefined,

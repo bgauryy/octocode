@@ -195,11 +195,9 @@ export function buildGhSearchCodeFinalizer<
         'GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.',
         true
       );
-      const {
-        goal: _goal,
-        reasoning: _reasoning,
-        ...retryQuery
-      } = queries[index] as QueryWithPagination & Record<string, unknown>;
+      const { goal: _goal, ...retryQuery } = queries[
+        index
+      ] as QueryWithPagination & Record<string, unknown>;
       addContinuation(index, 'retry', {
         tool: 'ghSearch',
         query: retryQuery,

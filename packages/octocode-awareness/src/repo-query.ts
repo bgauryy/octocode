@@ -1,24 +1,19 @@
-import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { assertKnownOptions } from './helpers.js';
 import { AWARENESS_QUERY_VIEWS, AwarenessQueryParams, AwarenessQueryResult, AwarenessQueryRow, AwarenessQuerySection, AwarenessQueryView, boundedRows, limitOf, normalizeFormat, normalizeView, stringList, utcNow } from './repo-model.js';
 import { activityRows, fileRows, repoProfileRows } from './repo-files.js';
 import { memoryRows, planRows, runRows, taskRows } from './repo-plans.js';
-import { agentRows, developerReviewRows, lockRows, refinementRows, signalRows } from './repo-coordination.js';
+import { agentRows, lockRows, signalRows } from './repo-coordination.js';
 import { workboardRows } from './repo-workboard.js';
 import { scopeFromParams, withScope } from './repo-scope.js';
-import { renderDeveloperReviewDoc } from './repo-docs.js';
 import { completenessText, escapeHtml, renderHtmlSection, toCsv, toMarkdown, toTable } from './repo-formats.js';
-import { atomicWriteText, resolveWorkspaceOutputPath } from './repo-projection.js';
 import { queryContinuation } from './repo-continuations.js';
 import { getDatabasePath } from './db-runtime.js';
 
-const DEVELOPER_REVIEW_EXPORT_MAX_LINES = 200;
 const QUERY_OPTION_KEYS = [
-  'view', 'workspacePath', 'artifact', 'repo', 'ref', 'query', 'limit', 'agentId',
+  'view', 'workspacePath', 'artifact', 'repo', 'ref', 'query', 'limit', 'offset', 'agentId',
   'preferAgentId', 'preferFiles', 'state', 'label', 'file', 'since', 'includeBodies', 'cwd',
   'recipientAgentId',
-  'out', 'format',
 ] as const;
 
 export function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: AwarenessQueryParams): AwarenessQueryRow[] {
@@ -33,11 +28,9 @@ export function rowsForView(db: DatabaseSync, view: AwarenessQueryView, params: 
     case 'locks': return lockRows(db, params);
     case 'agents': return agentRows(db, params);
     case 'signals': return signalRows(db, params);
-    case 'refinements': return refinementRows(db, params);
     case 'files': return fileRows(db, params);
     case 'activity': return activityRows(db, params);
     case 'workboard': return workboardRows(db, params);
-    case 'developer-review': return developerReviewRows(db, params);
     case 'all': return [];
   }
 }
@@ -51,6 +44,7 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
   const filters = {
     query: params.query ?? null,
     limit: requestedLimit,
+    offset: params.offset ?? 0,
     agent_id: params.agentId ?? null,
     state: stringList(params.state),
     label: stringList(params.label),
@@ -101,6 +95,7 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
       total,
       omitted_count: omittedCount,
       is_partial: isPartial,
+      partial: isPartial,
       continuation: isPartial ? 'inspect section completeness and follow its targeted continuation' : null,
       sections,
       filters,
@@ -127,27 +122,10 @@ export function queryAwareness(db: DatabaseSync, params: AwarenessQueryParams = 
     total: completeness.total,
     omitted_count: completeness.omitted_count,
     is_partial: completeness.is_partial,
+    partial: completeness.is_partial,
     continuation: completeness.continuation,
     ...queryContinuation(getDatabasePath(db), scope.workspacePath, view, params, requestedLimit, completeness.is_partial),
     filters,
-  };
-}
-
-/**
- * Developer-review digest for the CLI `reflect developer-review` command, including
- * an explicit bounded Markdown export.
- */
-export function developerReviewDoc(
-  db: DatabaseSync,
-  params: AwarenessQueryParams = {},
-): { rows: AwarenessQueryRow[]; open: number; resolved: number; markdown: string } {
-  const rows = developerReviewRows(db, params);
-  const open = rows.filter(row => String(row['state']) !== 'done').length;
-  return {
-    rows,
-    open,
-    resolved: rows.length - open,
-    markdown: renderDeveloperReviewDoc(rows, DEVELOPER_REVIEW_EXPORT_MAX_LINES),
   };
 }
 
@@ -267,24 +245,4 @@ export function renderAwarenessHtml(result: AwarenessQueryResult): string {
 </body>
 </html>
 `;
-}
-
-export function writeAwarenessView(
-  db: DatabaseSync,
-  params: AwarenessQueryParams & { out?: string | null; format?: string | null } = {},
-): { ok: true; path: string; view: AwarenessQueryView; count: number; total: number | null; omitted_count: number | null; is_partial: boolean; continuation: string | null } {
-  const result = queryAwareness(db, params);
-  const workspacePath = scopeFromParams(params).workspacePath ?? process.cwd();
-  const outPath = resolveWorkspaceOutputPath(params.out, workspacePath, join(workspacePath, '.octocode', 'awareness', 'index.html'));
-  atomicWriteText(outPath, renderAwarenessHtml(result));
-  return {
-    ok: true,
-    path: outPath,
-    view: result.view,
-    count: result.count,
-    total: result.total,
-    omitted_count: result.omitted_count,
-    is_partial: result.is_partial,
-    continuation: result.continuation,
-  };
 }

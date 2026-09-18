@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "octocode",
+  "args": [
+    "ghSearchHistory",
+    "--queries",
+    "[{\"reasoning\":\"Search accepted LangChain history for InMemoryRecordManager limit semantics and competing behavior.\",\"operation\":\"pullRequests\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"InMemoryRecordManager limit\"],\"state\":\"merged\",\"pageSize\":20},{\"reasoning\":\"Search issue history for list_keys limit zero reports or documented intended behavior.\",\"operation\":\"issues\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"list_keys limit zero\"],\"state\":\"open\",\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:14.453Z",
+  "endedAt": "2026-09-18T08:56:17.701Z",
+  "elapsedMs": 3247,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "be41e8bd44bc7c4794f4377bfaafa5521d2b1e42974ed15a9048c192b61d3b7c",
+  "requestSha256": null
+}

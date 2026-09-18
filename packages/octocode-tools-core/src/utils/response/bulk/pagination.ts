@@ -8,6 +8,14 @@ function responseSnapshot(text: string): string {
   return `response-v1:${createHash('sha256').update(text).digest('hex')}`;
 }
 
+function splitsSurrogatePair(text: string, offset: number): boolean {
+  const before = text.charCodeAt(offset - 1);
+  const after = text.charCodeAt(offset);
+  return (
+    before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff
+  );
+}
+
 function chooseLineAwareEndOffset(
   text: string,
   startOffset: number,
@@ -27,6 +35,12 @@ function chooseLineAwareEndOffset(
     return bestBoundaryOffset;
   }
 
+  if (splitsSurrogatePair(text, rawEndOffset)) {
+    // A one-unit page must still return a whole code point and make progress.
+    return rawEndOffset - startOffset === 1
+      ? rawEndOffset + 1
+      : rawEndOffset - 1;
+  }
   return rawEndOffset;
 }
 
@@ -86,11 +100,15 @@ export function paginateBulkText(
   const safeLength = Math.max(1, requestedLength);
   const safeOffset = Math.min(Math.max(0, requestedOffset), totalChars);
 
-  if (requestedOffset > 0 && pagination?.responseSnapshot !== snapshot) {
+  const snapshotChanged = pagination?.responseSnapshot !== snapshot;
+  const invalidBoundary = splitsSurrogatePair(text, safeOffset);
+  if (requestedOffset > 0 && (snapshotChanged || invalidBoundary)) {
     const expectedSnapshot = pagination?.responseSnapshot;
-    const reason = expectedSnapshot
-      ? 'The full response changed since the previous page. Discard earlier pages and restart from responseCharOffset=0.'
-      : 'Later response pages require responseSnapshot from the previous page. Restart from responseCharOffset=0.';
+    const reason = !snapshotChanged
+      ? 'The requested offset splits a Unicode code point. Restart from responseCharOffset=0 and follow the returned continuation.'
+      : expectedSnapshot
+        ? 'The full response changed since the previous page. Discard earlier pages and restart from responseCharOffset=0.'
+        : 'Later response pages require responseSnapshot from the previous page. Restart from responseCharOffset=0.';
     return {
       text: `# Response pagination restart required. ${reason}\n`,
       pagination: {
@@ -103,7 +121,7 @@ export function paginateBulkText(
         totalChars,
         snapshot,
         ...(expectedSnapshot ? { expectedSnapshot } : {}),
-        changed: Boolean(expectedSnapshot),
+        changed: Boolean(expectedSnapshot) && snapshotChanged,
         restart: true,
         nextCharOffset: 0,
       },
@@ -165,11 +183,7 @@ export function buildResponsePaginationContinuation(
     return undefined;
   }
   const cleanQueries = queries.map(query => {
-    const {
-      goal: _goal,
-      reasoning: _reasoning,
-      ...clean
-    } = query as Record<string, unknown>;
+    const { goal: _goal, ...clean } = query as Record<string, unknown>;
     return clean;
   });
   return {

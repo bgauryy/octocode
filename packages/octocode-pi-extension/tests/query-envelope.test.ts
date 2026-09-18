@@ -4,8 +4,8 @@ import {
   buildQueryEnvelopeSchema,
   executeQueryBatch,
   prepareQueryBatch,
-  QueryBatchError,
 } from "../src/tools/query-envelope.js";
+import { QueryBatchError } from '../src/tools/query-batch-error.js';
 import type { ToolCallResult } from "../src/types.js";
 
 function textResult(
@@ -19,10 +19,15 @@ function textResult(
 describe("query envelope", () => {
   it("builds the query contract with an explicit sequential execution policy", () => {
     const schema = buildQueryEnvelopeSchema(
-      z.looseObject({ value: z.string() }),
+      z.looseObject({
+        value: z.string(),
+        reasoning: z.string().trim().min(1),
+        debug: z.boolean().default(false),
+      }),
     ) as {
       properties?: {
         queries?: {
+          description?: string;
           minItems?: number;
           maxItems?: number;
           items?: {
@@ -36,7 +41,6 @@ describe("query envelope", () => {
         queryRunType?: {
           default?: string;
           enum?: string[];
-          description?: string;
         };
       };
       required?: string[];
@@ -51,19 +55,19 @@ describe("query envelope", () => {
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties?.queries?.minItems).toBe(1);
     expect(schema.properties?.queries?.maxItems).toBe(100);
-    expect(
-      schema.properties?.queries?.items?.properties?.reasoning,
-    ).toMatchObject({
+    expect(schema.properties?.queries?.items?.properties?.reasoning).toMatchObject({
       minLength: 1,
-      maxLength: 400,
     });
     expect(schema.properties?.queries?.items?.required).toContain("reasoning");
-    expect(schema.properties?.queries?.items?.properties).toHaveProperty("value");
+    expect(schema.properties?.queries?.items?.properties).toMatchObject({
+      value: expect.any(Object),
+      debug: expect.objectContaining({ default: false }),
+    });
     expect(schema.properties?.queryRunType).toMatchObject({
       default: "sequential",
       enum: ["sequential"],
     });
-    expect(schema.properties?.queryRunType?.description).toMatch(/one-by-one/i);
+    expect(schema.properties?.queries?.description).toMatch(/one-by-one/i);
   });
 
   it("exposes parallel execution only when the tool opts in", () => {
@@ -78,7 +82,7 @@ describe("query envelope", () => {
     ]);
   });
 
-  it("preflights every query before execution and rejects invalid reasoning", async () => {
+  it("preflights every query and preserves schema-owned query fields unchanged", async () => {
     const preflight = vi.fn(
       async (query: Record<string, unknown>, index: number) => {
         if (query.value === "bad") throw new Error(`bad ${index}`);
@@ -98,15 +102,13 @@ describe("query envelope", () => {
     ).rejects.toThrow(/queries\[1\].*bad 1/);
     expect(preflight).toHaveBeenCalledTimes(2);
 
-    await expect(
-      prepareQueryBatch({ queries: [{ reasoning: "   ", value: "ok" }] }),
-    ).rejects.toThrow(/queries\[0\].*reasoning/);
-
-    await expect(
-      prepareQueryBatch({
-        queries: [{ reasoning: "x".repeat(401), value: "ok" }],
-      }),
-    ).rejects.toThrow(/at most 400/);
+    const untouched = [
+      { value: "ok" },
+      { reasoning: "   ", debug: true, value: "also ok" },
+    ];
+    await expect(prepareQueryBatch({ queries: untouched })).resolves.toEqual(
+      untouched,
+    );
   });
 
   it("executes prepared queries in order and returns every child content block to the agent by default", async () => {
@@ -195,7 +197,7 @@ describe("query envelope", () => {
     ]);
   });
 
-  it("caps aggregate model-visible batch text instead of multiplying child limits", async () => {
+  it("preserves every complete child result in a large batch", async () => {
     const result = await executeQueryBatch({
       toolCallId: "call-large-batch",
       raw: {
@@ -204,12 +206,9 @@ describe("query envelope", () => {
       execute: async (_query, index) => textResult(`${index}:${"x".repeat(8_000)}`),
     });
 
-    const visibleChars = result.content.reduce(
-      (sum, part) => sum + (part.type === "text" ? part.text.length : 0),
-      0,
-    );
-    expect(visibleChars).toBeLessThanOrEqual(5_000);
-    expect((result.content.at(-1) as { text: string }).text).toMatch(/heavy tool output referenced/i);
+    expect(result.content.slice(1)).toEqual(Array.from({ length: 10 }, (_, index) => ({
+      type: 'text', text: `${index}:${'x'.repeat(8_000)}`,
+    })));
   });
 
   it("runs opted-in parallel queries concurrently while returning source-ordered receipts", async () => {

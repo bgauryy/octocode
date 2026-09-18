@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   searchContentRipgrep: vi.fn(),
+  runTypedLexicalSearch: vi.fn(),
 }));
 
 vi.mock('../../../src/tools/local_ripgrep/searchContentRipgrep.js', () => ({
   searchContentRipgrep: mocks.searchContentRipgrep,
+}));
+
+vi.mock('../../../src/tools/local_search/typedLexicalService.js', () => ({
+  runTypedLexicalSearch: mocks.runTypedLexicalSearch,
 }));
 
 const { warmLikelyConsumers } =
@@ -16,12 +21,30 @@ describe('warmLikelyConsumers', () => {
     vi.resetAllMocks();
   });
 
+  it('reports unavailable name-based warmup without searching an empty pattern', async () => {
+    const openDocumentFromDisk = vi.fn();
+    const result = await warmLikelyConsumers(
+      { openDocumentFromDisk } as never,
+      {
+        absolutePath: '/repo/source.ts',
+        resolvedSymbol: { position: { line: 0, character: 1 } },
+      } as never,
+      '/repo'
+    );
+    expect(result).toMatchObject({
+      possiblyTruncated: true,
+      incompleteReasons: ['anchorName'],
+    });
+    expect(mocks.runTypedLexicalSearch).not.toHaveBeenCalled();
+    expect(openDocumentFromDisk).not.toHaveBeenCalled();
+  });
+
   it('warms beyond the old 12-file cap and reports a possible truncation signal', async () => {
     const workspaceRoot = '/repo';
     const files = Array.from({ length: 100 }, (_, index) => ({
       path: `/repo/src/consumer-${index}.ts`,
     }));
-    mocks.searchContentRipgrep.mockResolvedValue({ files });
+    mocks.runTypedLexicalSearch.mockResolvedValue({ files });
     const openDocumentFromDisk = vi.fn().mockResolvedValue('opened');
 
     const result = await warmLikelyConsumers(
@@ -50,7 +73,7 @@ describe('warmLikelyConsumers', () => {
   });
 
   it('skips files that exceed the UTF-8 byte cap', async () => {
-    mocks.searchContentRipgrep.mockResolvedValue({
+    mocks.runTypedLexicalSearch.mockResolvedValue({
       files: [{ path: '/repo/src/consumer.ts' }],
     });
     const openDocumentFromDisk = vi
@@ -78,7 +101,7 @@ describe('warmLikelyConsumers', () => {
     const files = Array.from({ length: 34 }, (_, i) => ({
       path: `/repo/${i}.ts`,
     }));
-    mocks.searchContentRipgrep
+    mocks.runTypedLexicalSearch
       .mockResolvedValueOnce({
         files: files.slice(0, 20),
         pagination: { totalFiles: 34, hasMore: true, nextPage: 2 },
@@ -96,17 +119,18 @@ describe('warmLikelyConsumers', () => {
       } as never,
       '/repo'
     );
-    expect(mocks.searchContentRipgrep).toHaveBeenNthCalledWith(
+    expect(mocks.runTypedLexicalSearch).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        itemsPerPage: 100,
+        pageSize: 100,
         page: 1,
-        regex: 'fixed',
+        regex: 'literal',
+        resultView: 'files',
       })
     );
-    expect(mocks.searchContentRipgrep).toHaveBeenNthCalledWith(
+    expect(mocks.runTypedLexicalSearch).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ itemsPerPage: 100, page: 2 })
+      expect.objectContaining({ pageSize: 100, page: 2 })
     );
     expect(openDocumentFromDisk).toHaveBeenCalledTimes(34);
     expect(result).toMatchObject({
@@ -117,7 +141,7 @@ describe('warmLikelyConsumers', () => {
   });
 
   it('stops at the warmup bound while preserving the true candidate count', async () => {
-    mocks.searchContentRipgrep.mockResolvedValue({
+    mocks.runTypedLexicalSearch.mockResolvedValue({
       files: Array.from({ length: 100 }, (_, i) => ({ path: `/repo/${i}.ts` })),
       pagination: { totalFiles: 134, hasMore: true, nextPage: 2 },
     });
@@ -130,7 +154,7 @@ describe('warmLikelyConsumers', () => {
       } as never,
       '/repo'
     );
-    expect(mocks.searchContentRipgrep).toHaveBeenCalledTimes(1);
+    expect(mocks.runTypedLexicalSearch).toHaveBeenCalledTimes(1);
     expect(openDocumentFromDisk).toHaveBeenCalledTimes(100);
     expect(result).toMatchObject({
       candidates: 134,
@@ -147,14 +171,14 @@ describe('warmLikelyConsumers', () => {
       absolutePath: '/repo/source.ts',
       resolvedSymbol: { name: 'target' },
     } as never;
-    mocks.searchContentRipgrep.mockRejectedValueOnce(
+    mocks.runTypedLexicalSearch.mockRejectedValueOnce(
       new Error('search failed')
     );
     expect(
       (await warmLikelyConsumers(client as never, anchor, '/repo'))
         .possiblyTruncated
     ).toBe(true);
-    mocks.searchContentRipgrep.mockResolvedValueOnce({
+    mocks.runTypedLexicalSearch.mockResolvedValueOnce({
       files: [{ path: '/repo/consumer.ts' }],
       pagination: { totalFiles: 1, hasMore: false },
     });
@@ -165,7 +189,7 @@ describe('warmLikelyConsumers', () => {
   });
 
   it('does not loop forever when a continuation repeats its page', async () => {
-    mocks.searchContentRipgrep.mockResolvedValue({
+    mocks.runTypedLexicalSearch.mockResolvedValue({
       files: [{ path: '/repo/consumer.ts' }],
       pagination: { totalFiles: 2, hasMore: true, nextPage: 1 },
     });
@@ -177,12 +201,12 @@ describe('warmLikelyConsumers', () => {
       } as never,
       '/repo'
     );
-    expect(mocks.searchContentRipgrep).toHaveBeenCalledTimes(1);
+    expect(mocks.runTypedLexicalSearch).toHaveBeenCalledTimes(1);
     expect(result.possiblyTruncated).toBe(true);
   });
 
   it('reports a complete scan when exactly the file bound has no continuation', async () => {
-    mocks.searchContentRipgrep.mockResolvedValue({
+    mocks.runTypedLexicalSearch.mockResolvedValue({
       files: Array.from({ length: 100 }, (_, i) => ({ path: `/repo/${i}.ts` })),
       pagination: { totalFiles: 100, hasMore: false },
     });
@@ -202,7 +226,7 @@ describe('warmLikelyConsumers', () => {
   });
 
   it('preserves a returned search error as incomplete coverage', async () => {
-    mocks.searchContentRipgrep.mockResolvedValue({
+    mocks.runTypedLexicalSearch.mockResolvedValue({
       status: 'error',
       error: 'failed',
     });
@@ -220,8 +244,34 @@ describe('warmLikelyConsumers', () => {
     });
   });
 
+  it.each([
+    { stats: { errorCount: 1, capped: false } },
+    { terminalLimit: true, partialReasons: ['nativeSearchError'] },
+  ])('preserves incomplete native search coverage: %j', async coverage => {
+    mocks.runTypedLexicalSearch.mockResolvedValue({
+      files: [{ path: '/repo/consumer.ts' }],
+      pagination: { totalFiles: 1, hasMore: false },
+      ...coverage,
+    });
+    const openDocumentFromDisk = vi.fn().mockResolvedValue('opened');
+    const result = await warmLikelyConsumers(
+      { openDocumentFromDisk } as never,
+      {
+        absolutePath: '/repo/source.ts',
+        resolvedSymbol: { name: 'target' },
+      } as never,
+      '/repo'
+    );
+    expect(openDocumentFromDisk).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      warmedFiles: 1,
+      possiblyTruncated: true,
+      incompleteReasons: ['search'],
+    });
+  });
+
   it('delegates bounded disk reuse to the pooled LSP client', async () => {
-    mocks.searchContentRipgrep.mockResolvedValue({
+    mocks.runTypedLexicalSearch.mockResolvedValue({
       files: [{ path: '/repo/consumer.ts' }],
       pagination: { totalFiles: 1, hasMore: false },
     });

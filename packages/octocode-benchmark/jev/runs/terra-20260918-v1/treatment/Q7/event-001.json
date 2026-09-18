@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q7",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"vercel\",\"repo\":\"next.js\",\"path\":\"examples/with-zustand/src/lib/store.ts\",\"fullContent\":true},{\"owner\":\"pmndrs\",\"repo\":\"zustand\",\"path\":\"package.json\",\"matchString\":\"peerDependencies\",\"contextLines\":12}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:30:43.921Z",
+  "endedAt": "2026-09-18T08:30:44.698Z",
+  "elapsedMs": 776,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "0f1f8bd776b0c49a59a578de071b2ea8d411edefd80f714b6a225d5368610227",
+  "stdoutBytes": 3712,
+  "requestSha256": null
+}

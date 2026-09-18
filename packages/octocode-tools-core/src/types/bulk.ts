@@ -41,6 +41,12 @@ export interface BulkResponsePagination {
   responseSnapshot?: string;
 }
 
+/** Internal execution control; never accepted from public tool input. */
+export interface BulkResponseExecutionOptions extends BulkResponsePagination {
+  /** Skip the text channel when the caller will consume structuredContent only. */
+  renderText?: boolean;
+}
+
 export interface ResponsePaginationInfo {
   scope: 'content.text';
   currentPage: number;

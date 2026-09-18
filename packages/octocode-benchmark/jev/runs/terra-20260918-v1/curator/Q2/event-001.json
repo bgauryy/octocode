@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q2",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"repositories\",\"keywords\":[\"is\"],\"owner\":\"sindresorhus\",\"match\":[\"name\"],\"pageSize\":10},{\"operation\":\"tree\",\"owner\":\"sindresorhus\",\"repo\":\"is\",\"maxDepth\":2,\"include\":[\"languages\",\"branches\"],\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:22.052Z",
+  "endedAt": "2026-09-18T08:25:22.308Z",
+  "elapsedMs": 254,
+  "exitCode": 2,
+  "signal": null,
+  "stdoutSha256": "482e679e2d66d43464f8d8b9005f5f0b519d436c2c17cf9c3d1439127f740244",
+  "stdoutBytes": 322,
+  "requestSha256": null
+}

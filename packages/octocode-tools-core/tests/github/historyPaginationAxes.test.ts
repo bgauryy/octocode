@@ -31,6 +31,11 @@ const commit = {
 };
 
 async function execute(query: Record<string, unknown>) {
+  query = {
+    reasoning: 'Exercise GitHub history pagination axes losslessly.',
+    debug: true,
+    ...query,
+  };
   expect(GitHubGetHistoryItemQueryLocalSchema.safeParse(query).success).toBe(
     true
   );
@@ -85,6 +90,8 @@ describe('history pagination axes remain lossless when traversed together', () =
           ? { ref: 'main' }
           : { base: 'v1', head: 'v2' }),
         includeDiff: true,
+        reasoning: 'Verify omitted patch diagnostics are explicit.',
+        debug: true,
       };
       const result = await getMultipleGitHubHistoryItems({
         queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],
@@ -135,6 +142,49 @@ describe('history pagination axes remain lossless when traversed together', () =
       );
     }
   );
+
+  it('keeps default commit patch windows bounded and lossless across file pages', async () => {
+    const largeFiles = Array.from({ length: 35 }, (_, index) => ({
+      filename: `file-${index}.ts`,
+      patch: Array.from(
+        { length: 20 + index },
+        (_, line) => `+ export const file${index}Line${line} = ${line};\n`
+      ).join(''),
+      status: 'modified',
+    }));
+    mocks.getCommit.mockResolvedValue({
+      data: { ...commit, files: largeFiles },
+      headers: {},
+    });
+    let query: Record<string, unknown> | undefined = {
+      operation: 'commit',
+      owner: 'o',
+      repo: 'r',
+      ref: 'main',
+      includeDiff: true,
+      pageSize: 30,
+    };
+    const reconstructed: Record<string, string> = {};
+    for (let budget = 0; query && budget < 20; budget++) {
+      const data = await execute(query);
+      expect(JSON.stringify(data).length).toBeLessThan(24_000);
+      for (const file of data.files) {
+        reconstructed[file.filename] =
+          (reconstructed[file.filename] ?? '') + file.patch;
+      }
+      const next = data.next?.continuePatch ?? data.next?.nextFilePage;
+      if (next) {
+        expect(
+          GitHubGetHistoryItemQueryLocalSchema.safeParse(next.query).success
+        ).toBe(true);
+      }
+      query = next?.query;
+    }
+    expect(query).toBeUndefined();
+    expect(reconstructed).toEqual(
+      Object.fromEntries(largeFiles.map(file => [file.filename, file.patch]))
+    );
+  });
 
   it('pins commit file and patch continuations to the resolved immutable SHA', async () => {
     const data = await execute({

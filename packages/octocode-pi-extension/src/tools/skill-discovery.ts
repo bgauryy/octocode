@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defaultAgentSkillSources, discoverAgentSkillInventory, resolveAgentSkillInventory, type AgentSkillInventoryEntry, type AgentSkillSourceDescriptor } from '@octocodeai/agent-contracts/agent-skills';
-import { capabilitySourcePaths, repositoryCapabilityDirectories, capabilityDefinitionRevision, stableCapabilitySourceId, type CapabilityPathOptions } from '@octocodeai/agent-contracts/capability-sources';
-import { getCapabilitySourceReview, getCapabilitySourceStatus, getSelectedCapabilitySource, listCapabilitySourceReviews, reviewCapabilitySource, type CapabilitySourceStatus } from '@octocodeai/agent-contracts/capability-state';
-import { getSkillEnablement } from '@octocodeai/agent-contracts/mcp-state';
-import type { ReadableSqlite } from '@octocodeai/agent-contracts/schema';
+import { defaultAgentSkillSources, discoverAgentSkillInventory, resolveAgentSkillInventory, type AgentSkillInventoryEntry, type AgentSkillSourceDescriptor } from '../contracts/agent-skills.js';
+import { capabilitySourcePaths, repositoryCapabilityDirectories, capabilityDefinitionRevision, stableCapabilitySourceId, type CapabilityPathOptions } from '../contracts/capability-sources.js';
+import { getCapabilitySourceReview, getCapabilitySourceStatus, getSelectedCapabilitySource, listCapabilitySourceReviews, reviewCapabilitySource, type CapabilitySourceStatus } from '../contracts/capability-state.js';
+import { getSkillEnablement } from '../contracts/mcp-state.js';
+import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
 import type { SkillInfo } from '../types.js';
 import { getAssetPaths } from '../assets.js';
 import { extensionStateDbPath } from '../extension-paths.js';

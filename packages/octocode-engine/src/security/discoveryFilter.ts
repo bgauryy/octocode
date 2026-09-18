@@ -265,17 +265,16 @@ export function getDiscoveryExtension(
 ): string {
   const basename = filePath.split(/[\\/]/).pop() ?? filePath;
   const fallback = options?.fallback ?? '';
-  let ext = fallback;
-
-  if (basename.startsWith('.')) {
-    const dotfileExt = basename.slice(1);
-    ext = dotfileExt.includes('.')
-      ? (basename.split('.').pop() ?? fallback)
-      : dotfileExt;
-  } else {
+  const ext = (() => {
+    if (basename.startsWith('.')) {
+      const dotfileExt = basename.slice(1);
+      return dotfileExt.includes('.')
+        ? (basename.split('.').pop() ?? fallback)
+        : dotfileExt;
+    }
     const lastDot = basename.lastIndexOf('.');
-    ext = lastDot === -1 ? fallback : basename.slice(lastDot + 1);
-  }
+    return lastDot === -1 ? fallback : basename.slice(lastDot + 1);
+  })();
 
   const normalized = options?.lowercase ? ext.toLowerCase() : ext;
   if (!normalized || !options?.leadingDot) return normalized;

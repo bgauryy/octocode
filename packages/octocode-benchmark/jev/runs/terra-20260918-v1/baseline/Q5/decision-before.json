@@ -1,0 +1,1 @@
+{"hypotheses":["PR #15035 changes hydration compatibility in both regular and vapor renderers."],"currentDirection":"Read PR changed-file list and patches, then tie scenarios to each runtime.","uncertainty":"Exact scenarios and rationale rather than PR-title inference.","plannedNextCheck":"Retrieve PR body, changed files and diffs."}

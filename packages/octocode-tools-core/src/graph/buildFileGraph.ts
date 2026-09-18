@@ -6,7 +6,6 @@ import type {
   FileGraphEdgeKind,
   FileNode,
   GraphCoverage,
-  RawGraphFacts,
 } from './types.js';
 import { prepareRustResolver } from './rustWorkspace.js';
 import {
@@ -16,6 +15,7 @@ import {
 import { prepareMetadataImports } from './metadataImports.js';
 import { prepareGraphDiagnostics } from './diagnosticSnapshot.js';
 import { createFileImportLinker } from './fileImportLinker.js';
+import { decodeGraphScanResult } from './scanContract.js';
 
 export const DEFAULT_DEAD_CODE_EXCLUDE_DIRS = [
   'node_modules',
@@ -84,7 +84,7 @@ export async function buildFileGraph(
     maxFileBytes: 1_000_000,
   });
 
-  const entries = scanResult.entries;
+  const decodedScan = decodeGraphScanResult(scanResult);
 
   const candidatePaths = scanResult.candidatePaths.map(relativePath =>
     posix.normalize(relativePath.split('\\').join('/'))
@@ -110,7 +110,7 @@ export async function buildFileGraph(
   const starReexportTargets = new Set<string>();
   const namespaceImportTargets = new Set<string>();
   const starReexporters = new Map<string, string[]>();
-  let filesSkipped = scanResult.filesSkipped;
+  const filesSkipped = decodedScan.filesSkipped;
   const coverage: GraphCoverage = {
     basis: 'syntactic',
     referenceBasis: 'lexical-occurrence',
@@ -121,31 +121,12 @@ export async function buildFileGraph(
       unresolvedInternal: 0,
       unsupported: 0,
     },
-    diagnostics: [],
+    diagnostics: decodedScan.diagnostics,
   };
 
   // Parse once. The module declaration inventory must precede linking so a
   // #[path]/conditional module cannot accidentally resolve via a conventional file.
-  const parsedEntries: Array<{
-    relativePath: string;
-    parsed: RawGraphFacts;
-    referenceCounts: (typeof entries)[number]['referenceCounts'];
-  }> = [];
-  for (const entry of entries) {
-    const relativePath = posix.normalize(
-      entry.relativePath.split('\\').join('/')
-    );
-    try {
-      const parsed = JSON.parse(entry.factsJson) as RawGraphFacts;
-      parsedEntries.push({
-        relativePath,
-        parsed,
-        referenceCounts: entry.referenceCounts,
-      });
-    } catch {
-      filesSkipped++;
-    }
-  }
+  const parsedEntries = decodedScan.entries;
 
   const resolveRust = await prepareRustResolver(
     rootAbsolutePath,

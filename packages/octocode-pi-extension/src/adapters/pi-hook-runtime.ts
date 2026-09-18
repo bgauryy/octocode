@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { HookHandlerDefinition } from '@octocodeai/agent-core';
-import { getCapabilitySourceReview, reviewCapabilitySource, setCapabilitySourceEnabled } from '@octocodeai/agent-contracts/capability-state';
+import { getCapabilitySourceReview, reviewCapabilitySource, setCapabilitySourceEnabled } from '../contracts/capability-state.js';
 import { isPersistentStorageEnabledForExtension } from '@octocodeai/config';
 import type { PiContext } from '../types.js';
 import { openOctocodeDb } from '../tools/storage-policy.js';

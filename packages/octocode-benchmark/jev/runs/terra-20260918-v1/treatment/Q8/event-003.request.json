@@ -1,0 +1,57 @@
+{
+  "model": "jev-1.13.0",
+  "state": {
+    "mainGoal": "Identify VS Code workbench keybinding service and inherited public dispatch method.",
+    "goal": "Distinguish declared public dispatch receiver from lower-level event listener.",
+    "reasoning": "Direct source declares WorkbenchKeybindingService extends AbstractKeybindingService in workbench services keybinding browser file. Abstract base declares public dispatchEvent(e,target): boolean returning _dispatch(e,target). Unknown: concrete DOM caller.",
+    "hypotheses": [
+      {
+        "id": "H1",
+        "claim": "Requested chain is exact.",
+        "missingPremise": "Question asks public method, not DOM listener."
+      },
+      {
+        "id": "H2",
+        "claim": "Need another class/method.",
+        "missingPremise": "Different interpretation of receives keypress."
+      }
+    ],
+    "checks": [
+      {
+        "id": "C1",
+        "text": "Use class inheritance and public method signature as scoped answer.",
+        "distinguishes": "H1/H2."
+      },
+      {
+        "id": "C2",
+        "text": "Infer DOM entrypoint.",
+        "distinguishes": "Outside scope."
+      },
+      {
+        "id": "none",
+        "text": "No check.",
+        "distinguishes": "Neither."
+      }
+    ]
+  },
+  "questions": {
+    "hypothesis": {
+      "type": "choice",
+      "instructions": "Choose cautious interpretation.",
+      "criteria": {
+        "H1": "Declared chain.",
+        "H2": "Different receiver.",
+        "none": "Neither."
+      }
+    },
+    "next_check": {
+      "type": "choice",
+      "instructions": "Choose bounded check.",
+      "criteria": {
+        "C1": "Declarations.",
+        "C2": "Infer caller.",
+        "none": "No check."
+      }
+    }
+  }
+}

@@ -5,11 +5,11 @@ describe('awareness mutation gate', () => {
   const cwd = '/repo';
   const event = (toolName: string, input: Record<string, unknown>) => ({ toolName, input });
 
-  it('checks existing locks without creating work, edit receipts, or verification debt in coordination mode', () => {
-    const startWork = vi.fn(); const endWork = vi.fn(); const recordEdit = vi.fn();
+  it('checks existing locks without creating work or verification debt in coordination mode', () => {
+    const startWork = vi.fn(); const endWork = vi.fn();
     const queryTarget = vi.fn(() => ({ blocked: false }));
     const gate = createAwarenessMutationGate({
-      storeExists: () => true, trackWork: () => false, queryTarget, startWork, endWork, recordEdit,
+      storeExists: () => true, trackWork: () => false, queryTarget, startWork, endWork,
     });
     const write = event('file', { queries: [{ type: 'write', path: 'a.ts' }] });
     expect(gate.preflight(write, cwd, 'me')).toBeUndefined();
@@ -18,7 +18,6 @@ describe('awareness mutation gate', () => {
     expect(queryTarget).toHaveBeenCalledOnce();
     expect(startWork).not.toHaveBeenCalled();
     expect(endWork).not.toHaveBeenCalled();
-    expect(recordEdit).not.toHaveBeenCalled();
     queryTarget.mockReturnValue({ blocked: true });
     expect(gate.preflight(write, cwd, 'me')?.block).toBe(true);
   });
@@ -36,12 +35,10 @@ describe('awareness mutation gate', () => {
   it('tracks successful registered file batches through completion', () => {
     const startWork = vi.fn((target: string) => `run:${target}`);
     const endWork = vi.fn();
-    const recordEdit = vi.fn();
-    const gate = createAwarenessMutationGate({ storeExists: () => false, queryTarget: vi.fn(), startWork, endWork, recordEdit });
+    const gate = createAwarenessMutationGate({ storeExists: () => false, queryTarget: vi.fn(), startWork, endWork });
     const file = event('file', { queries: [{ type: 'write', path: 'a.ts' }, { type: 'delete', path: 'b.ts' }] });
     gate.preflight(file, cwd, 'me');
     gate.complete(file, cwd, 'me', true);
-    expect(recordEdit.mock.calls).toEqual([['/repo/a.ts', cwd, 'me'], ['/repo/b.ts', cwd, 'me']]);
     expect(endWork).toHaveBeenCalledTimes(2);
   });
 
@@ -140,54 +137,47 @@ describe('awareness mutation gate', () => {
     ]);
   });
 
-  it('records edits without ending a pre-existing task or lock run', () => {
-    const endWork = vi.fn(); const recordEdit = vi.fn();
-    const gate = createAwarenessMutationGate({ storeExists: () => true, queryTarget: () => ({ blocked: false }), startWork: () => null, endWork, recordEdit });
+  it('does not end a pre-existing task or lock run', () => {
+    const endWork = vi.fn();
+    const gate = createAwarenessMutationGate({ storeExists: () => true, queryTarget: () => ({ blocked: false }), startWork: () => null, endWork });
     const file = event('file', { queries: [{ type: 'write', path: 'a.ts' }] });
     gate.preflight(file, cwd, 'me');
     gate.complete(file, cwd, 'me', true);
     gate.cleanup();
-    expect(recordEdit).toHaveBeenCalledOnce();
     expect(endWork).not.toHaveBeenCalled();
   });
 
-  it('records successful mutations and releases only presence owned by the completed call', () => {
-    const recordEdit = vi.fn();
+  it('releases only presence owned by the completed call', () => {
     const endWork = vi.fn();
     const gate = createAwarenessMutationGate({
       storeExists: () => false,
       queryTarget: vi.fn(),
       startWork: vi.fn(() => 'run_success'),
       endWork,
-      recordEdit,
     });
     const write = event('write', { path: 'a.ts' });
 
     gate.preflight(write, cwd, 'me');
     gate.complete(write, cwd, 'me', true);
 
-    expect(recordEdit).toHaveBeenCalledWith('/repo/a.ts', '/repo', 'me');
     expect(endWork).toHaveBeenCalledWith('/repo/a.ts', '/repo', 'me', 'run_success');
     gate.cleanup();
     expect(endWork).toHaveBeenCalledTimes(1);
   });
 
-  it('releases failed mutations without writing a success receipt', () => {
-    const recordEdit = vi.fn();
+  it('releases failed mutations', () => {
     const endWork = vi.fn();
     const gate = createAwarenessMutationGate({
       storeExists: () => false,
       queryTarget: vi.fn(),
       startWork: vi.fn(() => 'run_failure'),
       endWork,
-      recordEdit,
     });
     const write = event('write', { path: 'a.ts' });
 
     gate.preflight(write, cwd, 'me');
     gate.complete(write, cwd, 'me', false);
 
-    expect(recordEdit).not.toHaveBeenCalled();
     expect(endWork).toHaveBeenCalledWith('/repo/a.ts', '/repo', 'me', 'run_failure');
   });
 
@@ -198,7 +188,6 @@ describe('awareness mutation gate', () => {
       queryTarget: vi.fn(),
       startWork: vi.fn(() => 'run_concurrent'),
       endWork,
-      recordEdit: vi.fn(),
     });
     const write = event('write', { path: 'a.ts' });
 

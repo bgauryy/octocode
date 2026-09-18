@@ -2,6 +2,7 @@ import type { InlineSegment } from '../tui/components.js';
 import type { StatusDiagnosticV1 } from '../tui/status-policy.js';
 import type { AwarenessStatusHealth, CachedAwarenessStatus } from './awareness-status.js';
 import type { RuntimeFooterState, RuntimeState } from './runtime-store.js';
+import { githubAuthLabel } from './github-auth-status.js';
 
 interface FooterDiagnosticsInput {
   identity: InlineSegment[];
@@ -45,8 +46,18 @@ export function buildFooterDiagnostics(
   const eventLog = input.statuses['octocode-event-log'];
   if (eventLog)
     rows.push(attentionRow('event-log', 'P1', eventLog, '/octocode-status events'));
-  if (input.githubStatus === 'missing' || input.githubStatus === 'error')
-    rows.push(attentionRow('github', 'P3', 'GitHub login required', '/configuration'));
+  // Authenticated is the happy path — hide it; the session row already links /configuration.
+  // Show only when there is an actionable or transient state the operator should notice.
+  if (input.githubStatus !== 'authenticated') {
+    rows.push({
+      id: 'github',
+      priority: 'P3',
+      segments: [
+        { text: githubAuthLabel(input.githubStatus), token: input.githubStatus === 'checking' ? 'dim' : 'warning' },
+        { text: '/configuration', token: 'link' },
+      ],
+    });
+  }
   if (input.metrics.length > 0)
     rows.push({ id: 'metrics', priority: 'P4', segments: input.metrics });
   if (input.awareness?.verifyTasks)
@@ -55,7 +66,7 @@ export function buildFooterDiagnostics(
         'awareness-checks',
         'P1',
         `Verify · ${input.awareness.verifyTasks} checks pending`,
-        'awareness'
+        '/octocode-status'
       )
     );
   const peerEvents = input.statuses['octocode-awareness-events'];
@@ -81,7 +92,7 @@ export function buildFooterDiagnostics(
         input.awareness
           ? 'Awareness unavailable · showing last known state'
           : 'Awareness status unavailable',
-        'awareness'
+        '/octocode-status'
       )
     );
   return rows;

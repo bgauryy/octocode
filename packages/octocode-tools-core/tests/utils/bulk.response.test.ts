@@ -31,6 +31,35 @@ describe('executeBulkOperation batch correlation', () => {
     });
   });
 
+  it('emits result metadata only for debug queries', async () => {
+    const normal = await executeBulkOperation(
+      [{ value: 'normal' }],
+      async query => query,
+      { toolName: 'localSearch' }
+    );
+    expect(normal.structuredContent).toMatchObject({
+      results: [{ index: 0, data: { value: 'normal' } }],
+    });
+    expect(
+      (normal.structuredContent as { results: unknown[] }).results[0]
+    ).not.toHaveProperty('meta');
+
+    const debug = await executeBulkOperation(
+      [{ value: 'debug', debug: true }],
+      async query => query,
+      { toolName: 'localSearch' }
+    );
+    expect(debug.structuredContent).toMatchObject({
+      results: [
+        {
+          index: 0,
+          meta: { evidence: { kind: 'lexical', confidence: 'medium' } },
+          data: { value: 'debug' },
+        },
+      ],
+    });
+  });
+
   it('keeps finalized and ordinary response-envelope hoisting in parity', async () => {
     const queries = [{ value: 'one' }, { value: 'two' }];
     const processor = async (query: { value: string }) => ({
@@ -60,7 +89,13 @@ describe('executeBulkOperation batch correlation', () => {
 
   it('reconciles continuation diagnostics after a finalizer adds next-page data', async () => {
     const result = await executeBulkOperation(
-      [{ page: 1 }],
+      [
+        {
+          page: 1,
+          reasoning: 'Continue the GitHub search.',
+          debug: true,
+        },
+      ],
       async () => ({ pagination: { hasMore: true } }),
       {
         toolName: 'ghSearch',
@@ -89,7 +124,17 @@ describe('executeBulkOperation batch correlation', () => {
       results: [
         {
           meta: { diagnostics: { partial: true } },
-          data: { next: { nextPage: { tool: 'ghSearch' } } },
+          data: {
+            next: {
+              nextPage: {
+                tool: 'ghSearch',
+                query: {
+                  reasoning: 'Continue the GitHub search.',
+                  debug: true,
+                },
+              },
+            },
+          },
         },
       ],
     });
@@ -109,7 +154,7 @@ describe('executeBulkOperation batch correlation', () => {
 
   it('includes finalized shared partial state in each row diagnostic', async () => {
     const result = await executeBulkOperation(
-      [{ path: 'file.ts' }],
+      [{ path: 'file.ts', debug: true }],
       async () => ({ value: 'slice' }),
       {
         toolName: 'ghGetFileContent',
@@ -140,7 +185,13 @@ describe('executeBulkOperation batch correlation', () => {
 
   it('labels whole-response pagination as text-channel-only', async () => {
     const result = await executeBulkOperation(
-      [{ value: 'x'.repeat(200) }],
+      [
+        {
+          value: 'x'.repeat(200),
+          reasoning: 'Verify continuation metadata.',
+          debug: true,
+        },
+      ],
       async query => query,
       { toolName: 'testTool' },
       { responseCharLength: 40 }
@@ -154,7 +205,13 @@ describe('executeBulkOperation batch correlation', () => {
         next: {
           tool: 'testTool',
           query: {
-            queries: [{ value: 'x'.repeat(200) }],
+            queries: [
+              {
+                value: 'x'.repeat(200),
+                reasoning: 'Verify continuation metadata.',
+                debug: true,
+              },
+            ],
             responseCharLength: 40,
             responseCharOffset: expect.any(Number),
             responseSnapshot: expect.stringMatching(/^response-v1:/),
@@ -165,6 +222,74 @@ describe('executeBulkOperation batch correlation', () => {
     expect(result.structuredContent).toMatchObject({
       results: [{ data: { value: 'x'.repeat(200) } }],
     });
+  });
+
+  it('omits unused text rendering without changing structured content', async () => {
+    const queries = [{ value: 'x'.repeat(200) }];
+    const defaultResult = await executeBulkOperation(
+      queries,
+      async query => query,
+      { toolName: 'testTool' }
+    );
+    const structuredOnly = await executeBulkOperation(
+      queries,
+      async query => query,
+      { toolName: 'testTool' },
+      { renderText: false }
+    );
+
+    expect(structuredOnly.content).toEqual([]);
+    expect(structuredOnly.structuredContent).toEqual(
+      defaultResult.structuredContent
+    );
+  });
+
+  it('keeps text rendering for explicit pagination and query errors', async () => {
+    const paginated = await executeBulkOperation(
+      [{ value: 'x'.repeat(200) }],
+      async query => query,
+      { toolName: 'testTool' },
+      { renderText: false, responseCharLength: 40 }
+    );
+    expect(paginated.content).toHaveLength(1);
+    expect(paginated.structuredContent).toMatchObject({
+      responsePagination: { scope: 'content.text' },
+    });
+
+    const failed = await executeBulkOperation(
+      [{ value: 'broken' }],
+      async () => {
+        throw new Error('isolated failure');
+      },
+      { toolName: 'testTool' },
+      { renderText: false }
+    );
+    expect(failed.content).toHaveLength(1);
+    expect(failed.structuredContent).toMatchObject({
+      results: [{ status: 'error', data: { error: 'isolated failure' } }],
+    });
+
+    const errorRow = await executeBulkOperation(
+      [{ value: 'error-row' }],
+      async () => ({ status: 'error' as const, error: 'returned failure' }),
+      { toolName: 'testTool' },
+      { renderText: false }
+    );
+    expect(errorRow.content).toHaveLength(1);
+
+    const finalizedError = await executeBulkOperation(
+      [{ value: 'finalized-error' }],
+      async query => query,
+      {
+        toolName: 'testTool',
+        finalize: ({ results }) => ({
+          structuredContent: { results },
+          isError: true,
+        }),
+      },
+      { renderText: false }
+    );
+    expect(finalizedError.content).toHaveLength(1);
   });
 
   it('returns one ordered index row per query and isolates query failures', async () => {

@@ -1,7 +1,7 @@
 /**
  * Focused tests for plan-tool queries[] envelope contract.
  *
- * Covers: schema shape, per-query reasoning, preflight validation,
+ * Covers: schema shape, optional batch labels, preflight validation,
  * multi-query ordered execution, single-query detail passthrough,
  * flat-call rejection, and renderCall envelope awareness.
  */
@@ -11,14 +11,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, test } from 'vitest';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 import type { ToolDefinition, PiContext } from '../src/types.js';
 import { registerPlanTool } from '../src/tools/planning/plan-registration.js';
 import { startReviewedPlan } from '../src/tools/planning/plan-command.js';
 import { setUnifiedPlanProjectorForTests } from '../src/tools/planning/plan-presentation.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
-import { completeExternalPlanTask } from '@octocodeai/octocode-awareness';
-import { activePlanScope, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, setPlan, setPlanRfc, updatePlanCoordination } from '../src/tools/planning/plan-store.js';
+import { completeExternalPlanTask } from '@octocodeai/octocode-awareness/host';
+import { activePlanScope, clearPlan, getPlan, getPlanCoordination, getPlanReviewState, setPlan, setPlanEntryAppender, setPlanRfc, updatePlanCoordination } from '../src/tools/planning/plan-store.js';
 import { acceptPlanReview, proposePlanReview } from '../src/tools/planning/plan-lifecycle.js';
 import { configureInteractionBrokerRoute, setInteractionStoreFactoryForTests, submitHostInteractionAnswer } from '../src/tools/interaction-broker.js';
 import { getCurrentPlanReadModel } from '../src/tools/plan-read-model.js';
@@ -38,8 +38,18 @@ function loadTool(): ToolDefinition {
 const ctx = { cwd: CWD } as unknown as PiContext;
 
 afterEach(() => {
+  setPlanEntryAppender(null);
   clearPlan(CWD);
   setUnifiedPlanProjectorForTests();
+});
+
+test('tool results surface authoritative persistence failures', async () => {
+  setPlanEntryAppender(() => { throw new Error('disk unavailable'); });
+  const result = await loadTool().execute('id', {
+    queries: [{ action: 'set', steps: ['memory-only step'] }],
+  }, undefined, undefined, ctx) as { content: Array<{ type: string; text?: string }>; details?: { persistenceWarning?: string } };
+  assert.match(result.content.map((part) => part.text ?? '').join('\n'), /will not survive session recovery/);
+  assert.equal(result.details?.persistenceWarning, 'disk unavailable');
 });
 
 // ─── Schema shape ────────────────────────────────────────────────────────────
@@ -55,13 +65,12 @@ test('plan schema exposes only queries[] at the top level', () => {
   assert.ok(schema.required?.includes('queries'), 'queries is required');
 });
 
-test('plan guidance teaches the required queries[] envelope without function-call shorthand', () => {
+test('plan guidance stays behavioral and leaves call shape to the schema', () => {
   const tool = loadTool();
   const guidance = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
-  assert.match(guidance, /every call.*queries.*reasoning.*action/is);
-  assert.match(guidance, /action:\"set\"/i);
-  assert.match(guidance, /action:\"propose\"/i);
-  assert.match(guidance, /during execution.*optional index.*reviewed proposal.*revision.*authorizationInteractionId.*omit index/is);
+  assert.match(guidance, /set for authorized execution and propose when review is required/i);
+  assert.match(guidance, /Complete only after the declared check succeeds/i);
+  assert.doesNotMatch(guidance, /queries.*reasoning/is);
   assert.doesNotMatch(guidance, /plan\((?:set|propose|clarify|add|start|complete|remove|clear|show)(?::[^)]*)?\)/i);
 });
 
@@ -85,14 +94,15 @@ test('plan schema exposes scope and receipts only on matching action branches', 
   assert.equal(set.properties?.['receipt'], undefined);
 });
 
-test('plan schema requires bounded reasoning on every action branch', () => {
+test('plan schema keeps bounded reasoning optional on every action branch', () => {
   const tool = loadTool();
   const schema = tool.parameters as { properties?: { queries?: { minItems?: number } } };
   assert.equal(schema.properties?.queries?.minItems, 1);
   const branches = planSchemaBranches(tool);
   assert.equal(branches.length, 10);
   for (const branch of branches) {
-    assert.ok(branch.required?.includes('reasoning'));
+    assert.ok(!branch.required?.includes('reasoning'));
+    assert.ok(branch.properties?.['reasoning']);
     assert.ok(branch.required?.includes('action'));
   }
 });
@@ -778,12 +788,10 @@ test('preflight stops batch before first query executes when second query is inv
   assert.equal(getPlan(CWD).length, 0, 'preflight stops before first mutation');
 });
 
-test('missing reasoning on envelope query throws before execution', async () => {
+test('missing batch label is accepted', async () => {
   const tool = loadTool();
-  await assert.rejects(
-    () => tool.execute('id', { queries: [{ action: 'show' }] }, undefined, undefined, ctx),
-    /reasoning/i,
-  );
+  const result = await tool.execute('id', { queries: [{ action: 'show' }] }, undefined, undefined, ctx);
+  assert.equal(result.isError ?? false, false);
 });
 
 test('flat params without queries[] are rejected', async () => {
@@ -982,26 +990,44 @@ test('set activates the first dependency-ready step rather than a blocked first 
 
 test('consequential proposals require an RFC unless an explicit justified override is supplied', async () => {
   const tool = loadTool();
+  const riskySteps = ['Migrate the public API schema without backward compatibility'];
   const result = await failedToolResult(tool.execute('id', {
     queries: [{
       reasoning: 'exercise inferred consequential review',
       action: 'propose',
-      steps: ['One', 'Two', 'Three', 'Four', 'Five'],
+      steps: riskySteps,
     }],
   }, undefined, undefined, ctx)) as { isError?: boolean; details?: { error?: string } };
   assert.equal(result.isError, true);
   assert.equal(result.details?.error, 'rfc-required');
 
+  const unjustified = await failedToolResult(tool.execute('id', {
+    queries: [{ action: 'propose', steps: riskySteps, consequential: false }],
+  }, undefined, undefined, ctx)) as { isError?: boolean; details?: { error?: string } };
+  assert.equal(unjustified.isError, true);
+  assert.equal(unjustified.details?.error, 'override-reason-required');
+
   const overridden = await tool.execute('id', {
     queries: [{
       reasoning: 'record the explicit local-only exception',
       action: 'propose',
-      steps: ['One', 'Two', 'Three', 'Four', 'Five'],
+      steps: riskySteps,
       consequential: false,
-      reason: 'The steps are independent local test edits with no public or persistent contract change.',
+      reason: 'The fixture uses no persistent data or published contract despite the wording.',
     }],
   }, undefined, undefined, ctx) as { isError?: boolean };
   assert.notEqual(overridden.isError, true);
+});
+
+test('step count and benign cleanup terms do not force an RFC', async () => {
+  const tool = loadTool();
+  const result = await tool.execute('id', {
+    queries: [{
+      action: 'propose',
+      steps: ['Delete stale test fixture', 'Rename helper', 'Update imports', 'Run tests', 'Document result'],
+    }],
+  }, undefined, undefined, ctx) as { isError?: boolean };
+  assert.notEqual(result.isError, true);
 });
 
 test('proposal validation failures settle activity instead of leaving Creating plan stuck', async () => {

@@ -92,6 +92,9 @@ export function compactSemanticPayload(
       return {
         ...payload,
         ...(payload.root ? { root: formatCallTargetRow(payload.root) } : {}),
+        ...(payload.roots
+          ? { roots: payload.roots.map(formatCallTargetRow) }
+          : {}),
         direction: payload.direction,
         calls: payload.calls.map(formatCallRow),
         ...(payload.incomingCalls !== undefined
@@ -138,9 +141,11 @@ export function formatSymbolRow(value: unknown): string {
 
 export function formatLocationRow(location: CompactLocation | string): string {
   if (typeof location === 'string') return location;
-  const range = location.displayRange
-    ? `${location.displayRange.startLine}-${location.displayRange.endLine}`
-    : '?';
+  const range = location.range
+    ? `${location.range.start.line + 1}:${location.range.start.character}-${location.range.end.line + 1}:${location.range.end.character}`
+    : location.displayRange
+      ? `${location.displayRange.startLine}-${location.displayRange.endLine}`
+      : '?';
   const definition = location.isDefinition ? ' def' : '';
   const content = location.content
     ? ` | ${oneLine(location.content, 180)}`

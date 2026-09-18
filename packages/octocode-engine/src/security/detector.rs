@@ -368,7 +368,7 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
 ///
 /// Uses `String` directly so regex byte-offsets (which are always valid UTF-8
 /// boundaries) never require a `from_utf8_lossy` round-trip.
-pub(crate) fn mask_text(text: String) -> String {
+pub fn mask_text(text: String) -> String {
     if text.is_empty() {
         return text;
     }

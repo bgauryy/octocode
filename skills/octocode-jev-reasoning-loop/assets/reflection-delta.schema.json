@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "reflection-delta",
+  "title": "Jev Reflection Delta Request",
+  "description": "Public Jev packet for judging how one materially new observation changes an existing hypothesis state.",
+  "$comment": "Use only after a real state change. Carry prior Jev output as a provisional selection with probability, never as evidence or fact.",
+  "type": "object",
+  "required": ["model", "state", "questions"],
+  "properties": {
+    "model": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "description": "VISIBILITY BOUNDARY: previous state plus one new anchored observation.",
+      "required": ["mainGoal", "goal", "reasoning", "priorLead", "hypotheses", "check", "newEvidence", "unknowns"],
+      "properties": {
+        "mainGoal": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "reasoning": { "$ref": "#/$defs/ReasoningSummary" },
+        "priorLead": { "type": "string", "pattern": "^H[0-9]+$" },
+        "priorProbability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "hypotheses": {
+          "type": "array", "minItems": 2, "maxItems": 5,
+          "items": {
+            "type": "object", "required": ["id", "statement", "predicts"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^H[0-9]+$" },
+              "statement": { "type": "string", "minLength": 1 },
+              "predicts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "check": {
+          "type": "object", "required": ["id", "action", "expectedOutcomes"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^C[0-9]+$" },
+            "action": { "type": "string", "minLength": 1 },
+            "expectedOutcomes": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        "newEvidence": {
+          "type": "object", "required": ["id", "source", "scope", "content"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^E[0-9]+$" },
+            "source": { "type": "string", "minLength": 1 },
+            "scope": { "type": "string", "minLength": 1 },
+            "content": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "unknowns": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "questions": {
+      "type": "object",
+      "required": ["effect_on_prior_lead", "updated_lead", "reframe_needed"],
+      "properties": {
+        "effect_on_prior_lead": { "$ref": "#/$defs/Choice" },
+        "updated_lead": { "$ref": "#/$defs/Choice" },
+        "reframe_needed": { "$ref": "#/$defs/Noul" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ReasoningSummary": {
+      "type": "object",
+      "description": "Bounded, auditable decision summary for agentic use; never hidden chain-of-thought or private scratch.",
+      "required": ["observations", "uncertainty"],
+      "properties": {
+        "observations": { "type": "string", "minLength": 1 },
+        "inferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "strongest_counter": { "type": "string", "minLength": 1 },
+        "uncertainty": { "type": "string", "minLength": 1 },
+        "prediction": { "type": "string", "minLength": 1 },
+        "falsifier": { "type": "string", "minLength": 1 },
+        "discriminating_observation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Choice": {
+      "type": "object", "required": ["type", "instructions", "criteria"],
+      "properties": { "type": { "const": "choice" }, "instructions": { "type": "string", "minLength": 1 }, "criteria": { "type": "object", "minProperties": 2 } },
+      "additionalProperties": false
+    },
+    "Noul": {
+      "type": "object", "required": ["type", "instructions", "criteria"],
+      "properties": { "type": { "const": "noul" }, "instructions": { "type": "string", "minLength": 1 }, "criteria": { "type": "object", "required": ["true", "false"] } },
+      "additionalProperties": false
+    }
+  }
+}

@@ -22,11 +22,63 @@ import {
   getDirectToolDescription,
   getDirectToolAutoFilledFields,
   getDirectToolDisplayFields,
-  prepareDirectToolInput,
-  prepareDirectToolInputFromJsonText,
+  prepareDirectToolInput as prepareCanonicalInput,
+  prepareDirectToolInputFromJsonText as prepareCanonicalInputFromJsonText,
   sortDirectToolNames,
 } from '@octocodeai/octocode-core/schema';
 import { z } from 'zod';
+
+function withInvocationMetadata(
+  query: unknown,
+  sourceLabel = 'direct tool catalog test'
+): unknown {
+  if (Array.isArray(query)) {
+    return query.map(item => withInvocationMetadata(item, sourceLabel));
+  }
+  if (!query || typeof query !== 'object') return query;
+  const record = query as Record<string, unknown>;
+  if (Array.isArray(record.queries)) {
+    return {
+      ...record,
+      queries: record.queries.map(item =>
+        withInvocationMetadata(item, sourceLabel)
+      ),
+    };
+  }
+  return {
+    reasoning: `Executed via ${sourceLabel} tool command`,
+    debug: true,
+    ...record,
+  };
+}
+
+function prepareDirectToolInput(
+  toolName: string,
+  input: unknown,
+  options?: Parameters<typeof prepareCanonicalInput>[2]
+) {
+  return prepareCanonicalInput(
+    toolName,
+    withInvocationMetadata(input, options?.sourceLabel),
+    options
+  );
+}
+
+function prepareDirectToolInputFromJsonText(
+  toolName: string,
+  text: string | undefined,
+  options?: Parameters<typeof prepareCanonicalInput>[2]
+) {
+  if (text === undefined) return null;
+  try {
+    return prepareDirectToolInput(toolName, JSON.parse(text), options);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return prepareCanonicalInputFromJsonText(toolName, text, options);
+    }
+    throw error;
+  }
+}
 
 describe('directToolCatalog', () => {
   it('uses the MCP tool config as the direct tool name/order contract', () => {
@@ -35,7 +87,7 @@ describe('directToolCatalog', () => {
     );
   });
 
-  it('discovers exactly the 10 canonical public tools in contract order', () => {
+  it('discovers exactly the 11 canonical public tools in contract order', () => {
     const names = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
     expect(names).toEqual([
       'ghSearch',
@@ -46,6 +98,7 @@ describe('directToolCatalog', () => {
       'ghCloneRepo',
       'localSearch',
       'astSearch',
+      'astRewrite',
       'localFetch',
       'lspSearch',
     ]);
@@ -105,18 +158,15 @@ describe('directToolCatalog', () => {
   it('exposes MCP-owned auto-filled field labels per tool category', () => {
     expect(getDirectToolAutoFilledFields(GITHUB_SEARCH_TOOL_NAME)).toEqual([
       'goal',
-      'reasoning',
     ]);
     expect(
       getDirectToolAutoFilledFields(STATIC_TOOL_NAMES.PACKAGE_SEARCH)
-    ).toEqual(['goal', 'reasoning']);
+    ).toEqual(['goal']);
     expect(getDirectToolAutoFilledFields(LOCAL_SEARCH_TOOL_NAME)).toEqual([
       'goal',
-      'reasoning',
     ]);
     expect(getDirectToolAutoFilledFields(LSP_SEARCH_TOOL_NAME)).toEqual([
       'goal',
-      'reasoning',
     ]);
   });
 
@@ -163,16 +213,26 @@ describe('directToolCatalog', () => {
     expect(getDirectToolDisplayFields('missingTool')).toEqual([]);
 
     expect(buildDirectToolExampleQuery(LOCAL_SEARCH_TOOL_NAME)).toEqual({
+      reasoning: 'Use localSearch for the text anchors example.',
       path: '/ABS/repo/src',
       searchText: 'buildDirectToolCommandPatterns',
+      regex: 'literal',
       maxFiles: 20,
     });
     expect(
       buildDirectToolExampleQuery(STATIC_TOOL_NAMES.GITHUB_CLONE_REPO)
-    ).toEqual({ owner: 'bgauryy', repo: 'octocode' });
+    ).toEqual({
+      reasoning: 'Use ghCloneRepo for the full repo clone example.',
+      owner: 'bgauryy',
+      repo: 'octocode',
+    });
     expect(buildDirectToolExampleQuery(LSP_SEARCH_TOOL_NAME)).toEqual({
+      reasoning:
+        'Use lspSearch for the semantic definition (absolute uri + lineHint) example.',
       uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
-      operation: 'documentSymbols',
+      operation: 'definition',
+      symbolName: 'buildNextPageContinuation',
+      lineHint: 72,
     });
     expect(buildDirectToolExampleQuery('missingTool')).toEqual({});
   });
@@ -339,7 +399,13 @@ describe('directToolCatalog', () => {
   it('reports direct tool input errors without CLI-owned parsing logic', () => {
     expect(() =>
       prepareDirectToolInputFromJsonText(LOCAL_SEARCH_TOOL_NAME, '{not-json')
-    ).toThrow(new DirectToolInputError('Tool input must be valid JSON.'));
+    ).toThrow(
+      expect.objectContaining({
+        name: DirectToolInputError.name,
+        message: 'Tool input must be valid JSON.',
+        details: [expect.stringContaining('tools localSearch --queries')],
+      })
+    );
     expect(() => prepareDirectToolInput(LOCAL_SEARCH_TOOL_NAME, 42)).toThrow(
       'Tool input must be a JSON object'
     );

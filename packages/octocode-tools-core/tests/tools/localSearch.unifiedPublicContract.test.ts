@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { findDirectToolDefinition } from '@octocodeai/octocode-core/schema';
 import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 
@@ -45,25 +45,32 @@ describe('localSearch lexical public contract', () => {
   afterAll(async () => rm(root, { recursive: true, force: true }));
 
   it('accepts operation-free lexical queries and rejects legacy/AST fields', () => {
+    const reasoning = 'Validate the operation-free localSearch contract.';
     const definition = findDirectToolDefinition('localSearch');
     expect(definition).toBeDefined();
     const schema = definition!.inputSchema;
     expect(
-      schema.safeParse({ queries: [{ path: root, searchText: 'needle' }] })
+      schema.safeParse({ queries: [{ reasoning, path: root, searchText: 'needle' }] })
         .success
     ).toBe(true);
     expect(
       schema.safeParse({
-        queries: [{ path: root, searchText: 'needle', operation: 'text' }],
+        queries: [
+          { reasoning, path: root, searchText: 'needle', operation: 'text' },
+        ],
       }).success
     ).toBe(false);
     expect(
-      schema.safeParse({ queries: [{ path: root, pattern: 'const $X = $Y' }] })
+      schema.safeParse({
+        queries: [{ reasoning, path: root, pattern: 'const $X = $Y' }],
+      })
         .success
     ).toBe(false);
     expect(
       schema.safeParse({
-        queries: [{ path: root, searchText: 'needle', mode: 'structural' }],
+        queries: [
+          { reasoning, path: root, searchText: 'needle', mode: 'structural' },
+        ],
       }).success
     ).toBe(false);
   });

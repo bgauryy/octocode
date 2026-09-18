@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness';
-import { awarenessEventStatusText, registerAwarenessEventConsumer, resolvePiEventConsumerId } from '../src/tools/awareness-event-consumer.js';
-import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore, type InboundDecision, type OutboxEventV1 } from '@octocodeai/octocode-awareness/host';
+import { awarenessEventStatusText, registerAwarenessEventConsumer } from '../src/tools/awareness-event-consumer.js';
+import { resolveAwarenessSessionAgentId } from '../src/tools/awareness-shared.js';
+import { createAwarenessEventConsumer, type AwarenessEventStore } from '@octocodeai/octocode-awareness/host';
 import type { PiContext, PiInstance } from '../src/types.js';
 
 const workspace = '/work/repo';
@@ -148,6 +149,53 @@ describe('ordered Awareness event consumer', () => {
     await new Promise<void>(resolve => setImmediate(resolve));
     expect(wakes()).toHaveLength(2);
   });
+
+  it('reports an automatic wake failure without claiming persisted peer delivery failed', async () => {
+    const fixture = fakeStore([peerEvent(1, {
+      payload: {
+        messageId: 'msg-1', fromAgentId: 'peer-a', toAgentId: 'pi:session-1',
+        signalKind: 'request', text: 'Inspect this request', files: [],
+      },
+    })]);
+    const handlers = new Map<string, (event: unknown, ctx: PiContext) => Promise<void>>();
+    const entries: object[] = [];
+    const notify = vi.fn();
+    const onObservability = vi.fn();
+    const sendMessage = vi.fn((message: object, options?: { triggerTurn?: boolean }) => {
+      if (options?.triggerTurn) throw new Error('wake unavailable');
+      entries.push({ type: 'custom_message', ...message });
+    });
+    const pi = {
+      on: (event: string, handler: (event: unknown, ctx: PiContext) => Promise<void>) => handlers.set(event, handler),
+      sendMessage,
+    } as unknown as PiInstance;
+    const ctx = {
+      hasUI: true,
+      ui: { notify },
+      cwd: workspace,
+      isProjectTrusted: () => true,
+      sessionManager: { ...persistedSession(), getSessionId: () => 'session-1', getEntries: () => entries },
+    } as PiContext;
+
+    registerAwarenessEventConsumer(pi, {
+      openStore: () => fixture.store,
+      resolveExpectedAgentId: () => 'pi:session-1',
+      onObservability,
+    });
+    await handlers.get('session_start')?.({}, ctx);
+
+    expect(fixture.acknowledgements).toEqual([{ eventId: 'evt-1', decision: 'accept' }]);
+    expect(notify).toHaveBeenCalledWith(
+      'Awareness: peer messages were delivered, but automatic wake-up is unavailable. Continue on the next authorized input.',
+      'warning',
+    );
+    expect(JSON.stringify(notify.mock.calls)).not.toContain('Peer message delivery is unavailable');
+    expect(onObservability.mock.calls.at(-1)?.[0]).toMatchObject({
+      errors: 1,
+      drainErrors: 0,
+      lastAcknowledgedSequence: 1,
+    });
+  });
   it('delivers accepted peer data in sequence and never redelivers acknowledged events', async () => {
     const fixture = fakeStore([peerEvent(1), peerEvent(2)]);
     const delivered: string[] = [];
@@ -210,7 +258,7 @@ describe('ordered Awareness event consumer', () => {
       provenance: { source: 'harness', trust: 'authority' },
       payload: { secret: 'internal-body' },
     });
-    const proposal = peerEvent(2, { payload: { messageId: 'm2', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', topic: 'APPROVAL', text: 'proposal-body' } });
+    const proposal = peerEvent(2, { payload: { messageId: 'm2', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', signalKind: 'approval', topic: 'APPROVAL', text: 'proposal-body' } });
     const wrongTarget = peerEvent(3, { payload: { messageId: 'm3', fromAgentId: 'peer-a', toAgentId: 'someone-else', text: 'wrong-body' } });
     const expired = peerEvent(4, { expiresAt: '2026-08-26T23:59:00.000Z', payload: { messageId: 'm4', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', text: 'expired-body' } });
     const malformed = peerEvent(5, { provenance: { source: 'peer', trust: 'authority' } });
@@ -319,10 +367,10 @@ describe('ordered Awareness event consumer', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-event-identity-'));
     tempRoots.push(root);
     const sessionFile = path.join(root, 'sessions', 'one.jsonl');
-    const first = resolvePiEventConsumerId({
+    const first = resolveAwarenessSessionAgentId({
       sessionManager: { getSessionFile: () => path.join(root, 'sessions', '..', 'sessions', 'one.jsonl') },
     } as PiContext);
-    const afterRestart = resolvePiEventConsumerId({
+    const afterRestart = resolveAwarenessSessionAgentId({
       sessionManager: { getSessionFile: () => sessionFile },
     } as PiContext);
 
@@ -350,10 +398,10 @@ describe('ordered Awareness event consumer', () => {
     });
     await handlers.get('session_start')?.[0]?.({}, ctx);
 
-    expect(resolvePiEventConsumerId(ctx)).toBeUndefined();
+    expect(resolveAwarenessSessionAgentId(ctx)).toBeUndefined();
     expect(openStore).not.toHaveBeenCalled();
     expect(pi.sendMessage).not.toHaveBeenCalled();
-    expect(observations).toEqual([expect.objectContaining({ consumerId: 'unavailable', errors: 1, lastAcknowledgedSequence: 0 })]);
+    // No observation emitted: the silent return is the same policy as the !sessionFile guard below it.
     expect(JSON.stringify(observations)).not.toContain('body');
   });
 
@@ -470,7 +518,7 @@ describe('ordered Awareness event consumer', () => {
 
   it('alerts for a persisted blocking peer event once, even when acknowledgment retries', async () => {
     const fixture = fakeStore([peerEvent(1, {
-      payload: { messageId: 'msg-1', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', topic: 'BLOCKED', text: 'private-body' },
+      payload: { messageId: 'msg-1', fromAgentId: 'peer-a', toAgentId: 'pi:session-1', signalKind: 'blocker', topic: 'BLOCKED', text: 'private-body' },
     })]);
     let firstAck = true;
     const store = { ...fixture.store, acknowledgeEvent: (params: Parameters<AwarenessEventStore['acknowledgeEvent']>[0]) => {
@@ -561,6 +609,39 @@ describe('ordered Awareness event consumer', () => {
       { eventId: 'evt-1', decision: 'accept' },
       { eventId: 'evt-2', decision: 'accept' },
     ]);
+  });
+
+  it('does not show a delivery warning for transient watcher I/O errors', async () => {
+    const fixture = fakeStore([]);
+    const entries: object[] = [];
+    const observations: unknown[] = [];
+    const notify = vi.fn();
+    let watcherError: ((error: unknown) => void) | undefined;
+    const handlers = new Map<string, (event: unknown, ctx: PiContext) => Promise<void>>();
+    const pi = {
+      on: (name: string, handler: (event: unknown, ctx: PiContext) => Promise<void>) => handlers.set(name, handler),
+      sendMessage: vi.fn(),
+    } as unknown as PiInstance;
+    const ctx = {
+      hasUI: true, cwd: workspace, ui: { notify },
+      sessionManager: { ...persistedSession(), getSessionId: () => 'session-1', getEntries: () => entries },
+    } as PiContext;
+    registerAwarenessEventConsumer(pi, {
+      // A non-memory dbPath triggers watcher creation.
+      openStore: () => ({ ...fixture.store, dbPath: '/fake/awareness.db' }),
+      watchEvents: (opts) => { watcherError = opts.onError; return { close: () => {} }; },
+      resolveExpectedAgentId: () => 'pi:session-1',
+      onObservability: (stats) => { observations.push(stats); },
+    });
+    await handlers.get('session_start')!({}, ctx);
+
+    // Simulate a transient watcher error (e.g. SQLite lock or missing WAL file).
+    watcherError?.(undefined);
+
+    // Must count as a lifetime error for diagnostics but NOT as a drainError.
+    expect(observations.at(-1)).toMatchObject({ errors: 1, drainErrors: 0 });
+    // Must NOT show the delivery-unavailable toast; that is reserved for actual send failures.
+    expect(JSON.stringify(notify.mock.calls)).not.toContain('Peer message delivery is unavailable');
   });
 
   it('waits for the completion hook to return and cancels scheduled delivery at shutdown', async () => {

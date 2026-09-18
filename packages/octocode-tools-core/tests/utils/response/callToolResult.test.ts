@@ -4,10 +4,9 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 const mockSanitizeContent = vi.fn();
 const mockSanitizeStructuredContent = vi.fn();
 
-vi.mock('@octocodeai/octocode-engine/security', () => ({
-  ContentSanitizer: {
-    sanitizeContent: mockSanitizeContent,
-  },
+vi.mock('../../../src/security/sanitize.js', () => ({
+  sanitizeContent: mockSanitizeContent,
+  maskSensitiveData: vi.fn(),
 }));
 
 vi.mock('../../../src/responses.js', () => ({

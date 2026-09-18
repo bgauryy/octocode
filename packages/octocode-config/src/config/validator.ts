@@ -140,6 +140,11 @@ function validateGitHub(github: unknown, errors: string[]): void {
 
   const apiUrlError = validateUrl(gh.apiUrl, 'github.apiUrl');
   if (apiUrlError) errors.push(apiUrlError);
+  const graphqlError = validateBoolean(
+    gh.graphqlEnabled,
+    'github.graphqlEnabled'
+  );
+  if (graphqlError) errors.push(graphqlError);
 }
 
 function validateStorage(storage: unknown, errors: string[]): void {
@@ -185,6 +190,12 @@ function validateLocal(local: unknown, errors: string[]): void {
     'local.enableClone'
   );
   if (enableCloneError) errors.push(enableCloneError);
+
+  const enableAstRewriteApplyError = validateBoolean(
+    loc.enableAstRewriteApply,
+    'local.enableAstRewriteApply'
+  );
+  if (enableAstRewriteApplyError) errors.push(enableAstRewriteApplyError);
 
   const allowedPathsError = validateStringArray(
     loc.allowedPaths,
@@ -361,11 +372,22 @@ export function validateConfig(config: unknown): ValidationResult {
   validateStorage(cfg.storage, errors);
   validateExtension(cfg.extension, errors);
 
-  warnUnknownObjectKeys(cfg.github, 'github', ['apiUrl'], warnings);
+  warnUnknownObjectKeys(
+    cfg.github,
+    'github',
+    ['apiUrl', 'graphqlEnabled'],
+    warnings
+  );
   warnUnknownObjectKeys(
     cfg.local,
     'local',
-    ['enabled', 'enableClone', 'allowedPaths', 'workspaceRoot'],
+    [
+      'enabled',
+      'enableClone',
+      'enableAstRewriteApply',
+      'allowedPaths',
+      'workspaceRoot',
+    ],
     warnings
   );
   warnUnknownObjectKeys(cfg.storage, 'storage', ['mode'], warnings);

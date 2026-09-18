@@ -1,7 +1,7 @@
-// Tokenization shared by the shell adapter and legacy continuation decoding.
+// Tokenization for the canonical shell adapter.
 import type { ParsedArgs } from './commands/args.js';
 
-export const ARRAY_FLAGS = new Set(['tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'refinement_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);
+export const ARRAY_FLAGS = new Set(['section', 'tag', 'tags', 'reference', 'file', 'fix_file', 'target_file', 'supersedes', 'label', 'state', 'memory_id', 'signal_id', 'ref_id', 'run_id', 'regex', 'file_regex', 'to_agent', 'kind', 'path', 'depends_on', 'origin']);
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const result: ParsedArgs = { _: [] };
@@ -60,21 +60,17 @@ function parseFlagValue(key: string, value: string | boolean): string | boolean 
   return value; // validateFlagValues rejects unknown Boolean tokens.
 }
 
-// Per-command flag allowlist. Documented flags that the runtime silently
-// ignored were the #1 source of doc drift — unknown flags are now hard errors.
-export const GLOBAL_FLAGS = ['db', 'db_scope', 'compact', 'help'];
-
 // Flags whose value must parse to an integer. Without this, `--limit abc` (NaN)
 // or `--limit --smart` (boolean-coerced) silently fell back to a default and
 // read as "it worked". Excludes flags that already have dedicated validation
 // with their own messages/bounds (wait_seconds, retry_interval via
 // parseBoundedSeconds; ttl_*; importance on memory record).
-export const NUMERIC_FLAGS = new Set(['limit', 'min_importance', 'max_importance', 'min_count', 'min_edits', 'min_lines', 'older_than_days', 'retention_days', 'refinement_handoff_retention_days', 'handoff_signal_retention_days', 'refinement_done_retention_days', 'operational_retention_days', 'pressure_age_days', 'priority', 'lease_minutes']);
-export const RETENTION_DAY_FLAGS = new Set(['retention_days', 'refinement_handoff_retention_days', 'handoff_signal_retention_days', 'refinement_done_retention_days', 'operational_retention_days', 'pressure_age_days']);
+export const NUMERIC_FLAGS = new Set(['limit', 'min_importance', 'max_importance', 'older_than_days', 'priority', 'lease_minutes', 'grace_seconds', 'retention_days', 'operational_retention_days', 'stale_run_age_days']);
+export const RETENTION_DAY_FLAGS = new Set(['retention_days', 'operational_retention_days', 'stale_run_age_days']);
 // Only these flags may use the `--no-*` spelling. Treating every `--no-*`
 // token as false let required scalar values such as `--agent-id` and
 // `--task-context` evade validation.
-export const BOOLEAN_FLAGS = new Set(['compact', 'details', 'changes', 'help', 'smart', 'global_only', 'strict_scope', 'all_workspaces', 'explain', 'semantic', 'full', 'dry_run', 'include_handoffs', 'strict_agent_id', 'verified', 'expired_only', 'all_pending', 'propose', 'fail_stale_active_runs', 'include_bodies', 'explain_organ', 'check', 'include_view', 'all', 'unread_only', 'mark_read', 'resolved', 'global', 'strict', 'remove', 'exclusive', 'next', 'duo', 'examples', 'allow_similar', 'prune_orphans', 'adopt_verification', 'force', 'capture_fingerprint', 'check_fingerprint']);
+export const BOOLEAN_FLAGS = new Set(['compact', 'details', 'changes', 'help', 'smart', 'global_only', 'strict_scope', 'all_workspaces', 'explain', 'semantic', 'full', 'dry_run', 'include_handoffs', 'strict_agent_id', 'verified', 'expired_only', 'all_pending', 'propose', 'fail_stale_active_runs', 'include_bodies', 'explain_organ', 'check', 'include_view', 'all', 'unread_only', 'mark_read', 'resolved', 'global', 'strict', 'remove', 'exclusive', 'next', 'duo', 'examples', 'allow_similar', 'prune_orphans', 'adopt_verification', 'force', 'capture_fingerprint', 'check_fingerprint', 'open']);
 // Flags that must carry a value. Catches value-swallow like `--query --smart`,
 // which parseArgs would otherwise read as query=true (searching the literal
 // string "true"). Curated allowlist — unlisted flags are never falsely rejected.
@@ -121,7 +117,6 @@ export const VALUE_REQUIRED_FLAGS = new Set([
   'status',
   'verified_note',
   'memory_id',
-  'refinement_id',
   'signal_id',
   'to_agent',
   'ref_id',
@@ -134,6 +129,13 @@ export const VALUE_REQUIRED_FLAGS = new Set([
   'format',
   'view',
   'action',
+  'confirm',
+  'report_file',
+  'cursor',
+  'grace_seconds',
+  'retention_days',
+  'operational_retention_days',
+  'stale_run_age_days',
   'kind',
   'label',
   'tag',

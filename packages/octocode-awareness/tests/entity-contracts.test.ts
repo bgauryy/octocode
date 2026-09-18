@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
-import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from '@octocodeai/agent-contracts/entities';
+import { DatabaseSync } from '../src/sqlite.js';
+import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from '../src/entities.js';
 import { initDb } from '../src/db-init.js';
 import { schemas } from '../src/schema/registry.js';
 

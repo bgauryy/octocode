@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q2",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"sindresorhus\",\"repo\":\"is\",\"branch\":\"main\",\"path\":\"source/index.ts\",\"matchString\":\"isQuantumSuperposition\",\"contextLines\":2},{\"owner\":\"sindresorhus\",\"repo\":\"is\",\"branch\":\"main\",\"path\":\"package.json\",\"fullContent\":true}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:33.074Z",
+  "endedAt": "2026-09-18T08:25:33.796Z",
+  "elapsedMs": 719,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "165fd007aac8abe3d5530ae32e56ace9aa804aed50b3ae69f617ae0ce2c812d3",
+  "stdoutBytes": 3227,
+  "requestSha256": null
+}

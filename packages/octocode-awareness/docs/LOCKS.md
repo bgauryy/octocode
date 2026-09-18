@@ -1,133 +1,32 @@
-# File Work, Exclusive Locks, And Verification
+# Exclusive path protection
 
-File awareness and file exclusion are different operations:
+Ordinary overlap is advisory. Use `work.protect` only when concurrent changes cannot merge safely, such as a database migration, generated singleton, dependency lockfile, or broad mechanical rewrite.
 
-- `work *` supplies advisory presence when work needs tracking. Multiple agents may share a file.
-- `lock *` is optional exclusive protection for sensitive work.
-- verification proves the promised check; ending presence or expiring a lock does not.
+## Protocol
 
-Default coordination needs no work row for routine solo edits. Use the following
-flow for shared ownership or an explicit verification lifecycle. Native hosts use
-the same commands through the [API](API.md).
+`work.protect` has three actions:
 
-## Tracked work
+| Action | Meaning |
+|---|---|
+| `acquire` | Protect exact paths with a rationale and bounded lease |
+| `wait` | Observe the owner until release or expiry |
+| `release` | Remove only protection owned by the caller |
 
-```bash
-npx @octocodeai/octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" --file src/auth.ts \
-  --rationale "refactor token refresh" --test-plan "yarn test auth" --compact
-```
+Before acquiring protection, inspect the path with `work.show`. If another actor is active, use `message.send` to resolve ownership or compatibility. Never bypass active peer protection.
 
-This creates an explicit `origin=WORK` run when `--run-id` is absent, then upserts
-`run_files`. Add files to the same explicit run:
+Protection is not permission to edit. The caller still needs user or host authorization for the underlying mutation.
 
-```bash
-npx @octocodeai/octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc --file src/session.ts --compact
-npx @octocodeai/octocode-awareness work touch --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc --compact
-```
+## Completion
 
-Task-backed callers pass the run returned by `task claim`. Guard/full hooks do this automatically
-when exactly one live task claim applies.
+Lease expiry removes coordination protection but does not prove the owner finished or abandoned the change. Inspect the current file and Work state before reacquiring.
 
-Ordinary overlap succeeds. `work start`/pre-edit returns bounded peer changes with
-agent, task/run, short reason, and exclusive state. Use full detail only when needed:
+After editing:
 
-```bash
-npx @octocodeai/octocode-awareness work show --workspace "$PWD" --file src/auth.ts --compact
-npx @octocodeai/octocode-awareness work list --workspace "$PWD" --compact
-```
+1. Run the declared check.
+2. Update the owning Work attempt.
+3. Record the observed result with `work.verify`.
+4. Release owned protection when it no longer guards an active mutation.
 
-## Sensitive Exclusive Work
+Do not infer success from release, expiry, absence from the workboard, or a peer Message.
 
-Open explicit work with `--exclusive`:
-
-```bash
-npx @octocodeai/octocode-awareness work start --agent-id "$OCTOCODE_AGENT_ID" \
-  --workspace "$PWD" --file migrations/001.sql \
-  --rationale "change account schema" --test-plan "yarn test migrations" \
-  --exclusive --compact
-```
-
-Or upgrade a known task/run with `lock acquire`. Locks are exclusive-only; SHARED
-locks no longer exist.
-
-Conflict law:
-
-| Request | Other state | Result |
-|---|---|---|
-| Advisory presence | Advisory presence | Allowed; peers shown |
-| Advisory presence | Exclusive lock | Blocked before presence is created |
-| Exclusive lock | Other live presence | Blocked; coordinate first |
-| Exclusive lock | Same run presence | Allowed/renewed |
-
-Exit `2` means a real conflict or bounded wait timeout. Read the holder/reason, then
-signal, wait, switch work, or prune only after expiry. Never steal live exclusivity.
-
-```bash
-npx @octocodeai/octocode-awareness lock wait --agent-id "$OCTOCODE_AGENT_ID" \
-  --target-file migrations/001.sql --wait-seconds 120 --compact
-```
-
-Wait observes only; acquire after a clear result.
-
-## Ending Work
-
-Explicit work:
-
-```bash
-# run the declared check
-npx @octocodeai/octocode-awareness work end --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc --compact
-npx @octocodeai/octocode-awareness verify mark --agent-id "$OCTOCODE_AGENT_ID" \
-  --run-id run_abc --message "auth tests passed" --compact
-```
-
-`work end` closes run-file presence, releases its locks, and moves a completed
-standalone WORK run to `PENDING`. A TASK run must use `task submit` or `task release`.
-
-```bash
-# run the acceptance check while presence remains active
-npx @octocodeai/octocode-awareness task submit --task-id task_abc --run-id run_abc \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "ready for verification" --compact
-npx @octocodeai/octocode-awareness verify mark --run-id run_abc \
-  --agent-id "$OCTOCODE_AGENT_ID" --message "acceptance checks passed" --compact
-```
-
-Successful verification moves the linked task to `DONE`; failure moves it to
-`FAILED`. `verify audit` is the final debt-listing gate. If deliberately using
-`verify mark --all-pending`, scope it by workspace.
-
-## Automatic Hook Fallback
-
-With guard/full tracking, if no task claim or explicit WORK presence matches a structured write, pre-edit
-creates or reuses one scoped `origin=HOOK` aggregate. Post-edit records and touches
-it; Stop, PreCompact, or SessionEnd finalizes it once to `PENDING`. PreCompact keeps
-the session reusable; SessionEnd marks it ended. Aggregates never cross agent,
-session, workspace, artifact, TASK, or explicit WORK boundaries.
-
-## TTL And Cleanup
-
-Presence and lock TTL recover from crashes. Heartbeat extends active work. Expiry:
-
-- makes stale presence inactive;
-- removes stale exclusive protection;
-- never marks work successful;
-- never moves a live TASK claim to `PENDING`.
-
-Task claim lease is separate and refreshed with `task heartbeat`. Claim expiry closes
-the run's presence/locks, fails that attempt, and returns the task to `OPEN`.
-
-Preview cleanup:
-
-```bash
-npx @octocodeai/octocode-awareness lock prune --workspace "$PWD" --expired-only --dry-run --compact
-```
-
-## Path Coverage
-
-Guard/full write hooks declare recognized paths before editing. External processes and
-arbitrary shell side effects may not be observable in real time; session/dirty-tree
-reconciliation can report undeclared files. For explicitly tracked work without
-active tracking hooks, call `work start|touch` on the owning run.
+Host mutation guards use the same protection state. A real conflict blocks the write; infrastructure failure follows the separate degraded fail-open policy described in [Host lifecycle hooks](HOOKS.md).

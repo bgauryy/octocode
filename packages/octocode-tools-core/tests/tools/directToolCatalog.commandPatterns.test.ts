@@ -3,12 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDirectToolCommandPatterns,
   buildDirectToolExampleQuery,
-} from '@octocodeai/octocode-core/schema';
-import {
   DIRECT_TOOL_CATEGORIES,
   getDirectToolCategory,
-} from '@octocodeai/octocode-core/schema';
-import {
   LSP_SEARCH_TOOL_NAME,
   LOCAL_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
@@ -24,15 +20,18 @@ describe('direct-tool command patterns', () => {
       query: {
         path: '/ABS/repo/src',
         searchText: 'buildDirectToolCommandPatterns',
+        regex: 'literal',
         maxFiles: 20,
       },
     });
     expect(patterns[0]?.command).toBe(
-      'tools localSearch --queries \'{"path":"/ABS/repo/src","searchText":"buildDirectToolCommandPatterns","maxFiles":20}\''
+      'tools localSearch --queries \'{"reasoning":"Use localSearch for the text anchors example.","path":"/ABS/repo/src","searchText":"buildDirectToolCommandPatterns","regex":"literal","maxFiles":20}\''
     );
     expect(buildDirectToolExampleQuery(LOCAL_SEARCH_TOOL_NAME)).toEqual({
+      reasoning: 'Use localSearch for the text anchors example.',
       path: '/ABS/repo/src',
       searchText: 'buildDirectToolCommandPatterns',
+      regex: 'literal',
       maxFiles: 20,
     });
   });
@@ -65,22 +64,30 @@ describe('direct-tool command patterns', () => {
     expect(patterns[0]?.command).toContain('tools ghSearch --queries');
   });
 
-  it('keeps semantic patterns compact for definition and outline flows', () => {
+  it('starts semantic patterns with anchored definition and references', () => {
     const patterns = buildDirectToolCommandPatterns(LSP_SEARCH_TOOL_NAME);
 
     expect(patterns.map(pattern => pattern.label)).toEqual([
-      'symbol outline (absolute uri)',
       'semantic definition (absolute uri + lineHint)',
+      'symbol references from an observed anchor',
+      'symbol outline (absolute uri)',
     ]);
-    expect(patterns[0]?.query).toEqual({
+    expect(patterns[2]?.query).toEqual({
+      reasoning: 'Use lspSearch for the symbol outline (absolute uri) example.',
       uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
       operation: 'documentSymbols',
     });
-    expect(patterns[1]?.query).toMatchObject({
+    expect(patterns[0]?.query).toMatchObject({
       uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
       operation: 'definition',
       symbolName: 'buildNextPageContinuation',
       lineHint: 72,
+    });
+    expect(patterns[1]?.query).toMatchObject({
+      operation: 'references',
+      symbolName: 'run',
+      lineHint: 10,
+      includeDeclaration: false,
     });
   });
 
@@ -104,7 +111,10 @@ describe('direct-tool command patterns', () => {
     expect(patterns).toContainEqual(
       expect.objectContaining({
         label: 'keyword discovery (paged candidates)',
-        query: { type: 'npm', keywords: ['schema', 'validation'] },
+        query: expect.objectContaining({
+          type: 'npm',
+          keywords: ['schema', 'validation'],
+        }),
       })
     );
   });

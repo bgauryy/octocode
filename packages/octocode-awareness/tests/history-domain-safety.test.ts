@@ -56,12 +56,12 @@ describe('history domain adversarial contracts', () => {
     while (true) {
       chunks.push(Buffer.from(page.content as string, 'base64'));
       if (!page.next) break;
-      page = await first.call('read', (page.next as { args: Record<string, unknown> }).args);
+      page = await first.call('read', (page.next as { params: Record<string, unknown> }).params);
     }
     expect(Buffer.concat(chunks)).toEqual(bytes);
     for (let i = 0; i < 3; i++) await first.call('checkpoint', { agent_id: 'a', operation_id: `page-${i}`, file: ['a.bin'] });
     const timeline = await first.call('timeline', { limit: 1 });
-    const next = (timeline.next as { args: Record<string, unknown> }).args;
+    const next = (timeline.next as { params: Record<string, unknown> }).params;
     await expect(first.call('timeline', { ...next, cursor: `${String(next.cursor).slice(0, -1)}x` })).rejects.toMatchObject({ code: 'HISTORY_CURSOR_INVALID' });
     const other = fixture();
     await expect(other.call('timeline', next)).rejects.toMatchObject({ code: 'HISTORY_CURSOR_INVALID' });

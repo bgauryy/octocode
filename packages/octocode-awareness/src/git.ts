@@ -7,7 +7,7 @@ import { execFile, spawnSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import type { Scope, ScopePartial } from './types/locks-reflection.js';
+import type { Scope, ScopePartial } from './types/locks.js';
 
 export interface GitInfo {
   is_repo: false;
@@ -242,7 +242,7 @@ export function fillScope(partial: ScopePartial, cwd?: string): Scope {
 }
 
 /**
- * Normalize a workspace filter/storage key the same way memory/refinement scope
+ * Normalize a workspace filter/storage key the same way repository scope
  * does: an explicit path inside a git worktree becomes that repo root; a non-git
  * path remains an absolute path. Returns null only when no workspace/cwd exists.
  */

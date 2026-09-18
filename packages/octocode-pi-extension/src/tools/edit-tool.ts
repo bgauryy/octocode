@@ -6,11 +6,9 @@ import { access } from 'node:fs/promises';
 import { computeLineDiff, computeLineDiffAsync, generateDiffArtifacts as nativeDiffArtifactsSync, generateDiffArtifactsAsync as nativeDiffArtifacts } from '@octocodeai/octocode-extension-rust';
 import { CLI_STATUS_TEXT, cliStatusGlyph, cliStatusToken, cliToolTitle, ansiForToken } from '../tui/cli-design.js';
 import type { ToolCallResult, PiTheme, RenderCallReturn } from '../types.js';
-import { makeComponentRenderer, wrapText } from './render-helpers.js';
-import { collapsedEditRationales } from './edit-render-ux.js';
+import { makeComponentRenderer } from './render-helpers.js';
 import { withFileMutationQueue, checkReadState, type ReadStateCheck } from './file-state.js';
 import { assertFileContentSize, replaceNativeFile } from './native-files.js';
-import { peerWipNotice } from './peer-wip.js';
 import { countMutationLines, createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { normalizeToLF, restoreEditedText, assertWellFormedText } from './file-text.js';
 import { prepareFileMutationTarget, assertFileMutationTargetCurrent, rethrowFileMutationConflict, type FileMutationTarget } from './file-mutation-target.js';
@@ -27,8 +25,12 @@ export interface EditQuery {
 export interface EditOperation {
   oldText?: string;
   newText: string;
+  /** Line-array alternative to newText for lineRange mode (VS Code LineReplacement pattern).
+   *  Each element is one line without \n. Joined with \n; trailing \n added when range had one.
+   *  Eliminates trailing-newline ambiguity. Mutually exclusive with newText when set. */
+  newLines?: string[];
   replaceAll?: boolean;
-  reasoning: string;
+  reasoning?: string;
   matchMode?: MatchMode;
   startLine?: number;
   endLine?: number;
@@ -58,7 +60,6 @@ interface AppliedEditEvidence {
   startLine: number;
   endLine: number;
   mode: MatchMode;
-  reasoning: string;
   // Removed text fragments (the oldText segments), split by line.
   removedLines: string[];
   // Added text fragments (the newText), split by line.
@@ -75,11 +76,6 @@ export interface PreparedEdit {
   readState: ReadStateCheck;
   diff: string;
   patch: string;
-}
-
-interface EditReasoningEntry {
-  editIndex: number;
-  reasoning: string;
 }
 
 interface RenderableEditFile {
@@ -121,6 +117,8 @@ function normalizeForFuzzyMatch(text: string): string {
     .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
     .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g, '-')
     .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ')
+    // Unescape template-literal backtick escapes so oldText with `x` matches file with \`x\`.
+    .replace(/\\`/g, '`')
     .split('\n')
     .map((line) => line.trim().replace(/[ \t]+/g, ' '))
     .join('\n');
@@ -208,7 +206,7 @@ function validateOperation(edit: unknown, index: number): EditOperation {
     throw new Error(`Edit tool input is invalid. edits[${index}] must be an object.`);
   }
   const item = edit as Record<string, unknown>;
-  const allowed = new Set(['oldText', 'newText', 'replaceAll', 'reasoning', 'matchMode', 'startLine', 'endLine']);
+  const allowed = new Set(['oldText', 'newText', 'newLines', 'replaceAll', 'reasoning', 'matchMode', 'startLine', 'endLine']);
   const extra = Object.keys(item).filter(key => !allowed.has(key));
   if (extra.length) throw new Error(`Edit tool input is invalid. edits[${index}] has unknown fields: ${extra.join(', ')}.`);
   const matchMode = (item['matchMode'] ?? 'exact') as MatchMode;
@@ -218,13 +216,23 @@ function validateOperation(edit: unknown, index: number): EditOperation {
   if (matchMode !== 'lineRange' && (item['startLine'] !== undefined || item['endLine'] !== undefined)) {
     throw new Error('startLine and endLine require matchMode:"lineRange".');
   }
-  if (typeof item['newText'] !== 'string') {
-    throw new Error(`Edit tool input is invalid. edits[${index}].newText must be a string.`);
+  const hasNewLines = Array.isArray(item['newLines']);
+  if (!hasNewLines && typeof item['newText'] !== 'string') {
+    throw new Error(`Edit tool input is invalid. edits[${index}].newText must be a string (or supply newLines[] for lineRange).`);
+  }
+  if (hasNewLines && (item['newLines'] as unknown[]).some((l) => typeof l !== 'string')) {
+    throw new Error(`Edit tool input is invalid. edits[${index}].newLines must be an array of strings.`);
+  }
+  if (hasNewLines && item['newText'] !== undefined) {
+    throw new Error(`Edit tool input is invalid. edits[${index}]: newLines and newText are mutually exclusive.`);
+  }
+  if (hasNewLines && (item['matchMode'] ?? 'exact') !== 'lineRange') {
+    throw new Error(`Edit tool input is invalid. edits[${index}].newLines requires matchMode:"lineRange".`);
   }
   if (item['oldText'] !== undefined && typeof item['oldText'] !== 'string') {
     throw new Error(`Edit tool input is invalid. edits[${index}].oldText must be a string.`);
   }
-  assertWellFormedText(item['newText'], 'newText');
+  if (!hasNewLines) assertWellFormedText(item['newText'] as string, 'newText');
   if (typeof item['oldText'] === 'string') assertWellFormedText(item['oldText'], 'oldText');
   if (matchMode !== 'lineRange' && (typeof item['oldText'] !== 'string' || item['oldText'].length === 0)) {
     throw new Error(`Edit tool input is invalid. edits[${index}].oldText must be a non-empty string unless matchMode:"lineRange" is used.`);
@@ -235,14 +243,11 @@ function validateOperation(edit: unknown, index: number): EditOperation {
   if (item['replaceAll'] !== undefined && typeof item['replaceAll'] !== 'boolean') {
     throw new Error(`Edit tool input is invalid. edits[${index}].replaceAll must be a boolean.`);
   }
-  if (typeof item['reasoning'] !== 'string' || item['reasoning'].trim().length === 0) {
-    throw new Error(`Edit tool input is invalid. edits[${index}].reasoning is required — provide a non-empty string explaining why this edit is necessary.`);
-  }
   const operation: EditOperation = {
     oldText: matchMode === 'lineRange' && item['oldText'] === '' ? undefined : item['oldText'] as string | undefined,
-    newText: item['newText'],
+    newText: (item['newText'] as string | undefined) ?? '',
+    newLines: hasNewLines ? (item['newLines'] as string[]) : undefined,
     replaceAll: item['replaceAll'] === true,
-    reasoning: item['reasoning'] as string,
     matchMode,
   };
   if (matchMode === 'lineRange') {
@@ -334,7 +339,19 @@ function lineRangeReplacement(content: string, spans: ReturnType<typeof lineSpan
   if (edit.oldText !== undefined && normalizeToLF(edit.oldText) !== current) {
     throw new Error(`edits[${editIndex}] oldText does not match the requested line range in ${filePath}. Re-read the target range.`);
   }
-  return [{ editIndex, start, end, newText: normalizeToLF(edit.newText), mode: 'lineRange' }];
+  // newLines[] (VS Code LineReplacement pattern): each element is one line without \n.
+  // Eliminates trailing-newline ambiguity entirely. Falls back to newText with auto-repair.
+  let newText: string;
+  if (edit.newLines !== undefined) {
+    newText = edit.newLines.join('\n');
+    if (current.endsWith('\n') && edit.newLines.length > 0) newText += '\n';
+  } else {
+    const normalizedNew = normalizeToLF(edit.newText);
+    newText = current.endsWith('\n') && !normalizedNew.endsWith('\n')
+      ? normalizedNew + '\n'
+      : normalizedNew;
+  }
+  return [{ editIndex, start, end, newText, mode: 'lineRange' }];
 }
 
 export function applyCustomEditsToContent(content: string, edits: EditOperation[], filePath: string): AppliedEditResult {
@@ -402,7 +419,6 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
     return stripped.split('\n');
   };
   for (const r of replacements) {
-    const edit = edits[r.editIndex]!;
     const removedText = normalizeToLF(content.slice(r.start, r.end));
     const range = byteToLineRange(r.start, r.end);
     const existing = editEvidenceMap.get(r.editIndex);
@@ -418,7 +434,6 @@ export function applyCustomEditsToContent(content: string, edits: EditOperation[
         startLine: range.startLine,
         endLine: range.endLine,
         mode: r.mode,
-        reasoning: edit.reasoning.trim(),
         removedLines: toLines(removedText),
         addedLines: toLines(r.newText),
       });
@@ -501,26 +516,10 @@ async function generateDiffArtifactsAsync(filePath: string, oldContent: string, 
 }
 
 const EDIT_TOOL_DISPLAY_NAME = 'edit (Octocode)';
-function editReasoningEntries(edits: EditOperation[]): EditReasoningEntry[] {
-  return edits.map((edit, index) => ({ editIndex: index, reasoning: edit.reasoning.trim() }));
-}
-
-function reasoningSuffix(editsByFile: Array<{ path: string; edits: EditOperation[] }>): string {
-  const lines = editsByFile.flatMap((file) => editReasoningEntries(file.edits)
-    .map((entry) => entry.reasoning));
-  return lines.length > 0 ? `\nReasoning:\n${lines.map((line) => `- ${line}`).join('\n')}` : '';
-}
 
 function changesSuffix(prepared: PreparedEdit[]): string {
   const blocks = prepared.map((item) => `# ${item.requestPath}\n${colorDiffString(item.diff)}`);
   return `\nChanges:\n${blocks.join('\n')}`;
-}
-
-function renderEditRationaleItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
-  return collapsedEditRationales(files).map((rationale) => ({
-    text: paint(theme, 'muted', `  ${rationale}`),
-    truncate: true,
-  }));
 }
 
 function renderEditDiffItems(files: RenderableEditFile[], theme?: PiTheme): Array<{ text: string; truncate: boolean }> {
@@ -548,10 +547,9 @@ function renderEditDiffItems(files: RenderableEditFile[], theme?: PiTheme): Arra
 }
 
 function renderCollapsedEditDiffLines(header: string, files: RenderableEditFile[], theme?: PiTheme): RenderCallReturn {
-  const rationaleItems = renderEditRationaleItems(files, theme);
   const diffItems = renderEditDiffItems(files, theme);
   const maxPreviewLines = 10;
-  const previewItems = [...rationaleItems, ...diffItems];
+  const previewItems = diffItems;
   const shown = previewItems.slice(0, maxPreviewLines);
   const omitted = previewItems.length - shown.length;
   return makeComponentRenderer((_props, { width: width }) => [
@@ -575,11 +573,20 @@ export async function prepareEdit(query: EditQuery, cwd: string, inheritedRequir
   const rawContent = bytes.toString('utf8');
   // Commit needs the token, not a second retained copy of the original file.
   delete target.snapshot.content;
+  // requireRecentRead is implicitly forced when any edit uses lineRange without oldText,
+  // because line numbers can silently shift without a verified read.
+  const implicitlyRequired = !contentAnchored && !inheritedRequireRecentRead && query.requireRecentRead !== true;
   const requireRecentRead = inheritedRequireRecentRead || query.requireRecentRead === true || !contentAnchored;
   const readState = await checkReadState(
     absolutePath,
     requireRecentRead,
-    { contentAnchored, currentDigest: target.snapshot.digest },
+    {
+      contentAnchored,
+      currentDigest: target.snapshot.digest,
+      implicitReason: implicitlyRequired
+        ? 'a lineRange edit without oldText was used — line numbers require a verified read'
+        : undefined,
+    },
   );
   const { bom, text } = stripBom(rawContent);
   const normalizedContent = normalizeToLF(text);
@@ -607,7 +614,6 @@ export async function prepareEdit(query: EditQuery, cwd: string, inheritedRequir
 /** Commit one fully preflighted edit while preserving the lost-update guard. */
 export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortSignal): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error('Operation aborted');
-  const peerNotice = peerWipNotice(prepared.absolutePath, prepared.requestPath);
   let committed: Awaited<ReturnType<typeof replaceNativeFile>>;
   let warnings: string[];
   try {
@@ -626,7 +632,6 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
   const firstChangedLine = prepared.result.firstChangedLine;
   const lineSuffix = firstChangedLine ? ` First changed line: ${firstChangedLine}.` : '';
   const readStates = prepared.readState.state;
-  const reasoning = reasoningSuffix([{ path: prepared.requestPath, edits: prepared.edits }]);
   const changes = changesSuffix([prepared]);
   const mutationMetrics = prepared.result.changes.reduce((total, change) => {
     const removed = prepared.result.baseContent.slice(change.start, change.end);
@@ -639,7 +644,7 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
   return {
     content: [{
       type: 'text',
-      text: `Successfully replaced ${replacements} occurrence(s) across ${editCount} edit(s) in 1 file(s).${lineSuffix} Read state: ${readStates}.${peerNotice}${reasoning}${changes}${warnings.length ? `\n${warnings.join('\n')}` : ''}`,
+      text: `Successfully replaced ${replacements} occurrence(s) across ${editCount} edit(s) in 1 file(s).${lineSuffix} Read state: ${readStates}.${changes}${warnings.length ? `\n${warnings.join('\n')}` : ''}`,
     }],
     details: {
       operation: 'edit',
@@ -655,7 +660,6 @@ export async function commitPreparedEdit(prepared: PreparedEdit, signal?: AbortS
         firstChangedLine: prepared.result.firstChangedLine,
         usedModes: prepared.result.usedModes,
         readState: prepared.readState,
-        reasoning: editReasoningEntries(prepared.edits),
         edits: prepared.result.edits,
         diff: prepared.diff,
         coloredDiff: colorDiffString(prepared.diff),
@@ -708,14 +712,8 @@ export function renderEditResult(
       : makeComponentRenderer((_props, { width: width }) => [truncateToWidth(`${header}${filesNote}`, width)], undefined);
   }
 
-  // Per file → per edit:
-  //   meta line  (truncatable — always short)
-  //   reasoning  (word-wrapped so full text is visible without exceeding terminal width)
-  //   diff lines (Myers: only genuinely changed lines)
-  type StaticItem = { text: string; truncate: boolean };
-  type DynamicItem = { fn: (width: number) => string[] };
-  type Item = StaticItem | DynamicItem;
-  const items: Item[] = [{ text: header, truncate: true }];
+  // Per file → per edit metadata and changed lines.
+  const items: Array<{ text: string; truncate: boolean }> = [{ text: header, truncate: true }];
   for (const file of details?.files ?? []) {
     items.push({
       text: paint(theme, 'path', `  ${file.path}`),
@@ -728,25 +726,10 @@ export function renderEditResult(
       const metaStr = `    edit #${edit.editIndex + 1} \xb7 ${range} \xb7 ${edit.mode}`;
       items.push({ text: paint(theme, 'dim', metaStr), truncate: true });
 
-      const reasonText = edit.reasoning.trim();
-      if (reasonText) {
-        const indent = '      ';
-        items.push({
-          fn: (w) => {
-            const availWidth = Math.max(w - indent.length, 10);
-            return wrapText(reasonText, availWidth).map((line) =>
-              truncateToWidth(`${indent}${paint(theme, 'muted', line)}`, w),
-            );
-          },
-        });
-      }
-
       items.push(...renderEditDiffItems([{ path: file.path, edits: [edit] }], theme).slice(1));
     }
   }
-  return makeComponentRenderer((_props, { width: width }) => items.flatMap((item) =>
-    'fn' in item
-      ? item.fn(width)
-      : [item.truncate ? truncateToWidth(item.text, width) : item.text],
+  return makeComponentRenderer((_props, { width: width }) => items.map((item) =>
+    item.truncate ? truncateToWidth(item.text, width) : item.text,
   ), undefined);
 }

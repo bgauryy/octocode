@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q8",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"code\",\"keywords\":[\"class WorkbenchKeybindingService\"],\"owner\":\"microsoft\",\"repo\":\"vscode\",\"pageSize\":10},{\"operation\":\"code\",\"keywords\":[\"class AbstractKeybindingService\"],\"owner\":\"microsoft\",\"repo\":\"vscode\",\"pageSize\":10}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:33.603Z",
+  "endedAt": "2026-09-18T08:26:33.843Z",
+  "elapsedMs": 238,
+  "exitCode": 2,
+  "signal": null,
+  "stdoutSha256": "482e679e2d66d43464f8d8b9005f5f0b519d436c2c17cf9c3d1439127f740244",
+  "stdoutBytes": 322,
+  "requestSha256": null
+}

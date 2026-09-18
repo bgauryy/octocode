@@ -4,7 +4,7 @@ import { getCurrentPlanReadModel, renderPlanContext } from './plan-read-model.js
 import { emitCompactionCheckpoint, type CompactionCheckpointDetails } from './custom-messages.js';
 import { writeCompactionArtifact } from './compaction-artifacts.js';
 import { clearAllReadStates } from './file-state.js';
-import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 import { createSessionArtifactContext, writeRehydrationLedger } from './session-artifacts.js';
 import { listPendingInteractionIds, listPendingInteractions } from './interaction-broker.js';
 import { clearPendingRehydration, runAndRecordRehydration } from './rehydration-orchestrator.js';
@@ -331,7 +331,19 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
       if (!preparation) return;
       const turnPrefixMessages = asArray(preparation.turnPrefixMessages);
       const isSplitTurn = preparation.isSplitTurn === true || turnPrefixMessages.length > 0;
-      if (!isSplitTurn) return;
+      if (!isSplitTurn) {
+        // Threshold compaction after a completed turn with no active plan and no
+        // pending decisions adds no recovery value — work is done. Cancel it to
+        // avoid redundant LLM summarization. Manual and overflow are always honoured.
+        if (event.reason === 'threshold' && !event.willRetry) {
+          const scope = activePlanScope(ctx);
+          const hasActivePlan = getPlan(scope).length > 0;
+          let hasPendingDecisions = false;
+          try { hasPendingDecisions = listPendingInteractions(ctx).length > 0; } catch { /* best-effort */ }
+          if (!hasActivePlan && !hasPendingDecisions) return { cancel: true };
+        }
+        return;
+      }
       // The deterministic checkpoint is an EMERGENCY path only: on overflow the
       // provider summarization call can itself overflow/fail, so a fast local
       // checkpoint beats losing the compaction entirely. Manual and threshold

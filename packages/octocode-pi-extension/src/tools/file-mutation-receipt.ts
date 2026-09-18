@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FileSnapshot } from '@octocodeai/octocode-extension-rust';
 import { forgetFileReadState, recordFileReadStateFromContent } from './file-state.js';
-import { markOwnWrite } from './peer-wip.js';
 
 export interface FileMutationReceiptV1 {
   version: 1;
@@ -74,7 +73,5 @@ export async function finishFileMutation(absolutePath: string, content?: string)
     forgetFileReadState(absolutePath);
     if (content !== undefined) await recordFileReadStateFromContent(absolutePath, content);
   } catch (error) { warnings.push(`File committed; read state refresh failed: ${error instanceof Error ? error.message : String(error)}`); }
-  try { markOwnWrite(absolutePath); }
-  catch (error) { warnings.push(`File committed; status update failed: ${error instanceof Error ? error.message : String(error)}`); }
   return warnings;
 }

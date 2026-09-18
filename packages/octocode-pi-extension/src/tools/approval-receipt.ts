@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { PiContext } from '../types.js';
-import type { ApprovalClass, PermissionLevel } from '@octocodeai/agent-contracts/protocols';
+import type { ApprovalClass, PermissionLevel } from '../contracts/protocols.js';
 import { emitExecution } from './execution-runtime.js';
 import { executionLabel } from './execution-presentation.js';
 

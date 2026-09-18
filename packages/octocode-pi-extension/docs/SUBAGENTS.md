@@ -104,17 +104,17 @@ full roster and settled results. See [the UI contract](UI.md).
 
 ## Durable peer communication
 
-Awareness `signal` and `handoff` persist cross-host coordination in the shared ledger. Cooperating agents need the same physical database and distinct stable agent IDs. Each uses its physical checkout; linked Git worktrees share peers, signals and memory while work and verification stay local to the checkout. Pi workers use the native `awareness` tool with host-supplied context; external CLI hosts preserve equivalent store bindings. Names and vendor labels are self-reported metadata, not routing IDs or authority.
+Awareness Message operations persist cross-host coordination in the shared ledger. Cooperating agents need the same physical database and distinct stable agent IDs. Each uses its physical checkout; linked Git worktrees share peers, messages, and memory while work and verification stay local to the checkout. Pi workers use the native `awareness` tool with host-supplied context; external CLI hosts preserve equivalent store bindings. Names and vendor labels are self-reported metadata, not routing IDs or authority.
 
 ```bash
-npx @octocodeai/octocode-awareness signal publish \
+npx @octocodeai/octocode-awareness message send \
   --db "$AWARENESS_DB" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" \
   --to-agent "$PEER_AGENT_ID" --kind question --subject "<summary>" --body "<request>"
-npx @octocodeai/octocode-awareness signal list \
+npx @octocodeai/octocode-awareness message list \
   --db "$AWARENESS_DB" --workspace "$PWD" --agent-id "$OCTOCODE_AGENT_ID" --include-bodies
 ```
 
-Use `signal reply --in-reply-to <signal-id>` for the existing thread, acknowledge handled rows, and resolve only when no response or work remains. Follow returned executable continuations. These commands inspect and record coordination; they do not start a peer turn. Use the `agent` facade for urgent parent-worker control. Reuse native lifecycle records and run the closing `verify audit` against your own identity in the same store.
+Use `message reply --in-reply-to <message-id>` for the existing thread and `message resolve` only when no response or work remains. Follow returned executable continuations. These operations do not start a peer turn; use the `agent` facade for urgent parent-worker control. Reuse native lifecycle records and audit owned debt with `work verify --action audit` in the same store.
 
 ## Isolation
 
@@ -124,7 +124,6 @@ Use `profile:"custom"` with `resourceMode:"lean"` and `tools:[]` for a parent-on
 
 ```text
 agent({queries:[{
-  reasoning:"Delegate an independent evidence-gathering lane.",
   type:"spawn",
   profile:"researcher",
   goal:"Identify the exact caller and contract.",
@@ -136,6 +135,6 @@ agent({queries:[{
 }]})
 → agentId: "abc123"
 
-agent({queries:[{reasoning:"Collect the worker turn.",type:"wait",agentId:"abc123",timeoutMs:60000}]})
-agent({queries:[{reasoning:"Free the completed worker process.",type:"kill",agentId:"abc123",remove:true}]})
+agent({queries:[{type:"wait",agentId:"abc123",timeoutMs:60000}]})
+agent({queries:[{type:"kill",agentId:"abc123",remove:true}]})
 ```

@@ -392,6 +392,25 @@ const TOOL_RESULT_SHAPES: Record<string, () => CallToolResult> = {
     },
   }),
 
+  astRewrite: () => ({
+    content: [
+      {
+        type: 'text',
+        text: `Rewrite preview includes ${SECRETS.GITHUB_TOKEN}`,
+      },
+    ],
+    structuredContent: {
+      results: [
+        {
+          index: 0,
+          data: {
+            patch: `-const token = "${SECRETS.STRIPE_KEY}";`,
+          },
+        },
+      ],
+    },
+  }),
+
   lspSearch: () => ({
     content: [
       {

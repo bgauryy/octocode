@@ -25,7 +25,10 @@ describe('ContentSanitizer.sanitizeContent', () => {
   });
 
   it('detects and redacts a GitHub PAT', () => {
-    const r = ContentSanitizer.sanitizeContent(`key=${FAKE_GH_TOKEN}`, undefined);
+    const r = ContentSanitizer.sanitizeContent(
+      `key=${FAKE_GH_TOKEN}`,
+      undefined
+    );
     expect(r.hasSecrets).toBe(true);
     expect(r.secretsDetected.length).toBeGreaterThan(0);
     expect(r.content).not.toContain(FAKE_GH_TOKEN);
@@ -34,7 +37,11 @@ describe('ContentSanitizer.sanitizeContent', () => {
 
   it('applies extra JS patterns from the registry', () => {
     securityRegistry.addSecretPatterns([
-      { name: 'custom-key', description: 'custom-key test pattern', regex: /MYKEY-[A-Z]{8}/g },
+      {
+        name: 'custom-key',
+        description: 'custom-key test pattern',
+        regex: /MYKEY-[A-Z]{8}/g,
+      },
     ]);
     const r = ContentSanitizer.sanitizeContent('config MYKEY-ABCDEFGH here');
     // Custom pattern is applied in the JS layer — secret should be detected.
@@ -52,18 +59,26 @@ describe('ContentSanitizer.sanitizeContent', () => {
       },
     ]);
     // Should redact when filePath matches .env
-    const r1 = ContentSanitizer.sanitizeContent('MYSECRET-HELLO', '/project/.env');
+    const r1 = ContentSanitizer.sanitizeContent(
+      'MYSECRET-HELLO',
+      '/project/.env'
+    );
     expect(r1.secretsDetected).toContain('env-secret');
 
     // Should NOT redact when filePath does not match
-    const r2 = ContentSanitizer.sanitizeContent('MYSECRET-HELLO', '/project/main.ts');
+    const r2 = ContentSanitizer.sanitizeContent(
+      'MYSECRET-HELLO',
+      '/project/main.ts'
+    );
     expect(r2.secretsDetected).not.toContain('env-secret');
   });
 });
 
 describe('ContentSanitizer.validateInputParameters', () => {
   it('returns valid result for a clean string param', () => {
-    const r = ContentSanitizer.validateInputParameters({ query: 'hello world' });
+    const r = ContentSanitizer.validateInputParameters({
+      query: 'hello world',
+    });
     expect(r.isValid).toBe(true);
     expect(r.hasSecrets).toBe(false);
     expect(r.sanitizedParams['query']).toBe('hello world');
@@ -97,7 +112,9 @@ describe('ContentSanitizer.validateInputParameters', () => {
   });
 
   it('detects secrets nested in a string param', () => {
-    const r = ContentSanitizer.validateInputParameters({ key: `token=${FAKE_GH_TOKEN}` });
+    const r = ContentSanitizer.validateInputParameters({
+      key: `token=${FAKE_GH_TOKEN}`,
+    });
     expect(r.hasSecrets).toBe(true);
     expect(r.warnings.some(w => w.includes('key'))).toBe(true);
     // Sanitized value must not contain the raw token.
@@ -138,7 +155,10 @@ describe('ContentSanitizer.validateInputParameters', () => {
   });
 
   it('passes non-string primitives through unchanged', () => {
-    const r = ContentSanitizer.validateInputParameters({ count: 42, flag: true });
+    const r = ContentSanitizer.validateInputParameters({
+      count: 42,
+      flag: true,
+    });
     expect(r.sanitizedParams['count']).toBe(42);
     expect(r.sanitizedParams['flag']).toBe(true);
   });

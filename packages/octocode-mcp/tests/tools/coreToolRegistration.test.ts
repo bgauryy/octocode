@@ -7,6 +7,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ALL_TOOLS as CORE_ALL_TOOLS } from '@octocodeai/octocode-tools-core';
 import {
+  AST_REWRITE_TOOL_NAME,
   GITHUB_SEARCH_TOOL_NAME,
   STATIC_TOOL_NAMES,
 } from '@octocodeai/octocode-core/schema';
@@ -150,6 +151,7 @@ describe('core-driven MCP tool registration', () => {
   it.each([
     STATIC_TOOL_NAMES.GITHUB_CLONE_REPO,
     STATIC_TOOL_NAMES.GITHUB_FETCH_CONTENT,
+    GITHUB_SEARCH_TOOL_NAME,
   ])('marks cache-materializing %s as not read-only', async toolName => {
     vi.resetModules();
     const { ALL_TOOLS } = await import('../../src/tools/toolConfig.js');
@@ -162,6 +164,31 @@ describe('core-driven MCP tool registration', () => {
     expect(mcp.registrations[0]?.options.annotations).toMatchObject({
       readOnlyHint: false,
     });
+  });
+
+  it('publishes canonical astRewrite safety annotations and output schema', async () => {
+    const coreTool = CORE_ALL_TOOLS.find(
+      tool => tool.name === AST_REWRITE_TOOL_NAME
+    );
+    expect(coreTool).toBeDefined();
+    const { ALL_TOOLS } = await import('../../src/tools/toolConfig.js');
+    const tool = ALL_TOOLS.find(item => item.name === AST_REWRITE_TOOL_NAME);
+    expect(tool).toBeDefined();
+
+    const mcp = createMockMcpServer();
+    tool!.fn(mcp.server);
+
+    expect(mcp.registrations[0]?.options.annotations).toEqual(
+      coreTool!.annotations
+    );
+    expect(mcp.registrations[0]?.options.annotations).toMatchObject({
+      destructiveHint: true,
+      readOnlyHint: false,
+      idempotentHint: false,
+    });
+    expect(mcp.registrations[0]?.options.outputSchema).toBe(
+      coreTool!.outputSchema
+    );
   });
 
   it('batches isolated registration failures and summarizes their messages', async () => {

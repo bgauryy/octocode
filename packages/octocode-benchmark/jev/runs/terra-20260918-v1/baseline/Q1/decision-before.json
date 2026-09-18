@@ -1,0 +1,1 @@
+{"hypotheses":["getRouteRegex is in Next's shared router utilities and calls a route-parameter helper."],"currentDirection":"Read the known canary file and confirm return-object fields.","uncertainty":"Exact helper name and all top-level fields.","plannedNextCheck":"Fetch likely route-regex source on canary."}

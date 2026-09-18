@@ -68,7 +68,7 @@ export interface RuntimeNotice {
 export interface RuntimeContextState {
   /** Projection readiness; provider cache hits are separate usage receipts. */
   status: 'pending' | 'ready' | 'stale';
-  mode: 'exact' | 'compact';
+  mode: 'routing';
   systemPromptChars: number;
   mcpChars: number;
   dynamicChars: number;
@@ -91,10 +91,6 @@ export interface RuntimeFooterState {
   activeTurnStartedAt?: number;
   lastTurnMs?: number;
   completedTurns: number;
-  gitDirty?: boolean;
-  gitDirtyFiles?: number;
-  gitAdditions?: number;
-  gitDeletions?: number;
   usage?: { tokens?: number; contextWindow: number };
   githubAuth: { status: 'checking' | 'authenticated' | 'missing' | 'error'; source?: string; message?: string };
 }
@@ -159,7 +155,7 @@ function initialState(): Pick<RuntimeState, 'generation' | 'phase' | 'stage' | '
     },
     context: {
       status: 'pending',
-      mode: 'exact',
+      mode: 'routing',
       systemPromptChars: 0,
       mcpChars: 0,
       dynamicChars: 0,

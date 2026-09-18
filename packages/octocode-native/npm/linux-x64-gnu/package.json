@@ -1,0 +1,31 @@
+{
+  "name": "@octocodeai/octocode-native-linux-x64-gnu",
+  "description": "octocode-native CLI — linux-x64-gnu (Linux x64, glibc)",
+  "version": "0.1.0",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "cpu": [
+    "x64"
+  ],
+  "os": [
+    "linux"
+  ],
+  "files": [
+    "octocode",
+    "octocode-regex-worker",
+    "README.md",
+    "octocode-native.linux-x64-gnu.node"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-native"
+  },
+  "scripts": {
+    "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"
+  },
+  "main": "./octocode-native.linux-x64-gnu.node"
+}

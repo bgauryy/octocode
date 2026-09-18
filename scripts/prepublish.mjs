@@ -23,7 +23,7 @@
  *   node ./scripts/prepublish.mjs --dry-run  # preview fixes without writing
  *
  * Root publish flow:
- *   "prepublish": "node ./scripts/prepublish.mjs && node ./packages/octocode/scripts/check-no-workspace-protocol.mjs && yarn readme:sync"
+ *   "prepublish": "node ./scripts/prepublish.mjs && node ./packages/octocode/scripts/check-no-workspace-protocol.mjs"
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';

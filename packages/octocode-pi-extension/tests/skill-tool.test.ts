@@ -13,7 +13,7 @@ import {
   resetSkillUsageForTests,
 } from '../src/tools/skill-tool.js';
 import { discoverSkillStates, discoverSkills, discoverSkillCandidates } from '../src/tools/skill-discovery.js';
-import { setSkillEnabled } from '@octocodeai/agent-contracts/mcp-state';
+import { setSkillEnabled } from '../src/contracts/mcp-state.js';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { renderAvailableSkillsAddendum } from '../src/tools/skill-catalog.js';
@@ -203,7 +203,7 @@ test('registered skill tool loads the bundled Awareness instructions when no use
     assert.equal(loaded.isError ?? false, false, text);
     assert.match(text, /skill: octocode-awareness \[bundled\]/);
     assert.match(text, /# Awareness/);
-    assert.match(text, /verify audit/);
+    assert.match(text, /work\.verify/);
     assert.equal(getSkillUsage().get('octocode-awareness')?.count, 1);
   } finally {
     assetPaths.mockRestore();
@@ -266,12 +266,11 @@ test('queries must be a non-empty array — top-level validation', async () => {
   assert.equal(r2.isError, true);
 });
 
-test('each query requires non-empty reasoning', async () => {
+test('batch labels are optional', async () => {
   const cwd = tmpWorkspace();
   const def = await makeTool();
   const r = await run(def, q([{ type: 'load', action: 'list' }]), cwd);
-  assert.equal(r.isError, true);
-  assert.match((r.content[0] as { text: string }).text, /reasoning/);
+  assert.equal(r.isError ?? false, false);
 });
 
 test('type:load action:load returns SKILL.md content, directory, and shipped files; records usage', async () => {
@@ -306,7 +305,7 @@ test('partial skill content and file lists recover completely through executable
     const details = res.details as {
       isPartial: boolean; partialReasons: string[]; files: string[];
       content: { returnedChars: number };
-      next: Record<string, { tool: string; query: { queries: Array<{ action: string; server: string; tool: string; arguments: { queries: Record<string, unknown>[] } }> } }>;
+      next: Record<string, { tool: string; query: { queries: Array<{ action: string; server?: string; tool: string; arguments: { queries: Record<string, unknown>[] } }> } }>;
     };
     assert.equal(details.isPartial, true);
     assert.ok(details.partialReasons.includes('content-limit'));
@@ -330,7 +329,7 @@ test('partial skill content and file lists recover completely through executable
       assert.equal(next.tool, 'MCPTool');
       const call = next.query.queries[0]!;
       assert.equal(call.action, 'call');
-      assert.equal(call.server, 'octocode');
+      assert.equal(call.server, undefined, 'Octocode is the implicit MCP server');
       return { tool: call.tool, query: call.arguments.queries[0]! };
     };
     let contentNext: { tool: string; query: Record<string, unknown> } | undefined = unwrap('content');
@@ -375,7 +374,7 @@ test('type:load action:load requires a user-visible trigger reason', async () =>
   const def = await makeTool();
   const res = await run(def, q([{ reasoning: 'Testing.', type: 'load', action: 'load', name: 'demo-flow' }]), cwd);
   assert.equal(res.isError, true);
-  assert.match((res.content[0] as { text: string }).text, /requires reason explaining why it matches the current task/);
+  assert.match((res.content[0] as { text: string }).text, /requires reason describing why the workflow matches/);
 });
 
 test('type:load action:load on unknown name errors with the available catalog', async () => {

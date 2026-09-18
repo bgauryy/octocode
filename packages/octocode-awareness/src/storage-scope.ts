@@ -1,11 +1,18 @@
 import { join, resolve } from 'node:path';
-import { getOctocodeHome } from '@octocodeai/agent-contracts/paths';
+import { getOctocodeHome } from '@octocodeai/config';
 
 export type AwarenessStorageScope = 'repo' | 'global';
 export const DEFAULT_AWARENESS_STORAGE_SCOPE: AwarenessStorageScope = 'global';
 
 export const AWARENESS_APPLICATION_ID = 0x4f435431;
-export const AWARENESS_DB_FILENAME = 'awareness.sqlite3';
+/**
+ * One schema generation owns both the persisted metadata version and default
+ * filename. A breaking DDL change must bump this value so default opens start
+ * a fresh store instead of applying a new fingerprint to an older database.
+ */
+export const AWARENESS_SCHEMA_VERSION = 5;
+export const AWARENESS_MIGRATABLE_SCHEMA_VERSIONS = [3, 4] as const;
+export const AWARENESS_DB_FILENAME = `awareness-v${AWARENESS_SCHEMA_VERSION}.sqlite3`;
 
 export function parseStorageScope(
   value: string | null | undefined,

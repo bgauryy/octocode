@@ -3,7 +3,7 @@ import { queryMemory, attachMemoryEvidence } from './memory-recall.js';
 import { bumpAccess } from './memory-write.js';
 import { searchByEmbedding, storeEmbedding, embeddingCandidateCount, EMBEDDING_CANDIDATE_LIMIT } from './memory-embeddings.js';
 import { memoryRecallBounds } from './memory-limits.js';
-import { resolveEmbedCommand, runHostEmbedder } from '@octocodeai/agent-contracts/embed';
+import { resolveEmbedCommand, runHostEmbedder } from './embed.js';
 import type { GetMemoryParams, GetMemoryResult } from './types/identity-memory.js';
 
 export type StoreMemoryEmbeddingResult =

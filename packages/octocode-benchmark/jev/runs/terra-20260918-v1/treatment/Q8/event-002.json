@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q8",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"microsoft\",\"repo\":\"vscode\",\"path\":\"src/vs/workbench/services/keybinding/browser/keybindingService.ts\",\"matchString\":\"class WorkbenchKeybindingService\",\"contextLines\":8},{\"owner\":\"microsoft\",\"repo\":\"vscode\",\"path\":\"src/vs/platform/keybinding/common/abstractKeybindingService.ts\",\"matchString\":\"dispatchEvent\",\"contextLines\":12}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:31:56.202Z",
+  "endedAt": "2026-09-18T08:31:57.922Z",
+  "elapsedMs": 1719,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "f915cc537a30bc2545a2a2b4cb93892e087f45b1b13796b8de54e3c5bf584a5f",
+  "stdoutBytes": 3679,
+  "requestSha256": null
+}

@@ -66,7 +66,7 @@ test('ensureWebEnv calls propagateOctocodeEnv exactly once across multiple execu
   assert.equal(propagateOctocodeEnv.mock.calls.length, 1, 'must be idempotent — called only on first execute()');
 });
 
-test('schema only exposes queries at the top level with per-query reasoning', async () => {
+test('schema only exposes queries at the top level with optional per-query labels', async () => {
   const { tool } = await loadRegisteredWebTool({});
   const schema = tool.parameters as {
     properties?: Record<string, unknown>;
@@ -77,14 +77,14 @@ test('schema only exposes queries at the top level with per-query reasoning', as
     assert.deepEqual(Object.keys(schema.properties ?? {}), ['queries', 'queryRunType']);
     assert.deepEqual((schema.properties?.['queryRunType'] as { enum?: string[] })?.enum, ['sequential', 'parallel']);
   assert.ok((schema.required ?? []).includes('queries'));
-  // Per-query items include reasoning and web fields
+  // Per-query items include an optional label and web fields
   const queriesSchema = schema.properties?.['queries'] as {
     items?: { properties?: Record<string, unknown>; required?: string[] };
   };
   assert.ok(queriesSchema?.items?.properties?.['reasoning']);
   assert.ok(queriesSchema?.items?.properties?.['url']);
   assert.ok(queriesSchema?.items?.properties?.['query']);
-  assert.ok((queriesSchema?.items?.required ?? []).includes('reasoning'));
+  assert.ok(!(queriesSchema?.items?.required ?? []).includes('reasoning'));
 });
 
 test('registerWebTool registers schema and executes through runWebTool', async () => {
@@ -99,8 +99,8 @@ test('registerWebTool registers schema and executes through runWebTool', async (
   assert.match(tool.description!, /Browse the live web/);
   const guidance = [tool.description, ...(tool.promptGuidelines ?? [])].join('\n');
   assert.doesNotMatch(guidance, /exactly one/i);
-  assert.match(guidance, /url or query.*both.*url takes precedence/is);
-  assert.match(guidance, /omit engine.*auto.*available/i);
+  assert.match(guidance, /url takes precedence over query/i);
+  assert.match(guidance, /omit engine for auto-select/i);
 
   const ac = new AbortController();
   const result = await tool.execute('call-1', {

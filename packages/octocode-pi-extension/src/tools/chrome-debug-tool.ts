@@ -59,11 +59,10 @@ export function registerChromeDebugTool(
     description: DESCRIPTION,
     promptSnippet: 'Connect to Chrome DevTools Protocol to debug, inspect, and control a live browser',
     promptGuidelines: [
-      'Choose the smallest scheme that answers the question; use scheme:"debug" for a combined pass when the failure boundary is unknown.',
-      'scheme:"raw" method:"Domain.Method" runs ANY CDP call; the domain is auto-enabled before the call.',
-      'Schemes add Debugger.setSkipAllPauses and a dialog guard. These runtime changes do not authorize navigation or other page effects.',
-      'Pass launch:true to start a fresh Chrome on the given port; each port gets its own profile dir.',
-      'Screenshots are stored under the private session browser/screenshots directory; use the returned artifact path. Set OCTOCODE_CDP_DEBUG=1 for cdp-events.jsonl logs.',
+      'Use smallest scheme; scheme:"debug" for combined pass when failure boundary is unknown.',
+      'scheme:"raw" method:"Domain.Method" runs any CDP call; domain auto-enabled before call.',
+      'launch:true starts fresh Chrome on port; each port has its own profile dir.',
+      'Screenshots saved to private session browser/screenshots; use the returned artifact path.',
     ],
     parameters: (() => {
       const itemSchema = z.looseObject({
@@ -73,7 +72,7 @@ export function registerChromeDebugTool(
           'raw','memory','css-coverage','js-coverage','websocket',
           'service-worker','workers','accessibility','supply-chain','full-audit',
           'consent','scrape','login','emulate','inject','monitor',
-        ]).describe('Select the evidence or action needed; raw accepts a CDP Domain.method not covered by a scheme.'),
+        ]).describe('Evidence/action scheme; raw accepts any CDP Domain.method.'),
         action: z.enum(['observe','capture','navigate','interact','wait','breakpoint',
           'resume','screenshot','eval','list-targets','attach','cleanup','raw']).optional()
           .describe('Verb within the scheme. Most schemes default to observe.'),
@@ -116,22 +115,20 @@ export function registerChromeDebugTool(
         targetType: z.string().optional().describe('Attach to a target of this type (page, worker, …).'),
         newTab: z.string().optional().describe('Open a new tab at this URL.'),
         keepTab: z.boolean().optional().describe('Keep the target alive after the call. Default: true.'),
-        launch: z.boolean().optional().describe('Launch Chrome if not already running on the port. Always uses a non-default --user-data-dir (Chrome ≥136 requirement).'),
+        launch: z.boolean().optional().describe('Launch Chrome on port; uses non-default --user-data-dir (Chrome ≥136).'),
         headless: z.boolean().optional().describe('Launch Chrome headless. Default: false (visible).'),
         stealth: z.boolean().optional().describe('Inject stealth evasions before navigation.'),
-        bypassCSP: z.boolean().optional().describe('Bypass Content-Security-Policy before script injection. Required for scheme:"inject" on CSP-protected sites.'),
-        scriptSource: z.string().optional().describe('JavaScript source to inject via scheme:"inject"/"raw". Runs before any page script.'),
-        scriptFile: z.string().optional().describe('Absolute path to a local .mjs file whose exported *SCRIPT constant (or full text) is injected.'),
-        depth: z.number().int().optional().describe('Max results to return for scheme:"scrape" (default 50) or AX tree depth for scheme:"accessibility" (default -1 = full).'),
+        bypassCSP: z.boolean().optional().describe('Bypass CSP before injection; required for scheme:"inject" on CSP-protected sites.'),
+        scriptSource: z.string().optional().describe('JS for scheme:"inject"/"raw". Runs before page scripts.'),
+        scriptFile: z.string().optional().describe('Abs .mjs path; its *SCRIPT export (or full text) is injected.'),
+        depth: z.number().int().optional().describe('scheme:"scrape" results (default 50) or scheme:"accessibility" AX depth (default -1=full).'),
         xpath: z.string().optional().describe('XPath expression for scheme:"scrape". Evaluated alongside selector.'),
         cleanup: z.boolean().optional().describe('Close tabs opened by this call and, if the tool launched Chrome, terminate it.'),
         method: z.string().optional().describe('CDP Domain.method for scheme:"raw". Example: "Network.getCookies".'),
         params: z.record(z.string(), z.unknown()).optional().describe('CDP params object for scheme:"raw".'),
         sessionId: z.string().optional().describe('Route to a worker/iframe CDP session.'),
       });
-      return buildQueryEnvelopeSchema(itemSchema, {
-        reasoningDescription: 'Concise reason this Chrome DevTools Protocol operation is necessary.',
-      });
+      return buildQueryEnvelopeSchema(itemSchema);
     })(),
 
     async execute(

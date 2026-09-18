@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40590",
+  "kind": "octocode",
+  "args": [
+    "ghSearchHistory",
+    "--queries",
+    "[{\"reasoning\":\"Search accepted history for ChatGroq n validation and provider n limitations.\",\"operation\":\"pullRequests\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"ChatGroq n validation\"],\"state\":\"merged\",\"pageSize\":20},{\"reasoning\":\"Search issue history for ChatGroq n provider behavior and alternate compatibility intent.\",\"operation\":\"issues\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"ChatGroq n\"],\"state\":\"open\",\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:14.446Z",
+  "endedAt": "2026-09-18T08:56:17.805Z",
+  "elapsedMs": 3358,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "244ca554885f270650ca13b940bf9b2217a2c0481198b2a2361527579132fd42",
+  "requestSha256": null
+}

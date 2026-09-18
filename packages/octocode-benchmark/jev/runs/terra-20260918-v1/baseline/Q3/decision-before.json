@@ -1,0 +1,1 @@
+{"hypotheses":["Flask's route decorator belongs to Scaffold and commit adds endpoint registration behavior."],"currentDirection":"Read current decorator definition and exact commit diff.","uncertainty":"Owning class and behavior evidenced by changed lines.","plannedNextCheck":"Fetch scaffold source and commit 705e5268."}

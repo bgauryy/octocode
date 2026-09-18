@@ -15,6 +15,7 @@ const CACHE_WORKFLOWS = {
     'localSearch',
     'localFetch',
     'astSearch',
+    'astRewrite',
     'lspSearch',
   ],
 } as const;

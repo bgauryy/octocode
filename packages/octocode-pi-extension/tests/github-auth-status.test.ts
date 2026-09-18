@@ -58,7 +58,7 @@ test('probeGitHubAuth runs the read-only Octocode CLI check with a timeout', asy
   assert.deepEqual(state, { status: 'authenticated', source: 'env' });
   assert.deepEqual(calls, [{
     command: 'npx',
-    args: ['octocode', 'auth', 'status', '--json'],
+    args: ['-y', 'octocode', 'auth', 'status', '--json'],
     timeout: 10_000,
   }]);
 });

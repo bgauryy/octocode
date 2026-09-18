@@ -8,203 +8,74 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
+import { logInternalError } from '../../internal-error-log.js';
 import { transitionPlan, transitionPlanTo, type PlanCommand, type PlanPhase } from '../plan-domain.js';
 import {
   compareAndSwapPlanProjection,
-  createSessionArtifactContext,
   readPlanProjection,
   writePlanBranchSnapshot,
   type PlanBranchSnapshotV1,
-  type SessionIdentityInput,
 } from '../session-artifacts.js';
+import {
+  cleanContractText,
+  cleanDecision,
+  dependencyIdsFromIndexes,
+  MAX_PLAN_STEPS,
+  normalizeInput,
+} from './plan-normalization.js';
+import {
+  artifactContextForScope,
+  releasePlanScopeBinding,
+  workspaceForPlanScope,
+  type PlanScope,
+} from './plan-scope.js';
+import {
+  readCoordinationFromStored,
+  readDecisionsFromStored,
+  readLifecycleFromStored,
+  readRfcFromStored,
+  reviewMetadataFromStored,
+  sanitizeStoredPlan,
+  type PlanStored,
+} from './plan-serialization.js';
+import { PlanStateRepository } from './plan-state-repository.js';
 import { depsMet } from './plan-types.js';
 import type {
-  ActivePlanContext,
   CurrentRfcRevision,
   PlanCoordination,
   PlanCoordinationMode,
   PlanDecision,
-  PlanReviewComment,
   PlanReviewTransitionCode,
   PlanReviewTransitionResult,
   PlanStep,
-  RfcResolution,
-  ReviewQuestion,
   ReviewState,
   StepInput,
 } from './plan-types.js';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+export { activePlanScope, artifactContextForScope, type PlanScope } from './plan-scope.js';
 
-const MAX_STEPS = 40;
-const MAX_STEP_CHARS = 160;
 const MAX_DECISIONS = 20;
-const MAX_DECISION_CHARS = 300;
-const MAX_REVIEW_ITEMS = 100;
-const MAX_REVIEW_TEXT_CHARS = 8_000;
 
-// ─── In-memory Maps ───────────────────────────────────────────────────────────
-
-/** Keyed by session scope (cwd + Pi session file when available). */
-const plans = new Map<string, PlanStep[]>();
-const planLifecycle = new Map<string, PlanPhase>();
-const planReview = new Map<string, Omit<ReviewState, 'phase' | 'rfcPath' | 'decisions'>>();
-const planRfc = new Map<string, string>();
-const planDecisions = new Map<string, PlanDecision[]>();
-const planCoordination = new Map<string, PlanCoordination>();
-const loaded = new Set<string>();
+const state = new PlanStateRepository();
+const {
+  plans,
+  lifecycle: planLifecycle,
+  review: planReview,
+  rfc: planRfc,
+  decisions: planDecisions,
+  coordination: planCoordination,
+  loaded,
+  cleared: clearedScopes,
+  turnsSinceUpdate,
+  persistenceFailures,
+} = state;
 
 // ─── Internal interfaces ──────────────────────────────────────────────────────
-
-interface PlanStored {
-  version: 4;
-  cleared: boolean;
-  outcomeReason?: string;
-  scope: string;
-  steps: PlanStep[];
-  phase?: PlanPhase;
-  rfcPath?: string;
-  revision?: string;
-  acceptedRevision?: string;
-  acceptAuthorizationReceiptId?: string;
-  startAuthorizationReceiptId?: string;
-  acceptedAt?: string;
-  startedAt?: string;
-  decisions?: PlanDecision[];
-  blockingQuestions?: ReviewQuestion[];
-  comments?: PlanReviewComment[];
-  coordination?: PlanCoordination;
-  branchSnapshotId?: string;
-  generation?: number;
-  updatedAt: string;
-}
 
 interface PlanSnapshotMeta {
   snapshotId: string;
   generation: number;
   capturedAt: string;
-}
-
-interface ScopeBinding {
-  identityInput: SessionIdentityInput;
-}
-
-const scopeBindings = new Map<string, ScopeBinding>();
-const clearedScopes = new Set<string>();
-
-// ─── Scope management ─────────────────────────────────────────────────────────
-
-export function activePlanScope(ctx?: ActivePlanContext): string {
-  const cwd = ctx?.cwd ?? process.cwd();
-  const sessionId = ctx?.sessionManager?.getSessionId?.()?.trim();
-  const sessionFile = ctx?.sessionManager?.getSessionFile?.()?.trim();
-  const scope = sessionId
-    ? `${cwd}\0id:${sessionId}`
-    : sessionFile
-      ? `${cwd}\0${sessionFile}`
-      : cwd;
-  scopeBindings.set(scope, { identityInput: { cwd, sessionManager: ctx?.sessionManager } });
-  return scope;
-}
-
-function bindingForScope(scope: string): ScopeBinding {
-  const known = scopeBindings.get(scope);
-  if (known) return known;
-  const separator = scope.indexOf('\0');
-  if (separator < 0) return { identityInput: { cwd: scope } };
-  const cwd = scope.slice(0, separator);
-  const discriminator = scope.slice(separator + 1);
-  if (discriminator.startsWith('id:')) {
-    const sessionId = discriminator.slice(3);
-    return { identityInput: { cwd, sessionManager: { getSessionId: () => sessionId } } };
-  }
-  return {
-    identityInput: { cwd, sessionManager: { getSessionFile: () => discriminator } },
-  };
-}
-
-export function artifactContextForScope(scope: string) {
-  return createSessionArtifactContext(bindingForScope(scope).identityInput);
-}
-
-// ─── Private helpers ──────────────────────────────────────────────────────────
-
-export function cleanContractText(value: unknown, max = 2_000): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const text = value.replace(/\s+/g, ' ').trim();
-  return text ? text.slice(0, max) : undefined;
-}
-
-function cleanPaths(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const out = [...new Set(value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))].slice(0, 100);
-  return out.length ? out : undefined;
-}
-
-function cleanDeps(deps: unknown): number[] | undefined {
-  if (!Array.isArray(deps)) return undefined;
-  const out = deps.filter((d): d is number => Number.isInteger(d) && (d as number) >= 1).slice(0, MAX_STEPS);
-  return out.length ? out : undefined;
-}
-
-function cleanStepIds(ids: unknown): string[] | undefined {
-  if (!Array.isArray(ids)) return undefined;
-  const out = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim()))].slice(0, MAX_STEPS);
-  return out.length ? out : undefined;
-}
-
-function clean(text: string): string {
-  const oneLine = String(text ?? '').replace(/\s+/g, ' ').trim();
-  return oneLine.length > MAX_STEP_CHARS ? `${oneLine.slice(0, MAX_STEP_CHARS - 1)}…` : oneLine;
-}
-
-function cleanDecision(text: string): string {
-  const oneLine = String(text ?? '').replace(/\s+/g, ' ').trim();
-  return oneLine.length > MAX_DECISION_CHARS ? `${oneLine.slice(0, MAX_DECISION_CHARS - 1)}…` : oneLine;
-}
-
-function cleanReviewText(value: unknown): string {
-  return typeof value === 'string' ? value.trim().slice(0, MAX_REVIEW_TEXT_CHARS) : '';
-}
-
-function readOptionalTimestamp(rec: Record<string, unknown>, key: string): string | undefined {
-  const val = rec[key];
-  return typeof val === 'string' && Number.isFinite(Date.parse(val)) ? val : undefined;
-}
-
-// ─── NormalizeInput (exported for plan-executor.ts) ──────────────────────────
-
-type NormalizedStepInput = Omit<PlanStep, 'status' | 'dependsOnStepIds' | 'awarenessTaskId'> & { dependsOn?: number[] };
-
-export function normalizeInput(step: StepInput): NormalizedStepInput {
-  if (typeof step === 'string') return { id: `step-${randomUUID()}`, text: clean(step) };
-  const text = clean(step.text);
-  const activeForm = step.activeForm ? clean(step.activeForm) : undefined;
-  const dependsOn = cleanDeps(step.dependsOn);
-  const paths = cleanPaths(step.paths);
-  const reasoning = cleanContractText(step.reasoning);
-  const acceptance = cleanContractText(step.acceptance);
-  const checkCommand = cleanContractText(step.checkCommand);
-  return {
-    id: `step-${randomUUID()}`,
-    text,
-    ...(activeForm ? { activeForm } : {}),
-    ...(dependsOn ? { dependsOn } : {}),
-    ...(paths ? { paths } : {}),
-    ...(reasoning ? { reasoning } : {}),
-    ...(acceptance ? { acceptance } : {}),
-    ...(checkCommand ? { checkCommand } : {}),
-  };
-}
-
-export function dependencyIdsFromIndexes(indexes: number[] | undefined, list: Array<{ id: string }>, ownId: string): string[] | undefined {
-  if (!indexes?.length) return undefined;
-  const ids = [...new Set(indexes.flatMap((index) => {
-    const dependency = list[index - 1];
-    return dependency && dependency.id !== ownId ? [dependency.id] : [];
-  }))];
-  return ids.length ? ids : undefined;
 }
 
 export function phaseAllowsExecution(phase: PlanPhase): boolean {
@@ -213,168 +84,18 @@ export function phaseAllowsExecution(phase: PlanPhase): boolean {
 
 // ─── Stored-plan reading helpers ──────────────────────────────────────────────
 
-function sanitizeStored(raw: unknown): PlanStep[] {
-  if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { steps?: unknown }).steps)) return [];
-  const record = raw as Record<string, unknown>;
-  if (record.version !== 4) return [];
-  const sourceSteps = record.steps as unknown[];
-  const out: PlanStep[] = [];
-  for (const item of sourceSteps) {
-    if (!item || typeof item !== 'object') continue;
-    const rec = item as Record<string, unknown>;
-    const id = cleanContractText(rec.id, 256);
-    const text = cleanContractText(rec.text);
-    if (!id || !text) continue;
-    const status = rec.status === 'todo' || rec.status === 'doing' || rec.status === 'done' ? rec.status : 'todo';
-    const activeForm = cleanContractText(rec.activeForm);
-    const dependsOnStepIds = cleanStepIds(rec.dependsOnStepIds);
-    const paths = cleanPaths(rec.paths);
-    const reasoning = cleanContractText(rec.reasoning);
-    const acceptance = cleanContractText(rec.acceptance);
-    const checkCommand = cleanContractText(rec.checkCommand);
-    const awarenessTaskId = cleanContractText(rec.awarenessTaskId, 256);
-    out.push({
-      id,
-      text,
-      status,
-      ...(activeForm ? { activeForm } : {}),
-      ...(dependsOnStepIds ? { dependsOnStepIds } : {}),
-      ...(paths ? { paths } : {}),
-      ...(reasoning ? { reasoning } : {}),
-      ...(acceptance ? { acceptance } : {}),
-      ...(checkCommand ? { checkCommand } : {}),
-      ...(awarenessTaskId ? { awarenessTaskId } : {}),
-    });
-    if (out.length >= MAX_STEPS) break;
-  }
-  return out;
-}
-
-function readQuestionsFromStored(raw: unknown): ReviewQuestion[] {
-  const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).blockingQuestions : undefined;
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item): ReviewQuestion[] => {
-    if (!item || typeof item !== 'object') return [];
-    const rec = item as Record<string, unknown>;
-    const id = cleanReviewText(rec.id);
-    const prompt = cleanReviewText(rec.prompt);
-    if (!id || !prompt) return [];
-    const answer = cleanReviewText(rec.answer);
-    return [{ id, prompt, blocking: rec.blocking !== false, ...(answer ? { answer } : {}) }];
-  }).slice(0, MAX_REVIEW_ITEMS);
-}
-
-function readCommentsFromStored(raw: unknown): PlanReviewComment[] {
-  const value = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).comments : undefined;
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item): PlanReviewComment[] => {
-    if (!item || typeof item !== 'object') return [];
-    const rec = item as Record<string, unknown>;
-    const id = cleanReviewText(rec.id);
-    const body = cleanReviewText(rec.body);
-    if (!id || !body) return [];
-    const section = cleanReviewText(rec.section);
-    return [{ id, body, blocking: rec.blocking !== false, resolved: rec.resolved === true, ...(section ? { section } : {}) }];
-  }).slice(0, MAX_REVIEW_ITEMS);
-}
-
-function readCoordinationFromStored(raw: unknown, scope: string): PlanCoordination {
-  const root = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  const value = root.coordination && typeof root.coordination === 'object'
-    ? root.coordination as Record<string, unknown>
-    : {};
-  const mode: PlanCoordinationMode = value.mode === 'required' || value.mode === 'local' ? value.mode : 'auto';
-  const sourcePlanKey = cleanContractText(value.sourcePlanKey, 256) ?? `pi-plan-${randomUUID()}`;
-  const coordinationWorkspace = cleanContractText(value.coordinationWorkspace, 2_000) ?? workspaceForScope(scope);
-  const localReason = cleanContractText(value.localReason);
-  const awarenessPlanId = cleanContractText(value.awarenessPlanId, 256);
-  const materializedRevision = cleanContractText(value.materializedRevision, 256);
-  return {
-    mode,
-    sourcePlanKey,
-    coordinationWorkspace,
-    ...(localReason ? { localReason } : {}),
-    ...(awarenessPlanId ? { awarenessPlanId } : {}),
-    ...(materializedRevision ? { materializedRevision } : {}),
-  };
-}
-
-function readRfcFromStored(raw: unknown): string | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const val = (raw as Record<string, unknown>).rfcPath;
-  return typeof val === 'string' && val.trim() ? val : undefined;
-}
-
-function readDecisionsFromStored(raw: unknown): PlanDecision[] | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const arr = (raw as Record<string, unknown>).decisions;
-  if (!Array.isArray(arr)) return undefined;
-  const out: PlanDecision[] = [];
-  for (const d of arr) {
-    if (!d || typeof d !== 'object') continue;
-    const rec = d as Record<string, unknown>;
-    const q = typeof rec.q === 'string' ? cleanDecision(rec.q) : '';
-    const a = typeof rec.a === 'string' ? cleanDecision(rec.a) : '';
-    if (!q || !a) continue;
-    out.push({ q, a });
-    if (out.length >= MAX_DECISIONS) break;
-  }
-  return out.length ? out : undefined;
-}
-
-const PLAN_PHASE_SET = new Set<PlanPhase>([
-  'researching', 'needs_answers', 'draft', 'in_review', 'accepted',
-  'executing', 'verifying', 'complete', 'blocked', 'failed', 'abandoned',
-]);
-
-function readLifecycleFromStored(raw: unknown): PlanPhase {
-  if (!raw || typeof raw !== 'object') return 'executing';
-  const rec = raw as Record<string, unknown>;
-  if (typeof rec.phase === 'string' && PLAN_PHASE_SET.has(rec.phase as PlanPhase)) return rec.phase as PlanPhase;
-  return 'executing';
-}
-
-function reviewMetadataFromStored(raw: unknown): Omit<ReviewState, 'phase' | 'rfcPath' | 'decisions'> {
-  if (!raw || typeof raw !== 'object') {
-    return { branchSnapshotId: `plan-${randomUUID()}`, generation: 0, blockingQuestions: [], comments: [] };
-  }
-  const rec = raw as Record<string, unknown>;
-  const branchSnapshotId = typeof rec.branchSnapshotId === 'string' && rec.branchSnapshotId.trim()
-    ? rec.branchSnapshotId
-    : `plan-${randomUUID()}`;
-  const generation = Number.isSafeInteger(rec.generation) && Number(rec.generation) >= 0 ? Number(rec.generation) : 0;
-  const revision = cleanContractText(rec.revision, 256);
-  const acceptedRevision = cleanContractText(rec.acceptedRevision, 256);
-  const acceptAuthorizationReceiptId = typeof rec.acceptAuthorizationReceiptId === 'string' && rec.acceptAuthorizationReceiptId.trim() ? rec.acceptAuthorizationReceiptId : undefined;
-  const startAuthorizationReceiptId = typeof rec.startAuthorizationReceiptId === 'string' && rec.startAuthorizationReceiptId.trim() ? rec.startAuthorizationReceiptId : undefined;
-  const outcomeReason = cleanContractText(rec.outcomeReason);
-  return {
-    branchSnapshotId,
-    generation,
-    ...(revision ? { revision } : {}),
-    ...(acceptedRevision ? { acceptedRevision } : {}),
-    ...(acceptAuthorizationReceiptId ? { acceptAuthorizationReceiptId } : {}),
-    ...(startAuthorizationReceiptId ? { startAuthorizationReceiptId } : {}),
-    ...(readOptionalTimestamp(rec, 'acceptedAt') ? { acceptedAt: readOptionalTimestamp(rec, 'acceptedAt') } : {}),
-    ...(readOptionalTimestamp(rec, 'startedAt') ? { startedAt: readOptionalTimestamp(rec, 'startedAt') } : {}),
-    ...(outcomeReason ? { outcomeReason } : {}),
-    blockingQuestions: readQuestionsFromStored(rec),
-    comments: readCommentsFromStored(rec),
-  };
-}
-
-function buildStoredPlan(cwd: string, steps: PlanStep[]): PlanStored {
-  const rfcPath = planRfc.get(cwd);
-  const decisions = planDecisions.get(cwd);
-  const phase = planLifecycle.get(cwd) ?? 'executing';
-  const review = planReview.get(cwd) ?? reviewMetadataFromStored(undefined);
+function buildStoredPlan(scope: PlanScope, steps: PlanStep[]): PlanStored {
+  const rfcPath = planRfc.get(scope);
+  const decisions = planDecisions.get(scope);
+  const phase = planLifecycle.get(scope) ?? 'executing';
+  const review = planReview.get(scope) ?? reviewMetadataFromStored(undefined);
   return {
     version: 4,
-    cleared: clearedScopes.has(cwd),
-    scope: cwd,
+    cleared: clearedScopes.has(scope),
+    scope: scope,
     steps,
     phase,
-    coordination: planCoordination.get(cwd) ?? readCoordinationFromStored(undefined, cwd),
+    coordination: planCoordination.get(scope) ?? readCoordinationFromStored(undefined, scope),
     rfcPath,
     ...(review.revision ? { revision: review.revision } : {}),
     ...(review.acceptedRevision ? { acceptedRevision: review.acceptedRevision } : {}),
@@ -394,9 +115,9 @@ function buildStoredPlan(cwd: string, steps: PlanStep[]): PlanStored {
 
 // ─── Disk I/O ─────────────────────────────────────────────────────────────────
 
-function readStoredFromDisk(cwd: string): PlanStored | undefined {
+function readStoredFromDisk(scope: PlanScope): PlanStored | undefined {
   try {
-    const ctx = artifactContextForScope(cwd);
+    const ctx = artifactContextForScope(scope);
     const projection = readPlanProjection<PlanStored>(ctx);
     return projection?.state.version === 4 ? projection.state : undefined;
   } catch {
@@ -404,26 +125,26 @@ function readStoredFromDisk(cwd: string): PlanStored | undefined {
   }
 }
 
-function readFromDisk(cwd: string): PlanStep[] {
-  return sanitizeStored(readStoredFromDisk(cwd));
+function readFromDisk(scope: PlanScope): PlanStep[] {
+  return sanitizeStoredPlan(readStoredFromDisk(scope));
 }
 
-function readRfcFromDisk(cwd: string): string | undefined {
-  return readRfcFromStored(readStoredFromDisk(cwd));
+function readRfcFromDisk(scope: PlanScope): string | undefined {
+  return readRfcFromStored(readStoredFromDisk(scope));
 }
 
-function readDecisionsFromDisk(cwd: string): PlanDecision[] | undefined {
-  return readDecisionsFromStored(readStoredFromDisk(cwd));
+function readDecisionsFromDisk(scope: PlanScope): PlanDecision[] | undefined {
+  return readDecisionsFromStored(readStoredFromDisk(scope));
 }
 
-function readLifecycleFromDisk(cwd: string): PlanPhase | undefined {
-  const stored = readStoredFromDisk(cwd);
+function readLifecycleFromDisk(scope: PlanScope): PlanPhase | undefined {
+  const stored = readStoredFromDisk(scope);
   return stored ? readLifecycleFromStored(stored) : undefined;
 }
 
-function projectStoredPlan(cwd: string, stored: PlanStored, meta: PlanSnapshotMeta): void {
+function projectStoredPlan(scope: PlanScope, stored: PlanStored, meta: PlanSnapshotMeta): void {
   try {
-    const ctx = artifactContextForScope(cwd);
+    const ctx = artifactContextForScope(scope);
     const current = readPlanProjection<PlanStored>(ctx);
     const snapshot: PlanBranchSnapshotV1<PlanStored> = {
       version: 1,
@@ -447,26 +168,37 @@ function projectStoredPlan(cwd: string, stored: PlanStored, meta: PlanSnapshotMe
   }
 }
 
-function ensureLoaded(cwd: string): void {
-  if (loaded.has(cwd)) return;
-  loaded.add(cwd);
-  if (plans.has(cwd)) return;
-  const stored = readStoredFromDisk(cwd);
-  const disk = sanitizeStored(stored);
+function ensureReviewMetadata(scope: PlanScope): void {
+  if (!planReview.has(scope)) planReview.set(scope, reviewMetadataFromStored(undefined));
+}
+
+function ensureLoaded(scope: PlanScope): void {
+  if (loaded.has(scope)) {
+    ensureReviewMetadata(scope);
+    return;
+  }
+  loaded.add(scope);
+  if (plans.has(scope)) {
+    ensureReviewMetadata(scope);
+    return;
+  }
+  const stored = readStoredFromDisk(scope);
+  const disk = sanitizeStoredPlan(stored);
   const isCleared = stored?.cleared;
   if (stored && !isCleared) {
-    plans.set(cwd, disk);
-    planLifecycle.set(cwd, stored ? readLifecycleFromStored(stored) : 'executing');
-    planReview.set(cwd, reviewMetadataFromStored(stored));
-    planCoordination.set(cwd, readCoordinationFromStored(stored, cwd));
+    plans.set(scope, disk);
+    planLifecycle.set(scope, stored ? readLifecycleFromStored(stored) : 'executing');
+    planReview.set(scope, reviewMetadataFromStored(stored));
+    planCoordination.set(scope, readCoordinationFromStored(stored, scope));
     const rfcPath = readRfcFromStored(stored);
-    if (rfcPath) planRfc.set(cwd, rfcPath);
+    if (rfcPath) planRfc.set(scope, rfcPath);
     const decisions = readDecisionsFromStored(stored);
-    if (decisions) planDecisions.set(cwd, decisions);
-    clearedScopes.delete(cwd);
+    if (decisions) planDecisions.set(scope, decisions);
+    clearedScopes.delete(scope);
   } else if (isCleared) {
-    clearedScopes.add(cwd);
+    clearedScopes.add(scope);
   }
+  ensureReviewMetadata(scope);
 }
 
 // ─── Branch/fork persistence ──────────────────────────────────────────────────
@@ -490,17 +222,13 @@ export function setPlanEntryAppender(appender: PlanEntryAppender | null): void {
   planEntryAppender = appender;
 }
 
-function nextSnapshotMeta(cwd: string): PlanSnapshotMeta {
-  let generation = 1;
-  try {
-    generation = (readPlanProjection<PlanStored>(artifactContextForScope(cwd))?.generation ?? 0) + 1;
-  } catch {
-    // A missing/corrupt projection cannot block the authoritative CustomEntry append.
-  }
+function nextSnapshotMeta(scope: PlanScope): PlanSnapshotMeta {
+  const generation = (planReview.get(scope)?.generation ?? 0) + 1;
   return { snapshotId: `plan-${randomUUID()}`, generation, capturedAt: new Date().toISOString() };
 }
 
 function appendPlanEntry(
+  scope: PlanScope,
   steps: PlanStep[],
   rfcPath: string | undefined,
   decisions: PlanDecision[] | undefined,
@@ -514,31 +242,34 @@ function appendPlanEntry(
   try {
     planEntryAppender(steps, rfcPath, decisions, lifecycle, review, coordination, meta, cleared);
     return 'appended';
-  } catch {
+  } catch (error) {
+    persistenceFailures.set(scope, error instanceof Error ? error.message : String(error));
+    logInternalError('plan-persistence', error, { operation: 'append-entry', scope });
     return 'failed';
   }
 }
 
-function markUpdated(cwd: string): void {
-  turnsSinceUpdate.set(cwd, 0);
+function markUpdated(scope: PlanScope): void {
+  turnsSinceUpdate.set(scope, 0);
 }
 
-function persist(cwd: string): void {
-  const steps = plans.get(cwd) ?? [];
-  const lifecycle = planLifecycle.get(cwd) ?? 'abandoned';
-  const meta = nextSnapshotMeta(cwd);
-  const previous = planReview.get(cwd) ?? reviewMetadataFromStored(undefined);
-  const coordination = planCoordination.get(cwd) ?? readCoordinationFromStored(undefined, cwd);
-  planCoordination.set(cwd, coordination);
+function persist(scope: PlanScope): void {
+  persistenceFailures.delete(scope);
+  const steps = plans.get(scope) ?? [];
+  const lifecycle = planLifecycle.get(scope) ?? 'abandoned';
+  const meta = nextSnapshotMeta(scope);
+  const previous = planReview.get(scope) ?? reviewMetadataFromStored(undefined);
+  const coordination = planCoordination.get(scope) ?? readCoordinationFromStored(undefined, scope);
+  planCoordination.set(scope, coordination);
   const review: ReviewState = {
-    ...getPlanReviewState(cwd),
+    ...getPlanReviewState(scope),
     branchSnapshotId: meta.snapshotId,
     generation: meta.generation,
   };
-  const appendResult = appendPlanEntry(steps, planRfc.get(cwd), planDecisions.get(cwd), lifecycle, review, coordination, meta, clearedScopes.has(cwd));
+  const appendResult = appendPlanEntry(scope, steps, planRfc.get(scope), planDecisions.get(scope), lifecycle, review, coordination, meta, clearedScopes.has(scope));
   if (appendResult === 'appended') {
-    planReview.set(cwd, { ...previous, branchSnapshotId: meta.snapshotId, generation: meta.generation });
-    projectStoredPlan(cwd, buildStoredPlan(cwd, steps), meta);
+    planReview.set(scope, { ...previous, branchSnapshotId: meta.snapshotId, generation: meta.generation });
+    projectStoredPlan(scope, buildStoredPlan(scope, steps), meta);
   }
 }
 
@@ -547,7 +278,7 @@ function persist(cwd: string): void {
  * Returns false — leaving current state untouched — when the branch carries no
  * snapshot at all (sessions predating this feature).
  */
-export function adoptPlanFromBranch(cwd: string, branchEntries: unknown[], options: { clearWhenMissing?: boolean; fork?: boolean } = {}): boolean {
+export function adoptPlanFromBranch(scope: PlanScope, branchEntries: unknown[], options: { clearWhenMissing?: boolean; fork?: boolean } = {}): boolean {
   for (let i = branchEntries.length - 1; i >= 0; i -= 1) {
     const entry = branchEntries[i];
     if (!entry || typeof entry !== 'object') continue;
@@ -563,42 +294,42 @@ export function adoptPlanFromBranch(cwd: string, branchEntries: unknown[], optio
       ? data.capturedAt
       : '';
     if (!snapshotId || entryGeneration === 0 || !entryTimestamp) continue;
-    const steps = sanitizeStored(data);
+    const steps = sanitizeStoredPlan(data);
     const lifecycle = readLifecycleFromStored(data);
     const rfcPath = readRfcFromStored(data);
     const decisions = readDecisionsFromStored(data);
-    const coordination = readCoordinationFromStored(data, cwd);
+    const coordination = readCoordinationFromStored(data, scope);
     const explicitlyCleared = data.cleared === true;
     if (explicitlyCleared) {
-      plans.delete(cwd);
-      planRfc.delete(cwd);
-      planDecisions.delete(cwd);
-      planCoordination.delete(cwd);
-      clearedScopes.add(cwd);
+      plans.delete(scope);
+      planRfc.delete(scope);
+      planDecisions.delete(scope);
+      planCoordination.delete(scope);
+      clearedScopes.add(scope);
     } else {
-      plans.set(cwd, steps);
-      clearedScopes.delete(cwd);
+      plans.set(scope, steps);
+      clearedScopes.delete(scope);
       if (options.fork) {
-        const fresh = freshCoordination(cwd);
-        planCoordination.set(cwd, { ...fresh, mode: coordination.mode, localReason: coordination.localReason });
+        const fresh = freshCoordination(scope);
+        planCoordination.set(scope, { ...fresh, mode: coordination.mode, localReason: coordination.localReason });
         for (const step of steps) {
           step.status = 'todo';
           delete step.awarenessTaskId;
         }
       } else {
-        planCoordination.set(cwd, coordination);
+        planCoordination.set(scope, coordination);
       }
-      if (rfcPath) planRfc.set(cwd, rfcPath);
-      else planRfc.delete(cwd);
-      if (decisions) planDecisions.set(cwd, decisions);
-      else planDecisions.delete(cwd);
+      if (rfcPath) planRfc.set(scope, rfcPath);
+      else planRfc.delete(scope);
+      if (decisions) planDecisions.set(scope, decisions);
+      else planDecisions.delete(scope);
     }
-    loaded.add(cwd);
-    turnsSinceUpdate.set(cwd, 0);
+    loaded.add(scope);
+    turnsSinceUpdate.set(scope, 0);
     const adoptedLifecycle = options.fork && (lifecycle === 'executing' || lifecycle === 'verifying' || lifecycle === 'blocked' || lifecycle === 'failed')
       ? (typeof data.acceptedRevision === 'string' && data.acceptedRevision.trim() ? 'accepted' : 'draft')
       : explicitlyCleared ? 'abandoned' : lifecycle;
-    planLifecycle.set(cwd, adoptedLifecycle);
+    planLifecycle.set(scope, adoptedLifecycle);
     const adoptedReview = reviewMetadataFromStored({ ...data, branchSnapshotId: snapshotId, generation: entryGeneration });
     if (options.fork) {
       delete adoptedReview.acceptAuthorizationReceiptId;
@@ -606,91 +337,89 @@ export function adoptPlanFromBranch(cwd: string, branchEntries: unknown[], optio
       delete adoptedReview.startAuthorizationReceiptId;
       delete adoptedReview.outcomeReason;
     }
-    planReview.set(cwd, adoptedReview);
+    planReview.set(scope, adoptedReview);
     const stored: PlanStored = {
-      ...buildStoredPlan(cwd, steps),
+      ...buildStoredPlan(scope, steps),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : entryTimestamp,
     };
-    projectStoredPlan(cwd, stored, { snapshotId, generation: entryGeneration, capturedAt: entryTimestamp });
+    projectStoredPlan(scope, stored, { snapshotId, generation: entryGeneration, capturedAt: entryTimestamp });
     return true;
   }
   if (options.clearWhenMissing) {
-    plans.delete(cwd);
-    planLifecycle.delete(cwd);
-    planReview.delete(cwd);
-    planRfc.delete(cwd);
-    planDecisions.delete(cwd);
-    planCoordination.delete(cwd);
-    turnsSinceUpdate.delete(cwd);
-    loaded.add(cwd);
-    clearedScopes.add(cwd);
+    plans.delete(scope);
+    planLifecycle.delete(scope);
+    planReview.delete(scope);
+    planRfc.delete(scope);
+    planDecisions.delete(scope);
+    planCoordination.delete(scope);
+    turnsSinceUpdate.delete(scope);
+    loaded.add(scope);
+    clearedScopes.add(scope);
   }
   return false;
 }
 
 // ─── Test hooks ───────────────────────────────────────────────────────────────
 
-export function readPersistedPlanForTests(cwd: string): PlanStep[] {
-  return readFromDisk(cwd);
+export function readPersistedPlanForTests(scope: PlanScope): PlanStep[] {
+  return readFromDisk(scope);
 }
 
-export function readPersistedRfcForTests(cwd: string): string | undefined {
-  return readRfcFromDisk(cwd);
+export function readPersistedRfcForTests(scope: PlanScope): string | undefined {
+  return readRfcFromDisk(scope);
 }
 
-export function readPersistedDecisionsForTests(cwd: string): PlanDecision[] | undefined {
-  return readDecisionsFromDisk(cwd);
+export function readPersistedDecisionsForTests(scope: PlanScope): PlanDecision[] | undefined {
+  return readDecisionsFromDisk(scope);
 }
 
-export function readPersistedLifecycleForTests(cwd: string): PlanPhase | undefined {
-  return readLifecycleFromDisk(cwd);
+export function readPersistedLifecycleForTests(scope: PlanScope): PlanPhase | undefined {
+  return readLifecycleFromDisk(scope);
 }
 
 // ─── Turn tracking ────────────────────────────────────────────────────────────
 
-const turnsSinceUpdate = new Map<string, number>();
-
-export function bumpPlanTurn(cwd: string): number {
-  if (getPlan(cwd).length === 0) return 0;
-  const next = (turnsSinceUpdate.get(cwd) ?? 0) + 1;
-  turnsSinceUpdate.set(cwd, next);
+export function bumpPlanTurn(scope: PlanScope): number {
+  if (getPlan(scope).length === 0) return 0;
+  const next = (turnsSinceUpdate.get(scope) ?? 0) + 1;
+  turnsSinceUpdate.set(scope, next);
   return next;
 }
 
-export function getPlanTurnsSinceUpdate(cwd: string): number {
-  return turnsSinceUpdate.get(cwd) ?? 0;
+export function getPlanTurnsSinceUpdate(scope: PlanScope): number {
+  return turnsSinceUpdate.get(scope) ?? 0;
+}
+
+export function getPlanPersistenceFailure(scope: PlanScope): string | undefined {
+  return persistenceFailures.get(scope);
 }
 
 // ─── Scope helpers ────────────────────────────────────────────────────────────
 
-function workspaceForScope(scope: string): string {
-  return bindingForScope(scope).identityInput.cwd ?? scope.split('\0', 1)[0]!;
-}
-
-function freshCoordination(scope: string): PlanCoordination {
+function freshCoordination(scope: PlanScope): PlanCoordination {
   return {
     mode: 'auto',
     sourcePlanKey: `pi-plan-${randomUUID()}`,
-    coordinationWorkspace: workspaceForScope(scope),
+    coordinationWorkspace: workspaceForPlanScope(scope),
   };
 }
 
 // ─── Public getters ───────────────────────────────────────────────────────────
 
-export function getPlan(cwd: string): PlanStep[] {
-  ensureLoaded(cwd);
-  return plans.get(cwd) ?? [];
+export function getPlan(scope: PlanScope): PlanStep[] {
+  ensureLoaded(scope);
+  return plans.get(scope) ?? [];
 }
 
-export function getPlanCoordination(cwd: string): PlanCoordination {
-  ensureLoaded(cwd);
-  const current = planCoordination.get(cwd) ?? readCoordinationFromStored(undefined, cwd);
-  planCoordination.set(cwd, current);
+export function getPlanCoordination(scope: PlanScope): PlanCoordination {
+  ensureLoaded(scope);
+  const current = planCoordination.get(scope) ?? readCoordinationFromStored(undefined, scope);
+  planCoordination.set(scope, current);
   return { ...current };
 }
 
 export function updatePlanCoordination(
-  cwd: string,
+  scope: PlanScope,
   updates: {
     mode?: PlanCoordinationMode;
     localReason?: string | null;
@@ -699,7 +428,7 @@ export function updatePlanCoordination(
     materializedRevision?: string | null;
   },
 ): PlanCoordination {
-  const current = getPlanCoordination(cwd);
+  const current = getPlanCoordination(scope);
   const mode = updates.mode ?? current.mode;
   const localReason = updates.localReason === undefined
     ? current.localReason
@@ -723,16 +452,16 @@ export function updatePlanCoordination(
   if (mode !== 'local') delete next.localReason;
   if (!awarenessPlanId) delete next.awarenessPlanId;
   if (!materializedRevision) delete next.materializedRevision;
-  planCoordination.set(cwd, next);
-  persist(cwd);
+  planCoordination.set(scope, next);
+  persist(scope);
   return { ...next };
 }
 
 export function setPlanAwarenessMappings(
-  cwd: string,
+  scope: PlanScope,
   mapping: { awarenessPlanId: string; taskIdsByStepId: Record<string, string>; materializedRevision?: string },
 ): PlanStep[] {
-  const list = getPlan(cwd);
+  const list = getPlan(scope);
   const awarenessPlanId = cleanContractText(mapping.awarenessPlanId, 256);
   if (!awarenessPlanId) throw new Error('awarenessPlanId is required');
   const taskIds = new Map(Object.entries(mapping.taskIdsByStepId).map(([stepId, taskId]) => [stepId, cleanContractText(taskId, 256)]));
@@ -740,70 +469,66 @@ export function setPlanAwarenessMappings(
     if (!taskIds.get(step.id)) throw new Error(`missing Awareness task mapping for step ${step.id}`);
   }
   const next = list.map((step) => ({ ...step, awarenessTaskId: taskIds.get(step.id)! }));
-  plans.set(cwd, next);
-  const current = getPlanCoordination(cwd);
-  planCoordination.set(cwd, {
+  plans.set(scope, next);
+  const current = getPlanCoordination(scope);
+  planCoordination.set(scope, {
     ...current,
     awarenessPlanId,
     ...(mapping.materializedRevision ? { materializedRevision: cleanContractText(mapping.materializedRevision, 256) } : {}),
   });
-  markUpdated(cwd);
-  persist(cwd);
+  markUpdated(scope);
+  persist(scope);
   return next;
 }
 
-export function clearPlanAwarenessMappings(cwd: string): PlanStep[] {
-  const next = getPlan(cwd).map(({ awarenessTaskId: _taskId, ...step }) => step);
-  plans.set(cwd, next);
-  const current = getPlanCoordination(cwd);
+export function clearPlanAwarenessMappings(scope: PlanScope): PlanStep[] {
+  const next = getPlan(scope).map(({ awarenessTaskId: _taskId, ...step }) => step);
+  plans.set(scope, next);
+  const current = getPlanCoordination(scope);
   const { awarenessPlanId: _planId, materializedRevision: _revision, ...local } = current;
-  planCoordination.set(cwd, local);
-  markUpdated(cwd);
-  persist(cwd);
+  planCoordination.set(scope, local);
+  markUpdated(scope);
+  persist(scope);
   return next;
 }
 
-export function getPlanLifecycle(cwd: string): PlanPhase {
-  ensureLoaded(cwd);
-  return planLifecycle.get(cwd) ?? 'abandoned';
+export function getPlanLifecycle(scope: PlanScope): PlanPhase {
+  ensureLoaded(scope);
+  return planLifecycle.get(scope) ?? 'abandoned';
 }
 
-export function setPlanLifecycle(cwd: string, phase: PlanPhase, outcomeReason?: string): PlanPhase {
-  ensureLoaded(cwd);
-  clearedScopes.delete(cwd);
-  const current = planLifecycle.get(cwd) ?? 'abandoned';
+export function setPlanLifecycle(scope: PlanScope, phase: PlanPhase, outcomeReason?: string): PlanPhase {
+  ensureLoaded(scope);
+  clearedScopes.delete(scope);
+  const current = planLifecycle.get(scope) ?? 'abandoned';
   transitionPlanTo(current, phase);
-  planLifecycle.set(cwd, phase);
-  const review = planReview.get(cwd) ?? reviewMetadataFromStored(undefined);
+  planLifecycle.set(scope, phase);
+  const review = planReview.get(scope) ?? reviewMetadataFromStored(undefined);
   const { outcomeReason: _previousReason, ...baseReview } = review;
-  planReview.set(cwd, {
+  planReview.set(scope, {
     ...baseReview,
     ...(outcomeReason ? { outcomeReason: cleanContractText(outcomeReason) } : {}),
   });
-  markUpdated(cwd);
-  persist(cwd);
+  markUpdated(scope);
+  persist(scope);
   return phase;
 }
 
-export function finishPlanVerification(cwd: string, success: boolean, reason?: string): ReviewState {
-  const state = getPlanReviewState(cwd);
+export function finishPlanVerification(scope: PlanScope, success: boolean, reason?: string): ReviewState {
+  const state = getPlanReviewState(scope);
   if (state.phase !== 'verifying') return state;
-  setPlanLifecycle(cwd, success ? 'complete' : 'failed', reason);
-  return getPlanReviewState(cwd);
+  setPlanLifecycle(scope, success ? 'complete' : 'failed', reason);
+  return getPlanReviewState(scope);
 }
 
-export function getPlanReviewState(cwd: string): ReviewState {
-  ensureLoaded(cwd);
-  let metadata = planReview.get(cwd);
-  if (!metadata) {
-    metadata = reviewMetadataFromStored(undefined);
-    planReview.set(cwd, metadata);
-  }
+export function getPlanReviewState(scope: PlanScope): ReviewState {
+  ensureLoaded(scope);
+  const metadata = planReview.get(scope)!;
   return {
-    phase: getPlanLifecycle(cwd),
+    phase: getPlanLifecycle(scope),
     branchSnapshotId: metadata.branchSnapshotId,
     generation: metadata.generation,
-    ...(planRfc.get(cwd) ? { rfcPath: planRfc.get(cwd) } : {}),
+    ...(planRfc.get(scope) ? { rfcPath: planRfc.get(scope) } : {}),
     ...(metadata.revision ? { revision: metadata.revision } : {}),
     ...(metadata.acceptedRevision ? { acceptedRevision: metadata.acceptedRevision } : {}),
     ...(metadata.acceptAuthorizationReceiptId ? { acceptAuthorizationReceiptId: metadata.acceptAuthorizationReceiptId } : {}),
@@ -811,7 +536,7 @@ export function getPlanReviewState(cwd: string): ReviewState {
     ...(metadata.acceptedAt ? { acceptedAt: metadata.acceptedAt } : {}),
     ...(metadata.startedAt ? { startedAt: metadata.startedAt } : {}),
     ...(metadata.outcomeReason ? { outcomeReason: metadata.outcomeReason } : {}),
-    decisions: planDecisions.get(cwd) ?? [],
+    decisions: planDecisions.get(scope) ?? [],
     blockingQuestions: metadata.blockingQuestions,
     comments: metadata.comments,
   };
@@ -819,90 +544,55 @@ export function getPlanReviewState(cwd: string): ReviewState {
 
 // ─── RFC association ──────────────────────────────────────────────────────────
 
-export function getPlanRfc(cwd: string): string | undefined {
-  ensureLoaded(cwd);
-  return planRfc.get(cwd);
+export function getPlanRfc(scope: PlanScope): string | undefined {
+  ensureLoaded(scope);
+  return planRfc.get(scope);
 }
 
-export function setPlanRfc(cwd: string, rfcPath: string | undefined): void {
-  ensureLoaded(cwd);
-  if (rfcPath && rfcPath.trim()) planRfc.set(cwd, rfcPath.trim());
-  else planRfc.delete(cwd);
-  persist(cwd);
+export function setPlanRfc(scope: PlanScope, rfcPath: string | undefined): void {
+  ensureLoaded(scope);
+  if (rfcPath && rfcPath.trim()) planRfc.set(scope, rfcPath.trim());
+  else planRfc.delete(scope);
+  persist(scope);
 }
 
 // ─── Decision log ─────────────────────────────────────────────────────────────
 
-export function getPlanDecisions(cwd: string): PlanDecision[] {
-  ensureLoaded(cwd);
-  return planDecisions.get(cwd) ?? [];
+export function getPlanDecisions(scope: PlanScope): PlanDecision[] {
+  ensureLoaded(scope);
+  return planDecisions.get(scope) ?? [];
 }
 
-export function addPlanDecision(cwd: string, q: string, a: string): PlanDecision[] {
-  ensureLoaded(cwd);
+export function addPlanDecision(scope: PlanScope, q: string, a: string): PlanDecision[] {
+  ensureLoaded(scope);
   const cq = cleanDecision(q);
   const ca = cleanDecision(a);
   if (cq && ca) {
-    const list = (planDecisions.get(cwd) ?? []).slice();
+    const list = (planDecisions.get(scope) ?? []).slice();
     list.push({ q: cq, a: ca });
-    planDecisions.set(cwd, list.slice(0, MAX_DECISIONS));
-    persist(cwd);
+    planDecisions.set(scope, list.slice(0, MAX_DECISIONS));
+    persist(scope);
   }
-  return planDecisions.get(cwd) ?? [];
+  return planDecisions.get(scope) ?? [];
 }
 
-export function setPlanDecisions(cwd: string, decisions: PlanDecision[] | undefined): PlanDecision[] {
-  ensureLoaded(cwd);
+export function setPlanDecisions(scope: PlanScope, decisions: PlanDecision[] | undefined): PlanDecision[] {
+  ensureLoaded(scope);
   const cleaned = (decisions ?? [])
     .map((d) => ({ q: cleanDecision(d?.q ?? ''), a: cleanDecision(d?.a ?? '') }))
     .filter((d) => d.q && d.a)
     .slice(0, MAX_DECISIONS);
-  if (cleaned.length) planDecisions.set(cwd, cleaned);
-  else planDecisions.delete(cwd);
-  persist(cwd);
-  return planDecisions.get(cwd) ?? [];
-}
-
-// ─── RFC path resolution ──────────────────────────────────────────────────────
-
-export function resolveRfcPath(workspace: string, input: string): RfcResolution {
-  const raw = String(input ?? '').trim();
-  if (!raw) return { error: 'no RFC path given' };
-  const rfcRoot = path.resolve(workspace, '.octocode', 'rfc');
-  try {
-    let candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(workspace, raw);
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(candidate);
-    } catch {
-      return { error: `no such RFC path: ${raw}` };
-    }
-    if (stat.isDirectory()) candidate = path.join(candidate, 'RFC.md');
-    let real: string;
-    try {
-      real = fs.realpathSync(candidate);
-    } catch {
-      return { error: `no such RFC file: ${path.relative(workspace, candidate) || candidate}` };
-    }
-    const realRoot = fs.existsSync(rfcRoot) ? fs.realpathSync(rfcRoot) : rfcRoot;
-    const withinRoot = real === realRoot || real.startsWith(realRoot + path.sep);
-    if (!withinRoot) {
-      return { error: `RFC must live under .octocode/rfc/ (got ${raw})` };
-    }
-    if (!fs.statSync(real).isFile()) {
-      return { error: `RFC path is not a file: ${raw}` };
-    }
-    return { path: real };
-  } catch (err) {
-    return { error: `could not resolve RFC path: ${(err as Error).message}` };
-  }
+  if (cleaned.length) planDecisions.set(scope, cleaned);
+  else planDecisions.delete(scope);
+  persist(scope);
+  return planDecisions.get(scope) ?? [];
 }
 
 // ─── RFC byte revision ────────────────────────────────────────────────────────
 
-export function currentRfcRevision(cwd: string): CurrentRfcRevision {
-  ensureLoaded(cwd);
-  const rfcPath = planRfc.get(cwd);
+export function currentRfcRevision(scope: PlanScope): CurrentRfcRevision {
+  ensureLoaded(scope);
+  const rfcPath = planRfc.get(scope);
   if (!rfcPath) return { error: 'missing_rfc' };
   try {
     const bytes = fs.readFileSync(rfcPath);
@@ -914,12 +604,11 @@ export function currentRfcRevision(cwd: string): CurrentRfcRevision {
 
 // ─── Step mutations (multi-map: stay in store) ────────────────────────────────
 
-export function setPlan(cwd: string, steps: StepInput[], lifecycle: PlanPhase = 'executing'): PlanStep[] {
-  const { normalizeInput: ni, dependencyIdsFromIndexes: difi } = { normalizeInput, dependencyIdsFromIndexes };
-  const cleaned = steps.map(ni).filter((step) => step.text).slice(0, MAX_STEPS);
+export function setPlan(scope: PlanScope, steps: StepInput[], lifecycle: PlanPhase = 'executing'): PlanStep[] {
+  const cleaned = steps.map(normalizeInput).filter((step) => step.text).slice(0, MAX_PLAN_STEPS);
   const next: PlanStep[] = cleaned.map((step) => {
     const { dependsOn, ...stable } = step;
-    const dependsOnStepIds = difi(dependsOn, cleaned, step.id);
+    const dependsOnStepIds = dependencyIdsFromIndexes(dependsOn, cleaned, step.id);
     return {
       ...stable,
       status: 'todo',
@@ -930,35 +619,41 @@ export function setPlan(cwd: string, steps: StepInput[], lifecycle: PlanPhase = 
     const firstRunnable = next.findIndex((step) => depsMet(step, next));
     if (firstRunnable >= 0) next[firstRunnable] = { ...next[firstRunnable]!, status: 'doing' };
   }
-  plans.set(cwd, next);
-  clearedScopes.delete(cwd);
-  planCoordination.set(cwd, freshCoordination(cwd));
-  planLifecycle.set(cwd, lifecycle);
-  loaded.add(cwd);
-  markUpdated(cwd);
-  persist(cwd);
+  plans.set(scope, next);
+  clearedScopes.delete(scope);
+  planCoordination.set(scope, freshCoordination(scope));
+  planLifecycle.set(scope, lifecycle);
+  loaded.add(scope);
+  markUpdated(scope);
+  persist(scope);
   return next;
 }
 
-export function clearPlan(cwd: string): void {
-  plans.delete(cwd);
-  planLifecycle.delete(cwd);
-  planReview.delete(cwd);
-  planRfc.delete(cwd);
-  planDecisions.delete(cwd);
-  planCoordination.delete(cwd);
-  turnsSinceUpdate.delete(cwd);
-  loaded.add(cwd);
-  clearedScopes.add(cwd);
-  planLifecycle.set(cwd, 'abandoned');
-  persist(cwd);
+export function clearPlan(scope: PlanScope): void {
+  plans.delete(scope);
+  planLifecycle.delete(scope);
+  planReview.set(scope, reviewMetadataFromStored(undefined));
+  planRfc.delete(scope);
+  planDecisions.delete(scope);
+  planCoordination.delete(scope);
+  turnsSinceUpdate.delete(scope);
+  loaded.add(scope);
+  clearedScopes.add(scope);
+  planLifecycle.set(scope, 'abandoned');
+  persist(scope);
+}
+
+/** Release all process-local state after a session has persisted its final mutation. */
+export function releasePlanScope(scope: PlanScope): void {
+  state.release(scope);
+  releasePlanScopeBinding(scope);
 }
 
 // ─── Bridge exports for plan-lifecycle.ts ────────────────────────────────────
 
 /** Build a failed-transition result. For use by plan-lifecycle.ts only. */
-export function planBuildTransitionError(cwd: string, code: PlanReviewTransitionCode, message: string): PlanReviewTransitionResult {
-  return { ok: false, code, message, state: getPlanReviewState(cwd), steps: getPlan(cwd) };
+export function planBuildTransitionError(scope: PlanScope, code: PlanReviewTransitionCode, message: string): PlanReviewTransitionResult {
+  return { ok: false, code, message, state: getPlanReviewState(scope), steps: getPlan(scope) };
 }
 
 /** Whether there are unresolved blocking questions/comments. For use by plan-lifecycle.ts only. */
@@ -972,57 +667,57 @@ export function planHasUnresolvedBlockers(state: ReviewState): boolean {
  * Validates the phase transition, writes all review Maps, marks updated, persists.
  */
 export function planApplyReviewTransition(
-  cwd: string,
+  scope: PlanScope,
   phase: PlanPhase,
   metadata: Omit<ReviewState, 'phase' | 'rfcPath' | 'decisions'>,
-  steps: PlanStep[] = getPlan(cwd),
+  steps: PlanStep[] = getPlan(scope),
   command?: PlanCommand,
 ): PlanReviewTransitionResult {
-  const current = planLifecycle.get(cwd) ?? 'abandoned';
+  const current = planLifecycle.get(scope) ?? 'abandoned';
   if (command) {
     const transition = transitionPlan(current, command);
     if (transition.to !== phase) throw new Error(`Plan command ${command} does not transition to ${phase}`);
   } else {
     transitionPlanTo(current, phase);
   }
-  plans.set(cwd, steps);
-  clearedScopes.delete(cwd);
-  planLifecycle.set(cwd, phase);
-  planReview.set(cwd, metadata);
-  markUpdated(cwd);
-  persist(cwd);
-  return { ok: true, state: getPlanReviewState(cwd), steps: getPlan(cwd) };
+  plans.set(scope, steps);
+  clearedScopes.delete(scope);
+  planLifecycle.set(scope, phase);
+  planReview.set(scope, metadata);
+  markUpdated(scope);
+  persist(scope);
+  return { ok: true, state: getPlanReviewState(scope), steps: getPlan(scope) };
 }
 
 // ─── Bridge exports for plan-executor.ts ─────────────────────────────────────
 
 /** Set the raw steps Map. For use by plan-executor.ts only. */
-export function planSetRawSteps(cwd: string, steps: PlanStep[]): void {
-  plans.set(cwd, steps);
+export function planSetRawSteps(scope: PlanScope, steps: PlanStep[]): void {
+  plans.set(scope, steps);
 }
 
 /** Set the raw lifecycle Map. For use by plan-executor.ts only. */
-export function planSetRawLifecycle(cwd: string, phase: PlanPhase): void {
-  planLifecycle.set(cwd, phase);
+export function planSetRawLifecycle(scope: PlanScope, phase: PlanPhase): void {
+  planLifecycle.set(scope, phase);
 }
 
 /** Delete from clearedScopes. For use by plan-executor.ts only. */
-export function planDeleteClearedScope(cwd: string): void {
-  clearedScopes.delete(cwd);
+export function planDeleteClearedScope(scope: PlanScope): void {
+  clearedScopes.delete(scope);
 }
 
 /** Call markUpdated. For use by plan-executor.ts only. */
-export function planMarkUpdated(cwd: string): void {
-  markUpdated(cwd);
+export function planMarkUpdated(scope: PlanScope): void {
+  markUpdated(scope);
 }
 
 /** Call persist. For use by plan-executor.ts only. */
-export function planRunPersist(cwd: string): void {
-  persist(cwd);
+export function planRunPersist(scope: PlanScope): void {
+  persist(scope);
 }
 
 /** Call ensureLoaded. For use by plan-executor.ts only. */
-export function planRunEnsureLoaded(cwd: string): void {
-  ensureLoaded(cwd);
+export function planRunEnsureLoaded(scope: PlanScope): void {
+  ensureLoaded(scope);
 }
 

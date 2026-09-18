@@ -4,11 +4,16 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   get: vi.fn(),
   comments: vi.fn(),
+  list: vi.fn(),
 }));
 vi.mock('../../src/github/client.js', () => ({
   getOctokit: async () => ({
     rest: {
-      issues: { get: mocks.get, listComments: mocks.comments },
+      issues: {
+        get: mocks.get,
+        listComments: mocks.comments,
+        listForRepo: mocks.list,
+      },
       search: { issuesAndPullRequests: mocks.search },
       repos: { get: async () => ({ data: { full_name: 'o/r' } }) },
     },
@@ -21,7 +26,10 @@ import {
   getMultipleGitHubHistoryItems,
   searchMultipleGitHubHistory,
 } from '../../src/tools/github_search_pull_requests/historyExecutions.js';
-import { GitHubGetHistoryItemQueryLocalSchema, GitHubSearchHistoryQueryLocalSchema } from '@octocodeai/octocode-core/schema';
+import {
+  GitHubGetHistoryItemQueryLocalSchema,
+  GitHubSearchHistoryQueryLocalSchema,
+} from '@octocodeai/octocode-core/schema';
 import { clearAllCache } from '../../src/utils/http/cache/management.js';
 import { transformPullRequestItemFromSearch } from '../../src/github/prContentFetcher/transform.js';
 import { formatPRForResponse } from '../../src/github/prTransformation.js';
@@ -102,6 +110,54 @@ describe('history public continuations and request budgets', () => {
       1, 2, 3,
     ]);
     expect(mocks.search).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues from the actual provider page after skipping bounded PR-only issue pages', async () => {
+    const pr = {
+      ...issue(100),
+      pull_request: { url: 'https://api.github.test/pulls/100' },
+    };
+    const pages = [
+      ...Array.from({ length: 5 }, () => ({
+        data: [pr],
+        headers: {
+          link: '<https://api.github.test/issues?page=next>; rel="next"',
+        },
+      })),
+      {
+        data: [issue(6)],
+        headers: {
+          link: '<https://api.github.test/issues?page=next>; rel="next"',
+        },
+      },
+      { data: [issue(7)], headers: {} },
+    ];
+    mocks.list.mockImplementation(({ page }) => pages[page - 1]);
+
+    const first = await execute({
+      operation: 'issues',
+      owner: 'o',
+      repo: 'r',
+      state: 'closed',
+      pageSize: 1,
+    });
+    expect(first.pagination).toMatchObject({
+      currentPage: 6,
+      requestedPage: 1,
+      skippedPullRequestPages: 5,
+      providerPagesFetched: 6,
+      nextPage: 7,
+    });
+    const second = await execute(
+      GitHubSearchHistoryQueryLocalSchema.parse(first.next.nextPage.query)
+    );
+    expect([...first.issues, ...second.issues].map(i => i.number)).toEqual([
+      6, 7,
+    ]);
+    expect(mocks.list.mock.calls.map(([request]) => request.page)).toEqual([
+      1, 2, 3, 4, 5, 6, 7,
+    ]);
+    expect(mocks.search).not.toHaveBeenCalled();
   });
 
   it('reassembles body windows with one upstream issue GET', async () => {

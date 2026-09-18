@@ -83,7 +83,15 @@ describe('Pi physiology observer', () => {
       await observer.toolTerminal({ toolCallId: `later-${index}`, toolName: 'file', isError: false }, ctx);
     }
 
-    assert.deepEqual(observer.read(ctx)?.tools, { window: 32, observed: 32, failed: 0, cancelled: 0, blocked: 0 });
+    assert.deepEqual(observer.read(ctx)?.tools, {
+      window: 32,
+      observed: 32,
+      total_observed: 34,
+      latest_outcome: 'succeeded',
+      failed: 0,
+      cancelled: 0,
+      blocked: 0,
+    });
   });
 
   test('classifies cancellation and blocking separately and ignores unknown terminal state', async () => {
@@ -94,14 +102,22 @@ describe('Pi physiology observer', () => {
     await observer.toolTerminal({ toolCallId: 'block', toolName: 'file', blocked: true }, ctx);
     await observer.toolTerminal({ toolCallId: 'unknown', toolName: 'file', error: 'blocked and cancelled', result: {} }, ctx);
 
-    assert.deepEqual(observer.read(ctx)?.tools, { window: 32, observed: 2, failed: 0, cancelled: 1, blocked: 1 });
+    assert.deepEqual(observer.read(ctx)?.tools, {
+      window: 32,
+      observed: 2,
+      total_observed: 2,
+      latest_outcome: 'blocked',
+      failed: 0,
+      cancelled: 1,
+      blocked: 1,
+    });
   });
 
   test('excludes Awareness inspection/internal operations without retaining their payloads', async () => {
     const observer = createPiPhysiologyObserver({ now: () => 10 });
     const ctx = context('session');
     await observer.sessionStart(ctx);
-    await observer.toolStart({ toolCallId: 'internal', toolName: 'bash', args: { command: 'npx @octocodeai/octocode-awareness attend --compact' } }, ctx);
+    await observer.toolStart({ toolCallId: 'internal', toolName: 'bash', args: { command: 'npx @octocodeai/octocode-awareness context orient --compact' } }, ctx);
     await observer.toolTerminal({ toolCallId: 'internal', toolName: 'bash', isError: false }, ctx);
     await observer.toolStart({
       toolCallId: 'internal-env',
@@ -118,7 +134,7 @@ describe('Pi physiology observer', () => {
     await observer.toolTerminal({
       toolCallId: 'internal-terminal-only',
       toolName: 'bash',
-      input: { queries: [{ reasoning: 'inspect coordination', command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" attend --compact' }] },
+      input: { queries: [{ reasoning: 'inspect coordination', command: '"$OCTOCODE_NODE" "$OCTOCODE_AWARENESS_CLI" context orient --compact' }] },
       isError: false,
     }, ctx);
     await observer.toolTerminal({
@@ -131,7 +147,15 @@ describe('Pi physiology observer', () => {
       isError: false,
     }, ctx);
     await observer.toolTerminal({ toolCallId: 'visible', toolName: 'file', isError: false }, ctx);
-    assert.deepEqual(observer.read(ctx)?.tools, { window: 32, observed: 2, failed: 0, cancelled: 0, blocked: 0 });
+    assert.deepEqual(observer.read(ctx)?.tools, {
+      window: 32,
+      observed: 2,
+      total_observed: 2,
+      latest_outcome: 'succeeded',
+      failed: 0,
+      cancelled: 0,
+      blocked: 0,
+    });
   });
 
   test('rejects stale and foreign contexts', async () => {

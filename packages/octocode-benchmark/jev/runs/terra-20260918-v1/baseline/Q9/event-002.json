@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q9",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"docs/Reference/Hooks.md\",\"matchString\":\"Incoming Request\",\"contextLines\":30},{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"lib/route.js\",\"matchString\":\"onRequestHookRunner\",\"contextLines\":40},{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"lib/route.js\",\"matchString\":\"onRequest:\",\"contextLines\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:12.220Z",
+  "endedAt": "2026-09-18T08:26:13.802Z",
+  "elapsedMs": 1581,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "82139f6ea504bc3e5149402841b1279f477da1ab5eeee17391dfe394c9fe7652",
+  "stdoutBytes": 7645,
+  "requestSha256": null
+}

@@ -1,0 +1,56 @@
+{
+  "version": 3,
+  "fairness": "Each pair receives the same outcome prompt, repository bytes, limits, cache cohort, and time/tool budget; each baseline uses its leanest legitimate native surface.",
+  "arms": {
+    "octocode": {
+      "transport": "workspace-cli",
+      "entrypoint": ["node", "{workspace}/packages/octocode/out/octocode.js"],
+      "versionCommand": ["node", "{workspace}/packages/octocode/out/octocode.js", "--version"],
+      "lanes": ["lexical", "structural", "semantic", "indexed", "codemod-preview", "end-to-end"],
+      "allowsEmulation": false,
+      "requirements": ["workspace receipt matches", "tool catalog digest matches", "no npx/global/published resolution"]
+    },
+    "ripgrep": {
+      "transport": "raw-cli",
+      "entrypoint": ["rg", "--json"],
+      "versionCommand": ["rg", "--version"],
+      "lanes": ["lexical", "end-to-end"],
+      "allowsEmulation": false,
+      "requirements": ["native JSON events", "bounded read only when snippets are insufficient"]
+    },
+    "ast-grep": {
+      "transport": "raw-cli",
+      "entrypoint": ["ast-grep", "--json=stream"],
+      "versionCommand": ["ast-grep", "--version"],
+      "lanes": ["structural", "codemod-preview", "end-to-end"],
+      "allowsEmulation": false,
+      "requirements": ["shared language/pattern subset", "preview output retained before any disposable-worktree apply"]
+    },
+    "lsp-pyright": {
+      "transport": "direct-json-rpc",
+      "entrypoint": "resolved-language-server-receipt",
+      "resolvedReceiptRequired": true,
+      "serverFamily": "pyright",
+      "lanes": ["semantic", "end-to-end"],
+      "allowsEmulation": false,
+      "requirements": ["same server executable/config/dependency snapshot as Octocode", "initialize and shutdown receipts retained"]
+    },
+    "lsp-typescript": {
+      "transport": "direct-json-rpc",
+      "entrypoint": "resolved-language-server-receipt",
+      "resolvedReceiptRequired": true,
+      "serverFamily": "typescript",
+      "lanes": ["semantic", "end-to-end"],
+      "allowsEmulation": false,
+      "requirements": ["same server executable/config/dependency snapshot as Octocode", "initialize and shutdown receipts retained"]
+    },
+    "sourcegraph": {
+      "transport": "raw-cli",
+      "entrypoint": ["src", "search", "-json", "-stream"],
+      "versionCommand": ["src", "version"],
+      "lanes": ["indexed", "end-to-end"],
+      "allowsEmulation": false,
+      "requirements": ["self-hosted instance", "src serve-git exact commit convergence", "index lifecycle measured separately"]
+    }
+  }
+}

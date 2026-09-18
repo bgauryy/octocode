@@ -2,8 +2,8 @@
 /**
  * gen-patterns.mjs
  *
- * Generates src/patterns.rs from the canonical allRegexPatterns order in
- * this package's TypeScript source (ensures Rust pattern evaluation order ==
+ * Generates src/security/patterns.rs from the canonical
+ * allRegexPatterns order in this package's TypeScript source (ensures Rust evaluation order ==
  * TS order).
  *
  * Previously this parsed TS source files directly (alphabetical file order).

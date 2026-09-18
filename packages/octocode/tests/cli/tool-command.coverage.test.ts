@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { invokePublicToolCommand } from '../helpers/public-tool-command.js';
 
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -66,7 +67,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: [],
       options: {},
@@ -94,7 +95,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: [],
       options: { list: true },
@@ -109,7 +110,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['list'],
       options: {},
@@ -120,7 +121,7 @@ describe('tool-command coverage', () => {
     expect(process.exitCode).toBe(3);
   });
 
-  it('printToolsContext: prints full context to stdout', async () => {
+  it('printToolsContext: prints compact context to stdout', async () => {
     const { printToolsContext } =
       await import('../../src/cli/tool-command/context.js');
 
@@ -129,7 +130,9 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('Octocode CLI — Agent Context');
     expect(output).toContain('tools <name>');
-    expect(output).toContain('Protocol: answer the next unresolved question');
+    expect(output).toContain(
+      'Check every requested fact against returned evidence'
+    );
     expect(output).toContain('Tools (');
     expect(output).not.toContain('Server instructions.');
     expect(output).toContain('Output contract');
@@ -144,7 +147,9 @@ describe('tool-command coverage', () => {
 
     // Schemas are no longer embedded in context — read them on demand via octocode tools <name>
     expect(compact).not.toContain('"$schema"');
-    expect(compact).toContain('Protocol: answer the next unresolved question');
+    expect(compact).toContain(
+      'Check every requested fact against returned evidence'
+    );
     expect(full).toContain(
       'Choose the next unresolved question; skip stages already supported by evidence.'
     );
@@ -167,7 +172,7 @@ describe('tool-command coverage', () => {
       isError: false,
     });
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -190,7 +195,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { format: 'tool' },
@@ -208,7 +213,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['doesNotExist'],
       options: {},
@@ -225,7 +230,7 @@ describe('tool-command coverage', () => {
     try {
       const { toolCommand } =
         await import('../../src/cli/tool-command/command.js');
-      await toolCommand.handler!({
+      await invokePublicToolCommand(toolCommand, {
         command: 'tools',
         args: ['ghCloneRepo'],
         options: {
@@ -252,7 +257,7 @@ describe('tool-command coverage', () => {
     try {
       const { toolCommand } =
         await import('../../src/cli/tool-command/command.js');
-      await toolCommand.handler!({
+      await invokePublicToolCommand(toolCommand, {
         command: 'tools',
         args: ['ghCloneRepo'],
         options: {
@@ -287,7 +292,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['doesNotExist'],
       options: {},
@@ -309,7 +314,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghSearch'],
       options: { scheme: true },
@@ -327,7 +332,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { scheme: true },
@@ -345,7 +350,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghSearch'],
       options: { scheme: true, brief: true },
@@ -364,7 +369,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { scheme: true, brief: true },
@@ -384,7 +389,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['lspSearch'],
       options: { scheme: true, json: true, compact: true },
@@ -423,7 +428,7 @@ describe('tool-command coverage', () => {
       await import('../../src/cli/tool-command/command.js');
 
     try {
-      await toolCommand.handler!({
+      await invokePublicToolCommand(toolCommand, {
         command: 'tools',
         args: ['ghCloneRepo'],
         options: {
@@ -457,7 +462,7 @@ describe('tool-command coverage', () => {
       await import('../../src/cli/tool-command/command.js');
 
     try {
-      await toolCommand.handler!({
+      await invokePublicToolCommand(toolCommand, {
         command: 'tools',
         args: ['ghCloneRepo'],
         options: {
@@ -485,7 +490,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -508,7 +513,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -530,7 +535,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: [
         'localSearch',
@@ -551,7 +556,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { queries: '42' },
@@ -566,7 +571,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { queries: '{"queries":[]}' },
@@ -585,7 +590,7 @@ describe('tool-command coverage', () => {
       .mockImplementation(() => {});
 
     try {
-      await toolCommand.handler!({
+      await invokePublicToolCommand(toolCommand, {
         command: 'tools',
         args: ['localSearch'],
         options: {
@@ -621,7 +626,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -642,7 +647,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -665,7 +670,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -693,7 +698,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -722,7 +727,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -740,7 +745,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -760,7 +765,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -802,14 +807,17 @@ describe('tool-command coverage', () => {
     expect(packageByName['page']).toBeUndefined();
     expect(githubByName['id']).toBeUndefined();
     expect(githubByName['researchGoal']).toBeUndefined();
-    expect(githubByName['reasoning']).toBeUndefined();
+    expect(githubByName['reasoning']).toMatchObject({
+      required: true,
+      type: 'string',
+    });
   });
 
   it('artifactSearch example includes the MCP-owned required fields', async () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['artifactSearch'],
       options: { scheme: true },
@@ -818,7 +826,9 @@ describe('tool-command coverage', () => {
     const output = consoleSpy.mock.calls.flat().join('\n');
     expect(output).toContain('"packageName"');
     expect(output).toContain('zod');
-    expect(output).toContain('{"type":"npm","packageName":"zod"}');
+    expect(output).toContain(
+      '{"reasoning":"Use artifactSearch for the exact package → source repo example.","type":"npm","packageName":"zod"}'
+    );
     expect(output).not.toContain('"limit"');
   });
 
@@ -826,7 +836,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghSearch'],
       options: { scheme: true },
@@ -844,7 +854,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghCloneRepo'],
       options: { scheme: true },
@@ -859,7 +869,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
 
       args: ['localSearch'],
@@ -892,7 +902,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghSearch'],
       options: {
@@ -937,7 +947,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -962,7 +972,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -986,7 +996,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -1010,7 +1020,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -1028,7 +1038,7 @@ describe('tool-command coverage', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['lspSearch'],
       options: { scheme: true },

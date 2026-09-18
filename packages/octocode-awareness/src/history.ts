@@ -1,4 +1,4 @@
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import type { DatabaseSync } from './sqlite.js';
 import { HISTORY_ROUTE_DESCRIPTORS, historyRequestSchemas } from './schema/definitions-history.js';
 import { captureHistory } from './history-capture.js';
 import { historyEvidence, historyInspect, historyRead, historyRecovery, historyRetentionPreview, historyRetentionPrune, historyStatus, historyTimeline } from './history-query.js';

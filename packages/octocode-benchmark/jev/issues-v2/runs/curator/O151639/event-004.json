@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151639",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Find the specific Telegram streaming assembly function that supplies rendered assistant text.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"telegram\",\"stream\",\"assistantText\"],\"pageSize\":20},{\"reasoning\":\"Find thinking block normalization or extraction paths for anthropic message responses.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"thinking\",\"content blocks\",\"anthropic\"],\"pageSize\":30},{\"reasoning\":\"Find content-array handling in Telegram channel code, restricting search to source paths.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"content\",\"Array.isArray\",\"telegram\"],\"pageSize\":30}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:54:37.389Z",
+  "endedAt": "2026-09-18T08:54:42.541Z",
+  "elapsedMs": 5151,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "71caaa087d2b42b4604fedaacc851353eb0857ab580a6c4e4a2f7ad520509a22",
+  "requestSha256": null
+}

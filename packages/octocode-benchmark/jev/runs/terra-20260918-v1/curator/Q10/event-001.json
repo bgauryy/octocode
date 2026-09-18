@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q10",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"queries\":[{\"operation\":\"repositories\",\"keywords\":[\"axios promise based HTTP client\"],\"match\":[\"name\",\"description\"],\"pageSize\":10},{\"operation\":\"tree\",\"owner\":\"axios\",\"repo\":\"axios\",\"maxDepth\":2,\"include\":[\"languages\",\"branches\"],\"pageSize\":100}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:03.290Z",
+  "endedAt": "2026-09-18T08:27:04.924Z",
+  "elapsedMs": 1633,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "3d10f12a87dcb39ff24819e0ea7adfdb636886a2de84feb5d5d1d4a02f5d9db3",
+  "stdoutBytes": 5252,
+  "requestSha256": null
+}

@@ -29,7 +29,7 @@ describe('plan presentation read model', () => {
     model.tasks[0]!.status = 'blocked';
     model.summary.running = 0;
     model.summary.blocked += 1;
-    expect(projectPlanStatus(model).find(segment => segment.text.startsWith('task '))?.text).toContain('Document API');
+    expect(projectPlanStatus(model).find(segment => segment.text.startsWith('next:'))?.text).toContain('Document API');
   });
 
   it('recomputes dependent readiness from the effective shared task state', () => {

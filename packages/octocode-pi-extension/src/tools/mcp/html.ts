@@ -7,8 +7,8 @@ import {
   listSkillOverrides,
   normalizeSkillKey,
   setSkillEnabled,
-} from '@octocodeai/agent-contracts/mcp-state';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
+} from '../../contracts/mcp-state.js';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/host';
 import { openOctocodeDb } from '../storage-policy.js';
 import type { PiCommand, PiContext, PiInstance, SkillInfo } from '../../types.js';
 import { extensionTmpRoot } from '../../extension-paths.js';
@@ -23,7 +23,7 @@ import { openPlanReview } from '../planning/plan-command.js';
 import { openLocalUrl } from '../local-url-opener.js';
 import { getFooterDensity, setFooterDensity, type FooterDensity } from '../../ui-extras.js';
 import { getPermissionLevel, setPermissionLevel } from '../approval.js';
-import { type PermissionLevel } from '@octocodeai/agent-contracts/protocols';
+import { type PermissionLevel } from '../../contracts/protocols.js';
 import {
   ContributionRegistry,
   SettingsRegistry,
@@ -36,7 +36,7 @@ import { applyDialLevel, EFFORT_LEVELS, getActiveDialLevel } from '../effort-dia
 import { updateOctocodeMetricsUi } from '../../extension-ui.js';
 import { OCTOCODE_THEME_DARK, OCTOCODE_THEME_LIGHT } from '../../ui-extras.js';
 import { refreshCapabilityAdapters } from '../../adapters/pi-capability-adapters.js';
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilityDefinitionRevision } from '../../contracts/capability-sources.js';
 import { configurationRevision } from '../configuration-snapshot.js';
 import { getSessionCapabilities } from '../capability-session.js';
 import { inspectWorkerCapabilityGrants } from '../worker-capabilities.js';
@@ -276,9 +276,7 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
     return `<article class="command-card" data-command-search="${escapeHtml(search)}" data-command-source="${escapeHtml(source)}"><div class="command-card-head"><code>/${escapeHtml(command.name)}</code><span class="badge ${source === 'extension' ? 'on' : ''}">${escapeHtml(source)}</span></div><p>${escapeHtml(description)}</p>${sourceInfo ? `<details><summary>Registration source</summary><code>${escapeHtml(sourceInfo.path)}</code><small>${escapeHtml(`${sourceInfo.source} · ${sourceInfo.scope} · ${sourceInfo.origin}`)}</small></details>` : ''}</article>`;
   }).join('');
   const promptState = contextState?.status ?? artifacts.status;
-  const modeSummary = artifacts.mode === 'compact'
-    ? 'Schema-aware mcp.md is injected with every enabled tool description and complete input contract.'
-    : 'Unoptimized enabled descriptions and exact input schemas from catalog.json are injected; mcp.md is ignored.';
+  const modeSummary = 'A bounded routing index is injected; exact input schemas are fetched on demand through MCPTool describe.';
   const importedCount = [...loaded.configuredServers.values()].filter((config) => config.discovered).length;
   const enabledSkillCount = skills.filter((skill) => skill.enabled).length;
   const footerDensity = getFooterDensity();
@@ -343,9 +341,8 @@ export async function renderMcpManagerPage(ctx?: PiContext, actionToken = '', pi
     <div class="section-heading" id="agent-context"><div><h2>Agent context</h2><p>What the next agent call will receive.</p></div></div><section><h2>Agent prompt catalog</h2>
       <div class="row"><span><span class="badge on">${escapeHtml(artifacts.mode)}</span> <strong>${escapeHtml(promptState)}</strong></span><span>${artifacts.promptChars.toLocaleString()} prompt chars</span></div>
       <p>${escapeHtml(modeSummary)}</p><p>Effective capability revision: <code>${escapeHtml(effective?.revision ?? 'pending first turn')}</code></p><details><summary>Parent capabilities</summary><pre>${escapeHtml(JSON.stringify(effective ? { revision: effective.revision, nativeTools: effective.nativeTools, skills: effective.skills.map(skill => ({ id: skill.id, name: skill.name, path: skill.path })), mcpTools: effective.mcpTools.map(tool => ({ server: tool.server, tool: tool.tool })) } : {}, null, 2))}</pre></details><details><summary>Worker grants</summary><pre>${escapeHtml(JSON.stringify(inspectWorkerCapabilityGrants(), null, 2))}</pre></details>
-      <p class="muted">Mode source: <code>OCTOCODE_COMPACT_MCP</code> (${artifacts.mode === 'compact' ? 'default/enabled' : 'explicitly disabled'}) · mcp.md: ${escapeHtml(artifacts.guideState)}${artifacts.capturedAt ? ` · captured ${escapeHtml(artifacts.capturedAt)}` : ''}</p>
-      ${artifacts.catalogPath ? `<p>Exact catalog: <code>${escapeHtml(artifacts.catalogPath)}</code></p>` : '<p class="muted">Exact catalog is pending startup discovery.</p>'}
-      ${artifacts.guidePath ? `<p>Compact guide: <code>${escapeHtml(artifacts.guidePath)}</code></p>` : ''}
+      <p class="muted">Deterministic routing index${artifacts.capturedAt ? ` · catalog captured ${escapeHtml(artifacts.capturedAt)}` : ''}</p>
+      ${artifacts.catalogPath ? `<p>Internal exact catalog: <code>${escapeHtml(artifacts.catalogPath)}</code></p>` : '<p class="muted">Exact catalog is pending startup discovery.</p>'}
       ${promptState === 'stale' ? '<p class="callout">Capabilities changed. The updated catalog takes effect on the next turn.</p>' : ''}
     </section>
     <div class="section-heading" id="skills"><div><h2>Skills</h2><p>Disabled skills disappear from the agent catalog, autocomplete, discovery inventory, and skill loader.</p></div></div><section><div class="skill-toolbar"><input id="skill-filter" type="search" placeholder="Search skills…" aria-label="Search skills"><button class="active" data-skill-filter="all">All</button><button data-skill-filter="enabled">Enabled</button><button data-skill-filter="disabled">Disabled</button></div><div id="skill-list" class="skill-grid">${skillRows || '<p>No skills discovered. Install skills, then reload the session.</p>'}</div><p class="muted">${enabledSkillCount} enabled · ${skills.length - enabledSkillCount} disabled. Changes block or allow loading immediately; the agent prompt refreshes on its next turn.</p></section>

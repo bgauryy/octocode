@@ -2,13 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
-import { getMcpEnablement } from '@octocodeai/agent-contracts/mcp-state';
-import { readMcpConfigText } from '@octocodeai/agent-contracts/agent-skills';
-import { capabilitySourcePaths, type CapabilityPathOptions } from '@octocodeai/agent-contracts/capability-sources';
-import type { CapabilitySourceStatus } from '@octocodeai/agent-contracts/capability-state';
-import type { ReadableSqlite } from '@octocodeai/agent-contracts/schema';
+import { getMcpEnablement } from '../../contracts/mcp-state.js';
+import { readMcpConfigText } from '../../contracts/agent-skills.js';
+import { capabilitySourcePaths, type CapabilityPathOptions } from '../../contracts/capability-sources.js';
+import type { CapabilitySourceStatus } from '../../contracts/capability-state.js';
+import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
 import type { PiContext } from '../../types.js';
 import { extensionCacheRoot, extensionStateDbPath } from '../../extension-paths.js';
+import { readOwnDependencyVersion } from '../../package-metadata.js';
 import { discoverMcpConfigSources, globalMcpPath, projectMcpPath, globalMcpConfigPaths, projectMcpConfigPaths } from './config-sources.js';
 export { reviewMcpSource, globalMcpPath, projectMcpPath, globalMcpConfigPaths, projectMcpConfigPaths } from './config-sources.js';
 
@@ -85,8 +86,8 @@ const DEFAULT_OCTOCODE_MCP_NPX_CACHE = path.join(extensionCacheRoot(), 'mcp-npx'
  * Env defaults every octocode MCP server spawn must carry:
  * - OCTOCODE_MCP_FULL_TEXT: octocode-mcp compacts text content to a
  *   "structuredContent available …" stub for structured-content-aware clients;
- *   Pi's MCP surfaces only read text blocks, so full text must stay on or the
- *   model sees counts instead of data.
+ *   Request full text directly; the gateway also expands structured-content
+ *   stubs from servers that omit it.
  * - ENABLE_LOCAL: turns on the local tool family (localSearch, localFetch, etc.). Force
  *   it rather than trusting octocode-mcp's own internal default — if that
  *   upstream default ever flips, local tools must not silently disappear here.
@@ -136,21 +137,19 @@ function resolveLocalOctocodeMcpBin(): string | null {
   }
 }
 
-// Version kept in sync with package.json#dependencies.octocode-mcp.
-const OCTOCODE_MCP_FALLBACK_VERSION = '^18.3.0';
-
 /**
  * Build the built-in Octocode MCP server spawn config. Prefer the pinned local
  * binary (fast, offline, reproducible against the version we ship); fall back to
- * `npx -y octocode-mcp@OCTOCODE_MCP_FALLBACK_VERSION` (cache-first) when the dependency is unresolvable.
+ * npx with the manifest's dependency version when the dependency is unresolvable.
  */
 export function buildDefaultOctocodeMcpServer(): McpServerConfig {
   const localBin = resolveLocalOctocodeMcpBin();
+  const version = localBin ? undefined : readOwnDependencyVersion('octocode-mcp');
+  if (!localBin && !version) throw new Error('The extension manifest must declare an octocode-mcp dependency for the npx fallback.');
   const spawn = localBin
     ? { command: process.execPath, args: [localBin] }
     : // No --prefer-online: use the extension-owned npm cache.
-      // for sub-100ms cold start when the pinned dep is unavailable.
-      { command: 'npx', args: ['-y', `octocode-mcp@${OCTOCODE_MCP_FALLBACK_VERSION}`] };
+      { command: 'npx', args: ['-y', `octocode-mcp@${version}`] };
   return {
     transport: 'stdio',
     ...spawn,
@@ -176,7 +175,7 @@ export function buildServerEnv(name: string, config: McpServerConfig): Record<st
   if (name === DEFAULT_OCTOCODE_MCP_SERVER_NAME) {
     for (const [key, value] of Object.entries(process.env)) {
       if (!value) continue;
-      if (key.startsWith('OCTOCODE_') || key === 'GITHUB_TOKEN' || key === 'GH_TOKEN') base[key] = value;
+      if (key.startsWith('OCTOCODE_') || key === 'GITHUB_TOKEN' || key === 'GH_TOKEN' || key === 'GITHUB_PERSONAL_ACCESS_TOKEN') base[key] = value;
     }
   }
   const referenced: Record<string, string> = {};
@@ -380,7 +379,7 @@ export async function loadMcpConfig(
   const trusted = ctx?.isProjectTrusted ? Boolean(await ctx.isProjectTrusted()) : true;
   const defaultServer = buildDefaultOctocodeMcpServer();
   const servers = new Map<string, McpServerConfig>([[DEFAULT_OCTOCODE_MCP_SERVER_NAME, defaultServer]]);
-  const sourcePath = defaultServer.command === 'npx' ? `npx -y octocode-mcp@${OCTOCODE_MCP_FALLBACK_VERSION}` : `node ${defaultServer.args?.[0] ?? 'octocode-mcp'}`;
+  const sourcePath = defaultServer.command === 'npx' ? ['npx', ...(defaultServer.args ?? [])].join(' ') : `node ${defaultServer.args?.[0] ?? 'octocode-mcp'}`;
   const builtInSource: McpConfigSource = { scope: 'built-in', path: sourcePath, trusted: true };
   const sources: McpConfigSource[] = [builtInSource];
   const serverSources = new Map<string, McpConfigSource>([[DEFAULT_OCTOCODE_MCP_SERVER_NAME, builtInSource]]);

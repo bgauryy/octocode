@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   defaultDbPath,
   AWARENESS_PI_HOST_PROMPT,
-} from '@octocodeai/octocode-awareness';
+} from '@octocodeai/octocode-awareness/host';
 import { SYSTEM_PROMPT } from '../src/prompts/system-prompt.js';
 import { OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
 import type { PiContext } from '../src/types.js';
@@ -37,15 +37,11 @@ describe('canonical Awareness CLI in Pi', () => {
     expect(env.OCTOCODE_AWARENESS_DB).toBe(defaultDbPath(process.cwd()));
     expect(env.OCTOCODE_AWARENESS_WORKSPACE).toBe(ctx.cwd);
     expect(env.OCTOCODE_AWARENESS_CLI).toMatch(/octocode-awareness\.js$/);
-    expect(renderAwarenessCliContext(ctx)).toContain('pi-cli-test');
-    expect(renderAwarenessCliContext(ctx)).toContain('$OCTOCODE_AWARENESS_DB');
-    expect(renderAwarenessCliContext(ctx, { nativeTool: true })).toContain(
-      'native awareness tool. Host bindings:'
-    );
-    expect(renderAwarenessCliContext(ctx, { nativeTool: true })).toContain(
-      'Host bindings:'
-    );
-    expect(renderAwarenessCliContext(ctx)).toContain('lacks the native facade');
+    const rendered = renderAwarenessCliContext(ctx);
+    expect(rendered).toContain('$OCTOCODE_AWARENESS_DB');
+    expect(rendered).toContain('lacks the native facade');
+    expect(rendered).not.toContain('pi-cli-test');
+    expect(rendered).not.toContain(ctx.cwd);
   });
 
   it('does not advertise a durable CLI binding when persistence is disabled', () => {
@@ -86,9 +82,6 @@ describe('canonical Awareness CLI in Pi', () => {
     expect(env.OCTOCODE_AGENT_HOST).toBe(nativeIdentity.metadata.host);
     expect(env.OCTOCODE_AGENT_VENDOR).toBe('anthropic');
     expect(env.OCTOCODE_AGENT_HOST).toBe('pi');
-    expect(renderAwarenessCliContext(ctx)).toContain(
-      '"vendor":"anthropic","host":"pi"'
-    );
   });
 
   it('reports unknown vendor explicitly without guessing from a routing ID', () => {
@@ -98,6 +91,5 @@ describe('canonical Awareness CLI in Pi', () => {
     expect(
       buildAwarenessCliEnvironment(ctx).OCTOCODE_AGENT_VENDOR
     ).toBeUndefined();
-    expect(renderAwarenessCliContext(ctx)).toContain('"vendor":null');
   });
 });

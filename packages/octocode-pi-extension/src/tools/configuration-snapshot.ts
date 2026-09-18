@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { capabilityDefinitionRevision } from '@octocodeai/agent-contracts/capability-sources';
-import { listMcpOverrides } from '@octocodeai/agent-contracts/mcp-state';
+import { capabilityDefinitionRevision } from '../contracts/capability-sources.js';
+import { listMcpOverrides } from '../contracts/mcp-state.js';
 import type { PiContext, SkillInfo } from '../types.js';
 import { refreshCapabilityAdapters } from '../adapters/pi-capability-adapters.js';
 import { discoverSkillCandidates } from './skill-discovery.js';

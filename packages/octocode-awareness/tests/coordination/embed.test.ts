@@ -74,8 +74,7 @@ describe('semantic memory recall', () => {
       for (;;) {
         ids.push(...page.memories.map(item => item.memoryId));
         if (!page.next) return { ids, page };
-        const params = page.next.call.params;
-        page = aw.recallVerifiedMemory({ query: String(params.query), mode: params.mode as 'semantic' | 'hybrid', minSimilarity: params.min_similarity === undefined ? undefined : Number(params.min_similarity), limit: Number(params.limit), offset: Number(params.offset), revision: String(params.revision), now: String(params.now) });
+        page = aw.recallVerifiedMemory(page.next.params);
       }
     };
     const semantic = readPages('semantic', 0.5);

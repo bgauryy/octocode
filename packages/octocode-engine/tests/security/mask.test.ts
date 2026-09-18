@@ -37,7 +37,11 @@ describe('maskSensitiveData', () => {
   it('applies JS extra patterns registered in the securityRegistry', () => {
     // Register a custom pattern that the Rust detector does not know about.
     securityRegistry.addSecretPatterns([
-      { name: 'custom-secret', description: 'custom-secret test pattern', regex: /CUSTOM-[A-Z]{8}/g },
+      {
+        name: 'custom-secret',
+        description: 'custom-secret test pattern',
+        regex: /CUSTOM-[A-Z]{8}/g,
+      },
     ]);
     const input = 'value=CUSTOM-ABCDEFGH rest';
     const output = maskSensitiveData(input);

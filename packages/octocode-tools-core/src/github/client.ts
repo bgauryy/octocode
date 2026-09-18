@@ -1,4 +1,4 @@
-import { Octokit } from 'octokit';
+import { Octokit, RequestError } from 'octokit';
 import { throttling } from '@octokit/plugin-throttling';
 import type { OctokitOptions } from '@octokit/core';
 import { createHash } from 'crypto';
@@ -151,6 +151,9 @@ function createOctokitInstance(
     baseUrl,
     request: { timeout, log: quietLog },
     throttle: createThrottleOptions(),
+    // Let throttling own rate-limit delays; generic retries must not override
+    // a declined Retry-After/reset wait. Retain the retry plugin's other exclusions.
+    retry: { doNotRetry: [400, 401, 403, 404, 410, 422, 429, 451] },
     log: quietLog,
     ...(token && { auth: token }),
   };
@@ -217,13 +220,11 @@ export async function resolveDefaultBranch(
 
   const octokit = await getOctokit(authInfo);
 
-  try {
-    const { data } = await octokit.rest.repos.get({ owner, repo });
-    const branch = data.default_branch;
+  const { data } = await octokit.rest.repos.get({ owner, repo });
+  const branch = data.default_branch;
+  if (typeof branch === 'string' && branch.trim()) {
     cacheDefaultBranch(cacheKey, branch);
     return branch;
-  } catch {
-    void 0;
   }
 
   const candidates = ['main', 'master'] as const;
@@ -232,8 +233,10 @@ export async function resolveDefaultBranch(
       await octokit.rest.repos.getBranch({ owner, repo, branch: candidate });
       cacheDefaultBranch(cacheKey, candidate);
       return candidate;
-    } catch {
-      void 0;
+    } catch (error) {
+      if (!(error instanceof RequestError) || error.status !== 404) {
+        throw error;
+      }
     }
   }
 

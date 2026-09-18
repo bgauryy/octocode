@@ -164,7 +164,7 @@ test('bash override blocks writes outside allowed roots', async () => {
   }
 });
 
-test('bash override rejects missing reasoning', async () => {
+test('bash override accepts an omitted batch label', async () => {
   const { default: extension } = await import('../src/index.js');
   const tools = new Map<string, { name: string; execute: ToolDefinition['execute'] }>();
   await extension({
@@ -176,10 +176,8 @@ test('bash override rejects missing reasoning', async () => {
     getActiveTools: () => ['bash'],
     setActiveTools: () => undefined,
   });
-  await assert.rejects(
-    () => executeBash(tools.get('bash')!, 'missing-reasoning', { queries: [{ command: 'echo hi' }] }, undefined, { cwd: os.tmpdir() }),
-    /requires non-empty reasoning/,
-  );
+  const result = await executeBash(tools.get('bash')!, 'missing-reasoning', { queries: [{ command: 'printf hi' }] }, undefined, { cwd: os.tmpdir() });
+  assert.match((result.content[0] as { text: string }).text, /hi/);
 });
 
 test('extractBashWriteTargets: sed/perl in-place targets the FILE, never the script', () => {

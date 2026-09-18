@@ -135,6 +135,17 @@ function paginationContinuation(
   );
 }
 
+function continuationMetadata(query: LspSearchQuery) {
+  const invocation = query as LspSearchQuery & {
+    reasoning?: string;
+    debug?: boolean;
+  };
+  return {
+    reasoning: invocation.reasoning,
+    debug: invocation.debug ?? false,
+  };
+}
+
 // Ready-to-run follow-up. On a hit: read the top result location with context,
 // so the agent doesn't have to assemble the localFetch call from
 // ranges. On an empty/incomplete result: re-anchor or fall back to
@@ -177,6 +188,7 @@ export function withSemanticNext(
     query.workspaceRoot ??
     (semanticResult.uri ? localPathFromUri(semanticResult.uri) : undefined);
   const partialReasons = [
+    ...(semanticResult.partialReasons ?? []),
     ...(warmupTruncated
       ? ([
           payload.warmup?.incompleteReasons &&
@@ -193,7 +205,9 @@ export function withSemanticNext(
       ...semanticResult,
       truncated: true,
       partialReasons,
-      ...((budgetTruncated || (depthTruncated && !depthExpandable)) && {
+      ...((budgetTruncated ||
+        (depthTruncated && !depthExpandable) ||
+        (warmupTruncated && !symbolName)) && {
         terminalLimit: true,
       }),
     };
@@ -216,6 +230,7 @@ export function withSemanticNext(
           verifyDefinition: {
             tool: 'lspSearch',
             query: {
+              ...continuationMetadata(query),
               operation: 'workspaceSymbol',
               uri: semanticResult.uri,
               symbolName,
@@ -229,6 +244,7 @@ export function withSemanticNext(
             searchDefinitionCandidates: {
               tool: 'localSearch',
               query: {
+                ...continuationMetadata(query),
                 path: verificationRoot,
                 searchText: symbolName,
                 regex: 'literal',
@@ -286,6 +302,7 @@ export function withSemanticNext(
         readSite: {
           tool: 'localFetch',
           query: {
+            ...continuationMetadata(query),
             path,
             startLine: Math.max(1, start - 3),
             endLine: (loc.displayRange?.endLine ?? start) + 10,
@@ -321,6 +338,7 @@ export function withSemanticNext(
         textSearch: {
           tool: 'localSearch',
           query: {
+            ...continuationMetadata(query),
             path: filePath,
             searchText: declarationRegexForFile(filePath),
             regex: 'pcre2',
@@ -354,7 +372,12 @@ export function withSemanticNext(
     ...baseNext,
     textSearch: {
       tool: 'localSearch',
-      query: { path: searchPath, searchText: symbolName, regex: 'literal' },
+      query: {
+        ...continuationMetadata(query),
+        path: searchPath,
+        searchText: symbolName,
+        regex: 'literal',
+      },
       why: `Semantic ${semanticResult.type} returned no result (${empty.category}) — fall back to a text search for "${symbolName}"`,
       confidence: 'low',
     },
@@ -362,7 +385,11 @@ export function withSemanticNext(
   if (REANCHOR_EMPTY_CATEGORIES.has(empty.category) && semanticResult.uri) {
     next.reAnchor = {
       tool: 'lspSearch',
-      query: { operation: 'documentSymbols', uri: semanticResult.uri },
+      query: {
+        ...continuationMetadata(query),
+        operation: 'documentSymbols',
+        uri: semanticResult.uri,
+      },
       why: "Re-anchor: list this file's symbols to find the correct lineHint, then retry the semantic query",
       confidence: 'medium',
     };

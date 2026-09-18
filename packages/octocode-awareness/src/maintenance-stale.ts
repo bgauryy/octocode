@@ -1,6 +1,6 @@
 import { isAbsolute, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { canonicalizePath, fillScope, normalizeWorkspacePath } from './git.js';
+import { canonicalizePath, normalizeWorkspacePath } from './git.js';
 import { assertKnownOptions, normalizeArtifact, utcNow } from './helpers.js';
 import type { FileLock } from './types/identity-memory.js';
 
@@ -19,12 +19,6 @@ export interface PruneStaleResult {
   dry_run?: true;
   would_prune?: number;
   locks?: FileLock[];
-}
-
-export interface NotifyGetResult {
-  ok: true;
-  count: 0;
-  notifications: [];
 }
 
 export interface SessionCaptureResult {
@@ -162,49 +156,4 @@ export function pruneStale(db: DatabaseSync, params: Record<string, unknown> = {
   }
 
   return { pruned_locks: staleLocks.length };
-}
-
-// ─── Smart briefing ─────────────────────────────────────────────────────────
-
-export interface BriefItem {
-  kind: 'memory' | 'weakness' | 'refinement' | 'notification';
-  text: string;
-  importance?: number;
-}
-
-export interface NotifyGetBriefResult {
-  ok: true;
-  count: number;
-  notifications: BriefItem[];
-  additionalContext?: string;  // set when format:hook is requested
-}
-
-export function openRefinementCount(
-  db: DatabaseSync,
-  params: { workspacePath?: string | null; artifact?: string | null; repo?: string | null; ref?: string | null; cwd?: string; includeHandoffs?: boolean } = {},
-): number {
-  const scope = fillScope(
-    { workspace_path: params.workspacePath ?? null, artifact: normalizeArtifact(params.artifact), repo: params.repo ?? null, ref: params.ref ?? null },
-    params.cwd ?? process.cwd(),
-  );
-  const queryParams: (string | number)[] = [];
-  let sql = "SELECT COUNT(*) AS c FROM refinements WHERE state IN ('open','ongoing')";
-  if (!params.includeHandoffs) sql += " AND quality NOT IN ('handoff','instructions')";
-  if (scope.workspace_path) {
-    sql += ' AND (workspace_path = ? OR workspace_path IS NULL)';
-    queryParams.push(scope.workspace_path);
-  }
-  if (scope.artifact) {
-    sql += ' AND (artifact = ? OR artifact IS NULL)';
-    queryParams.push(scope.artifact);
-  }
-  if (scope.repo) {
-    sql += ' AND (repo = ? OR repo IS NULL)';
-    queryParams.push(scope.repo);
-  }
-  if (scope.ref) {
-    sql += ' AND (ref = ? OR ref IS NULL)';
-    queryParams.push(scope.ref);
-  }
-  return (db.prepare(sql).get(...queryParams) as { c: number }).c;
 }

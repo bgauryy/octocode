@@ -90,10 +90,30 @@ export function createGraphAnalysisRunner() {
           }) as TopologyAnalysisOutput;
         }
 
+        let baseline =
+          resolvedQuery.operation === 'drift'
+            ? resolvedQuery.baseline
+            : undefined;
+        if (baseline) {
+          const baselineValidation = validateToolPath(
+            { ...resolvedQuery, path: baseline },
+            AST_SEARCH_TOOL_NAME
+          );
+          if (!baselineValidation.isValid) {
+            return createErrorResult(
+              baselineValidation.errorResult,
+              resolvedQuery,
+              { toolName: AST_SEARCH_TOOL_NAME }
+            ) as TopologyAnalysisOutput;
+          }
+          baseline = baselineValidation.sanitizedPath;
+        }
+
         return analyzeTopology(
           {
             ...resolvedQuery,
             path: pathValidation.sanitizedPath,
+            ...(baseline ? { baseline } : {}),
           },
           { getGraph }
         );

@@ -1,5 +1,5 @@
 import type { GitHubFileContentApiResult } from '../tools/github_fetch_content/types.js';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../security/sanitize.js';
 import { contextUtils } from '../utils/contextUtils.js';
 import { countLines } from '../utils/core/lines.js';
 import { selectMatchingSource } from '../utils/file/contentExtractor.js';
@@ -110,7 +110,7 @@ export async function processFileContentAPI(
   }
   if (contentView === 'standard')
     content = contextUtils.applyContentViewMinification(content, filePath);
-  const sanitized = ContentSanitizer.sanitizeContent(content, filePath);
+  const sanitized = sanitizeContent(content, filePath);
   if (sanitized.secretsDetected.includes('content-size-exceeded')) {
     return {
       ...base,
@@ -121,9 +121,21 @@ export async function processFileContentAPI(
       partialReasons: ['security-selected-view-size-limit'],
     };
   }
+  const { sourceLines, ...selectionFields } = selection;
+  // Only unchanged exact views retain source coordinates. Byte selection may
+  // already have discarded its map after redaction or synthetic separators;
+  // never substitute an identity map for that missing selected-view evidence.
+  const exactSource = contentView === 'none' && sanitized.content === content;
   return {
     ...base,
-    ...selection,
+    ...selectionFields,
+    ...(exactSource
+      ? matchString !== undefined && !fullContent
+        ? sourceLines !== undefined
+          ? { sourceLines }
+          : {}
+        : { sourceLineOffset: (selection.startLine ?? 1) - 1 }
+      : {}),
     content: sanitized.content,
     contentView,
     ...(minifyFallback ? { minifyFallback } : {}),

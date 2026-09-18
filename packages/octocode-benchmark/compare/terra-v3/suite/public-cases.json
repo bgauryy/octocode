@@ -1,0 +1,127 @@
+{
+  "version": 4,
+  "split": "public",
+  "normalizationVersion": "terra-public-oracle-v1",
+  "freezeRule": "Materialize and seal every public oracle against the exact corpus lock before the first measured call; never edit suite, normalizer, tools, or answers during a campaign.",
+  "cases": [
+    {
+      "id": "p01-langchain-runnable-config-declarations", "lane": "lexical", "repositories": ["langchain-ai/langchain"],
+      "prompt": "At the locked LangChain commit, report every Python declaration of RunnableConfig under libs/core with exact file and line evidence.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "^(?:class|type) RunnableConfig\\b", "roots": ["libs/core"], "includeExtensions": [".py", ".pyi"]}
+    },
+    {
+      "id": "p02-next-runtime-literals", "lane": "lexical", "repositories": ["vercel/next.js"],
+      "prompt": "At the locked Next.js commit, list source occurrences of NEXT_RUNTIME under packages/next with exact file and line evidence.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "NEXT_RUNTIME", "roots": ["packages/next"], "includeExtensions": [".js", ".jsx", ".ts", ".tsx"]}
+    },
+    {
+      "id": "p03-cross-repo-deprecation-markers", "lane": "lexical", "repositories": ["langchain-ai/langchain", "vercel/next.js"],
+      "prompt": "For each locked repository, report exact source locations containing an explicit @deprecated or deprecated:: marker, excluding generated and dependency trees.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "@deprecated|deprecated::", "roots": ["."], "includeExtensions": [".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".rs"]}
+    },
+    {
+      "id": "p04-cross-repo-safety-comments", "lane": "lexical", "repositories": ["langchain-ai/langchain", "vercel/next.js"],
+      "prompt": "At both locked commits, list source locations containing the case-sensitive marker SAFETY:.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "SAFETY:", "roots": ["."], "includeExtensions": [".py", ".js", ".jsx", ".ts", ".tsx", ".rs"]}
+    },
+    {
+      "id": "p05-langchain-async-method-shape", "lane": "structural", "repositories": ["langchain-ai/langchain"],
+      "prompt": "Enumerate LangChain async Python methods named ainvoke with self first, including annotated and unannotated returns; return file and start position.",
+      "anchor": {"kind": "exact-result-set", "oracle": "ast-grep-json", "language": "python", "roots": ["."], "patterns": ["async def ainvoke(self, $$$ARGS) -> $RET: $$$BODY", "async def ainvoke(self, $$$ARGS): $$$BODY"]}
+    },
+    {
+      "id": "p06-langchain-pydantic-fields", "lane": "structural", "repositories": ["langchain-ai/langchain"],
+      "prompt": "Find production LangChain Core annotated assignments whose value directly calls Field(...); report file, assigned name, type, and start position.",
+      "anchor": {"kind": "exact-result-set", "oracle": "ast-grep-json", "language": "python", "roots": ["libs/core/langchain_core"], "patterns": ["$NAME: $TYPE = Field($$$ARGS)"]}
+    },
+    {
+      "id": "p07-next-exported-async-functions", "lane": "structural", "repositories": ["vercel/next.js"],
+      "prompt": "Enumerate exported async function implementations under packages/next/src matched by the frozen TS/TSX structural shapes, including generic, explicitly typed, and inferred-return declarations; report name and start position.",
+      "anchor": {"kind": "exact-result-set", "oracle": "ast-grep-json", "languages": ["typescript", "tsx"], "roots": ["packages/next/src"], "patterns": ["export async function $NAME($$$ARGS): $RET { $$$BODY }", "export async function $NAME($$$ARGS) { $$$BODY }", "export async function $NAME<$$$T>($$$ARGS): $RET { $$$BODY }", "export async function $NAME<$$$T>($$$ARGS) { $$$BODY }"]}
+    },
+    {
+      "id": "p08-next-react-create-context", "lane": "structural", "repositories": ["vercel/next.js"],
+      "prompt": "List direct generic createContext assignments under packages/next/src/client, returning the assigned symbol, type argument, file, and start position.",
+      "anchor": {"kind": "exact-result-set", "oracle": "ast-grep-json", "language": "tsx", "roots": ["packages/next/src/client"], "patterns": ["const $NAME = createContext<$T>($$$ARGS)"]}
+    },
+    {
+      "id": "p09-langchain-runnable-invoke-definition", "lane": "semantic", "repositories": ["langchain-ai/langchain"],
+      "prompt": "Using frozen Pyright, resolve the canonical Runnable.invoke declaration and return the exact definition locations.",
+      "anchor": {"kind": "exact-result-set", "oracle": "direct-lsp", "server": "pyright-langserver", "request": {"method": "textDocument/definition", "path": "libs/core/langchain_core/runnables/base.py", "line": 885, "character": 8}}
+    },
+    {
+      "id": "p10-langchain-runnable-config-references", "lane": "semantic", "repositories": ["langchain-ai/langchain"],
+      "prompt": "Using frozen Pyright, report the complete definition-inclusive reference set for RunnableConfig at its canonical declaration.",
+      "anchor": {"kind": "exact-result-set", "oracle": "direct-lsp", "server": "pyright-langserver", "request": {"method": "textDocument/references", "path": "libs/core/langchain_core/runnables/config.py", "line": 56, "character": 6, "includeDeclaration": true}}
+    },
+    {
+      "id": "p11-next-next-config-definition", "lane": "semantic", "repositories": ["vercel/next.js"],
+      "prompt": "Using the frozen TypeScript language server, resolve NextConfig at its canonical interface declaration.",
+      "anchor": {"kind": "exact-result-set", "oracle": "direct-lsp", "server": "typescript-language-server", "request": {"method": "textDocument/definition", "path": "packages/next/src/server/config-shared.ts", "line": 1667, "character": 17}}
+    },
+    {
+      "id": "p12-next-next-config-references", "lane": "semantic", "repositories": ["vercel/next.js"],
+      "prompt": "Using the frozen TypeScript language server, return the complete definition-inclusive reference set for NextConfig.",
+      "anchor": {"kind": "exact-result-set", "oracle": "direct-lsp", "server": "typescript-language-server", "request": {"method": "textDocument/references", "path": "packages/next/src/server/config-shared.ts", "line": 1667, "character": 17, "includeDeclaration": true}}
+    },
+    {
+      "id": "p13-indexed-cross-repo-config-symbols", "lane": "indexed", "repositories": ["langchain-ai/langchain", "vercel/next.js"],
+      "prompt": "Across both locked repositories, return source declaration lines whose declared symbol name ends in Config.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "^(?:export\\s+)?(?:abstract\\s+)?(?:class|interface|type|enum)\\s+[A-Za-z_$][A-Za-z0-9_$]*Config\\b", "roots": ["."], "includeExtensions": [".py", ".pyi", ".js", ".jsx", ".ts", ".tsx"]}
+    },
+    {
+      "id": "p14-indexed-not-implemented-sites", "lane": "indexed", "repositories": ["langchain-ai/langchain", "vercel/next.js"],
+      "prompt": "Across both locked repositories, list exact source lines containing NotImplemented or NotImplementedError.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "\\bNotImplemented(?:Error)?\\b", "roots": ["."], "includeExtensions": [".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".rs"]}
+    },
+    {
+      "id": "p15-indexed-env-read-sites", "lane": "indexed", "repositories": ["langchain-ai/langchain", "vercel/next.js"],
+      "prompt": "Across both locked repositories, enumerate exact source lines that reference os.environ, process.env, or env!.",
+      "anchor": {"kind": "exact-result-set", "oracle": "python-regex", "query": "(?:os\\.environ|process\\.env|\\benv!)", "roots": ["."], "includeExtensions": [".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".rs"]}
+    },
+    {
+      "id": "p16-langchain-preview-root-validator-migration", "lane": "codemod-preview", "repositories": ["langchain-ai/langchain"],
+      "prompt": "Preview only the mechanical decorator rewrite @root_validator(pre=True) to @model_validator(mode=\"before\") under production LangChain Core; report match identities and the complete patch. Import changes are explicitly out of scope.",
+      "anchor": {"kind": "patch-hash", "oracle": "ast-grep-preview", "language": "python", "roots": ["libs/core/langchain_core"], "pattern": "@root_validator(pre=True)", "rewrite": "@model_validator(mode=\"before\")"}
+    },
+    {
+      "id": "p17-next-preview-promise-resolve", "lane": "codemod-preview", "repositories": ["vercel/next.js"],
+      "prompt": "Preview, without applying, Promise.resolve($X) to Promise.try(() => $X) under packages/next/src; return match identities and the complete patch.",
+      "anchor": {"kind": "patch-hash", "oracle": "ast-grep-preview", "languages": ["typescript", "tsx"], "roots": ["packages/next/src"], "pattern": "Promise.resolve($X)", "rewrite": "Promise.try(() => $X)"}
+    },
+    {
+      "id": "p18-langchain-runnable-config-flow", "lane": "end-to-end", "repositories": ["langchain-ai/langchain"],
+      "prompt": "Identify RunnableConfig's canonical declaration, Runnable.invoke and RunnableSequence.invoke consumers, and their immediate execution/config helpers, with exact evidence.",
+      "anchor": {"kind": "fact-set", "oracle": "verified-source-facts", "facts": [
+        {"id": "declaration", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/runnables/config.py", "line": 57, "contains": "class RunnableConfig", "claim": "RunnableConfig is canonically declared here"},
+        {"id": "public-sync-entry", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/runnables/base.py", "line": 886, "contains": "def invoke(", "claim": "Runnable exposes the synchronous public entry"},
+        {"id": "public-async-helper", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/runnables/base.py", "line": 929, "contains": "run_in_executor", "claim": "Runnable.ainvoke delegates execution through run_in_executor"},
+        {"id": "sequence-entry", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/runnables/base.py", "line": 3430, "contains": "def invoke(", "claim": "RunnableSequence exposes an invoke consumer"},
+        {"id": "sequence-config-helper", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/runnables/base.py", "line": 3434, "contains": "ensure_config", "claim": "RunnableSequence.invoke normalizes config through ensure_config"}
+      ]}
+    },
+    {
+      "id": "p19-next-config-loading-flow", "lane": "end-to-end", "repositories": ["vercel/next.js"],
+      "prompt": "Trace the locked Next.js configuration loader from exported loadConfig through loadConfigImpl to normalizeConfig and the frozen normalized value, with exact evidence.",
+      "anchor": {"kind": "fact-set", "oracle": "verified-source-facts", "facts": [
+        {"id": "exported-entry", "repository": "vercel/next.js", "path": "packages/next/src/server/config.ts", "line": 1887, "contains": "export default async function loadConfig", "claim": "loadConfig is the exported entry"},
+        {"id": "implementation", "repository": "vercel/next.js", "path": "packages/next/src/server/config.ts", "line": 1929, "contains": "async function loadConfigImpl", "claim": "loadConfig dispatches into loadConfigImpl"},
+        {"id": "normalizer-call", "repository": "vercel/next.js", "path": "packages/next/src/server/config.ts", "line": 2110, "contains": "await normalizeConfig", "claim": "loadConfigImpl invokes normalizeConfig"},
+        {"id": "frozen-result", "repository": "vercel/next.js", "path": "packages/next/src/server/config.ts", "line": 2109, "contains": "Object.freeze", "claim": "the normalized configuration is frozen"},
+        {"id": "normalizer-definition", "repository": "vercel/next.js", "path": "packages/next/src/server/config-shared.ts", "line": 2409, "contains": "function normalizeConfig", "claim": "normalizeConfig is defined in config-shared"}
+      ]}
+    },
+    {
+      "id": "p20-cross-repo-tracing-extension-points", "lane": "end-to-end", "repositories": ["langchain-ai/langchain", "vercel/next.js"],
+      "prompt": "For LangChain and Next.js, identify one tracing extension point and its first internal dispatch step using exact source evidence.",
+      "anchor": {"kind": "fact-set", "oracle": "verified-source-facts", "facts": [
+        {"id": "langchain-extension", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/callbacks/manager.py", "line": 1485, "contains": "def on_chain_start", "claim": "CallbackManager.on_chain_start is a tracing extension point"},
+        {"id": "langchain-dispatch", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/callbacks/manager.py", "line": 1506, "contains": "handle_event(", "claim": "on_chain_start dispatches through handle_event"},
+        {"id": "langchain-tracer", "repository": "langchain-ai/langchain", "path": "libs/core/langchain_core/tracers/base.py", "line": 301, "contains": "self._start_trace(chain_run)", "claim": "BaseTracer starts the internal trace"},
+        {"id": "next-extension", "repository": "vercel/next.js", "path": "packages/next/src/client/tracing/tracer.ts", "line": 66, "contains": "startSpan(", "claim": "Tracer.startSpan is the public client tracing extension"},
+        {"id": "next-dispatch", "repository": "vercel/next.js", "path": "packages/next/src/client/tracing/tracer.ts", "line": 67, "contains": "new Span", "claim": "startSpan constructs a Span with the internal end handler"},
+        {"id": "next-emitter", "repository": "vercel/next.js", "path": "packages/next/src/client/tracing/tracer.ts", "line": 63, "contains": "_emitter.emit", "claim": "the span end handler dispatches through the internal emitter"}
+      ]}
+    }
+  ]
+}

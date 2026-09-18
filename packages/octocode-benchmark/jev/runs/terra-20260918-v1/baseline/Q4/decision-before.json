@@ -1,0 +1,1 @@
+{"hypotheses":["Axios imports follow-redirects in its Node http adapter; upstream wraps native request and redirect response handling."],"currentDirection":"Read Axios package/adapter plus upstream implementation.","uncertainty":"Exact dependency field, branch and upstream symbols/files.","plannedNextCheck":"Fetch manifests and target source files."}

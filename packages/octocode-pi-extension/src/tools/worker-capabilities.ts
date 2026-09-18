@@ -6,7 +6,7 @@ import {
   type CapabilitySnapshot,
   type WorkerCapabilityGrant,
   type WorkerCapabilitySelection,
-} from '@octocodeai/agent-contracts/capabilities';
+} from '../contracts/capabilities.js';
 import {
   createWorkerMcpBroker,
   createWorkerBrokerClient,
@@ -116,6 +116,16 @@ const ROLE_MCP_TOOLS: Record<string, string[]> = {
   browser: LOCAL_MCP_TOOLS,
 };
 
+function assertWorkerCapabilityGateways(selection: WorkerCapabilitySelection): void {
+  const nativeTools = new Set(selection.nativeTools ?? []);
+  if ((selection.skills?.length ?? 0) > 0 && !nativeTools.has('skill')) {
+    throw new Error('Worker skill grants require the native tool "skill".');
+  }
+  if ((selection.mcpTools?.length ?? 0) > 0 && !nativeTools.has('MCPTool')) {
+    throw new Error('Worker MCP grants require the native tool "MCPTool".');
+  }
+}
+
 /** Omitted fields use a focused role default; explicit empty arrays stay empty. */
 export function resolveWorkerCapabilitySelection(params: SpawnAgentParams, snapshot: CapabilitySnapshot): WorkerCapabilitySelection {
   if ((params.resourceMode ?? 'lean') === 'lean') {
@@ -130,11 +140,13 @@ export function resolveWorkerCapabilitySelection(params: SpawnAgentParams, snaps
   const selectedPaths = params.skills === undefined ? undefined : new Set(params.skills);
   const defaultSkills = snapshot.skills.filter(skill => selectedPaths ? selectedPaths.has(skill.path) || selectedPaths.has(path.dirname(skill.path)) : skillNames.has(skill.name)).map(skill => skill.id);
   const mcpNames = new Set(ROLE_MCP_TOOLS[profile] ?? LOCAL_MCP_TOOLS);
-  return {
+  const selection = {
     nativeTools,
     skills: requested?.skills ?? (nativeTools.includes('skill') ? defaultSkills : []),
     mcpTools: requested?.mcpTools ?? (nativeTools.includes('MCPTool') ? snapshot.mcpTools.filter(tool => tool.server === 'octocode' && mcpNames.has(tool.tool)).map(({ server, tool }) => ({ server, tool })) : []),
   };
+  assertWorkerCapabilityGateways(selection);
+  return selection;
 }
 
 /** Synchronous spawn seam after root initialization; a worker cannot call this. */
@@ -160,6 +172,7 @@ export function bindSpawnedWorkerCapabilities(workerId: string, params: SpawnAge
 export function configureWorkerCapabilities(workerId: string, update: { snapshotRevision: string; selection: WorkerCapabilitySelection; expectedGrantRevision?: number }): WorkerCapabilityGrant {
   if (isWorkerCapabilityClient() || !parentBroker) throw new Error('Only the active parent runtime can configure worker capabilities.');
   if (leanWorkers.has(workerId) && ((update.selection.skills?.length ?? 0) > 0 || (update.selection.mcpTools?.length ?? 0) > 0 || update.selection.nativeTools?.some(name => !LEAN_NATIVE_TOOLS.has(name)))) throw new Error('Lean workers support Pi builtin native tools only and keep skill/MCP grants empty. Spawn an Octocode worker for those resources.');
+  assertWorkerCapabilityGateways(update.selection);
   return parentBroker.configureWorker(workerId, update);
 }
 

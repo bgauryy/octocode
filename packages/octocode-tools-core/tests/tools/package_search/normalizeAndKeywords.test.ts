@@ -107,7 +107,15 @@ describe('searchPackages registry dispatch', () => {
       registry: 'https://registry.example.test',
     });
     const first = await searchPackages({
-      queries: [{ type: 'npm', keywords: ['state'], pageSize: 1 }],
+      queries: [
+        {
+          reasoning: 'Exercise artifact cursor metadata propagation.',
+          debug: true,
+          type: 'npm',
+          keywords: ['state'],
+          pageSize: 1,
+        },
+      ],
     });
     const row = (first.structuredContent as any).results[0].data;
     expectExecutableNext(row);

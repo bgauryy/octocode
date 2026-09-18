@@ -87,6 +87,7 @@ export async function fetchFileContentToDisk(
         minify: 'none',
         goal: `Save ${owner}/${repo}/${path} locally`,
         reasoning: 'GitHub file materialization',
+        debug: false,
       },
       authInfo
     );

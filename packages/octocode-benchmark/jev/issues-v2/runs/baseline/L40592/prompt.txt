@@ -1,0 +1,9 @@
+Fresh Terra benchmark worker. Triage https://github.com/langchain-ai/langchain/issues/40592 and propose concrete safe fix IF bug supported; otherwise correct disposition. Case L40592 arm baseline. Repository /Users/bgaryy/code/octocode.
+Read AGENTS.md and /Users/bgaryy/code/octocode/packages/octocode-benchmark/jev/issues-v2/CONTRACT.md plus EXECUTION-AMENDMENT.md completely. Read /Users/bgaryy/.agents/skills/octocode-research/SKILL.md and relevant external/debug references.
+Jev disabled. Do not read Jev skill or call it.
+Never read sibling workers, curator/gold, prior benchmarks or parent findings. No agents, upstream writes, installs/build scripts or shell/API/web research bypass. Only write inside /Users/bgaryy/code/octocode/packages/octocode-benchmark/jev/issues-v2/runs/baseline/L40592. Setup skill/contract reads allowed directly.
+All public/code research through node /Users/bgaryy/code/octocode/packages/octocode-benchmark/jev/issues-v2/run.mjs baseline L40592 schema TOOL... or octocode TOOL --queries JSON --compact. Record start now using wrapper start; finish after artifacts using wrapper finish. 16 research invocations max,5rows/batch,target8min; at10calls focus decisive proof. Inspect live schema; reasoning now required.
+Optional2 self-authored reviewed isolated checks via wrapper check node|python3 /absolute/owned/script; distinguish model/extraction from actual package runtime.
+
+Write answer.md/result.json/decision-before.json/decision-after.json per contract. Include supported actual/expected contract, classification,trigger,mechanism with pinned URLs,alternate checked,concrete edit/no-fix disposition,regression/negative controls,actual tests vs pending and uncertainty. No invented timestamps/runtime claims.
+Do not edit shared GOTCHAS: record friction in own answer. Use apply_patch for edits. Final return status,result,<=8anchors,verification,confidence,next.

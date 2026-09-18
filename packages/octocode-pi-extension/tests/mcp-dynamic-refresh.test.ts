@@ -5,7 +5,6 @@ import { projectMcpPath } from '../src/tools/mcp/config.js';
 import { getCachedMcpCatalogAddendum, getEffectiveMcpSnapshot, refreshMcpCapabilities, stopAllMcpServers, waitForMcpShutdown, warmMcpCatalog } from '../src/tools/mcp-tool.js';
 
 test('configuration changes during discovery remove stale tools and adopt re-enabled sources without a new session', async () => {
-  vi.stubEnv('OCTOCODE_COMPACT_MCP', '1');
   vi.stubEnv('OCTOCODE_HOME', process.env['OCTOCODE_HOME'] ?? '');
   const fixture = createDelayedMcpFixture(250);
   try {

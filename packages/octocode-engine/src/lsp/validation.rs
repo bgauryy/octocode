@@ -1,6 +1,6 @@
+use crate::error::{Error, Result, Status};
 use crate::lsp::commands::{has_path_separator, is_executable_path, is_rejected_shell};
 use crate::lsp::uri::uri_to_path;
-use napi::{Error, Result, Status};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 

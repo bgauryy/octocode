@@ -23,6 +23,7 @@ interface ToolRegistrationConfig<TQuery> {
   title: string;
   description: string;
   inputSchema: object;
+  outputSchema: object;
   executionFn: (args: ToolExecutionArgs<TQuery>) => Promise<CallToolResult>;
   security: ToolDirectSecurity;
   timeoutMs?: number;
@@ -50,6 +51,7 @@ export function createToolRegistration<TQuery>(
       title: config.title,
       description: config.description,
       inputSchema: config.inputSchema as StandardSchemaWithJSON,
+      outputSchema: config.outputSchema as StandardSchemaWithJSON,
       annotations,
     };
 

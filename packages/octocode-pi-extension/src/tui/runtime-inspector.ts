@@ -11,7 +11,9 @@ import type {
   ExecutionState,
 } from '../tools/execution-events.js';
 import { executionLabel } from '../tools/execution-presentation.js';
-import { formatCompact, formatDurationShort } from '../ui-extras.js';
+import { elapsedSince, formatCompact, formatDurationShort } from '../ui-extras.js';
+import { githubAuthLabel } from '../tools/github-auth-status.js';
+import { formatAwarenessPanel, getAwarenessStatusHealth, getCachedAwarenessStatus } from '../tools/awareness-status.js';
 import { openScrollInspector } from './scroll-inspector.js';
 
 export function executionStatusLines(
@@ -29,7 +31,7 @@ export function executionStatusLines(
     `  ${state.sessionId ?? 'starting'}`,
     `  ${executionLabel(state.cwd)}`,
     `  model ${[state.provider, state.model].filter(Boolean).join('/') || 'unknown'}`,
-    `  elapsed ${formatDurationShort(state.startedAt === undefined ? undefined : now - state.startedAt)} · turns ${state.completedTurns} · tools ${state.toolCount}`,
+    `  elapsed ${formatDurationShort(elapsedSince(state.startedAt, now))} · turns ${state.completedTurns} · tools ${state.toolCount}`,
     '',
     'Usage · session totals',
     ...(usage.length ? usage : ['  Provider usage unavailable']),
@@ -82,6 +84,21 @@ export function executionStatusLines(
   ];
 }
 
+/** Explain cached coordination evidence without presenting a repaint as a read. */
+export function awarenessDetailLines(cwd: string, now = Date.now()): string[] {
+  const status = getCachedAwarenessStatus(cwd);
+  const health = getAwarenessStatusHealth(cwd);
+  return [
+    '', 'Awareness · shared work, verification checks, and messages',
+    `  Source: ${health.state}`,
+    ...(status ? [
+      `  Last updated ${formatDurationShort(elapsedSince(status.observedAt, now))} ago`,
+      ...formatAwarenessPanel(status),
+    ] : ['  No coordination snapshot available.']),
+    '  /octocode-inbox opens agent messages; /configuration opens plan details.',
+  ];
+}
+
 export function registerRuntimeInspectors(pi: PiInstance): void {
   pi.registerCommand?.(EXTENSION_COMMANDS.status.name, {
     description: EXTENSION_COMMANDS.status.description,
@@ -93,11 +110,15 @@ export function registerRuntimeInspectors(pi: PiInstance): void {
       expireExecutionInteractions(ctx);
       const action = args.trim();
       if (!action) {
-        const state = runtimeStoreFor(ctx)?.getState().execution;
+        const runtime = runtimeStoreFor(ctx)?.getState();
         await openScrollInspector(
           ctx,
           'Octocode status',
-          state ? executionStatusLines(state) : ['Session is initializing.']
+          runtime ? [
+            ...executionStatusLines(runtime.execution),
+            '', githubAuthLabel(runtime.footer.githubAuth.status),
+            ...awarenessDetailLines(ctx.cwd ?? process.cwd()),
+          ] : ['Session is initializing.']
         );
         return;
       }

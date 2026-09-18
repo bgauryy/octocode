@@ -4,7 +4,7 @@ import {
   DiffEntry,
   CommitFileInfo,
 } from './githubAPI.js';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../security/sanitize.js';
 import { filterPatch } from '../utils/parsers/diff.js';
 
 interface RawPRData {
@@ -30,9 +30,9 @@ export function createBasePRTransformation(item: RawPRData): {
   prData: GitHubPullRequestItem;
   sanitizationWarnings: Set<string>;
 } {
-  const titleSanitized = ContentSanitizer.sanitizeContent(item.title ?? '');
+  const titleSanitized = sanitizeContent(item.title ?? '');
   const bodySanitized = item.body
-    ? ContentSanitizer.sanitizeContent(item.body)
+    ? sanitizeContent(item.body)
     : { content: undefined, warnings: [] };
 
   const sanitizationWarnings = new Set<string>([

@@ -607,23 +607,22 @@ export function registerBashTool(
   const parameters = buildQueryEnvelopeSchema(
     z.looseObject({
       command: z.string().optional().describe(
-        'Command; omit for job actions.',
+        'Command to run; required unless action is set.',
       ),
       timeout: z.number().int().min(1).optional().describe(
-        `Seconds; set for blocking commands. Values above ${BASH_MAX_TIMEOUT_SEC} are clamped.`,
+        `Seconds; capped at ${BASH_MAX_TIMEOUT_SEC}.`,
       ),
       background: z.boolean().optional().describe(
-        `Run non-blocking; returns jobId and reports completion. Default timeout ${BASH_BG_DEFAULT_TIMEOUT_S}s.`,
+        `Non-blocking; returns jobId. Default ${BASH_BG_DEFAULT_TIMEOUT_S}s.`,
       ),
       title: z.string().optional().describe('Background label.'),
       action: z.enum(['status', 'output', 'kill', 'list']).optional().describe(
         'Manage jobs; status/output/kill need jobId.',
       ),
-      jobId: z.string().optional().describe('Job target.'),
+      jobId: z.string().optional().describe('Job target; required for action: status/output/kill.'),
       outputOffset: z.number().optional().describe('Output line offset.'),
       lines: z.number().optional().describe('Output line limit.'),
     }),
-    { reasoningDescription: 'Concise reason this shell command is necessary.', allowParallel: false },
   );
 
   registerFn(pi, registeredToolNames, {
@@ -633,10 +632,7 @@ export function registerBashTool(
       DIRECT_TOOL_DESCRIPTIONS.bash!,
     promptSnippet: 'Run bounded builds, tests, package commands, and debugging.',
     promptGuidelines: [
-      'Set timeout for commands that can block and use non-interactive flags, e.g. npx -y pkg. Use this timeout field instead of assuming a platform timeout executable exists.',
-      'Batches execute sequentially, stop on failure, and keep prior effects. Isolate slow/network commands so one hang does not strand unrelated work.',
-      'Use file for mutations and MCPTool for search/reads that record edit freshness. Never use an interpreter or shell expansion to bypass path guards.',
-      'Redirect/tee/cp/mv destinations must pass the path guard. Environment exfiltration retains its approval gate; ordinary commands inherit the environment.',
+      'Set timeout; use non-interactive flags (npx -y). Isolate slow/network commands.',
     ],
     parameters,
     async execute(
@@ -728,7 +724,7 @@ export function registerBashTool(
                     `${icon} bash (bg) job \`${j.id}\` ${j.status}\n` +
                     `Title:   ${j.title}\nRuntime: ${formatBgElapsed((j.endedAt ?? Date.now()) - j.startedAt)}\n` +
                     `Exit:    ${j.exitCode ?? 'n/a'}\nLog:     ${j.logPath}\n\n` +
-                    `  bash queries=[{action:'output',jobId:'${j.id}',reasoning:'tail output'}]   # read log`;
+                    `  bash queries=[{action:'output',jobId:'${j.id}'}]   # read log`;
                   (ctx as any)?.sendUserMessage?.(msg, { deliverAs: 'followUp' });
                 } catch {}
               },
@@ -739,9 +735,9 @@ export function registerBashTool(
                 `Title:   ${job.title}\nCommand: ${job.command}\nLog:     ${job.logPath}\n` +
                 `Timeout: ${bgTimeout > 0 ? `${bgTimeout}s` : 'none'}\n\n` +
                 `Continue other work — follow-up arrives on completion.\n` +
-                `  bash queries=[{action:'output',jobId:'${job.id}',reasoning:'tail log'}]\n` +
-                `  bash queries=[{action:'status',jobId:'${job.id}',reasoning:'check exit code'}]\n` +
-                `  bash queries=[{action:'kill',  jobId:'${job.id}',reasoning:'stop it'}]`,
+                `  bash queries=[{action:'output',jobId:'${job.id}'}]\n` +
+                `  bash queries=[{action:'status',jobId:'${job.id}'}]\n` +
+                `  bash queries=[{action:'kill',jobId:'${job.id}'}]`,
               }],
               details: { jobId: job.id, logPath: job.logPath, status: 'running' },
             };

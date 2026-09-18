@@ -16,6 +16,7 @@
 //!   * Degrades gracefully: an unsupported extension or parse failure leaves
 //!     matches unlabeled (kind = None), never an error.
 
+use std::path::Path;
 use std::time::Instant;
 use tree_sitter::Node;
 
@@ -34,14 +35,6 @@ pub const DEFAULT_CLASSIFY_FILE_CAP: usize = 300;
 /// match from triggering an unbounded read + tree-sitter parse.
 pub const DEFAULT_CLASSIFY_MAX_FILE_BYTES: u64 = 1_000_000;
 
-fn extension_of(path: &str) -> &str {
-    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    match name.rfind('.') {
-        Some(i) if i + 1 < name.len() => &name[i + 1..],
-        _ => "",
-    }
-}
-
 /// Annotate matches across the first `cap` files in place by reading each file
 /// and classifying its match positions. Files past the cap, unsupported
 /// extensions, unreadable/unparseable files, and work past the shared deadline
@@ -55,7 +48,10 @@ pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
         if file.matches.is_empty() {
             continue;
         }
-        let ext = extension_of(&file.path);
+        let ext = Path::new(&file.path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
         if find_entry(ext).is_none() {
             continue;
         }

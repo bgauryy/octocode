@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"operation\":\"issue\",\"owner\":\"react\",\"repo\":\"react\",\"number\":37655,\"content\":{\"body\":true,\"comments\":{\"discussion\":true}},\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:21.364Z",
+  "endedAt": "2026-09-18T08:27:22.100Z",
+  "elapsedMs": 734,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "1cd5480c29f4f849bb8c63269e843e3d86d52fc2e743b80a10b59f99df0221bf",
+  "stdoutBytes": 5718,
+  "requestSha256": null
+}

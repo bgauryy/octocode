@@ -1,0 +1,61 @@
+{
+  "model": "jev-1.13.0",
+  "state": {
+    "mainGoal": "Triage React issue #37637 and propose a smallest safe fix only if an externally supported behavior contract is violated.",
+    "goal": "Choose the next discriminating evidence check among explicit alternatives; do not establish the bug or edit from this judgment.",
+    "scope": "React issue reports react/react-dom 19.3.0; current default branch is separately pinned at 71f725593739d2cb5866a282a1075d581831722f.",
+    "reasoning": "Observed: the issue reports that a nested ViewTransition rendered through a portal gets no name/class during a same-commit mount and cites an enter-prop sentence about a parent Component mounting. The issue has no comments. The v19.3.0 source has commitEnterViewTransitions, which applies a name/class when its placement is a ViewTransition. Current ReactFiberCommitWork says exactly: 'The first ViewTransition inside a newly mounted tree runs an enter transition but other nested ones don't unless they have a named pair.' This may indicate intentional semantics, a documentation mismatch, or a portal-only traversal gap. The exact public contract and release portal control flow remain unverified. I need a check that can falsify one of those explanations, not agreement with a preferred fix.",
+    "exactDecidingExcerpts": [
+      {
+        "id": "e1_issue",
+        "source": "https://github.com/react/react/issues/37637",
+        "excerpt": "Only the outer <ViewTransition> ... is activated ... The inner, nested <ViewTransition> ... never gets a view-transition-name or view-transition-class assigned."
+      },
+      {
+        "id": "e2_release_enter",
+        "source": "https://github.com/react/react/blob/1d34f91dfde6bba84d08b683aaba164c7194dacb/packages/react-reconciler/src/ReactFiberCommitViewTransitions.js#L482-L528",
+        "excerpt": "if (placement.tag === ViewTransitionComponent) ... applyViewTransitionToHostInstances(placement, name, className, null, false) ... else if ((placement.subtreeFlags & ViewTransitionStatic) !== NoFlags) ... commitEnterViewTransitions(child, gesture)."
+      },
+      {
+        "id": "e3_current_comment",
+        "source": "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-reconciler/src/ReactFiberCommitWork.js#L2911-L2920",
+        "excerpt": "The first ViewTransition inside a newly mounted tree runs an enter transition but other nested ones don't unless they have a named pair."
+      }
+    ],
+    "hypotheses": {
+      "h1_contract_bug": "The documented enter contract requires independent nested enter names/classes; first-only traversal violates it.",
+      "h2_intentional_semantics": "Nested enters are intentionally suppressed; the report misreads or reveals ambiguous documentation, so no reconciler edit is safe.",
+      "h3_portal_gap": "Portal after-mutation traversal uniquely fails to schedule an otherwise-supported nested entry.",
+      "none": "The supplied evidence cannot yet select a useful direction."
+    },
+    "unknowns": ["Exact authoritative enter-prop wording", "v19.3.0 HostPortal control flow", "release test coverage for nested portal entries"],
+    "candidateChecks": {
+      "c1_contract_test": "Read official ViewTransition enter documentation and v19.3.0 tests for nested/parent-mounted semantics; it separates a supported contract bug from intentional semantics.",
+      "c2_portal_path": "Read v19.3.0 HostPortal after-mutation traversal and contrast it with non-portal nested mounts; it separates a portal-only gap from generic first-only semantics.",
+      "c3_release_regression_test": "Locate the v19.3.0 ViewTransition test suite for nested and portal controls; it can distinguish all three but may be less direct.",
+      "none": "No supplied check is discriminating enough."
+    }
+  },
+  "questions": {
+    "hypothesis": {
+      "type": "choice",
+      "instructions": "Based only on the supplied observations, which hypothesis is most worth investigating next? This is a provisional prioritization, not a finding.",
+      "criteria": {
+        "h1_contract_bug": "A documented nested-enter contract is likely violated.",
+        "h2_intentional_semantics": "First-only nested-enter behavior is likely intentional or the report's contract reading is wrong.",
+        "h3_portal_gap": "A HostPortal-specific scheduling gap is likely.",
+        "none": "The observations do not support prioritizing a hypothesis."
+      }
+    },
+    "check": {
+      "type": "choice",
+      "instructions": "Which supplied next check best distinguishes the hypotheses? Select none if none is a sound discriminator. Do not assume any check's future result.",
+      "criteria": {
+        "c1_contract_test": "Directly checks the claimed expected behavior against public authority.",
+        "c2_portal_path": "Directly checks whether portal control flow creates a special case.",
+        "c3_release_regression_test": "Checks release test coverage and intended controls.",
+        "none": "No listed check is sufficiently discriminating."
+      }
+    }
+  }
+}

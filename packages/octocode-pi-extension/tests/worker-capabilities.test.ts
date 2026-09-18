@@ -11,7 +11,7 @@ import {
 } from '../src/tools/worker-capabilities.js';
 import { createWorkerBrokerClient } from '../src/tools/mcp/broker.js';
 import { executeAgentLifecycle } from '../src/tools/agents/lifecycle.js';
-import type { CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
+import type { CapabilitySnapshot } from '../src/contracts/capabilities.js';
 
 const snapshot: CapabilitySnapshot = {
   schemaVersion: 1, revision: 'catalog-one', nativeTools: ['MCPTool', 'skill', 'file', 'bash'],
@@ -55,11 +55,27 @@ describe('task-specific worker runtime', () => {
     expect(() => configureWorkerCapabilities('lean', { snapshotRevision: snapshot.revision, selection: { nativeTools: ['MCPTool'] } })).toThrow(/Lean workers/);
   });
 
-  it('accepts exact skill identities and keeps binding credentials out of public records', () => {
+  it('rejects resource grants whose native gateway is absent', () => {
+    expect(() => resolveWorkerCapabilitySelection({
+      resourceMode: 'octocode', capabilityProfile: 'researcher', tools: ['skill'],
+      capabilities: { nativeTools: [], skills: ['research-id'] },
+    }, snapshot)).toThrow(/skill grants require the native tool "skill"/i);
+    expect(() => resolveWorkerCapabilitySelection({
+      resourceMode: 'octocode', capabilityProfile: 'researcher', tools: ['MCPTool'],
+      capabilities: { nativeTools: [], mcpTools: [{ server: 'octocode', tool: 'localSearch' }] },
+    }, snapshot)).toThrow(/MCP grants require the native tool "MCPTool"/i);
+  });
+
+  it('accepts exact skill identities and unique active names while keeping credentials private', () => {
     const child = bindSpawnedWorkerCapabilities('one', {
       resourceMode: 'octocode', tools: ['skill'], capabilities: { skills: ['finance-id'] },
     });
     expect(child.params.skills).toEqual(['/skills/finance/SKILL.md']);
+    const namedChild = bindSpawnedWorkerCapabilities('named', {
+      resourceMode: 'octocode', tools: ['skill'], capabilities: { skills: ['finance'] },
+    });
+    expect(namedChild.params.skills).toEqual(['/skills/finance/SKILL.md']);
+    expect(namedChild.grant?.skills).toEqual(['finance-id']);
     const binding = JSON.parse(child.env[WORKER_CAPABILITY_BINDING_ENV]!);
     expect(binding.workerId).toBe('one');
     expect(JSON.stringify(inspectWorkerCapabilityGrants())).not.toContain(binding.token);
@@ -71,6 +87,11 @@ describe('task-specific worker runtime', () => {
     const child = bindSpawnedWorkerCapabilities('worker-one', { resourceMode: 'octocode', tools: ['MCPTool', 'skill'], capabilityProfile: 'implementer' });
     const client = createWorkerBrokerClient(JSON.parse(child.env[WORKER_CAPABILITY_BINDING_ENV]!));
     await client.readCapabilities(true);
+    expect(() => configureWorkerCapabilities('worker-one', {
+      snapshotRevision: snapshot.revision,
+      selection: { nativeTools: [], mcpTools: [{ server: 'octocode', tool: 'localSearch' }] },
+    })).toThrow(/MCP grants require the native tool "MCPTool"/i);
+    expect(getParentWorkerCapabilities('worker-one')?.grant.revision).toBe(child.grant!.revision);
     const updated = configureWorkerCapabilities('worker-one', { snapshotRevision: snapshot.revision, selection: { nativeTools: ['skill'], skills: ['finance-id'] } });
     expect(updated.revision).toBeGreaterThan(child.grant!.revision);
     await expect(client.dispatch({ action: 'call', server: 'octocode', tool: 'localSearch' })).rejects.toThrow(/not granted/);

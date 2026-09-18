@@ -3,8 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test, vi } from 'vitest';
-import type { AwarenessCommandResult } from '@octocodeai/octocode-awareness';
-import type { AwarenessCommandRunner } from '../src/tools/awareness-command-runner.js';
+import {
+  getAwarenessAgentInstructions,
+  getAwarenessOperationDescriptor,
+  ROUTINE_AWARENESS_OPERATIONS,
+  type AwarenessOperationResult,
+} from '@octocodeai/octocode-awareness';
+import { defaultDbPath } from '@octocodeai/octocode-awareness/host';
+import type { AwarenessOperationRunner } from '../src/tools/awareness-operation-runner.js';
+import { runAwarenessOperation } from '../src/tools/awareness-operation-runner.js';
 import { registerAwarenessTool } from '../src/tools/awareness-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
 import { ToolResultError } from '../src/tools/tool-result-error.js';
@@ -28,12 +35,23 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function makeTool(runner: AwarenessCommandRunner): ToolDefinition {
+function makeTool(runner: AwarenessOperationRunner): ToolDefinition {
   let definition: ToolDefinition | undefined;
   const pi = { registerTool(value: ToolDefinition) { definition = value; } } as PiInstance;
   registerAwarenessTool(pi, new Set(), (host, names, value) => registerUniqueTool(host, names, value), runner);
   assert.ok(definition);
   return definition;
+}
+
+const AWARENESS_CONTRACT_MAX_UTF8_BYTES = 2_000;
+
+function modelVisibleStandingContract(tool: ToolDefinition): string {
+  return [
+    tool.description,
+    tool.promptSnippet,
+    ...(tool.promptGuidelines ?? []),
+    JSON.stringify(tool.parameters),
+  ].join('\n');
 }
 
 async function run(tool: ToolDefinition, queries: Record<string, unknown>[], ctx: PiContext = { cwd: root } as PiContext): Promise<ToolCallResult> {
@@ -45,14 +63,44 @@ async function run(tool: ToolDefinition, queries: Record<string, unknown>[], ctx
   }
 }
 
+async function describeSchema(tool: ToolDefinition, operation: string): Promise<string> {
+  const parts: string[] = [];
+  let part: number | undefined;
+  let total = 1;
+  do {
+    const value = await run(tool, [{ operation, describe: true, ...(part === undefined ? {} : { part }) }]);
+    assert.equal(value.isError, false, `${operation} part ${part ?? 0}`);
+    const text = String((value.content[0] as { text?: string }).text);
+    assert.ok(Buffer.byteLength(text, 'utf8') <= AWARENESS_CONTRACT_MAX_UTF8_BYTES, operation);
+    const payload = JSON.parse(text) as {
+      inputSchemaText?: string;
+      inputSchemaTextPart?: string;
+      schemaPart?: { index: number; total: number };
+      next?: { queries?: Array<{ part?: number }> };
+    };
+    if (payload.inputSchemaText !== undefined) return payload.inputSchemaText;
+    assert.ok(payload.schemaPart, operation);
+    assert.equal(typeof payload.inputSchemaTextPart, 'string', operation);
+    parts[payload.schemaPart!.index] = payload.inputSchemaTextPart!;
+    total = payload.schemaPart!.total;
+    part = payload.next?.queries?.[0]?.part;
+  } while (part !== undefined);
+  assert.equal(parts.length, total, `${operation} schema parts`);
+  assert.ok(parts.every(value => typeof value === 'string'), `${operation} contiguous schema parts`);
+  return parts.join('');
+}
+
 test('exposes direct routine operations without list-describe-call ceremony', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async () => ({ exitCode: 0, payload: { revision: 'o1.fixture', unchanged: true } }));
+  const runner = vi.fn<AwarenessOperationRunner>(async () => ({ exitCode: 0, payload: { revision: 'o1.fixture', unchanged: true } }));
   const tool = makeTool(runner);
   const schemaText = JSON.stringify(tool.parameters);
   const promptText = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
   assert.ok(schemaText.includes('context.orient'), `baseline schema=${Buffer.byteLength(schemaText)} prompt=${Buffer.byteLength(promptText)}`);
+  assert.ok(schemaText.includes('context.observe'));
+  assert.ok(schemaText.includes('context.feedback'));
   assert.ok(schemaText.includes('message.send'));
-  assert.ok(schemaText.includes('legacy'));
+  assert.match(promptText, new RegExp(`\\b${ROUTINE_AWARENESS_OPERATIONS.length}\\b`));
+  assert.ok(!schemaText.includes('legacy'));
   assert.ok(Buffer.byteLength(schemaText) < 2_000);
   assert.ok(Buffer.byteLength(promptText) < 1_200);
 
@@ -62,19 +110,93 @@ test('exposes direct routine operations without list-describe-call ceremony', as
   const bindings = runner.mock.calls[0]?.[1];
   assert.equal(bindings?.workspace, root);
   assert.ok(bindings?.agentId);
-  assert.match(String(bindings?.database), /awareness\.sqlite3$/);
+  assert.equal(bindings?.database, defaultDbPath(root));
 });
 
-test('rejects legacy-only fields on routine operation branches', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async (): Promise<AwarenessCommandResult> => ({ exitCode: 0, payload: { ok: true } }));
+test('keeps the complete model-visible standing Awareness contract within a conservative 2,000-byte ceiling', () => {
+  const tool = makeTool(async () => ({ exitCode: 0, payload: {} }));
+  const contract = modelVisibleStandingContract(tool);
+  assert.ok(
+    Buffer.byteLength(contract, 'utf8') <= AWARENESS_CONTRACT_MAX_UTF8_BYTES,
+    `standing Awareness contract is ${Buffer.byteLength(contract, 'utf8')} UTF-8 bytes`,
+  );
+});
+
+test('bounds every describe contract and reconstructs the exact canonical executable schema', async () => {
+  const tool = makeTool(async () => ({ exitCode: 0, payload: {} }));
+  for (const operation of ROUTINE_AWARENESS_OPERATIONS) {
+    const descriptor = getAwarenessOperationDescriptor(operation);
+    assert.ok(descriptor);
+    const reconstructed = await describeSchema(tool, operation);
+    assert.equal(reconstructed, descriptor.inputSchemaText, `${operation} exact schema text`);
+    assert.deepEqual(JSON.parse(reconstructed), descriptor.inputSchema, `${operation} canonical schema`);
+  }
+});
+
+test('keeps Message guidance in the canonical instructions and native schema discovery on the tool', () => {
+  const tool = makeTool(async () => ({ exitCode: 0, payload: {} }));
+  const toolPrompt = [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].join('\n');
+  assert.match(toolPrompt, /"describe":true/);
+  assert.doesNotMatch(toolPrompt, /API parameters use snake_case/i);
+  const promptText = getAwarenessAgentInstructions();
+  assert.match(promptText, /API parameters use snake_case/i);
+  assert.match(promptText, /message\.list.*include_bodies:true.*not bodies/is);
+  assert.match(promptText, /message\.send.*kind.*claim\|handoff\|question\|reply\|blocker\|request\|decision\|approval\|fyi/is);
+  assert.match(promptText, /to_agent.*array/i);
+  assert.match(promptText, /\bfile\b.*\bref_id\b/i);
+  assert.doesNotMatch(promptText, /to_agents/i);
+  assert.match(promptText, /message\.reply.*in_reply_to.*signal_id.*not notification_id/is);
+});
+
+test('executes the complete Context observation and feedback loop through Pi bindings', async () => {
+  const tool = makeTool(runAwarenessOperation);
+  const ctx = {
+    cwd: root,
+    sessionManager: { getSessionId: () => 'context-loop-session' },
+  } as PiContext;
+  const observedAt = new Date().toISOString();
+  const first = await run(tool, [{ operation: 'context.observe', params: {
+    observation_id: 'pressure-1', observed_at: observedAt, source: 'host', acquisition: 'passive',
+    context: { used: 95, limit: 100 },
+  } }], ctx);
+  assert.equal(first.isError, false);
+  const firstPayload = JSON.parse(String((first.content[0] as { text?: string }).text)) as {
+    nudge?: { advisory_id?: string };
+  };
+  assert.ok(firstPayload.nudge?.advisory_id);
+
+  const second = await run(tool, [{ operation: 'context.observe', params: {
+    observation_id: 'pressure-relieved', observed_at: observedAt, source: 'host',
+    context: { used: 40, limit: 100 },
+  } }], ctx);
+  assert.equal(second.isError, false);
+  const feedback = await run(tool, [{ operation: 'context.feedback', params: {
+    feedback_id: 'pressure-feedback', observed_at: observedAt,
+    advisory_id: firstPayload.nudge.advisory_id,
+    observation_id: 'pressure-relieved', action_taken: 'Host compacted context', outcome: 'helpful',
+  } }], ctx);
+  assert.equal(feedback.isError, false);
+
+  const orientation = await run(tool, [{ operation: 'context.orient' }], ctx);
+  assert.equal(orientation.isError, false);
+  const orientationPayload = JSON.parse(String((orientation.content[0] as { text?: string }).text)) as {
+    run_state?: { status?: string };
+    regulation?: { advisories?: unknown[] };
+  };
+  assert.equal(orientationPayload.run_state?.status, 'observed');
+  assert.deepEqual(orientationPayload.regulation?.advisories ?? [], []);
+});
+
+test('rejects removed command-dispatch fields', async () => {
+  const runner = vi.fn<AwarenessOperationRunner>(async (): Promise<AwarenessOperationResult> => ({ exitCode: 0, payload: { ok: true } }));
   const value = await run(makeTool(runner), [{ operation: 'context.orient', action: 'list' }]);
   assert.equal(value.isError, true);
-  assert.match(String((value.content[0] as { text?: string }).text), /action is only valid with operation:"legacy"/);
+  assert.match(String((value.content[0] as { text?: string }).text), /action is not part of the canonical Awareness surface/);
   assert.equal(runner.mock.calls.length, 0);
 });
 
 test('preflights a routine batch before allowing more than one possible mutation', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async (): Promise<AwarenessCommandResult> => ({ exitCode: 0, payload: { ok: true } }));
+  const runner = vi.fn<AwarenessOperationRunner>(async (): Promise<AwarenessOperationResult> => ({ exitCode: 0, payload: { ok: true } }));
   const value = await run(makeTool(runner), [
     { operation: 'message.send', params: { kind: 'fyi', subject: 'one' } },
     { operation: 'message.send', params: { kind: 'fyi', subject: 'two' } },
@@ -85,17 +207,17 @@ test('preflights a routine batch before allowing more than one possible mutation
 });
 
 test('distinguishes history restore preview from approval-protected apply', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async (): Promise<AwarenessCommandResult> => ({ exitCode: 0, payload: { ok: true } }));
+  const runner = vi.fn<AwarenessOperationRunner>(async (): Promise<AwarenessOperationResult> => ({ exitCode: 0, payload: { ok: true } }));
   let approvals = 0;
   const ctx = { cwd: root, hasUI: true, ui: { select: async (_prompt: string, choices: string[]) => { approvals += 1; return choices[0]; } } } as unknown as PiContext;
-  assert.equal((await run(makeTool(runner), [{ operation: 'history.restore', params: { action: 'preview', version_id: 'v1' } }], ctx)).isError, false);
+  assert.equal((await run(makeTool(runner), [{ operation: 'history.restore', params: { action: 'preview', operation_id: 'v1', side: 'before' } }], ctx)).isError, false);
   assert.equal(approvals, 0);
   assert.equal((await run(makeTool(runner), [{ operation: 'history.restore', params: { action: 'apply', preview_id: 'p1' } }], ctx)).isError, false);
   assert.equal(approvals, 1);
 });
 
 test('wraps canonical operation continuations in executable Pi envelopes', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async (): Promise<AwarenessCommandResult> => ({
+  const runner = vi.fn<AwarenessOperationRunner>(async (): Promise<AwarenessOperationResult> => ({
     exitCode: 0,
     payload: { next: [{ operation: 'context.orient', params: { limit: 2, offset: 2 } }] },
   }));
@@ -103,32 +225,17 @@ test('wraps canonical operation continuations in executable Pi envelopes', async
   assert.equal(value.isError, false);
   const packet = JSON.parse(String((value.content[0] as { text?: string }).text));
   assert.deepEqual(packet.next[0].queries[0], {
-    reasoning: 'Continue the requested Awareness results',
     operation: 'context.orient',
     params: { limit: 2, offset: 2 },
   });
 });
 
-test('filters the legacy administration catalog by command noun', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async () => ({ exitCode: 0, payload: {} }));
-  const value = await run(makeTool(runner), [
-    { operation: 'legacy', action: 'list', command: 'database', pageSize: 5 },
-  ]);
-  assert.equal(value.isError, false);
-  const payload = JSON.parse(String((value.content[0] as { text?: string }).text)) as {
-    entries: Array<{ command: string }>;
-  };
-  assert.ok(payload.entries.length > 0);
-  assert.ok(payload.entries.every(entry => entry.command.startsWith('database')));
-  assert.equal(runner.mock.calls.length, 0);
-});
-
-test('rejects legacy-only paging fields on routine operations', async () => {
-  const runner = vi.fn<AwarenessCommandRunner>(async () => ({ exitCode: 0, payload: {} }));
+test('rejects removed paging fields on canonical operations', async () => {
+  const runner = vi.fn<AwarenessOperationRunner>(async () => ({ exitCode: 0, payload: {} }));
   const value = await run(makeTool(runner), [
     { operation: 'context.orient', pageSize: 5 },
   ]);
   assert.equal(value.isError, true);
-  assert.match(String((value.content[0] as { text?: string }).text), /pageSize is only valid with operation:"legacy"/);
+  assert.match(String((value.content[0] as { text?: string }).text), /pageSize is not part of the canonical Awareness surface/);
   assert.equal(runner.mock.calls.length, 0);
 });

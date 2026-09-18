@@ -46,11 +46,11 @@ describe('pull-request exact-item nextCalls — copy-paste-ready fragments', () 
       operation: 'pullRequest',
       number: 42,
     });
-    expect(shaped.next.fullReview?.query).toMatchObject({
-      owner: 'octo',
-      repo: 'engine',
-      operation: 'pullRequest',
-      number: 42,
+    expect(shaped.next).not.toHaveProperty('fullReview');
+  });
+
+  it('does not suggest repeating a request for every content collection', () => {
+    const request = normalizePullRequestContentRequest({
       content: {
         body: true,
         changedFiles: true,
@@ -60,6 +60,15 @@ describe('pull-request exact-item nextCalls — copy-paste-ready fragments', () 
         commits: {},
       },
     });
+    const shaped = shapePullRequestForContent(
+      PR,
+      { owner: 'octo', repo: 'engine' },
+      request,
+      false,
+      true
+    ) as { next: Record<string, unknown> };
+
+    expect(shaped.next).toEqual({});
   });
 
   it('getSelectedPatches uses a real changed-file path when changedFiles was already fetched this round', () => {

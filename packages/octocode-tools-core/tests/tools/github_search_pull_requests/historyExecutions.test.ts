@@ -35,7 +35,13 @@ import {
 } from '@octocodeai/octocode-core/schema';
 
 function args(queries: Array<Record<string, unknown>>) {
-  return { queries } as never;
+  return {
+    queries: queries.map(query => ({
+      reasoning: 'Exercise GitHub history execution and continuation behavior.',
+      debug: true,
+      ...query,
+    })),
+  } as never;
 }
 
 function resultRows(
@@ -180,7 +186,7 @@ describe('GitHub history public adapters', () => {
       'ghSearchHistory',
       'ghSearchHistory',
     ]);
-    expect(continuations.map(next => next.query)).toEqual([
+    expect(continuations.map(next => next.query)).toMatchObject([
       {
         operation: 'pullRequests',
         keywords: ['schema'],
@@ -216,8 +222,13 @@ describe('GitHub history public adapters', () => {
     expect(JSON.stringify(result)).not.toMatch(
       /ghSearchPullRequests|ghSearchIssues|ghSearchCommits|prNumber|issueNumber/
     );
+    expect(
+      continuations.every(
+        next => next.query.reasoning && next.query.debug === true
+      )
+    ).toBe(true);
     expect(JSON.stringify(continuations)).not.toMatch(
-      /"(?:goal|reasoning|type|limit|itemsPerPage)"/
+      /"(?:goal|type|limit|itemsPerPage)"/
     );
   });
 
@@ -422,7 +433,7 @@ describe('GitHub history public adapters', () => {
           .success
       ).toBe(true);
     }
-    expect(next.nextFilePage?.query).toEqual({
+    expect(next.nextFilePage?.query).toMatchObject({
       operation: 'commit',
       owner: 'o',
       repo: 'r',
@@ -433,7 +444,7 @@ describe('GitHub history public adapters', () => {
       pageSize: 1,
       charLength: 10,
     });
-    expect(next.continuePatch?.query).toEqual({
+    expect(next.continuePatch?.query).toMatchObject({
       operation: 'commit',
       owner: 'o',
       repo: 'r',
@@ -448,8 +459,13 @@ describe('GitHub history public adapters', () => {
     expect(JSON.stringify(result)).not.toMatch(
       /ghSearchPullRequests|ghSearchIssues|ghSearchCommits|prNumber|issueNumber/
     );
+    expect(
+      Object.values(next).every(
+        item => item.query.reasoning && typeof item.query.debug === 'boolean'
+      )
+    ).toBe(true);
     expect(JSON.stringify(next)).not.toMatch(
-      /"(?:goal|reasoning|type|limit|itemsPerPage)"/
+      /"(?:goal|type|limit|itemsPerPage)"/
     );
   });
 

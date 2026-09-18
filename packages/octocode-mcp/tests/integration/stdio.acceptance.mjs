@@ -21,23 +21,22 @@ const { values } = parseArgs({
     },
     quick: { type: 'boolean', default: false },
     live: { type: 'boolean', default: false },
+    'cli-mcp-parity': { type: 'boolean', default: false },
   },
 });
 const fixture = values.fixture
   ? path.resolve(values.fixture)
   : await createLocalAcceptanceFixture(path.resolve('.octocode/tmp'));
-const expectedTools = [
-  'ghSearch',
-  'ghGetFileContent',
-  'ghSearchHistory',
-  'ghGetHistoryItem',
-  'ghCloneRepo',
-  'artifactSearch',
-  'localSearch',
-  'localFetch',
-  'astSearch',
-  'lspSearch',
-];
+const acceptanceCwd = path.resolve(values.cwd);
+const acceptanceEnv = {
+  ...process.env,
+  ENABLE_LOCAL: 'true',
+  ENABLE_CLONE: 'true',
+  ENABLE_AST_REWRITE_APPLY: 'true',
+  OCTOCODE_STORAGE_MODE: 'persistent',
+};
+const { DIRECT_TOOL_DISCOVERY_DEFINITIONS } = await import('@octocodeai/octocode-core/schema');
+const expectedTools = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name);
 const receipt = {
   server: path.resolve(values.server),
   node: values.node,
@@ -46,17 +45,14 @@ const receipt = {
   calls: [],
   transportErrors: [],
   stderrBytes: 0,
+  stderrTail: '',
 };
+const cliMcpParitySamples = new Map();
 const transport = new StdioClientTransport({
   command: values.node,
   args: [path.resolve(values.server)],
-  cwd: path.resolve(values.cwd),
-  env: {
-    ...process.env,
-    ENABLE_LOCAL: 'true',
-    ENABLE_CLONE: 'true',
-    OCTOCODE_STORAGE_MODE: 'persistent',
-  },
+  cwd: acceptanceCwd,
+  env: acceptanceEnv,
   stderr: 'pipe',
 });
 const client = new Client({
@@ -102,7 +98,12 @@ const invoke = async (name, args) => {
   return response;
 };
 const call = async (name, query) => {
-  const response = await invoke(name, { queries: [query] });
+  const publicQuery = {
+    reasoning: `Exercise ${name} through built stdio acceptance.`,
+    debug: false,
+    ...query,
+  };
+  const response = await invoke(name, { queries: [publicQuery] });
   assert.equal(response.isError, false, `${name} returned a tool error`);
   assert.ok(response.structuredContent, `${name} has no structured content`);
   assert.ok(
@@ -126,6 +127,11 @@ const nextCall = async continuation => {
   );
   return call(continuation.tool, continuation.query);
 };
+const executeCliTool = (name, queries) => JSON.parse(execFileSync(
+  values.node,
+  [path.resolve(values.cli), 'tools', name, '--queries', JSON.stringify(queries), '--compact'],
+  { encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024, cwd: acceptanceCwd, env: acceptanceEnv }
+));
 const pages = async (first, nextKey, collect) => {
   const rows = [...collect(first)];
   let current = first;
@@ -137,6 +143,17 @@ const pages = async (first, nextKey, collect) => {
   }
   return { rows, count };
 };
+const differingFields = (left, right, prefix = '', fields = []) => {
+  if (fields.length >= 40) return fields;
+  if (Object.is(left, right)) return fields;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+    fields.push(prefix || '$');
+    return fields;
+  }
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of [...keys].sort()) differingFields(left[key], right[key], `${prefix}/${key}`, fields);
+  return fields;
+};
 
 let pid;
 try {
@@ -144,6 +161,7 @@ try {
   pid = transport.pid;
   transport.stderr?.on('data', chunk => {
     receipt.stderrBytes += chunk.length;
+    receipt.stderrTail = `${receipt.stderrTail}${chunk.toString('utf8')}`.slice(-65_536);
   });
   const list = await client.listTools();
   receipt.catalog = list.tools.map(tool => ({
@@ -151,10 +169,17 @@ try {
     inputSchema: tool.inputSchema,
     outputSchema: tool.outputSchema ?? null,
   }));
-  await check('initialize and list all ten tools', () =>
+  receipt.catalogBytes = Buffer.byteLength(JSON.stringify(receipt.catalog));
+  await check('initialize and list every canonical direct tool', () =>
     assert.deepEqual(
       list.tools.map(t => t.name).sort(),
       [...expectedTools].sort()
+    )
+  );
+  await check('MCP tool catalog stays below the production transport budget', () =>
+    assert.ok(
+      receipt.catalogBytes < 2_000_000,
+      `serialized MCP catalog is ${receipt.catalogBytes} bytes`
     )
   );
   await check('CLI and MCP input schema parity for every tool', () => {
@@ -163,7 +188,7 @@ try {
         execFileSync(
           values.node,
           [path.resolve(values.cli), 'tools', tool.name, '--scheme', '--json'],
-          { encoding: 'utf8', timeout: 10_000 }
+          { encoding: 'utf8', timeout: 10_000, cwd: acceptanceCwd, env: acceptanceEnv }
         )
       );
       assert.deepEqual(
@@ -183,11 +208,12 @@ try {
       });
       assert.equal(data.content, await readFile(file, 'utf8'));
       assert.ok(
-        receipt.calls
-          .at(-1)
-          .response.content.some(
-            block => block.type === 'text' && block.text.includes(data.content)
-          )
+        receipt.calls.at(-1).response.content.some(block =>
+          block.type === 'text'
+          && block.text.includes('content (source lines):')
+          && block.text.includes('1: // Arithmetic fixture.')
+          && block.text.includes('2: export function add(left: number, right: number) { return left + right; }')
+        )
       );
     }
   );
@@ -219,7 +245,14 @@ try {
           assert.equal(content, matched ? 'needle 🌍\r\nneedle café\n' : source);
         }
       }
-      const invalid = await invoke('localFetch', { queries: [{ path: file, charLength: 3 }] });
+      const invalid = await invoke('localFetch', {
+        queries: [{
+          reasoning: 'Verify retired localFetch charLength input is rejected.',
+          debug: false,
+          path: file,
+          charLength: 3,
+        }],
+      });
       assert.equal(invalid.isError, true);
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -253,12 +286,48 @@ try {
     });
     assert.ok(data.files.some(file => file.path.endsWith('math.ts')));
   });
+  await check('astRewrite previews and guarded apply mutate only an isolated fixture', async () => {
+    const directory = await mkdtemp(path.join(path.resolve('.octocode/tmp'), 'mcp-rewrite-'));
+    const file = path.join(directory, 'source.ts');
+    try {
+      await writeFile(file, 'oldCall(1);\noldCall(2);\n');
+      const preview = await call('astRewrite', {
+        path: directory, langType: 'typescript', ruleKind: 'pattern',
+        pattern: 'oldCall($A)', rewrite: 'newCall($A)', pageSize: 10,
+      });
+      assert.equal(preview.mode, 'preview');
+      assert.equal(preview.totalMatches, 2);
+      if (values['cli-mcp-parity']) {
+        const selected = receipt.calls.at(-1);
+        const cliResponse = executeCliTool('astRewrite', selected.arguments.queries);
+        cliMcpParitySamples.set('astRewrite', { selected, cliResponse, cliResults: cliResponse.results });
+      }
+      const applied = await call('astRewrite', {
+        path: directory, langType: 'typescript', ruleKind: 'pattern',
+        pattern: 'oldCall($A)', rewrite: 'newCall($A)', apply: true,
+        pageSize: 10,
+        snapshot: preview.snapshot,
+        expectedHashes: Object.fromEntries(preview.files.map(item => [item.absolutePath, item.beforeHash])),
+      });
+      assert.equal(applied.mode, 'apply');
+      assert.equal(applied.transaction.committed, true);
+      assert.equal(await readFile(file, 'utf8'), 'newCall(1);\nnewCall(2);\n');
+      assert.equal(await readFile(path.join(fixture, 'math.ts'), 'utf8'), '// Arithmetic fixture.\nexport function add(left: number, right: number) { return left + right; }\n');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   if (!values.quick) {
     await check(
       'outer text pagination preserves structured data and reconstructs every character',
       async () => {
         const args = {
-          queries: [{ path: path.join(fixture, 'math.ts'), minify: 'none' }],
+          queries: [{
+            reasoning: 'Exercise localFetch response pagination through built stdio acceptance.',
+            debug: false,
+            path: path.join(fixture, 'math.ts'),
+            minify: 'none',
+          }],
         };
         const full = await invoke('localFetch', args);
         let current = await invoke('localFetch', {
@@ -315,7 +384,12 @@ try {
       try {
         await writeFile(file, 'export const value = 1;\n');
         const first = await invoke('localFetch', {
-          queries: [{ path: file, minify: 'none' }],
+          queries: [{
+            reasoning: 'Exercise stale localFetch response pagination through built stdio acceptance.',
+            debug: false,
+            path: file,
+            minify: 'none',
+          }],
           responseCharLength: 100,
         });
         const before = first.structuredContent.responsePagination;
@@ -397,7 +471,7 @@ try {
       assert.ok(
         data.payload.locations.some(
           location =>
-            location.path.endsWith('math.ts') &&
+            location.uri.endsWith('/math.ts') &&
             location.displayRange.startLine === 2
         )
       );
@@ -432,7 +506,7 @@ try {
             arguments: { queries: 'invalid' },
           });
           assert.equal(result.isError, true);
-          assert.ok((await client.listTools()).tools.length === 10);
+          assert.equal((await client.listTools()).tools.length, expectedTools.length);
         }
       );
     for (const removedName of ['localAnalyzeGraph', 'lspGetSemantics', 'octocode_nonexistent_tool']) await check(
@@ -449,7 +523,7 @@ try {
           rejected = true;
         }
         assert.ok(rejected);
-        assert.equal((await client.listTools()).tools.length, 10);
+        assert.equal((await client.listTools()).tools.length, expectedTools.length);
       }
     );
   }
@@ -605,12 +679,101 @@ try {
       );
     });
   }
+  if (values['cli-mcp-parity']) {
+    await check('same-query CLI and real MCP structured result parity', async () => {
+      const parity = [];
+      receipt.cliMcpParity = parity;
+      const cacheVolatileTools = new Set([
+        'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch',
+      ]);
+      const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
+      for (const name of expectedTools) {
+        const sample = cliMcpParitySamples.get(name);
+        const selected = sample?.selected ?? receipt.calls.find(call =>
+          call.name === name
+          && call.response.isError === false
+          && call.response.structuredContent?.results?.[0]?.status !== 'error'
+          && call.response.structuredContent?.results?.[0]?.status !== 'empty'
+          && (name !== 'astRewrite' || call.arguments.queries[0].apply !== true)
+        );
+        if (
+          !selected
+          && liveOnlyTools.has(name)
+          && (!values.live || values.quick)
+        ) {
+          parity.push({
+            name,
+            status: 'not-run',
+            reason: 'Successful provider-backed parity requires --live without --quick.',
+          });
+          continue;
+        }
+        assert.ok(selected, `${name}: no successful non-mutating MCP call to compare`);
+        const cliResponse = sample?.cliResponse ?? executeCliTool(name, selected.arguments.queries);
+        const cliResults = sample?.cliResults ?? cliResponse.results;
+        const mcpResults = selected.response.structuredContent.results;
+        const mcpBase = selected.response.structuredContent.base;
+        const cliBase = cliResponse?.base;
+        let cloneVerification;
+        if (name === 'ghCloneRepo') {
+          const mcpLocation = mcpResults[0]?.data?.location;
+          const cliLocation = cliResults[0]?.data?.location;
+          assert.ok(mcpLocation?.localPath && cliLocation?.localPath, 'ghCloneRepo: missing warmed checkout location');
+          assert.equal(mcpLocation.commitSha, cliLocation.commitSha, 'ghCloneRepo: commit identity differs');
+          const [mcpBytes, cliBytes] = await Promise.all([
+            readFile(path.join(mcpLocation.localPath, 'README')),
+            readFile(path.join(cliLocation.localPath, 'README')),
+          ]);
+          assert.deepEqual(mcpBytes, cliBytes, 'ghCloneRepo: checkout source bytes differ');
+          cloneVerification = {
+            authorizedContext: 'replayed the exact base-live pinned clone query against an already warmed persistent cache',
+            commitSha: mcpLocation.commitSha,
+            mcpLocalPath: mcpLocation.localPath,
+            cliLocalPath: cliLocation.localPath,
+            readmeSha256: (await import('node:crypto')).createHash('sha256').update(mcpBytes).digest('hex'),
+          };
+        }
+        const differences = differingFields(mcpResults, cliResults);
+        // Provider cache state depends on which cross-process arm reached the
+        // provider first. For these five provider tools it is receipt metadata,
+        // not evidence or tool data; retain the raw pair and compare all other
+        // fields explicitly. No local/AST/LSP result receives this exception.
+        const cacheOnly = cacheVolatileTools.has(name) && differences.every(field => field === '/0/cache');
+        const mcpComparable = cacheOnly ? mcpResults.map(({ cache, ...row }) => row) : mcpResults;
+        const cliComparable = cacheOnly ? cliResults.map(({ cache, ...row }) => row) : cliResults;
+        const contractDifferences = differingFields(mcpComparable, cliComparable);
+        const baseEqual = mcpBase === cliBase;
+        parity.push({
+          name,
+          arguments: selected.arguments,
+          mcpResults,
+          cliResults,
+          mcpBase,
+          cliBase,
+          baseEqual,
+          exact: differences.length === 0,
+          rawDifferingFields: differences,
+          comparison: cacheOnly ? 'evidence-and-data-with-cache-excluded' : 'exact-structured-results',
+          cacheExclusionJustification: cacheOnly ? 'provider cache state is cross-process timing metadata; all evidence and data fields remain exact' : undefined,
+          differingFields: contractDifferences,
+          passesContract: contractDifferences.length === 0 && baseEqual,
+          cloneVerification,
+        });
+      }
+      const failures = parity.filter(row => row.status !== 'not-run' && !row.passesContract);
+      assert.deepEqual(failures.map(row => ({ name: row.name, baseEqual: row.baseEqual, differingFields: row.differingFields })), []);
+    });
+  }
   await check('stdio contains no parser or protocol errors', () =>
     assert.deepEqual(receipt.transportErrors, [])
   );
 } finally {
   const start = Date.now();
-  await client.close();
+  try {
+    await client.close();
+  } catch (error) {
+    receipt.closeError = error.message;
+  }
   receipt.shutdownMs = Date.now() - start;
   await check('child shuts down and releases its PID', () => {
     assert.ok(pid);

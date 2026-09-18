@@ -6,6 +6,7 @@ import { ToolError } from '../../../../errors/ToolError.js';
 import { LOCAL_TOOL_ERROR_CODES } from '../../../../errors/localToolErrors.js';
 import { contextUtils } from '../../../../utils/contextUtils.js';
 import { isValidJsSymbolName } from '../../../../utils/jsSymbolNames.js';
+import { decodeGraphFactsJson } from '../../../../graph/scanContract.js';
 import type {
   SemanticContentType,
   WorkspaceSymbolSemanticQuery,
@@ -206,14 +207,22 @@ function isRawLspRange(value: unknown): boolean {
 export function graphFactsDocumentSymbols(
   uri: string,
   content: string
-): unknown[] | null {
+): { symbols: unknown[]; diagnostics: string[] } | null {
   if (!isNativeJsTsFile(uri)) return null;
   try {
     const json = contextUtils.extractGraphFacts(content, uri);
     if (!json) return null;
-    const parsed = JSON.parse(json) as {
+    const decoded = decodeGraphFactsJson<{
       declarations?: RawGraphFactDeclaration[];
-    };
+      diagnostics?: unknown[];
+    }>(json);
+    if (!decoded.ok) return null;
+    const parsed = decoded.parsed;
+    const diagnostics = (parsed.diagnostics ?? []).filter(
+      (message): message is string =>
+        typeof message === 'string' &&
+        message.includes('recovered from parse errors')
+    );
     const declarations = Array.isArray(parsed.declarations)
       ? parsed.declarations
       : [];
@@ -228,7 +237,9 @@ export function graphFactsDocumentSymbols(
           isRawLspRange(d.range)
       )
       .map(d => ({ name: d.name, kind: d.kind, range: d.range }));
-    return symbols.length > 0 ? symbols : null;
+    return symbols.length > 0 || diagnostics.length > 0
+      ? { symbols, diagnostics }
+      : null;
   } catch {
     return null;
   }

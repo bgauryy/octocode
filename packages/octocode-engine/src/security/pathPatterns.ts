@@ -14,5 +14,4 @@ export const IGNORED_PATH_PATTERNS: RegExp[] = [
   /Library\/Application Support\/Firefox\//,
 
   /Library\/Keychains\//,
-
 ];

@@ -1,58 +1,35 @@
-import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
+import type { ApprovalClass } from '../operation-contracts.js';
 import { z } from 'zod';
+import { contextObservationSchema, contextFeedbackSchema, contextObservationJsonSchema, contextFeedbackJsonSchema } from '../context-regulation.js';
+import { knowledgeSetSchema, knowledgeGetSchema, knowledgeRevalidateSchema } from '../knowledge-contract.js';
+import { experienceInputSchema } from '../experience-contract.js';
+import type { KnowledgeOperation } from '../knowledge-executor.js';
 import type {
   AwarenessOperationEffect,
+  AwarenessOperationResult,
   CanonicalDomainHandler,
-  CanonicalOperationResult,
   CanonicalRouteBinding,
 } from '../operation-contracts.js';
 import type { AwarenessStorageScope } from '../storage-scope.js';
 import { projectCommandInput } from './command-input.js';
+import { compactAwarenessInputSchema } from './compact-json-schema.js';
 import { schemas, type SchemaName } from './registry.js';
-
-export const AWARENESS_CONCEPTS = Object.freeze(['context', 'work', 'message', 'memory', 'history'] as const);
-export type AwarenessConcept = typeof AWARENESS_CONCEPTS[number];
-
-export const ROUTINE_AWARENESS_OPERATIONS = Object.freeze([
-  'context.orient',
-  'work.create', 'work.list', 'work.show', 'work.claim', 'work.update', 'work.depend', 'work.protect', 'work.verify',
-  'message.list', 'message.send', 'message.reply', 'message.resolve',
-  'memory.recall', 'memory.record',
-  'history.status', 'history.timeline', 'history.read', 'history.restore',
-] as const);
-export type AwarenessOperation = typeof ROUTINE_AWARENESS_OPERATIONS[number];
-export type AwarenessOperationVisibility = 'routine' | 'operator' | 'recovery';
+import type {
+  AwarenessConcept,
+  AwarenessOperation,
+  AwarenessOperationParams,
+} from './operation-types.js';
+export {
+  AWARENESS_CONCEPTS,
+  ROUTINE_AWARENESS_OPERATIONS,
+  type AwarenessConcept,
+  type AwarenessOperation,
+  type AwarenessOperationCall,
+  type AwarenessOperationParams,
+} from './operation-types.js';
 
 type Params = Record<string, unknown>;
-type KindParams<K extends string> = Params & { kind: K };
-type ActionParams<A extends string> = Params & { action: A };
-type TransitionParams<T extends string> = Params & { transition: T };
-
-export interface AwarenessOperationParams {
-  'context.orient': { if_revision?: string; limit?: number; offset?: number; file?: string | string[]; query?: string };
-  'work.create': KindParams<'plan' | 'task' | 'standalone'>;
-  'work.list': Params & { kind?: 'plan' | 'task' | 'ready' | 'presence' | 'workboard' };
-  'work.show': KindParams<'plan' | 'task' | 'presence'>;
-  'work.claim': Params;
-  'work.update': TransitionParams<'heartbeat' | 'submit' | 'release' | 'retry' | 'touch' | 'end' | 'join' | 'document' | 'status'>;
-  'work.depend': Params;
-  'work.protect': ActionParams<'acquire' | 'wait' | 'release'>;
-  'work.verify': ActionParams<'audit' | 'mark'>;
-  'message.list': Params;
-  'message.send': Params;
-  'message.reply': Params;
-  'message.resolve': Params;
-  'memory.recall': Params;
-  'memory.record': Params;
-  'history.status': Params;
-  'history.timeline': Params;
-  'history.read': Params;
-  'history.restore': Params & { action?: 'preview' | 'apply' };
-}
-
-export type AwarenessOperationCall<K extends AwarenessOperation = AwarenessOperation> = K extends AwarenessOperation
-  ? { operation: K; params?: AwarenessOperationParams[K] }
-  : never;
+const BOUNDED_ROUTINE_OUTPUT_BYTES = 32 * 1024;
 
 export interface AwarenessOperationExecutionContext {
   database?: string;
@@ -69,14 +46,15 @@ export interface AwarenessOperationDescriptor<K extends AwarenessOperation = Awa
   use: string;
   visibility: 'routine';
   effects: readonly AwarenessOperationEffect[];
-  legacyCommands: readonly string[];
   inputSchema: Readonly<Record<string, unknown>>;
+  /** Exact compact serialization of inputSchema for prompt/tool transports. */
+  inputSchemaText: string;
   validate(params?: unknown): AwarenessOperationParams[K];
   effect(params?: AwarenessOperationParams[K]): AwarenessOperationEffect;
   approval(params?: AwarenessOperationParams[K]): ApprovalClass | undefined;
   outputBudget: number;
   continuations(payload: unknown): unknown;
-  handler(context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]): Promise<CanonicalOperationResult>;
+  handler(context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]): Promise<AwarenessOperationResult>;
 }
 
 interface Route extends Omit<CanonicalRouteBinding, 'schema'> {
@@ -84,7 +62,16 @@ interface Route extends Omit<CanonicalRouteBinding, 'schema'> {
   selector?: readonly [key: string, value: string];
   default?: boolean;
 }
-const HOST_FIELDS = new Set(['db', 'database', 'workspace', 'agent_id', 'lead_agent_id', 'session_id', 'compact']);
+export const AWARENESS_HOST_PARAMETER_NAMES = Object.freeze([
+  'db',
+  'database',
+  'workspace',
+  'agent_id',
+  'lead_agent_id',
+  'session_id',
+  'compact',
+] as const);
+const HOST_FIELDS = new Set<string>(AWARENESS_HOST_PARAMETER_NAMES);
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 
@@ -159,15 +146,14 @@ interface DescriptorInput<K extends AwarenessOperation> {
   inputSchema?: Record<string, unknown>;
   outputBudget?: number;
 }
-const routeSets = new Map<AwarenessOperation, readonly Route[]>();
-
 function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): AwarenessOperationDescriptor<K> {
-  routeSets.set(input.operation, input.routes);
   const routeSchemas = input.routes.map(routeSchema);
-  const inputSchema = input.inputSchema ?? (routeSchemas.length === 1
+  const sourceSchema = input.inputSchema ?? (routeSchemas.length === 1
     ? routeSchemas[0]!
-    : { $schema: 'https://json-schema.org/draft/2020-12/schema', oneOf: routeSchemas });
+    : { oneOf: routeSchemas });
+  const inputSchema = compactAwarenessInputSchema(sourceSchema);
   const validator = z.fromJSONSchema(inputSchema);
+  const inputSchemaText = JSON.stringify(inputSchema);
   for (const route of input.routes) reverseRoutes.set(route.command, { operation: input.operation, ...(route.selector ? { selector: route.selector } : {}) });
   const effects = [...new Set(input.routes.map(route => route.effect))];
   const resolve = (value?: unknown) => {
@@ -191,8 +177,8 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     use: input.use,
     visibility: 'routine' as const,
     effects: Object.freeze(effects),
-    legacyCommands: Object.freeze(input.routes.map(route => route.command)),
     inputSchema: Object.freeze(inputSchema),
+    inputSchemaText,
     validate: (params?: unknown) => resolve(params).params as AwarenessOperationParams[K],
     effect: (params?: AwarenessOperationParams[K]) => resolve(params).route.effect,
     approval: (params?: AwarenessOperationParams[K]) => resolve(params).route.approval,
@@ -200,10 +186,12 @@ function descriptor<K extends AwarenessOperation>(input: DescriptorInput<K>): Aw
     continuations: (payload: unknown) => canonicalizeContinuation(payload),
     handler: async (context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]) => {
       const selected = resolve(params);
-      const executor = await import('../operation-executor.js');
-      return input.operation === 'context.orient'
-        ? executor.executeContextOrient(context, selected.params as AwarenessOperationParams['context.orient'])
-        : executor.executeCanonicalRoute({
+      if (input.operation === 'context.orient') {
+        const { executeContextOrient } = await import('../context-regulation-executor.js');
+        return executeContextOrient(context, selected.params as AwarenessOperationParams['context.orient']);
+      }
+      const { executeCanonicalRoute } = await import('../operation-executor.js');
+      return executeCanonicalRoute(input.operation, {
           command: selected.route.command,
           schema: projectCommandInput(selected.route.command, schemas[selected.route.schemaName]),
           handler: selected.route.handler,
@@ -227,102 +215,132 @@ const choice = (
   ...binding, selector: [key, value] as const, ...(value === defaultValue ? { default: true } : {}),
 }));
 
+function contextWriteDescriptor<K extends 'context.observe' | 'context.feedback'>(
+  operation: K, use: string, schema: z.ZodType, inputSchema: Record<string, unknown>,
+): AwarenessOperationDescriptor<K> {
+  const validate = (params?: unknown) => schema.parse(params) as AwarenessOperationParams[K];
+  const compactInputSchema = compactAwarenessInputSchema(inputSchema);
+  const inputSchemaText = JSON.stringify(compactInputSchema);
+  return Object.freeze({
+    operation, concept: 'context', use, visibility: 'routine',
+    effects: ['coordination-write'] as const,
+    inputSchema: Object.freeze(compactInputSchema),
+    inputSchemaText,
+    validate, effect: () => 'coordination-write' as const, approval: () => undefined,
+    outputBudget: 1_500, continuations: canonicalizeContinuation,
+    handler: async (context: AwarenessOperationExecutionContext, params?: AwarenessOperationParams[K]) => {
+      const { executeContextReport } = await import('../context-regulation-executor.js');
+      return executeContextReport(operation, context, validate(params));
+    },
+  });
+}
+
+function knowledgeDescriptor(
+  operation: KnowledgeOperation, use: string, schema: z.ZodType,
+): AwarenessOperationDescriptor {
+  const validate = (params?: unknown) => schema.parse(params ?? {}) as Params;
+  const inputSchema = compactAwarenessInputSchema(
+    z.toJSONSchema(schema, { io: 'input' }) as Record<string, unknown>,
+  );
+  const effect = (params?: Params): AwarenessOperationEffect => {
+    const input = validate(params);
+    return operation === 'memory.set' || (operation === 'history.experience' && ['record', 'seal'].includes(String(input.action)))
+      ? 'coordination-write' : 'read';
+  };
+  return Object.freeze({
+    operation, concept: operation.startsWith('memory.') ? 'memory' : 'history', use, visibility: 'routine',
+    effects: operation === 'history.experience' ? ['read', 'coordination-write'] as const
+      : operation === 'memory.set' ? ['coordination-write'] as const : ['read'] as const,
+    inputSchema: Object.freeze(inputSchema),
+    inputSchemaText: JSON.stringify(inputSchema),
+    validate, effect, approval: () => undefined,
+    outputBudget: operation === 'history.experience' ? BOUNDED_ROUTINE_OUTPUT_BYTES : 32_000,
+    continuations: canonicalizeContinuation,
+    handler: async (context: AwarenessOperationExecutionContext, params?: Params) => {
+      const { executeKnowledgeOperation } = await import('../knowledge-executor.js');
+      return executeKnowledgeOperation(operation, context, validate(params));
+    },
+  });
+}
+
+const contextOrientInputSchema = z.strictObject({
+  if_revision: z.string().min(1).max(80).optional(),
+  limit: z.number().int().min(1).max(3).optional(),
+  offset: z.number().int().min(0).optional(),
+  file: z.union([
+    z.string().min(1).max(1024),
+    z.array(z.string().min(1).max(1024)).min(1).max(20),
+  ]).optional(),
+  query: z.string().min(1).max(500).optional(),
+  flow: z.string().min(1).max(400).optional(),
+  failure_signature: z.string().min(1).max(400).optional(),
+});
+
 const operationDescriptors = Object.freeze([
   descriptor({
     operation: 'context.orient',
-    use: 'Read bounded decision-changing context; reuse the revision on the next call.',
+    use: 'Read a bounded interpreted snapshot when changed context could alter the next action; pass if_revision to suppress unchanged output.',
     routes: [route('attend', 'attend', 'query', 'read')],
-    inputSchema: {
-      $schema: 'https://json-schema.org/draft/2020-12/schema',
-      type: 'object',
-      properties: {
-        if_revision: { type: 'string', minLength: 1, maxLength: 80 },
-        limit: { type: 'integer', minimum: 1, maximum: 3 },
-        offset: { type: 'integer', minimum: 0 },
-        file: { oneOf: [
-          { type: 'string', minLength: 1, maxLength: 1024 },
-          { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string', minLength: 1, maxLength: 1024 } },
-        ] },
-        query: { type: 'string', minLength: 1, maxLength: 500 },
-      },
-      additionalProperties: false,
-    },
-    outputBudget: 1_500,
+    inputSchema: z.toJSONSchema(contextOrientInputSchema, { io: 'input' }) as Record<string, unknown>,
+    outputBudget: 6_000,
   }),
-  descriptor({ operation: 'work.create', use: 'Create a plan, task, or standalone work declaration.', routes: choice('kind', {
+  contextWriteDescriptor('context.observe', 'Record one measured state change; use passive only for lifecycle observations and reuse observation_id on retry.', contextObservationSchema, contextObservationJsonSchema),
+  contextWriteDescriptor('context.feedback', 'Link an advisory to the action actually taken and its outcome; helpful claims remain provisional until later evidence.', contextFeedbackSchema, contextFeedbackJsonSchema),
+  descriptor({ operation: 'work.create', use: 'Create kind=plan, task, or standalone; use standalone only for file work outside a durable plan.', routes: choice('kind', {
     plan: route('plan create', 'plan', 'plan', 'coordination-write', 'create'),
     task: route('task create', 'task', 'task', 'coordination-write', 'create'),
     standalone: route('work start', 'work', 'work', 'coordination-write', 'start'),
   }) }),
-  descriptor({ operation: 'work.list', use: 'List scoped plans, tasks, ready work, active presence, or the workboard.', routes: choice('kind', {
+  descriptor({ operation: 'work.list', use: 'List one scoped view selected by kind: plans, tasks, ready work, active presence, agents, or workboard.', routes: choice('kind', {
     plan: route('plan list', 'plan', 'plan', 'read', 'list'), task: route('task list', 'task', 'task', 'read', 'list'),
     ready: route('task ready', 'task', 'task', 'read', 'ready'), presence: route('work list', 'work', 'work', 'read', 'list'),
+    agents: route('query agents', 'agents', 'query', 'read', 'agents'),
     workboard: route('query workboard', 'query', 'query', 'read', 'workboard'),
   }, 'presence') }),
-  descriptor({ operation: 'work.show', use: 'Inspect one plan, task, or active file.', routes: choice('kind', {
+  descriptor({ operation: 'work.show', use: 'Inspect one plan, task, or active file-presence record selected by kind.', routes: choice('kind', {
     plan: route('plan show', 'plan', 'plan', 'read', 'show'), task: route('task show', 'task', 'task', 'read', 'show'),
     presence: route('work show', 'work', 'work', 'read', 'show'),
   }) }),
-  descriptor({ operation: 'work.claim', use: 'Atomically claim a task and start its attempt.', routes: [route('task claim', 'task', 'task', 'coordination-write', 'claim')] }),
-  descriptor({ operation: 'work.update', use: 'Transition an existing work item or refresh its lease.', routes: choice('transition', {
+  descriptor({ operation: 'work.claim', use: 'Atomically claim an exact task, or the next ready task in a plan, and start its attempt.', routes: [route('task claim', 'task', 'task', 'coordination-write', 'claim')] }),
+  descriptor({ operation: 'work.update', use: 'Apply one explicit transition to a task, plan, or presence record; heartbeat/touch only refresh leases.', routes: choice('transition', {
     heartbeat: route('task heartbeat', 'task', 'task', 'coordination-write', 'heartbeat'), submit: route('task submit', 'task', 'task', 'coordination-write', 'submit'),
     release: route('task release', 'task', 'task', 'coordination-write', 'release'), retry: route('task retry', 'task', 'task', 'coordination-write', 'retry'),
     touch: route('work touch', 'work', 'work', 'coordination-write', 'touch'), end: route('work end', 'work', 'work', 'coordination-write', 'end'),
     join: route('plan join', 'plan', 'plan', 'coordination-write', 'join'), document: route('plan doc', 'plan', 'plan', 'coordination-write', 'doc'),
     status: route('plan status', 'plan', 'plan', 'coordination-write', 'status'),
   }) }),
-  descriptor({ operation: 'work.depend', use: 'Add a dependency between work items.', routes: [route('task depend', 'task', 'task', 'coordination-write', 'depend')] }),
-  descriptor({ operation: 'work.protect', use: 'Acquire, wait for, or release exceptional exclusive protection.', routes: choice('action', {
+  descriptor({ operation: 'work.depend', use: 'Add declared prerequisite task IDs to one existing task.', routes: [route('task depend', 'task', 'task', 'coordination-write', 'depend')] }),
+  descriptor({ operation: 'work.protect', use: 'Acquire, wait for, or release exceptional exclusive file protection; routine ownership uses work.create.', routes: choice('action', {
     acquire: route('lock acquire', 'lock_acquire', 'lock-acquire', 'coordination-write'),
     wait: route('lock wait', 'lock_wait', 'lock-wait', 'read'), release: route('lock release', 'lock_release', 'lock-release', 'coordination-write'),
   }) }),
-  descriptor({ operation: 'work.verify', use: 'Audit verification debt or record an observed check result.', routes: choice('action', {
+  descriptor({ operation: 'work.verify', use: 'Audit pending verification debt, or mark only runs covered by an observed check receipt.', routes: choice('action', {
     audit: route('verify audit', 'verify_audit', 'verify-audit', 'read'), mark: route('verify mark', 'verify', 'verify', 'coordination-write'),
   }) }),
   descriptor({
-    operation: 'message.list', use: 'Read decision-changing messages.',
+    operation: 'message.list', use: 'Read bounded decision-changing messages; follow the returned cursor and request bodies only when needed.',
     routes: [route('signal list', 'agent_signal', 'signal', 'read', 'list')],
-    outputBudget: 256_000,
+    outputBudget: BOUNDED_ROUTINE_OUTPUT_BYTES,
   }),
-  descriptor({ operation: 'message.send', use: 'Send a decision-changing message.', routes: [route('signal publish', 'agent_signal', 'signal', 'coordination-write', 'publish')] }),
-  descriptor({ operation: 'message.reply', use: 'Reply in an existing message thread.', routes: [route('signal reply', 'agent_signal', 'signal', 'coordination-write', 'reply')] }),
-  descriptor({ operation: 'message.resolve', use: 'Resolve a handled message thread.', routes: [route('signal resolve', 'agent_signal', 'signal', 'coordination-write', 'resolve')] }),
-  descriptor({ operation: 'memory.recall', use: 'Recall scoped reusable learning.', routes: [route('memory recall', 'memory_recall', 'memory-recall', 'read')] }),
-  descriptor({ operation: 'memory.record', use: 'Record reusable evidence-linked learning.', routes: [route('memory record', 'memory_record', 'memory-record', 'coordination-write')] }),
-  descriptor({ operation: 'history.status', use: 'Inspect LocalGit availability and durability.', routes: [route('history status', 'history_status', 'history', 'read', 'history_status')] }),
-  descriptor({ operation: 'history.timeline', use: 'List bounded recoverable file history.', routes: [route('history timeline', 'history_timeline', 'history', 'read', 'history_timeline')] }),
-  descriptor({ operation: 'history.read', use: 'Read one recoverable historical version.', routes: [route('history read', 'history_read', 'history', 'read', 'history_read')] }),
-  descriptor({ operation: 'history.restore', use: 'Preview or apply one bound restore.', routes: choice('action', {
+  descriptor({ operation: 'message.send', use: 'Send one typed, decision-changing message to exact actor IDs with optional file and reference scope.', routes: [route('signal publish', 'agent_signal', 'signal', 'coordination-write', 'publish')] }),
+  descriptor({ operation: 'message.reply', use: 'Reply to the exact signal ID in an existing thread and provide a new subject.', routes: [route('signal reply', 'agent_signal', 'signal', 'coordination-write', 'reply')] }),
+  descriptor({ operation: 'message.resolve', use: 'Resolve one handled signal or thread only after no response or work remains.', routes: [route('signal resolve', 'agent_signal', 'signal', 'coordination-write', 'resolve')] }),
+  descriptor({ operation: 'memory.recall', use: 'Search legacy scoped memories by evidence, label, file, or failure signal with bounded results.', routes: [route('memory recall', 'memory_recall', 'memory-recall', 'read')] }),
+  descriptor({ operation: 'memory.record', use: 'Record one legacy evidence-linked memory when the learning is reusable beyond the current run.', routes: [route('memory record', 'memory_record', 'memory-record', 'coordination-write')] }),
+  knowledgeDescriptor('memory.set', 'Create or compare-and-set a keyed, attributed lesson with typed anchors and explicit applicability.', knowledgeSetSchema),
+  knowledgeDescriptor('memory.get', 'Read an exact lesson revision or discover scoped path, flow, and failure knowledge; follow snapshot continuations.', knowledgeGetSchema),
+  knowledgeDescriptor('memory.revalidate', 'Check declared evidence freshness for lessons; unchanged bytes do not verify the lesson claim.', knowledgeRevalidateSchema),
+  descriptor({ operation: 'history.status', use: 'Inspect whether LocalGit recovery is available and durable for this workspace.', routes: [route('history status', 'history_status', 'history', 'read', 'history_status')] }),
+  descriptor({ operation: 'history.timeline', use: 'List a bounded page of recoverable history for one file and follow its cursor.', routes: [route('history timeline', 'history_timeline', 'history', 'read', 'history_timeline')] }),
+  descriptor({ operation: 'history.read', use: 'Read one bounded before/after version from an exact recoverable operation.', routes: [route('history read', 'history_read', 'history', 'read', 'history_read')] }),
+  descriptor({ operation: 'history.restore', use: 'Preview a bound restore first; apply only the unchanged preview after required approval.', routes: choice('action', {
     preview: route('history restore-preview', 'history_restore_preview', 'history', 'read', 'history_restore_preview'),
     apply: route('history restore-apply', 'history_restore_apply', 'history', 'workspace-write', 'history_restore_apply', 'fs-delete'),
   }, 'preview') }),
+  knowledgeDescriptor('history.experience', 'Record meaningful attempts or decisions, inspect and compare traces, archive selected evidence, or recover unfinished work.', experienceInputSchema),
 ] as const);
 
-if (operationDescriptors.length > 19) throw new Error('Routine Awareness surface exceeds the nineteen-operation budget');
+if (operationDescriptors.length > 25) throw new Error('Routine Awareness surface exceeds the twenty-five-operation budget');
 const byOperation = new Map<AwarenessOperation, AwarenessOperationDescriptor>(operationDescriptors.map(row => [row.operation, row]));
 export function listAwarenessOperationDescriptors(): readonly AwarenessOperationDescriptor[] { return operationDescriptors; }
 export function getAwarenessOperationDescriptor(operation: string): AwarenessOperationDescriptor | undefined { return byOperation.get(operation as AwarenessOperation); }
-
-/** Explicit compatibility boundary from a legacy CLI route to the routine surface. */
-export function operationCallForLegacyCommand(
-  command: string,
-  input: Record<string, unknown>,
-): AwarenessOperationCall | undefined {
-  const route = reverseRoutes.get(command);
-  // Legacy `attend` has a wider projection/pagination contract than bounded context.orient.
-  if (!route || route.operation === 'context.orient') return undefined;
-  const params = { ...input };
-  for (const field of HOST_FIELDS) delete params[field];
-  delete params['action'];
-  if (route.selector) params[route.selector[0]] = route.selector[1];
-  return { operation: route.operation, ...(Object.keys(params).length ? { params } : {}) } as AwarenessOperationCall;
-}
-
-export function resolveAwarenessOperation(call: Exclude<AwarenessOperationCall, { operation: 'context.orient' }>): { command: string; params: Params } {
-  const descriptor = byOperation.get(call.operation);
-  const routes = routeSets.get(call.operation);
-  if (!descriptor || !routes) throw new Error(`Unknown Awareness operation: ${call.operation}`);
-  const params = descriptor.validate(call.params) as Params;
-  const route = selectRoute(call.operation, routes, params);
-  return { command: route.command, params: paramsForRoute(route, params) };
-}

@@ -1,4 +1,4 @@
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import type { DatabaseSync } from '../sqlite.js';
 import { runAwarenessHistoryOperation } from '../history.js';
 import { HistoryError } from '../history-store.js';
 import { HISTORY_ROUTE_DESCRIPTORS } from '../schema/definitions-history.js';

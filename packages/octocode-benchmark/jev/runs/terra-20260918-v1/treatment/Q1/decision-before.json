@@ -1,0 +1,10 @@
+{
+  "caseId": "Q1",
+  "hypotheses": [
+    {"id":"H1","text":"The current canary implementation delegates parameterization to getParametrizedRoute and returns only re and groups.","basis":"The canary file excerpt shows that call and return literal.","assumption":"The resolved canary ref is the requested branch state."},
+    {"id":"H2","text":"A compatibility return field or a different helper is present outside the inspected excerpt.","basis":"The request asks for top-level fields, which could be broader than the immediate literal.","assumption":"There is relevant post-processing not visible in the excerpt."}
+  ],
+  "currentDirection": "Answer H1 from the direct canary source; perform a bounded alternative-check Jev probe because the benchmark forces one call. Under normal policy this deterministic lookup would skip Jev.",
+  "uncertainty": "Whether any wrapper or type changes the observable top-level result beyond the literal return.",
+  "plannedNextCheck": "Re-read the direct function return and use only its literal fields; a selected alternative check that identifies another return path would weaken H1."
+}

@@ -27,13 +27,13 @@ export function preflightValidateRipgrepPattern(
 
   if (!input.fixedString && looksLikeLiteralSearch(pattern)) {
     warnings.push(
-      `pattern '${pattern}' looks literal — set regex:"fixed" to skip regex parsing and avoid accidental wildcards`
+      `pattern '${pattern}' looks literal — set regex:"literal" to skip regex parsing and avoid accidental wildcards`
     );
   }
 
-  if (!input.perlRegex && containsLookaround(pattern)) {
+  if (!input.fixedString && !input.perlRegex && containsLookaround(pattern)) {
     warnings.push(
-      'pattern uses lookaround (?= / ?! / ?<= / ?<!) which requires perlRegex: true; ripgrep will refuse it otherwise'
+      'pattern uses lookaround (?= / ?! / ?<= / ?<!) which requires regex:"pcre2"; ripgrep will refuse it otherwise'
     );
   }
 

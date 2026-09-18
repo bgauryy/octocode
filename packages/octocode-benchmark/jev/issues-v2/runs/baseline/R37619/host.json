@@ -1,0 +1,11 @@
+{
+  "arm": "baseline",
+  "id": "R37619",
+  "model": "gpt-5.6-terra",
+  "effort": "high",
+  "startedAt": "2026-09-18T08:59:59.663Z",
+  "endedAt": "2026-09-18T09:00:02.871Z",
+  "exitCode": 1,
+  "signal": null,
+  "status": "failed"
+}

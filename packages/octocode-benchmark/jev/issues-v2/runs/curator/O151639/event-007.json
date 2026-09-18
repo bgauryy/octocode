@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151639",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read custom-provider documentation to verify anthropic-messages MiniMax configuration is supported rather than an invalid environment.\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"path\":\"docs/concepts/model-providers/custom-providers.md\",\"matchString\":\"anthropic-messages\",\"contextLines\":35},{\"reasoning\":\"Read the noted release entry on preserving streamed assistant text to establish relevant current product behavior.\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"path\":\"CHANGELOG/2026.2.13.md\",\"matchString\":\"TUI/Streaming\",\"contextLines\":15}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:14.462Z",
+  "endedAt": "2026-09-18T08:56:16.086Z",
+  "elapsedMs": 1623,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "e42c028c160ed6059971ed0a70057d7dec08c63fc44fc2222fe88166ba3a58df",
+  "requestSha256": null
+}

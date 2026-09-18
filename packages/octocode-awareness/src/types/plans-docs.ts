@@ -72,53 +72,6 @@ export interface InsertHarnessLogParams {
   runId?: string | null;
 }
 
-// ─── Doc staleness ─────────────────────────────────────────────────────────────
-
-/** One doc-to-source mapping to check for drift, e.g. a package's ARCHITECTURE.md vs its src/. */
-export interface DocStalenessTarget {
-  /** Path as recorded in edit_log (repo-relative or absolute — must match insertEditLog's filePath convention). */
-  docFile: string;
-  /** Path prefixes considered "source of truth" for this doc. */
-  sourceDirs: string[];
-}
-
-export interface DocStalenessParams {
-  targets: DocStalenessTarget[];
-  workspacePath?: string | null;
-  artifact?: string | null;
-  /** Edits to sourceDirs since the doc's last recorded edit at/above this count flag it stale. Default 5. */
-  minEditsSinceSync?: number;
-  /** Cumulative lines added+removed since the doc's last recorded edit at/above this flag it stale. Default 50. */
-  minLinesSinceSync?: number;
-  cwd?: string;
-}
-
-export interface DocStalenessEntry {
-  doc_file: string;
-  source_dirs: string[];
-  /** Most recent edit_log timestamp for doc_file itself, or null if never tracked. */
-  doc_last_synced_at: string | null;
-  edits_since_sync: number;
-  lines_changed_since_sync: number;
-  files_touched: string[];
-  latest_source_edit_at: string | null;
-  stale: boolean;
-}
-
-export interface DocStalenessResult {
-  ok: true;
-  checked: number;
-  stale_count: number;
-  entries: DocStalenessEntry[];
-}
-
-export interface ProposeDocRefreshParams {
-  agentId: string;
-  sessionId?: string | null;
-  workspacePath?: string | null;
-  artifact?: string | null;
-}
-
 // ─── Session row / end session ────────────────────────────────────────────────
 
 /** Raw DB row for the sessions table — mirrors the public Session shape. */

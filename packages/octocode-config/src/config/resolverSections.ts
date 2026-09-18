@@ -65,8 +65,13 @@ export function resolveGitHub(
 ): RequiredGitHubConfig {
   const envApiUrl = process.env.GITHUB_API_URL?.trim();
 
+  const envGraphql = parseBooleanEnv(process.env.OCTOCODE_GITHUB_GRAPHQL);
   return {
     apiUrl: envApiUrl || fileConfig?.apiUrl || DEFAULT_GITHUB_CONFIG.apiUrl,
+    graphqlEnabled:
+      envGraphql ??
+      fileConfig?.graphqlEnabled ??
+      DEFAULT_GITHUB_CONFIG.graphqlEnabled,
   };
 }
 
@@ -75,6 +80,9 @@ export function resolveLocal(
 ): RequiredLocalConfig {
   const envEnableLocal = parseBooleanEnv(process.env.ENABLE_LOCAL);
   const envEnableClone = parseBooleanEnv(process.env.ENABLE_CLONE);
+  const envEnableAstRewriteApply = parseBooleanEnv(
+    process.env.ENABLE_AST_REWRITE_APPLY
+  );
   const envAllowedPaths = parseStringArrayEnv(process.env.ALLOWED_PATHS);
   const envWorkspaceRoot = process.env.WORKSPACE_ROOT?.trim() || undefined;
 
@@ -89,6 +97,10 @@ export function resolveLocal(
       envEnableClone ??
       fileConfig?.enableClone ??
       DEFAULT_LOCAL_CONFIG.enableClone,
+    enableAstRewriteApply:
+      envEnableAstRewriteApply ??
+      fileConfig?.enableAstRewriteApply ??
+      DEFAULT_LOCAL_CONFIG.enableAstRewriteApply,
     allowedPaths:
       envAllowedPaths ??
       fileConfig?.allowedPaths ??

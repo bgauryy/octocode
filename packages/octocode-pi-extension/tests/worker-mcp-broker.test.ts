@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createWorkerMcpBroker, createWorkerBrokerClient, type WorkerMcpBroker } from '../src/tools/mcp/broker.js';
-import type { CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
+import type { CapabilitySnapshot } from '../src/contracts/capabilities.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

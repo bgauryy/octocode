@@ -4,12 +4,16 @@ export const CONFIG_FILE_NAME = '.octocoderc';
 
 export interface GitHubConfigOptions {
   apiUrl?: string;
+  graphqlEnabled?: boolean;
 }
 
 export interface LocalConfigOptions {
   enabled?: boolean;
 
   enableClone?: boolean;
+
+  /** Opt in to hash-guarded astRewrite file mutation; preview remains available. */
+  enableAstRewriteApply?: boolean;
 
   allowedPaths?: string[];
 
@@ -91,11 +95,13 @@ export interface OctocodeConfig {
 
 export interface RequiredGitHubConfig {
   apiUrl: string;
+  graphqlEnabled: boolean;
 }
 
 export interface RequiredLocalConfig {
   enabled: boolean;
   enableClone: boolean;
+  enableAstRewriteApply: boolean;
   allowedPaths: string[];
   workspaceRoot: string | undefined;
 }

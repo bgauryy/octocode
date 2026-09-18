@@ -48,7 +48,6 @@ describe('initDb creates all required tables', () => {
     'signal_reads',
     'awareness_agents',
     'sessions',
-    'refinements',
   ] as const;
 
   for (const table of requiredTables) {
@@ -69,7 +68,7 @@ describe('initDb table set', () => {
 
   it('creates only known application tables plus FTS internals', () => {
     const allowed = new Set([
-      'authorization_receipts', 'capability_receipts', 'event_outbox', 'event_consumers', 'event_acknowledgements', 'pending_interactions', 'handoffs',
+      'authorization_receipts', 'capability_receipts', 'event_outbox', 'event_consumers', 'event_acknowledgements', 'pending_interactions',
       'awareness_meta',
       'sessions',
       'awareness_memories',
@@ -80,20 +79,15 @@ describe('initDb table set', () => {
       'task_paths',
       'task_dependencies',
       'task_claims',
-      'task_events',
       'task_runs',
       'run_files',
       'awareness_locks',
       'delivery_state',
       'hook_receipts',
-      'run_log',
-      'refinements',
       'signals',
       'signal_reads',
       'memory_refs',
       'awareness_agents',
-      'edit_log',
-      'harness_log',
       'local_history_operations',
       'local_history_durability',
       'local_history_versions',
@@ -310,6 +304,7 @@ describe('signals table column names', () => {
       'artifact',
       'body',
       'created_at',
+      'expires_at',
       'files_json',
       'from_agent',
       'importance',
@@ -343,8 +338,8 @@ describe('lifecycle enum constraints', () => {
   it('rejects unknown signal statuses', () => {
     const db = freshDb();
     const insert = db.prepare(`INSERT INTO signals(
-      signal_id, workspace_path, from_agent, kind, subject, thread_id, importance, status, created_at
-    ) VALUES (?, '/tmp/repo', 'agent-a', 'fyi', 'subject', ?, 5, ?, '2026-01-01T00:00:00Z')`);
+      signal_id, workspace_path, from_agent, kind, subject, thread_id, importance, status, created_at, expires_at
+    ) VALUES (?, '/tmp/repo', 'agent-a', 'fyi', 'subject', ?, 5, ?, '2026-01-01T00:00:00Z', '2026-01-08T00:00:00Z')`);
 
     expect(() => insert.run('ntf_bad', 'ntf_bad', 'archived')).toThrow(/CHECK constraint failed/);
     expect(() => insert.run('ntf_good_open', 'ntf_good_open', 'open')).not.toThrow();

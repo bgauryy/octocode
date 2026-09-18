@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { inspectMaintenancePressure } from './maintenance-digest.js';
+import { inspectMaintenancePressure } from './maintenance-pressure.js';
 import { AwarenessQueryParams, AwarenessQueryRow, limitOf, utcNow } from './repo-model.js';
 import { filesUnderWorkRows, pushLimited, repoProfileRows, rowFiles } from './repo-files.js';
 import { scopeFromParams, withScope } from './repo-scope.js';
@@ -46,8 +46,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
   }
 
   // Session handoffs are published as self-addressed `kind='handoff'` signals and
-  // surface through the openSignals lane above — one inbox, no parallel refinement
-  // stream. The repo-fix refinement queue stays out of Inbox (query it explicitly).
+  // surface through the openSignals lane above.
 
   const verificationRows: AwarenessQueryRow[] = [];
   for (const row of taskRows(db, withScope(params, { state: ['VERIFY'], limit: 500 }))) {
@@ -168,7 +167,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
 
   for (const row of developerReviewRows(db, withScope(params, { state: ['open', 'ongoing'], limit: 200 }))) {
     pushLimited(columns, counts, 'DeveloperReview', {
-      item_type: String(row['source']) === 'refinement' ? 'refinement' : 'memory',
+      item_type: 'memory',
       id: String(row['id']),
       title: summarize(String(row['feedback']), 120),
       detail: summarize(String(row['context']), 180),
@@ -195,7 +194,7 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
       item_type: 'pressure', id: 'stale-pending-runs', status: 'review',
       title: `${pressure.stale_pending_runs} pending run(s) older than ${pressure.pressure_age_days}d`,
       detail: 'Run the declared checks; pending age never implies success or deletion.',
-      action: 'verify audit --workspace "$PWD" --compact',
+      action: 'work verify --action audit --compact',
       raw_ids: sample ? [sample] : [],
       files: [], created_at: utcNow(),
     });
@@ -204,8 +203,8 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     pressureRows.push({
       item_type: 'pressure', id: 'stale-active-runs', status: 'review',
       title: `${pressure.stale_active_runs} active run(s) have expired file presence`,
-      detail: 'Preview maintenance digest, then apply to mark stale ACTIVE runs FAILED with an audit receipt.',
-      action: 'maintenance digest --workspace "$PWD" --dry-run --compact',
+      detail: 'Run maintenance retention with explicit stale-run recovery to mark abandoned work FAILED with a receipt.',
+      action: 'maintenance retention --action apply --confirm apply-retention --fail-stale-active-runs --compact',
       raw_ids: pressure.samples.active_run_ids,
       files: [], created_at: utcNow(),
     });
@@ -214,8 +213,8 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     pressureRows.push({
       item_type: 'pressure', id: 'stale-handoff-signals', status: 'review',
       title: `${pressure.stale_handoff_signals} handoff signal(s) older than ${pressure.pressure_age_days}d`,
-      detail: 'Preview maintenance digest, then apply to auto-resolve stale handoff broadcasts.',
-      action: 'maintenance digest --workspace "$PWD" --dry-run --compact',
+      detail: 'Review the thread; message expiry resolves it by kind and retention prunes it only after the grace window.',
+      action: 'message list --kind handoff --all --limit 5 --compact',
       raw_ids: pressure.samples.handoff_signal_ids,
       files: [], created_at: utcNow(),
     });
@@ -225,21 +224,17 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     pressureRows.push({
       item_type: 'pressure', id: 'stale-open-signals', status: 'review',
       title: `${nonHandoffSignals} non-handoff signal(s) older than ${pressure.pressure_age_days}d`,
-      detail: 'Acknowledge or resolve after review; only stale handoff broadcasts are auto-resolved.',
-      action: 'signal list --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --all --limit 5 --compact',
+      detail: 'Acknowledge or resolve after review; every message kind also has an explicit expiry policy.',
+      action: 'message list --all --limit 5 --compact',
       raw_ids: pressure.samples.signal_ids,
       files: [], created_at: utcNow(),
     });
   }
   if (pressure.stale_missing_refs > 0) {
-    const memoryId = pressure.samples.memory_ids[0];
     pressureRows.push({
       item_type: 'pressure', id: 'stale-missing-memory-refs', status: 'review',
       title: `${pressure.stale_missing_refs} old memory reference(s) point to missing files`,
       detail: 'Revalidate, supersede, or preview deletion by exact memory id.',
-      action: memoryId
-        ? `memory forget --memory-id ${memoryId} --dry-run --compact`
-        : 'query files --workspace "$PWD" --format table --limit 20',
       raw_ids: pressure.samples.memory_ids,
       files: [], created_at: utcNow(),
     });
@@ -249,15 +244,12 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
   const profile = Object.fromEntries(repoProfileRows(db, params).map(row => [String(row['metric']), Number(row['count'] ?? 0)])) as Record<string, number>;
   const activeMemories = Number(profile['active_memories'] ?? 0);
   const taskCount = Number(profile['tasks'] ?? 0);
-  const allOpenRefinements = Number(profile['all_open_refinements'] ?? 0);
-  const actionableRefinements = Number(profile['actionable_refinements'] ?? 0);
   const openSignalCount = Number(profile['open_signals'] ?? 0);
   const missingFileRefs = Number(profile['missing_file_refs'] ?? 0);
   const projectionWarnings = [
     missingFileRefs > 0 ? 'missing_file_refs' : null,
     activeMemories > 200 ? 'active_memories_over_200' : null,
     taskCount > 500 ? 'task_rows_over_500' : null,
-    allOpenRefinements > 40 ? 'all_open_refinements_over_40' : null,
   ].filter((warning): warning is string => Boolean(warning));
   pushLimited(columns, counts, 'ProjectionHealth', {
     item_type: 'projection',
@@ -271,8 +263,6 @@ export function workboardRows(db: DatabaseSync, params: AwarenessQueryParams): A
     active_memories: activeMemories,
     missing_file_refs: missingFileRefs,
     tasks: taskCount,
-    actionable_refinements: actionableRefinements,
-    all_open_refinements: allOpenRefinements,
     open_signals: openSignalCount,
     created_at: utcNow(),
   }, limit);

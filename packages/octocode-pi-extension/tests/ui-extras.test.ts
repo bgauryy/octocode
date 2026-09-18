@@ -5,7 +5,6 @@ import {
   formatDurationShort,
   buildWorkingIndicator,
   buildCapabilitySegments,
-  formatBranchSegment,
   getFooterDensity,
   setFooterDensity,
   parseFooterDensity,
@@ -167,10 +166,4 @@ test('footer density follows configuration and rejects unknown modes', () => {
   assert.equal(parseFooterDensity(' Compact '), 'compact');
   assert.equal(parseFooterDensity('bogus'), undefined);
   assert.equal(parseFooterDensity(''), undefined);
-});
-
-test('branch metadata distinguishes a clean tree from known and unknown dirty-file counts', () => {
-  assert.equal(formatBranchSegment('main', false, 0), 'main');
-  assert.equal(formatBranchSegment('main', true, 5), 'main (5 changed)');
-  assert.equal(formatBranchSegment('main', true), 'main (dirty)');
 });

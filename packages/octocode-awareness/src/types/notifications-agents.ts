@@ -24,6 +24,7 @@ export interface NotificationRecord {
   importance: number;
   status: NotificationStatus;
   created_at: string;
+  expires_at: string;
 }
 
 export interface InsertNotificationParams {
@@ -37,7 +38,7 @@ export interface InsertNotificationParams {
   subject: string;
   body?: string | null;
   files?: string[];
-  refIds?: string[];             // related task/refinement/memory ids
+  refIds?: string[];             // related task/memory/message ids
   inReplyTo?: string | null;     // inherits thread from parent
   importance?: number;
   cwd?: string;
@@ -159,28 +160,3 @@ export type AgentSignalResult =
   | ({ action: 'list'; count: number; signals: AgentSignalRecord[]; unread_only: boolean; actions?: AgentSignalActionHints } & Pick<GetNotificationsResult, 'partial' | 'partialReasons' | 'next'>)
   | { action: 'resolve'; resolved: number; signal_ids: string[] }
   | { action: 'ack'; acknowledged: number; signal_ids: string[] };
-
-// ─── Export harness ──────────────────────────────────────────────────────────
-
-export interface ExportHarnessParams {
-  limit?: number;
-  minImportance?: number;
-  workspacePath?: string | null;
-  artifact?: string | null;
-  cwd?: string;
-}
-
-export interface ExportHarnessResult {
-  count: number;
-  markdown: string;
-  memories: Array<{ memory_id: string; label: string; importance: number; observation: string }>;
-}
-
-// ─── Memory references ────────────────────────────────────────────────────────
-
-export interface MemoryReferenceRow {
-  memory_id: string;
-  reference: string;
-  kind: string;
-  ordinal: number;
-}

@@ -75,7 +75,7 @@ export function renderSkillsDashboard(skills: SkillCatalogEntry[] | undefined, e
     ...(usageLines.length > 0 ? usageLines : ['(none yet — the agent loads them via the skill tool when a task matches)']),
     '',
     'How to use',
-    'The agent loads enabled skills with skill({queries:[{reasoning:"load matching skill", type:"load", action:"load", name:"…", reason:"why it matches"}]}). Manage enablement in /configuration.',
+    'The agent loads enabled skills with skill({queries:[{type:"load", action:"load", name:"…", reason:"why it matches"}]}). Manage enablement in /configuration.',
     'Invoke a specific enabled skill with /skill:<name>.',
     'Install bundled skills with: npx octocode skill install <skill> --platform pi',
     'Discovery refreshes on the next turn; /reload also reloads Pi resources.',
@@ -101,7 +101,7 @@ export function renderAvailableSkillsAddendum(skills: SkillCatalogEntry[] | unde
     '<available_skills>',
     'Optional skills available by name. The skill tool can list the catalog or load a selected skill.',
     ...lines,
-    ...(partial ? [`catalog_continuation: ${JSON.stringify({ partial: true, next: { tool: 'skill', params: { queries: [{ reasoning: 'Read complete effective skill metadata', type: 'load', action: 'list' }] } } })}`] : []),
+    ...(partial ? [`catalog_continuation: ${JSON.stringify({ partial: true, next: { tool: 'skill', params: { queries: [{ type: 'load', action: 'list' }] } } })}`] : []),
     '</available_skills>',
   ].join('\n');
 }

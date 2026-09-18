@@ -18,6 +18,7 @@ export function transformFileContentResult(
   return {
     path: data.path || query.path,
     content: data.content || '',
+    sourceLineRanges: data.sourceLineRanges,
     encoding: 'utf-8',
     size: data.sourceBytes ?? Buffer.byteLength(data.content ?? ''),
     totalLines: data.totalLines,
@@ -114,7 +115,8 @@ export async function getFileContent(
     forceRefresh: query.forceRefresh,
     minify: query.minify ?? 'none',
     goal: query.goal,
-    reasoning: query.reasoning,
+    reasoning: query.reasoning ?? 'Read GitHub file content.',
+    debug: false,
   };
 
   const result = await fetchGitHubFileContentAPI(githubQuery, authInfo);

@@ -96,7 +96,7 @@ fn too_large(maximum: usize) -> String {
     format!("TOO_LARGE: File exceeds maximum {maximum} bytes")
 }
 fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::digest_hex::lower_hex(Sha256::digest(bytes))
 }
 fn nt_error(status: i32) -> std::io::Error {
     // SAFETY: pure status-code conversion, no pointers.
@@ -407,8 +407,10 @@ fn read_symlink(file: &File, maximum: usize) -> FsResult<Vec<u8>> {
         .filter(|_| count.is_multiple_of(2))
         .ok_or("IO_FAILURE: Invalid symlink reparse buffer")?;
     let wide: Vec<_> = target
-        .chunks_exact(2)
-        .map(|v| u16::from_le_bytes([v[0], v[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&value| u16::from_le_bytes(value))
         .collect();
     let text =
         String::from_utf16(&wide).map_err(|_| "IO_FAILURE: Symlink target is not Unicode")?;
@@ -491,7 +493,7 @@ fn snapshot_at(
     {
         return Err(changed());
     }
-    let digest = format!("{:x}", hasher.finalize());
+    let digest = crate::digest_hex::lower_hex(hasher.finalize());
     Ok(Snapshot {
         exists: true,
         kind: if reparse { "symlink" } else { "file" }.into(),

@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q9",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"operation\":\"code\",\"owner\":\"fastify\",\"repo\":\"fastify\",\"keywords\":[\"Incoming Request onRequest preParsing preValidation preHandler User Handler\"],\"pageSize\":10},{\"operation\":\"code\",\"owner\":\"fastify\",\"repo\":\"fastify\",\"filename\":\"route.js\",\"keywords\":[\"onRequest\"],\"pageSize\":10}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:57.114Z",
+  "endedAt": "2026-09-18T08:25:59.987Z",
+  "elapsedMs": 2872,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "5e44e8ab99c2cdcd4941ae8c91d8110e02ec1d00cc18a4c06b84798e6cee77bb",
+  "stdoutBytes": 1022,
+  "requestSha256": null
+}

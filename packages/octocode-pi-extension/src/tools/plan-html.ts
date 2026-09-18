@@ -17,14 +17,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { extensionTmpRoot } from '../extension-paths.js';
-import { getPlanRfc, artifactContextForScope } from './planning/plan-store.js';
+import { getPlanRfc, artifactContextForScope, type PlanScope } from './planning/plan-store.js';
 import { planPhaseIndex, type DisplayStatus, type PlanDecision } from './planning/plan-types.js';
 import { getCurrentPlanReadModel, type PlanReadModelV1 } from './plan-read-model.js';
 import type { PiContext } from '../types.js';
 import { escapeHtml, renderOctocodePage } from '../tui/html-page.js';
 import { renderMarkdown } from '../tui/markdown.js';
 import { openLocalUrl } from './local-url-opener.js';
-import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/agent-contracts/permissions';
+import { ensurePrivateDirectory, hardenPrivateFile, PRIVATE_FILE_MODE } from '@octocodeai/octocode-awareness/host';
 
 const REFRESH_SECONDS = 3;
 
@@ -52,7 +52,7 @@ function rfcHeaderField(markdown: string, field: string): string | undefined {
  * up RFC edits on the next mutation/refresh). Returns undefined when no RFC is
  * linked, and a `missing` doc when the linked file can no longer be read.
  */
-export function readRfcDoc(scope: string): RfcDoc | undefined {
+export function readRfcDoc(scope: PlanScope): RfcDoc | undefined {
   const rfcPath = getPlanRfc(scope);
   if (!rfcPath) return undefined;
   try {
@@ -480,7 +480,7 @@ export interface PlanArtifacts {
  * Fallback: `$OCTOCODE_HOME/extension/tmp/plan/<scope-hash>/` — used when the workspace is
  * not yet initialised or the session artifact dir cannot be created.
  */
-export function planArtifactsDir(scope: string): string {
+export function planArtifactsDir(scope: PlanScope): string {
   try {
     return artifactContextForScope(scope).resolve('plan');
   } catch {
@@ -491,7 +491,7 @@ export function planArtifactsDir(scope: string): string {
 }
 
 /** Stateful artifact entry point: load once, then pass immutable bytes to pure renderers. */
-export function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: string, opts: PlanArtifactOptions = {}): PlanArtifacts | undefined {
+export function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: PlanScope, opts: PlanArtifactOptions = {}): PlanArtifacts | undefined {
   try {
     return writePlanReadModelArtifacts(scope, getCurrentPlanReadModel(ctx, scope), opts);
   } catch {
@@ -500,11 +500,11 @@ export function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: str
 }
 
 /** Write an already-loaded canonical snapshot; browser controls stay bound to these exact bytes. */
-export function writePlanReadModelArtifacts(scope: string, model: PlanReadModelV1, opts: PlanArtifactOptions = {}): PlanArtifacts | undefined {
+export function writePlanReadModelArtifacts(scope: PlanScope, model: PlanReadModelV1, opts: PlanArtifactOptions = {}): PlanArtifacts | undefined {
   return writeProjectedPlanArtifacts(scope, model, opts, readRfcDoc(scope));
 }
 
-function writeProjectedPlanArtifacts(scope: string, model: PlanReadModelV1, opts: PlanArtifactOptions, rfc?: RfcDoc): PlanArtifacts | undefined {
+function writeProjectedPlanArtifacts(scope: PlanScope, model: PlanReadModelV1, opts: PlanArtifactOptions, rfc?: RfcDoc): PlanArtifacts | undefined {
   try {
     // Create the artifact context ONCE — used for both dir resolution and manifest
     // registration so we pay the dir-walk + manifest lock overhead only one time.
@@ -566,7 +566,7 @@ function writeProjectedPlanArtifacts(scope: string, model: PlanReadModelV1, opts
  */
 let liveSyncScope: string | undefined;
 
-export function enablePlanHtmlSync(scope: string): void {
+export function enablePlanHtmlSync(scope: PlanScope): void {
   liveSyncScope = scope;
 }
 
@@ -575,7 +575,7 @@ export function resetPlanHtmlSync(): void {
 }
 
 /** Production live-sync path; canonical state is loaded exactly once. */
-export function syncCurrentPlanHtmlIfEnabled(ctx: PiContext | undefined, scope: string): void {
+export function syncCurrentPlanHtmlIfEnabled(ctx: PiContext | undefined, scope: PlanScope): void {
   if (liveSyncScope === undefined) return;
   const workspace = liveSyncScope.split('\0')[0] || liveSyncScope;
   writeCurrentPlanArtifacts(ctx, scope, { status: 'active', workspace });

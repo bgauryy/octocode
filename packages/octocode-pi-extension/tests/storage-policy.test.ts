@@ -10,12 +10,12 @@ const mocks = vi.hoisted(() => ({
   openAwarenessStore: vi.fn(() => ({ kind: 'awareness' })),
 }));
 
-vi.mock('@octocodeai/octocode-awareness', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@octocodeai/octocode-awareness')>(),
+vi.mock('@octocodeai/octocode-awareness/host', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@octocodeai/octocode-awareness/host')>(),
   openAwarenessStore: mocks.openAwarenessStore,
 }));
 
-vi.mock('@octocodeai/agent-contracts/db', () => ({
+vi.mock('../src/contracts/db.js', () => ({
   openOctocodeDb: mocks.openStateDb,
 }));
 

@@ -3,8 +3,10 @@ import { existsSync, mkdtempSync, mkdirSync, realpathSync, renameSync, rmSync, s
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeAwarenessCommand, type AwarenessCommandCall } from '../src/command-api.js';
 import { connectDb } from '../src/db-runtime.js';
+import { createAwarenessClient } from '../src/client.js';
+import { runAwarenessHistoryOperation } from '../src/history-api.js';
+import { HistoryError } from '../src/history-store.js';
 import { createHistoryContext } from '../src/history-store.js';
 import { historyInspect } from '../src/history-query.js';
 
@@ -18,51 +20,68 @@ it('inspects and reads linked history through executable caller-bound pages with
   git(main, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'seed');
   git(main, 'worktree', 'add', '-qb', 'peer', peer); git(root, 'clone', '-q', main, clone);
   for (const name of ['a', 'b', 'unicode-λ']) writeFileSync(join(main, name), `bytes:${name}`);
-  const context = { workspace: peer, database: join(root, 'ledger.sqlite3'), agentId: 'reader', compact: true };
-  const captured = await executeAwarenessCommand({ command: 'history checkpoint', params: { operation_id: 'source', file: ['a', 'b', 'unicode-λ'] } }, { ...context, workspace: main });
-  expect(captured.exitCode, JSON.stringify(captured.payload)).toBe(0);
-  const status = await executeAwarenessCommand({ command: 'history status', params: {} }, { ...context, workspace: main });
+  const database = join(root, 'ledger.sqlite3');
+  const runHistory = async (callerWorkspace: string, command: string, params: Record<string, unknown>) => {
+    const db = connectDb(database);
+    try {
+      return await runAwarenessHistoryOperation(db, command.replace(/^history /, ''), { workspace: callerWorkspace, ...params });
+    } finally { db.close(); }
+  };
+  const captured = await runHistory(main, 'checkpoint', {
+    agent_id: 'reader', operation_id: 'source', file: ['a', 'b', 'unicode-λ'],
+  });
+  expect(captured).toMatchObject({ ok: true });
+  const status = await createAwarenessClient({ workspace: main, database, agentId: 'reader' })
+    .execute({ operation: 'history.status' });
+  expect(status.exitCode, JSON.stringify(status.payload)).toBe(0);
   const storage = (status.payload as { storage: { root: string; git_dir: string } }).storage;
   const archivePaths = [storage.root, join(storage.root, 'history-store.json'), join(storage.git_dir, 'config'), join(storage.git_dir, 'HEAD')];
   const archiveState = () => archivePaths.map(path => { const value = statSync(path); return [value.mode, value.mtimeMs, value.ctimeMs]; });
   const beforeRead = archiveState();
-  let request: AwarenessCommandCall | undefined = { command: 'history inspect', params: { source_workspace: main, operation_id: 'source', limit: 1 } };
+  type HistoryRequest = { command: string; args: Record<string, unknown> };
+  type HistoryReadCall = { operation: 'history.read'; params: Record<string, unknown> };
+  let request: HistoryRequest | undefined = {
+    command: 'inspect', args: { source_workspace: main, operation_id: 'source', limit: 1 },
+  };
   const files: string[] = [];
-  let read: AwarenessCommandCall | undefined;
+  let read: HistoryReadCall | undefined;
   while (request) {
-    const result = await executeAwarenessCommand(request, context);
-    expect(result.exitCode, JSON.stringify(result.payload)).toBe(0);
-    const payload = result.payload as { rows: Array<{ file_path: string; next?: { after?: { call: AwarenessCommandCall } } }>; next?: { call: AwarenessCommandCall } };
-    for (const row of payload.rows) { files.push(row.file_path); read ??= row.next?.after?.call; }
-    request = payload.next?.call;
-    if (request) expect(request.params).toMatchObject({ workspace: peer, source_workspace: main });
+    const payload = await runHistory(peer, request.command, request.args) as {
+      rows: Array<{ file_path: string; next?: { after?: HistoryReadCall } }>;
+      next?: HistoryRequest;
+    };
+    for (const row of payload.rows) { files.push(row.file_path); read ??= row.next?.after; }
+    request = payload.next;
+    if (request) expect(request.args).toMatchObject({ workspace: peer, source_workspace: main });
   }
   expect(files).toEqual(['a', 'b', 'unicode-λ']);
-  expect(read?.command).toBe('history read');
-  read!.params = { ...read!.params, limit: 2 };
+  expect(read?.operation).toBe('history.read');
+  read = { operation: 'history.read', params: { ...read!.params, limit: 2 } };
   const bytes: Buffer[] = [];
+  const reader = createAwarenessClient({ workspace: peer, database, agentId: 'reader' });
   while (read) {
-    const result = await executeAwarenessCommand(read, context);
-    expect(result.exitCode, JSON.stringify(result.payload)).toBe(0);
-    const payload = result.payload as { content: string; next?: { call: AwarenessCommandCall } };
-    bytes.push(Buffer.from(payload.content, 'base64')); read = payload.next?.call;
-    if (read) expect(read.params).toMatchObject({ workspace: peer, source_workspace: main });
+    const execution = await reader.execute(read);
+    expect(execution.exitCode, JSON.stringify(execution.payload)).toBe(0);
+    const payload = execution.payload as { content: string; next?: typeof read };
+    bytes.push(Buffer.from(payload.content, 'base64')); read = payload.next;
+    if (read) expect(read.params).toMatchObject({ source_workspace: main });
   }
   expect(Buffer.concat(bytes).toString()).toBe('bytes:a');
   expect(archiveState()).toEqual(beforeRead);
   for (const command of ['history inspect', 'history read']) {
-    const result = await executeAwarenessCommand({ command, params: { operation_id: 'source', source_workspace: main,
-      ...(command === 'history read' ? { file: 'a', side: 'after' } : {}) } }, { ...context, workspace: clone });
-    expect(result.exitCode).toBe(1);
-    expect(JSON.stringify(result.payload)).toContain('HISTORY_SOURCE_WORKSPACE');
+    await expect(runHistory(clone, command, {
+      operation_id: 'source', source_workspace: main,
+      ...(command === 'history read' ? { file: 'a', side: 'after' } : {}),
+    })).rejects.toMatchObject({ code: 'HISTORY_SOURCE_WORKSPACE' } satisfies Partial<HistoryError>);
   }
-  const restore = await executeAwarenessCommand({ command: 'history restore-preview', params: { source_workspace: main, operation_id: 'source', side: 'after' } }, context);
+  const restore = await createAwarenessClient({ workspace: peer, database, agentId: 'reader' }).execute({
+    operation: 'history.restore', params: { source_workspace: main, operation_id: 'source', side: 'after' },
+  });
   expect(restore.exitCode).toBe(1);
   renameSync(storage.root, `${storage.root}.retained`);
-  const missing = await executeAwarenessCommand({ command: 'history read', params: {
+  await expect(runHistory(peer, 'read', {
     source_workspace: main, operation_id: 'source', file: 'a', side: 'after',
-  } }, context);
-  expect(missing.exitCode).toBe(1);
+  })).rejects.toThrow('HISTORY_STORE_UNAVAILABLE');
   expect(existsSync(storage.root)).toBe(false);
 });
 

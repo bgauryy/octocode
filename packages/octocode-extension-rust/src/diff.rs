@@ -1,7 +1,7 @@
 use crate::{DiffArtifacts, DiffOperation};
 use std::fmt::Write;
 
-pub(crate) fn line_diff(old: &str, new: &str) -> Vec<DiffOperation> {
+pub fn line_diff(old: &str, new: &str) -> Vec<DiffOperation> {
     let old_lines: Vec<_> = old.split('\n').collect();
     let new_lines: Vec<_> = new.split('\n').collect();
     let diff = similar::TextDiff::from_slices(&old_lines, &new_lines);
@@ -18,7 +18,7 @@ pub(crate) fn line_diff(old: &str, new: &str) -> Vec<DiffOperation> {
         .collect()
 }
 
-pub(crate) fn diff_artifacts(path: &str, old: &str, new: &str) -> DiffArtifacts {
+pub fn diff_artifacts(path: &str, old: &str, new: &str) -> DiffArtifacts {
     let old_lines: Vec<_> = old.split('\n').collect();
     let new_lines: Vec<_> = new.split('\n').collect();
     let text_diff = similar::TextDiff::from_slices(&old_lines, &new_lines);

@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"operation\":\"issue\",\"owner\":\"facebook\",\"repo\":\"react\",\"number\":37655,\"content\":{\"body\":true,\"comments\":{\"discussion\":true,\"includeBots\":false}},\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:36.925Z",
+  "endedAt": "2026-09-18T08:26:37.178Z",
+  "elapsedMs": 252,
+  "exitCode": 2,
+  "signal": null,
+  "stdoutSha256": "73c8449cd67ceac6bf408313e29d6e743ca6af08e8e3038d44c7383a55789523",
+  "stdoutBytes": 185,
+  "requestSha256": null
+}

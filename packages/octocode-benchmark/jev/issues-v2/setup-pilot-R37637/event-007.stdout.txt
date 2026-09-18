@@ -1,0 +1,1 @@
+{"kind":"octocode.toolError","version":1,"tool":"ghSearch","error":"Use either a positional selector with field flags or --queries, not both. Use tools ghSearch --queries '{\"reasoning\":\"Use ghSearch for the code search example.\",\"operation\":\"code\",\"keywords\":[\"localSearch\"],\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"pageSize\":5}'."}

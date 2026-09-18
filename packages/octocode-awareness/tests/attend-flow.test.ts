@@ -24,13 +24,13 @@ function fixture(durable = true) {
 
 describe('agent flow decisions', () => {
   it('preserves selected storage, scope and literal identity in read-first verification guidance', () => {
-    const { db, workspace, path, pending } = fixture();
+    const { db, workspace, pending } = fixture();
     const owner = "agent ' $(touch unsafe)";
     pending(owner);
     const result = attendAwareness(db, { workspacePath: workspace, artifact: 'flow', agentId: owner, compact: true });
     expect(result.next).toMatchObject({
       action: 'verify_owned_work', target: { run_id: 'run_pending' },
-      command: { name: 'verify audit', args: ['--db', path, '--workspace', workspace, '--artifact', 'flow', '--agent-id', owner, '--compact'] },
+      operation: { operation: 'work.verify', params: { action: 'audit', artifact: 'flow' } },
     });
     expect(JSON.stringify(result.next)).not.toContain('verify mark');
     expect(db.prepare("SELECT status FROM task_runs WHERE run_id='run_pending'").get()?.status).toBe('PENDING');

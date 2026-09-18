@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q9",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"docs/Reference/Lifecycle.md\",\"matchString\":\"Incoming Request\",\"contextLines\":30},{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"lib/route.js\",\"matchString\":\"onRequest\",\"contextLines\":20}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:32:38.256Z",
+  "endedAt": "2026-09-18T08:32:39.622Z",
+  "elapsedMs": 1364,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "e910cc3b1517a2db4e343c75b8ae7dad9348b6f6d6053093c379ea1fe7e4e34c",
+  "stdoutBytes": 7834,
+  "requestSha256": null
+}

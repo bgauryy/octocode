@@ -24,7 +24,7 @@ export const AGENTS_SELECT_NAMES_NONEMPTY_SUFFIX = `AND agent_name <> '' ORDER B
 
 // ─── List query fragments (composed dynamically in listAgents) ────────────────
 
-export const AGENTS_LIST_SELECT = `SELECT agent_id, agent_name, workspace_path, artifact, context, registered_at, last_seen_at,
+export const AGENTS_LIST_SELECT = `SELECT agent_id, agent_name, workspace_path, artifact, context, status, registered_at, last_seen_at,
    CASE WHEN json_type(metadata_json, '$.vendor') = 'text' THEN json_extract(metadata_json, '$.vendor') ELSE NULL END AS agent_vendor,
    CASE WHEN json_type(metadata_json, '$.host') = 'text' THEN json_extract(metadata_json, '$.host') ELSE NULL END AS agent_host
    FROM awareness_agents`;

@@ -7,9 +7,9 @@
  *   artifact is the optional workspace-local package/service/component slice.
  */
 import { resolve } from 'node:path';
-import { hardenSqliteFiles, preparePrivateSqlitePath } from '@octocodeai/agent-contracts/permissions';
+import { hardenSqliteFiles, preparePrivateSqlitePath } from './permissions.js';
 import { utcNow } from './helpers.js';
-import { journalModeForSqliteVersion } from '@octocodeai/agent-contracts/sqlite-version';
+import { journalModeForSqliteVersion } from './sqlite-version.js';
 import {
   awarenessDatabasePath,
   type AwarenessStorageScope,
@@ -23,7 +23,7 @@ import {
   DatabaseSync,
   SQLITE_BUSY_DEADLINE_MS,
   withSqliteBusyRetry,
-} from '@octocodeai/agent-contracts/sqlite';
+} from './sqlite.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

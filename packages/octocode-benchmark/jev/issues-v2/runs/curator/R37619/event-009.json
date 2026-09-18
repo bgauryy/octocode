@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37619",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read Flight client current Map and Set tag decoding from model string parsing.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-client/src/ReactFlightClient.js\",\"matchString\":\"case \\\"Q\\\"\",\"contextLines\":25},{\"reasoning\":\"Read Flight client current Set tag decoding.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-client/src/ReactFlightClient.js\",\"matchString\":\"case \\\"W\\\"\",\"contextLines\":25}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:36.752Z",
+  "endedAt": "2026-09-18T08:56:37.229Z",
+  "elapsedMs": 476,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "abc0ac898609a551c26b9d345267f6b911f1781dcd210ec0b37e406f79cb6d9e",
+  "requestSha256": null
+}

@@ -1,10 +1,12 @@
 //! Bounded, authenticated loose Git object reads. No pack fallback or Git process.
 use crate::{filesystem::platform::EvidenceFile, NativeCancellation};
 use flate2::{Decompress, FlushDecompress, Status};
+#[cfg(feature = "napi-addon")]
 use napi::{
     bindgen_prelude::{AsyncTask, Buffer},
     Env, Error, Result, Task,
 };
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use sha1::{Digest, Sha1};
 use std::{
@@ -19,6 +21,7 @@ use std::{
 const CHUNK: usize = 64 * 1024;
 const HEADER: usize = 64;
 
+#[cfg(feature = "napi-addon")]
 #[napi(object)]
 pub struct GitObject {
     pub object_type: String,
@@ -176,7 +179,7 @@ impl GitObjectTask {
                     if size != body_size {
                         return Err(invalid("truncated object body"));
                     }
-                    if format!("{:x}", hash.finalize()) != self.oid {
+                    if crate::digest_hex::lower_hex(hash.finalize()) != self.oid {
                         return Err("HISTORY_OBJECT_HASH_MISMATCH: decoded object does not match requested SHA-1".into());
                     }
                     source.recheck(&self.path, &self.cancelled)?;
@@ -200,6 +203,7 @@ impl GitObjectTask {
     }
 }
 
+#[cfg(feature = "napi-addon")]
 impl Task for GitObjectTask {
     type Output = (String, usize, Option<Vec<u8>>);
     type JsValue = GitObject;
@@ -219,6 +223,7 @@ impl Task for GitObjectTask {
     }
 }
 
+#[cfg(feature = "napi-addon")]
 #[napi]
 pub fn read_git_object(
     path: String,
@@ -240,20 +245,57 @@ pub fn read_git_object(
     })
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GitObjectData {
+    pub object_type: String,
+    pub size: u64,
+    pub content: Option<Vec<u8>>,
+}
+
+pub fn read_git_object_portable(
+    path: String,
+    oid: String,
+    max_decoded_bytes: u32,
+    max_compressed_bytes: u32,
+    timeout_ms: u32,
+    include_content: bool,
+    cancellation: Option<&NativeCancellation>,
+) -> std::result::Result<GitObjectData, String> {
+    let task = GitObjectTask {
+        path,
+        oid,
+        decoded_maximum: max_decoded_bytes as usize,
+        compressed_maximum: max_compressed_bytes as usize,
+        include_content,
+        deadline: Instant::now() + Duration::from_millis(u64::from(timeout_ms)),
+        cancelled: NativeCancellation::shared_flag(cancellation),
+    };
+    let (object_type, size, content) = task.read()?;
+    Ok(GitObjectData {
+        object_type,
+        size: size as u64,
+        content,
+    })
+}
+
+#[cfg(feature = "napi-addon")]
 #[napi(object)]
 pub struct FileDurability {
     pub durable: bool,
     pub warnings: Vec<String>,
 }
+#[cfg(feature = "napi-addon")]
 pub struct FlushFileTask {
     path: String,
     cancelled: Arc<AtomicBool>,
 }
 
+#[cfg(feature = "napi-addon")]
 pub struct PrivateDirectoryTask {
     path: String,
     cancelled: Arc<AtomicBool>,
 }
+#[cfg(feature = "napi-addon")]
 impl Task for PrivateDirectoryTask {
     type Output = ();
     type JsValue = ();
@@ -265,6 +307,7 @@ impl Task for PrivateDirectoryTask {
         Ok(())
     }
 }
+#[cfg(feature = "napi-addon")]
 #[napi]
 pub fn ensure_private_directory(
     path: String,
@@ -275,6 +318,7 @@ pub fn ensure_private_directory(
         cancelled: NativeCancellation::shared_flag(cancellation),
     })
 }
+#[cfg(feature = "napi-addon")]
 impl Task for FlushFileTask {
     type Output = bool;
     type JsValue = FileDurability;
@@ -298,6 +342,7 @@ impl Task for FlushFileTask {
         })
     }
 }
+#[cfg(feature = "napi-addon")]
 #[napi]
 pub fn flush_file(
     path: String,
@@ -307,4 +352,21 @@ pub fn flush_file(
         path,
         cancelled: NativeCancellation::shared_flag(cancellation),
     })
+}
+
+pub fn ensure_private_directory_portable(
+    path: &str,
+    cancellation: Option<&NativeCancellation>,
+) -> std::result::Result<(), String> {
+    let cancelled = NativeCancellation::shared_flag(cancellation);
+    crate::filesystem::platform::ensure_private_directory(path, &cancelled)
+}
+
+pub fn flush_file_portable(
+    path: &str,
+    cancellation: Option<&NativeCancellation>,
+) -> std::result::Result<bool, String> {
+    let cancelled = NativeCancellation::shared_flag(cancellation);
+    let source = EvidenceFile::open(path, &cancelled)?;
+    source.flush(path, &cancelled)
 }

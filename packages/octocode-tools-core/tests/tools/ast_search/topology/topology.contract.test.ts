@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { analyzeTopology } from '../../../../src/tools/ast_search/topology/analyzeTopology.js';
 import { contextUtils } from '../../../../src/utils/contextUtils.js';
+import type { WalkResult } from '../../../../src/graph/buildFileGraph.js';
 import { runPublicTopology } from './publicAdapter.js';
 
 const tempDirs: string[] = [];
@@ -305,7 +306,7 @@ describe('astSearch topology operation contract', () => {
     scan.mockRestore();
   });
 
-  it('covers all six bounded graph operations through one executor', async () => {
+  it('covers all six single-root graph operations through one executor', async () => {
     const path = await createGraphFixture();
 
     const dependencies = await analyzeTopology({
@@ -380,6 +381,83 @@ describe('astSearch topology operation contract', () => {
     expect(deadCode.summary).toEqual(
       expect.objectContaining({ deadClusters: expect.any(Array) })
     );
+  });
+
+  it('compares two roots with paginated topology drift evidence', async () => {
+    const baseline = await createGraphFixture();
+    const path = await createGraphFixture();
+    await writeFile(
+      join(baseline, 'removed.js'),
+      'export const removed = true;\n'
+    );
+    await writeFile(join(path, 'added.js'), 'export const added = true;\n');
+    await writeFile(join(path, 'b.js'), 'export function b() { return 1; }\n');
+
+    const result = await analyzeTopology({
+      operation: 'drift',
+      path,
+      baseline,
+      pageSize: 1,
+    });
+
+    expect(result.summary).toEqual(
+      expect.objectContaining({
+        comparable: true,
+        cyclesResolved: 1,
+        filesAdded: 1,
+        filesRemoved: 1,
+      })
+    );
+    expect(result.results).toHaveLength(1);
+    expect(result.pagination).toMatchObject({ hasMore: true, currentPage: 1 });
+    expect(result.next?.nextPage).toBeDefined();
+
+    const reverse = await analyzeTopology({
+      operation: 'drift',
+      path: baseline,
+      baseline: path,
+    });
+    expect(reverse.summary).toEqual(
+      expect.objectContaining({ cyclesAdded: 1, relationsAdded: 1 })
+    );
+
+    const missing = await analyzeTopology({ operation: 'drift', path });
+    expect(missing).toMatchObject({
+      status: 'error',
+      errorCode: 'invalidGraphQuery',
+    });
+  });
+
+  it('marks truncated drift and detects a self-loop with missing edge provenance', async () => {
+    const empty = (truncated: boolean): WalkResult => ({
+      facts: new Map(),
+      fileGraph: new Map(),
+      filesScanned: 0,
+      filesSkipped: 0,
+      truncated,
+      starReexportTargets: new Set(),
+      namespaceImportTargets: new Set(),
+      starReexporters: new Map(),
+    });
+    const head = empty(true);
+    head.fileGraph.set('self.ts', {
+      relativePath: 'self.ts',
+      importsFiles: new Set(['self.ts']),
+      dynamicImportsFiles: new Set(),
+      edgeKinds: new Map(),
+    });
+    const baseline = empty(false);
+
+    const result = await analyzeTopology(
+      { operation: 'drift', path: '/head', baseline: '/base' },
+      { getGraph: path => (path === '/head' ? head : baseline) }
+    );
+
+    expect(result).toMatchObject({
+      truncated: true,
+      partialReasons: ['maxFiles'],
+      summary: { cyclesAdded: 1, relationsAdded: 1 },
+    });
   });
 
   it('applies the shared result limit before pagination', async () => {

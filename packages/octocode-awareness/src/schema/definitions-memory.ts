@@ -1,6 +1,6 @@
 /* v8 ignore file -- exercised through built CLI and isolated-package subprocess tests */
 import { z } from 'zod';
-import { PLAN_STATUSES } from '@octocodeai/agent-contracts/entities';
+import { PLAN_STATUSES } from '../entities.js';
 import { AttendRevisionInputSchema } from './attend-revision.js';
 import {
   agentId, nonEmptyText, tags, workspacePath, artifactScope, repoScope,
@@ -169,40 +169,6 @@ memory_record: z
     })
     .strict()
     .describe("Meet registered workspace peers. Default reads presence only; details, query, file, artifact, repo, ref, include_bodies, explain_organ, or revision request coordination inspection. changes selects the separate Git view. Reuse the initial briefing until shared state changes."),
-  export_harness: z
-    .object({
-      limit: z.number().int().min(1).max(200).default(10),
-      min_importance: z.number().int().min(1).max(10).default(7),
-      workspace: workspacePath.optional().describe("Workspace filter."),
-      artifact: artifactScope.optional(),
-    })
-    .strict()
-    .describe("Export AGENTS block."),
-  developer_review: z
-    .object({
-      workspace: workspacePath.optional().describe("Workspace filter."),
-      artifact: artifactScope.optional(),
-      repo: repoScope.optional(),
-      ref: refScope.optional(),
-      state: z.union([z.string(), z.array(z.string())]).optional().describe("Filter by refinement state: open|ongoing|done."),
-      limit: z.number().int().min(1).max(500).default(60),
-      format: z.enum(["json", "markdown"]).default("json").describe("json rows or the markdown digest."),
-      query: z.string().trim().min(1).max(200).optional().describe("Text filter over feedback."),
-    })
-    .strict()
-    .describe("Read agent feedback to the instruction author (from reflect record --fix-instructions)."),
-  session_capture: z
-    .object({
-      agent_id: agentId.optional().describe("Agent filter."),
-      workspace: workspacePath.optional(),
-      artifact: artifactScope.optional(),
-      repo: repoScope.optional(),
-      ref: refScope.optional(),
-      reason: z.string().trim().min(1).max(500).optional().describe("Capture reason."),
-      cwd: z.string().trim().min(1).max(1024).optional().describe("Scope cwd."),
-    })
-    .strict()
-    .describe("Capture session handoff."),
   lock_acquire: z
     .object({
       agent_id: agentId,

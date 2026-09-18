@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { invokePublicToolCommand } from '../helpers/public-tool-command.js';
 
 const publicMocks = vi.hoisted(() => ({
   initialize: vi.fn().mockResolvedValue(undefined),
@@ -69,7 +70,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: [
         'localSearch',
@@ -89,7 +90,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghSearch'],
       options: {
@@ -122,13 +123,13 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
         json: true,
         queries:
-          '{"path":".","searchText":"runCLI","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+          '{"reasoning":"Exercise localSearch CLI behavior.","path":".","searchText":"runCLI","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -138,11 +139,35 @@ describe('toolCommand', () => {
     );
   });
 
+  it.each([false, true])(
+    'honors compact=%s when JSON output is explicitly selected',
+    async compact => {
+      const { toolCommand } =
+        await import('../../src/cli/tool-command/command.js');
+      const result = { content: [{ type: 'text', text: 'same evidence' }] };
+      publicMocks.localSearch.mockResolvedValueOnce(result);
+
+      await invokePublicToolCommand(toolCommand, {
+        command: 'tools',
+        args: ['localSearch'],
+        options: {
+          json: true,
+          compact,
+          queries: '{"path":".","searchText":"runCLI"}',
+        },
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        JSON.stringify(result, null, compact ? 0 : 2)
+      );
+    }
+  );
+
   it('shows schema help when a tool is selected without input', async () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {},
@@ -166,7 +191,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { scheme: true },
@@ -186,7 +211,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -206,7 +231,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -226,7 +251,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {},
@@ -267,7 +292,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -282,11 +307,38 @@ describe('toolCommand', () => {
     expect(process.exitCode).toBe(2);
   });
 
+  it('keeps malformed batch input strict and gives a runnable batch envelope', async () => {
+    const { toolCommand } =
+      await import('../../src/cli/tool-command/command.js');
+
+    await invokePublicToolCommand(toolCommand, {
+      command: 'tools',
+      args: ['localSearch'],
+      options: {
+        queries:
+          '{"queries":[{"path":".","searchText":"first"},{"path":".","searchText":"second"}',
+      },
+    });
+
+    expect(publicMocks.localSearch).not.toHaveBeenCalled();
+    const output = consoleSpy.mock.calls.flat().join('\n');
+    expect(output).toContain('Tool input must be valid JSON');
+    const diagnostic = JSON.parse(output) as { details?: string[] };
+    const example = diagnostic.details?.[0]?.match(/--queries '([^']+)'/);
+    expect(example).not.toBeNull();
+    const { buildDirectToolCommandPatterns } =
+      await import('@octocodeai/octocode-core/schema');
+    expect(JSON.parse(example![1]!)).toEqual({
+      queries: [buildDirectToolCommandPatterns('localSearch')[0]!.query],
+    });
+    expect(process.exitCode).toBe(2);
+  });
+
   it('schema validation failure should show error', async () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -311,7 +363,7 @@ describe('toolCommand', () => {
       await import('../../src/cli/tool-command/command.js');
 
     try {
-      await toolCommand.handler!({
+      await invokePublicToolCommand(toolCommand, {
         command: 'tools',
         args: ['ghCloneRepo'],
         options: {
@@ -334,7 +386,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -363,7 +415,7 @@ describe('toolCommand', () => {
       args: ['localSearch'],
       options: {
         queries:
-          '{"path":".","searchText":"runCLI","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+          '{"reasoning":"Exercise localSearch CLI behavior.","path":".","searchText":"runCLI","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -377,12 +429,12 @@ describe('toolCommand', () => {
 
     publicMocks.localSearch.mockRejectedValueOnce(err);
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
         queries:
-          '{"path":".","searchText":"runCLI","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
+          '{"reasoning":"Exercise localSearch CLI behavior.","path":".","searchText":"runCLI","matchContentLength":200,"pageSize":1,"page":1,"maxMatchesPerFile":1}',
       },
     });
 
@@ -400,7 +452,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch', 'localSearch'],
       options: {},
@@ -415,7 +467,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch', 'localSearch', 'astSearch'],
       options: { scheme: true, json: true, compact: true },
@@ -455,7 +507,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['ghSearchHistory', 'ghGetHistoryItem'],
       options: { scheme: true, json: true, compact: true },
@@ -482,7 +534,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { queries: 'null' },
@@ -496,7 +548,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { queries: 'null', json: true },
@@ -515,7 +567,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: {
@@ -542,9 +594,7 @@ describe('toolCommand', () => {
 
     expect(context).toContain('TOOL CALLS');
     expect(context).toContain('tools <name>');
-    expect(context).toContain(
-      'Choose the available tool for the next unresolved question'
-    );
+    expect(context).toContain('Choose a tool for the next unresolved question');
     expect(context).toContain('1. ghSearch');
     expect(context).toContain('2. ghSearchHistory');
     expect(context).toContain('3. ghGetHistoryItem');
@@ -591,12 +641,14 @@ describe('toolCommand', () => {
     // lean mode includes short tool descriptions inline
     expect(context).toContain('1. ghSearch — Discover GitHub repositories');
     expect(context).not.toContain('"$schema"');
-    expect(context).toContain('Protocol: answer the next unresolved question');
+    expect(context).toContain(
+      'Check every requested fact against returned evidence'
+    );
     expect(context).toContain(
       'Follow executable next.* calls with their scope and snapshot unchanged. Partial scan/depth state can require continuation even when hasMore is false. Whole-response pagination may split results; a restart discards earlier pages.'
     );
     expect(context).not.toContain('Use Octocode tools carefully.');
-    expect(context.length).toBeLessThanOrEqual(4000);
+    expect(context.length).toBeLessThanOrEqual(4200);
     for (const tool of TOOL_DEFINITIONS) {
       expect(context).toContain(tool.name);
     }
@@ -642,7 +694,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: [],
       options: { json: true },
@@ -690,6 +742,7 @@ describe('toolCommand', () => {
       'ghCloneRepo',
       'localSearch',
       'astSearch',
+      'astRewrite',
       'localFetch',
       'lspSearch',
     ]);
@@ -713,7 +766,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: [],
       options: { json: true, full: true },
@@ -757,7 +810,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { scheme: true, json: true },
@@ -810,7 +863,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { scheme: true, json: true, compact: true, pretty: true },
@@ -829,7 +882,7 @@ describe('toolCommand', () => {
     const { toolCommand } =
       await import('../../src/cli/tool-command/command.js');
 
-    await toolCommand.handler!({
+    await invokePublicToolCommand(toolCommand, {
       command: 'tools',
       args: ['localSearch'],
       options: { scheme: true, json: true, compact: true },

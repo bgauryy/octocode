@@ -70,10 +70,10 @@ export async function fetchGitHubFileContentAPI(
   }
 
   const { noTimestamp: _noTimestamp, ...paginationQuery } = params;
-  const paginatedResult = await applyContentPagination(
-    processedResult,
-    paginationQuery
-  );
+  const paginatedResult = await applyContentPagination(processedResult, {
+    ...paginationQuery,
+    branch: branchForProcessing,
+  });
   const isContinuationPage = (params.offset ?? 0) > 0;
   if (!params.noTimestamp && !isContinuationPage) {
     try {
@@ -85,7 +85,7 @@ export async function fetchGitHubFileContentAPI(
             owner: params.owner,
             repo: params.repo,
             path: params.path,
-            branch: params.branch,
+            branch: branchForProcessing,
             ts: true,
             auth,
           },
@@ -97,7 +97,7 @@ export async function fetchGitHubFileContentAPI(
             params.owner,
             params.repo,
             params.path,
-            params.branch
+            branchForProcessing
           ),
         {
           shouldCache: value => value !== null,

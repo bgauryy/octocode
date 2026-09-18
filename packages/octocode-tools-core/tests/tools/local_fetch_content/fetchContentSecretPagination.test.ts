@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { executeDirectTool } from '../../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../../helpers/executeDirectTool.js';
 import { findDirectToolDefinition } from '@octocodeai/octocode-core/schema';
 
 type View = {
@@ -17,6 +17,11 @@ async function run(
   query: Record<string, unknown>,
   allowError = false
 ): Promise<View> {
+  query = {
+    reasoning: 'Exercise localFetch redaction before selected-view pagination.',
+    debug: true,
+    ...query,
+  };
   expect(
     findDirectToolDefinition('localFetch')!.schema.safeParse(query).success
   ).toBe(true);

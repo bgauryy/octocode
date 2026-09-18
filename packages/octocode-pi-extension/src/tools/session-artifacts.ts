@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { assertContextSegmentAuthority, contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import { assertContextSegmentAuthority, contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 import { estimateContextTokens } from './context-segments.js';
 import { getOctocodeHome } from '@octocodeai/config';
 import { extensionHome } from '../extension-paths.js';

@@ -52,7 +52,7 @@ function run(
 
 test('public file tool exposes guarded write queries', () => {
   assert.equal(fileTool.name, 'file');
-  assert.match(fileTool.description ?? '', /guarded/);
+  assert.match(fileTool.description ?? '', /guarded/i);
   const schema = fileTool.parameters as {
     properties?: Record<string, unknown>;
   };
@@ -173,11 +173,10 @@ test('rejects when content is not a string', async () => {
   );
 });
 
-test('rejects when reasoning is missing', async () => {
-  await assert.rejects(
-    () => fileTool.execute('call-missing-reasoning', { queries: [{ type: 'write', path: 'file.txt', content: 'hi' }] }, undefined, undefined, { cwd: tmpDir }),
-    /requires non-empty reasoning/,
-  );
+test('accepts an omitted batch label', async () => {
+  const result = await fileTool.execute('call-missing-label', { queries: [{ type: 'write', path: 'file.txt', content: 'hi' }] }, undefined, undefined, { cwd: tmpDir });
+  assert.equal(result.isError ?? false, false);
+  assert.equal(fs.readFileSync(path.join(tmpDir, 'file.txt'), 'utf8'), 'hi');
 });
 
 // ─── Path guard ───────────────────────────────────────────────────────────────
@@ -196,18 +195,8 @@ test('blocks writes to a path outside all allowed roots', async () => {
   }
 });
 
-test('prepareArguments does not convert flat input or path aliases', () => {
-  assert.ok(fileTool.prepareArguments, 'prepareArguments must be defined');
-  const input = { file_path: 'x.txt', content: 'hi' };
-  assert.deepEqual(fileTool.prepareArguments!(input), input);
-});
-
-test('prepareArguments fills reasoning only inside queries[]', () => {
-  const input = { queries: [{ type: 'write', path: 'x.txt', content: 'hi' }] };
-  const result = fileTool.prepareArguments!(input) as { queries: Array<Record<string, unknown>> };
-  const query = (result['queries'] as Array<Record<string, unknown>>)[0]!;
-  assert.equal(query['path'], 'x.txt');
-  assert.equal(query['reasoning'], 'file operation');
+test('registration does not install argument-repair shims', () => {
+  assert.equal(fileTool.prepareArguments, undefined);
 });
 
 // ─── renderCall ──────────────────────────────────────────────────────

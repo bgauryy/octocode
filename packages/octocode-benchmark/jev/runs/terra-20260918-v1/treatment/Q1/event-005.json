@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q1",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"owner\":\"vercel\",\"repo\":\"next.js\",\"branch\":\"canary\",\"path\":\"packages/next/src/shared/lib/router/utils/route-regex.ts\",\"matchString\":\"export type RouteRegex\",\"contextLines\":20}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:42.314Z",
+  "endedAt": "2026-09-18T08:25:42.711Z",
+  "elapsedMs": 397,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "5a4388b8fbd4a922674df22b6624ad48313cf9ee120c5b4af4bc0e3103322973",
+  "stdoutBytes": 709,
+  "requestSha256": null
+}

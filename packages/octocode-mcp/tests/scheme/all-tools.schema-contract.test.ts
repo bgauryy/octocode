@@ -55,6 +55,13 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     langType: 'ts',
     pattern: 'foo($A)',
   },
+  astRewrite: {
+    path: './src',
+    langType: 'typescript',
+    ruleKind: 'pattern',
+    pattern: 'console.log($A)',
+    rewrite: 'logger.info($A)',
+  },
   [STATIC_TOOL_NAMES.LOCAL_FETCH_CONTENT]: { path: '/tmp/test.ts' },
   [LSP_SEARCH_TOOL_NAME]: {
     uri: '/tmp/test.ts',
@@ -84,6 +91,16 @@ const MINIMAL_QUERY: Record<string, Record<string, unknown>> = {
     repo: 'react',
   },
 };
+
+function minimalQuery(toolName: string): Record<string, unknown> | undefined {
+  const query = MINIMAL_QUERY[toolName];
+  return query
+    ? {
+        reasoning: `Validate the ${toolName} public schema contract.`,
+        ...query,
+      }
+    : undefined;
+}
 
 function getQueryShapes(bulkSchema: z.ZodTypeAny): z.ZodRawShape[] {
   if (!(bulkSchema instanceof z.ZodObject)) return [];
@@ -211,7 +228,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('parses minimal valid input without error', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         expect(
           minQuery,
           `${toolName}: add a MINIMAL_QUERY entry for this tool`
@@ -228,7 +245,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('parses with both optional intent fields', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         if (!minQuery) return;
         const result = bulkSchema.safeParse({
           queries: [
@@ -247,7 +264,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('parses 3 parallel queries (bulk batching)', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
           queries: [{ ...minQuery }, { ...minQuery }, { ...minQuery }],
@@ -275,7 +292,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('accepts identical queries because response indexes provide correlation', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
           queries: [{ ...minQuery }, { ...minQuery }],
@@ -284,7 +301,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('rejects extra unknown envelope fields', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         if (!minQuery) return;
         const r = bulkSchema.safeParse({
           queries: [minQuery],
@@ -296,7 +313,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('rejects every retired query alias at the MCP boundary', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         if (!minQuery) return;
         for (const alias of REMOVED_QUERY_ALIASES[toolName] ?? []) {
           const result = bulkSchema.safeParse({
@@ -310,7 +327,7 @@ describe('all-tools schema contract', () => {
       });
 
       it('rejects unknown per-query fields instead of stripping them', () => {
-        const minQuery = MINIMAL_QUERY[toolName];
+        const minQuery = minimalQuery(toolName);
         if (!minQuery) return;
         const result = bulkSchema.safeParse({
           queries: [{ ...minQuery, definitelyUnknownField: true }],

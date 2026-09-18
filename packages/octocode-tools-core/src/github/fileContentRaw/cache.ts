@@ -5,6 +5,7 @@ import { resolveCacheAuthFingerprint } from '../client.js';
 import { generateCacheKey } from '../../utils/http/cache/key.js';
 import { withDataCacheConditional } from '../../utils/http/cache/conditional.js';
 import { fetchRawGitHubFileContent, type RawContentResult } from './fetch.js';
+import { resolveMaterializationRef } from '../directoryFetch/refResolution.js';
 
 /** Share one authenticated, ref-scoped raw response between reads and materialization. */
 export async function fetchCachedRawGitHubFileContent(
@@ -12,6 +13,21 @@ export async function fetchCachedRawGitHubFileContent(
   authInfo?: AuthInfo,
   sessionId?: string
 ) {
+  // Resolve before acquisition: a later lookup could name a different revision
+  // from the bytes already fetched. Full SHAs need no provider round trip.
+  const ref = params.branch || 'HEAD';
+  const branch = /^[a-f0-9]{40}$/i.test(ref)
+    ? ref.toLowerCase()
+    : (
+        await resolveMaterializationRef(
+          params.owner,
+          params.repo,
+          ref,
+          authInfo,
+          params.forceRefresh === true
+        )
+      ).commitSha;
+  const snapshotQuery = { ...params, branch };
   const auth = await resolveCacheAuthFingerprint(authInfo);
   const cacheKey = generateCacheKey(
     'gh-api-file-content',
@@ -19,7 +35,7 @@ export async function fetchCachedRawGitHubFileContent(
       owner: params.owner,
       repo: params.repo,
       path: params.path,
-      branch: params.branch,
+      branch,
       auth,
     },
     sessionId
@@ -30,9 +46,13 @@ export async function fetchCachedRawGitHubFileContent(
   >(
     cacheKey,
     async ({ ifNoneMatch }) => {
-      const response = await fetchRawGitHubFileContent(params, authInfo, {
-        ifNoneMatch,
-      });
+      const response = await fetchRawGitHubFileContent(
+        snapshotQuery,
+        authInfo,
+        {
+          ifNoneMatch,
+        }
+      );
       const { etag, notModified, ...value } = response;
       return {
         value: value as GitHubAPIResponse<RawContentResult>,

@@ -9,13 +9,11 @@ export function briefingChangeSignal(items: HookSignalItem[], maintenanceChanged
       ? 'messages'
       : item.kind === 'memory'
         ? 'memory'
-        : item.kind === 'refinement'
-          ? 'refinements'
-          : 'maintenance';
+        : 'maintenance';
     counts.set(category, (counts.get(category) ?? 0) + 1);
   }
   if (maintenanceChanged) counts.set('maintenance', Math.max(1, counts.get('maintenance') ?? 0));
-  const detail = ['messages', 'memory', 'refinements', 'maintenance']
+  const detail = ['messages', 'memory', 'maintenance']
     .flatMap((key) => counts.has(key) ? [`${key} ${counts.get(key)}`] : []);
   return detail.length ? `Awareness: ${detail.join(', ')}.` : 'Awareness: state changed.';
 }

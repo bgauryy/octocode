@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
 
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import {
   LOCAL_SEARCH_TOOL_NAME,
   AST_SEARCH_TOOL_NAME,
@@ -241,6 +241,34 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
     setRuntimeSurface('cli');
     process.env.ENABLE_LOCAL = 'true';
     cleanup();
+    const input = {
+      queries: [
+        {
+          operation: 'files',
+          path: resolve('tests/fixtures'),
+          names: ['adapterParityFixture.ts'],
+          limit: 1,
+        },
+      ],
+    };
+    const [full, result] = await Promise.all([
+      executeDirectTool(AST_SEARCH_TOOL_NAME, input),
+      executeDirectTool(AST_SEARCH_TOOL_NAME, input, {
+        resultProjection: 'structured',
+      }),
+    ]);
+    expect(result.isError).toBe(false);
+    expect(result.content).toEqual([]);
+    expect(result.structuredContent).toEqual(full.structuredContent);
+    expect(JSON.stringify(result.structuredContent)).toContain(
+      'adapterParityFixture.ts'
+    );
+  });
+
+  it('retains text pagination metadata for a structured direct projection', async () => {
+    setRuntimeSurface('cli');
+    process.env.ENABLE_LOCAL = 'true';
+    cleanup();
     const result = await executeDirectTool(
       AST_SEARCH_TOOL_NAME,
       {
@@ -252,14 +280,14 @@ describe('executeDirectTool - invalid input handling (finding 3)', () => {
             limit: 1,
           },
         ],
+        responseCharLength: 20,
       },
       { resultProjection: 'structured' }
     );
-    expect(result.isError).toBe(false);
     expect(result.content).toEqual([]);
-    expect(JSON.stringify(result.structuredContent)).toContain(
-      'adapterParityFixture.ts'
-    );
+    expect(result.structuredContent).toMatchObject({
+      responsePagination: { scope: 'content.text' },
+    });
   });
 
   it('gates ghCloneRepo in tools-core when ENABLE_CLONE is false', async () => {

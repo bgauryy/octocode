@@ -3,7 +3,6 @@ import type { PiContext, PiTheme } from '../types.js';
 import { createRuntimeStore, type ForegroundActivityInput, type RuntimeMcpState, type RuntimeState, type RuntimeStore } from './runtime-store.js';
 
 import { runtimeActivityPresentation } from './activity-presentation.js';
-export { activityPresentation, runtimeActivityPresentation } from './activity-presentation.js';
 
 interface RuntimeBinding {
   store: RuntimeStore;
@@ -15,6 +14,15 @@ interface RuntimeBinding {
 export type RuntimeRendererDisposer = (opts?: { clearUi?: boolean }) => void;
 
 const bindings = new WeakMap<object, RuntimeBinding>();
+// Pi creates a fresh context per event/tool call. The session manager is stable.
+function bindingKey(ctx: PiContext | undefined): object | undefined {
+  if (!ctx || typeof ctx !== 'object') return undefined;
+  try {
+    return ctx.sessionManager ?? ctx;
+  } catch {
+    return undefined; // Replaced contexts must not acquire another runtime.
+  }
+}
 interface RenderedRuntimeState {
   statuses: Map<string, string | undefined>;
   workingVisible?: boolean;
@@ -67,8 +75,9 @@ function renderRuntime(ctx: PiContext, state: RuntimeState, rendered: RenderedRu
 }
 
 export function bindRuntimeRenderer(ctx: PiContext | undefined, store: RuntimeStore): RuntimeRendererDisposer {
-  if (!ctx || typeof ctx !== 'object') return () => undefined;
-  bindings.get(ctx)?.dispose();
+  const key = bindingKey(ctx);
+  if (!ctx || !key) return () => undefined;
+  bindings.get(key)?.dispose();
   const rendered: RenderedRuntimeState = { statuses: new Map() };
   const binding: RuntimeBinding = {
     store,
@@ -97,7 +106,7 @@ export function bindRuntimeRenderer(ctx: PiContext | undefined, store: RuntimeSt
     if (!lifecycleDisposed) {
       lifecycleDisposed = true;
       unsubscribe();
-      bindings.delete(ctx);
+      if (bindings.get(key) === binding) bindings.delete(key);
     }
     if (opts.clearUi !== false && !uiCleared) {
       uiCleared = true;
@@ -112,12 +121,13 @@ export function bindRuntimeRenderer(ctx: PiContext | undefined, store: RuntimeSt
     binding.workingIndicator = false;
   };
   binding.dispose = dispose;
-  bindings.set(ctx, binding);
+  bindings.set(key, binding);
   return dispose;
 }
 
 export function runtimeStoreFor(ctx: PiContext | undefined): RuntimeStore | undefined {
-  return ctx && typeof ctx === 'object' ? bindings.get(ctx)?.store : undefined;
+  const key = bindingKey(ctx);
+  return key ? bindings.get(key)?.store : undefined;
 }
 
 /**
@@ -126,11 +136,12 @@ export function runtimeStoreFor(ctx: PiContext | undefined): RuntimeStore | unde
  * SessionRuntime atomically replaces and disposes it during initialization.
  */
 function ensureRuntimeBinding(ctx: PiContext | undefined): RuntimeBinding | undefined {
-  if (!ctx || typeof ctx !== 'object') return undefined;
-  const existing = bindings.get(ctx);
+  const key = bindingKey(ctx);
+  if (!key) return undefined;
+  const existing = bindings.get(key);
   if (existing) return existing;
   bindRuntimeRenderer(ctx, createRuntimeStore());
-  return bindings.get(ctx);
+  return bindings.get(key);
 }
 
 export function setManagedStatus(ctx: PiContext | undefined, name: string, text: string | undefined): void {

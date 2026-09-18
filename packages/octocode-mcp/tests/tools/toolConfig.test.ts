@@ -24,8 +24,8 @@ describe('Tool Configuration', () => {
   }
 
   describe('ALL_TOOLS', () => {
-    it('contains the 10 default-enabled tools without legacy aliases', () => {
-      expect(ALL_TOOLS).toHaveLength(10);
+    it('contains the 11 default-enabled tools without legacy aliases', () => {
+      expect(ALL_TOOLS).toHaveLength(11);
 
       const toolNames = ALL_TOOLS.map(t => t.name);
       expect(toolNames).toEqual([
@@ -37,6 +37,7 @@ describe('Tool Configuration', () => {
         TOOL_NAMES.GITHUB_CLONE_REPO,
         LOCAL_SEARCH_TOOL_NAME,
         'astSearch',
+        'astRewrite',
         TOOL_NAMES.LOCAL_FETCH_CONTENT,
         'lspSearch',
       ]);
@@ -58,9 +59,9 @@ describe('Tool Configuration', () => {
       }
     });
 
-    it('publishes the same 10-tool runtime and discovery catalog', () => {
-      expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(10);
-      expect(ALL_TOOLS.filter(tool => tool.isDefault)).toHaveLength(10);
+    it('publishes the same 11-tool runtime and discovery catalog', () => {
+      expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS).toHaveLength(11);
+      expect(ALL_TOOLS.filter(tool => tool.isDefault)).toHaveLength(11);
       expect(DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(tool => tool.name)).toEqual(
         ALL_TOOLS.map(tool => tool.name)
       );
@@ -93,7 +94,7 @@ describe('Tool Configuration', () => {
 
     it('should have isLocal correctly set for Local tools', () => {
       const localTools = ALL_TOOLS.filter(t => t.isLocal);
-      expect(localTools).toHaveLength(5);
+      expect(localTools).toHaveLength(6);
       localTools.forEach(tool => {
         expect(tool.isLocal).toBe(true);
       });
@@ -146,6 +147,7 @@ describe('Tool Configuration', () => {
       expect(LOCAL_SEARCH.fn).toBeTypeOf('function');
       expect(
         LOCAL_SEARCH.direct.schema.safeParse({
+          reasoning: 'Validate the localSearch tool configuration.',
           path: '.',
           searchText: 'needle',
           regex: 'literal',
@@ -188,7 +190,7 @@ describe('Tool Configuration', () => {
 
     it('non-clone tools should not have isClone set', () => {
       const nonCloneTools = ALL_TOOLS.filter(t => !t.isClone);
-      expect(nonCloneTools).toHaveLength(9);
+      expect(nonCloneTools).toHaveLength(10);
       nonCloneTools.forEach(tool => {
         expect(tool.isClone).toBeFalsy();
       });

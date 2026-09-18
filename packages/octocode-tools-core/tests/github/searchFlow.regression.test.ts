@@ -32,11 +32,74 @@ import { searchGitHubCodeAPI } from '../../src/github/codeSearch.js';
 import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
 import { buildGitHubSearchFinalizer } from '../../src/tools/github_search/finalizer.js';
 import { GitHubSearchQuerySchema } from '@octocodeai/octocode-core/schema';
+import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
 
 beforeEach(() => {
   clearAllCache();
   vi.resetAllMocks();
 });
+
+it.each([
+  [
+    'code',
+    () =>
+      searchGitHubCodeAPI({
+        keywords: ['fixture'],
+        limit: 100,
+        page: 11,
+      } as never),
+    mocks.code,
+  ],
+  [
+    'repositories',
+    () =>
+      searchGitHubReposAPI({
+        keywords: ['fixture'],
+        limit: 100,
+        page: 11,
+      } as never),
+    mocks.repos,
+  ],
+])(
+  'rejects an unreachable %s search page before provider I/O',
+  async (_operation, execute, request) => {
+    await expect(execute()).resolves.toMatchObject({
+      status: 400,
+      type: 'http',
+    });
+    expect(request).not.toHaveBeenCalled();
+  }
+);
+
+it.each([
+  [
+    'code',
+    () =>
+      searchGitHubCodeAPI({
+        keywords: ['fixture'],
+        limit: 100,
+        page: 10,
+      } as never),
+    mocks.code,
+  ],
+  [
+    'repositories',
+    () =>
+      searchGitHubReposAPI({
+        keywords: ['fixture'],
+        limit: 100,
+        page: 10,
+      } as never),
+    mocks.repos,
+  ],
+])(
+  'keeps the last reachable %s search page',
+  async (_operation, execute, request) => {
+    request.mockResolvedValue(response([], 1500));
+    await expect(execute()).resolves.toHaveProperty('data');
+    expect(request).toHaveBeenCalledOnce();
+  }
+);
 
 it.each([
   ['anchor comment', '// anchor comment\nexport const target = 1;'],
@@ -98,6 +161,210 @@ const response = (
 ) => ({
   data: { items, total_count: total, incomplete_results: incomplete },
   headers: {},
+});
+
+it('path discovery preserves every file without processing unused fragments', async () => {
+  const files = Array.from({ length: 100 }, (_, index) => ({
+    name: `target-${index}.ts`,
+    path: `src/target-${index}.ts`,
+    html_url: `https://github.com/fixture/repo/blob/main/src/target-${index}.ts`,
+    repository: repository('repo'),
+    text_matches: [{ fragment: 'const target = 1;', matches: [] }],
+  }));
+  mocks.code.mockResolvedValue(response(files));
+  const sanitize = vi.spyOn(ContentSanitizer, 'sanitizeContent');
+  try {
+    const result = await run({
+      operation: 'code',
+      owner: 'fixture',
+      repo: 'repo',
+      keywords: ['target'],
+      match: 'path',
+      pageSize: 100,
+    });
+    expect(
+      result.files.map((file: { path: string }) => file.path).sort()
+    ).toEqual(files.map(file => file.path).sort());
+    expect(JSON.stringify(result)).not.toContain('const target');
+    expect(sanitize).not.toHaveBeenCalled();
+    expect(mocks.code.mock.calls[0]![0]).toMatchObject({
+      per_page: 100,
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+  } finally {
+    sanitize.mockRestore();
+  }
+});
+
+it.each([30, 100])(
+  'preserves mixed Unicode paths across complete path and content pages of %i',
+  async pageSize => {
+    const extensions = ['tsx', 'py', 'md', 'json', 'css'];
+    const directories = ['日本語', 'naïve', 'δοκιμή', '🧪', 'café'];
+    const files = Array.from({ length: 130 }, (_, index) => {
+      const path = `${directories[index % directories.length]}/needle-${index}.${extensions[index % extensions.length]}`;
+      const term = `needle${index}`;
+      const fragment = `const ${term} = true;`;
+      return {
+        name: path.split('/').at(-1),
+        path,
+        html_url: `https://github.com/fixture/mixed/blob/main/${path}`,
+        repository: repository('mixed'),
+        text_matches: [
+          {
+            fragment,
+            matches: [{ text: term, indices: [6, 6 + term.length] }],
+          },
+        ],
+      };
+    });
+    mocks.code.mockImplementation(async ({ page, per_page }) =>
+      response(
+        files.slice((page - 1) * per_page, page * per_page),
+        files.length
+      )
+    );
+    const sanitize = vi.spyOn(ContentSanitizer, 'sanitizeContent');
+    const pathsByMode: string[][] = [];
+    try {
+      for (const match of ['path', 'file'] as const) {
+        sanitize.mockClear();
+        mocks.code.mockClear();
+        let query: Record<string, unknown> | undefined = {
+          operation: 'code',
+          owner: 'fixture',
+          repo: 'mixed',
+          keywords: ['needle'],
+          match,
+          pageSize,
+        };
+        const paths: string[] = [];
+        for (let budget = 0; query && budget < 6; budget++) {
+          const data = await run(query);
+          paths.push(...data.files.map((file: { path: string }) => file.path));
+          query = data.next?.nextPage?.query;
+          if (query) expect(query).toMatchObject({ match, pageSize });
+        }
+        expect(query).toBeUndefined();
+        expect(paths).toEqual(files.map(file => file.path));
+        expect(new Set(paths).size).toBe(files.length);
+        pathsByMode.push(paths);
+        expect(mocks.code).toHaveBeenCalledTimes(
+          Math.ceil(files.length / pageSize)
+        );
+        for (const [request] of mocks.code.mock.calls) {
+          expect(request).toMatchObject({
+            per_page: pageSize,
+            headers: {
+              Accept:
+                match === 'path'
+                  ? 'application/vnd.github+json'
+                  : 'application/vnd.github.v3.text-match+json',
+            },
+          });
+        }
+        expect(sanitize).toHaveBeenCalledTimes(
+          match === 'path' ? 0 : files.length
+        );
+      }
+      expect(pathsByMode[0]).toEqual(pathsByMode[1]);
+    } finally {
+      sanitize.mockRestore();
+    }
+  }
+);
+
+it.each([undefined, 'file'] as const)(
+  'retains safe content matches after secret redaction with match=%s',
+  async match => {
+    const secret = 'ghp_' + 'AbCdEf0123456789'.repeat(2) + 'abcdef';
+    const fragment = `// ${secret}\nexport const needle = '日本語';`;
+    const start = fragment.indexOf('needle');
+    mocks.code.mockResolvedValue(
+      response([
+        {
+          name: 'needle.ts',
+          path: '日本語/needle.ts',
+          html_url:
+            'https://github.com/fixture/mixed/blob/main/日本語/needle.ts',
+          repository: repository('mixed'),
+          text_matches: [
+            {
+              fragment,
+              matches: [{ text: 'needle', indices: [start, start + 6] }],
+            },
+          ],
+        },
+      ])
+    );
+    const sanitize = vi.spyOn(ContentSanitizer, 'sanitizeContent');
+    try {
+      const result = await searchGitHubCodeAPI({
+        keywords: ['needle'],
+        owner: 'fixture',
+        repo: 'mixed',
+        ...(match ? { match } : {}),
+        limit: 30,
+      } as never);
+      if (!('data' in result) || !result.data)
+        throw new Error(JSON.stringify(result));
+      expect(result.data.items.map(item => item.path)).toEqual([
+        '日本語/needle.ts',
+      ]);
+      expect(sanitize).toHaveBeenCalledTimes(1);
+      expect(sanitize.mock.results[0]!.value.hasSecrets).toBe(true);
+      expect(JSON.stringify(result)).not.toContain(secret);
+      const retained = result.data.items[0]!.matches[0]!;
+      expect(retained.positions).toHaveLength(1);
+      const [from, to] = retained.positions[0]!;
+      expect(retained.context.slice(from, to)).toBe('needle');
+      expect(mocks.code.mock.calls[0]![0]).toMatchObject({
+        headers: { Accept: 'application/vnd.github.v3.text-match+json' },
+      });
+    } finally {
+      sanitize.mockRestore();
+    }
+  }
+);
+
+it('fails explicitly on unsafe fragment processing and never caches that failure', async () => {
+  mocks.code.mockResolvedValue(
+    response([
+      {
+        name: 'target.ts',
+        path: 'src/target.ts',
+        html_url: 'https://github.com/fixture/repo/blob/main/src/target.ts',
+        repository: repository('repo'),
+        text_matches: [
+          {
+            fragment: 'const target = 1;',
+            matches: [{ text: 'target', indices: [6, 12] }],
+          },
+        ],
+      },
+    ])
+  );
+  const sanitize = vi.spyOn(ContentSanitizer, 'sanitizeContent');
+  sanitize.mockImplementationOnce(() => {
+    throw new Error('sanitizer unavailable');
+  });
+  const query = {
+    keywords: ['target'],
+    owner: 'fixture',
+    repo: 'repo',
+    limit: 100,
+  } as never;
+  try {
+    const first = await searchGitHubCodeAPI(query);
+    expect(first).toHaveProperty('error');
+    expect(first).not.toHaveProperty('data');
+    const second = await searchGitHubCodeAPI(query);
+    expect(second).toHaveProperty('data.items.0.matches.0.context');
+    await searchGitHubCodeAPI(query);
+    expect(mocks.code).toHaveBeenCalledTimes(2);
+  } finally {
+    sanitize.mockRestore();
+  }
 });
 
 it.each(['package-lock.json', 'dist/index.min.js', 'vendor/fixture.ts'])(

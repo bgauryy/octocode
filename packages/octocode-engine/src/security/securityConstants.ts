@@ -1,10 +1,4 @@
-export const ALLOWED_COMMANDS = [
-  'rg',
-  'ls',
-  'find',
-  'grep',
-  'git',
-] as const;
+export const ALLOWED_COMMANDS = ['rg', 'ls', 'find', 'grep', 'git'] as const;
 
 export const DANGEROUS_PATTERNS = [
   /[;&|`$(){}[\]<>]/, // Shell metacharacters

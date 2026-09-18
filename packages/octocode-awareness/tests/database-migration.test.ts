@@ -6,15 +6,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyDatabaseMigration, previewDatabaseMigration, verifyDatabaseMigration } from '../src/db-consolidation.js';
 import { inspectSchemaState, readAwarenessMeta, type SchemaState } from '../src/db-introspection.js';
-import { AWARENESS_SCHEMA_VERSION, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
+import { FTS_SCHEMA_DDL, SCHEMA_DDL, SCHEMA_INDEX_DDL } from '../src/db-schema.js';
 import { EVENT_OUTBOX_V1_DDL, EVENT_OUTBOX_V1_INDEX_DDL } from '../src/db-continuity-schema.js';
-import { PREDECESSOR_EVENT_RELATIONS_DDL } from '../src/db-predecessor-schema.js';
-import { AWARENESS_META_DDL } from '../src/db-meta-schema.js';
+import { LEGACY_RENAMED_V1_SCHEMA_DDL, PREDECESSOR_EVENT_RELATIONS_DDL, PREDECESSOR_REFINEMENTS_DDL } from '../src/db-predecessor-schema.js';
 import { WORKER_LIFECYCLE_DDL } from '../src/db-worker-schema.js';
 import { captureHistory } from '../src/history-capture.js';
 import { previewHistoryRestore } from '../src/history-restore.js';
 import { createHistoryContext, historyHash, historyStoragePaths } from '../src/history-store.js';
-import { AWARENESS_APPLICATION_ID } from '../src/storage-scope.js';
+import { AWARENESS_APPLICATION_ID, AWARENESS_MIGRATABLE_SCHEMA_VERSIONS, AWARENESS_SCHEMA_VERSION } from '../src/storage-scope.js';
 import { initDb } from '../src/db-init.js';
 
 const roots: string[] = [];
@@ -29,23 +28,8 @@ function legacyFixture() {
   const sourcePath = join(root, 'legacy.sqlite3');
   const destinationPath = join(root, 'canonical.sqlite3');
   const db = new DatabaseSync(sourcePath);
-  db.exec(SCHEMA_DDL.replace(AWARENESS_META_DDL, ''));
-  db.exec(PREDECESSOR_EVENT_RELATIONS_DDL);
-  for (const relation of [
-    'authorization_receipts', 'capability_receipts', 'event_acknowledgements', 'event_consumers',
-    'event_outbox', 'handoffs', 'local_history_durability', 'local_history_operations',
-    'local_history_restores', 'local_history_versions', 'pending_interactions',
-  ]) db.exec(`DROP TABLE IF EXISTS ${JSON.stringify(relation)}`);
-  for (const [current, legacy] of [
-    ['awareness_agents', 'agents'], ['awareness_locks', 'locks'], ['awareness_memories', 'memories'],
-    ['awareness_plans', 'plans'], ['awareness_tasks', 'tasks'],
-  ]) db.exec(`ALTER TABLE ${JSON.stringify(current)} RENAME TO ${JSON.stringify(legacy)}`);
-  for (const [relation, columns] of Object.entries({
-    agents: ['role', 'status', 'metadata_json'],
-    memories: ['scope_kind', 'source_digest', 'verified_at', 'secret_scan_status'],
-    plans: ['source_kind', 'source_key', 'rfc_path', 'rfc_revision'],
-    tasks: ['source_step_key', 'check_command'],
-  })) for (const column of columns) db.exec(`ALTER TABLE ${JSON.stringify(relation)} DROP COLUMN ${JSON.stringify(column)}`);
+  db.exec(LEGACY_RENAMED_V1_SCHEMA_DDL);
+  db.exec(FTS_SCHEMA_DDL);
   db.exec(`PRAGMA application_id=${AWARENESS_APPLICATION_ID}`);
   return { root, workspace, sourcePath, destinationPath, db };
 }
@@ -55,6 +39,8 @@ interface PredecessorOptions {
   worker?: boolean;
   missingMeta?: boolean;
   missingDurability?: boolean;
+  refinements?: boolean;
+  schemaVersion?: number;
 }
 
 function exactPredecessorFixture(options: PredecessorOptions) {
@@ -67,6 +53,7 @@ function exactPredecessorFixture(options: PredecessorOptions) {
   const db = new DatabaseSync(sourcePath);
   db.exec(SCHEMA_DDL);
   db.exec(SCHEMA_INDEX_DDL);
+  if (options.refinements) db.exec(PREDECESSOR_REFINEMENTS_DDL);
   if (options.eventV1) {
     db.exec('DROP TABLE event_outbox');
     db.exec(EVENT_OUTBOX_V1_DDL);
@@ -75,7 +62,7 @@ function exactPredecessorFixture(options: PredecessorOptions) {
   if (options.worker) db.exec(WORKER_LIFECYCLE_DDL);
   if (options.missingMeta) db.exec('DROP TABLE awareness_meta');
   else {
-    const schemaVersion = options.eventV1 ? 2 : AWARENESS_SCHEMA_VERSION;
+    const schemaVersion = options.schemaVersion ?? (options.eventV1 ? 2 : AWARENESS_SCHEMA_VERSION);
     db.prepare(`INSERT INTO awareness_meta
       (application_id,schema_version,store_id,created_at,last_migrated_at)
       VALUES (?,?,?,?,NULL)`).run(AWARENESS_APPLICATION_ID, schemaVersion, '11111111-1111-4111-8111-111111111111', '2026-01-01T00:00:00Z');
@@ -171,7 +158,7 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
           { event_id: 'legacy.harness:harness-1', event_type: 'harness.capture', retention_class: 'operational' },
         ]);
       expect(destination.prepare(`SELECT name FROM sqlite_schema WHERE type = 'table'
-        AND name IN ('task_events','run_log','edit_log','harness_log','handoffs')`).all()).toEqual([]);
+        AND name IN ('task_events','run_log','edit_log','harness_log','handoffs','refinements')`).all()).toEqual([]);
       expect(historyStoragePaths(createHistoryContext(destination, workspace))).toMatchObject({
         root: localGitRoot, layout: 'awareness-v1', current_path_preserved: true,
       });
@@ -179,12 +166,76 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
     expect(verifyDatabaseMigration(report.next.verify)).toMatchObject({ integrity: 'ok', foreignKeyViolations: 0 });
   });
 
+  it('migrates each classifiable refinement to its canonical owner and drops the legacy table', () => {
+    const { db, sourcePath, destinationPath, workspace } = legacyFixture();
+    const insert = db.prepare(`INSERT INTO refinements
+      (refinement_id,agent_id,workspace_path,artifact,repo,ref,files_json,reasoning,remember,quality,state,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    const createdAt = '2026-01-02T03:04:05Z';
+    insert.run('ref-handoff', 'agent-1', workspace, null, null, null, '[]', 'Continue the migration', '', 'handoff', 'open', createdAt, createdAt);
+    insert.run('ref-work', 'agent-2', workspace, null, null, null, '["src/a.ts"]', 'Fix the migration', '', 'good', 'ongoing', createdAt, createdAt);
+    insert.run('ref-memory', 'agent-3', workspace, null, null, null, '[]', 'Migration result', 'Schema fingerprints prevent drift', 'good', 'done', createdAt, createdAt);
+    db.close();
+
+    const report = applyDatabaseMigration(sourcePath, destinationPath, { workspace });
+    expect(report.omissions).toEqual([]);
+    const destination = new DatabaseSync(destinationPath, { readOnly: true });
+    try {
+      expect(destination.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='refinements'").get()).toBeUndefined();
+      expect(destination.prepare("SELECT signal_id,kind,subject FROM signals WHERE signal_id='migrated.refinement:ref-handoff'").get())
+        .toEqual({ signal_id: 'migrated.refinement:ref-handoff', kind: 'handoff', subject: 'Migrated refinement ref-handoff' });
+      expect(destination.prepare("SELECT run_id,origin,status,context_ref FROM task_runs WHERE run_id='migrated.refinement:ref-work'").get())
+        .toEqual({ run_id: 'migrated.refinement:ref-work', origin: 'WORK', status: 'ACTIVE', context_ref: 'legacy-refinement:ref-work' });
+      expect(destination.prepare("SELECT run_id,file_path,source FROM run_files WHERE run_id='migrated.refinement:ref-work'").get())
+        .toEqual({ run_id: 'migrated.refinement:ref-work', file_path: 'src/a.ts', source: 'EXPLICIT' });
+      expect(destination.prepare("SELECT memory_id,task_context,observation,source_digest,verified_at FROM awareness_memories WHERE memory_id='migrated.refinement:ref-memory'").get())
+        .toEqual({ memory_id: 'migrated.refinement:ref-memory', task_context: 'Migration result', observation: 'Schema fingerprints prevent drift', source_digest: 'legacy-refinement:ref-memory', verified_at: createdAt });
+    } finally { destination.close(); }
+  });
+
+  it('reports every ambiguous refinement before creating a destination', () => {
+    const { db, sourcePath, destinationPath, workspace } = legacyFixture();
+    const createdAt = '2026-01-02T03:04:05Z';
+    const insert = db.prepare(`INSERT INTO refinements
+      (refinement_id,agent_id,workspace_path,artifact,repo,ref,files_json,reasoning,remember,quality,state,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    insert.run('ref-mixed', 'agent-1', workspace, null, null, null, '["src/a.ts"]', 'Mixed row', 'Also remember this', 'good', 'open', createdAt, createdAt);
+    insert.run('ref-instructions', 'agent-1', workspace, null, null, null, '[]', 'Change system policy', '', 'instructions', 'open', createdAt, createdAt);
+    insert.run('ref-insufficient', 'agent-1', workspace, null, null, null, '[]', 'No destination evidence', '', 'bad', 'open', createdAt, createdAt);
+    insert.run('ref-invalid-json', 'agent-1', workspace, null, null, null, '{', 'Broken files', '', 'good', 'open', createdAt, createdAt);
+    db.close();
+    const before = digest(sourcePath);
+
+    let message = '';
+    try { previewDatabaseMigration(sourcePath, destinationPath, { workspace }); }
+    catch (error) { message = (error as Error).message; }
+    expect(message).toMatch(/^AMBIGUOUS_REFINEMENT:/);
+    expect(message).toContain('ref-mixed MIXED_ACTION_AND_MEMORY_PAYLOAD');
+    expect(message).toContain('ref-instructions INSTRUCTIONS_REQUIRE_AUTHORITY_DESTINATION');
+    expect(message).toContain('ref-insufficient INSUFFICIENT_DESTINATION_EVIDENCE');
+    expect(message).toContain('ref-invalid-json INVALID_FILES_JSON');
+    expect(digest(sourcePath)).toBe(before);
+    expect(existsSync(destinationPath)).toBe(false);
+  });
+
+  it('rejects a near-match with a changed legacy index fingerprint', () => {
+    const { db, sourcePath, destinationPath, workspace } = legacyFixture();
+    db.exec('DROP INDEX idx_agents_scope');
+    db.exec('CREATE INDEX idx_agents_scope ON agents(artifact, workspace_path)');
+    db.close();
+    const before = digest(sourcePath);
+
+    expect(() => previewDatabaseMigration(sourcePath, destinationPath, { workspace })).toThrow(/unrecognized|fingerprint/i);
+    expect(digest(sourcePath)).toBe(before);
+    expect(existsSync(destinationPath)).toBe(false);
+  });
+
   it('rejects unsupported source shapes and leaves no partial destination', () => {
     const { db, sourcePath, destinationPath, workspace } = legacyFixture();
     db.exec('ALTER TABLE agents ADD COLUMN unknown TEXT');
     db.close();
     const before = digest(sourcePath);
-    expect(() => applyDatabaseMigration(sourcePath, destinationPath, { workspace })).toThrow(/unrecognized|unsupported/i);
+    expect(() => applyDatabaseMigration(sourcePath, destinationPath, { workspace })).toThrow(/unrecognized|unsupported|fingerprint/i);
     expect(digest(sourcePath)).toBe(before);
     expect(existsSync(destinationPath)).toBe(false);
   });
@@ -200,6 +251,7 @@ describe('legacy-renamed-v1 copy-on-write migration', () => {
     expect(digest(destinationPath)).toBe(destinationBefore);
   });
 });
+
 
 describe('event-stream convergence predecessor migration', () => {
   it('preserves the source and maps one legacy handoff to a signal and typed peer event', () => {
@@ -239,8 +291,11 @@ describe('event-stream convergence predecessor migration', () => {
 
 describe('exact canonical predecessor copy-on-write migration', () => {
   const cases: ReadonlyArray<{ state: SchemaState; options: PredecessorOptions; label?: string }> = [
+    { state: 'schema-generation-upgrade', options: { schemaVersion: AWARENESS_MIGRATABLE_SCHEMA_VERSIONS[0] } },
+    { state: 'refinements-upgrade', options: { refinements: true } },
     { state: 'canonical-path-identity', options: { missingMeta: true } },
     { state: 'event-envelope-upgrade', options: { eventV1: true } },
+    { state: 'event-envelope-upgrade', label: 'with refinements', options: { eventV1: true, refinements: true } },
     { state: 'event-envelope-path-identity-upgrade', options: { eventV1: true, missingMeta: true } },
     { state: 'event-envelope-history-durability-upgrade', options: { eventV1: true, missingDurability: true } },
     { state: 'event-envelope-history-durability-path-identity-upgrade', options: { eventV1: true, missingMeta: true, missingDurability: true } },
@@ -249,18 +304,29 @@ describe('exact canonical predecessor copy-on-write migration', () => {
     { state: 'event-envelope-history-durability-upgrade', label: 'with worker projection', options: { eventV1: true, worker: true, missingDurability: true } },
     { state: 'event-envelope-history-durability-path-identity-upgrade', label: 'with worker projection', options: { eventV1: true, worker: true, missingMeta: true, missingDurability: true } },
     { state: 'worker-lifecycle-upgrade', options: { worker: true } },
+    { state: 'worker-lifecycle-upgrade', label: 'with refinements', options: { worker: true, refinements: true } },
     { state: 'worker-lifecycle-path-identity-upgrade', options: { worker: true, missingMeta: true } },
     { state: 'worker-lifecycle-history-durability-upgrade', options: { worker: true, missingDurability: true } },
     { state: 'worker-lifecycle-history-durability-path-identity-upgrade', options: { worker: true, missingMeta: true, missingDurability: true } },
   ];
 
+  it.each([2, AWARENESS_SCHEMA_VERSION + 1])('rejects unsupported schema generation %i with the current fingerprint', (schemaVersion) => {
+    const { db } = exactPredecessorFixture({ schemaVersion });
+    expect(() => inspectSchemaState(db)).toThrow(`unsupported Awareness schema_version ${schemaVersion}`);
+    db.close();
+  });
+
   for (const testCase of cases) {
     it(`previews and applies ${testCase.state}${testCase.label ? ` ${testCase.label}` : ''} without mutating the source`, () => {
       const fixture = exactPredecessorFixture(testCase.options);
       const { db, workspace, sourcePath, destinationPath } = fixture;
-      expect(inspectSchemaState(db)).toBe(testCase.state);
-      db.close();
       const sourceBefore = digest(sourcePath);
+      expect(inspectSchemaState(db)).toBe(testCase.state);
+      if (testCase.state === 'schema-generation-upgrade') {
+        expect(() => initDb(db)).toThrow(/recognized schema-generation-upgrade Awareness store/);
+        expect(digest(sourcePath)).toBe(sourceBefore);
+      }
+      db.close();
 
       const preview = previewDatabaseMigration(sourcePath, destinationPath, { workspace });
       expect(preview).toMatchObject({ dryRun: true, sourceVersion: testCase.state, sourceUnchanged: true });

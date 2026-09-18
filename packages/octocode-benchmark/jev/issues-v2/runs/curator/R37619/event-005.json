@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37619",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read Flight server Map serialization implementation.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-server/src/ReactFlightServer.js\",\"matchString\":\"function serializeMap\",\"contextLines\":35},{\"reasoning\":\"Read Flight server Set serialization implementation.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-server/src/ReactFlightServer.js\",\"matchString\":\"function serializeSet\",\"contextLines\":35},{\"reasoning\":\"Read client Flight decoder source where reference tokens and Map or Set tags are revived.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-client/src/ReactFlightClient.js\",\"matchString\":\"case \\\"Q\\\"\",\"contextLines\":45}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:54:37.400Z",
+  "endedAt": "2026-09-18T08:54:39.026Z",
+  "elapsedMs": 1625,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "b9b892dfe0e92fe26bf417dae3f941e2877446e1860d4db5a8e8038fb60f3e51",
+  "requestSha256": null
+}

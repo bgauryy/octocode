@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { openAwarenessStore } from './open.js';
-import { type Lock } from '@octocodeai/agent-contracts/entities';
+import { type Lock } from '../entities.js';
 import type { AwarenessStorageScope } from '../storage-scope.js';
 import { canonicalizePath } from '../git.js';
 

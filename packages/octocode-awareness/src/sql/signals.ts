@@ -8,8 +8,8 @@ export const SIGNALS_SELECT_PARENT = 'SELECT thread_id, workspace_path FROM sign
 
 export const SIGNALS_INSERT = `INSERT INTO signals
    (signal_id, workspace_path, artifact, repo, ref, from_agent, to_agent, kind, subject, body,
-    files_json, refs_json, thread_id, reply_to, importance, status, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`;
+    files_json, refs_json, thread_id, reply_to, importance, status, created_at, expires_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`;
 
 // ─── signals: select (inbox / thread) ────────────────────────────────────────
 

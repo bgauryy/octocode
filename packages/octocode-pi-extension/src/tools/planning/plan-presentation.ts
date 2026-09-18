@@ -5,6 +5,7 @@
 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { PlanScope } from './plan-scope.js';
 import type { PiContext } from '../../types.js';
 import { getCurrentPlanReadModel, renderPlanContext, type PlanReadModelV1 } from '../plan-read-model.js';
 import {
@@ -21,8 +22,8 @@ import {
 } from './plan-store.js';
 import { MARK, displayStatus, dependencyIndexes } from './plan-types.js';
 import type { DisplayStatus, PlanStep } from './plan-types.js';
-import type { ExternalPlanScope } from '@octocodeai/octocode-awareness';
-import { projectExternalPlan } from '@octocodeai/octocode-awareness';
+import type { ExternalPlanScope } from '@octocodeai/octocode-awareness/host';
+import { projectExternalPlan } from '@octocodeai/octocode-awareness/host';
 import { isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from '@octocodeai/config';
 import { assertPersistentAwarenessEnabled } from '../storage-policy.js';
 import { appendSessionAuditForContext } from '../session-audit.js';
@@ -42,22 +43,22 @@ export function renderList(steps: PlanStep[]): string {
   }).join('\n');
 }
 
-export function planPresentation(ctx: PiContext | undefined, scope: string) {
+export function planPresentation(ctx: PiContext | undefined, scope: PlanScope) {
   const plan = getCurrentPlanReadModel(ctx, scope);
   return { plan, steps: plan.tasks, addendum: renderPlanContext(plan) };
 }
 
-export function planWorkspace(scope: string): string {
+export function planWorkspace(scope: PlanScope): string {
   return scope.split('\0')[0] || scope;
 }
 
-export function requestedPlanScope(scope: string, explicit?: ExternalPlanScope): ExternalPlanScope {
+export function requestedPlanScope(scope: PlanScope, explicit?: ExternalPlanScope): ExternalPlanScope {
   if (explicit) return explicit;
   const mode = getPlanCoordination(scope).mode;
   return mode === 'required' ? 'shared' : mode === 'local' ? 'session' : 'auto';
 }
 
-export function configurePlanScope(scope: string, requested?: ExternalPlanScope): void {
+export function configurePlanScope(scope: PlanScope, requested?: ExternalPlanScope): void {
   if (!requested) return;
   const current = getPlanCoordination(scope);
   if (requested === 'session' && current.awarenessPlanId) {
@@ -74,7 +75,7 @@ export function setUnifiedPlanProjectorForTests(next?: typeof projectExternalPla
   unifiedPlanProjectorInternal = next ?? projectExternalPlan;
 }
 
-export function ensureUnifiedProjection(scope: string, explicit: ExternalPlanScope | undefined, ctx?: PiContext): 'session' | 'shared' {
+export function ensureUnifiedProjection(scope: PlanScope, explicit: ExternalPlanScope | undefined, ctx?: PiContext): 'session' | 'shared' {
   configurePlanScope(scope, explicit);
   const steps = getPlan(scope);
   const coordination = getPlanCoordination(scope);
@@ -135,7 +136,7 @@ export function projectPlanIndexes(ctx: PiContext | undefined, model: PlanReadMo
   }
 }
 
-export function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: string, status: 'draft' | 'approved' | 'active' = 'active') {
+export function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: PlanScope, status: 'draft' | 'approved' | 'active' = 'active') {
   const artifacts = writeCanonicalPlanArtifacts(ctx, scope, { status, workspace: planWorkspace(scope) });
   projectPlanIndexes(ctx, getCurrentPlanReadModel(ctx, scope));
   return artifacts;
@@ -143,7 +144,7 @@ export function writeCurrentPlanArtifacts(ctx: PiContext | undefined, scope: str
 
 /** Compact, review-safe handoff for local-file, chat, and headless surfaces. */
 export function buildRfcReviewTldr(
-  scope: string,
+  scope: PlanScope,
   steps: PlanStep[],
   revision: string,
   artifacts?: { htmlPath: string; mdPath: string },
@@ -172,5 +173,4 @@ export function buildRfcReviewTldr(
     '- Review or start implementation: open the plan from /configuration',
   ].filter((line): line is string => typeof line === 'string').join('\n');
 }
-
 

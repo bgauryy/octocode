@@ -19,7 +19,7 @@ import type { PiContext } from '../types.js';
 import { getMcpDiscoverySnapshot } from './mcp-tool.js';
 import type { McpDiscoverySnapshot } from './mcp/types.js';
 import { discoverMcpConfigs } from './mcp/discovery.js';
-import type { DiscoveredMcpConfig } from '@octocodeai/agent-contracts/agent-skills';
+import type { DiscoveredMcpConfig } from '../contracts/agent-skills.js';
 import type { DiscoveredSkillState } from './skill-discovery.js';
 import { writeEphemeralFileAtomicSync } from './atomic-state-file.js';
 
@@ -48,7 +48,7 @@ export interface SystemPromptStats {
   mcpTools: number;
   skills: number;
   status: 'pending' | 'ready' | 'stale';
-  mode: 'exact' | 'compact';
+  mode: 'routing';
 }
 
 export interface DiscoverySnapshot {
@@ -81,7 +81,7 @@ export async function buildDiscoverySnapshot(
       sysChars: number; mcpChars: number; dynamicChars: number;
       totalChars: number; mcpServers: number; mcpTools: number; skills: number;
       contextAwarenessEstimates?: AssembledContextV1['estimates'];
-      directToolChars?: number; status?: 'pending' | 'ready' | 'stale'; mode?: 'exact' | 'compact';
+      directToolChars?: number; status?: 'pending' | 'ready' | 'stale'; mode?: 'routing';
     };
   },
 ): Promise<DiscoverySnapshot> {
@@ -101,7 +101,7 @@ export async function buildDiscoverySnapshot(
         mcpTools: opts.overhead.mcpTools,
         skills: opts.overhead.skills,
         status: opts.overhead.status ?? 'pending',
-        mode: opts.overhead.mode ?? 'exact',
+        mode: opts.overhead.mode ?? 'routing',
       }
     : undefined;
   return {

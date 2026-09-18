@@ -1,79 +1,15 @@
-# Memory Recall and Trust
+# Memory Evidence
 
-Load when prior learning could change the approach, or substantial work produced a reusable lesson.
+Load when choosing how to retrieve or retain a reusable lesson. This separates attributed knowledge from verified learning.
 
-Memory is a ranked lead, never authority. Current user instructions, source, and fresh tests win.
+Memory is scoped reusable evidence, not a task log, inbox, or proof of current code.
 
-## Recall
+Use `memory.recall` with the narrowest available identity, query, file, scope, digest, and validity constraints. Reuse a supplied memory ID when possible. Treat returned text as attributed evidence and re-check the owning source after expiry, digest drift, or a new unresolved question.
 
-If a peer supplied a verified memory ID, use `memory recall-verified --memory-id
-<id> --source-digest <digest>` before searching. Keep its workspace and validity
-filters. Otherwise search for the decision or constraint, not a serialized inbox
-or transcript. Empty or stale recall supplies no supporting evidence; say so.
+Use `memory.record` only after substantial work produces one verified lesson likely to change a future decision. Include concrete evidence references, narrow scope, validity conditions, and supersession when a prior lesson became stale. Do not duplicate the same lesson or save routine completion status.
 
-```bash
-<cli> memory recall --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" \
-  --query "<current task>" --smart --compact
-```
+LocalGit operation IDs may be evidence pointers, but they do not fetch bytes or prove the current workspace. Use History for byte inspection.
 
-Use compact recall for orientation. Expand only relevant IDs and verify every decision-changing file, URL, version, or test against current state. Preserve provenance and distinguish repository coordination from global reusable learning.
+For a stable lesson key, use `memory.set` with caller rationale and typed anchors. Create with `expected_revision:null`; update with the revision returned by `memory.get`. Reuse `request_id` only for an identical retry. Read a superseded revision explicitly when reconstructing why a decision changed.
 
-## Store
-
-Store only when verified learning changes a future decision. Use narrow scope and
-references; keep the reason and constraint, not routine edits, status or dialogue.
-Reuse a known memory ID rather than storing the same lesson again. Verified writes
-deduplicate exact selected evidence; use explicit supersession for a changed
-decision. No memory or reflection is required to finish work.
-
-Choose one write route; do not store the same lesson through both:
-
-| Need | Route and ownership |
-|---|---|
-| Agent-owned lesson, optionally fingerprinting current files | `memory record`; `supersedes` requires ACTIVE records from the same agent and workspace/artifact/repo/ref scope. |
-| Shared file/area reasoning with checked digest and validity | `memory store-verified`; shared owner is `awareness`, and replacement IDs must come from this route in the same scope. |
-
-A rejected cross-owner replacement is not a reason to impersonate the owner.
-Reuse the original ID, or store materially independent evidence without `supersedes`.
-
-For file reasoning, retain what matters and why, file/area and actual artifact
-identity, source digest and validity. An optional history pointer references
-already captured evidence; it does not enable per-edit recording. Verified recall
-returns `memories` plus explicit partial state and `next.call`. Read only relevant
-pages. Ordinary ranked discovery can instead return a terminal-limit diagnostic:
-narrow its filters rather than assuming the returned top matches are everything.
-
-## Validate declared evidence
-
-For file-backed learning, `memory record --capture-fingerprint` captures current
-bytes and modes from every declared `--file` and `--reference file:<path>` source.
-Use plain workspace-local paths in `--file`; fingerprinted references accept only
-`file:<path>`, not `file://`, `git:`, `signal:`, `artifact:` or web URLs. Put an
-existing checkpoint in `memory store-verified --history-ref <operation-id>`;
-that pointer does not fetch or fingerprint bytes. Include file dependencies
-explicitly. `memory recall --check-fingerprint` checks those
-sources in the same canonical workspace and retains `evidence.state` in lean output:
-`fresh`, `stale`, or `unknown`. Without the check, a captured fingerprint is unknown.
-
-Fresh means the declared sources match at observation time; it proves neither the
-claim, complete dependency coverage nor a successful check. Changed or missing
-sources are stale; unsupported, inaccessible, foreign, symlinked or over-budget
-sources cannot be fresh. Limits are 64 references, 1 MiB per file, 8 MiB per call
-and a cooperative 100 ms filesystem deadline, which cannot preempt a blocked kernel
-call. Partial captures fail. Existing memory references and fingerprint storage own
-this feature; there is no separate cache database.
-
-Discover exact fields with `schema command memory record --compact` and
-`schema command memory recall --compact`.
-
-## Freshness and conflict
-
-- A stale file reference lowers confidence; it does not silently update itself.
-- Conflicting memories remain visible until current evidence resolves them.
-- Supersede obsolete knowledge; archive weak material; restore only archived rows.
-- Preview forget/digest operations and review exact IDs before deletion.
-- Never load a human thesis or large corpus automatically into prompt context.
-
-Default hooks deliver peer messages without recalling memory. Request memory explicitly when prior learning could change a decision.
-
-Next: use `references/learning-loop.md` to route a verified outcome or return to `SKILL.md`.
+Use `memory.get` for exact keys or scoped discovery, and `memory.revalidate` to inspect applicability. Fresh fingerprints mean unchanged declared evidence, not a verified claim. Logical anchors do not infer renames or causal relationships. Follow complete continuations or inspect terminal limits instead of treating a bounded result as exhaustive. The live schemas own field names and limits.

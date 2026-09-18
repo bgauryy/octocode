@@ -1,0 +1,1 @@
+{"hypotheses":["The npm is package corresponds to sindresorhus/is and lacks the invented export."],"currentDirection":"Discover repo metadata, then inspect public entry/export surface.","uncertainty":"Default branch, primary language, and bounded export absence.","plannedNextCheck":"Repository discovery followed by manifest/index reads and scoped code search."}

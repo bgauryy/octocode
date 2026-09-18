@@ -1,4 +1,4 @@
-import type { ContextSegmentV1 } from '@octocodeai/octocode-awareness';
+import type { ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
 import type { PiContext } from '../types.js';
 import {
   assembleContextSegments,

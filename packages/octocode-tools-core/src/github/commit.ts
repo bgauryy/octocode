@@ -5,6 +5,19 @@ import { handleGitHubAPIError } from './errors.js';
 import type { GitHubAPIResponse, HistoryCommitFile } from './githubAPI.js';
 import { shapeCommitDirFiles } from './history/commitFiles.js';
 
+const DEFAULT_DIFF_WINDOW_CHARS = 12_000;
+
+function defaultPatchWindowChars(
+  itemsPerPage: number | undefined,
+  fileCount: number
+): number {
+  const filesPerPage = Math.max(
+    1,
+    Math.min(itemsPerPage ?? fileCount, fileCount || 1)
+  );
+  return Math.max(1, Math.floor(DEFAULT_DIFF_WINDOW_CHARS / filesPerPage));
+}
+
 export interface ExactCommitResult {
   type: 'commit';
   owner: string;
@@ -156,7 +169,9 @@ export async function fetchCommit(
       filePage: params.filePage,
       itemsPerPage: params.itemsPerPage,
       charOffset: params.charOffset,
-      charLength: params.charLength ?? 12_000,
+      charLength:
+        params.charLength ??
+        defaultPatchWindowChars(params.itemsPerPage, scopedFiles.length),
     });
     const filesPagination = {
       ...shaped.filesPagination,

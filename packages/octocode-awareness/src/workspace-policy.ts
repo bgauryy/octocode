@@ -4,6 +4,12 @@ import { dirname, join, resolve } from 'node:path';
 import { DEFAULT_AWARENESS_STORAGE_SCOPE, type AwarenessStorageScope } from './storage-scope.js';
 
 export type AwarenessHookProfile = 'guard' | 'coordination' | 'full';
+export const AWARENESS_INTEGRATION_HOSTS = [
+  'claude', 'codex', 'cursor', 'copilot', 'gemini', 'opencode', 'pi',
+] as const;
+export type AwarenessIntegrationHost = typeof AWARENESS_INTEGRATION_HOSTS[number];
+export type AwarenessHookOwner = 'shell' | 'native';
+export type AwarenessHookOwners = Readonly<Record<AwarenessIntegrationHost, AwarenessHookOwner>>;
 
 export interface WorkspaceAwarenessPolicy {
   version: 1;
@@ -13,19 +19,36 @@ export interface WorkspaceAwarenessPolicy {
   };
   hooks: {
     profile: AwarenessHookProfile;
+    owners: AwarenessHookOwners;
   };
 }
+
+export interface WorkspaceAwarenessPolicyInput {
+  version: 1;
+  storage: WorkspaceAwarenessPolicy['storage'];
+  hooks: {
+    profile: AwarenessHookProfile;
+    owners?: Partial<Record<AwarenessIntegrationHost, AwarenessHookOwner>>;
+  };
+}
+
+const DEFAULT_HOOK_OWNERS: AwarenessHookOwners = Object.freeze({
+  claude: 'shell',
+  codex: 'shell',
+  cursor: 'shell',
+  copilot: 'shell',
+  gemini: 'shell',
+  opencode: 'shell',
+  pi: 'native',
+});
 
 export const DEFAULT_WORKSPACE_POLICY: WorkspaceAwarenessPolicy = Object.freeze({
   version: 1,
   storage: Object.freeze({ repository: DEFAULT_AWARENESS_STORAGE_SCOPE, memory: DEFAULT_AWARENESS_STORAGE_SCOPE }),
-  hooks: Object.freeze({ profile: 'coordination' }),
+  hooks: Object.freeze({ profile: 'coordination', owners: DEFAULT_HOOK_OWNERS }),
 });
 
-const MEMORY_COMMANDS = new Set([
-  'tell-memory', 'get-memory', 'memory-lifecycle', 'forget', 'mine-weakness',
-  'digest', 'export-harness',
-]);
+const MEMORY_OPERATIONS = new Set(['memory.record', 'memory.recall', 'memory.set', 'memory.get', 'memory.revalidate']);
 
 const PROFILE_COMMANDS: Record<AwarenessHookProfile, ReadonlySet<string>> = {
   guard: new Set(['pre-edit', 'post-edit', 'stop-verify']),
@@ -63,6 +86,21 @@ function profile(value: unknown): AwarenessHookProfile {
   return value;
 }
 
+function owners(value: unknown): AwarenessHookOwners {
+  if (value === undefined) return DEFAULT_HOOK_OWNERS;
+  const input = record(value, 'hooks.owners');
+  const unknown = Object.keys(input).filter((key) => !AWARENESS_INTEGRATION_HOSTS.includes(key as AwarenessIntegrationHost));
+  if (unknown.length > 0) throw new Error(`hooks.owners keys invalid; unknown: ${unknown.join(', ')}`);
+  const result: Record<AwarenessIntegrationHost, AwarenessHookOwner> = { ...DEFAULT_HOOK_OWNERS };
+  for (const host of AWARENESS_INTEGRATION_HOSTS) {
+    const owner = input[host];
+    if (owner === undefined) continue;
+    if (owner !== 'shell' && owner !== 'native') throw new Error(`hooks.owners.${host} must be shell or native`);
+    result[host] = owner;
+  }
+  return Object.freeze(result);
+}
+
 export function parseWorkspacePolicy(value: unknown): WorkspaceAwarenessPolicy {
   const root = record(value, 'workspace policy');
   exactKeys(root, ['version', 'storage', 'hooks'], 'workspace policy');
@@ -70,14 +108,17 @@ export function parseWorkspacePolicy(value: unknown): WorkspaceAwarenessPolicy {
   const storage = record(root.storage, 'storage');
   exactKeys(storage, ['repository', 'memory'], 'storage');
   const hooks = record(root.hooks, 'hooks');
-  exactKeys(hooks, ['profile'], 'hooks');
+  const unknownHookKeys = Object.keys(hooks).filter((key) => key !== 'profile' && key !== 'owners');
+  if (unknownHookKeys.length > 0 || !Object.prototype.hasOwnProperty.call(hooks, 'profile')) {
+    throw new Error(`hooks keys invalid${unknownHookKeys.length ? `; unknown: ${unknownHookKeys.join(', ')}` : ''}${!Object.prototype.hasOwnProperty.call(hooks, 'profile') ? '; missing: profile' : ''}`);
+  }
   return {
     version: 1,
     storage: {
       repository: scope(storage.repository, 'storage.repository'),
       memory: scope(storage.memory, 'storage.memory'),
     },
-    hooks: { profile: profile(hooks.profile) },
+    hooks: { profile: profile(hooks.profile), owners: owners(hooks.owners) },
   };
 }
 
@@ -99,7 +140,7 @@ export function loadWorkspacePolicy(workspace: string): {
   }
 }
 
-export function writeWorkspacePolicy(workspace: string, value: WorkspaceAwarenessPolicy): string {
+export function writeWorkspacePolicy(workspace: string, value: WorkspaceAwarenessPolicyInput): string {
   const path = workspacePolicyPath(workspace);
   const policy = parseWorkspacePolicy(value);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -115,14 +156,38 @@ export function writeWorkspacePolicy(workspace: string, value: WorkspaceAwarenes
   return path;
 }
 
-export function storageScopeForCommand(
-  command: string,
+export function hookIntegrationOwner(workspace: string, host: AwarenessIntegrationHost): AwarenessHookOwner {
+  return loadWorkspacePolicy(workspace).policy.hooks.owners[host];
+}
+
+export function claimNativeHookOwner(input: { workspace: string; host: AwarenessIntegrationHost }): {
+  path: string;
+  host: AwarenessIntegrationHost;
+  owner: 'native';
+  changed: boolean;
+} {
+  const loaded = loadWorkspacePolicy(input.workspace);
+  if (loaded.policy.hooks.owners[input.host] === 'native' && loaded.exists) {
+    return { path: loaded.path, host: input.host, owner: 'native', changed: false };
+  }
+  const path = writeWorkspacePolicy(input.workspace, {
+    ...loaded.policy,
+    hooks: {
+      ...loaded.policy.hooks,
+      owners: { ...loaded.policy.hooks.owners, [input.host]: 'native' },
+    },
+  });
+  return { path, host: input.host, owner: 'native', changed: true };
+}
+
+export function storageScopeForOperation(
+  operation: string,
   workspace: string,
   explicit?: AwarenessStorageScope,
 ): AwarenessStorageScope {
   if (explicit) return explicit;
   const policy = loadWorkspacePolicy(workspace).policy;
-  return MEMORY_COMMANDS.has(command) ? policy.storage.memory : policy.storage.repository;
+  return MEMORY_OPERATIONS.has(operation) ? policy.storage.memory : policy.storage.repository;
 }
 
 export function hookCommandEnabled(profileName: AwarenessHookProfile, command: string): boolean {

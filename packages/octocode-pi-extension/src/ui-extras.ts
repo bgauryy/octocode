@@ -93,6 +93,13 @@ export function formatDurationShort(ms: number | undefined): string {
   return `${hr}h ${min % 60}m`;
 }
 
+/** Zero/missing timestamps mean not observed, never the Unix epoch. */
+export function elapsedSince(startedAt: number | undefined, now: number): number | undefined {
+  return startedAt !== undefined && Number.isFinite(startedAt) && startedAt > 0
+    ? Math.max(0, now - startedAt)
+    : undefined;
+}
+
 export interface CapabilityMetrics {
   dial?: string;
   /** Estimated provider subtotal, separate from measured context occupancy. */
@@ -169,16 +176,6 @@ export function buildCapabilitySegments(
       });
   }
   return segments;
-}
-
-/** `main` · `main (dirty)` · `main (5 changed)` — words instead of `*` / `Δ`. */
-export function formatBranchSegment(
-  branch: string,
-  dirty: boolean,
-  dirtyFiles?: number
-): string {
-  if (!dirty) return branch;
-  return dirtyFiles ? `${branch} (${dirtyFiles} changed)` : `${branch} (dirty)`;
 }
 
 // ─── Worker state projection ───────────────────────────────────────────────────

@@ -45,6 +45,9 @@ export async function resolveContentWithBranchFallback(
     return {
       error: REPOSITORY_ERRORS.NOT_FOUND.message(owner, repo, apiError.error),
       status: apiError.status,
+      rateLimitRemaining: apiError.rateLimitRemaining,
+      rateLimitReset: apiError.rateLimitReset,
+      retryAfter: apiError.retryAfter,
     };
   }
 

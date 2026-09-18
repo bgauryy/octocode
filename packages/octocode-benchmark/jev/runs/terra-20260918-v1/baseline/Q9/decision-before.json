@@ -1,0 +1,1 @@
+{"hypotheses":["Fastify docs list lifecycle order; route context stores onRequest and route.js invokes it via a runner."],"currentDirection":"Read lifecycle docs and route implementation.","uncertainty":"Exact property and runner identifier.","plannedNextCheck":"Fetch docs and search route.js symbols."}

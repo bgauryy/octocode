@@ -1,11 +1,9 @@
-import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from '@octocodeai/agent-contracts/entities';
-import { sqlEnum } from '@octocodeai/agent-contracts/schema';
+import { PLAN_STATUSES, TASK_STATUSES, AGENT_STATUSES, PLAN_MEMBER_ROLES, PLAN_DOC_KINDS, TASK_RUN_ORIGINS, TASK_RUN_STATUSES } from './entities.js';
+import { sqlEnum } from './agent-store-schema.js';
 import { CONTINUITY_SCHEMA_DDL, EVENT_OUTBOX_TYPED_INDEX_DDL } from './db-continuity-schema.js';
 import { LOCAL_HISTORY_INDEX_DDL, LOCAL_HISTORY_SCHEMA_DDL } from './db-history-schema.js';
 import { AWARENESS_META_DDL, HOOK_RECEIPTS_DDL } from './db-meta-schema.js';
 // ─── Schema ───────────────────────────────────────────────────────────────────
-
-export const AWARENESS_SCHEMA_VERSION = 3;
 
 export const SCHEMA_DDL = `
     ${AWARENESS_META_DDL}
@@ -183,22 +181,6 @@ export const SCHEMA_DDL = `
 
     ${HOOK_RECEIPTS_DDL}
 
-    CREATE TABLE IF NOT EXISTS refinements (
-      refinement_id  TEXT PRIMARY KEY,
-      agent_id       TEXT NOT NULL,
-      workspace_path TEXT NOT NULL,
-      artifact       TEXT,
-      repo           TEXT,
-      ref            TEXT,
-      files_json     TEXT NOT NULL DEFAULT '[]',
-      reasoning      TEXT NOT NULL,
-      remember       TEXT NOT NULL,
-      quality        TEXT NOT NULL CHECK(quality IN ('good','bad','handoff','instructions')) DEFAULT 'good',
-      state          TEXT NOT NULL CHECK(state IN ('open','ongoing','done')) DEFAULT 'open',
-      created_at     TEXT NOT NULL,
-      updated_at     TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS signals (
       signal_id      TEXT PRIMARY KEY,
       workspace_path TEXT NOT NULL,
@@ -218,7 +200,8 @@ export const SCHEMA_DDL = `
       status         TEXT NOT NULL DEFAULT 'open'
                      CHECK(status IN ('open','resolved')),
       resolved_at    TEXT,
-      created_at     TEXT NOT NULL
+      created_at     TEXT NOT NULL,
+      expires_at     TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS signal_reads (
@@ -297,15 +280,12 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_awareness_locks_acquired_at ON awareness_locks(acquired_at);
   CREATE INDEX IF NOT EXISTS idx_awareness_locks_expires_at  ON awareness_locks(expires_at);
   CREATE INDEX IF NOT EXISTS idx_delivery_state_delivered ON delivery_state(delivered_at);
-  CREATE INDEX IF NOT EXISTS idx_refinements_state         ON refinements(state);
-  CREATE INDEX IF NOT EXISTS idx_refinements_scope         ON refinements(workspace_path, artifact);
-  CREATE INDEX IF NOT EXISTS idx_refinements_repo          ON refinements(repo);
-  CREATE INDEX IF NOT EXISTS idx_refinements_state_updated ON refinements(state, updated_at DESC);
   CREATE INDEX IF NOT EXISTS idx_signals_status         ON signals(status);
   CREATE INDEX IF NOT EXISTS idx_signals_to_agent       ON signals(to_agent);
   CREATE INDEX IF NOT EXISTS idx_signals_workspace_path ON signals(workspace_path);
   CREATE INDEX IF NOT EXISTS idx_signals_scope          ON signals(workspace_path, artifact);
   CREATE INDEX IF NOT EXISTS idx_signals_created_at     ON signals(created_at);
+  CREATE INDEX IF NOT EXISTS idx_signals_expires_at     ON signals(expires_at);
   CREATE INDEX IF NOT EXISTS idx_signals_thread         ON signals(thread_id);
   CREATE INDEX IF NOT EXISTS idx_memory_refs_ref  ON memory_refs(reference);
   CREATE INDEX IF NOT EXISTS idx_memory_refs_kind ON memory_refs(kind);
@@ -314,6 +294,45 @@ export const SCHEMA_INDEX_DDL = `
   CREATE INDEX IF NOT EXISTS idx_awareness_agents_last_seen ON awareness_agents(last_seen_at DESC);
   ${LOCAL_HISTORY_INDEX_DDL}
 `;
+/** In-place upgrade: convert signals.expires_at from nullable TEXT to TEXT NOT NULL.
+ * Any NULL rows are backfilled with the current UTC time before enforcing the constraint.
+ */
+export const SIGNALS_EXPIRES_NOT_NULL_UPGRADE_DDL = `
+  UPDATE signals SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE expires_at IS NULL;
+  CREATE TABLE signals_upgrade_v5 AS SELECT * FROM signals;
+  DROP TABLE signals;
+  CREATE TABLE signals (
+    signal_id      TEXT PRIMARY KEY,
+    workspace_path TEXT NOT NULL,
+    artifact       TEXT,
+    repo           TEXT,
+    ref            TEXT,
+    from_agent     TEXT NOT NULL,
+    to_agent       TEXT,
+    kind           TEXT NOT NULL,
+    subject        TEXT NOT NULL,
+    body           TEXT,
+    files_json     TEXT NOT NULL DEFAULT '[]',
+    refs_json      TEXT NOT NULL DEFAULT '[]',
+    thread_id      TEXT NOT NULL,
+    reply_to       TEXT,
+    importance     INTEGER NOT NULL DEFAULT 5,
+    status         TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','resolved')),
+    resolved_at    TEXT,
+    created_at     TEXT NOT NULL,
+    expires_at     TEXT NOT NULL
+  );
+  INSERT INTO signals SELECT * FROM signals_upgrade_v5;
+  DROP TABLE signals_upgrade_v5;
+  CREATE INDEX idx_signals_status         ON signals(status);
+  CREATE INDEX idx_signals_to_agent       ON signals(to_agent);
+  CREATE INDEX idx_signals_workspace_path ON signals(workspace_path);
+  CREATE INDEX idx_signals_scope          ON signals(workspace_path, artifact);
+  CREATE INDEX idx_signals_created_at     ON signals(created_at);
+  CREATE INDEX idx_signals_expires_at     ON signals(expires_at);
+  CREATE INDEX idx_signals_thread         ON signals(thread_id);
+`;
+
 export const FTS_SCHEMA_DDL = `
   CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
   USING fts5(memory_id UNINDEXED, task_context, observation, tags)

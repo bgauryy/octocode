@@ -1,0 +1,22 @@
+{
+  "model": "jev-1.13.0",
+  "state": {
+    "mainGoal": "Answer the Next.js canary route-regex question with source-backed file, helper, and return fields.",
+    "goal": "Choose whether any further source check is needed before reporting the direct function result.",
+    "reasoning": "This is a deterministic source lookup, so normal policy would skip Jev. The forced-call experiment uses a bounded alternative check. Direct canary evidence from packages/next/src/shared/lib/router/utils/route-regex.ts (resolved 3bf71ee3) shows getRouteRegex calls getParametrizedRoute(normalizedRoute, includeSuffix, includePrefix), destructures parameterizedRoute/groups, and returns { re: new RegExp(...), groups }. Unknown: whether a nonliteral wrapper changes this result.",
+    "hypotheses": [
+      {"id":"H1","claim":"The direct literal is sufficient: helper getParametrizedRoute; fields re and groups.","missingPremise":"No alternative return path matters."},
+      {"id":"H2","claim":"A further check is needed for a wrapper/type-level extra observable field.","missingPremise":"Such a field exists outside the shown return literal."}
+    ],
+    "checks": [
+      {"id":"C1","text":"Use the direct return literal only; it supports H1 if no other return is in the function.","distinguishes":"H1 from H2."},
+      {"id":"C2","text":"Inspect the RouteRegex type; an additional required property would support H2.","distinguishes":"H2 from H1."},
+      {"id":"Cnone","text":"No supplied check is informative.","distinguishes":"Neither."}
+    ],
+    "unknowns": ["RouteRegex type declaration was not separately opened."]
+  },
+  "questions": {
+    "hypothesis": {"type":"choice","instructions":"For this forced deterministic probe, choose the supplied hypothesis most worth guarding against; this is not proof.","criteria":{"H1":"Direct literal is sufficient.","H2":"A wrapper/type-level field could change the answer.","none":"Neither is suitable."}},
+    "next_check": {"type":"choice","instructions":"Choose the supplied bounded next check that best separates the stated hypotheses; do not treat it as evidence.","criteria":{"C1":"Rely on the direct literal.","C2":"Inspect the declared RouteRegex type.","Cnone":"No check is informative."}}
+  }
+}

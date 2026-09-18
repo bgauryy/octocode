@@ -2,13 +2,16 @@ import type {
   GitHubAPIError,
   GitHubPullRequestItem,
   GitHubPullRequestsSearchParams,
+  PullRequestItem,
 } from './githubAPI.js';
 import type { GitHubPullRequestSearchApiResult } from '../tools/github_search_pull_requests/types.js';
 import { SEARCH_ERRORS } from '../errors/domainErrors.js';
 import { getOctokit, resolveCacheAuthFingerprint } from './client.js';
 import { handleGitHubAPIError } from './errors.js';
 import { generateCacheKey } from '../utils/http/cache/key.js';
-import { withDataCache } from '../utils/http/cache/dataCache.js';
+import { withDataCacheConditional } from '../utils/http/cache/conditional.js';
+import { RequestError } from 'octokit';
+import { extractEtag } from './responseHeaders.js';
 import { AuthInfo } from '@modelcontextprotocol/server';
 import { formatPRForResponse } from './prTransformation.js';
 import { transformPullRequestItemFromREST } from './prContentFetcher/transform.js';
@@ -36,37 +39,6 @@ function createPullRequestByNumberErrorResult(
 
 export async function fetchGitHubPullRequestByNumberAPI(
   params: GitHubPullRequestsSearchParams,
-  authInfo?: AuthInfo,
-  sessionId?: string
-): Promise<GitHubPullRequestSearchApiResult> {
-  const auth = await resolveCacheAuthFingerprint(authInfo);
-  const cacheKey = generateCacheKey(
-    'gh-api-prs',
-    {
-      owner: params.owner,
-      repo: params.repo,
-      prNumber: params.prNumber,
-      content: params.content,
-      auth,
-    },
-    sessionId
-  );
-
-  const result = await withDataCache<GitHubPullRequestSearchApiResult>(
-    cacheKey,
-    async () => {
-      return await fetchGitHubPullRequestByNumberAPIInternal(params, authInfo);
-    },
-    {
-      shouldCache: (value: GitHubPullRequestSearchApiResult) => !value.error,
-    }
-  );
-
-  return result;
-}
-
-export async function fetchGitHubPullRequestByNumberAPIInternal(
-  params: GitHubPullRequestsSearchParams,
   authInfo?: AuthInfo
 ): Promise<GitHubPullRequestSearchApiResult> {
   const { owner, repo, prNumber } = params;
@@ -92,13 +64,34 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
   try {
     const octokit = await getOctokit(authInfo);
 
-    const result = await octokit.rest.pulls.get({
-      owner,
-      repo,
-      pull_number: prNumber,
-    });
-
-    const pr = result.data;
+    const auth = await resolveCacheAuthFingerprint(authInfo);
+    const pr = await withDataCacheConditional<PullRequestItem | undefined>(
+      generateCacheKey('gh-api-prs', {
+        kind: 'metadata',
+        owner,
+        repo,
+        prNumber,
+        auth,
+      }),
+      async ({ ifNoneMatch }) => {
+        try {
+          const result = await octokit.rest.pulls.get({
+            owner,
+            repo,
+            pull_number: prNumber,
+            ...(ifNoneMatch && { headers: { 'if-none-match': ifNoneMatch } }),
+          });
+          return { value: result.data, etag: extractEtag(result.headers) };
+        } catch (error) {
+          if (error instanceof RequestError && error.status === 304) {
+            return { value: undefined, notModified: true };
+          }
+          throw error;
+        }
+      },
+      { cacheRole: 'helper', shouldCache: value => value !== undefined }
+    );
+    if (!pr) throw new Error('GitHub returned no pull request metadata');
 
     const transformedPR: GitHubPullRequestItem =
       await transformPullRequestItemFromREST(pr, params, octokit, authInfo);
@@ -112,8 +105,7 @@ export async function fetchGitHubPullRequestByNumberAPIInternal(
       pullRequests: [formattedPR],
       totalCount: 1,
       rawResponseChars:
-        countSerializedChars(result.data) +
-        (getRawResponseChars(transformedPR) ?? 0),
+        countSerializedChars(pr) + (getRawResponseChars(transformedPR) ?? 0),
     };
   } catch (error: unknown) {
     const apiError = handleGitHubAPIError(error);

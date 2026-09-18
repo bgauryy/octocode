@@ -38,6 +38,12 @@ const PASSING: Readonly<Record<string, readonly TrajectoryEvent[]>> = {
   'bounded-research': [
     { kind: 'octocode_research' }, { kind: 'final' },
   ],
+  'deferred-mcp-schema': [
+    { kind: 'mcp_describe', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+    { kind: 'mcp_schema_visible', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+    { kind: 'mcp_call', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+    { kind: 'final' },
+  ],
 };
 
 describe('frozen prompt trajectory evaluation', () => {
@@ -48,6 +54,7 @@ describe('frozen prompt trajectory evaluation', () => {
       'parallel-owned-lanes',
       'cancel-is-not-consent',
       'bounded-research',
+      'deferred-mcp-schema',
     ]);
     expect(FROZEN_TRAJECTORY_CORPUS_SHA256).toMatch(/^[a-f0-9]{64}$/);
     expect(Object.isFrozen(FROZEN_TRAJECTORY_CORPUS[0])).toBe(true);
@@ -66,7 +73,7 @@ describe('frozen prompt trajectory evaluation', () => {
       trajectories: PASSING,
     });
     expect(TrajectoryReceiptSchema.parse(receipt)).toEqual(receipt);
-    expect(receipt.summary).toEqual({ passed: 5, total: 5, approvalViolations: 0 });
+    expect(receipt.summary).toEqual({ passed: 6, total: 6, approvalViolations: 0 });
     expect(receipt.scenarios.every((scenario) => scenario.score === 1)).toBe(true);
   });
 
@@ -103,6 +110,20 @@ describe('frozen prompt trajectory evaluation', () => {
       { kind: 'plan_start' }, { kind: 'mutate' }, { kind: 'verify' }, { kind: 'final' },
     ]);
     expect(earlyVerification.violations).not.toContain('order: required actions occurred out of sequence');
+
+    const deferredSchema = FROZEN_TRAJECTORY_CORPUS.find((scenario) => scenario.id === 'deferred-mcp-schema')!;
+    expect(gradeTrajectory(deferredSchema, [
+      { kind: 'mcp_call', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+      { kind: 'mcp_describe', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+      { kind: 'mcp_schema_visible', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+      { kind: 'final' },
+    ]).violations).toContain('order: required actions occurred out of sequence');
+    expect(gradeTrajectory(deferredSchema, [
+      { kind: 'mcp_describe', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+      { kind: 'mcp_schema_visible', id: 'octocode/localFetch', schemaDigest: 'schema-v1' },
+      { kind: 'mcp_call', id: 'octocode/localSearch', schemaDigest: 'schema-v2' },
+      { kind: 'final' },
+    ]).violations.join('\n')).toMatch(/one server\/tool identity.*one schema digest/is);
   });
 
   test('receipt validation rejects forged corpus and summary arithmetic', () => {

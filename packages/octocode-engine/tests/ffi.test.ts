@@ -194,6 +194,7 @@ describe('scanGraphFacts', () => {
           maxFiles?: number;
           maxFileBytes?: number;
         }): Promise<{
+          schemaVersion: number;
           entries: Array<{
             relativePath: string;
             factsJson: string;
@@ -201,6 +202,11 @@ describe('scanGraphFacts', () => {
           }>;
           candidatePaths: string[];
           filesSkipped: number;
+          skipped: Array<{
+            relativePath: string;
+            code: string;
+            message: string;
+          }>;
           truncated: boolean;
         }>;
       };
@@ -208,6 +214,7 @@ describe('scanGraphFacts', () => {
       expect(pending).toBeInstanceOf(Promise);
       const result = await pending;
 
+      expect(result.schemaVersion).toBe(1);
       expect(result.entries.map(entry => entry.relativePath).sort()).toEqual([
         'src/entry.ts',
         'src/value.ts',
@@ -217,7 +224,9 @@ describe('scanGraphFacts', () => {
         'src/value.ts',
       ]);
       expect(result.entries[0]?.factsJson).toContain('declarations');
+      expect(JSON.parse(result.entries[0]!.factsJson).schemaVersion).toBe(1);
       expect(result.filesSkipped).toBe(0);
+      expect(result.skipped).toEqual([]);
       expect(result.truncated).toBe(false);
 
       const exactCap = await native.scanGraphFacts({
@@ -805,6 +814,127 @@ describe('searchRipgrep (in-process ripgrep)', () => {
       expect(result.files).toHaveLength(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('persistent index runtime', () => {
+  it('builds, queries, paginates and reports strict freshness', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'octocode-index-runtime-'));
+    const root = join(temp, 'repo');
+    const home = join(temp, 'home');
+    try {
+      mkdirSync(join(root, 'src'), { recursive: true });
+      writeFileSync(join(root, 'src', 'a.ts'), 'export function Answer() { return "needle"; }\n');
+      writeFileSync(join(root, 'src', 'b.ts'), 'export const second = "needle";\n');
+      const store = {
+        home,
+        rootId: 'ffi_fixture',
+        rootPath: root,
+        indexSchemaVersion: 1,
+        parserSchemaVersion: 1,
+        toolVersion: 'ffi-test',
+      };
+
+      const built = await addon!.buildIndex({
+        store,
+        exclusions: [],
+        maxFiles: 100,
+        maxEntries: 1_000,
+      });
+      expect(built).toMatchObject({
+        documentCount: 2,
+        complete: true,
+        usable: true,
+      });
+
+      const first = await addon!.queryIndex({
+        store,
+        text: 'needle',
+        kind: 'content',
+        limit: 1,
+      });
+      expect(first.usable).toBe(true);
+      expect(first.totalMatches).toBe(2);
+      expect(first.matches[0]!.path).toBe('src/a.ts');
+      expect(first.nextOffset).toBe(1);
+
+      const second = await addon!.queryIndex({
+        store,
+        text: 'needle',
+        kind: 'content',
+        offset: first.nextOffset!,
+        limit: 1,
+        expectedGeneration: first.generation,
+      });
+      expect(second.matches[0]!.path).toBe('src/b.ts');
+      expect(second.nextOffset).toBeUndefined();
+
+      const absent = await addon!.queryIndex({
+        store,
+        text: 'not present',
+        kind: 'content',
+        expectedGeneration: built.generation,
+      });
+      expect(absent.matches).toHaveLength(0);
+      expect(absent.absenceProven).toBe(true);
+
+      const symbols = await addon!.queryIndex({
+        store,
+        text: 'Answer',
+        kind: 'symbol',
+        expectedGeneration: built.generation,
+      });
+      expect(symbols.matches).toMatchObject([
+        { path: 'src/a.ts', value: 'Answer', symbolKind: 'function' },
+      ]);
+
+      const status = await addon!.indexStatus({ store });
+      expect(status).toMatchObject({
+        indexed: true,
+        usable: true,
+        generation: built.generation,
+      });
+
+      writeFileSync(join(root, 'src', 'a.ts'), 'changed after build\n');
+      const stale = await addon!.queryIndex({
+        store,
+        text: 'needle',
+        kind: 'content',
+      });
+      expect(stale).toMatchObject({
+        usable: false,
+        absenceProven: false,
+        diagnostic: 'index.stale',
+        matches: [],
+      });
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+
+  it('reports an absent index without treating it as an empty result', async () => {
+    const temp = mkdtempSync(join(tmpdir(), 'octocode-index-absent-'));
+    const root = join(temp, 'repo');
+    try {
+      mkdirSync(root, { recursive: true });
+      const status = await addon!.indexStatus({
+        store: {
+          home: join(temp, 'home'),
+          rootId: 'absent_fixture',
+          rootPath: root,
+          indexSchemaVersion: 1,
+          parserSchemaVersion: 1,
+          toolVersion: 'ffi-test',
+        },
+      });
+      expect(status).toMatchObject({
+        indexed: false,
+        usable: false,
+        diagnostic: 'index.absent',
+      });
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
     }
   });
 });

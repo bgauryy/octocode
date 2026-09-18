@@ -14,6 +14,8 @@ export type FetchChunkQuery = Pick<
   | 'matchString'
   | 'contextLines'
   | 'contextBytes'
+  | 'startLine'
+  | 'endLine'
 >;
 const DEFAULT_BYTE_LIMIT = 16384;
 
@@ -34,7 +36,16 @@ export async function paginateContentWindow(
   const bytes = Buffer.from(content, 'utf8');
   const lines = content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   let chunkType = query.chunkType ?? 'lines';
-  let limit = query.limit ?? (chunkType === 'lines' ? 100 : DEFAULT_BYTE_LIMIT);
+  // An explicit selection is already scoped by the caller. Fill its byte budget
+  // rather than making a small requested region take several 100-line round trips.
+  const selected =
+    query.matchString !== undefined ||
+    (query.startLine !== undefined && query.endLine !== undefined);
+  const defaultLines = selected
+    ? Math.max(1, Math.min(lines.length, 50000))
+    : 100;
+  let limit =
+    query.limit ?? (chunkType === 'lines' ? defaultLines : DEFAULT_BYTE_LIMIT);
   let offset = query.offset ?? 0;
   let start = 0;
   let end = 0;

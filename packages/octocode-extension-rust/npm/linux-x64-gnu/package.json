@@ -5,7 +5,8 @@
   "license": "MIT",
   "main": "octocode-extension-rust.linux-x64-gnu.node",
   "files": [
-    "octocode-extension-rust.linux-x64-gnu.node"
+    "octocode-extension-rust.linux-x64-gnu.node",
+    "README.md"
   ],
   "os": [
     "linux"

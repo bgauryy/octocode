@@ -16,7 +16,13 @@ import {
   shouldIgnoreDiscoveryFile,
   shouldIgnoreDiscoveryDir,
 } from '@octocodeai/octocode-engine/security';
-import { handleCatchError, createSuccessResult } from '../utils.js';
+import {
+  handleCatchError,
+  createSuccessResult,
+  createErrorResult,
+} from '../utils.js';
+import { handleGitHubAPIError } from '../../github/errors.js';
+import type { GitHubAPIError } from '../../github/githubAPI.js';
 import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import {
   mapRepoStructureProviderResult,
@@ -26,6 +32,7 @@ import {
   createLazyProviderContext,
   executeProviderOperation,
 } from '../providerExecution.js';
+import { fetchDirectoryContents } from '../../github/directoryFetch/fetchDirectoryContents.js';
 
 function normalizeStructureErrorResult(
   result: ProcessedBulkResult,
@@ -34,7 +41,7 @@ function normalizeStructureErrorResult(
   const rawError = result.error;
   const apiError =
     typeof rawError === 'object' && rawError !== null
-      ? (rawError as { error?: unknown; status?: unknown; type?: unknown })
+      ? (rawError as Partial<GitHubAPIError>)
       : undefined;
 
   const status =
@@ -95,6 +102,15 @@ function normalizeStructureErrorResult(
       ? { statusCode: apiError.status }
       : {}),
     ...(typeof apiError?.type === 'string' ? { errorType: apiError.type } : {}),
+    ...(typeof apiError?.retryAfter === 'number'
+      ? { retryAfter: apiError.retryAfter }
+      : {}),
+    ...(typeof apiError?.rateLimitRemaining === 'number'
+      ? { rateLimitRemaining: apiError.rateLimitRemaining }
+      : {}),
+    ...(typeof apiError?.rateLimitReset === 'number'
+      ? { rateLimitReset: apiError.rateLimitReset }
+      : {}),
     ...(next ? { next } : {}),
   };
 }
@@ -213,6 +229,64 @@ export async function exploreRepositoryStructure(
       };
     }
 
+    const materialize =
+      (query as { materialize?: boolean }).materialize === true;
+    if (materialize) {
+      if (
+        typeof query.owner !== 'string' ||
+        query.owner.length === 0 ||
+        typeof query.repo !== 'string' ||
+        query.repo.length === 0
+      ) {
+        throw new Error(
+          'GitHub repository owner and name are required for materialization'
+        );
+      }
+      const snapshot = await fetchDirectoryContents(
+        query.owner,
+        query.repo,
+        typeof query.path === 'string' ? query.path : '',
+        effectiveBranch,
+        args.authInfo
+      ).catch(() => null);
+      if (snapshot) {
+        const offset =
+          (query as { materializeOffset?: number }).materializeOffset ?? 0;
+        (resultData as Record<string, unknown>).location = {
+          kind: 'local',
+          localPath: snapshot.localPath,
+          source: 'github-tree',
+          cached: snapshot.cached,
+          complete: snapshot.complete,
+          hasMore: !snapshot.complete,
+          resolvedBranch: effectiveBranch,
+          commitSha: snapshot.commitSha,
+        };
+        if (!snapshot.complete) {
+          const nextQuery = {
+            operation: 'tree' as const,
+            owner: query.owner,
+            repo: query.repo,
+            branch: effectiveBranch,
+            ...(query.path ? { path: query.path } : {}),
+            materialize: true,
+            materializeOffset: offset + snapshot.savedFileCount,
+          };
+          const next = {
+            ...((resultData as { next?: Record<string, unknown> }).next ?? {}),
+          };
+          delete next.nextPage;
+          next.continueMaterialize = {
+            tool: GITHUB_SEARCH_TOOL_NAME,
+            query: nextQuery,
+            why: 'Continue writing tree files after the per-call write cap.',
+            confidence: 'exact',
+          };
+          (resultData as Record<string, unknown>).next = next;
+        }
+      }
+    }
+
     return createSuccessResult(
       query,
       resultData as unknown as Record<string, unknown>,
@@ -223,6 +297,13 @@ export async function exploreRepositoryStructure(
       }
     );
   } catch (error) {
+    const apiError = handleGitHubAPIError(error);
+    if (apiError.type === 'http') {
+      return normalizeStructureErrorResult(
+        createErrorResult(apiError, query),
+        query
+      );
+    }
     return handleCatchError(
       error,
       query,

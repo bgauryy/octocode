@@ -1,0 +1,13 @@
+import {spawnSync} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+import {dirname,resolve,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=dirname(fileURLToPath(import.meta.url)),repo=resolve(root,'../../../../..');
+const base={reasoning:'Parent independent verification: save pinned reviewed source for isolated method tests',owner:'langchain-ai',repo:'langchain',branch:'fd4f1615359371fbb1b3b2de9183a18a15ee9e34'};
+const queries=[{...base,path:'libs/core/langchain_core/indexing/base.py',startLine:353,endLine:413},{...base,path:'libs/partners/groq/langchain_groq/chat_models.py',startLine:540,endLine:545}];
+const result=spawnSync(process.execPath,[join(repo,'packages/octocode/out/octocode.js'),'tools','ghGetFileContent','--queries',JSON.stringify(queries),'--compact'],{cwd:repo,encoding:'utf8'});
+if(result.status!==0)throw Error(result.stderr);
+const parsed=JSON.parse(result.stdout);
+if(parsed.results.some(r=>r.status==='error'))throw Error(result.stdout);
+writeFileSync(join(root,'source.json'),result.stdout);
+console.log('Saved two pinned reviewed source regions.');

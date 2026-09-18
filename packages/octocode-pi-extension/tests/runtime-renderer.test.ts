@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { activityPresentation, bindRuntimeRenderer, publishMcpRuntimeState, setManagedStatus } from '../src/tools/runtime-renderer.js';
+import { bindRuntimeRenderer, publishMcpRuntimeState, runtimeStoreFor, setManagedStatus } from '../src/tools/runtime-renderer.js';
+import { activityPresentation } from '../src/tools/activity-presentation.js';
 import { createRuntimeStore } from '../src/tools/runtime-store.js';
 import type { PiContext } from '../src/types.js';
+
+test('fresh event contexts share the session runtime and disposal removes that binding', () => {
+  const sessionManager = { getSessionId: () => 'session-a' };
+  const ctx = { hasUI: false, sessionManager } as PiContext;
+  const store = createRuntimeStore();
+  store.getState().setFooter({ sessionStartedAt: 1000, githubAuth: { status: 'authenticated' } });
+  const dispose = bindRuntimeRenderer(ctx, store);
+  const turnContext = { ...ctx };
+  assert.equal(runtimeStoreFor(turnContext), store);
+  setManagedStatus(turnContext, 'test', 'same session');
+  assert.equal(store.getState().statuses.test, 'same session');
+  assert.equal(runtimeStoreFor({ ...ctx, sessionManager: { getSessionId: () => 'other' } } as PiContext), undefined);
+  dispose({ clearUi: false });
+  assert.equal(runtimeStoreFor(turnContext), undefined);
+});
 
 test('one runtime renderer owns loading, MCP, managed statuses, notifications, and cleanup', () => {
   const statusCalls: Array<[string, string | undefined]> = [];

@@ -1,6 +1,6 @@
 # `@octocodeai/pi-extension`
 
-The official Octocode package for Pi. It combines Octocode research through MCP with guarded file and shell operations, subagents, skills, media workflows, planning, and a live settings interface.
+The Pi host layer of the Octocode agentic toolkit. It combines Octocode research through MCP with guarded file and shell operations, subagents, skills, media workflows, planning, and a live settings interface.
 
 The Pi host SDK (`@earendil-works/pi-coding-agent` 0.85.1) is a required peer dependency because the extension imports its runtime APIs.
 
@@ -29,7 +29,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
 | Slash command entries | 5 |
-| Bundled main-agent skills | 14 |
+| Bundled main-agent skills | 15 |
 
 ### Support tools
 
@@ -43,7 +43,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | `skill` | Load and manage installed skills. |
 | `plan` | Manage session and shared plans with verification receipts. |
 | `localServer` | Serve an inspected local directory on loopback for review. |
-| `awareness` | Discover, describe, and invoke the canonical Awareness command runtime without shell syntax. |
+| `awareness` | Invoke the canonical host-bound Awareness operations without shell syntax. |
 | `MCPTool` | Discover, describe, call, and manage MCP tools and servers. |
 | `askUser` | Request structured input through Pi's UI. |
 | `inspectMedia` | Inspect images, video, and audio. |
@@ -52,16 +52,18 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 
 The extension overrides `bash` with command and path guards. It removes Pi's public `read`, `edit`, `write`, `grep`, `find`, and `ls` tools; use Octocode research tools for reads and discovery, and `file` for mutations.
 
-Awareness coordination uses the native `awareness` facade for catalog discovery and
-host-bound command calls through the imported Awareness API. The bundled skill provides workflow guidance. Pi
+Awareness coordination uses the native `awareness` facade for direct, host-bound
+operation calls through the imported Awareness API. The bundled skill provides workflow guidance. Pi
 supplies the database, workspace and agent identity; native calls never launch the Awareness CLI. Signals,
-locks, memory, bookkeeping and maintenance share the same SQLite ledger as native
+locks, memory and bookkeeping share the same SQLite ledger as native
 Pi events and external CLI agents. Pi retains automatic registry/event delivery,
 mutation guards and plan UI. Peers use the same physical database with distinct stable
 IDs; workers keep their own physical worktree as the workspace for file and lock
 ownership. `OCTOCODE_AWARENESS_DB` is the canonical inherited binding across native
 calls, the guarded CLI fallback, worker lifecycle and delivery; no database copies are
 created. See [Awareness agent flow](docs/AWARENESS_AGENT_FLOW.md).
+
+Operator-only retention and whole-store retirement stay on the Awareness CLI/admin surface and are not exposed as routine Pi model operations.
 
 The default Awareness flow is one peer briefing plus native message delivery. Scheduled status checks require `OCTOCODE_CRON_STATUS=1`. Work bookkeeping and worker audits require the guard/full workspace profile; full enables bounded local file history around native `file` mutations with bundled private Git storage. `/octocode-rewind` previews and explicitly applies a selected file restore in interactive Pi; headless sessions use the same `history` commands through the native `awareness` facade. This does not snapshot the workspace on every prompt or rewind the conversation.
 
@@ -109,7 +111,7 @@ skill sources, command hooks, permissions, theme, effort, and footer density. It
 for review. Host-provided and user-installed commands remain in the live inventory.
 The recovery command remains preview-first and does not rewrite input through regex triggers.
 
-## Bundled skills (14)
+## Bundled skills (15)
 
 The build copies these main-agent skills into `dist/skills/`:
 
@@ -120,6 +122,7 @@ The build copies these main-agent skills into `dist/skills/`:
 - `octocode-clean-agentic-code`
 - `octocode-documentation`
 - `octocode-eval-benchmark`
+- `octocode-jev-reasoning-loop`
 - `octocode-prompt-optimizer`
 - `octocode-research`
 - `octocode-rfc-generator`

@@ -1,0 +1,30 @@
+{
+  "at": "2026-09-18T08:51:02.962Z",
+  "files": [
+    {
+      "path": "CONTRACT.md",
+      "sha256": "617b4c04a83f0862523ac01aab2a75a662d65c765878189ab2f80a56ac20f1df"
+    },
+    {
+      "path": "run.mjs",
+      "sha256": "7ccb452f7a82f8f810669ef665d9c12f59682eb28706489f2919922a7738608b"
+    },
+    {
+      "path": "../../../../skills/octocode-jev-logical-if/SKILL.md",
+      "sha256": "fb62fc5b6692de5091c9b1c08eb337516d67083f7119d61cbdc424e10c24c2ae"
+    },
+    {
+      "path": "../../../../skills/octocode-jev-logical-if/references/research.md",
+      "sha256": "9ba2b6efacb1023f0e6c0d9494b60dba93139c71ddf20a77e412b647fc5b2f93"
+    },
+    {
+      "path": "../../../../skills/octocode-jev-logical-if/references/context.md",
+      "sha256": "669aa5891ea279676eef54990a90c01d48a8772b1bb2733090386ca47cf83e34"
+    },
+    {
+      "path": "../../../octocode/out/octocode.js",
+      "sha256": "4466a5365891771d4a01e7e5d7179d07f5fa6e8c8921a3f147ab3238b9d9c6e5"
+    }
+  ],
+  "schemasSha256": "532aa13ecd948c7fe5b60abaff831523fdfe28f5d2a60c0212a6024ece04bd87"
+}

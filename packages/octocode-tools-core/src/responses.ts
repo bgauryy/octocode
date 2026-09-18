@@ -1,5 +1,5 @@
 import { CallToolResult } from '@modelcontextprotocol/server';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from './security/sanitize.js';
 import { getConfigSync } from '@octocodeai/config';
 import { contextUtils } from './utils/contextUtils.js';
 import type { JsonInput } from '@octocodeai/octocode-engine';
@@ -43,7 +43,7 @@ export function sanitizeStructuredContent(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
 
   if (typeof obj === 'string') {
-    return ContentSanitizer.sanitizeContent(obj).content;
+    return sanitizeContent(obj).content;
   }
 
   if (Array.isArray(obj)) {
@@ -57,12 +57,40 @@ export function sanitizeStructuredContent(obj: unknown): unknown {
       // text block (which strips this key in cleanJsonObject) — typed flags
       // are the only agent-facing signals.
       if (key === 'warnings') continue;
+      if (key === 'location') {
+        result[key] = value;
+        continue;
+      }
+      if (key === 'next') {
+        result[key] = sanitizeNextMap(value);
+        continue;
+      }
       result[key] = sanitizeStructuredContent(value);
     }
     return result;
   }
 
   return obj;
+}
+
+function sanitizeNextMap(next: unknown): unknown {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) {
+    return sanitizeStructuredContent(next);
+  }
+  const result: Record<string, unknown> = {};
+  for (const [name, call] of Object.entries(next as Record<string, unknown>)) {
+    if (!call || typeof call !== 'object' || Array.isArray(call)) {
+      result[name] = call;
+      continue;
+    }
+    const fields = call as Record<string, unknown>;
+    const out: Record<string, unknown> = { ...fields };
+    if (typeof fields.why === 'string') {
+      out.why = sanitizeContent(fields.why).content;
+    }
+    result[name] = out;
+  }
+  return result;
 }
 
 export function formatCallToolResultForOutput(

@@ -1,167 +1,157 @@
-# Awareness API reference
+# Awareness API
 
-Use `createAwarenessClient` for new host integrations. It binds the database,
-workspace, actor, session, and optional insight provider once, then exposes one
-typed operation registry. The CLI and Pi `awareness` tool call the same nineteen
-routine operations.
+Awareness exposes one routine operation contract through the CLI and a host-bound TypeScript client. Non-routine integration uses explicit subpaths.
 
-The package root still contains low-level compatibility exports for operator and
-recovery consumers. They aren't the routine API and remain a release-cutover item.
+## Routine operations
 
-## Create a client
+| Concept | Operations |
+|---|---|
+| Context | `context.orient`, `context.observe`, `context.feedback` |
+| Work | `work.create`, `work.list`, `work.show`, `work.claim`, `work.update`, `work.depend`, `work.protect`, `work.verify` |
+| Message | `message.list`, `message.send`, `message.reply`, `message.resolve` |
+| Memory | `memory.recall`, `memory.record`, `memory.set`, `memory.get`, `memory.revalidate` |
+| History | `history.status`, `history.timeline`, `history.read`, `history.restore`, `history.experience` |
+
+The descriptor for each operation owns its validation schema, exact compact `inputSchemaText`, effect, optional approval class, output budget, continuation conversion, and handler. The text is serialized from the descriptor schema, not maintained separately. Host fields such as database, workspace, actor, session, and cancellation signal are bound by the client or CLI context instead of model parameters.
+
+Use the live schema for exact fields:
+
+```bash
+npx @octocodeai/octocode-awareness schema commands --compact
+npx @octocodeai/octocode-awareness schema command history restore --compact
+```
+
+Native hosts read `descriptor.inputSchemaText`; Pi returns that same value from `describe:true`. The complete external-host guide includes it for every operation, while standing instructions keep schemas on demand to avoid paying their token cost on every turn.
+
+## Package root
+
+The root has exactly eight runtime exports:
+
+| Export | Purpose |
+|---|---|
+| `AWARENESS_AGENT_INSTRUCTION_SECTIONS` | Available reusable agent instruction sections |
+| `AWARENESS_CONCEPTS` | Ordered concept names |
+| `AWARENESS_MESSAGE_PARAMETER_GUIDANCE` | Concise canonical Message field guidance for host prompts |
+| `ROUTINE_AWARENESS_OPERATIONS` | Ordered routine operation inventory |
+| `createAwarenessClient` | Creates a client with trusted bindings |
+| `getAwarenessAgentInstructions` | Builds canonical agent guidance for host prompts |
+| `getAwarenessOperationDescriptor` | Returns one descriptor or `undefined` |
+| `listAwarenessOperationDescriptors` | Returns every routine descriptor |
+
+The root also exports the associated TypeScript types. It does not export a command dispatcher, domain repositories, SQLite helpers, hook installers, or migration internals.
+
+## Client
+
+Create one client per stable binding set:
 
 ```ts
 import { createAwarenessClient } from '@octocodeai/octocode-awareness';
 
-const awareness = createAwarenessClient({
-  workspace: process.cwd(),
-  agentId: 'example-host:session-1',
+const client = createAwarenessClient({
+  database: '/absolute/path/to/awareness.sqlite3',
+  workspace: '/absolute/path/to/workspace',
+  agentId: 'host:session-1',
+  sessionId: 'session-1',
 });
 
-const context = await awareness.orient();
-const result = await awareness.execute({
-  operation: 'message.send',
-  params: {
-    kind: 'question',
-    subject: 'Which path owns the parser?',
-    to_agent: ['peer-id'],
-  },
+const orientation = await client.orient({ limit: 2 });
+const result = await client.execute({
+  operation: 'work.list',
+  params: { kind: 'presence', limit: 2 },
 });
 ```
 
-Use a stable, distinct actor ID. Cooperating agents must resolve to the same
-physical Awareness database and use the same workspace or linked Git worktrees.
-Keep each caller's own checkout as its workspace. Registration and last-seen
-timestamps are activity evidence, not proof that a process is live. See
-[Git coordination](GIT_COORDINATION.md) and [storage scopes](STORAGE_SCOPES.md).
+Use `kind: 'agents'` to inspect visible identities directly. This read-only projection unions registered identities with distinct senders and addressed recipients observed in Message rows, labels each row `registered` or `observed`, applies the bound workspace's linked-checkout scope, and includes store-global registrations. It does not implicitly filter to the calling agent or register an actor merely because `context.orient` was called. Results are stably ordered and paged after deduplication; when `partial` is true, execute `next.list` to advance `offset` without gaps or duplicates.
 
-## Client context
+`execute` returns an `AwarenessOperationResult` with `exitCode` and structured `payload`. Invalid parameters and unknown operations return `exitCode: 1`. If a serialized result exceeds its operation budget, the client returns `exitCode: 2`, `error_code: "OUTPUT_BUDGET_EXCEEDED"`, and an executable retry under `next.retry`.
 
-| Field | Meaning |
-|---|---|
-| `workspace` | Required trusted workspace binding. |
-| `agentId` | Required trusted actor binding. |
-| `database` | Optional exact database path. It takes precedence over scope resolution. |
-| `sessionId` | Optional host session binding for events and orientation. |
-| `scope` | Optional `repo` or `global` storage selection. |
-| `signal` | Optional `AbortSignal` for cooperative cancellation. |
-| `insightProvider` | Optional bounded advisory enrichment. It cannot authorize, lock, or verify. |
-| `continuationFormat` | `canonical` by default; the legacy CLI adapter uses `legacy`. |
+Do not discard a bounded result's `partial`, `partialReasons`, omission counts, terminal limit, or executable `next` calls. Execute a continuation with the same bindings and reject repeated pages in one read chain.
 
-Operation parameters cannot override trusted host bindings. A conflicting
-workspace, actor, or session value fails validation.
+## Observations and feedback
 
-## Routine operations
+`context.observe` records attributed measurements for the bound actor and session. `context.orient` projects available measurements, workspace signals, and advisory regulation. `context.feedback` records the response to advice and links outcome evidence. All three are callable through `execute` or the CLI; no particular agent runtime is required.
 
-The public model has five concepts:
+Discover their exact input fields with `schema command context observe` and `schema command context feedback`. Supply measured values only. Missing or expired sensors remain unavailable and do not imply degraded recovery. An action report alone does not prove improvement. Observations and feedback use the existing event outbox without a database schema change.
 
-| Concept | Operations |
-|---|---|
-| Context | `context.orient` |
-| Work | `work.create`, `work.list`, `work.show`, `work.claim`, `work.update`, `work.depend`, `work.protect`, `work.verify` |
-| Message | `message.list`, `message.send`, `message.reply`, `message.resolve` |
-| Memory | `memory.recall`, `memory.record` |
-| History | `history.status`, `history.timeline`, `history.read`, `history.restore` |
+Import `getAwarenessAgentInstructions` to obtain package-owned operating guidance for a host prompt. `AWARENESS_AGENT_INSTRUCTION_SECTIONS` lists the available sections. Hosts that need only the failure-sensitive Message field summary can reuse `AWARENESS_MESSAGE_PARAMETER_GUIDANCE`. This keeps agent guidance aligned with the operation catalog instead of requiring each host to maintain its own explanation.
 
-Call `awareness.operations()` to read descriptors in process. Each descriptor owns
-its JSON input schema, validation, parameter-sensitive effect, and approval,
-handler, output budget, and continuation policy. Known operations don't require a
-separate discovery call.
+```ts
+import { getAwarenessAgentInstructions } from '@octocodeai/octocode-awareness';
 
-The CLI uses the same names with a space instead of a dot. For example,
-`message.send` is `message send`. Run `schema commands --compact` for the bounded
-routine catalog. Add `--all` only for the explicit operator and recovery catalog.
+const instructions = getAwarenessAgentInstructions({
+  sections: ['start', 'observe', 'advise', 'feedback', 'trust'],
+});
+```
 
-## Orientation
+The CLI equivalent is `instructions`; repeat `--section <name>` to compose selected sections. Omitting sections returns all guidance. The instruction builder does not open a store.
 
-`orient()` returns bounded state that can change the caller's next decision:
-peer presence, owned or overlapping work, inbox items, verification debt,
-recovery pressure, and executable `next` calls. It injects no memories unless the
-caller explicitly runs `memory.recall`.
+## Operator HTML view
 
-Pass the prior `revision` as `if_revision`. If no scoped event changed, the method
-returns only `{ revision, unchanged: true }` and stops before domain reads.
-The client limits changed responses to 1,500 UTF-8 bytes. Every partial response has an
-executable continuation; a partial packet without one fails instead of hiding
-reachable rows.
+`view` is an operator-only CLI command. It creates a private, self-contained HTML snapshot and opens it in the platform browser by default:
 
-## Results and continuations
+```bash
+npx @octocodeai/octocode-awareness view --workspace "$PWD"
+npx @octocodeai/octocode-awareness view --workspace "$PWD" --out .octocode/awareness.html --no-open
+```
 
-`execute()` returns `payload` and `exitCode`, with optional `text`, `diagnostics`,
-and `cancelled` fields.
+The page includes the workspace-scoped agent projection, every row and column from every canonical SQLite entity, each entity's canonical owner, lifecycle policy, and executable cleanup operation, and the workspace-scoped `history.status` projection for LocalGit. Its top cards label scope explicitly: agent and LocalGit values are workspace-scoped, while entity rows and the SQLite row count are store-wide. The Agents panel uses the same registered-plus-observed projection as `work.list` with `kind: 'agents'`. LocalGit file bytes are deliberately not copied into the page; the history ledger still exposes capture paths, object IDs, durability, restores, and operations. The generated file uses mode `0600`, contains no remote assets, and escapes stored text before rendering. Re-run `view` to refresh the snapshot.
 
-| Result | Meaning |
-|---|---|
-| `exitCode: 0` | The operation completed. Inspect its payload for the domain outcome. |
-| `exitCode: 1` | Validation or execution failed. Inspect the typed error and any `issues`. |
-| `exitCode: 2` | The operation hit a block or conflict. Inspect the domain payload. |
-| `cancelled: true` | The operation observed cancellation. Check whether an atomic write had already completed. |
+`view` stays outside `schema commands` because it is an operator inspection surface, not a routine agent operation. Use `view --help` for its exact flags. `--db`, `--db-scope`, and `--workspace` select the same store and workspace bindings used by routine commands.
 
-Bounded results retain executable canonical calls under `next`. Execute each call
-with the same client context. When an output exceeds its descriptor budget, the
-typed `OUTPUT_BUDGET_EXCEEDED` result includes `next.retry`; it lowers a supported
-limit or follows the producer's existing continuation. The adapter doesn't silently
-truncate reachable rows.
+## Operator lifecycle commands
 
-`history.restore` is a two-step protocol. Preview first, then apply only the exact
-preview ID that the caller authorizes. LocalGit object creation and workspace file
-mutation cannot share a transaction with SQLite. History records make the achieved
-boundary explicit instead of claiming cross-store atomic rollback.
+Operator commands are intentionally absent from routine agent discovery. Their canonical strict Zod contracts are still inspectable and executable as JSON Schema:
 
-## Host events
+```bash
+npx @octocodeai/octocode-awareness schema command maintenance retention --compact
+npx @octocodeai/octocode-awareness schema command maintenance store-retire --compact
+```
 
-Use `recordHostEvent()` for host-owned lifecycle facts. The client supplies the
-bound workspace, actor, and optional session, and commits a typed event in one
-SQLite transaction. Use `consumeEvents()` for bounded sequence-ordered replay.
-Its cursor accepts `afterSequence`, `limit`, `eventType`, and `retentionClass`.
+`maintenance retention` reports by default. Confirmed apply uses bounded per-owner batches and returns an executable `next` command with the original cutoff until the eligible set is empty. It expires Messages, preserves their grace window and thread ancestry, retires old interactions/events/runs/Memories/restore previews, and removes expired locks. Abandoned ACTIVE runs are reported but are failed only when `--fail-stale-active-runs` is supplied; each failure receives a verification event.
 
-Delivery acknowledgement, message read state, and thread resolution are distinct:
+`maintenance store-retire` reports exact store targets and blockers by default. Save and inspect that JSON. `--action apply --confirm retire --report-file <reviewed-json>` revalidates the bound report, refuses active lifecycle state and SQLite writers, and quarantines exact SQLite and LocalGit targets by sibling rename. The result contains recovery paths; it does not permanently erase them.
 
-- The event consumer acknowledges durable delivery.
-- `message.list` reads messages for an actor.
-- `message.resolve` closes a completed thread.
+## Discovery subpath
 
-None of these actions proves that another agent completed work. Peer text is
-attributed data, not authority or verification. See
-[peer event delivery](HOW_IT_WORKS.md#peer-event-delivery).
+Keyed lessons, applicability checks, and non-file investigation traces use the same client and bindings. See [Experience and anchored memory](EXPERIENCE_MEMORY.md) for their lifecycle, examples, and limits.
 
-## Advisory insights
+`@octocodeai/octocode-awareness/schema` exports the same four catalog and descriptor runtime values as the root, without creating a store. Tooling can inspect operation contracts without importing host or administration code.
 
-An optional `AwarenessInsightProvider` can suggest up to three attributed overlap
-candidates after deterministic orientation completes. Each candidate contains a
-summary, attribution, confidence, and optional path. Awareness clips and bounds the
-result. The provider runs outside the database transaction and cannot change locks,
-authorization, work ownership, or verification.
+## Host subpath
 
-Awareness core doesn't import the Octocode research engine. A host can use graph
-or LSP evidence in its provider, but graph edges remain candidates until symbol
-LSP resolves symbol identity. Omitting the provider preserves deterministic behavior.
+`@octocodeai/octocode-awareness/host` exposes lifecycle integration that must stay out of routine model discovery. The `createAwarenessHost` factory binds trusted context and provides `captureHistory`. The subpath also exposes the event consumer, database wake hints, host policy, prompt/context adapters, protection gate, and other typed host integration functions used by Pi.
 
-## Optional native history operations
+Capture is host-owned:
 
-`@octocodeai/octocode-extension-rust` supplies workspace snapshots, restore
-mutations, and exact memory fingerprints through a lazy import. It is separate from
-the Octocode research engine. Ordinary coordination and memory operations work
-without it.
+```ts
+import { createAwarenessHost } from '@octocodeai/octocode-awareness/host';
 
-When the optional native package is unavailable, explicit capture or restore fails
-with an unavailable-filesystem result. No JavaScript fallback fabricates a
-fingerprint or applies a restore. A snapshot proves which bytes were observed; it
-doesn't prove authorship or correctness. See [local history](LOCAL_HISTORY.md).
+const host = createAwarenessHost({
+  workspace: '/absolute/path/to/workspace',
+  agentId: 'pi:session-1',
+  sessionId: 'session-1',
+});
 
-## Compatibility and source ownership
+await host.captureHistory({
+  operation_id: 'operation-1',
+  phase: 'before',
+  file: ['src/example.ts'],
+});
+```
 
-`executeAwarenessCommand` and direct domain exports remain temporarily available for
-existing operator and recovery consumers. New routine code must not use them. The
-remaining root-export cutover requires moving those capabilities to explicit
-subpath exports and migrating package consumers atomically.
+Inspect the generated type declaration before implementing a host adapter because capture fields are validated by the host contract.
 
-Contract owners:
+## Administration subpath
 
-- Canonical client: `src/client.ts`
-- Operation contracts: `src/operation-contracts.ts`
-- Operation registry: `src/schema/operation-catalog.ts`
-- Canonical executor: `src/operation-executor.ts`
-- Typed event stream: `src/event-outbox.ts`
-- CLI adapter: `src/command-cli.ts`
-- Standing host policy: `src/coordination/external-policy.ts`
+`@octocodeai/octocode-awareness/admin` exports migration and store-retirement services:
+
+- `previewDatabaseMigration`
+- `applyDatabaseMigration`
+- `verifyDatabaseMigration`
+- `reportStoreRetirement`
+- `applyStoreRetirement`
+- `StoreRetirementError`
+
+Migration is copy-on-write. Preview reads a recognized predecessor, classifies every row, and reports transformations without creating a destination. Apply writes a different destination file and verifies it before publication. Cutover is explicit and retains the source for rollback. For the procedure, see [Database migration](DB.md#database-migration).
+
+Store retirement is also report-bound and recoverable. It quarantines exact files and directories only after lifecycle and writer checks; it is not exported from the routine package root.

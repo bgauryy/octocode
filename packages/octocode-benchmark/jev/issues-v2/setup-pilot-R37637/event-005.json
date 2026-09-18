@@ -1,0 +1,15 @@
+{
+  "arm": "baseline",
+  "id": "R37637",
+  "kind": "schema",
+  "args": [
+    "localSearch"
+  ],
+  "startedAt": "2026-09-18T08:52:07.942Z",
+  "endedAt": "2026-09-18T08:52:08.525Z",
+  "elapsedMs": 581,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "28fabec6c5c9ee590beed51ff285a6ebe71519e9e487eb2ee487f665e6b055ce",
+  "requestSha256": null
+}

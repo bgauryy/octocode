@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { stat } from 'node:fs/promises';
+import { ToolErrors } from '../../errors/errorFactories.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { validateToolPath } from '../../utils/file/toolHelpers.js';
@@ -64,7 +65,17 @@ export async function executeAstSearch(
                 reverse,
                 ...scope
               } = input;
-              if (!scope.langType && !(await stat(scope.path)).isFile()) {
+              if (
+                !scope.langType &&
+                !(
+                  await stat(scope.path).catch((error: unknown) => {
+                    throw ToolErrors.fileAccessFailed(
+                      scope.path,
+                      error instanceof Error ? error : undefined
+                    );
+                  })
+                ).isFile()
+              ) {
                 return {
                   status: 'error' as const,
                   errorCode: 'ast.language.required',

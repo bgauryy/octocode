@@ -9,7 +9,7 @@ AgentStatus,
 HandoffNote,
 LiteMessage,
 MemoryItem,
-} from '@octocodeai/agent-contracts/entities';
+} from '../entities.js';
 
 export interface AwarenessOptions {
   workspace?: string;

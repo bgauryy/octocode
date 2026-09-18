@@ -11,7 +11,7 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use octocode_engine::structural_search_detailed;
+use octocode_engine::portable::structural_search_detailed;
 
 /// Build a realistic TypeScript module of roughly `blocks` service methods,
 /// each with a `console.log(...)` call site the pattern will match, plus enough
@@ -52,9 +52,9 @@ fn bench_structural_search(c: &mut Criterion) {
             |b, source| {
                 b.iter(|| {
                     let result = structural_search_detailed(
-                        black_box(source.clone()),
-                        black_box("service.ts".to_owned()),
-                        black_box(Some(pattern.to_owned())),
+                        black_box(source.as_str()),
+                        black_box("service.ts"),
+                        black_box(Some(pattern)),
                         black_box(None),
                     )
                     .expect("structural search should not panic on valid TS");

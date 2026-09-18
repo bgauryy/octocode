@@ -3,7 +3,6 @@ import {
   applyRustBuildContext,
   serverConfigurationFingerprint,
 } from '../../src/lsp/rustContext.js';
-import { serializeKey } from '../../src/lsp/lspClientPool.js';
 
 const config = {
   command: 'rust-analyzer',
@@ -53,15 +52,6 @@ describe('Rust semantic build contexts', () => {
         applyRustBuildContext(config, context)
       );
       expect(contextFingerprint).not.toBe(baseline);
-      const key = {
-        ...config,
-        filePath: '/workspace/main.rs',
-        languageId: 'rust',
-        contextFingerprint,
-      };
-      expect(serializeKey(key)).not.toBe(
-        serializeKey({ ...key, contextFingerprint: baseline })
-      );
     }
   });
 

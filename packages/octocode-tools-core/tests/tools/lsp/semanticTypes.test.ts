@@ -1,8 +1,44 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { compactLocation } from '../../../src/tools/lsp/shared/semanticTypes.js';
+import type { LspSemanticEnvelope } from '../../../src/tools/lsp/shared/semanticTypes.js';
+import type { LspSearchData } from '../../../src/tools/lsp/semantic_content/resultTypes.js';
+
+it('exports provider receipts, incomplete states and hierarchy payloads without type drift', () => {
+  expectTypeOf<LspSemanticEnvelope['lsp']>().toExtend<
+    NonNullable<LspSearchData['lsp']>
+  >();
+  expectTypeOf<
+    Extract<
+      LspSemanticEnvelope['payload'],
+      {
+        kind:
+          'empty' | 'callers' | 'callees' | 'callHierarchy' | 'typeHierarchy';
+      }
+    >
+  >().toExtend<LspSearchData['payload']>();
+  expectTypeOf<LspSemanticEnvelope['terminalLimit']>().toEqualTypeOf<
+    LspSearchData['terminalLimit']
+  >();
+});
 
 describe('compactLocation', () => {
+  it('preserves exact UTF-16 ranges that distinguish occurrences on the same line', () => {
+    const ranges = [
+      { start: { line: 1, character: 21 }, end: { line: 1, character: 26 } },
+      { start: { line: 1, character: 30 }, end: { line: 1, character: 35 } },
+    ];
+    const locations = ranges.map(range =>
+      compactLocation({
+        uri: 'unicode.ts',
+        content: 'const mark = "😀"; alias(1); alias(2);',
+        range,
+      })
+    );
+    expect(locations.map(location => location.range)).toEqual(ranges);
+    expect(locations[0]).not.toEqual(locations[1]);
+  });
+
   it('derives a 1-based displayRange from a 0-based LSP range (references/definitions)', () => {
     // Regression: references carry `range` (0-based) but no displayRange, so the
     // CLI printed `file:?`. compactLocation must surface the line.

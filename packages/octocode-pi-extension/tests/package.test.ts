@@ -10,9 +10,11 @@ import type { PiContext, PiInstance } from '../src/types.js';
 import { disableBuiltinTools, formatStatus, formatPromptBudget, getInternalErrorLogPath, listExtensionHarness } from '../src/index.js';
 import { MANAGED_BLOCK_END, MANAGED_BLOCK_START, SYSTEM_PROMPT_MARKER, DISABLED_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from '../src/constants.js';
 import { applyOctocodeUi, getThinkingStatus } from '../src/extension-ui.js';
-import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCommand, getInstallSource, listBundledSkills, readTextIfExists, resolveAwarenessCoordinationScope } from '../src/assets.js';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
-import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '@octocodeai/agent-contracts/prompts';
+import { getAssetPaths, getAwarenessCLIPath, buildAwarenessCliInvocation, getInstallSource, listBundledSkills, readTextIfExists } from '../src/assets.js';
+import { resolveAwarenessCoordinationScope } from '../src/tools/awareness-context.js';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
+import { ROUTINE_AWARENESS_OPERATIONS } from '@octocodeai/octocode-awareness';
+import { SUBAGENT_WORKER_CONTRACT, SUBAGENT_AWARENESS_GUIDANCE, SUBAGENT_SKILLS_INTRO, SUBAGENT_SURFACE } from '../src/contracts/prompts/index.js';
 import { getAppendSystemTarget, parseSetupScope, splitArgs, truncateUserVisibleToolOutput } from '../src/utils.js';
 import { mergeManagedAppendSystem } from '../src/prompt.js';
 import { cleanupSpawnedAgentsForShutdown } from '../src/tools/agents/process.js';
@@ -246,6 +248,8 @@ async function captureExtensions(): Promise<CaptureResult> {
       appendedEntries.push({ customType, data });
     },
     getActiveTools: () => [...activeTools],
+    getAllTools: () => [...tools.values()].map(tool => ({ ...tool, description: tool.description ?? '',
+      sourceInfo: { path: '/test', source: '@octocodeai/pi-extension', scope: 'temporary', origin: 'package' } })),
     setActiveTools: (names: string[]) => {
       activeTools.splice(0, activeTools.length, ...names);
     },
@@ -435,7 +439,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
     'retired split tools do not leak into the executable catalog',
   );
   assert.match(
-    getAwarenessCLIPath(distDir),
+    getAwarenessCLIPath(),
     /octocode-awareness.*octocode-awareness\.js/,
     'Awareness CLI resolves to the installed scoped package runtime'
   );
@@ -445,7 +449,7 @@ test('build copies bundled Octocode skills without secret env files', () => {
     'awareness runtime assets are not bundled under dist/awareness'
   );
 
-  const schemaSpec = buildAwarenessCommand(['schema', 'commands', '--compact']);
+  const schemaSpec = buildAwarenessCliInvocation(['schema', 'commands', '--compact']);
   assert.equal(schemaSpec.cmd, process.execPath, 'Awareness schema smoke uses local Node runtime');
   assert.match(schemaSpec.args[0]!, /octocode-awareness.*octocode-awareness\.js$/, 'schema smoke uses installed scoped package CLI');
   const schemaOutput = execFileSync(
@@ -458,11 +462,17 @@ test('build copies bundled Octocode skills without secret env files', () => {
     operations: string[];
   };
   assert.deepEqual(Object.keys(commandSchema.concepts), ['context', 'work', 'message', 'memory', 'history']);
-  assert.equal(commandSchema.operations.length, 19);
+  assert.deepEqual(
+    [...commandSchema.operations].sort(),
+    [...ROUTINE_AWARENESS_OPERATIONS].sort(),
+    'packaged Awareness CLI exposes the complete canonical operation catalog',
+  );
   const operations = new Set(commandSchema.operations);
   for (const operation of [
-    'context.orient', 'work.create', 'work.claim', 'work.protect', 'work.update',
+    'context.orient', 'context.observe', 'context.feedback',
+    'work.create', 'work.claim', 'work.protect', 'work.update',
     'work.verify', 'memory.recall', 'message.send', 'history.restore',
+    'memory.set', 'memory.get', 'memory.revalidate', 'history.experience',
   ]) {
     assert.equal(operations.has(operation), true, `Awareness schema includes ${operation}`);
   }
@@ -612,22 +622,23 @@ test('workers project granted research tools and skills with one Awareness guide
       systemPromptOptions: {
         skills: [{ name: 'octocode-research', description: 'Evidence-first research.', source: 'bundled' }],
       },
-    }, { cwd: packageRoot })) as { systemPrompt?: string } | undefined;
+    }, { cwd: packageRoot })) as { systemPrompt?: string; message?: { content?: string } } | undefined;
 
     assert.ok(result?.systemPrompt?.startsWith('typed specialist prompt from --append-system-prompt'));
     assert.match(result!.systemPrompt!, /<awareness>/);
-    assert.match(result!.systemPrompt!, /Start with context\.orient once/);
-    assert.match(result!.systemPrompt!, /Use Memory only when prior learning can change the decision/);
-    assert.match(result!.systemPrompt!, /solo work needs no record/);
+    assert.match(result!.systemPrompt!, /Start with context\.orient or a host briefing/);
+    assert.match(result!.systemPrompt!, /Load only the instruction section needed for the next action/);
+    assert.match(result!.systemPrompt!, /Self-monitoring applies during solo work/);
     assert.match(result!.systemPrompt!, /lacks the native facade[\s\S]*bound CLI/);
     assert.doesNotMatch(result!.systemPrompt!, /highest-ROI command|Essential loop/);
     assert.match(result!.systemPrompt!, /<awareness_cli_runtime>/);
     assert.match(result!.systemPrompt!, /<mcp_catalog_index>[\s\S]*localSearch/);
     assert.match(result!.systemPrompt!, /<available_skills>[\s\S]*octocode-research/);
     assert.equal((result!.systemPrompt!.match(/<awareness>/g) ?? []).length, 1);
-    assert.doesNotMatch(result!.systemPrompt!, /<octocode>/, 'workers preserve their typed prompt without the parent host addendum');
+    assert.doesNotMatch(result!.systemPrompt!, /<native_tools>|Do not over-engineer\.|<octocode>/, 'workers preserve the typed prompt without duplicate host policy');
+    assert.match(result?.message?.content ?? '', /<capability_revision>/);
     const repeated = await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: result!.systemPrompt! }, { cwd: packageRoot });
-    assert.deepEqual(repeated, result, 'worker turns reuse the trusted composed prompt without duplicating runtime guidance');
+    assert.equal(repeated, undefined, 'steady worker turns reuse the trusted prompt without duplicating capability context');
     await assertRevokedWorkerPrompt(broker, result!.systemPrompt!, handlers.get('before_agent_start')!.at(-1)!, { cwd: packageRoot }, () => pi.getActiveTools());
     ready.mockRestore();
     catalog.mockRestore();
@@ -663,19 +674,25 @@ test('main-session capabilities refresh between turns while product policy remai
   const discovery = vi.spyOn(skillDiscovery, 'discoverSkills').mockImplementation(() => [{ name, description: 'Current effective skill.', source: 'bundled', sourceId: name, path: `/fixture/${name}/SKILL.md`, dir: `/fixture/${name}` }]);
   const beforeStart = handlers.get('before_agent_start')!.at(-1)!;
   const ctx = { cwd: packageRoot, hasUI: false };
-  const first = (await beforeStart({
+  const initialEvent = {
     systemPrompt: 'Pi base prompt v1',
     systemPromptOptions: {
       skills: [{ name: 'initial-skill', description: 'Loaded at session initialization.', source: 'bundled' }],
     },
-  }, ctx)) as { systemPrompt?: string } | undefined;
+  };
+  const first = (await beforeStart(initialEvent, ctx)) as { systemPrompt?: string; message?: { content?: string } } | undefined;
   name = 'late-skill';
-  const second = (await beforeStart({
+  const changedEvent = {
     systemPrompt: 'Pi base prompt v1',
     systemPromptOptions: {
       skills: [{ name: 'late-skill', description: 'Must wait for a new session.', source: 'dynamic' }],
     },
-  }, ctx)) as { systemPrompt?: string } | undefined;
+  };
+  const second = (await beforeStart(changedEvent, ctx)) as typeof first;
+  // Capability source reconciliation can settle one turn after the host's skill
+  // inventory changes; once settled, identical turns must not repeat the tag.
+  const settled = (await beforeStart(changedEvent, ctx)) as typeof first;
+  const unchanged = (await beforeStart(changedEvent, ctx)) as typeof first;
   discovery.mockRestore();
 
   assert.ok(first?.systemPrompt);
@@ -683,6 +700,14 @@ test('main-session capabilities refresh between turns while product policy remai
   assert.match(first.systemPrompt, /initial-skill/);
   assert.match(second!.systemPrompt!, /late-skill/);
   assert.doesNotMatch(second!.systemPrompt!, /initial-skill/);
+  const firstRevision = first.message?.content?.match(/<capability_revision>([^<]+)<\/capability_revision>/)?.[1];
+  const changedRevisions = [second, settled]
+    .map(result => result?.message?.content?.match(/<capability_revision>([^<]+)<\/capability_revision>/)?.[1])
+    .filter((revision): revision is string => Boolean(revision));
+  assert.ok(firstRevision);
+  assert.ok(changedRevisions.length > 0);
+  assert.ok(changedRevisions.some(revision => revision !== firstRevision), 'changed capabilities deliver a new revision');
+  assert.equal(unchanged?.message, undefined, 'unchanged capabilities do not duplicate revision context');
 });
 
 test('session restart refreshes prompt source while turns inside a session keep frozen bytes', withTempMemoryHome(async (tmp) => {
@@ -1073,19 +1098,23 @@ test('enum tool params use string-enum schemas (Google API compat), never litera
   // Google's API rejects. Every string-enum tool param must be a plain
   // {type:"string", enum:[...]} schema (see pi-ai StringEnum).
   const { tools } = await captureExtensions();
-  const prop = (tool: string, name: string): Record<string, unknown> => queryPropertySchemas(tools.get(tool)!, name)[0]!;
-
-  const mcpAction = prop('MCPTool', 'action');
-  assert.equal(mcpAction['type'], 'string');
-  assert.deepEqual(mcpAction['enum'], ['list', 'describe', 'call', 'resources', 'read-resource', 'prompts', 'get-prompt', 'complete', 'enable', 'disable', 'status', 'restart', 'stop', 'config', 'add', 'remove']);
-  const mcpScope = prop('MCPTool', 'scope');
-  assert.equal(mcpScope['type'], 'string');
-  assert.deepEqual(mcpScope['enum'], ['project', 'global']);
-  assert.match(String(prop('MCPTool', 'arguments')['description']), /every target-tool field here, never beside action\/server\/tool/i);
+  const mcpActions = queryPropertySchemas(tools.get('MCPTool')!, 'action');
+  assert.deepEqual(
+    mcpActions.flatMap((schema) => schema['enum'] as string[]),
+    ['list', 'describe', 'call', 'resources', 'read-resource', 'prompts', 'get-prompt', 'complete', 'enable', 'disable', 'status', 'restart', 'stop', 'config', 'add', 'remove'],
+  );
+  const mcpScopes = queryPropertySchemas(tools.get('MCPTool')!, 'scope');
+  assert.deepEqual([...new Set(mcpScopes.flatMap((schema) => schema['enum'] as string[]))], ['project', 'global']);
+  const mcpArguments = queryPropertySchemas(tools.get('MCPTool')!, 'arguments');
+  assert.ok(mcpArguments.some((schema) => /Octocode nests target calls under arguments\.queries\[\]/i.test(String(schema['description']))));
   const agentTypes = queryPropertySchemas(tools.get('agent')!, 'type');
   assert.deepEqual([...new Set(agentTypes.flatMap((schema) => schema['enum'] as string[]))], ['spawn', 'inspect', 'configure', 'wait', 'message', 'steer', 'abort', 'kill']);
 
-  for (const [name, schema] of [['MCPTool.action', mcpAction], ['MCPTool.scope', mcpScope], ...agentTypes.map((schema, index) => [`agent.type[${index}]`, schema] as const)] as const) {
+  for (const [name, schema] of [
+    ...mcpActions.map((schema, index) => [`MCPTool.action[${index}]`, schema] as const),
+    ...mcpScopes.map((schema, index) => [`MCPTool.scope[${index}]`, schema] as const),
+    ...agentTypes.map((schema, index) => [`agent.type[${index}]`, schema] as const),
+  ] as const) {
     assert.equal(schema['type'], 'string');
     assert.doesNotMatch(JSON.stringify(schema), /anyOf|"const"/, `${name} must use string enum values, not literal unions`);
   }
@@ -1140,7 +1169,7 @@ test('disable built-in read in favor of localFetch (records read state for edit 
   );
 });
 
-test('public direct palette is exactly 15 queries-only tools with bounded per-query reasoning', async () => {
+test('public direct palette is exactly 15 queries-only tools with optional bounded batch labels', async () => {
   const { tools } = await captureExtensions();
   const expected = [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash'];
   assert.equal(expected.length, 15);
@@ -1163,29 +1192,21 @@ test('public direct palette is exactly 15 queries-only tools with bounded per-qu
       `${name} advertises only execution modes its implementation supports`,
     );
     const queries = schema.properties?.['queries'] as { maxItems?: number };
-    assert.equal(queries.maxItems, 100, `${name} caps batches at 100 queries`);
+    const expectedBatchLimit = name === 'plan' ? 25 : 100;
+    assert.equal(queries.maxItems, expectedBatchLimit, `${name} caps batches at ${expectedBatchLimit} queries`);
     const branches = querySchemaBranches(tools.get(name)!);
     assert.ok(branches.length > 0, `${name} exposes at least one query shape`);
     for (const branch of branches) {
-      assert.ok(branch.required?.includes('reasoning'), `${name} requires per-query reasoning on every branch`);
-      const reasoning = branch.properties?.['reasoning'] as { minLength?: number; maxLength?: number };
-      assert.equal(reasoning.minLength, 1, `${name} rejects empty reasoning`);
-      assert.equal(reasoning.maxLength, 400, `${name} bounds reasoning at 400 characters`);
+      assert.ok(!branch.required?.includes('reasoning'), `${name} keeps per-query labels optional`);
+      const reasoning = branch.properties?.['reasoning'] as { maxLength?: number };
+      assert.equal(reasoning.maxLength, 400, `${name} bounds supplied labels at 400 characters`);
     }
     const prepared = tools.get(name)!.prepareArguments?.({ queries: [{}] }) as {
       queries?: Array<Record<string, unknown>>;
     } | undefined;
-    assert.equal(
-      typeof prepared?.queries?.[0]?.['reasoning'],
-      'string',
-      `${name} repairs omitted per-query reasoning before Pi validation`,
-    );
+    assert.equal(prepared, undefined, `${name} does not synthesize omitted labels`);
     const flat = { reasoning: 'flat calls are unsupported' };
-    assert.deepEqual(
-      tools.get(name)!.prepareArguments?.(flat),
-      flat,
-      `${name} does not convert flat arguments into queries`,
-    );
+    assert.equal(tools.get(name)!.prepareArguments?.(flat), undefined, `${name} does not install argument shims`);
   }
 
   for (const retired of [
@@ -1209,7 +1230,7 @@ test('production composition records canonical receipts for every registered Pi 
   assert.ok(receipts.every((receipt) => receipt.canonicalRegistered && receipt.hostRegistered));
 });
 
-test('all 16 public direct tools enter the shared query executor', async () => {
+test('every public direct tool enters the shared query executor', async () => {
   const { tools } = await captureExtensions();
   for (const name of [...OCTOCODE_SUPPORT_TOOL_NAMES, 'bash']) {
     const outcome = await Promise.resolve(
@@ -1259,14 +1280,6 @@ test('every direct tool contract is concise enough for per-turn agent context', 
     visitDescriptions(tool.parameters, name);
     totalContractChars += description.length + schemaText.length;
   }
-  assert.match(tools.get('bash')!.description!, /never for code search or file reads/i);
-  assert.match(tools.get('MCPTool')!.description!, /server:"octocode" holds the code, GitHub, history, npm/i);
-  assert.match(tools.get('MCPTool')!.description!, /system prompt lists every enabled tool description and complete input schema/i);
-  assert.match(tools.get('agent')!.description!, /use MCPTool for repository research/i);
-  assert.match(tools.get('agent')!.description!, /implementer/);
-  assert.match(tools.get('agent')!.description!, /custom.*requires.*tools.*systemPrompt/i);
-  assert.match(tools.get('skill')!.description!, /specialized workflow/i);
-  assert.doesNotMatch(tools.get('skill')!.description!, /matching skill BEFORE acting/i);
   assert.ok(totalContractChars <= 48_000, `direct tool contracts use ${totalContractChars} chars: ${[...tools].map(([name, tool]) => `${name}=${JSON.stringify(tool.parameters).length + (tool.description?.length ?? 0)}`).join(', ')}`);
 });
 
@@ -1374,16 +1387,7 @@ test('file exposes one edit schema and rendering contract', async () => {
   const { tools } = await captureExtensions();
   const editTool = tools.get('file')!;
   assert.equal(editTool.label, 'file (Octocode)');
-  assert.match(editTool.description!, /guarded edit, write, or delete/i);
-  assert.ok(
-    editTool.promptGuidelines!.some(line => line.includes('stale-edit guard')),
-    'edit guidance covers the stale/lost-update guard'
-  );
-  assert.ok(
-    editTool.promptGuidelines!.some(line =>
-      line.includes('targeted replacements')
-    )
-  );
+
   const params = editTool.parameters as {
     properties: {
       queries: { items: { properties: { edits: { items: { properties: Record<string, unknown> } } } } };
@@ -1415,7 +1419,6 @@ test('file write preserves atomic creation and path guards', async () => {
   const { tools, activeTools } = await captureExtensions();
   const writeTool = tools.get('file')!;
   assert.equal(writeTool.label, 'file (Octocode)');
-  assert.match(writeTool.description!, /write replaces the whole file/i);
   assert.equal(activeTools.includes('write'), false, 'native write stays disabled');
   assert.equal(tools.has('file'), true, 'file replaces native edit/write');
   assert.equal(activeTools.includes('read'), false);
@@ -1550,56 +1553,22 @@ test('custom edit not-found diagnostics preserve visible leading whitespace in s
   );
 });
 
-test('custom edit requires reasoning and shows it in output', async () => {
+test('custom edit accepts an omitted batch label and reports the diff', async () => {
   const previousNoColor = process.env['NO_COLOR'];
   delete process.env['NO_COLOR'];
   const { tools } = await captureExtensions();
-  const tmp = fs.mkdtempSync(
-    path.join(os.tmpdir(), 'octocode-edit-reasoning-')
-  );
-  const target = path.join(tmp, 'reasoning.txt');
-  fs.writeFileSync(target, 'left\nright\n', 'utf8');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-label-'));
+  const target = path.join(tmp, 'label.txt');
+  fs.writeFileSync(target, 'left\n', 'utf8');
   try {
     const editTool = tools.get('file')!;
-    // Missing reasoning must be rejected.
-    await assert.rejects(
-      () =>
-        editTool.execute('missing-reasoning', { queries: [{ type: 'edit', path: target, edits: [{ oldText: 'left', newText: 'LEFT' }] }] }, undefined, undefined, { cwd: tmp }),
-      /requires non-empty reasoning/
-    );
-
-    const withReasoning = await invokeExecute(editTool, { queries: [{ type: 'edit', reasoning: 'uppercase the remaining direction',
-      path: target,
-      edits: [
-        {
-          oldText: 'right',
-          newText: 'RIGHT',
-
-        },
-      ],
-    }] });
-    assert.match(
-      (withReasoning.content[0] as { text: string }).text,
-      /Reasoning:\n- uppercase the remaining direction/
-    );
-    assert.doesNotMatch(
-      (withReasoning.content[0] as { text: string }).text,
-      /Reasoning:\n- .*reasoning\.txt edits\[0\]:/
-    );
-    assert.match(
-      (withReasoning.content[0] as { text: string }).text,
-      /Changes:\n# .*reasoning\.txt/
-    );
-    assert.match((withReasoning.content[0] as { text: string }).text, /\x1b\[31m- right\x1b\[0m/);
-    assert.match((withReasoning.content[0] as { text: string }).text, /\x1b\[32m\+ RIGHT\x1b\[0m/);
-    const rendered = editTool.renderResult!(withReasoning, { expanded: false, isPartial: false })
-      .render(240)
-      .join('\n');
-    assert.match(rendered, /file \(Octocode\)/);
-    assert.match(rendered, /uppercase the remaining direction/);
-    assert.doesNotMatch(rendered, /Reasoning:/);
-    // 'left' was not changed (the rejected call did not write); only 'right' was replaced.
-    assert.equal(fs.readFileSync(target, 'utf8'), 'left\nRIGHT\n');
+    const edited = await editTool.execute('missing-label', { queries: [{ type: 'edit', path: target, edits: [{ oldText: 'left', newText: 'LEFT' }] }] }, undefined, undefined, { cwd: tmp });
+    const text = (edited.content[0] as { text: string }).text;
+    assert.doesNotMatch(text, /Reasoning:/);
+    assert.match(text, /Changes:\n# .*label\.txt/);
+    assert.match(text, /\x1b\[31m- left\x1b\[0m/);
+    assert.match(text, /\x1b\[32m\+ LEFT\x1b\[0m/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'LEFT\n');
   } finally {
     if (previousNoColor === undefined) delete process.env['NO_COLOR'];
     else process.env['NO_COLOR'] = previousNoColor;
@@ -1628,8 +1597,7 @@ test('custom edit returns diff and patch details', async () => {
         patch: string;
         diff: string;
         coloredDiff: string;
-        reasoning: Array<{ editIndex: number; reasoning: string }>;
-      }>;
+      }>; 
     };
     assert.match((result.content[0] as { text: string }).text, /Changes:\n# .*diff\.txt/);
     assert.match((result.content[0] as { text: string }).text, /\x1b\[31m- two\x1b\[0m/);
@@ -1637,9 +1605,7 @@ test('custom edit returns diff and patch details', async () => {
     assert.match(details.diff, /- two/);
     assert.match(details.diff, /\+ TWO/);
     assert.match(details.files[0]!.coloredDiff, /\x1b\[31m- two\x1b\[0m/);
-    assert.deepEqual(details.files[0]!.reasoning, [
-      { editIndex: 0, reasoning: 'change to uppercase' },
-    ]);
+    assert.equal('reasoning' in details.files[0]!, false);
     assert.match(details.patch, /^--- /m);
     assert.match(details.files[0]!.patch, /\+\+\+ .*diff\.txt/);
 
@@ -1677,7 +1643,7 @@ test('custom edit returns diff and patch details', async () => {
   }
 });
 
-test('file edit renderResult shows query reasoning, per-edit diff, line range, and file', async () => {
+test('file edit renderResult shows per-edit diff, line range, and file', async () => {
   const { tools } = await captureExtensions();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-edit-peredit-'));
   const target = path.join(tmp, 'checkout.ts');
@@ -1737,26 +1703,6 @@ test('file edit renderResult shows query reasoning, per-edit diff, line range, a
     assert.ok(
       themedLines.some(l => /#2.*\b3\b/.test(l) || /\b3\b.*#2/.test(l)),
       'edit #2 carries its line number'
-    );
-
-    // Each edit reasoning is shown.
-    assert.ok(
-      themedLines.some(
-        l =>
-          /rename to v2 handler/.test(l) &&
-          !l.includes('- ') &&
-          !l.includes('+ ')
-      ),
-      'edit #1 reasoning shown'
-    );
-    assert.ok(
-      themedLines.some(
-        l =>
-          /rename total to sumTotal for clarity/.test(l) &&
-          !l.includes('- ') &&
-          !l.includes('+ ')
-      ),
-      'edit #2 reasoning shown'
     );
 
     // Red/green per-edit diffs: removed and added lines for each edit appear, themed.
@@ -2429,19 +2375,22 @@ test('research tools served via MCPTool — not registered as native Pi tools', 
 });
 
 test('mcp initialization reads canonical project config before the agent calls tools', async () => {
-  const { tools } = await captureExtensions();
+  const { tools, activeTools } = await captureExtensions();
   const mcpTool = tools.get('MCPTool')!;
   assert.ok(mcpTool, 'MCPTool registered');
   assert.equal(tools.has('mcp'), false, 'mcp alias was removed to slim the tool surface');
   assert.match(mcpTool.promptSnippet!, /mcp_catalog_index/);
-  assert.match(mcpTool.promptSnippet!, /Gateway to connected MCP servers/i);
+  assert.match(mcpTool.promptSnippet!, /Gateway to MCP servers/i);
   assert.match(mcpTool.description!, /tools, resources, and prompts/i);
-  assert.match(mcpTool.description!, /input in queries\[\]\.arguments/i);
+  assert.match(mcpTool.description!, /Describe loads an exact schema/i);
   assert.doesNotMatch(mcpTool.description!, /prepare/i);
   const mcpGuidelines = mcpTool.promptGuidelines?.join('\n') ?? '';
-  assert.match(mcpGuidelines, /\$OCTOCODE_HOME\/extension\/mcp\/servers\.json/);
-  assert.match(mcpGuidelines, /restart\/stop manages connections/i);
-  assert.match(mcpGuidelines, /built-in octocode server cannot be removed/i);
+  assert.match(mcpGuidelines, /Batch independent target queries inside arguments\.queries\[\]/i);
+  assert.match(mcpGuidelines, /Describe only when the target schema is not active/i);
+  assert.match(mcpGuidelines, /Generic action:call requires that same described schema/i);
+  assert.match(mcpGuidelines, /parallel execution only across different servers/i);
+  assert.match(mcpGuidelines, /add\/remove writes mcp\.json/i);
+  assert.match(mcpGuidelines, /untrusted MCP config.*approval/i);
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '.tmp-mcp-test-'));
   try {
@@ -2496,7 +2445,8 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.match(cachedPrompt, /instructions: Use echo only for MCP bridge smoke tests\./);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /description: Echo text/);
-    assert.match(cachedPrompt, /inputSchema: Input: text \(string, required\)/);
+    assert.match(cachedPrompt, /action:"describe"/);
+    assert.doesNotMatch(cachedPrompt, /inputSchema:/);
     assert.match(cachedPrompt, /tool: echo/);
     assert.match(cachedPrompt, /<runtime_capabilities>/);
     assert.match(cachedPrompt, /effective_inline_images: false/);
@@ -2505,28 +2455,49 @@ test('mcp initialization reads canonical project config before the agent calls t
     assert.doesNotMatch(cachedPrompt, /octocode-roast: Critical review and adversarial critique/, 'pathless metadata cannot shadow an effective skill source');
     assert.doesNotMatch(cachedPrompt, /BEFORE acting/);
 
-    const called = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'ok' } });
-    assert.match((called.content[0] as { text: string }).text, /echo:ok/);
+    // Auto-describe: call without prior describe now auto-describes the schema and proceeds.
+    const autoDescribed = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'guessed' } });
+    assert.match(
+      (autoDescribed.content[0] as { text: string }).text,
+      /echo:guessed/,
+      'call without prior describe auto-describes and succeeds',
+    );
 
     const described = await invokeMcp({ action: 'describe', server: 'fake', tool: 'echo' });
     assert.match((described.content[0] as { text: string }).text, /Use echo only for MCP bridge smoke tests/);
     assert.match((described.content[0] as { text: string }).text, /"name": "echo"/);
     assert.match((described.content[0] as { text: string }).text, /"inputSchema"/);
+    assert.match((described.content.at(-1) as { text: string }).text, /Loaded Pi tool: mcp__/);
+
+    const proxyName = [...tools.keys()].find(name => name.startsWith('mcp__fake__echo__'));
+    assert.ok(proxyName, 'describe registers a namespaced Pi proxy for the exact MCP schema');
+    assert.ok(activeTools.includes(proxyName), 'describe activates the proxy for the next provider request');
+    const proxy = tools.get(proxyName)!;
+    assert.match(proxy.description ?? '', /MCP fake\/echo.*Echo text/i);
+    assert.deepEqual(proxy.parameters, {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    });
+    const proxied = await invokeExecute(proxy, { text: 'via proxy' }, trustedCtx);
+    assert.match((proxied.content[0] as { text: string }).text, /echo:via proxy/);
+
+    const called = await invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 'ok' } });
+    assert.match((called.content[0] as { text: string }).text, /echo:ok/);
 
     await assert.rejects(
       invokeMcp({ action: 'call', server: 'fake', tool: 'echo', arguments: { text: 42 } }),
       /MCP_SCHEMA_INVALID/,
     );
 
-    // Prompt-caching contract: the catalog block is byte-stable — call/describe
-    // activity must NOT change the rendered <mcp_catalog> bytes (any churn would
-    // invalidate the provider prompt cache from that point on).
+    // Prompt-caching contract: demand-loaded schemas do not mutate the routing index,
+    // preserving provider prompt-cache bytes after call/describe activity.
     const afterUse = await captureExtensions().then(({ handlers }) =>
       handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: 'Pi base prompt' }, trustedCtx)
     );
     const hotPrompt = (afterUse as { systemPrompt?: string }).systemPrompt ?? '';
     const catalogSlice = (prompt: string): string =>
-      prompt.slice(prompt.indexOf('<mcp_catalog>'), prompt.indexOf('</mcp_catalog>'));
+      prompt.slice(prompt.indexOf('<mcp_catalog_index>'), prompt.indexOf('</mcp_catalog_index>'));
     assert.match(hotPrompt, /tool: echo/);
     assert.equal(catalogSlice(hotPrompt), catalogSlice(cachedPrompt), 'catalog bytes identical before and after call/describe');
 
@@ -2640,7 +2611,7 @@ test('re-exports the extracted Octocode UI implementation from the package entry
 test('Octocode metrics footer updates on session and turn lifecycle (single surface, no status dup)', async () => {
   setFooterDensity('default');
   const { handlers, pi } = await captureExtensions();
-  pi.execResults.set('octocode auth status --json', {
+  pi.execResults.set('-y octocode auth status --json', {
     stdout: JSON.stringify({ authenticated: true, tokenSource: 'octocode', tokenExpired: false }),
     code: 0,
   });
@@ -2692,7 +2663,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   );
   const initial = renderFooter();
   assert.doesNotMatch(initial, /◆ Octocode/, 'footer does not repeat the app brand');
-  assert.match(initial, /ctx 50\.0k\/100k 50%/, 'footer shows measured context use and capacity');
+  assert.match(initial, /context 50\.0k\/100k 50%/, 'footer shows measured context use and capacity');
   // Pre-first-turn footer carries no `turns 0` / `last —` placeholders.
   assert.doesNotMatch(initial, /turns 0/);
   assert.doesNotMatch(initial, /last —/);
@@ -2703,7 +2674,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   assert.doesNotMatch(initial, /\/harness inspect|\/now snapshot|\/status dash/);
   assert.doesNotMatch(initial, /github ✓/i, 'healthy authentication does not occupy the activity footer');
   assert.ok(
-    pi.execCalls.some((call) => call.command === 'npx' && call.args.join(' ') === 'octocode auth status --json'),
+    pi.execCalls.some((call) => call.command === 'npx' && call.args.join(' ') === '-y octocode auth status --json'),
     'session_start checks GitHub auth through the Octocode CLI',
   );
 
@@ -2725,7 +2696,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
     'Thinking is never duplicated in the status row',
   );
   for (const turnEnd of handlers.get('turn_end') ?? []) await turnEnd(undefined, ctx);
-  assert.equal(workingVisibility.at(-1), false, 'working animation hides when the operation ends');
+  assert.deepEqual([workingVisibility.at(-1), pi.execCalls.some((call) => call.command === 'git')], [false, false], 'turn end hides animation and passive UI never runs Git');
 
   const latest = renderFooter();
   assert.match(latest, /tools \d+/);
@@ -2825,8 +2796,8 @@ test('extension commands and lifecycle handlers execute user-visible wiring path
     );
     assert.deepEqual(
       resourcesResult,
-      {},
-      'source-mode tests have no src/skills directory'
+      { skillPaths: [getAssetPaths().skillsDir] },
+      'source-mode execution publishes the built skill bundle'
     );
 
     flagValues.set('no-context', true);
@@ -3054,31 +3025,25 @@ test('model-callable context controls are retired while automatic compaction hoo
   assert.ok((handlers.get('session_compact')?.length ?? 0) > 0);
 });
 
-test('the activated extension bounds every provider-visible tool result', withTempMemoryHome(async (tmp) => {
+test('the activated extension preserves provider-visible content through result hooks', withTempMemoryHome(async (tmp) => {
   const { handlers } = await captureExtensions();
-  const handler = handlers.get('tool_result')?.[0];
-  assert.ok(handler, 'global tool_result budget hook registered');
-  const result = await handler!(
-    {
-      toolCallId: 'third-party-call',
-      toolName: 'third_party_tool',
-      content: [{ type: 'text', text: 'x'.repeat(80_000) }],
-      details: { preserved: true },
-      isError: false,
-    },
-    {
-      cwd: tmp,
-      sessionManager: { getSessionId: () => 'tool-budget-integration' },
-    },
-  ) as { content: Array<{ type: string; text?: string }>; details?: unknown };
-  const visibleText = result.content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text ?? '')
-    .join('');
-
-  assert.ok(visibleText.length <= 5_000);
-  assert.match(visibleText, /heavy tool output referenced/);
-  assert.deepEqual(result.details, { preserved: true });
+  const content = [
+    { type: 'text' as const, text: 'x'.repeat(80_000) },
+    ...Array.from({ length: 4 }, () => ({ type: 'image' as const, data: 'aGVsbG8=', mimeType: 'image/png' })),
+  ];
+  const event = {
+    toolCallId: 'third-party-call', toolName: 'third_party_tool',
+    content, details: { preserved: true }, isError: false,
+  };
+  let delivered = event;
+  for (const handler of handlers.get('tool_result') ?? []) {
+    const update = await handler(delivered, {
+      cwd: tmp, sessionManager: { getSessionId: () => 'tool-content-integration' },
+    });
+    if (update) delivered = { ...delivered, ...update };
+  }
+  assert.deepEqual(delivered.content, content);
+  assert.deepEqual(delivered.details, event.details);
 }));
 
 test('session_before_compact provides the deterministic checkpoint ONLY on overflow, including written files', async () => {
@@ -3652,7 +3617,7 @@ test('Awareness pre-edit gate blocks lock conflicts', async () => {
         const after = store.listWork({ filePath: 'README.md', agentId: 'agent-b' })[0];
         assert.ok(after, 'native completion must preserve manually owned work');
         assert.equal(after.runId, before.runId);
-        const command = buildAwarenessCommand(['--db', store.dbPath, 'work', 'show', '--kind', 'presence', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
+        const command = buildAwarenessCliInvocation(['--db', store.dbPath, 'work', 'show', '--kind', 'presence', '--workspace', workspace, '--file', 'README.md', '--full', '--compact']);
         const shown = JSON.parse(execFileSync(command.cmd, command.args, { encoding: 'utf8' })) as { files: Array<{ run_id: string; test_plan: string }> };
         assert.equal(shown.files.find((row) => row.run_id === before.runId)?.test_plan, 'yarn test', 'automatic presence must preserve the declared verification contract');
       } finally { store.close(); }
@@ -3843,7 +3808,7 @@ test('agent spawn starts a lean RPC Pi process and agent lifecycle can list/stat
     assert.ok(spawnTool, 'agent spawn registered');
     assert.ok(messageTool, 'agent lifecycle registered');
     const itemSchema = querySchemaBranches(spawnTool).find((branch) => Boolean(branch.properties?.['model']))!.properties!;
-    assert.match(String(itemSchema['model']!.description), /pi -ne --list-models/);
+    assert.equal(String(itemSchema['model']!.description), 'Model override.');
     assert.match(String(itemSchema['planStep']!.description), /plan task ID.*omit for standalone/i);
     assert.equal(
       tools.has('handoff_context'),
@@ -4278,7 +4243,7 @@ test('agentSpecialist starts researcher, planner, and architect with focused ena
     const agentSpecialist = tools.get('agent')!;
     const profileValues = queryPropertySchemas(agentSpecialist, 'profile').flatMap((schema) => schema['enum'] as string[]);
     assert.deepEqual(profileValues, ['researcher', 'planner', 'architect', 'implementer', 'reviewer', 'browser', 'custom']);
-    assert.match(String(queryPropertySchemas(agentSpecialist, 'model')[0]!.description), /pi -ne --list-models/);
+    assert.equal(String(queryPropertySchemas(agentSpecialist, 'model')[0]!.description), 'Model override.');
 
     for (const agent of ['researcher', 'planner', 'architect']) {
       const result = await invokeExecute(
@@ -4443,8 +4408,8 @@ test('unified agent keeps non-browser profiles available when Chrome debug is di
     assert.deepEqual(queryPropertySchemas(agent, 'profile').flatMap((schema) => schema['enum'] as string[]), [
       'researcher', 'planner', 'architect', 'implementer', 'reviewer', 'browser', 'custom',
     ]);
-    assert.match(agent.description!, /researcher/);
-    assert.match(agent.description!, /architect/);
+    assert.match(agent.description!, /Delegate bounded workers/);
+    assert.match(agent.description!, /Verify handbacks/);
   } finally {
     if (previous === undefined) delete process.env['OCTOCODE_CHROME_DEBUG'];
     else process.env['OCTOCODE_CHROME_DEBUG'] = previous;

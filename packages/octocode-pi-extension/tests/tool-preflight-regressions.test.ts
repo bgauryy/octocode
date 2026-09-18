@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { registerMediaTool, runMediaOperation } from '../src/tools/create-media-tool.js';
 import { registerLocalServerTool } from '../src/tools/local-server-tool.js';
 import { registerUniqueTool } from '../src/tools/octocode-tools.js';
-import { executeQueryBatch, QueryBatchError } from '../src/tools/query-envelope.js';
+import { executeQueryBatch } from '../src/tools/query-envelope.js';
+import { QueryBatchError } from '../src/tools/query-batch-error.js';
 import { getLocalServerBaseUrl, serveDirectory, stopLocalServer } from '../src/tools/local-server.js';
 import type { ToolDefinition } from '../src/types.js';
 
@@ -27,6 +28,24 @@ afterEach(() => {
 });
 
 describe('whole-batch preflight and partial receipts', () => {
+  it.each(['sequential', 'parallel'] as const)('preserves first-failure evidence in a %s batch with no successful queries', async queryRunType => {
+    let registered: ToolDefinition | undefined;
+    const evidence = `diagnostic-header\n${'evidence-'.repeat(8_000)}\nfailed`;
+    registerUniqueTool({ registerTool: value => { registered = value; } }, new Set(), {
+      name: 'batchFixture', label: 'Batch fixture', description: 'fixture', parameters: {},
+      execute: async (toolCallId, raw) => executeQueryBatch({
+        toolCallId, raw, allowParallel: true,
+        execute: async () => ({ isError: true, content: [{ type: 'text', text: evidence }] }),
+      }),
+    });
+    const error = await registered!.execute('first-failure', {
+      queries: [{ reasoning: 'read evidence' }], queryRunType,
+    }).catch(error => error);
+    expect(error).toBeInstanceOf(QueryBatchError);
+    expect(error.completedCount).toBe(0);
+    expect(error.message.includes(evidence)).toBe(true);
+  });
+
   it('rejects a malformed later media operation before writing the first artifact', async () => {
     const cwd = workspace();
     const tool = capture(registerMediaTool);
@@ -83,8 +102,7 @@ describe('whole-batch preflight and partial receipts', () => {
     ]);
   });
 
-  it('keeps oversized evidence and images recoverable through bounded host errors', () => {
-    const ctx = { cwd: workspace(), octocodeHome: workspace(), sessionManager: { getSessionId: () => 'partial-receipt' } };
+  it('preserves complete evidence and images in host errors', () => {
     const evidence = `complete-${'x'.repeat(40_000)}-evidence`;
     const error = new QueryBatchError(1, 1, new Error('later failure'), [{
       index: 0, reasoning: 'first', status: 'success', summary: 'completed', content: [
@@ -92,17 +110,10 @@ describe('whole-batch preflight and partial receipts', () => {
         { type: 'image', mimeType: 'image/png', data: Buffer.from('image evidence').toString('base64') },
       ],
     }, { index: 1, reasoning: 'second', status: 'failed', summary: 'later failure' }]);
-    expect(error.withHostReceipt(ctx, 'oversized')).toBe(error);
+    expect(error.withHostReceipt()).toBe(error);
     const message = error.message;
-    expect(message.length).toBeLessThan(6000);
-    const textPath = message.match(/full text=([^;\]]+)/)?.[1];
-    expect(textPath).toBeTruthy();
-    expect(fs.readFileSync(textPath!, 'utf8')).toContain(evidence);
-    const manifestPath = message.match(/image manifest=([^;\]]+)/)?.[1];
-    expect(manifestPath).toBeTruthy();
-    const manifest = JSON.parse(fs.readFileSync(manifestPath!, 'utf8'));
-    expect(manifest.images).toHaveLength(1);
-    expect(fs.readFileSync(manifest.images[0].path, 'utf8')).toBe('image evidence');
-    expect(error.withHostReceipt(ctx, 'oversized').message).toBe(message);
+    expect(message).toContain(evidence);
+    expect(message).toContain(Buffer.from('image evidence').toString('base64'));
+    expect(error.withHostReceipt().message).toBe(message);
   });
 });

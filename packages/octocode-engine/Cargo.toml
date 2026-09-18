@@ -1,135 +1,84 @@
 [package]
 name = "octocode-engine"
-version = "19.1.0"
+version = "19.2.0"
 edition = "2021"
+build = "src/build.rs"
 description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
 license = "MIT"
 repository = "https://github.com/bgauryy/octocode-mcp"
-keywords   = ["napi", "llm", "context", "lsp", "nodejs"]
+keywords = ["napi", "llm", "context", "lsp", "nodejs"]
 categories = ["development-tools", "text-processing"]
 
 [lints.clippy]
-all            = { level = "deny", priority = -1 }
-unwrap_used    = "deny"
+all = { level = "deny", priority = -1 }
+unwrap_used = "deny"
 needless_pass_by_value = "allow"
-dbg_macro      = "deny"
-print_stdout   = "deny"
-print_stderr   = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
 
 [lints.rust]
-# Dead-code family: warn-by-default → deny, so `cargo check`/`clippy`/`build`
-# all FAIL hard on unused code (codifies the clean state; prevents regressions).
-# `#[allow(...)]` still overrides per-site (e.g. feature-gated `unused_mut`).
-dead_code        = "deny"
-unused_imports   = "deny"
+dead_code = "deny"
+unused_imports = "deny"
 unused_variables = "deny"
-unused_mut       = "deny"
+unused_mut = "deny"
 
 [lib]
-# `cdylib` is the napi addon; `rlib` additionally lets Rust bench/integration
-# targets link the crate as a library (criterion benches under `benches/`).
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-napi        = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
-napi-derive = "3"
-rayon       = "1"
-serde       = { version = "1", features = ["derive"] }
-serde_json  = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
-serde_yaml_ng = "0.10"  # maintained continuation of serde_yaml (archived upstream)
-regex       = "1"
-regex-syntax = "0.8"   # prescan literal extraction (already vendored via regex)
-aho-corasick = "1"     # sanitizer literal prescan (already vendored via regex)
-tokio       = { version = "1", features = ["fs", "io-util", "process", "rt-multi-thread", "sync", "time"] }
-url         = "2"
-which       = "8"
-
-# ── ripgrep, as a library ─────────────────────────────────────────────────────
-# We run the search in-process instead of shelling out to an `rg` binary, so
-# octocode is its own source of ripgrep. `grep` is ripgrep's own engine
-# (grep-searcher + grep-regex + grep-matcher + grep-printer); the `pcre2`
-# feature pulls grep-pcre2 for `-P` (lookaround/backrefs), with libpcre2
-# vendored & compiled from source (no system dependency). `ignore` provides the
-# gitignore-aware walker plus the `-g` override globs and `-t` type definitions.
-grep   = { version = "0.4", features = ["pcre2"] }
-ignore = "0.4"
-
-# ── line diff (Myers) for edit-tool / patch previews ────────────────────────
-
-# ── security pins: transitive deps pinned to patched versions ────────────────
-# crossbeam-epoch <0.9.20: RUSTSEC-2026-0204 (invalid pointer dereference)
-# Pulled in by rayon → crossbeam-deque → crossbeam-epoch.
+aho-corasick = "1"
+ast-grep-core = { version = "0.45.3", optional = true }
+ast-grep-config = { version = "0.45.3", optional = true }
+ast-grep-language = { version = "0.45.3", optional = true }
 crossbeam-epoch = "0.9.20"
-# memmap2 <0.9.11: RUSTSEC-2026-0186 (unchecked pointer offset — unsound)
-# Pulled in by grep → grep-searcher → memmap2.
-memmap2 = "0.9.11"
-
-# ── high-quality CSS minifier — default-enabled `css-quality` feature ────────
-# Disabling this feature uses the `minify_css_core` regex baseline instead of
-# parser-grade CSS/SCSS/LESS + HTML `<style>` minification.
+grep = { version = "0.4", features = ["pcre2"] }
+ignore = "0.4"
 lightningcss = { version = "1.0.0-alpha.72", default-features = false, optional = true }
-
-# ── OXC — JS/TS AST minifier + native semantic (scopes/bindings/refs) ─────────
-oxc_allocator = "0.148"
-oxc_ast       = "0.148"
-oxc_codegen   = { version = "0.148", default-features = false }
-oxc_minifier  = "0.148"
-oxc_parser    = "0.148"
-oxc_span      = "0.148"
-oxc_semantic  = "0.148"   # real ECMAScript scopes/bindings/in-file refs — native JS/TS symbols
-
-# ── tree-sitter core ─────────────────────────────────────────────────────────
-tree-sitter          = "0.27"
-
-# ── Grammar dependencies ─────────────────────────────────────────────────────
-tree-sitter-typescript = "0.23"   # covers .ts / .tsx
-tree-sitter-javascript = "0.25"   # covers .js / .jsx / .mjs / .cjs
-tree-sitter-python     = "0.25"   # covers .py
-tree-sitter-go         = "0.25"   # covers .go
-tree-sitter-rust       = "0.24.2" # covers .rs; fixes raw-reference/identifier ambiguity
-tree-sitter-java       = "0.23"   # covers .java
-tree-sitter-c          = "0.24"   # covers .c / .h
-tree-sitter-cpp        = { version = "0.23", optional = true }  # covers .cpp / .hpp / .cc
-tree-sitter-c-sharp    = { version = "0.23", optional = true }  # covers .cs
-tree-sitter-json       = "0.24"
-tree-sitter-yaml       = "0.7"
-tree-sitter-html       = "0.23"
-tree-sitter-css        = "0.25"
-tree-sitter-scss       = "1"
-tree-sitter-scala      = { version = "0.26", optional = true }  # .scala / .sc / .sbt (structural search + signatures) — tree-sitter-extended
-
-tree-sitter-ruby   = "0.23"   # official tree-sitter org — .rb / .rake / .gemspec
-tree-sitter-php    = "0.24"   # official tree-sitter org — .php (dual grammar: php + php_only)
-tree-sitter-kotlin-ng = "1.1"  # modern fork with tree-sitter-language 0.1 bindings — .kt / .kts
-
-tree-sitter-sequel = { version = "0.3", optional = true }    # SQL (crate name is "sequel", not "sql") — .sql — tree-sitter-extended
-
-
-# ── Large/complex grammar — feature-gated ─────────────────────────────────────
-tree-sitter-swift  = { version = "0.7", optional = true }   # .swift
-
-[features]
-# Enable all registered grammars and parser-grade CSS by default. A constrained
-# build can use `--no-default-features` plus selected features to reduce size.
-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
-tree-sitter-cpp     = ["dep:tree-sitter-cpp"]
-tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
-tree-sitter-swift   = ["dep:tree-sitter-swift"]
-tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-sitter-swift"]
-# Parser-grade CSS (lightningcss), included in the default build.
-css-quality = ["dep:lightningcss"]
-# Additional language grammars (structural search + signatures), enabled by
-# default. The core set (ts/js/py/go/rs/java/c/ruby/php/kotlin + web/config markup)
-# stays always-on. This feature adds Scala and SQL.
-tree-sitter-extended = [
-  "dep:tree-sitter-sequel",
-  "dep:tree-sitter-scala",
-]
+memmap2 = "0.9.11"
+napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
+napi-derive = { version = "3", optional = true }
+oxc_allocator = "0.150"
+oxc_ast = "0.150"
+oxc_codegen = { version = "0.150", default-features = false }
+oxc_minifier = "0.150"
+oxc_parser = "0.150"
+oxc_semantic = "0.150"
+oxc_span = "0.150"
+rayon = "1"
+regex = "1"
+regex-syntax = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+serde_yaml_ng = "0.10"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "test-util", "time"] }
+tree-sitter = "0.27"
+tree-sitter-c = "0.24"
+tree-sitter-c-sharp = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-css = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-json = "0.24"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-php = "0.24"
+tree-sitter-python = "0.25"
+tree-sitter-ruby = "0.23"
+tree-sitter-rust = "0.24.2"
+tree-sitter-scala = { version = "0.26", optional = true }
+tree-sitter-scss = "1"
+tree-sitter-sequel = { version = "0.3", optional = true }
+tree-sitter-swift = { version = "0.7", optional = true }
+tree-sitter-typescript = "0.23"
+tree-sitter-yaml = "0.7"
+url = "2"
+which = "8"
 
 [dev-dependencies]
-napi      = { version = "3", default-features = false, features = ["noop", "napi4", "tokio_rt", "serde-json"] }
-proptest  = "1"
 criterion = { version = "0.8", features = ["html_reports"] }
+proptest = "1"
 
 [[bench]]
 name = "structural"
@@ -139,20 +88,28 @@ harness = false
 name = "minify"
 harness = false
 
+[features]
+default = ["portable-default", "napi-addon"]
+portable-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
+napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build", "embedded-ast-grep-rewrite"]
+napi-test = ["napi-addon", "napi/noop"]
+embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config", "dep:ast-grep-language"]
+tree-sitter-cpp = ["dep:tree-sitter-cpp"]
+tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
+tree-sitter-swift = ["dep:tree-sitter-swift"]
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-sitter-swift"]
+css-quality = ["dep:lightningcss"]
+tree-sitter-extended = ["dep:tree-sitter-sequel", "dep:tree-sitter-scala"]
+
 [build-dependencies]
-napi-build = "2"
+napi-build = { version = "2", optional = true }
 
 [profile.release]
-lto           = true
+lto = true
 codegen-units = 1
-opt-level     = 3
-strip         = "symbols"
+opt-level = 3
+strip = "symbols"
 
-# Build regex-automata with full optimizations even in debug/test profiles.
-# Without this, the regex crate's DFA literal-optimization is disabled at the
-# default debug opt-level, causing pathological performance on large strings
-# (e.g. the 500KB+multibyte chunk-boundary property test). Release is unaffected
-# (already opt-level=3); this only warms the debug/test hot path.
 [profile.dev.package."regex-automata"]
 opt-level = 3
 

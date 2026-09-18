@@ -1,4 +1,4 @@
-import type { CapabilitySnapshot } from '@octocodeai/agent-contracts/capabilities';
+import type { CapabilitySnapshot } from '../../contracts/capabilities.js';
 import { buildMcpCatalogSnapshot, type McpCatalogServerInput } from './catalog.js';
 
 export function workerMcpCatalogSnapshot(snapshot: CapabilitySnapshot, cwd: string) {

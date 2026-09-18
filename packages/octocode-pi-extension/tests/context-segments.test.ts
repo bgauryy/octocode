@@ -1,6 +1,6 @@
-import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness';
+import { AWARENESS_PI_HOST_PROMPT } from '@octocodeai/octocode-awareness/host';
 import { describe, expect, it } from 'vitest';
-import { assembleContextSegments, assertContextTokenBudget, contextSegmentFromInput, estimateContextTokens } from '../src/tools/context-segments.js';
+import { assembleContextSegments, assertContextTokenBudget, contextSegmentFromInput, estimateContextTokens, providerContextTokenBudget } from '../src/tools/context-segments.js';
 
 const base = { scope: 'session', visibility: 'inspectable', rehydrate: 'always' } as const;
 
@@ -38,6 +38,17 @@ describe('typed context segment manifest', () => {
       /initial provider context exceeds total token budget 120 \(estimated 121\)/,
     );
     expect(assertContextTokenBudget('initial provider context', 480, 120)).toBe(120);
+  });
+
+  it.each([4096, 32768, 80000, 200000])('bounds the prompt/tool overhead by the selected model window %s', contextWindow => {
+    const budget = providerContextTokenBudget(contextWindow);
+    expect(budget).toBe(Math.min(contextWindow, 80000));
+    expect(assertContextTokenBudget('initial provider context', budget * 4, budget)).toBe(budget);
+    expect(() => assertContextTokenBudget('initial provider context', budget * 4 + 1, budget)).toThrow(/exceeds/);
+  });
+
+  it.each([undefined, 0, -1, NaN, Infinity, 1.5])('retains the fallback budget for unavailable or invalid model metadata: %s', contextWindow => {
+    expect(providerContextTokenBudget(contextWindow)).toBe(80000);
   });
 
   it('builds the same digest-bound segment through the reusable owner boundary', () => {

@@ -1,0 +1,1 @@
+{"kind":"octocode.toolError","version":1,"tool":"ghGetHistoryItem","error":"Check the query fields.","details":["queries.0.content.comments.includeBots: Invalid input: expected true"]}

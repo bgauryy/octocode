@@ -62,7 +62,7 @@ function planSegments(snapshot: UxSnapshotV1): InlineSegment[] | undefined {
   const currentTask: InlineSegment[] = current
     ? [
         {
-          text: `task ${current.index} ${taskState}: ${current.status === 'doing' ? current.activeLabel ?? current.label : current.label}`,
+          text: `${taskState}: ${current.status === 'doing' ? current.activeLabel ?? current.label : current.label}`,
           token: current.status === 'blocked' ? 'warning' : 'muted',
         },
       ]
@@ -81,7 +81,7 @@ function planSegments(snapshot: UxSnapshotV1): InlineSegment[] | undefined {
     return [
       { text: 'Plan verifying', token: 'brand' },
       ...currentTask,
-      { text: plural(plan.done, 'passed'), token: 'success' },
+      { text: `${plan.done} done`, token: 'success' },
       ...(plan.verifying > 0
         ? [{ text: plural(plan.verifying, 'running'), token: 'brand' as const }]
         : []),
@@ -278,7 +278,7 @@ function candidates(
       segments: [
         {
           text: `${snapshot.messages.unread + snapshot.messages.queued} messages pending`,
-          token: 'link',
+          token: 'warning',
           attention: true,
         },
         ...(snapshot.messages.latestSender
@@ -300,7 +300,7 @@ function candidates(
       order: 0,
       segments: [
         {
-          text: `ctx ${snapshot.session.contextTokens !== undefined && snapshot.session.contextWindow ? `${formatCompact(snapshot.session.contextTokens)}/${formatCompact(snapshot.session.contextWindow)} ` : ''}${snapshot.session.contextPressure}%`,
+          text: `context ${snapshot.session.contextTokens !== undefined && snapshot.session.contextWindow ? `${formatCompact(snapshot.session.contextTokens)}/${formatCompact(snapshot.session.contextWindow)} ` : ''}${snapshot.session.contextPressure}%`,
           token:
             snapshot.session.contextPressure >= 97
               ? 'error'
@@ -345,7 +345,7 @@ function compactCandidates(all: Candidate[]): Candidate[] {
       detailRoute: 'plan',
       segments: [
         ...plan.segments,
-        ...activity.segments.filter(segment => !segment.text.includes('task ')),
+        ...activity.segments.filter(segment => segment.token === 'dim'),
       ],
     });
   }

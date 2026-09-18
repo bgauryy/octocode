@@ -10,6 +10,7 @@ import { connectDb } from '../src/db-runtime.js';
 import { openAwarenessStore } from '../src/coordination/open.js';
 import { awarenessEntityCatalog } from '../src/schema/entities.js';
 import { tsxCli } from './helpers/tsx-cli.js';
+import { AWARENESS_DB_FILENAME } from '../src/storage-scope.js';
 
 const SOURCE_SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), '../bin/awareness.ts');
 const TSX_SCRIPT = tsxCli;
@@ -34,9 +35,9 @@ describe('schema entities', () => {
     expect(result.status, result.stderr || result.stdout).toBe(0);
     const entities = result.parsed?.['entities'] as Array<Record<string, unknown>>;
     expect(result.parsed?.['kind']).toBe('awareness.entities');
-    expect(entities).toHaveLength(31);
-    expect(entities.find((entity) => entity['name'] === 'awareness_meta')).toMatchObject({ owner: 'awareness', family: 'storage' });
-    expect(entities.find((entity) => entity['name'] === 'awareness_plans')).toMatchObject({ owner: 'awareness', family: 'planning' });
+    expect(entities).toHaveLength(30);
+    expect(entities.find((entity) => entity['name'] === 'awareness_meta')).toMatchObject({ owner: 'storage', family: 'storage' });
+    expect(entities.find((entity) => entity['name'] === 'awareness_plans')).toMatchObject({ owner: 'work', family: 'planning' });
     expect(entities.find((entity) => entity['name'] === 'plans')).toBeUndefined();
     expect(entities.find((entity) => entity['name'] === 'worker_lifecycle_events')).toBeUndefined();
     for (const legacy of ['task_events', 'run_log', 'edit_log', 'harness_log', 'handoffs']) {
@@ -79,7 +80,7 @@ describe('schema entities', () => {
 
       const isolatedHome = join(dir, 'missing-home');
       const isolatedCatalog = awarenessEntityCatalog({ ...process.env, OCTOCODE_HOME: isolatedHome });
-      expect(isolatedCatalog.storage.default_path).toBe(join(isolatedHome, 'awareness', 'awareness.sqlite3'));
+      expect(isolatedCatalog.storage.default_path).toBe(join(isolatedHome, 'awareness', AWARENESS_DB_FILENAME));
       expect(existsSync(isolatedHome)).toBe(false);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

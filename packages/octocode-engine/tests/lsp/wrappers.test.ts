@@ -66,6 +66,7 @@ function nativeMock() {
       })),
       isCommandAvailable: vi.fn(() => true),
       safeReadFile: vi.fn(() => 'content'),
+      safeReadLineWindow: vi.fn(() => 'line window'),
       validateLspServerPath: vi.fn((command: string) => command),
     },
   };
@@ -488,6 +489,20 @@ describe('TypeScript wrappers delegate to nativeBinding only', () => {
       });
       await expect(
         validationModule.safeReadFile('/workspace/missing.ts')
+      ).resolves.toBeNull();
+      await expect(
+        validationModule.safeReadLineWindow(filePath, 4, 2)
+      ).resolves.toBe('line window');
+      expect(mock.nativeBinding.safeReadLineWindow).toHaveBeenCalledWith(
+        filePath,
+        4,
+        2
+      );
+      mock.nativeBinding.safeReadLineWindow.mockImplementationOnce(() => {
+        throw new Error('missing window');
+      });
+      await expect(
+        validationModule.safeReadLineWindow('/workspace/missing.ts', 4, 2)
       ).resolves.toBeNull();
       expect(validationModule.validateLSPServerPath('server')).toEqual({
         isValid: true,

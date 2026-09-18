@@ -19,6 +19,7 @@ export interface LocalFetchData {
   endLine?: number;
   isPartial?: boolean;
   matchRanges?: FileContentMatchRange[];
+  sourceLineRanges?: FileContentMatchRange[];
   pagination?: FetchPagination;
   returnedBytes?: number;
   returnedLines?: number;

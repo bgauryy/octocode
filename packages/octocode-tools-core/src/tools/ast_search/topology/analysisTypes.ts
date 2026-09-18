@@ -7,7 +7,8 @@ export type GraphOperation =
   | 'dependencies'
   | 'dependents'
   | 'path'
-  | 'reachability';
+  | 'reachability'
+  | 'drift';
 
 export interface TopologyAnalysisQuery {
   operation: GraphOperation;
@@ -15,6 +16,7 @@ export interface TopologyAnalysisQuery {
   path?: string;
   file?: string;
   target?: string;
+  baseline?: string;
   depth?: number;
   entrypoints?: string[];
   includeTests?: boolean;
@@ -65,7 +67,8 @@ export interface TopologyAnalysisOutput {
     totalPages: number;
     entriesPerPage: number;
     totalEntries: number;
-    hasMore: boolean;
+    /** Absent when there are no further pages (same as false). */
+    hasMore?: boolean;
     outOfRange?: boolean;
   };
   next?: Record<string, unknown>;

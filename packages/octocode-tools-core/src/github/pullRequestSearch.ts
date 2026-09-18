@@ -29,12 +29,13 @@ import {
 
 import { formatPRForResponse } from './prTransformation.js';
 import { transformPullRequestItemFromSearch } from './prContentFetcher/transform.js';
-import { fetchGitHubPullRequestByNumberAPIInternal } from './prByNumber.js';
+import { fetchGitHubPullRequestByNumberAPI } from './prByNumber.js';
 import {
   createPullRequestEmptyResult,
   createPullRequestErrorResult,
   searchPullRequestsWithREST,
 } from './pullRequestSearch/restSearch.js';
+import { rejectUnreachableSearchPage } from './searchWindow.js';
 
 async function resolveCanonicalSearchRepo(
   octokit: InstanceType<typeof OctokitWithThrottling>,
@@ -128,6 +129,17 @@ export async function searchGitHubPullRequestsAPI(
   authInfo?: AuthInfo,
   sessionId?: string
 ): Promise<GitHubPullRequestSearchApiResult> {
+  if (
+    params.prNumber &&
+    params.owner &&
+    params.repo &&
+    !Array.isArray(params.owner) &&
+    !Array.isArray(params.repo)
+  ) {
+    // Exact reads cache provider metadata and collection pages independently;
+    // caching their projection would extend the metadata's freshness window.
+    return fetchGitHubPullRequestByNumberAPI(params, authInfo);
+  }
   const auth = await resolveCacheAuthFingerprint(authInfo);
   const cacheKey = buildPullRequestSearchCacheKey(params, sessionId, auth);
 
@@ -155,16 +167,6 @@ async function searchGitHubPullRequestsAPIInternal(
   _sessionId?: string
 ): Promise<GitHubPullRequestSearchApiResult> {
   try {
-    if (
-      params.prNumber &&
-      params.owner &&
-      params.repo &&
-      !Array.isArray(params.owner) &&
-      !Array.isArray(params.repo)
-    ) {
-      return await fetchGitHubPullRequestByNumberAPIInternal(params, authInfo);
-    }
-
     const octokit = await getOctokit(authInfo);
 
     const shouldUseSearch = shouldUseSearchForPRs(params);
@@ -177,6 +179,16 @@ async function searchGitHubPullRequestsAPIInternal(
       !Array.isArray(params.repo)
     ) {
       return await searchPullRequestsWithREST(octokit, params);
+    }
+
+    const perPage = Math.min(
+      params.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
+      GITHUB_SEARCH_MAX_LIMIT
+    );
+    const currentPage = params.page || 1;
+    const windowError = rejectUnreachableSearchPage(currentPage, perPage);
+    if (windowError) {
+      return createPullRequestErrorResult(windowError, windowError.error, []);
     }
 
     const searchParams = await resolveCanonicalSearchRepo(octokit, params);
@@ -195,12 +207,6 @@ async function searchGitHubPullRequestsAPIInternal(
       searchParams.sort && searchParams.sort !== 'best-match'
         ? searchParams.sort
         : undefined;
-
-    const perPage = Math.min(
-      searchParams.limit || GITHUB_SEARCH_DEFAULT_LIMIT,
-      GITHUB_SEARCH_MAX_LIMIT
-    );
-    const currentPage = searchParams.page || 1;
 
     const effectiveQuery = searchQuery;
 

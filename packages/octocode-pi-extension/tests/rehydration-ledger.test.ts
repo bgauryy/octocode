@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { contentDigest } from '@octocodeai/octocode-awareness';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { createSessionArtifactContext, inspectRehydrationLedger, readRehydrationLedger, readRehydrationSegmentContents, resolveRehydrationSegments, writeRehydrationLedger } from '../src/tools/session-artifacts.js';
 
 const roots: string[] = [];

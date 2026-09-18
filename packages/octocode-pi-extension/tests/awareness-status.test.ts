@@ -1,4 +1,4 @@
-import type { ExternalAwarenessStatus } from '@octocodeai/octocode-awareness';
+import type { ExternalAwarenessStatus } from '@octocodeai/octocode-awareness/host';
 import assert from 'node:assert/strict';
 import { afterEach, test, vi } from 'vitest';
 import {
@@ -118,19 +118,16 @@ function uiCtx() {
 
 test('refresh caches one typed package snapshot and throttles repeated paints', async () => {
   let calls = 0;
-  setAwarenessStatusRunnerForTests(async (cwd, agentId) => {
+  setAwarenessStatusRunnerForTests(async ctx => {
     calls++;
-    assert.equal(cwd, '/tmp/aware-ws');
-    assert.equal(agentId, 'agent-current');
+    assert.equal(ctx.cwd, '/tmp/aware-ws');
     return FULL;
   });
-  process.env.OCTOCODE_AGENT_ID = 'agent-current';
   const { ctx, widget } = uiCtx();
   refreshAwarenessPanel(ctx);
   await new Promise(resolve => setTimeout(resolve, 5));
   refreshAwarenessPanel(ctx);
   await new Promise(resolve => setTimeout(resolve, 5));
-  delete process.env.OCTOCODE_AGENT_ID;
   assert.equal(calls, 1);
   const cached = getCachedAwarenessStatus(ctx.cwd!);
   assert.ok(cached?.observedAt);

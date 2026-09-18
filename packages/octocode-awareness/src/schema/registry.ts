@@ -4,6 +4,7 @@ import { operationSchemas } from './definitions-operations.js';
 import { adminSchemas } from './definitions-admin.js';
 import { integrationSchemas } from './definitions-integration.js';
 import { historySchemas } from './definitions-history.js';
+import { maintenanceRetentionSchema } from './definitions-maintenance.js';
 
 export const schemas = {
   ...memorySchemas,
@@ -12,5 +13,6 @@ export const schemas = {
   ...integrationSchemas,
   ...adminSchemas,
   ...historySchemas,
+  maintenance_retention: maintenanceRetentionSchema,
 };
 export type SchemaName = keyof typeof schemas;

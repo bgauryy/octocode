@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "octocode-mcp",
   "display_name": "Octocode MCP Extension",
-  "version": "19.1.0",
+  "version": "19.2.0",
   "description": "Code research MCP server for GitHub, npm, local files, and LSP semantics",
   "long_description": "MCP server with code research tools across GitHub, npm, local files, and LSP semantics. Agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
   "author": {
@@ -65,6 +65,10 @@
     {
       "name": "astSearch",
       "description": "Inspect local syntax, symbols, structural matches, files, trees, and graph topology"
+    },
+    {
+      "name": "astRewrite",
+      "description": "Preview or apply transactional structural rewrites with exact file-hash preconditions"
     },
     {
       "name": "localFetch",

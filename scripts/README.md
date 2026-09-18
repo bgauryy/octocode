@@ -11,7 +11,6 @@ running a script directly, unless you need `--fix`/flags.
 | `dedupe-deps.mjs` | Enforces one version range per external dependency and rejects runtime dependencies repeated in `devDependencies` (replaces syncpack). | `yarn deps:dedupe` · `yarn deps:dedupe:fix` |
 | `esbuild-package.mjs` | Shared tools-core/MCP builder; emits each entry point and rejects external runtime imports missing from the package manifest. | Package `build` / `build:dev` scripts |
 | `runtime-import-contract.mjs` | Normalizes bare import specifiers and implements the build-time dependency ownership check shared by package builders. | Imported by build scripts |
-| `sync-package-readmes.mjs` | Copies root `README.md` into public packages at build/prepack time. A package with `octocode.readmeSync: false` owns its README and is skipped. | `yarn readme:sync` |
 | `docs-verify.mjs` | Validates links, workflow references, the public tool catalog, configuration keys, and publishing contracts. | `yarn docs:verify` |
 
 ## Notes

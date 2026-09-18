@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"queries\":[{\"operation\":\"code\",\"keywords\":[\"function mountHookTypesDev\"],\"owner\":\"facebook\",\"repo\":\"react\",\"pageSize\":10},{\"operation\":\"code\",\"keywords\":[\"function useThenable\"],\"owner\":\"facebook\",\"repo\":\"react\",\"pageSize\":10},{\"operation\":\"code\",\"keywords\":[\"function renderWithHooksAgain\"],\"owner\":\"facebook\",\"repo\":\"react\",\"pageSize\":10}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:27.324Z",
+  "endedAt": "2026-09-18T08:27:32.761Z",
+  "elapsedMs": 5435,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "d9dfd71c6fdb363cc7d3a9f20a9ae164d5d53336059392cc38fdd04956233e18",
+  "stdoutBytes": 2756,
+  "requestSha256": null
+}

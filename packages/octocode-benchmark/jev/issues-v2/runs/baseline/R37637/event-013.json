@@ -1,0 +1,18 @@
+{
+  "arm": "baseline",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Locate the official React documentation containing the exact quoted ViewTransition wording, so its property scope is established rather than assumed from the issue.\",\"operation\":\"code\",\"owner\":\"reactjs\",\"repo\":\"react.dev\",\"keywords\":[\"Combined with className\"],\"pageSize\":10},{\"reasoning\":\"Locate official ViewTransition documentation for parentEnter and enter separately to resolve whether the issue quoted the correct prop contract.\",\"operation\":\"code\",\"owner\":\"reactjs\",\"repo\":\"react.dev\",\"keywords\":[\"parentEnter\"],\"pageSize\":10},{\"reasoning\":\"Locate React repository API documentation or type comments containing the phrase quoted in issue #37637.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"parent Component\"],\"pageSize\":10}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:59:30.122Z",
+  "endedAt": "2026-09-18T08:59:35.070Z",
+  "elapsedMs": 4948,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "95caffe41d51626e23424e4d3081d4174971d7ad22c62919ad4af2b88211fea0",
+  "requestSha256": null
+}

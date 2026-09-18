@@ -1,9 +1,5 @@
 import { ContentSanitizer } from './contentSanitizer.js';
-import type {
-  ISanitizer,
-  ToolResult,
-  ToolSecurityContext,
-} from './types.js';
+import type { ISanitizer, ToolResult, ToolSecurityContext } from './types.js';
 
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 
@@ -79,25 +75,14 @@ function withToolTimeout(
 
   return new Promise<ToolResult>(resolve => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let onAbort: () => void;
     const finish = (result: ToolResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (onAbort) signal?.removeEventListener('abort', onAbort);
+      signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
-    timer = setTimeout(() => {
-      onTimeout?.();
-      finish(
-        createErrorResult(
-          `Tool '${toolName}' timed out after ${timeout / 1000}s. Try reducing query complexity or scope.`
-        )
-      );
-    }, timeout);
-
-    onAbort = () => {
+    const onAbort = () => {
       if (timeoutSignal?.aborted) {
         finish(
           createErrorResult(
@@ -110,6 +95,14 @@ function withToolTimeout(
         createErrorResult(`Tool '${toolName}' was cancelled by the client.`)
       );
     };
+    const timer = setTimeout(() => {
+      onTimeout?.();
+      finish(
+        createErrorResult(
+          `Tool '${toolName}' timed out after ${timeout / 1000}s. Try reducing query complexity or scope.`
+        )
+      );
+    }, timeout);
 
     signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -260,11 +253,11 @@ export function withBasicSecurityValidation<T extends object>(
   ) => toolHandler(sanitizedArgs as T, context);
   const effectiveName = toolName ?? 'tool';
   return (args: unknown, extra?: { signal?: AbortSignal }) =>
-      runSecure({
-        toolName: effectiveName,
-        handler,
-        args,
-        signal: extra?.signal,
-        timeoutMs: options?.timeoutMs,
-      });
+    runSecure({
+      toolName: effectiveName,
+      handler,
+      args,
+      signal: extra?.signal,
+      timeoutMs: options?.timeoutMs,
+    });
 }

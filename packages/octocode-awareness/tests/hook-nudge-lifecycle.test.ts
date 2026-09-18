@@ -22,8 +22,8 @@ it('rechecks due maintenance on an unchanged ledger and prompt, but respects its
   vi.stubEnv('OCTOCODE_HOME', root);
   vi.stubEnv('OCTOCODE_AGENT_ID', 'nudge-tester');
   vi.stubEnv('OCTOCODE_NO_NOTIFY', '0');
-  vi.stubEnv('OCTOCODE_NO_DIGEST', '0');
-  vi.stubEnv('OCTOCODE_DIGEST_INTERVAL_HOURS', '4');
+  vi.stubEnv('OCTOCODE_NO_RETENTION_REMINDER', '0');
+  vi.stubEnv('OCTOCODE_RETENTION_REMINDER_INTERVAL_HOURS', '4');
   vi.stubEnv('OCTOCODE_HOOK_PROFILE', 'full');
   writeFileSync(join(root, 'awareness.json'), JSON.stringify({ version: 1, features: {
     hooks: true, notifications: false, verificationGate: false, sessionCapture: false, maintenanceReminders: true,
@@ -32,7 +32,7 @@ it('rechecks due maintenance on an unchanged ledger and prompt, but respects its
   const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
   const payload = JSON.stringify({ workspace, session_id: 'nudge-session', prompt: 'same prompt' });
   const hash = createHash('sha256').update(workspace).digest('hex').slice(0, 12);
-  const marker = join(dirname(resolveDbPath(null)), `.last-digest-preview-${hash}-epoch-ms`);
+  const marker = join(dirname(resolveDbPath(null)), `.last-retention-preview-${hash}-epoch-ms`);
 
   expect(await runHookCommand('notify-deliver', payload)).toBe(0);
   expect(readFileSync(marker, 'utf8')).toBe('1000000');
@@ -46,7 +46,7 @@ it('rechecks due maintenance on an unchanged ledger and prompt, but respects its
   clock.mockReturnValue(500_000);
   expect(await runHookCommand('notify-deliver', payload)).toBe(0);
   expect(readFileSync(marker, 'utf8')).toBe('500000');
-  vi.stubEnv('OCTOCODE_NO_DIGEST', '1');
+  vi.stubEnv('OCTOCODE_NO_RETENTION_REMINDER', '1');
   clock.mockReturnValue(500_000 + 4 * 3600_000);
   expect(await runHookCommand('notify-deliver', payload)).toBe(0);
   expect(readFileSync(marker, 'utf8')).toBe('500000');

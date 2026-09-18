@@ -1,0 +1,11 @@
+{
+  "arm": "treatment",
+  "id": "L40590",
+  "model": "gpt-5.6-terra",
+  "effort": "high",
+  "startedAt": "2026-09-18T09:00:06.360Z",
+  "endedAt": "2026-09-18T09:00:09.660Z",
+  "exitCode": 1,
+  "signal": null,
+  "status": "failed"
+}

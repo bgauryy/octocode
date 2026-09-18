@@ -1788,7 +1788,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@modelcontextprotocol/core@npm:2.0.0, @modelcontextprotocol/core@npm:^2.0.0":
+"@modelcontextprotocol/core@npm:2.0.0":
   version: 2.0.0
   resolution: "@modelcontextprotocol/core@npm:2.0.0"
   dependencies:
@@ -1840,9 +1840,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@napi-rs/cli@npm:^3.9.1":
-  version: 3.9.1
-  resolution: "@napi-rs/cli@npm:3.9.1"
+"@napi-rs/cli@npm:^3.10.3":
+  version: 3.10.3
+  resolution: "@napi-rs/cli@npm:3.10.3"
   dependencies:
     "@inquirer/prompts": "npm:^8.5.2"
     "@napi-rs/cross-toolchain": "npm:^1.0.3"
@@ -1852,7 +1852,7 @@ __metadata:
     colorette: "npm:^2.0.20"
     es-toolkit: "npm:^1.47.0"
     js-yaml: "npm:^5.0.0"
-    obug: "npm:^2.1.2"
+    obug: "npm:^3.0.0"
     semver: "npm:^7.8.2"
     typanion: "npm:^3.14.0"
     typescript: "npm:^6.0.3"
@@ -1870,7 +1870,7 @@ __metadata:
   bin:
     napi: dist/cli.js
     napi-raw: cli.mjs
-  checksum: 10c0/2f176b797940df95acf0fcdb35372a3ac3b9d01cf9aa2efa33f2ee09c564731fe7e6924f07a109b565fad4c494dfa4470730465b7c274492176e83d849d39b9c
+  checksum: 10c0/54c0edd050445bf0d2c44bc098605dcad135614526155a979e0b810e2859955bca56a10b06018e8d629aaaf58c11bf1701210d5071174ef3ad8c1ad4cc5f35a3
   languageName: node
   linkType: hard
 
@@ -2559,23 +2559,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@octocodeai/agent-contracts@workspace:*, @octocodeai/agent-contracts@workspace:packages/octocode-agent-contracts":
-  version: 0.0.0-use.local
-  resolution: "@octocodeai/agent-contracts@workspace:packages/octocode-agent-contracts"
-  dependencies:
-    "@octocodeai/config": "npm:20.0.0"
-    "@types/node": "npm:^24.13.4"
-    "@vitest/coverage-v8": "npm:^5.0.0"
-    esbuild: "npm:^0.28.2"
-    smol-toml: "npm:^1.8.0"
-    typescript: "npm:^6.0.3"
-    vite: "npm:^8.3.0"
-    vitest: "npm:^5.0.0"
-    yaml: "npm:^2.9.0"
-    zod: "npm:^4.6.2"
-  languageName: unknown
-  linkType: soft
-
 "@octocodeai/agent-core@npm:0.1.0":
   version: 0.1.0
   resolution: "@octocodeai/agent-core@npm:0.1.0"
@@ -2609,7 +2592,6 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-awareness@workspace:packages/octocode-awareness"
   dependencies:
-    "@octocodeai/agent-contracts": "npm:0.1.0"
     "@octocodeai/octocode-extension-rust": "npm:0.1.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
     "@types/node": "npm:^24.13.4"
@@ -2638,11 +2620,11 @@ __metadata:
   linkType: soft
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
-  version: 19.0.1
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=6e4aa2&locator=octocode-monorepo%40workspace%3A."
+  version: 19.0.2
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=0733a4&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/ca1da63ca61ea940d2be00c33c64fb56a1275d9870cfc97512c14fa8587b603989224e5f9741a2bbf54dfee13ed034aa4e056fb3e7987bfed24e2a1551fbb10d
+  checksum: 10c0/45833487cae089122cd433835bac39310b95f22309b89d4578d3b3ab6d05ab2a829f0153cb3f06f602fe276d30d86de7a015fad3eb6c7d49e0a7589983119cea
   languageName: node
   linkType: hard
 
@@ -2686,17 +2668,17 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-engine@workspace:packages/octocode-engine"
   dependencies:
-    "@napi-rs/cli": "npm:^3.9.1"
+    "@napi-rs/cli": "npm:^3.10.3"
     "@octocodeai/config": "npm:20.0.0"
-    "@octocodeai/octocode-engine-darwin-arm64": "npm:19.1.0"
-    "@octocodeai/octocode-engine-darwin-x64": "npm:19.1.0"
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "npm:19.1.0"
-    "@octocodeai/octocode-engine-linux-x64-gnu": "npm:19.1.0"
-    "@octocodeai/octocode-engine-linux-x64-musl": "npm:19.1.0"
-    "@octocodeai/octocode-engine-win32-x64-msvc": "npm:19.1.0"
+    "@octocodeai/octocode-engine-darwin-arm64": "npm:19.2.0"
+    "@octocodeai/octocode-engine-darwin-x64": "npm:19.2.0"
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "npm:19.2.0"
+    "@octocodeai/octocode-engine-linux-x64-gnu": "npm:19.2.0"
+    "@octocodeai/octocode-engine-linux-x64-musl": "npm:19.2.0"
+    "@octocodeai/octocode-engine-win32-x64-msvc": "npm:19.2.0"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
-    bash-language-server: "npm:^5.6.0"
+    bash-language-server: "npm:^5.7.1"
     esbuild: "npm:^0.28.2"
     pyright: "npm:^1.1.414"
     typescript: "npm:^6.0.3"
@@ -2786,6 +2768,71 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@octocodeai/octocode-native-darwin-arm64@workspace:*, @octocodeai/octocode-native-darwin-arm64@workspace:packages/octocode-native/npm/darwin-arm64":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-darwin-arm64@workspace:packages/octocode-native/npm/darwin-arm64"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native-darwin-x64@workspace:*, @octocodeai/octocode-native-darwin-x64@workspace:packages/octocode-native/npm/darwin-x64":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-darwin-x64@workspace:packages/octocode-native/npm/darwin-x64"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native-linux-arm64-gnu@workspace:*, @octocodeai/octocode-native-linux-arm64-gnu@workspace:packages/octocode-native/npm/linux-arm64-gnu":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-linux-arm64-gnu@workspace:packages/octocode-native/npm/linux-arm64-gnu"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native-linux-x64-gnu@workspace:*, @octocodeai/octocode-native-linux-x64-gnu@workspace:packages/octocode-native/npm/linux-x64-gnu":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-linux-x64-gnu@workspace:packages/octocode-native/npm/linux-x64-gnu"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native-linux-x64-musl@workspace:*, @octocodeai/octocode-native-linux-x64-musl@workspace:packages/octocode-native/npm/linux-x64-musl":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-linux-x64-musl@workspace:packages/octocode-native/npm/linux-x64-musl"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native-win32-x64-msvc@workspace:*, @octocodeai/octocode-native-win32-x64-msvc@workspace:packages/octocode-native/npm/win32-x64-msvc":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native-win32-x64-msvc@workspace:packages/octocode-native/npm/win32-x64-msvc"
+  languageName: unknown
+  linkType: soft
+
+"@octocodeai/octocode-native@workspace:*, @octocodeai/octocode-native@workspace:packages/octocode-native":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-native@workspace:packages/octocode-native"
+  dependencies:
+    "@octocodeai/octocode-native-darwin-arm64": "npm:0.1.0"
+    "@octocodeai/octocode-native-darwin-x64": "npm:0.1.0"
+    "@octocodeai/octocode-native-linux-arm64-gnu": "npm:0.1.0"
+    "@octocodeai/octocode-native-linux-x64-gnu": "npm:0.1.0"
+    "@octocodeai/octocode-native-linux-x64-musl": "npm:0.1.0"
+    "@octocodeai/octocode-native-win32-x64-msvc": "npm:0.1.0"
+  dependenciesMeta:
+    "@octocodeai/octocode-native-darwin-arm64":
+      optional: true
+    "@octocodeai/octocode-native-darwin-x64":
+      optional: true
+    "@octocodeai/octocode-native-linux-arm64-gnu":
+      optional: true
+    "@octocodeai/octocode-native-linux-x64-gnu":
+      optional: true
+    "@octocodeai/octocode-native-linux-x64-musl":
+      optional: true
+    "@octocodeai/octocode-native-win32-x64-msvc":
+      optional: true
+  bin:
+    octocode: ./bin/octocode.cjs
+    octocode-regex-worker: ./bin/octocode-regex-worker.cjs
+  languageName: unknown
+  linkType: soft
+
 "@octocodeai/octocode-skill-installer@workspace:*, @octocodeai/octocode-skill-installer@workspace:packages/octocode-skill-installer":
   version: 0.0.0-use.local
   resolution: "@octocodeai/octocode-skill-installer@workspace:packages/octocode-skill-installer"
@@ -2807,8 +2854,8 @@ __metadata:
     "@modelcontextprotocol/server": "npm:^2.0.0"
     "@npmcli/config": "npm:^11.0.1"
     "@octocodeai/config": "npm:20.0.0"
-    "@octocodeai/octocode-core": "npm:19.0.0"
-    "@octocodeai/octocode-engine": "npm:19.1.0"
+    "@octocodeai/octocode-core": "npm:19.0.1"
+    "@octocodeai/octocode-engine": "npm:19.2.0"
     "@octokit/core": "npm:^7.0.8"
     "@octokit/oauth-methods": "npm:^6.0.5"
     "@octokit/openapi-types": "npm:^29.0.1"
@@ -2837,14 +2884,12 @@ __metadata:
     "@earendil-works/pi-coding-agent": "npm:^0.85.1"
     "@earendil-works/pi-tui": "npm:^0.85.1"
     "@modelcontextprotocol/client": "npm:^2.0.0"
-    "@modelcontextprotocol/core": "npm:^2.0.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/agent-contracts": "npm:0.1.0"
     "@octocodeai/agent-core": "npm:0.1.0"
     "@octocodeai/agent-testing": "npm:^0.1.0"
     "@octocodeai/config": "npm:20.0.0"
     "@octocodeai/octocode-awareness": "npm:2.1.0"
-    "@octocodeai/octocode-engine": "npm:19.1.0"
+    "@octocodeai/octocode-engine": "npm:19.2.0"
     "@octocodeai/octocode-extension-rust": "npm:0.1.0"
     "@resvg/resvg-js": "npm:^2.6.2"
     "@types/node": "npm:^24.13.4"
@@ -2852,8 +2897,8 @@ __metadata:
     chrome-launcher: "npm:^1.2.1"
     ffmpeg-static: "npm:^5.3.0"
     marked: "npm:^18.0.12"
-    octocode: "npm:19.1.0"
-    octocode-mcp: "npm:19.1.0"
+    octocode: "npm:19.2.0"
+    octocode-mcp: "npm:19.2.0"
     smol-toml: "npm:^1.8.0"
     typebox: "npm:^1.3.30"
     typescript: "npm:^6.0.3"
@@ -3219,10 +3264,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@one-ini/wasm@npm:0.2.0":
-  version: 0.2.0
-  resolution: "@one-ini/wasm@npm:0.2.0"
-  checksum: 10c0/be3b8693230a4bd4c88bbf4679bcd5c9d9e4a26816dec2cf581453ce45aeaa6011fc310a056562549a1e1eb4f5a4b169aec9b6ae3636b8659a0b39049f07b672
+"@one-ini/wasm@npm:0.2.1":
+  version: 0.2.1
+  resolution: "@one-ini/wasm@npm:0.2.1"
+  checksum: 10c0/6bc49c43b757bc53786f655845b3af0676348ca910d07d1adb1b56e174faf9149fb3453f3e3fed02b3de4c400367e597cb58b6b7d3590a52289e97faf99fc37f
   languageName: node
   linkType: hard
 
@@ -4376,22 +4421,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"bash-language-server@npm:^5.6.0":
-  version: 5.6.0
-  resolution: "bash-language-server@npm:5.6.0"
+"bash-language-server@npm:^5.7.1":
+  version: 5.7.1
+  resolution: "bash-language-server@npm:5.7.1"
   dependencies:
-    editorconfig: "npm:2.0.1"
+    editorconfig: "npm:3.0.2"
     fast-glob: "npm:3.3.3"
     fuzzy-search: "npm:3.2.1"
-    node-fetch: "npm:2.7.0"
-    turndown: "npm:7.2.0"
-    vscode-languageserver: "npm:8.0.2"
-    vscode-languageserver-textdocument: "npm:1.0.12"
-    web-tree-sitter: "npm:0.24.5"
-    zod: "npm:3.24.2"
+    turndown: "npm:7.2.4"
+    vscode-languageserver: "npm:8.1.0"
+    vscode-languageserver-textdocument: "npm:1.0.14"
+    web-tree-sitter: "npm:0.27.0"
+    zod: "npm:3.25.76"
   bin:
     bash-language-server: out/cli.js
-  checksum: 10c0/6aa4fe22cf9a12fdd3ce526785cd098a4fcaaf71d8f07961cd8ca6f0ea60324458121a379172d20cad2bd9692c9dce22d00611925f94baa5495300ddb9f4029b
+  checksum: 10c0/8e1fe7a3be2b385a38642bb0f4226f6ca26422a8084b08cf5aa56347d00456a4c64adf7cde76c27ec5735f041bb8a5c4b897033ca32dd9c64e9e170eb342695f
   languageName: node
   linkType: hard
 
@@ -4447,7 +4491,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"brace-expansion@npm:^5.0.8":
+"brace-expansion@npm:^5.0.5, brace-expansion@npm:^5.0.8":
   version: 5.0.9
   resolution: "brace-expansion@npm:5.0.9"
   dependencies:
@@ -4663,10 +4707,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"commander@npm:^13.1.0":
-  version: 13.1.0
-  resolution: "commander@npm:13.1.0"
-  checksum: 10c0/7b8c5544bba704fbe84b7cab2e043df8586d5c114a4c5b607f83ae5060708940ed0b5bd5838cf8ce27539cde265c1cbd59ce3c8c6b017ed3eec8943e3a415164
+"commander@npm:^14.0.3":
+  version: 14.0.3
+  resolution: "commander@npm:14.0.3"
+  checksum: 10c0/755652564bbf56ff2ff083313912b326450d3f8d8c85f4b71416539c9a05c3c67dbd206821ca72635bf6b160e2afdefcb458e86b317827d5cb333b69ce7f1a24
   languageName: node
   linkType: hard
 
@@ -4944,17 +4988,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"editorconfig@npm:2.0.1":
-  version: 2.0.1
-  resolution: "editorconfig@npm:2.0.1"
+"editorconfig@npm:3.0.2":
+  version: 3.0.2
+  resolution: "editorconfig@npm:3.0.2"
   dependencies:
-    "@one-ini/wasm": "npm:0.2.0"
-    commander: "npm:^13.1.0"
-    minimatch: "npm:10.0.1"
-    semver: "npm:^7.7.1"
+    "@one-ini/wasm": "npm:0.2.1"
+    commander: "npm:^14.0.3"
+    minimatch: "npm:~10.2.4"
+    semver: "npm:^7.7.4"
   bin:
     editorconfig: bin/editorconfig
-  checksum: 10c0/2dfff7f9af6368a9ffd8f94de80bd35aa9cef4173c10c8f6e16985cea0364613f6879ab609492a26290faaef1e2b6918355e42cba3a2b7157ad7bc677981ccef
+  checksum: 10c0/22b4594adc4e5832c88c0926adb1dcd289351edb9c2b0bd68ecf56ad107bf3741ab407aa44999e503889d62e38519d42ca38aae183e4ffc0b5fd94cebdd73d08
   languageName: node
   linkType: hard
 
@@ -6721,7 +6765,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"minimatch@npm:10.2.6":
+"minimatch@npm:10.2.5":
+  version: 10.2.5
+  resolution: "minimatch@npm:10.2.5"
+  dependencies:
+    brace-expansion: "npm:^5.0.5"
+  checksum: 10c0/6bb058bd6324104b9ec2f763476a35386d05079c1f5fe4fbf1f324a25237cd4534d6813ecd71f48208f4e635c1221899bef94c3c89f7df55698fe373aaae20fd
+  languageName: node
+  linkType: hard
+
+"minimatch@npm:^10.0.3, minimatch@npm:^10.2.2, minimatch@npm:^10.2.4, minimatch@npm:^10.2.5, minimatch@npm:~10.2.4":
   version: 10.2.6
   resolution: "minimatch@npm:10.2.6"
   dependencies:
@@ -6884,20 +6937,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-fetch@npm:2.7.0":
-  version: 2.7.0
-  resolution: "node-fetch@npm:2.7.0"
-  dependencies:
-    whatwg-url: "npm:^5.0.0"
-  peerDependencies:
-    encoding: ^0.1.0
-  peerDependenciesMeta:
-    encoding:
-      optional: true
-  checksum: 10c0/b55786b6028208e6fbe594ccccc213cab67a72899c9234eb59dba51062a299ea853210fcf526998eaa2867b0963ad72338824450905679ff0fa304b8c5093ae8
-  languageName: node
-  linkType: hard
-
 "node-fetch@npm:^3.3.2":
   version: 3.3.2
   resolution: "node-fetch@npm:3.3.2"
@@ -7029,10 +7068,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"obug@npm:^2.1.2, obug@npm:^2.1.4":
+"obug@npm:^2.1.4":
   version: 2.2.1
   resolution: "obug@npm:2.2.1"
   checksum: 10c0/8a7c001847d880fa6ba83c7bbee6a80fd271ee628439cd508c8647d53b217abb1759e2d5e4aaeb09a35d0a274bdb225a0a5a78eded3213d63e656153cf411b63
+  languageName: node
+  linkType: hard
+
+"obug@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "obug@npm:3.0.0"
+  checksum: 10c0/985625b70ea05a39956da94f406040a0c7d27b1699a14af87b1ea75cba915b5957b75c4acdaccaefa2a86eaf40fc968bc00f6c28755a91496fc91a92b1513b38
   languageName: node
   linkType: hard
 
@@ -7051,29 +7097,29 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode-mcp@npm:19.1.0, octocode-mcp@workspace:packages/octocode-mcp":
+"octocode-mcp@npm:19.2.0, octocode-mcp@workspace:packages/octocode-mcp":
   version: 0.0.0-use.local
   resolution: "octocode-mcp@workspace:packages/octocode-mcp"
   dependencies:
     "@modelcontextprotocol/sdk": "npm:^1.30.0"
     "@modelcontextprotocol/server": "npm:^2.0.0"
-    "@octocodeai/octocode-core": "npm:19.0.0"
-    "@octocodeai/octocode-tools-core": "npm:19.1.0"
-    "@octokit/core": "npm:^7.0.8"
-    "@octokit/plugin-throttling": "npm:^11.0.5"
+    "@octocodeai/octocode-core": "npm:19.0.1"
+    "@octocodeai/octocode-native": "npm:0.1.0"
+    "@octocodeai/octocode-tools-core": "npm:19.2.0"
     "@types/node": "npm:^24.13.4"
     "@vitest/coverage-v8": "npm:^5.0.0"
     "@vitest/ui": "npm:^5.0.0"
     esbuild: "npm:^0.28.2"
     eslint: "npm:^10.10.0"
-    node-cache: "npm:^5.1.2"
-    octokit: "npm:^5.0.5"
     rollup: "npm:^4.63.1"
     rollup-plugin-dts: "npm:^6.5.1"
     typescript: "npm:^6.0.3"
     vite: "npm:^8.3.0"
     vitest: "npm:^5.0.0"
     zod: "npm:^4.6.2"
+  dependenciesMeta:
+    "@octocodeai/octocode-native":
+      optional: true
   bin:
     octocode-mcp: dist/index.js
   languageName: unknown
@@ -7093,15 +7139,15 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"octocode@npm:19.1.0, octocode@workspace:packages/octocode":
+"octocode@npm:19.2.0, octocode@workspace:packages/octocode":
   version: 0.0.0-use.local
   resolution: "octocode@workspace:packages/octocode"
   dependencies:
     "@inquirer/prompts": "npm:^8.7.2"
     "@octocodeai/config": "npm:20.0.0"
-    "@octocodeai/octocode-engine": "npm:19.1.0"
+    "@octocodeai/octocode-engine": "npm:19.2.0"
     "@octocodeai/octocode-skill-installer": "workspace:*"
-    "@octocodeai/octocode-tools-core": "npm:19.1.0"
+    "@octocodeai/octocode-tools-core": "npm:19.2.0"
     "@octokit/auth-oauth-device": "npm:^8.0.5"
     "@octokit/oauth-methods": "npm:^6.0.5"
     "@octokit/request": "npm:^10.0.16"
@@ -7832,7 +7878,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"semver@npm:^7.1.1, semver@npm:^7.3.5, semver@npm:^7.5.3, semver@npm:^7.6.1, semver@npm:^7.7.1, semver@npm:^7.7.3, semver@npm:^7.8.2":
+"semver@npm:^7.1.1, semver@npm:^7.3.5, semver@npm:^7.5.3, semver@npm:^7.6.1, semver@npm:^7.7.3, semver@npm:^7.7.4, semver@npm:^7.8.2":
   version: 7.8.5
   resolution: "semver@npm:7.8.5"
   bin:
@@ -8229,13 +8275,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tr46@npm:~0.0.3":
-  version: 0.0.3
-  resolution: "tr46@npm:0.0.3"
-  checksum: 10c0/047cb209a6b60c742f05c9d3ace8fa510bff609995c129a37ace03476a9b12db4dbf975e74600830ef0796e18882b2381fb5fb1f6b4f96b832c374de3ab91a11
-  languageName: node
-  linkType: hard
-
 "ts-algebra@npm:^2.0.0":
   version: 2.0.0
   resolution: "ts-algebra@npm:2.0.0"
@@ -8274,12 +8313,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"turndown@npm:7.2.0":
-  version: 7.2.0
-  resolution: "turndown@npm:7.2.0"
+"turndown@npm:7.2.4":
+  version: 7.2.4
+  resolution: "turndown@npm:7.2.4"
   dependencies:
     "@mixmark-io/domino": "npm:^2.2.0"
-  checksum: 10c0/6abcdcdf9d35cd79d7a8100a7de1d2226b921d5bd99e73ac14a7ead39c059978f519378913375efb04c68bcfc40f7ffe2dee0ce9ae4d54dc1235b12856a78d4e
+  checksum: 10c0/8e66e24bc9d9cdcf720f0ee2655a61d9b9e60ebe2763e97a7a8c3f689e9154717bbea7ed48cc5e355651f34182da698c6bc5fef3028e5600c1cadb7e117376d5
   languageName: node
   linkType: hard
 
@@ -8640,10 +8679,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vscode-jsonrpc@npm:8.0.2":
-  version: 8.0.2
-  resolution: "vscode-jsonrpc@npm:8.0.2"
-  checksum: 10c0/349ae58c725d9d45f2f43914c0fdaf722a2f26669fb5f95f3200e1fd2520496936c20bee19144305dcbaa6ec2de438792444d3be365b110f454c377e37a70550
+"vscode-jsonrpc@npm:8.1.0":
+  version: 8.1.0
+  resolution: "vscode-jsonrpc@npm:8.1.0"
+  checksum: 10c0/cb797b892227e7997378c6a1563b9849b6ec8190daae6fd18909fff4b33f6a98690bb315b95a3e4eeb9bf373d11896028c2111d71101544dfa16cb18a53cfcaa
   languageName: node
   linkType: hard
 
@@ -8698,13 +8737,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vscode-languageserver-protocol@npm:3.17.2":
-  version: 3.17.2
-  resolution: "vscode-languageserver-protocol@npm:3.17.2"
+"vscode-languageserver-protocol@npm:3.17.3":
+  version: 3.17.3
+  resolution: "vscode-languageserver-protocol@npm:3.17.3"
   dependencies:
-    vscode-jsonrpc: "npm:8.0.2"
-    vscode-languageserver-types: "npm:3.17.2"
-  checksum: 10c0/33b51bdbc69f0a3b680abc87d02372392afe139d092d47efc98dc716d1c4d71f6615f366698b563f88964554958e7097df5500c31ec739b21ea4e74b6d38254e
+    vscode-jsonrpc: "npm:8.1.0"
+    vscode-languageserver-types: "npm:3.17.3"
+  checksum: 10c0/c8448cab8c8e3df386825f129a2f06a748510ad3407cb3d2122c6b661e973c32bb2f2612d64ea80e8c0344001adc80ee2f4c8bbce4fa81dd3eef888309457578
   languageName: node
   linkType: hard
 
@@ -8728,24 +8767,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vscode-languageserver-textdocument@npm:1.0.12":
-  version: 1.0.12
-  resolution: "vscode-languageserver-textdocument@npm:1.0.12"
-  checksum: 10c0/534349894b059602c4d97615a1147b6c4c031141c2093e59657f54e38570f5989c21b376836f13b9375419869242e9efb4066643208b21ab1e1dee111a0f00fb
-  languageName: node
-  linkType: hard
-
-"vscode-languageserver-textdocument@npm:^1.0.1, vscode-languageserver-textdocument@npm:^1.0.11, vscode-languageserver-textdocument@npm:^1.0.12":
+"vscode-languageserver-textdocument@npm:1.0.14, vscode-languageserver-textdocument@npm:^1.0.1, vscode-languageserver-textdocument@npm:^1.0.11, vscode-languageserver-textdocument@npm:^1.0.12":
   version: 1.0.14
   resolution: "vscode-languageserver-textdocument@npm:1.0.14"
   checksum: 10c0/06a4c6cc82d1f84be6240fcbd48d50c536dfecb1c60e9e7eadcf6bad40c5a4de288f4f1262e09f2be007ec2c96f4acbf3ce3eb139bc0e7c28c16571d1e382f2f
   languageName: node
   linkType: hard
 
-"vscode-languageserver-types@npm:3.17.2":
-  version: 3.17.2
-  resolution: "vscode-languageserver-types@npm:3.17.2"
-  checksum: 10c0/3d9424311070dc4a5e3a06dd454a1971988d3b76a7eca80660ee20e26c20fb7cc03359a117b11a887e8c1b7a65c13fd81120bc85b618c7c571eb200dbd7ed45c
+"vscode-languageserver-types@npm:3.17.3":
+  version: 3.17.3
+  resolution: "vscode-languageserver-types@npm:3.17.3"
+  checksum: 10c0/a70d4ac0dbc08ba425b97e329e6a5696dabc6a264415bacb861e10d859b224f1b46d1fb41c17b6fdd31b32749d3bdfc819cb1b8a57dbe0d1e70e661ba8cfa397
   languageName: node
   linkType: hard
 
@@ -8763,14 +8795,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vscode-languageserver@npm:8.0.2":
-  version: 8.0.2
-  resolution: "vscode-languageserver@npm:8.0.2"
+"vscode-languageserver@npm:8.1.0":
+  version: 8.1.0
+  resolution: "vscode-languageserver@npm:8.1.0"
   dependencies:
-    vscode-languageserver-protocol: "npm:3.17.2"
+    vscode-languageserver-protocol: "npm:3.17.3"
   bin:
     installServerIntoExtension: bin/installServerIntoExtension
-  checksum: 10c0/0dfe96f9c7ecee29ed3005cedde8a1055a6be2d56a28824328ea687d4df584227964888f55ec35d8d496db63869eda8c2782b3d2a97cf4685c9f7e24c20ef72e
+  checksum: 10c0/1c05a491bbb4fb5266b3cc7d0be3b267aea2ff0c8aece2d8fb35e0a1b86ccc9aee252d08becec97d292fd3e1cc099cf350d720fb6c1a19f64fd1ac360f6248ae
   languageName: node
   linkType: hard
 
@@ -8838,27 +8870,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"web-tree-sitter@npm:0.24.5":
-  version: 0.24.5
-  resolution: "web-tree-sitter@npm:0.24.5"
-  checksum: 10c0/e6b88e4967227ab4272fb20a063882fe877c6a948a0367e6fae324807a31f082151f5110f1f2beeddba98714af20bc13cb6b62aac6aad986e24da31796ba1ce1
-  languageName: node
-  linkType: hard
-
-"webidl-conversions@npm:^3.0.0":
-  version: 3.0.1
-  resolution: "webidl-conversions@npm:3.0.1"
-  checksum: 10c0/5612d5f3e54760a797052eb4927f0ddc01383550f542ccd33d5238cfd65aeed392a45ad38364970d0a0f4fea32e1f4d231b3d8dac4a3bdd385e5cf802ae097db
-  languageName: node
-  linkType: hard
-
-"whatwg-url@npm:^5.0.0":
-  version: 5.0.0
-  resolution: "whatwg-url@npm:5.0.0"
-  dependencies:
-    tr46: "npm:~0.0.3"
-    webidl-conversions: "npm:^3.0.0"
-  checksum: 10c0/1588bed84d10b72d5eec1d0faa0722ba1962f1821e7539c535558fb5398d223b0c50d8acab950b8c488b4ba69043fd833cc2697056b167d8ad46fac3995a55d5
+"web-tree-sitter@npm:0.27.0":
+  version: 0.27.0
+  resolution: "web-tree-sitter@npm:0.27.0"
+  checksum: 10c0/a4e0a756db8a9711286ad8334f8e2a666030288e04f82c413cee5b678709e65570791c4613b98786a9b269c2386055c5758071306eb15b7d8faf943b7d0c1241
   languageName: node
   linkType: hard
 
@@ -8996,7 +9011,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yaml@npm:2.9.0, yaml@npm:^2.9.0":
+"yaml@npm:2.9.0":
   version: 2.9.0
   resolution: "yaml@npm:2.9.0"
   bin:
@@ -9021,10 +9036,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:3.24.2":
-  version: 3.24.2
-  resolution: "zod@npm:3.24.2"
-  checksum: 10c0/c638c7220150847f13ad90635b3e7d0321b36cce36f3fc6050ed960689594c949c326dfe2c6fa87c14b126ee5d370ccdebd6efb304f41ef5557a4aaca2824565
+"zod@npm:3.25.76":
+  version: 3.25.76
+  resolution: "zod@npm:3.25.76"
+  checksum: 10c0/5718ec35e3c40b600316c5b4c5e4976f7fee68151bc8f8d90ec18a469be9571f072e1bbaace10f1e85cf8892ea12d90821b200e980ab46916a6166a4260a983c
   languageName: node
   linkType: hard
 

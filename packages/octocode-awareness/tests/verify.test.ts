@@ -157,8 +157,8 @@ describe('auditUnverified', () => {
       omitted_count: 2,
       pagination: { offset: 0, limit: 1, has_more: true, next_offset: 1 },
       next: {
-        command: 'verify audit',
-        params: { agent_id: 'agent-a', workspace: '/tmp/ws-a', limit: 1, offset: 1 },
+        operation: 'work.verify',
+        params: { action: 'audit', limit: 1, offset: 1 },
       },
     });
   });

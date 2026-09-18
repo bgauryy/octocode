@@ -6,10 +6,12 @@ contract. The native product obtains live schemas and composes policy through it
 runtime adapters.
 
 The 10 Octocode research tools are reached through the built-in `octocode` MCP server;
-Pi-specific tools are implemented directly in `src/tools/`. The system prompt includes
-every enabled MCP tool description and complete input contract. Put the selected tool's
-input under `queries[].arguments`; `action:"describe"` returns its exact JSON schema again.
-CLI-only hosts use `npx octocode tools <name> --scheme` instead.
+Pi-specific tools are implemented directly in `src/tools/`. The system prompt includes a
+bounded routing index, not tool input schemas. Use `MCPTool action:"describe"` to load the
+selected exact schema and, when the host admits dynamic names, a namespaced Pi tool; then call
+the returned tool directly. The generic gateway call remains available for fixed allowlists and
+batching but is blocked until describe. CLI-only
+hosts use `npx octocode tools <name> --scheme` instead.
 
 The extension supplies its guarded same-name `bash`. For direct extension installs, it
 removes Pi `read`/`edit`/`write`/`grep`/`find`/`ls` on load and session start. `file`
@@ -31,7 +33,7 @@ The direct palette contains 15 extension-owned tools: 14 support tools and the g
 | Dynamic capabilities     | `callTool`, `skill`                      |
 | Planning and coordination | `plan`, `awareness`, `askUser`, `localServer` |
 
-Every direct tool exposes a `queries` batch. Each query requires a non-empty `reasoning` string of at most 400 characters. A call accepts at most 100 queries. Preflight checks declared inputs across the batch before execution; live permissions, remote schemas, and mutable state are checked again when needed at execution. This is not a transaction or a promise that every operation will succeed. Sequential mode executes in source order and stops on the first runtime failure. Tools that expose `queryRunType:"parallel"` overlap independent operations, run at most four queries concurrently by default, and return results in source order. Receipts distinguish successful, failed, and not-run items. Partial failures preserve completed child content and returned error diagnostics through the shared output budget; cancellation does not label unstarted queued work as executed. Successful one-query calls preserve the underlying detail shape.
+Every direct tool exposes a `queries` batch. Each query may include a `reasoning` batch label of at most 400 characters; the adapter trims supplied labels, omits blanks, and does not synthesize one. A call accepts at most 100 queries. Preflight checks declared inputs across the batch before execution; live permissions, remote schemas, and mutable state are checked again when needed at execution. This is not a transaction or a promise that every operation will succeed. Sequential mode executes in source order and stops on the first runtime failure. Tools that expose `queryRunType:"parallel"` overlap independent operations, run at most four queries concurrently by default, and return results in source order. Receipts distinguish successful, failed, and not-run items. Partial failures preserve completed child content and returned error diagnostics through the shared output budget; cancellation does not label unstarted queued work as executed. Successful one-query calls preserve the underlying detail shape.
 
 ### Prompt and schema ownership
 
@@ -39,8 +41,8 @@ Every direct tool exposes a `queries` batch. Each query requires a non-empty `re
 tool definition. Descriptions distinguish when to choose the tool and the
 consequence of a nearby wrong choice. Field descriptions keep exact constraints;
 registration preserves schema descriptions and example data without truncation.
-Dynamic tool, skill, and MCP guide generation import
-`BEHAVIORAL_PROMPT_GUIDANCE` from agent-contracts.
+Dynamic tool and skill generation import `BEHAVIORAL_PROMPT_GUIDANCE` from the
+Pi-local `src/contracts/prompts` modules.
 
 The dynamic capability index is a bounded inventory, not a complete contract.
 Its overflow entry provides an executable `callTool` or `skill` list call.
@@ -61,26 +63,25 @@ Colors convey meaning rather than decoration:
 - lavender/link: URL or parallel-policy signal;
 - normal/count: totals and numeric evidence;
 - bright/title: tool identity, action, or current focal value;
-- muted/dim: metadata, previews, reasoning, and disclosure hints.
+- muted/dim: metadata, previews, and disclosure hints.
 
-Renderer limits are view-only. A separate provider boundary makes results above approximately 12,000 characters reference-first: it keeps at most 4,000 diagnostic characters (one-quarter head and three-quarters tail) and two images. With a session manager, full text goes to a private session artifact so its `localFetch` chunk-read reference remains usable after shutdown. Without usable session storage, it falls back to a private ephemeral file removed at shutdown. Excess images remain recoverable through a private image manifest. Recover omitted results by reading the reference; do not automatically repeat a mutating tool.
+Renderer limits are view-only. The shared registration and batch boundaries preserve complete returned text and images. Tools that paginate their own results expose partial state and executable continuations; the extension does not apply a second output cap. Do not automatically repeat a mutating tool.
 
 Registration converts internal error results and partial batch failures to Pi's
 thrown-error channel so the host records failure.
-That channel carries text only: completed images become artifact references, while
-completed text and row diagnostics follow the same output budget.
+That channel carries text only: image blocks are serialized as JSON alongside
+complete text and row diagnostics.
 
 Media renderers are path-backed: generated image bytes are stored once in the
 session artifact tree instead of being duplicated as base64 inside result details.
-When a batched result exceeds the two-image boundary, the spill manifest reuses
-already-safe workspace/session image paths rather than writing duplicate copies.
 MCP call details likewise retain only block counts and status metadata; full text,
-structured content, and image bytes live solely in the bounded model content or
-its lossless spill artifact.
+structured content, and image bytes remain in model-facing content. Equivalent
+JSON text and structured payloads appear once. Table mode adds a summary without
+replacing evidence or continuations. See [MCP result conversion](../src/tools/mcp/sanitize.ts).
 
-The `awareness` tool is the model-facing coordination, learning, verification, history, and maintenance facade. It reads the canonical package catalog: use `action:"list"`, then `action:"describe"` for an unfamiliar command, then `action:"call"`. Pi injects database, workspace, and actor fields. Calls import the Awareness package API directly. Commands described as `external-host-only` are internal host lifecycle callbacks.
+The `awareness` tool exposes canonical operations across Context, Work, Message, Memory, and History. A query supplies `operation` plus validated `params`; Pi binds database, workspace, actor, and scope. Use `describe:true` without `params` to inspect an operation's exact schema without executing it or opening storage. Read operations can be batched, while a mutation must be the only query. Host lifecycle callbacks are available only through the explicit host API.
 
-Session-scoped maintenance jobs are configured with environment settings; see [CRON.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/CRON.md). `OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts` is the direct support-tool source of truth.
+`OCTOCODE_SUPPORT_TOOL_NAMES` in `src/constants.ts` is the direct support-tool source of truth.
 
 ---
 
@@ -101,11 +102,11 @@ Session-scoped maintenance jobs are configured with environment settings; see [C
 | Discover remote history                                | `ghSearchHistory`; inspect its live operation schema          |
 | Read an exact remote history item                      | `ghGetHistoryItem`; use the returned repository and item ID   |
 | Clone repo for local reads                              | `ghCloneRepo`                                                  |
-| Search local files (text)                              | `localSearch` with `searchText`                               |
+| Search local files (text)                              | `localSearch` with `searchText`; filter with `include` or `exclude` globs |
 | Search local syntax                                     | `astSearch` with `operation:"match"`                          |
 | Browse local directory tree                             | `astSearch` with `operation:"tree"`                           |
-| Find files by name/size/time                            | `astSearch` with `operation:"files"`                          |
-| Read a local file or range                              | `localFetch`                                          |
+| Find files by name/size/time                            | `astSearch` with `operation:"files"`; use `names`, `pathPattern`, or `pathRegex` |
+| Read a local file or range                              | `localFetch`; choose one of `fullContent`, `matchString`, or `startLine` plus `endLine` |
 | Find dead-code candidates                               | `astSearch` with `operation:"topology", analysis:"deadCode"` |
 | Symbol identity, refs, callers, types                   | `lspSearch`                                                    |
 | Resolve package identity or capability                           | `artifactSearch`                                                    |
@@ -119,15 +120,15 @@ Session-scoped maintenance jobs are configured with environment settings; see [C
 | Multi-turn browser session                              | `agent` spawn, then wait/message/steer/abort/kill queries      |
 | Spawn background Pi worker                              | `agent` with `type:"spawn"`                                    |
 | Coordinate spawned workers                              | `agent` lifecycle queries                                      |
-| Discover or describe Awareness commands                 | `awareness` with `action:"list"` or `"describe"`            |
-| Run a supported Awareness command                       | `awareness` with `action:"call"`                              |
+| Read Awareness state                                    | `awareness` with a direct read operation such as `context.orient` or `message.list` |
+| Change Awareness state                                  | `awareness` with one direct mutation operation per batch       |
 | Handle internal Awareness hook callbacks                | Host lifecycle (`hook run`, `hooks pre-edit`); excluded from model calls |
 | Fetch a URL / web search                                | `web`                                                          |
 | List / call an external MCP server tool                 | `MCPTool`                                                      |
 | Add / remove / restart an MCP server (no agent restart) | `MCPTool` (action: add/remove/restart)                         |
 
 > **Built-in `octocode` server.** The gateway resolves the pinned local `octocode-mcp`
-> package first and falls back to `npx -y octocode-mcp@latest`. You can't remove the
+> package first and falls back to the `octocode-mcp` dependency version in the extension's package manifest. You can't remove the
 > built-in entry, but you can override it with `action:"add"`. Active config directories
 > are watched for external edits; a change drops stale connections and catalogs before the
 > next call. `RUN_MCP_LIVE=1` enables the
@@ -137,12 +138,12 @@ Session-scoped maintenance jobs are configured with environment settings; see [C
 | Reuse/create/maintain a verified dynamic capability | `callTool` |
 | Load or manage a reusable multi-step workflow | `skill` with `type:"load"|"call"` |
 | Compact or reset context | Pi's native auto-compaction or user `/compact` / `/new`; configure Pi's reserve threshold for 80% |
-| Recall prior lessons that may change the approach | `awareness` call: `memory recall` |
-| Record a verified reusable root cause / decision | `awareness` call: `memory record`, after substantial work or a meaningful event |
-| Inspect deeper shared-state diagnostics | `awareness` list/describe/call; load one relevant skill reference |
-| Send / read needed peer messages | `awareness` call: `signal publish` / `signal list` |
-| Protect sensitive/non-mergeable files exceptionally | `awareness` call: `lock acquire` |
-| Diagnose task, handoff, verification, or presence state | `awareness` list/describe/call |
+| Recall prior lessons that may change the approach | `awareness` operation `memory.recall` |
+| Record a verified reusable root cause or decision | `awareness` operation `memory.record` |
+| Read decision-changing shared state | `awareness` operation `context.orient` |
+| Send or read needed peer messages | `awareness` operations `message.send` and `message.list` |
+| Protect sensitive, non-mergeable files | `awareness` operation `work.protect` |
+| Inspect shared work or verification debt | `awareness` operations `work.list`, `work.show`, and `work.verify` |
 
 ---
 
@@ -150,7 +151,7 @@ Session-scoped maintenance jobs are configured with environment settings; see [C
 
 ### `bash`
 
-Execute shell commands in the current working directory. Octocode overrides Pi’s built-in bash with the same shell execution, a path guard on redirect/`tee`/`cp`/`mv` write targets, and a small blocklist of catastrophic commands. Every call requires a non-empty `reasoning` field. Bash streams output to a private ephemeral log and keeps at most about 4,000 model-visible characters: a 1,000-character head and a 3,000-character tail. Renderer metadata contains only the log path and byte/character counts, not a duplicate of stdout or stderr. The in-memory preview source stops at 150,000 characters, but the referenced log continues up to a 64 MiB safety ceiling. Session shutdown deletes the log. Prefer `file` for ordinary mutations; use bash for builds, tests, package commands, and mechanical changes. For more information, see [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
+Execute shell commands in the current working directory. Octocode overrides Pi’s built-in bash with the same shell execution, a path guard on redirect/`tee`/`cp`/`mv` write targets, and a small blocklist of catastrophic commands. Bash streams output to a private ephemeral log and keeps at most about 4,000 model-visible characters: a 1,000-character head and a 3,000-character tail. Renderer metadata contains only the log path and byte/character counts, not a duplicate of stdout or stderr. The in-memory preview source stops at 150,000 characters, but the referenced log continues up to a 64 MiB safety ceiling. Session shutdown deletes the log. Prefer `file` for ordinary mutations; use bash for builds, tests, package commands, and mechanical changes. For more information, see [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
 
 ### `file`
 
@@ -162,7 +163,7 @@ One guarded mutation boundary with `type:"edit" | "write" | "delete"`:
 
 The dedicated extension Rust package executes file I/O and edit-preparation diff in native workers. File reads and mutation content have a 64 MiB limit. Successful receipts include `committed:true`, a separate `durable` sync result, and a versioned `mutation` receipt with applied/no-op classification, pre/post fingerprints, touched byte and line counts, and explicit diff/patch truncation flags. Receipts don't copy file contents. A stale commit returns a runnable `MCPTool` → `localFetch` recovery query. Post-commit sync or bookkeeping failures become warnings. See [FILE_MUTATIONS.md](FILE_MUTATIONS.md) for build requirements, platform support and the native boundary.
 
-Every query requires one concise `reasoning`. Mixed batches reject duplicate paths and fully preflight every operation before the first mutation. All paths use the shared cwd/home/temp/`ALLOWED_PATHS` guard. Use `delete` only when removal is explicitly in scope. Details: [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
+An optional query label is never propagated into mutation evidence. Mixed batches reject duplicate paths and fully preflight every operation before the first mutation. All paths use the shared cwd/home/temp/`ALLOWED_PATHS` guard. Use `delete` only when removal is explicitly in scope. Details: [OVERRIDES.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/OVERRIDES.md).
 
 ---
 
@@ -257,7 +258,6 @@ Typed workers use Octocode `MCPTool` and matching skills for repository research
 
 ```text
 agent({queries:[{
-  reasoning:"Delegate an independent browser audit.",
   type:"spawn",
   profile:"browser",
   task:"Audit cookie security on https://example.com",
@@ -266,8 +266,8 @@ agent({queries:[{
 }]})
 → agentId: "abc123"
 
-agent({queries:[{reasoning:"Collect the browser turn.",type:"wait",agentId:"abc123",timeoutMs:60000}]})
-agent({queries:[{reasoning:"Free the completed worker.",type:"kill",agentId:"abc123",remove:true}]})
+agent({queries:[{type:"wait",agentId:"abc123",timeoutMs:60000}]})
+agent({queries:[{type:"kill",agentId:"abc123",remove:true}]})
 ```
 
 Spawn policy is warning-first: task packets should name goal, context, scope, ownership, acceptance, and return shape. Optional `cohortId` groups related workers in bounded, attention-first inspect summaries. The completion policy requests wrap-up at 80% of the step budget and an honest partial handback at the hard limit. Capacity limits block before process creation. Workers never receive the `agent` facade, so recursive spawning is unavailable. Spawn first and use the returned ID in a later call; generated IDs can't be referenced by another item in the same preflighted batch.
@@ -300,7 +300,7 @@ Fetches a public URL as clean text or runs a web search. Query fields select `ur
 
 The extension does not invoke `ctx.compact()` automatically: Pi defines that API as manual compaction, which aborts an active run and does not continue it. Pi's native auto-compaction instead runs after tool results and before the next assistant response, preserving the active run, overflow recovery, and continuation.
 
-To compact at 80%, set Pi's `compaction.reserveTokens` to 20% of the active model context window. For an 8,192-token model this is 1,639 tokens:
+To compact at approximately 80%, set Pi's `compaction.reserveTokens` to `ceil(activeContextWindow * 0.20)`. The following illustrative configuration reserves 1,639 tokens for an 8,192-token model:
 
 ```json
 {
@@ -342,7 +342,7 @@ Large generic tool results and bash logs are intentionally not durable session a
 
 ## Local file history
 
-Successful native `file` mutations are captured before and after through the shared Awareness history store. Awareness owns the private bundled Git objects and metadata; Pi does not invoke system Git or write a second history database. Use `/octocode-rewind` to select a bounded timeline entry, inspect its file-level preview, and explicitly approve the same preview for apply. In headless sessions, use the bundled `octocode-awareness history timeline`, `history read`, `history restore-preview`, and `history restore-apply` commands through the Awareness skill. Pi never snapshots the whole workspace on input and never rewinds conversation state.
+Successful native `file` mutations are captured before and after through the shared Awareness history store. Awareness owns the private bundled Git objects and metadata; Pi does not invoke system Git or write a second history database. Use `/octocode-rewind` to select a bounded timeline entry, inspect its file-level preview, and approve the same preview for apply. In headless sessions, use `history.timeline`, `history.read`, and `history.restore` through the native tool; restore selects `action: preview` or `action: apply`. Pi never snapshots the whole workspace on input and never rewinds conversation state.
 
 ---
 
@@ -365,42 +365,11 @@ Pi-core/runtime banners that do not pass through extension hooks, such as a mode
 
 ## Memory and Awareness
 
-`plan` is for complex dependencies, coordinated ownership, consequential risk, substantial work spanning sessions, or an explicit planning request. Skip it for routine fixes, a few straightforward steps, or simple delegation. It owns session/shared projection and receipt-gated completion. There is no separate public `task` tool: plan steps become shared Awareness tasks when projection is needed, while `agent.task` is the assignment text given to a spawned worker. Signals, locks, memory, history, and maintenance use the native `awareness` tool. Peer registry, event delivery, and existing-lock checks run by default. Automatic work records and worker audits require guard/full; native history requires full. Reuse native run/task IDs and observed receipts.
+`plan` is for complex dependencies, coordinated ownership, consequential risk, substantial work spanning sessions, or an explicit planning request. Skip it for routine fixes. Pi projects shared plan state through canonical Work operations when needed and reuses native IDs and observed receipts.
 
-Pi imports `executeAwarenessCommand` and the canonical command descriptors directly. The tool supplies trusted database, workspace, and identity context; model parameters use descriptor fields such as `to_agent`, without host bindings. Pi includes the short `AWARENESS_PI_HOST_PROMPT` once; the complete guide stays on demand. External hosts use the CLI with the same physical database, distinct stable identities and their own physical checkout paths. Linked Git worktrees share peers, signals and memory. See the [API reference](../../octocode-awareness/docs/API.md).
+Pi uses `createAwarenessClient` for routine operations and `createAwarenessHost` for lifecycle-owned history capture. It claims native lifecycle ownership at session start, so shell hooks do not duplicate Pi events. External hosts use the CLI with the same physical database and distinct stable identities. Linked Git worktrees can share coordination state; separate clones or databases cannot.
 
-See [AWARENESS_AGENT_FLOW.md](AWARENESS_AGENT_FLOW.md) for communication and lifecycle ownership and [REFLECT.md](REFLECT.md) for learning and maintenance guidance. Load the bundled `octocode-awareness` skill for operating detail.
-
-### Signal-driven pattern
-
-```
-[start]    reuse peer briefing or attend once
-[plan]     complex work only, or explicit request: scope auto/session/shared → Start → declared check
-[complete] plan.complete + observed receipt → shared verification → next ready dependency
-[mutation] explicit targets → peer-lock preflight → advisory presence only in guard/full
-[signal]   native peer event → awareness signal list/reply/ack/resolve when relevant
-[rare]     awareness lock for non-mergeable state · signal for useful peer coordination
-[learn]    awareness memory after substantial work, only for verified reusable learning
-[finish]   tracked work: awareness verify audit after final writes
-```
-
-### Native Awareness command reference
-
-Use these command names with `action: "call"`. Describe an unfamiliar route first;
-the package catalog owns exact fields and executable continuations.
-
-| Command                                  | Purpose                                                                                                        |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `memory recall`                          | Retrieve durable lessons before risky/unfamiliar work; flags `judgment_required` when recall confidence is low |
-| `memory record`                          | Store verified root cause, decision, workaround, or gotcha                                                     |
-| `memory forget`, `memory archive`        | Preview item-scoped cleanup with `dry_run: true`                                                               |
-| `status`                                 | Show plans, tasks, locks, work presence, agents, messages, handoffs, checks, and memory counts                 |
-| `signal publish`, `signal list`, `signal reply`, `signal ack`, `signal resolve` | Directed, scoped peer communication |
-| `handoff add\|list\|clear`               | Manual continuation notes for later agents                                                                     |
-| `lock acquire\|release\|list`            | Optional exclusive protection for sensitive paths                                                              |
-| `verify audit`                           | Audit owned tracked-work debt after final writes                                                              |
-| `verify mark`                            | Record observed SUCCESS or FAILED for an explicit owned run ID                                                 |
-| `maintenance digest`, `signal prune`     | Inspect scoped `--dry-run` candidates before authorized cleanup                                                |
+The model starts with a host briefing or `context.orient`. It uses Context for attributed observations and advisory feedback, Work for ownership, dependencies, path protection, and verification, Message for decision-changing communication, Memory for verified reusable learning, and History for inspection or authorized restore. For the exact twenty-one-operation catalog, see [AWARENESS_AGENT_FLOW.md](AWARENESS_AGENT_FLOW.md) and the [API reference](../../octocode-awareness/docs/API.md).
 
 ## MCP Servers
 
@@ -416,14 +385,14 @@ management actions fail parallel preflight. Batches use the shared four-query
 concurrency cap. Omit the
 field for the default sequential, stop-on-first-error behavior.
 
-MCP payloads pass through the shared provider-result budget. Omitted full text is preserved
-in a private session artifact when session storage is available, with an ephemeral fallback, and referenced by path; up to two image blocks remain model
-content. Unsupported block types are preserved as JSON text. When an MCP server emits only
+MCP results retain complete text and every image block in model content. Unsupported
+block types remain JSON text. The gateway does not apply a second truncation budget;
+server-owned partial state and continuations remain intact. When an MCP server emits only
 the compact `structuredContent available` stub, the gateway surfaces the complete
 `structuredContent` payload instead.
 
-The built-in `octocode` research server is always defined (pinned local `octocode-mcp`,
-with `npx -y octocode-mcp@latest` as fallback). Add a trusted stdio command or Streamable
+The built-in `octocode` research server uses the installed `octocode-mcp` binary,
+with an npx fallback constrained to the extension manifest's dependency version. Add a trusted stdio command or Streamable
 HTTP URL with `action:"add"` or a canonical `servers.json`. Changes hot-refresh the catalog.
 
 Once initialization discovery finishes, `.octocode/discovery.json` records discovered
@@ -434,20 +403,22 @@ for the complete cross-host location matrix.
 
 Startup reads a versioned private snapshot from
 `$OCTOCODE_HOME/extension/mcp/workspaces/<workspace-digest>/`. `catalog.json` retains exact
-schemas for enabled tools from enabled servers. By default the first-turn system prompt
-receives a schema-aware `<mcp_catalog_index>` from `mcp.md` with every enabled description
-and complete input contract; calls validate against the same exact catalog. Set
-`OCTOCODE_COMPACT_MCP=0` only to inject the unoptimized exact catalog for debugging.
-`OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored descriptions while preserving complete
-schema contracts; otherwise the guide is deterministic and adds no model request.
-There is no prepare action or schema lease.
+schemas for enabled tools from enabled servers. The system prompt receives one deterministic,
+bounded `<mcp_catalog_index>` containing server instructions plus tool names and descriptions;
+it does not contain input schemas. `MCPTool action:"describe"` loads one selected exact schema,
+registers a namespaced Pi proxy without prompt snippets or guidelines, and activates it for the
+next provider request. Call that proxy directly with the target arguments. If a host-level tool
+allowlist rejects dynamic names, describe reports that fallback and the generic gateway remains
+the callable path. Generic gateway calls require a prior describe receipt and revalidate its schema
+digest. After compaction, receipts without an active provider-visible proxy are cleared, forcing a
+fresh describe. Calls also validate against the same exact enabled catalog. There is no prepare
+action or caller-supplied schema lease.
 
-Cached prompt readiness is independent from live schema refresh: matching `catalog.json`
-+ `mcp.md` releases the default compact prompt immediately; exact mode needs only
-`catalog.json`. Cold/changed startup waits through two bounded discovery attempts per
-enabled server and, only with AI guide generation enabled, bounded generation (35 seconds total),
-then freezes stable prompt bytes for that session and persists any late result for the
-next one. The shared runtime renderer shows checking, discovery, optional generation,
+Local cached-catalog readiness is independent from live schema refresh and does not
+prove a provider cache hit: matching `catalog.json` supplies the routing projection.
+Cold or changed startup waits through two bounded discovery attempts per enabled server
+(35 seconds total), then freezes stable prompt bytes for that session and persists any
+late result for the next one. The shared runtime renderer shows checking, discovery,
 counts, and degraded state. See [RUNTIME_STATE.md](https://github.com/bgauryy/octocode/blob/main/packages/octocode-pi-extension/docs/RUNTIME_STATE.md).
 
 ### 1. Active config locations
@@ -462,7 +433,7 @@ A project entry with the same server name wins.
 | 3          | Workspace | `$OCTOCODE_HOME/extension/workspaces/<workspace-key>/mcp/servers.json`      | Trusted workspaces only |
 
 For an untrusted project config, the gateway records a skipped source and warning but never
-spawns a process. Run `MCPTool({queries:[{reasoning:"Inspect resolved MCP configuration.",action:"config"}]})`
+spawns a process. Run `MCPTool({queries:[{action:"config"}]})`
 to see the resolved servers, sources, and warnings.
 
 ### 2. Add or remove a server
@@ -473,7 +444,6 @@ Use `MCPTool` for the managed path:
 MCPTool({
   queries: [
     {
-      reasoning: "Add the trusted documentation server.",
       action: "add",
       server: "docs",
       scope: "project",
@@ -577,6 +547,20 @@ Calls fail closed before `client.callTool`:
 | `MCP_SCHEMA_INVALID` | Arguments failed local validation. Errors are bounded and include instance paths.                   |
 | `SCHEMA_UNSUPPORTED` | The schema is too large, unserializable, uses an unsupported dialect, or cannot be compiled safely. |
 | `SCHEMA_UNAVAILABLE` | The server, tool, or current schema could not be discovered.                                        |
+
+The local validator accepts unstamped schemas with modern keyword semantics and
+explicit JSON Schema 2019-09 or 2020-12 declarations. It rejects draft-03 through
+draft-07 declarations: their required fields, exclusive bounds, or `$ref` sibling
+rules need dialect-aware handling. Removing a declaration is not a schema migration;
+the server must publish a semantically equivalent supported schema.
+
+MCP sampling requires interactive consent and uses the active Pi model. The request's
+token ceiling and optional temperature reach Pi's model registry; a length-limited
+completion reports `maxTokens`, and failed or cancelled completions do not report
+success. Sampling preserves complete message payloads as serialized JSON in a user
+message; it does not map MCP roles and media into native Pi conversation blocks.
+Form elicitation displays the requested schema and validates edited JSON before
+acceptance. URL elicitation displays its destination before consent.
 
 Servers are spawned during best-effort initialization discovery and reused for the
 session. `stop` and `restart` recycle them; a later action reconnects on demand. Config

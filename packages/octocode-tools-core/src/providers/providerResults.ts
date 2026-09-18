@@ -87,6 +87,7 @@ export interface FileContentResult {
   path: string;
 
   content: string;
+  sourceLineRanges?: Array<{ start: number; end: number }>;
 
   encoding: 'utf-8' | 'base64';
 
@@ -324,6 +325,7 @@ export interface RepoStructureResult {
 
   partialReasons?: Array<
     | 'providerTreeTruncated'
+    | 'providerContentsLimit'
     | 'partialTreeFailures'
     | 'metadataPagination'
     | 'metadataFetchFailed'

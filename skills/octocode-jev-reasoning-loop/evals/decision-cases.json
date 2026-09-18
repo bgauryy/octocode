@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "description": "Frozen deterministic routing and policy fixtures derived from the improvement plan. Semantic model quality is benchmarked separately.",
+  "cases": [
+    {
+      "id": "confirmation-bias",
+      "input": { "willChangeAction": true, "observationsCount": 2, "hypothesisCount": 2, "checksDiscriminate": true },
+      "expected": { "route": "hypothesis_triage", "questionTypes": ["choice", "choice"], "policyAction": "test_selected_check", "mayAssert": false }
+    },
+    {
+      "id": "anchoring-first-hypothesis",
+      "input": { "willChangeAction": true, "observationsCount": 1, "hypothesisCount": 3, "checksDiscriminate": true },
+      "expected": { "route": "hypothesis_triage", "questionTypes": ["choice", "choice"], "policyAction": "test_selected_check", "mayAssert": false }
+    },
+    {
+      "id": "recent-debug-pattern-bias",
+      "input": { "willChangeAction": true, "weakHunch": true, "observationsCount": 1, "hypothesisCount": 0 },
+      "expected": { "route": "hunch_check", "questionTypes": ["noul"], "policyAction": "promote_or_drop_hunch", "mayAssert": false }
+    },
+    {
+      "id": "scope-mismatch",
+      "input": { "willChangeAction": true, "aboutToAssert": true, "evidenceCount": 1, "scopeCompatible": false },
+      "expected": { "route": "deterministic", "questionTypes": [], "policyAction": "narrow_or_block_claim", "mayAssert": false }
+    },
+    {
+      "id": "stale-version-evidence",
+      "input": { "willChangeAction": true, "evidenceCollected": true, "boundedClaim": true, "evidenceFresh": false },
+      "expected": { "route": "missing_fact", "questionTypes": [], "policyAction": "refresh_evidence", "mayAssert": false }
+    },
+    {
+      "id": "correlation-as-causation",
+      "input": { "willChangeAction": true, "evidenceCollected": true, "boundedClaim": true, "evidenceFresh": true },
+      "expected": { "route": "disputed_inference", "questionTypes": ["choice", "choice"], "policyAction": "verify_selected_basis", "mayAssert": false }
+    },
+    {
+      "id": "same-evidence-two-hypotheses",
+      "input": { "willChangeAction": true, "observationsCount": 2, "hypothesisCount": 2, "checksDiscriminate": false },
+      "expected": { "route": "missing_fact", "questionTypes": [], "policyAction": "design_discriminating_checks", "mayAssert": false }
+    },
+    {
+      "id": "non-discriminating-check",
+      "input": { "willChangeAction": true, "observationsCount": 2, "hypothesisCount": 3, "checksDiscriminate": false },
+      "expected": { "route": "missing_fact", "questionTypes": [], "policyAction": "design_discriminating_checks", "mayAssert": false }
+    },
+    {
+      "id": "high-cost-check",
+      "input": { "willChangeAction": true, "observationsCount": 2, "hypothesisCount": 2, "checksDiscriminate": true, "actionCost": "high" },
+      "expected": { "route": "decision_review", "questionTypes": ["noul", "choice", "noul"], "policyAction": "review_before_action", "mayAssert": false }
+    },
+    {
+      "id": "new-evidence-destroys-hypotheses",
+      "input": { "willChangeAction": true, "newEvidence": true, "previousHypothesisCount": 2, "observationMatchesPrediction": false },
+      "expected": { "route": "reflection_delta", "questionTypes": ["choice", "choice", "noul"], "policyAction": "update_or_reframe", "mayAssert": false }
+    },
+    {
+      "id": "new-evidence-weakly-affects-lead",
+      "input": { "willChangeAction": true, "newEvidence": true, "previousHypothesisCount": 2, "observationMatchesPrediction": true },
+      "expected": { "route": "reflection_delta", "questionTypes": ["choice", "choice", "noul"], "policyAction": "update_or_reframe", "mayAssert": false }
+    },
+    {
+      "id": "direct-lookup",
+      "input": { "willChangeAction": true, "exactLookupAvailable": true },
+      "expected": { "route": "deterministic", "questionTypes": [], "policyAction": "run_direct_check", "mayAssert": false }
+    },
+    {
+      "id": "high-confidence-hallucination",
+      "input": { "willChangeAction": true, "aboutToAssert": true, "evidenceCount": 0, "feltConfidence": "high" },
+      "expected": { "route": "deterministic", "questionTypes": [], "policyAction": "block_ungrounded_claim", "mayAssert": false }
+    },
+    {
+      "id": "supported-claim-weak-wording",
+      "input": { "willChangeAction": true, "aboutToAssert": true, "evidenceCount": 1, "scopeCompatible": true },
+      "expected": { "route": "hallucination_gate", "questionTypes": ["noul", "choice"], "policyAction": "gate_then_qualify", "mayAssert": false }
+    },
+    {
+      "id": "narrow-evidence-broad-claim",
+      "input": { "willChangeAction": true, "aboutToAssert": true, "evidenceCount": 2, "scopeCompatible": false },
+      "expected": { "route": "deterministic", "questionTypes": [], "policyAction": "narrow_or_block_claim", "mayAssert": false }
+    }
+  ]
+}

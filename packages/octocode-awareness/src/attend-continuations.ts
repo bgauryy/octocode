@@ -3,10 +3,8 @@ import type { AttendContinuation, AttendParams } from './attend-model.js';
 const CONTINUATION_LIMIT = 50;
 
 interface ContinuationInput {
-  workspacePath: string;
   params: AttendParams;
   query: string;
-  agentId: string;
   files: string[];
   limit: number;
   workboardPartial: boolean;
@@ -23,13 +21,12 @@ export function attendContinuations(input: ContinuationInput): {
   const continuations: AttendContinuation[] = [];
   if (input.workboardPartial) {
     continuations.push({
-      command: 'query workboard',
+      operation: 'work.list',
       params: {
-        workspace: input.workspacePath,
+        kind: 'workboard',
         ...(input.params.artifact ? { artifact: input.params.artifact } : {}),
         ...(input.params.repo ? { repo: input.params.repo } : {}),
         ...(input.params.ref ? { ref: input.params.ref } : {}),
-        ...(input.agentId ? { agent_id: input.agentId } : {}),
         ...(input.params.includeBodies ? { include_bodies: true } : {}),
         limit: continuationLimit,
         format: 'json',
@@ -38,12 +35,11 @@ export function attendContinuations(input: ContinuationInput): {
   }
   if (input.evidenceOmittedCount > 0) {
     continuations.push({
-      command: 'memory recall',
+      operation: 'memory.recall',
       params: {
         query: input.query || input.files.join(' '),
         limit: CONTINUATION_LIMIT,
         min_importance: 1,
-        workspace: input.workspacePath,
         ...(input.params.artifact ? { artifact: input.params.artifact } : {}),
         ...(input.params.repo ? { repo: input.params.repo } : {}),
         ...(input.params.ref ? { ref: input.params.ref } : {}),

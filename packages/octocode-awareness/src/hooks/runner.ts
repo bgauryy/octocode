@@ -1,7 +1,7 @@
 import { writeCommandDiagnostic, writeCommandText } from '../command-output.js';
 import { HookRunOptions, INTERNAL_HOOK_HOST, INTERNAL_SKILL_ROOT, agentId, hookEventName, parsePayload, shellHookHost, workspace } from './payload.js';
 import { runPostEdit, runPreEdit } from './edit-events.js';
-import { canDeliverHookCommunication, isDigestPreviewDue, runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify, runToolCommunication } from './lifecycle.js';
+import { canDeliverHookCommunication, isRetentionPreviewDue, runNotifyDeliver, runSessionCompact, runSessionEnd, runStopVerify, runToolCommunication } from './lifecycle.js';
 import { normalizeToolHookPayload } from './tool-protocol.js';
 import { captureHookHistory } from './history-capture.js';
 import { HOOK_RECEIPT_SUCCESS_SAMPLE_MS, recordHookReceiptBestEffort } from '../hook-receipts.js';
@@ -43,9 +43,6 @@ export async function runHookCommand(
     return 1;
   }
 
-  const features = hookFeatures();
-  if (!features.hooks) return 0;
-
   let payload: Record<string, unknown> = {
     ...parsePayload(rawPayload),
     ...(options.host ? { [INTERNAL_HOOK_HOST]: options.host } : {}),
@@ -53,12 +50,18 @@ export async function runHookCommand(
   };
   let configuredProfile: string | undefined;
   try {
+    const workspacePath = workspace(payload) ?? process.cwd();
+    const host = shellHookHost(payload);
+    const policy = loadWorkspacePolicy(workspacePath).policy;
+    if (policy.hooks.owners[host] === 'native') return 0;
     configuredProfile = process.env.OCTOCODE_HOOK_PROFILE
-      ?? loadWorkspacePolicy(workspace(payload) ?? process.cwd()).policy.hooks.profile;
+      ?? policy.hooks.profile;
   } catch (error) {
     writeCommandDiagnostic(`octocode-awareness hook policy warning (hooks inert): ${(error as Error).message}`);
     return 0;
   }
+  const features = hookFeatures();
+  if (!features.hooks) return 0;
   if (!['guard', 'coordination', 'full'].includes(configuredProfile)) {
     writeCommandDiagnostic(`octocode-awareness hook profile warning (hooks inert): expected guard, coordination, or full; got ${configuredProfile}`);
     return 0;
@@ -96,7 +99,7 @@ export async function runHookCommand(
     writeCommandDiagnostic(`octocode-awareness hook identity error: ${(error as Error).message}`);
     return 1;
   }
-  const receipt = (status: 'success' | 'failure') => recordHookReceiptBestEffort({
+  const receipt = (status: 'success' | 'degraded' | 'failure') => recordHookReceiptBestEffort({
     workspacePath: workspace(payload) ?? process.cwd(),
     host: shellHookHost(payload),
     event: hookEventName(payload) ?? command,
@@ -110,7 +113,7 @@ export async function runHookCommand(
     receipt('success');
     return 0;
   }
-  if (communicationOnly && hookStateUnchanged(payload) && !isDigestPreviewDue(payload, features)) {
+  if (communicationOnly && hookStateUnchanged(payload) && !isRetentionPreviewDue(payload, features)) {
     receipt('success');
     recordHookChangeState(payload);
     return 0;
@@ -150,7 +153,7 @@ export async function runHookCommand(
     if (communicationOnly) recordHookChangeState(payload);
     return exitCode;
   } catch (error) {
-    receipt('failure');
+    receipt('degraded');
     writeCommandDiagnostic(`octocode-awareness ${command} warning (continuing): ${error instanceof Error ? error.message : String(error)}`);
     return 0;
   }

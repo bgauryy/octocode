@@ -64,7 +64,15 @@ export function readFileEntry(
   query: PartialFileContentQuery
 ): FileEntry {
   const pagination = readPagination(data.pagination);
-  const continuation = fetchContinuation(query, pagination, 'ghGetFileContent');
+  const resolvedBranch = readString(data.resolvedBranch);
+  const snapshotQuery = resolvedBranch
+    ? { ...query, branch: resolvedBranch }
+    : query;
+  const continuation = fetchContinuation(
+    snapshotQuery,
+    pagination,
+    'ghGetFileContent'
+  );
   const next: FileContentNextMap = {
     ...(continuation ? { continue: continuation } : {}),
     ...(isRecord(data.next) ? (data.next as FileContentNextMap) : {}),
@@ -81,7 +89,9 @@ export function readFileEntry(
         owner: query.owner,
         repo: query.repo,
         path: query.path,
-        ...(query.branch !== undefined ? { branch: query.branch } : {}),
+        ...(snapshotQuery.branch !== undefined
+          ? { branch: snapshotQuery.branch }
+          : {}),
         startLine: line,
         endLine: line,
         minify: 'none',
@@ -96,6 +106,12 @@ export function readFileEntry(
   return {
     path: filePath,
     content: typeof data.content === 'string' ? data.content : '',
+    ...(Array.isArray(data.sourceLineRanges) && data.sourceLineRanges.length > 0
+      ? {
+          sourceLineRanges:
+            data.sourceLineRanges as FileEntry['sourceLineRanges'],
+        }
+      : {}),
     ...(data.errorCode === 'contentSecurityLimit'
       ? {
           errorCode: 'contentSecurityLimit' as const,

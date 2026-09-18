@@ -2,11 +2,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { connectDb, resolveDbPath } from './db-runtime.js';
 import { canonicalizePath } from './git.js';
 import { utcNow } from './helpers.js';
-import type { HookHost } from './hooks-install-specs.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import type { ShellHookHost } from './hooks/payload.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
-export type HookReceiptStatus = 'success' | 'failure';
-export type HookReceiptHost = HookHost | 'opencode';
+export type HookReceiptStatus = 'success' | 'degraded' | 'failure';
+export type HookReceiptHost = ShellHookHost;
 
 export interface HookReceipt {
   workspace_path: string;
@@ -67,7 +67,7 @@ export function recordHookReceiptBestEffort(receipt: {
   try {
     database = connectDb(resolveDbPath(null, {
       workspace: receipt.workspacePath,
-      scope: storageScopeForCommand('hook', receipt.workspacePath),
+      scope: storageScopeForOperation('host.hook.receipt', receipt.workspacePath),
     }));
     return upsertHookReceipt(database, receipt);
   } catch {
@@ -92,7 +92,7 @@ export function hookRuntimeReceiptHealth(
   receipts: HookReceipt[],
   expectedEvents: string[],
   nowMs = Date.now(),
-): { status: 'observed' | 'unverified' | 'stale' | 'failed'; last_seen: string | null; coverage: string } {
+): { status: 'observed' | 'unverified' | 'stale' | 'degraded' | 'failed'; last_seen: string | null; coverage: string } {
   const expected = new Set(expectedEvents);
   const relevant = receipts.filter((receipt) => expected.has(receipt.event));
   const lastSeen = relevant.reduce<string | null>((latest, receipt) => (
@@ -101,6 +101,7 @@ export function hookRuntimeReceiptHealth(
   const coverage = `${relevant.length}/${expected.size}`;
   if (relevant.length === 0) return { status: 'unverified', last_seen: null, coverage };
   if (relevant.some((receipt) => receipt.status === 'failure')) return { status: 'failed', last_seen: lastSeen, coverage };
+  if (relevant.some((receipt) => receipt.status === 'degraded')) return { status: 'degraded', last_seen: lastSeen, coverage };
   const lastSeenMs = lastSeen == null ? Number.NaN : new Date(lastSeen).getTime();
   if (!Number.isFinite(lastSeenMs) || nowMs - lastSeenMs > HOOK_RECEIPT_STALE_MS) {
     return { status: 'stale', last_seen: lastSeen, coverage };

@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"owner\":\"facebook\",\"repo\":\"react\",\"branch\":\"v19.2.0\",\"path\":\"packages/react-reconciler/src/ReactFiberHooks.js\",\"matchString\":\"function mountHookTypesDev\",\"contextLines\":35},{\"owner\":\"facebook\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/__tests__/ReactHooks-test.internal.js\",\"matchString\":\"suspends twice\",\"contextLines\":20},{\"owner\":\"facebook\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/__tests__/ReactHooksWithNoopRenderer-test.js\",\"matchString\":\"hook order\",\"contextLines\":15}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:07.458Z",
+  "endedAt": "2026-09-18T08:27:09.853Z",
+  "elapsedMs": 2393,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "4c52cf8d9edf4374166658ba4d0f4f9fa808def26b777ca2a265f801cd57f8be",
+  "stdoutBytes": 4880,
+  "requestSha256": null
+}

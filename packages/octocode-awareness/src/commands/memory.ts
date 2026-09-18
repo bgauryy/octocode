@@ -1,21 +1,16 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { insertMemoryWithSimilarityGate } from '../memory-write.js';
 import { recallMemory, storeMemoryEmbeddingIfConfigured } from '../memory-semantic.js';
-import { insertRefinement, getRefinements, updateRefinement } from '../refinements.js';
-import { reflect } from '../reflect.js';
-import type { EvalFailure } from '../types/locks-reflection.js';
-import type { MemoryRecord, RefinementQuality } from '../types/identity-memory.js';
-import { normalizeFilePath, projectMemoryLean, summarizeText } from '../helpers.js';
-import { MEMORY_SORTS, ParsedArgs } from './args.js';
-import { EmitOptions, die, emit } from '../command-output.js';
-import { resolveAgentId, valuesFor } from './args.js';
+import type { MemoryRecord } from '../types/identity-memory.js';
+import { normalizeFilePath, projectMemoryLean } from '../helpers.js';
+import { MEMORY_SORTS, type ParsedArgs, resolveAgentId } from './args.js';
+import { type EmitOptions, die, emit } from '../command-output.js';
 
 export async function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): Promise<number> {
   const agentId = resolveAgentId(args);
   const taskContext = String(args['task_context'] ?? '');
   const observation = String(args['observation'] ?? '');
   const importanceLevel = args['importance'];
-
   if (!taskContext) die('--task-context is required');
   if (!observation) die('--observation is required');
   const imp = parseInt(String(importanceLevel), 10);
@@ -41,7 +36,7 @@ export async function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: 
   const supersedes = Array.isArray(rawSup) ? rawSup : rawSup ? [String(rawSup)] : [];
   const rawLabel = args['label'];
   const label = Array.isArray(rawLabel) ? rawLabel[0] : String(rawLabel ?? '');
-  const guarded = (await insertMemoryWithSimilarityGate(db, {
+  const guarded = await insertMemoryWithSimilarityGate(db, {
     agentId, taskContext, observation, importance: imp,
     label,
     tags, references: [...references, ...fileReferences], supersedes,
@@ -54,7 +49,7 @@ export async function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: 
     ref: args['ref'] ? String(args['ref']) : null,
     fileTreeFingerprint: args['file_tree_fingerprint'] ? String(args['file_tree_fingerprint']) : null,
     captureFingerprint: args['capture_fingerprint'] === true,
-  }, Boolean(args['allow_similar'])));
+  }, Boolean(args['allow_similar']));
 
   if (guarded.skipped) {
     return emit({
@@ -66,10 +61,6 @@ export async function cmdTellMemory(db: DatabaseSync, args: ParsedArgs, dbPath: 
     }, 0, opts);
   }
   const { memory, superseded, noveltyScore, similarMemoryIds } = guarded.result;
-
-  // Consolidation surface (mem0 ADD/UPDATE/NOOP contract, LLM-free): when the
-  // new memory overlaps existing ones, hand the calling agent the candidates
-  // and let IT decide to supersede or forget — the store never guesses.
   const payload: Record<string, unknown> = { db_path: dbPath, memory, superseded };
   if (supersedes.length === 0 && noveltyScore < 0.5 && similarMemoryIds.length > 0) {
     payload['consolidation'] = {
@@ -90,7 +81,6 @@ export async function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: s
   const tags = Array.isArray(rawTag) ? rawTag : rawTag ? [String(rawTag)] : [];
   const rawState = args['state'];
   const states = rawState ? (Array.isArray(rawState) ? rawState : [String(rawState)]) : undefined;
-
   const rawReference = args['reference'];
   const references = Array.isArray(rawReference) ? rawReference : rawReference ? [String(rawReference)] : [];
   const rawRegex = args['regex'];
@@ -100,37 +90,34 @@ export async function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: s
   const rawGetFiles = args['file'];
   const getFiles = Array.isArray(rawGetFiles) ? rawGetFiles : rawGetFiles ? [String(rawGetFiles)] : [];
   const sort = String(args['sort'] ?? 'smart');
-  if (!MEMORY_SORTS.has(sort)) {
-    die(`--sort must be one of: ${[...MEMORY_SORTS].join(', ')}`);
-  }
+  if (!MEMORY_SORTS.has(sort)) die(`--sort must be one of: ${[...MEMORY_SORTS].join(', ')}`);
 
-  const recallParams = {
-    query: String(args['query'] ?? ''),
-    limit: parseInt(String(args['limit'] ?? '3'), 10),
-    minImportance: parseInt(String(args['min_importance'] ?? '1'), 10),
-    label: labelArr,
-    tags,
-    smart: args['smart'] === true || args['smart'] === 'true',
-    workspacePath: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    states,
-    sort,
-    globalOnly: Boolean(args['global_only']),
-    strictScope: Boolean(args['strict_scope']),
-    allWorkspaces: Boolean(args['all_workspaces']),
-    asOf: args['as_of'] ? String(args['as_of']) : null,
-    references,
-    regex,
-    fileRegex,
-    files: getFiles,
-    explain: Boolean(args['explain']),
-    checkFingerprint: args['check_fingerprint'] === true,
-  };
   const payload: Record<string, unknown> = {
     db_path: dbPath,
-    ...(await recallMemory(db, recallParams, Boolean(args['semantic']))),
+    ...(await recallMemory(db, {
+      query: String(args['query'] ?? ''),
+      limit: parseInt(String(args['limit'] ?? '3'), 10),
+      minImportance: parseInt(String(args['min_importance'] ?? '1'), 10),
+      label: labelArr,
+      tags,
+      smart: args['smart'] === true || args['smart'] === 'true',
+      workspacePath: args['workspace'] ? String(args['workspace']) : null,
+      artifact: args['artifact'] ? String(args['artifact']) : null,
+      repo: args['repo'] ? String(args['repo']) : null,
+      ref: args['ref'] ? String(args['ref']) : null,
+      states,
+      sort,
+      globalOnly: Boolean(args['global_only']),
+      strictScope: Boolean(args['strict_scope']),
+      allWorkspaces: Boolean(args['all_workspaces']),
+      asOf: args['as_of'] ? String(args['as_of']) : null,
+      references,
+      regex,
+      fileRegex,
+      files: getFiles,
+      explain: Boolean(args['explain']),
+      checkFingerprint: args['check_fingerprint'] === true,
+    }, Boolean(args['semantic']))),
   };
   if (opts.compact && payload['count'] === 0) {
     return emit({ count: 0, memories: [],
@@ -139,188 +126,12 @@ export async function cmdGetMemory(db: DatabaseSync, args: ParsedArgs, dbPath: s
   }
   if (!Boolean(args['full'])) {
     const memories = (payload['memories'] ?? []) as Array<Record<string, unknown>>;
-    payload['memories'] = memories.map((memory) => projectMemoryLean(memory as unknown as MemoryRecord));
+    payload['memories'] = memories.map(memory => projectMemoryLean(memory as unknown as MemoryRecord));
     if (memories.length > 0) payload['projection'] = 'lean';
     if (payload['as_of'] == null) delete payload['as_of'];
     if (payload['global_only'] === false) delete payload['global_only'];
     if (payload['all_workspaces'] === false) delete payload['all_workspaces'];
-    if (Array.isArray(payload['states']) && payload['states'].length === 1 && payload['states'][0] === 'ACTIVE') {
-      delete payload['states'];
-    }
+    if (Array.isArray(payload['states']) && payload['states'].length === 1 && payload['states'][0] === 'ACTIVE') delete payload['states'];
   }
   return emit(payload, 0, opts);
-}
-
-export function cmdRefineSet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawState = args['state'];
-  const stateVal = Array.isArray(rawState) ? rawState[0] : String(rawState ?? 'open');
-  const fileArgs = [args['file'], args['files']].filter((v) => v !== undefined);
-  const files = fileArgs.flatMap((v) => (Array.isArray(v) ? v.map(String) : [String(v)]));
-  const hasFileArgs = fileArgs.length > 0;
-
-  // Update path: --refinement-id changes only the passed fields
-  // (open → ongoing → done lifecycle).
-  const rawRefId = args['refinement_id'];
-  const refinementId = Array.isArray(rawRefId) ? rawRefId[0] : rawRefId ? String(rawRefId) : null;
-  if (refinementId && refinementId !== 'true') {
-    const update = updateRefinement(db, {
-      refinementId,
-      ...(args['state'] !== undefined ? { state: stateVal as 'open' | 'ongoing' | 'done' } : {}),
-      ...(args['quality'] !== undefined ? { quality: String(args['quality']) as RefinementQuality } : {}),
-      ...(args['reasoning'] !== undefined ? { reasoning: String(args['reasoning']) } : {}),
-      ...(args['remember'] !== undefined ? { remember: String(args['remember']) } : {}),
-      ...(hasFileArgs ? { files } : {}),
-      ...(args['state'] !== undefined && stateVal === 'done' ? {
-        actorAgentId: resolveAgentId(args),
-        checkReceipt: args['check_receipt'] ? String(args['check_receipt']) : '',
-      } : {}),
-    });
-    if (!update.updated) die(`refinement not found: ${refinementId}`);
-    return emit({ db_path: dbPath, updated: true, refinement: update.refinement }, 0, opts);
-  }
-
-  if (stateVal === 'done') {
-    die('terminal refinement creation is not allowed; create open/ongoing, then close an existing --refinement-id with --agent-id and --check-receipt');
-  }
-
-  const reasoning = String(args['reasoning'] ?? '');
-  const remember = String(args['remember'] ?? '');
-  if (!reasoning) die('--reasoning is required');
-  if (!remember) die('--remember is required');
-
-  const { refinement } = insertRefinement(db, {
-    agentId: resolveAgentId(args),
-    reasoning, remember,
-    quality: (String(args['quality'] ?? 'good')) as RefinementQuality,
-    state: (stateVal ?? 'open') as 'open' | 'ongoing' | 'done',
-    workspacePath: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    files,
-  });
-
-  return emit({ db_path: dbPath, refinement }, 0, opts);
-}
-
-export function cmdRefineGet(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawStatesPlural = args['states'];
-  const rawStateMerged = rawStatesPlural !== undefined ? rawStatesPlural : args['state'];
-  const states = rawStateMerged ? (Array.isArray(rawStateMerged) ? rawStateMerged.map(String) : [String(rawStateMerged)]) : undefined;
-  const rawRefId = args['refinement_id'];
-  const refinementId = Array.isArray(rawRefId) ? String(rawRefId[0]) : rawRefId ? String(rawRefId) : undefined;
-  const full = Boolean(args['full']);
-  const requestedLimit = parseInt(String(args['limit'] ?? (opts.compact && !full ? '3' : '10')), 10);
-
-  const result = getRefinements(db, {
-    workspacePath: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    quality: args['quality'] ? String(args['quality']) as RefinementQuality : undefined,
-    includeHandoffs: Boolean(args['include_handoffs']),
-    refinementId,
-    states,
-    limit: requestedLimit,
-    offset: args['offset'] === undefined ? 0 : Number(args['offset']),
-  });
-
-  const continuation = result.next?.list.params;
-  const nextArgs = continuation ? ['--db', dbPath] : [];
-  if (continuation) {
-    for (const [flag, value] of [
-      ['workspace', continuation.workspacePath], ['artifact', continuation.artifact],
-      ['repo', continuation.repo], ['ref', continuation.ref], ['quality', continuation.quality],
-      ['limit', continuation.limit], ['offset', continuation.offset],
-    ] as const) if (value != null) nextArgs.push(`--${flag}`, String(value));
-    for (const state of continuation.states ?? []) nextArgs.push('--state', state);
-    if (continuation.includeHandoffs) nextArgs.push('--include-handoffs');
-    if (full) nextArgs.push('--full');
-    if (opts.compact) nextArgs.push('--compact');
-  }
-  const pagination = {
-    partial: result.partial,
-    partialReasons: result.partialReasons,
-    has_more: result.partial,
-    next: continuation ? { list: { command: { name: 'refinement get', args: nextArgs } } } : undefined,
-  };
-
-  if (opts.compact && !full) {
-    const refinements = result.refinements.map((row) => {
-      const files = row.files.slice(0, 3);
-      return {
-        refinement_id: row.refinement_id,
-        agent_id: row.agent_id,
-        quality: row.quality,
-        state: row.state,
-        files,
-        file_count: row.files.length,
-        file_omitted_count: Math.max(0, row.files.length - files.length),
-        reasoning_summary: summarizeText(row.reasoning, 120),
-        remember_summary: summarizeText(row.remember, 160),
-        updated_at: row.updated_at,
-      };
-    });
-    return emit({
-      db_path: dbPath,
-      count: refinements.length,
-      refinements,
-      handoff_count: result.handoff_count,
-      instructions_count: result.instructions_count,
-      ...pagination,
-    }, 0, opts);
-  }
-  return emit({ db_path: dbPath, ...result, ...pagination }, 0, opts);
-}
-
-export function cmdReflect(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  if (!args['task']) die('--task is required');
-
-  // Reflection must carry reusable signal — a lesson, a fix, or a failure.
-  // Routine status (task + outcome only) is rejected so the memory store stays
-  // high-signal. Mirrors the library tool-operations guard and the skill docs.
-  const hasReusableSignal =
-    args['lesson'] || args['didnt_work'] || args['worked'] ||
-    args['fix_repo'] || args['fix_harness'] || args['fix_instructions'] ||
-    args['failure_signature'] || args['eval_failure_json'];
-  if (!hasReusableSignal) {
-    die('reflect needs a reusable lesson, failure, or fix: pass --lesson, --worked, --didnt-work, --fix-repo, --fix-harness, --fix-instructions, or --failure-signature. Skip routine status.');
-  }
-
-  let evalFailures: EvalFailure[] = [];
-  if (args['eval_failure_json']) {
-    try {
-      const parsed: unknown = JSON.parse(String(args['eval_failure_json']));
-      if (!Array.isArray(parsed)) throw new Error('expected a JSON array');
-      evalFailures = parsed as EvalFailure[];
-    } catch (err) {
-      die(`--eval-failure-json must be a JSON array of {id, dimension?, failure_signature?, suggested_lesson?}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  const result = reflect(db, {
-    agentId: resolveAgentId(args),
-    task: String(args['task']),
-    outcome: args['outcome'] != null ? String(args['outcome']) : 'partial',
-    lesson: args['lesson'] ? String(args['lesson']) : null,
-    worked: args['worked'] ? String(args['worked']) : null,
-    didntWork: args['didnt_work'] ? String(args['didnt_work']) : null,
-    fixRepo: args['fix_repo'] ? String(args['fix_repo']) : null,
-    fixHarness: args['fix_harness'] ? String(args['fix_harness']) : null,
-    fixInstructions: args['fix_instructions'] ? String(args['fix_instructions']) : null,
-    failureSignature: args['failure_signature'] ? String(args['failure_signature']) : null,
-    importance: args['importance'] ? parseInt(String(args['importance']), 10) : null,
-    judgmentNote: args['judgment_note'] ? String(args['judgment_note']) : null,
-    duo: Boolean(args['duo']),
-    allowSimilar: Boolean(args['allow_similar']),
-    evalFailures,
-    files: valuesFor(args, 'fix_file'),
-    workspacePath: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    cwd: args['workspace'] ? String(args['workspace']) : process.cwd(),
-  });
-
-  return emit({ ...result, db_path: dbPath }, 0, opts);
 }

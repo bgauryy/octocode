@@ -1,8 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
 import { initDb } from '../src/db-init.js';
 import { queryMemory } from '../src/memory-recall.js';
 import {
@@ -20,13 +17,7 @@ import {
   regexCandidateIds,
 } from '../src/memory-search.js';
 import { insertMemory } from '../src/memory-write.js';
-import { atomicWriteText, resolveWorkspaceOutputPath } from '../src/repo-projection.js';
 import type { MemoryRecord } from '../src/types/identity-memory.js';
-
-const roots: string[] = [];
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-});
 
 function freshDb(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
@@ -124,23 +115,5 @@ describe('memory search held-out filters', () => {
     expect(lexicalSearch(db, '', 10, 1, [], [], ['ACTIVE'], { candidateMemoryIds: [] }))
       .toEqual([]);
     db.close();
-  });
-});
-
-describe('small filesystem projections', () => {
-  it('resolves output paths and writes text atomically', () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'awareness-projection-')));
-    roots.push(root);
-    expect(resolveWorkspaceOutputPath(undefined, root, 'default/report.md'))
-      .toBe(resolve(root, 'default/report.md'));
-    expect(resolveWorkspaceOutputPath('  custom/report.md  ', root, 'ignored'))
-      .toBe(resolve(root, 'custom/report.md'));
-    expect(resolveWorkspaceOutputPath(resolve(root, 'absolute.md'), root, 'ignored'))
-      .toBe(resolve(root, 'absolute.md'));
-
-    const output = join(root, 'nested', 'report.md');
-    atomicWriteText(output, 'first');
-    atomicWriteText(output, 'second');
-    expect(readFileSync(output, 'utf8')).toBe('second');
   });
 });

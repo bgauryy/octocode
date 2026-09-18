@@ -19,7 +19,7 @@ These are **not** interchangeable. Tree-sitter cannot resolve a symbol across fi
 
 When a semantic operation needs a language server and **no server is available**, octocode **throws** — it does *not* fabricate a syntactic or same-file approximation. An honest failure prevents the calling agent from trusting incomplete syntax evidence as a semantic answer.
 
-- The thrown error is the standard typed envelope: `status:"error"`, `errorCode:"lspServerUnavailable"`. In bulk it lands under `errors[]`.
+- The public result row has `status:"error"` and `data.errorCode:"lspServerUnavailable"` under `results[]`.
 - The message names the language, says no server is available, gives the install hint, and **directs the agent to lexical `localSearch` or structural `astSearch` + `localFetch`** instead.
 - octocode never returns a same-file-only `references` result, or a tree-sitter guess, dressed up as a semantic answer.
 
@@ -27,7 +27,11 @@ When a semantic operation needs a language server and **no server is available**
 
 **Never throws (genuine tree-sitter features, server-free):** `documentSymbols` (native OXC for JS/TS, Markdown heading outline, or LSP when present) and structural/AST search via `astSearch` with `operation:"match"`. These are real syntactic capabilities, not LSP stand-ins. `documentSymbols` only throws for a non-JS/TS language with no server *and* no outline.
 
-> A server that *is* running but lacks a capability, or returns zero results, still yields an honest *empty* (`unsupportedOperation` / `noReferences` / …) — that is an accurate answer ("none"), not a missing-server failure.
+> A running server that lacks a capability returns `unsupportedOperation`, which means the semantic answer is unavailable. A supported provider returning zero results reports `noReferences` / `noLocations` / … within its indexed scope; neither state establishes repository-wide absence.
+
+Octocode advertises UTF-16 positions. Servers may select UTF-16 or omit the
+encoding (the protocol default); another encoding fails startup before semantic
+requests can return misleading locations.
 
 ## Server availability classes
 
@@ -88,8 +92,8 @@ Native grammar availability and external server resolution are independent. See
 [Supported languages and features](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md) for
 the structural-search set. Shell, Less, and Elixir are LSP-only routes. Scala
 uses Metals when installed. Files
-without a registered grammar remain searchable with `localSearch
-operation:"text"`.
+without a registered grammar remain searchable with `localSearch` using
+`path` and `searchText`.
 
 `octocode lsp-server list` reports managed-download and toolchain-required
 servers, including the resolve-if-installed rows above, and prints a note naming
@@ -176,6 +180,7 @@ strategy table.
 - **Cleanup during startup**: clearing a key or the pool invalidates pending acquisitions immediately. A client created after its acquisition was invalidated is stopped and the acquisition returns `null`. Cleanup does not wait for a pending factory to finish. Stale startup and health-check completions cannot replace or remove a newer acquisition.
 - **Cold start / indexing**: a server reads the project and builds its model before answering correctly. Costs vary — typescript-language-server <1s, gopls 3–15s, rust-analyzer 5–60s (multiple `$/progress` waves), jdtls 30–120s.
 - **Readiness** (`manager.ts` + `json_rpc.rs`): for servers that emit `$/progress` (go, rust, java, csharp, swift) the pool factory calls `waitForReady` with a per-language cap before the first query. Bash also uses a bounded 2s settle because it loads client configuration asynchronously before enabling document analysis; this records `settledFallback`, not confirmed indexing. TS/JS, Python, clangd, and data-format servers skip the settle interval.
+- **Resolved-server receipt** (`manager.ts`): every server-backed semantic response records the effective command and argv, resolver source, workspace and configuration fingerprints, initialized capabilities, and readiness. When an absolute executable or bundled package artifact is readable, the receipt also includes canonical-path identity, bounded content hashes, and package-manifest identity. Syntax-only responses intentionally have no server receipt.
 - **Spawn gate**: every resolved command passes `validateLSPServerPath` (rejects shell wrappers / nonexistent / non-executable) in `LSPClient.start()` before the process is spawned.
 - **Discovery caching** (`serverDiscovery.ts`): lookup results and ecosystem-directory inventories expire after five seconds, including missing-server results. Call `clearDiscoveryCache()` to refresh immediately after installing a server during a session.
 

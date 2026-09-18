@@ -1,12 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { forgetMemory, archiveMemories, restoreMemories } from '../memory-lifecycle.js';
-import { deleteRefinement } from '../refinements.js';
 import { countPlans, createPlan, getPlan, joinPlan, listPlans, registerPlanDocument, updatePlanStatus } from '../plans.js';
 import { addTaskDependency, createTask, countReadyTasks, countTasks, listReadyTasks, listTasks } from '../tasks-ready.js';
 import { claimTask, heartbeatTaskClaim, releaseTaskClaim, retryTask, submitTask } from '../tasks-claims.js';
 import { getTask } from '../tasks-catalog.js';
-import type { PlanStatus, TaskStatus } from '@octocodeai/agent-contracts/entities';
-import { exportHarness } from '../maintenance-workspace.js';
+import type { PlanStatus, TaskStatus } from '../entities.js';
 import { normalizeWorkspacePath } from '../git.js';
 import { ParsedArgs } from './args.js';
 import { EmitOptions, die, emit } from '../command-output.js';
@@ -260,71 +257,4 @@ export function cmdTask(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts
     return emit({ db_path: dbPath, task }, 0, opts);
   }
   return emit({ db_path: dbPath, error: `unknown task action: ${action}` }, 1, opts);
-}
-
-export function cmdForget(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawIds = args['memory_id'];
-  const memoryIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
-  const rawTags = [args['tag'], args['tags']].flatMap((v) =>
-    Array.isArray(v) ? v : v && v !== true ? [String(v)] : []);
-  const tags = rawTags;
-  const result = forgetMemory(db, {
-    memoryIds,
-    tags,
-    before: args['before'] ? String(args['before']) : undefined,
-    maxImportance: args['max_importance'] ? parseInt(String(args['max_importance']), 10) : undefined,
-    workspacePath: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    dryRun: Boolean(args['dry_run']),
-  });
-  return emit({ db_path: dbPath, ...result }, 0, opts);
-}
-
-export function cmdMemoryLifecycle(
-  db: DatabaseSync,
-  args: ParsedArgs,
-  dbPath: string,
-  opts: EmitOptions,
-  action: 'archive' | 'restore',
-): number {
-  const rawIds = args['memory_id'];
-  const memoryIds = Array.isArray(rawIds) ? rawIds.map(String) : rawIds ? [String(rawIds)] : [];
-  if (memoryIds.length === 0) die('--memory-id is required');
-  const params = {
-    memoryIds,
-    workspacePath: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-    repo: args['repo'] ? String(args['repo']) : null,
-    ref: args['ref'] ? String(args['ref']) : null,
-    dryRun: Boolean(args['dry_run']),
-  };
-  const result = action === 'archive'
-    ? archiveMemories(db, params)
-    : restoreMemories(db, params);
-  return emit({ db_path: dbPath, ...result }, 0, opts);
-}
-
-export function cmdRefineDelete(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const rawIds = args['refinement_id'];
-  const refinementIds = Array.isArray(rawIds) ? rawIds : rawIds ? [String(rawIds)] : [];
-  if (refinementIds.length === 0) return emit({ error: '--refinement-id is required' }, 1, opts);
-  const result = deleteRefinement(db, {
-    refinementIds,
-    workspacePath: args['workspace'] ? String(args['workspace']) : undefined,
-    artifact: args['artifact'] ? String(args['artifact']) : undefined,
-    dryRun: Boolean(args['dry_run']),
-  });
-  return emit({ db_path: dbPath, ...result }, 0, opts);
-}
-
-export function cmdExportHarness(db: DatabaseSync, args: ParsedArgs, dbPath: string, opts: EmitOptions): number {
-  const result = exportHarness(db, {
-    limit: args['limit'] ? parseInt(String(args['limit']), 10) : undefined,
-    min_importance: args['min_importance'] ? parseInt(String(args['min_importance']), 10) : undefined,
-    workspace_path: args['workspace'] ? String(args['workspace']) : null,
-    artifact: args['artifact'] ? String(args['artifact']) : null,
-  });
-  return emit({ db_path: dbPath, ...result }, 0, opts);
 }

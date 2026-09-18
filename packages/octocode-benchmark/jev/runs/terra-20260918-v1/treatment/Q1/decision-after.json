@@ -1,0 +1,10 @@
+{
+  "caseId": "Q1",
+  "advice": {"hypothesis":"H2","nextCheck":"C2","model":"jev-1.13.0"},
+  "actualNextCheck": "Searched the same canary file for an exported RouteRegex declaration and for `RouteRegex =`; neither match was found. Re-opened direct return evidence remains decisive.",
+  "currentDirection": "Report the helper and two literal fields from getRouteRegex; no type-level additional field was verified.",
+  "uncertainty": "The requested return fields are directly observable; the separate named type was not located by the bounded search.",
+  "adviceApplied": true,
+  "decisionChanged": false,
+  "explanation": "Jev selected the cautious type check. It did not change the answer because the actual function return literal is the relevant runtime result and the selected bounded search found no contrary declaration."
+}

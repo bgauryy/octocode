@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-One reference for every Octocode research tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
+This is the field-level reference for the research surface of the Octocode agentic toolkit. It covers every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-tools-core`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
 
 Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
@@ -14,7 +14,7 @@ npx octocode tools <toolName> --scheme --json --compact
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Packages | `artifactSearch` |
-| Local | `localSearch`, `localFetch`, `astSearch` |
+| Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
 | LSP | `lspSearch` |
 
 ## Contents
@@ -31,7 +31,7 @@ npx octocode tools <toolName> --scheme --json --compact
 
 ## How every tool call works
 
-The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-tools-core`. The interface validates one strict outer object, validates each query against the selected tool and operation, runs independent queries with bounded concurrency, and returns one row for every input position. A failure in one row does not erase successful sibling rows.
+The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-tools-core`. The interface validates one strict outer object, validates each query against the selected tool and operation, runs independent queries with bounded concurrency, and returns one row for every input position. A failure in one row does not erase successful sibling rows.
 
 ### Base call envelope
 
@@ -106,7 +106,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 
 ## Internal, external, and hybrid tools
 
-"External" describes the data or provider boundary, not the MCP transport. All ten tools can be called through MCP or the CLI.
+"External" describes the data or provider boundary, not the MCP transport. All eleven tools can be called through MCP or the CLI.
 
 | Tool | Boundary | How it works |
 | --- | --- | --- |
@@ -118,6 +118,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `ghCloneRepo` | Hybrid | Uses provider credentials/network access, then atomically materializes a full or sparse repository under managed local storage. Disabled unless cloning and local storage are enabled. |
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
 | `astSearch` | Internal/local | Runs structural AST, filesystem, tree, symbol, and topology queries against allowed local paths. |
+| `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 
@@ -413,7 +414,7 @@ Find packages for a capability, resolve a known dependency to registry metadata,
 | `keywords` | One or more discovery terms as an array. PyPI supports exact lookup only. |
 | `cursor` | Opaque discovery continuation; copy the complete returned `next.nextPage` query. Exact lookup has no pagination controls. |
 | `pageSize` | Discovery result count, default 10, range 1–100. |
-| `registry` | npm-only HTTP(S) registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
+| `registry` | npm-only HTTP or HTTPS registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
 
 <!-- tool: artifactSearch -->
 ```json
@@ -972,6 +973,32 @@ localSearch( path=".", searchText="TODO|FIXME", regex="rust")
 
 ---
 
+### `astRewrite`
+
+Preview structural ast-grep rewrites before applying them. Preview is the default and does not apply proposed edits, but it may recover an interrupted transaction. Structural matching distinguishes executable syntax from matching text in comments and strings.
+
+| Field | Meaning |
+| --- | --- |
+| `path`, `langType` | Required scope and language. |
+| `ruleKind` | Required selector: `pattern`, `rule`, or `experimental`; inspect the live schema for the selected form. |
+| `pattern`, `rewrite` | Match and replacement for the `pattern` form. |
+| `include`, `exclude` | Optional file filters. |
+| `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files and 10,000 matches. |
+| `page`, `pageSize`, `snapshot` | Preview pagination; copy executable continuations and their snapshot. |
+| `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`. |
+| `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
+| `postconditions` | Check a required `remainingMatches` count in the staged selected files before commit. |
+
+```bash
+node packages/octocode/out/octocode.js tools astRewrite --queries '{"path":"/ABS/repo/src","langType":"typescript","ruleKind":"pattern","pattern":"console.log($A)","rewrite":"logger.info($A)"}' --compact
+```
+
+Use the preview's identities and diff to review the change. Inspect `tools astRewrite --scheme --json --compact` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
+
+Apply returns the complete selected-match receipt in one page. A committed transaction
+may include cleanup warnings; an error may report incomplete recovery. Inspect those
+outcomes before retrying instead of assuming every error restored the original files.
+
 ## LSP tools reference
 
 This is the canonical reference for Octocode's semantic code-intelligence operations. LSP is the protocol layer behind these operations; structural AST search is exposed by `astSearch`.
@@ -994,6 +1021,26 @@ For external repos: clone first with `ghCloneRepo` (set `sparsePath` for a subtr
    pages after the first require its snapshot token.
 4. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
 
+Reference counts describe the language server's returned set, not guaranteed
+whole-program coverage. `payload.coverage` states that scope. When a renamed import
+resolves to the same definition but its binding is absent from that set,
+`next.searchAliasReferences*` provides an exact-position reference query. Execute
+the relevant follow-ups and retain both sets, deduplicating by URI and exact range.
+Alias discovery uses native syntax facts; identity requires matching LSP definitions.
+Inspection or verification gaps remain explicit in coverage rather than becoming
+invented references.
+
+Import token ranges assign alias verification to individual reference pages.
+When a grouped page contains more references than its page-size budget,
+`next.nextAliasReferences` starts ungrouped inspection with ordinary pagination.
+Execute that query unchanged; grouped file counts do not bound alias work.
+
+Exact `position` anchors pass directly to the language server, including positions
+in quoted property names or module paths. `resolvedSymbol.position` preserves the
+supplied coordinates; `name` is an optional identifier hint for discovery. If a
+name cannot be inferred, name-based consumer warmup reports `anchorName` rather
+than searching an empty pattern or rejecting the semantic request.
+
 ### `lspSearch`
 
 Required fields:
@@ -1002,7 +1049,7 @@ Required fields:
 |-------|----------|-------|
 | `uri` | Required for anchored, document, and diagnostic operations; one of `uri` or `workspaceRoot` for `workspaceSymbol` | Absolute local file path. For `workspaceSymbol`, `uri` selects one language server. |
 | `operation` | Required for an operation-specific request; omission uses the schema default | One of the documented semantic, document, diagnostic, or workspace-symbol operations. Include it in durable examples and continuations. |
-| `symbolName` | Required for anchored operations and `workspaceSymbol` | Exact symbol text at the target line for anchored operations. |
+| `symbolName` | Required for name-anchored operations and `workspaceSymbol` | Exact symbol text at the target line; omitted with `position`. |
 | `lineHint` | Required for name-anchored operations | 1-based line number from search results. Use `position` instead for an exact zero-based UTF-16 position. |
 
 Optional fields:
@@ -1014,8 +1061,8 @@ Optional fields:
 | `workspaceRoot` | Overrides automatic project-root detection. |
 | `rustContext` | Explicit rust-analyzer build context. Requires a `.rs` URI, including for `workspaceSymbol`. See [Rust build context](#rust-build-context). |
 | `contextLines` | Adds source previews to call-flow results. Keep `0` unless previews are needed. |
-| `page` | Result page for `documentSymbols` and call-flow results. |
-| `pageSize` | Semantic items per page. Defaults to `40` for `documentSymbols`, `10` for call-flow. Max `100`. |
+| `page` | Result page copied from an executable semantic continuation. |
+| `pageSize` | Semantic items per page. Defaults to `40` for symbols and locations, `10` for call-flow. Max `100`. |
 | `snapshot` | Content-addressed result-set token copied from `next.nextPage`. Omit on page 1; required on later pages. |
 | `depth` | Call-flow recursion depth. Keep `1` unless you need nested calls. |
 | `includeDeclaration` | For `references`; defaults to `true`. |
@@ -1069,7 +1116,8 @@ retry every empty result.
 
 Reference results preserve typed warmup, definition-only, empty, partial, and
 continuation metadata in structured and compact presentations. An incomplete
-warmup supplies an executable lexical verification query; zero references do
+warmup supplies an executable lexical verification query when a name is available;
+otherwise it reports a terminal warmup limitation. Zero references do
 not establish absence while that partial state is present.
 
 Paginated semantic results are sorted deterministically and fingerprint the
@@ -1808,7 +1856,7 @@ npx knip
 
 Do not mark a tool-surface change complete until these are true:
 
-1. The catalog contains 10 tools; 9 are enabled by default and `ghCloneRepo` remains opt-in. Every registered tool has its input schema and the MCP registration publishes no output schema.
+1. The live catalog matches the canonical tool registry and reports each tool's availability; `ghCloneRepo` remains opt-in. Every registered tool has its input schema and the MCP registration publishes no output schema.
 2. All public schema defaults, caps, hidden fields, and mutex rules have tests.
 3. Every tool has success, empty, error, mixed-bulk, pagination, lean-output (`base`/`shared`), and verbosity coverage.
 4. Remote tools cover auth, rate limit, provider error, no results, and provider-mapper edge cases.

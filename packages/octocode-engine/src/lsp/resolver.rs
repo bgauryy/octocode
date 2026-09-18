@@ -1,7 +1,7 @@
+use crate::error::{Error, Result, Status};
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{JsExactPosition, JsFuzzyPosition, JsResolvedSymbol};
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
-use napi::{Error, Result, Status};
 use std::fs;
 use std::io::Read;
 use std::time::Instant;

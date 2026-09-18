@@ -1,0 +1,20 @@
+{
+  "arm": "baseline",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"reasoning\":\"Locate the current React implementation and tests for ViewTransition enter/exit behavior, name assignment, and portal handling to map the reported path.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"view-transition-class\"],\"pageSize\":30}",
+    "{\"reasoning\":\"Locate the ViewTransitionProps enter/exit documentation that supplies the issue\\u0027s claimed behavior.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"Combined with className\"],\"pageSize\":30}",
+    "{\"reasoning\":\"Locate portal-specific ViewTransition tests or implementation paths that may constrain nested mount handling.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransition createPortal\"],\"pageSize\":30}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:33.566Z",
+  "endedAt": "2026-09-18T08:52:33.880Z",
+  "elapsedMs": 312,
+  "exitCode": 2,
+  "signal": null,
+  "stdoutSha256": "17684fef2b9c7bb7f55ea9831a66f521f93af7efc6a029f1f5b8a20bd4b0a587",
+  "requestSha256": null
+}

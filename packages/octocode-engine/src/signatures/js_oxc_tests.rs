@@ -51,6 +51,7 @@ fn extracts_functions_classes_and_members() {
 fn extracts_graph_facts_for_imports_exports_and_calls() {
     let src = "import { dep } from './dep';\nexport function run() {\n  dep();\n  helper();\n}\nfunction helper() {}\n";
     let v = graph(src, "main.ts");
+    assert_eq!(v["schemaVersion"], 1);
 
     let declarations = v["declarations"].as_array().unwrap();
     let run = declarations.iter().find(|d| d["name"] == "run").unwrap();

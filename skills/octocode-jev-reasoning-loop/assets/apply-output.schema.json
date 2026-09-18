@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "apply-output",
+  "title": "Jev APPLY Record",
+  "description": "Caller-owned record produced after every valid Jev response and before any action or assertion.",
+  "$comment": "Generate with scripts/apply-response.mjs. Thresholds come from assets/default-policy.json and are Octocode policy, not Jev semantics.",
+  "type": "object",
+  "required": ["model_used", "answers", "net_action", "blocked", "block_reasons"],
+  "properties": {
+    "model_used": { "type": "string", "minLength": 1 },
+    "answers": { "type": "array", "minItems": 1, "items": { "oneOf": [{ "$ref": "#/$defs/AppliedChoice" }, { "$ref": "#/$defs/AppliedNoul" }, { "$ref": "#/$defs/AppliedScore" }] } },
+    "net_action": { "type": "string", "minLength": 10 },
+    "blocked": { "type": "boolean" },
+    "block_reasons": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AppliedChoice": {
+      "type": "object",
+      "required": ["question_id", "answer_type", "selected_id", "selected_description", "probability", "runner_up_id", "runner_up_probability", "spread_gap", "confidence_read", "none_selected", "provisional", "next_action"],
+      "properties": {
+        "question_id": { "type": "string" },
+        "answer_type": { "const": "choice" },
+        "selected_id": { "type": "string" },
+        "selected_description": {},
+        "probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "runner_up_id": { "type": "string" },
+        "runner_up_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "spread_gap": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence_read": { "enum": ["sharp", "moderate", "soft-tie"] },
+        "none_selected": { "type": "boolean" },
+        "provisional": { "const": true },
+        "policy_preference": { "type": "string", "description": "Cheaper close-probability check preferred by host policy; it does not replace selected_id." },
+        "next_action": { "type": "string", "minLength": 10 }
+      },
+      "additionalProperties": false
+    },
+    "AppliedNoul": {
+      "type": "object",
+      "required": ["question_id", "answer_type", "noul_value", "direction", "provisional", "action"],
+      "properties": {
+        "question_id": { "type": "string" },
+        "answer_type": { "const": "noul" },
+        "noul_value": { "type": "number", "minimum": 0, "maximum": 1 },
+        "direction": { "enum": ["strong-yes", "lean-yes", "ambiguous", "lean-no", "strong-no"] },
+        "provisional": { "const": true },
+        "action": { "type": "string", "minLength": 10 }
+      },
+      "additionalProperties": false
+    },
+    "AppliedScore": {
+      "type": "object",
+      "required": ["question_id", "answer_type", "score_value", "level_interpretation", "provisional", "action"],
+      "properties": {
+        "question_id": { "type": "string" },
+        "answer_type": { "const": "score" },
+        "score_value": { "type": "number" },
+        "level_interpretation": {},
+        "provisional": { "const": true },
+        "action": { "type": "string", "minLength": 10 }
+      },
+      "additionalProperties": false
+    },
+    "NoneSelectedProtocol": {
+      "type": "object",
+      "properties": {
+        "evidence_anchor": { "const": "BLOCK: retrieve direct evidence before asserting." },
+        "hypothesis": { "const": "REFRAME: replace or expand the hypothesis deck before testing." },
+        "next_check": { "const": "REDESIGN: supply branchable discriminating checks before execution." },
+        "updated_lead": { "const": "REFRAME: the new evidence invalidates the current hypothesis deck." },
+        "primary_risk": { "const": "REVIEW: no supplied risk is decisive; do not invent one." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,12 +1,12 @@
 import { normalizeWorkspacePath } from '../git.js';
-import type { AgentRecord,AgentStatus,CheckAudit,CheckStatus,HandoffNote,LiteMessage,Lock,LockWaitResult,MemoryItem,Plan,PlanGraphResult,PlanStatus,PruneResult,SourceStep,Task,TaskStatus,WorkPresence } from '@octocodeai/agent-contracts/entities';
-import type { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import type { AgentRecord,AgentStatus,CheckAudit,CheckStatus,HandoffNote,LiteMessage,Lock,LockWaitResult,MemoryItem,Plan,PlanGraphResult,PlanStatus,PruneResult,SourceStep,Task,TaskStatus,WorkPresence } from '../entities.js';
+import type { DatabaseSync } from '../sqlite.js';
 import { resolve } from 'node:path';
 import { defaultDbPath,type AwarenessOptions,type AwarenessSchema } from './coordination-shared.js';
 import { type AgentEventEnvelopeV1 } from '../continuity-contracts.js';
 import { connectDb, resolveDbPath } from '../db-runtime.js';
 import { beginWrite } from '../db-transaction.js';
-import { storageScopeForCommand } from '../workspace-policy.js';
+import { storageScopeForOperation } from '../workspace-policy.js';
 import { insertOutboxEvent } from '../event-outbox.js';
 import type { MemoryEvaluationCorpusV1,MemoryEvaluationReportV1 } from '../memory-hardening.js';
 import type { MemoryRecallBounds } from '../memory-limits.js';
@@ -27,7 +27,7 @@ export abstract class CoordinationBase {
     const workspace = resolve(options.workspace ?? process.cwd());
     this.workspace = normalizeWorkspacePath(workspace, workspace) ?? workspace;
     this.dbPath = resolveDbPath(options.dbPath ?? defaultDbPath(this.workspace,
-      storageScopeForCommand('coordination', this.workspace, options.scope)));
+      storageScopeForOperation('host.coordination', this.workspace, options.scope)));
     this.db = connectDb(this.dbPath);
   }
 

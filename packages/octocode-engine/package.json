@@ -1,11 +1,11 @@
 {
   "name": "@octocodeai/octocode-engine",
   "description": "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation",
-  "version": "19.1.0",
+  "version": "19.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "dependencies": {
     "@octocodeai/config": "20.0.0",
-    "bash-language-server": "^5.6.0",
+    "bash-language-server": "^5.7.1",
     "pyright": "^1.1.414",
     "typescript": "^6.0.3",
     "typescript-language-server": "^6.0.0",
@@ -14,7 +14,7 @@
     "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.9.1",
+    "@napi-rs/cli": "^3.10.3",
     "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.0",
     "esbuild": "^0.28.2",
@@ -109,11 +109,6 @@
       "import": "./dist/lsp/initConstants.js",
       "default": "./dist/lsp/initConstants.js"
     },
-    "./lsp/lspClientPool": {
-      "types": "./dist/lsp/lspClientPool.d.ts",
-      "import": "./dist/lsp/lspClientPool.js",
-      "default": "./dist/lsp/lspClientPool.js"
-    },
     "./lsp/lspErrorCodes": {
       "types": "./dist/lsp/lspErrorCodes.d.ts",
       "import": "./dist/lsp/lspErrorCodes.js",
@@ -197,12 +192,12 @@
     ]
   },
   "optionalDependencies": {
-    "@octocodeai/octocode-engine-darwin-arm64": "19.1.0",
-    "@octocodeai/octocode-engine-darwin-x64": "19.1.0",
-    "@octocodeai/octocode-engine-linux-arm64-gnu": "19.1.0",
-    "@octocodeai/octocode-engine-linux-x64-gnu": "19.1.0",
-    "@octocodeai/octocode-engine-linux-x64-musl": "19.1.0",
-    "@octocodeai/octocode-engine-win32-x64-msvc": "19.1.0"
+    "@octocodeai/octocode-engine-darwin-arm64": "19.2.0",
+    "@octocodeai/octocode-engine-darwin-x64": "19.2.0",
+    "@octocodeai/octocode-engine-linux-arm64-gnu": "19.2.0",
+    "@octocodeai/octocode-engine-linux-x64-gnu": "19.2.0",
+    "@octocodeai/octocode-engine-linux-x64-musl": "19.2.0",
+    "@octocodeai/octocode-engine-win32-x64-msvc": "19.2.0"
   },
   "publishConfig": {
     "access": "public"
@@ -216,15 +211,15 @@
     "audit": "yarn audit:rust",
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
     "binary-size:check": "node scripts/check-binary-size.cjs",
-    "build": "yarn readme:sync && node scripts/prebuild.cjs && napi build --platform --release && node scripts/postbuild.cjs && yarn build:types-deps && node scripts/build-types.cjs",
+    "build": "node scripts/prebuild.cjs && napi build --platform --release && node scripts/postbuild.cjs && yarn build:types-deps && node scripts/build-types.cjs",
     "build:all": "yarn clean:binaries && yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64 && yarn build:ts",
     "build:darwin-arm64": "node scripts/prebuild.cjs && napi build --platform --release --target aarch64-apple-darwin && node scripts/postbuild.cjs",
     "build:darwin-x64": "node scripts/prebuild.cjs && napi build --platform --release --target x86_64-apple-darwin && node scripts/postbuild.cjs",
-    "build:dev": "yarn readme:sync && node scripts/prebuild.cjs && napi build --platform && node scripts/postbuild.cjs && yarn build:types-deps && node scripts/build-types.cjs",
+    "build:dev": "node scripts/prebuild.cjs && napi build --platform && node scripts/postbuild.cjs && yarn build:types-deps && node scripts/build-types.cjs",
     "build:linux-arm64-gnu": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target aarch64-unknown-linux-gnu && node scripts/postbuild.cjs",
     "build:linux-x64-gnu": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-gnu && node scripts/postbuild.cjs",
     "build:linux-x64-musl": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-unknown-linux-musl && node scripts/postbuild.cjs",
-    "build:ts": "yarn readme:sync && rm -rf dist && yarn build:types-deps && node scripts/build-types.cjs",
+    "build:ts": "rm -rf dist && yarn build:types-deps && node scripts/build-types.cjs",
     "build:types-deps": "yarn workspace @octocodeai/config build",
     "build:windows-x64": "node scripts/prebuild.cjs && napi build --platform --release --cross-compile --target x86_64-pc-windows-msvc && node scripts/postbuild.cjs",
     "check:rust": "cargo check --all-targets --all-features",
@@ -243,10 +238,8 @@
     "manifest:gen": "node scripts/gen-server-manifest.mjs",
     "pack:check": "node scripts/check-pack-size.cjs",
     "platforms:check": "node scripts/check-platform-binaries.cjs",
-    "prepack": "yarn readme:sync",
     "prepublish:verify": "yarn version:check && yarn loader:check && yarn verify:manifest && yarn pack:check && yarn platforms:check",
     "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
     "registry:check": "node scripts/check-registry-consistency.cjs",
     "test": "vitest run --coverage",
     "test:node": "vitest run",
@@ -312,9 +305,6 @@
       ],
       "lsp/initConstants": [
         "./dist/lsp/initConstants.d.ts"
-      ],
-      "lsp/lspClientPool": [
-        "./dist/lsp/lspClientPool.d.ts"
       ],
       "lsp/lspErrorCodes": [
         "./dist/lsp/lspErrorCodes.d.ts"

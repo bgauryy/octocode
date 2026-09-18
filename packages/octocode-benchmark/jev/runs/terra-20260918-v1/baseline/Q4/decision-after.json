@@ -1,0 +1,1 @@
+{"hypotheses":["Confirmed Axios dependency/import/transport branch.","Confirmed upstream request wrapper and request/response methods."],"currentDirection":"Trace call boundary with source files.","uncertainty":"No runtime network request executed.","actualNextCheck":"Axios manifest/adapter and follow-redirects implementation read."}

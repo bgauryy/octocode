@@ -1,6 +1,8 @@
 //! Awareness v1 evidence: one bounded streaming capture and metadata-only final recheck.
 use crate::{filesystem::platform::EvidenceFile, NativeCancellation};
+#[cfg(feature = "napi-addon")]
 use napi::{bindgen_prelude::AsyncTask, Env, Result, Task};
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -13,7 +15,8 @@ use std::time::{Duration, Instant};
 
 const PREFIX: &str = "awareness-evidence-v1:";
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct FileFingerprint {
     pub fingerprint: Option<String>,
     pub reason: Option<String>,
@@ -150,10 +153,14 @@ impl FingerprintTask {
             file.recheck(path, &self.cancelled).map_err(reason)?;
         }
         self.check()?;
-        Ok(format!("{PREFIX}{:x}", hasher.finalize()))
+        Ok(format!(
+            "{PREFIX}{}",
+            crate::digest_hex::lower_hex(hasher.finalize())
+        ))
     }
 }
 
+#[cfg(feature = "napi-addon")]
 impl Task for FingerprintTask {
     type Output = FileFingerprint;
     type JsValue = FileFingerprint;
@@ -182,6 +189,7 @@ impl FingerprintTask {
     }
 }
 
+#[cfg(feature = "napi-addon")]
 #[napi]
 pub fn fingerprint_files(
     root: String,
@@ -201,6 +209,28 @@ pub fn fingerprint_files(
         deadline: Instant::now() + Duration::from_millis(timeout_ms as u64),
         cancelled: NativeCancellation::shared_flag(cancellation),
     })
+}
+
+#[must_use]
+pub fn fingerprint_files_portable(
+    root: String,
+    paths: Vec<String>,
+    max_file_bytes: u32,
+    max_batch_bytes: u32,
+    max_files: u32,
+    timeout_ms: u32,
+    cancellation: Option<&NativeCancellation>,
+) -> FileFingerprint {
+    FingerprintTask {
+        root,
+        paths,
+        file_maximum: u64::from(max_file_bytes),
+        batch_maximum: u64::from(max_batch_bytes),
+        files_maximum: max_files as usize,
+        deadline: Instant::now() + Duration::from_millis(u64::from(timeout_ms)),
+        cancelled: NativeCancellation::shared_flag(cancellation),
+    }
+    .run()
 }
 
 #[cfg(test)]
@@ -237,7 +267,10 @@ mod tests {
         ));
         assert_eq!(
             result.fingerprint,
-            Some(format!("{PREFIX}{:x}", hash.finalize()))
+            Some(format!(
+                "{PREFIX}{}",
+                crate::digest_hex::lower_hex(hash.finalize())
+            ))
         );
         assert_eq!(result.files, 1);
         assert_eq!(result.bytes, 0.0);
@@ -290,9 +323,18 @@ mod tests {
         assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_err());
         drop(captured);
         let captured = EvidenceFile::open(path.to_str().unwrap(), &cancel).unwrap();
-        fs::rename(&parent, root.join("old-parent")).unwrap();
-        fs::create_dir(&parent).unwrap();
-        fs::write(&path, b"12345").unwrap();
-        assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_err());
+        match fs::rename(&parent, root.join("old-parent")) {
+            Ok(()) => {
+                fs::create_dir(&parent).unwrap();
+                fs::write(&path, b"12345").unwrap();
+                assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_err());
+            }
+            Err(error) if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Windows may prevent replacing an ancestor while the pinned evidence
+                // handle is live. The original path must remain the captured file.
+                assert!(captured.recheck(path.to_str().unwrap(), &cancel).is_ok());
+            }
+            Err(error) => panic!("failed to replace evidence ancestor: {error}"),
+        }
     }
 }

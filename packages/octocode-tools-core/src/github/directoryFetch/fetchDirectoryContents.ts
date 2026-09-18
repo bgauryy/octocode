@@ -170,6 +170,8 @@ export async function fetchDirectoryContents(
             minify: 'none',
             contextLines: 0,
             forceRefresh,
+            reasoning: 'Materialize eligible directory files.',
+            debug: false,
           },
           authInfo
         );

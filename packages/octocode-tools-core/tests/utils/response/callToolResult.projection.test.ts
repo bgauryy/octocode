@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const scan = vi.hoisted(() => vi.fn());
-vi.mock('@octocodeai/octocode-engine/security', () => ({
-  ContentSanitizer: { sanitizeContent: scan },
-}));
-vi.mock('@octocodeai/octocode-engine/contentSanitizer', () => ({
-  ContentSanitizer: { sanitizeContent: scan },
+vi.mock('../../../src/security/sanitize.js', () => ({
+  sanitizeContent: scan,
+  maskSensitiveData: vi.fn(),
 }));
 vi.mock('../../../src/utils/contextUtils.js', () => ({ contextUtils: {} }));
 
@@ -21,7 +19,7 @@ describe('structured-only direct output projection', () => {
     }));
   });
 
-  it('preserves compact output and scans every structured string without scanning unused text', () => {
+  it('preserves compact output and scans user-facing strings without altering executable metadata', () => {
     const input = {
       content: [
         { type: 'text' as const, text: 'unused rendered text'.repeat(3_000) },
@@ -50,7 +48,6 @@ describe('structured-only direct output projection', () => {
     expect(scan.mock.calls.map(([value]) => value)).toEqual([
       'sensitive-fixture',
       'safe.ts',
-      'next.ts',
     ]);
     expect(JSON.stringify(compact)).not.toContain('sensitive-fixture');
     expect(input.content[0].text).toContain('unused rendered text');

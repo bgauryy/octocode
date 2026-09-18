@@ -1,11 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizeArtifact, utcNow } from './helpers.js';
 import { readScope } from './git.js';
-import { SIGNALS_DELETE_BY_IDS, SIGNAL_READS_INSERT_IGNORE } from './sql/signals.js';
+import { SIGNAL_READS_INSERT_IGNORE } from './sql/signals.js';
 import type { PruneNotificationsParams, PruneNotificationsResult, NotificationRecord, AgentSignalParams, AgentSignalResult, AgentSignalRecord, AgentSignalActionHints } from './types/notifications-agents.js';
 import { appendSignalScope, assertSignalsExist, inferReplyTargets, insertNotification, isThreadParticipant } from './notifications-core.js';
 import { getNotifications, resolveNotification } from './notifications-inbox.js';
 import { decodeSignalBody, encodeSignalBody } from './signal-data.js';
+import { deletePrunableSignals } from './message-lifecycle.js';
+export { deletePrunableSignals, pruneExpiredNotifications } from './message-lifecycle.js';
 
 // ─── pruneNotifications ────────────────────────────────────────────────────────
 
@@ -38,35 +40,6 @@ function signalActionHints(agentId: string, signals: AgentSignalRecord[], exactS
     }));
   }
   return actions;
-}
-
-/**
- * Delete only candidates whose removal cannot leave a reply without its
- * ancestry. Authorization, scope, age, and resolution checks belong to the
- * caller; this is the single canonical signal lifecycle deletion step.
- */
-export function deletePrunableSignals(
-  db: DatabaseSync,
-  candidateIds: string[],
-  dryRun: boolean,
-): { signalIds: string[]; deleted: number } {
-  const ids = (db.prepare(`WITH RECURSIVE
-    candidates(id) AS (SELECT value FROM json_each(?)),
-    retained(id) AS (
-      SELECT parent.signal_id FROM signals parent JOIN candidates c ON c.id = parent.signal_id
-      JOIN signals child ON child.reply_to = parent.signal_id OR child.thread_id = parent.signal_id
-      WHERE child.signal_id NOT IN (SELECT id FROM candidates)
-      UNION
-      SELECT parent.signal_id FROM signals parent JOIN candidates c ON c.id = parent.signal_id
-      JOIN signals child ON child.reply_to = parent.signal_id OR child.thread_id = parent.signal_id
-      JOIN retained r ON r.id = child.signal_id
-    )
-    SELECT id FROM candidates WHERE id NOT IN (SELECT id FROM retained) ORDER BY id`)
-    .all(JSON.stringify([...new Set(candidateIds)])) as Array<{ id: string }>).map(row => row.id);
-  if (!dryRun && ids.length > 0) {
-    db.prepare(SIGNALS_DELETE_BY_IDS(ids.map(() => '?').join(','))).run(...ids);
-  }
-  return { signalIds: ids, deleted: dryRun ? 0 : ids.length };
 }
 
 export function acknowledgeNotifications(

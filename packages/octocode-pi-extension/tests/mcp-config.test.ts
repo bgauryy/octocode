@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import { setMcpServerEnabled } from '@octocodeai/agent-contracts/mcp-state';
+import { setMcpServerEnabled } from '../src/contracts/mcp-state.js';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 import { extensionWorkspaceRoot } from '../src/extension-paths.js';
 import { discoverMcpSystem } from '../src/tools/mcp/discovery.js';

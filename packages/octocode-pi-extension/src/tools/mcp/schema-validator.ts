@@ -5,11 +5,9 @@ import { Locale, Settings } from 'typebox/system';
 const MAX_SCHEMA_CHARS = 256 * 1024;
 const MAX_ERRORS = 8;
 const MAX_ERROR_TEXT_CHARS = 240;
+// TypeBox uses modern keyword semantics. Legacy required/exclusive bounds and
+// draft 06/07 $ref siblings need a dialect adapter, not a permissive whitelist.
 const SUPPORTED_DIALECTS = new Set([
-  'http://json-schema.org/draft-03/schema#',
-  'http://json-schema.org/draft-04/schema#',
-  'http://json-schema.org/draft-06/schema#',
-  'http://json-schema.org/draft-07/schema#',
   'https://json-schema.org/draft/2019-09/schema',
   'https://json-schema.org/draft/2019-09/schema#',
   'https://json-schema.org/draft/2020-12/schema',

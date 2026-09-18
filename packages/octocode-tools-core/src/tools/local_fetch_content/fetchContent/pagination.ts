@@ -4,12 +4,13 @@ import {
   fullContentLimit,
 } from '../../../utils/file/contentPagination.js';
 import { contextUtils } from '../../../utils/contextUtils.js';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../../../security/sanitize.js';
 import type { LocalFetchToolResult } from '@octocodeai/octocode-core/extra-types';
 import type { FetchContentQuery } from '@octocodeai/octocode-core/schema';
 import { buildNextPageContinuation } from '../../../scheme/pagination.js';
 import { sourceSizeFields, type FileStats } from './validation.js';
 import type { ExtractionState } from './types.js';
+import { sourcePageRanges } from '../../../utils/file/sourceCitations.js';
 
 export type ContentView = 'none' | 'standard' | 'symbols';
 
@@ -18,7 +19,7 @@ export function sanitizeReturnedText(
   text: string,
   queryPath: string
 ): { text: string; warning?: string; limited: boolean } {
-  const sanitized = ContentSanitizer.sanitizeContent(text, queryPath);
+  const sanitized = sanitizeContent(text, queryPath);
   return {
     text: sanitized.content,
     limited: sanitized.secretsDetected.includes('content-size-exceeded'),
@@ -108,10 +109,19 @@ export async function buildSuccessResult(
   const matchedLines = extraction.matchedLines?.filter(line =>
     pageSourceLines?.includes(line)
   );
+  // Minification and redaction can change line placement. Emit a source map only
+  // for an unchanged selected view, including disjoint match windows and byte pages.
+  const sourceLineRanges =
+    contentView === 'none' &&
+    sanitized.text === source &&
+    (query.matchString === undefined || extraction.sourceLines !== undefined)
+      ? sourcePageRanges(window, extraction.sourceLines)
+      : [];
   return {
     path: query.path,
     ...pageFields(window),
     contentView,
+    ...(sourceLineRanges.length ? { sourceLineRanges } : {}),
     totalLines,
     ...(extraction.actualStartLine !== undefined
       ? {

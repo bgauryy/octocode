@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SecurityRegistry, securityRegistry } from '../../src/security/registry.js';
+import {
+  SecurityRegistry,
+  securityRegistry,
+} from '../../src/security/registry.js';
 
 // Each test uses a FRESH SecurityRegistry instance to avoid cross-test
 // pollution via the shared global singleton.
@@ -20,14 +23,24 @@ describe('SecurityRegistry', () => {
 
   it('adds secret patterns and increments version', () => {
     expect(reg.version).toBe(0);
-    reg.addSecretPatterns([{ name: 'test-token', description: 'test-token test pattern', regex: /TEST-[a-z]+/g }]);
+    reg.addSecretPatterns([
+      {
+        name: 'test-token',
+        description: 'test-token test pattern',
+        regex: /TEST-[a-z]+/g,
+      },
+    ]);
     expect(reg.extraSecretPatterns).toHaveLength(1);
     expect(reg.version).toBe(1);
   });
 
   it('deduplicates secret patterns by name', () => {
-    reg.addSecretPatterns([{ name: 'dup', description: 'dup test pattern', regex: /dup-[a-z]+/g }]);
-    reg.addSecretPatterns([{ name: 'dup', description: 'dup test pattern', regex: /dup-[a-z]+/g }]);
+    reg.addSecretPatterns([
+      { name: 'dup', description: 'dup test pattern', regex: /dup-[a-z]+/g },
+    ]);
+    reg.addSecretPatterns([
+      { name: 'dup', description: 'dup test pattern', regex: /dup-[a-z]+/g },
+    ]);
     expect(reg.extraSecretPatterns).toHaveLength(1);
   });
 
@@ -73,8 +86,6 @@ describe('SecurityRegistry', () => {
     expect(reg.extraIgnoredPathPatterns).toHaveLength(1);
   });
 
-
-
   // ── addIgnoredFilePatterns ────────────────────────────────────────────────
 
   it('adds ignored file patterns', () => {
@@ -82,14 +93,16 @@ describe('SecurityRegistry', () => {
     expect(reg.extraIgnoredFilePatterns).toHaveLength(1);
   });
 
-
-
   // ── freeze / frozen guard ─────────────────────────────────────────────────
 
   it('freeze() prevents further mutations', () => {
     reg.freeze();
     expect(reg.frozen).toBe(true);
-    expect(() => reg.addSecretPatterns([{ name: 'x', description: 'x test pattern', regex: /x/g }])).toThrow();
+    expect(() =>
+      reg.addSecretPatterns([
+        { name: 'x', description: 'x test pattern', regex: /x/g },
+      ])
+    ).toThrow();
     expect(() => reg.addAllowedCommands(['echo'])).toThrow();
     expect(() => reg.addAllowedRoots(['/tmp'])).toThrow();
     expect(() => reg.addIgnoredPathPatterns([/tmp/])).toThrow();
@@ -100,13 +113,19 @@ describe('SecurityRegistry', () => {
     reg.freeze();
     reg.reset();
     expect(reg.frozen).toBe(false);
-    expect(() => reg.addSecretPatterns([{ name: 'y', description: 'y test pattern', regex: /y/g }])).not.toThrow();
+    expect(() =>
+      reg.addSecretPatterns([
+        { name: 'y', description: 'y test pattern', regex: /y/g },
+      ])
+    ).not.toThrow();
   });
 
   // ── reset ─────────────────────────────────────────────────────────────────
 
   it('reset() clears all collections, unfreezes, and bumps version', () => {
-    reg.addSecretPatterns([{ name: 'tok', description: 'tok test pattern', regex: /tok-[a-z]+/g }]);
+    reg.addSecretPatterns([
+      { name: 'tok', description: 'tok test pattern', regex: /tok-[a-z]+/g },
+    ]);
     reg.addAllowedCommands(['ls']);
     reg.addAllowedRoots(['/home']);
     reg.freeze();

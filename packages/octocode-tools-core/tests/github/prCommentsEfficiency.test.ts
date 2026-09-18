@@ -43,6 +43,14 @@ vi.mock('../../src/providers/factory.js', () => ({
 import { clearAllCache } from '../../src/utils/http/cache/management.js';
 import { getMultipleGitHubHistoryItems } from '../../src/tools/github_search_pull_requests/historyExecutions.js';
 import { GitHubGetHistoryItemQueryLocalSchema } from '@octocodeai/octocode-core/schema';
+
+function parseQuery(query: Record<string, unknown>) {
+  return GitHubGetHistoryItemQueryLocalSchema.parse({
+    reasoning: 'Exercise pull-request comment collection behavior.',
+    debug: true,
+    ...query,
+  });
+}
 import { fetchPRComments } from '../../src/github/prContentFetcher/comments.js';
 import { getOctokit } from '../../src/github/client.js';
 
@@ -81,7 +89,7 @@ it.each([{}, { includeBots: true }, { file: 'a.ts' }])(
 );
 async function execute(query: Record<string, unknown>, token = 'one') {
   const result = await getMultipleGitHubHistoryItems({
-    queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],
+    queries: [parseQuery(query)],
     authInfo: { token },
   } as never);
   return (
@@ -313,7 +321,7 @@ it('reports omitted PR patches as terminal while preserving changed-file paginat
     pageSize: 1,
   };
   const result = await getMultipleGitHubHistoryItems({
-    queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],
+    queries: [parseQuery(query)],
   });
   const row = (
     result.structuredContent as { results: Array<{ meta: any; data: any }> }

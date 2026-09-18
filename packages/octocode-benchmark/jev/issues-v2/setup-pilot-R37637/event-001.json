@@ -1,0 +1,15 @@
+{
+  "arm": "baseline",
+  "id": "R37637",
+  "kind": "schema",
+  "args": [
+    "ghSearch"
+  ],
+  "startedAt": "2026-09-18T08:52:01.163Z",
+  "endedAt": "2026-09-18T08:52:01.671Z",
+  "elapsedMs": 505,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "d0d62350faf40ebdce95d1f1f3a55f764728aef3ee925822974679334cea2063",
+  "requestSha256": null
+}

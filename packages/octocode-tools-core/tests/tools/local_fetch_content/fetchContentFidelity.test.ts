@@ -35,11 +35,8 @@ describe('exact file-read batch invariance', () => {
       const row = output.results[queries.indexOf(query)]!;
       expect(row.status).not.toBe('error');
       expect(row.data.content).toBe(source);
-      expect(
-        result.content?.some(
-          block => 'text' in block && block.text.includes(source)
-        )
-      ).toBe(true);
+      const text = result.content?.flatMap(block => 'text' in block ? [block.text] : []).join('');
+      expect(text).toContain(`1: [source](${join(dir, 'target.ts')})\n2: 🌍 café\r\n`);
     }
   });
 

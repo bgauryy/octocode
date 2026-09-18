@@ -1,9 +1,10 @@
+#[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JsLanguageServerConfig {
     pub command: String,
@@ -15,21 +16,21 @@ pub struct JsLanguageServerConfig {
     pub env: Option<HashMap<String, String>>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JsExactPosition {
     pub line: u32,
     pub character: u32,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JsRange {
     pub start: JsExactPosition,
     pub end: JsExactPosition,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JsCodeSnippet {
     pub uri: String,
@@ -39,7 +40,7 @@ pub struct JsCodeSnippet {
     pub display_range: Option<Value>,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JsResolvedSymbol {
     pub position: JsExactPosition,
@@ -48,10 +49,17 @@ pub struct JsResolvedSymbol {
     pub line_content: String,
 }
 
-#[napi(object)]
+#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JsFuzzyPosition {
     pub symbol_name: String,
     pub line_hint: Option<u32>,
     pub order_hint: Option<u32>,
 }
+
+pub type LanguageServerConfig = JsLanguageServerConfig;
+pub type ExactPosition = JsExactPosition;
+pub type Range = JsRange;
+pub type CodeSnippet = JsCodeSnippet;
+pub type ResolvedSymbol = JsResolvedSymbol;
+pub type FuzzyPosition = JsFuzzyPosition;

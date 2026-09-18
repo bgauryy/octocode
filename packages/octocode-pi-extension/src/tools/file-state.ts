@@ -17,7 +17,7 @@
  * serialise edits issued within *this* Pi process. They do NOT protect against a
  * second process (for example, a parallel agent worker) editing the same file
  * concurrently. Cross-process safety is a separate layer: declare edited paths
- * via Awareness (`work start`) and take an exclusive lease (`lock acquire`) for
+ * via Awareness (`work.create`) and take exceptional exclusive protection (`work.protect`) for
  * non-mergeable or risky shared files — the Awareness pre-edit `tool_call` gate
  * (wired at activation) enforces those leases across processes. See
  * docs/AWARENESS_AGENT_FLOW.md §"Hooks during edits".
@@ -25,7 +25,7 @@
 import { stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/agent-contracts/permissions';
+import { ensurePrivateDirectory, hardenPrivateFile } from '@octocodeai/octocode-awareness/host';
 import { canonicalPathKey, resolveCanonicalPath } from './path-guard.js';
 import { assertFileContentSize, replaceNativeFile, snapshotNativeFile } from './native-files.js';
 import type { MutationReceipt } from '@octocodeai/octocode-extension-rust';
@@ -169,15 +169,16 @@ export function forgetFileReadState(filePath: string, cwd = process.cwd()): void
 export async function checkReadState(
   absolutePath: string,
   requireRecentRead: boolean,
-  opts: { contentAnchored?: boolean; currentDigest?: string } = {},
+  opts: { contentAnchored?: boolean; currentDigest?: string; implicitReason?: string } = {},
 ): Promise<ReadStateCheck> {
   absolutePath = resolveCanonicalPath(absolutePath);
   const state = readStates.get(absolutePath);
   if (!state) {
-    const message = 'No prior localFetch read state recorded for this file. Shell reads (bash/cat/grep) do not refresh this guard — use MCPTool localFetch instead: MCPTool(action:"call",server:"octocode",tool:"localFetch",arguments:{queries:[{path:"<absolute_path>"}]}).';
+    const message = 'No prior localFetch read state recorded for this file. Shell reads (bash/cat/grep) do not refresh this guard — use MCPTool localFetch instead: MCPTool({queries:[{action:"call",tool:"localFetch",arguments:{queries:[{path:"<absolute_path>"}]}}]}).';
     if (requireRecentRead) {
+      const why = opts.implicitReason ? ` Implicit cause: ${opts.implicitReason}.` : '';
       throw new Error(
-        `${message} Re-read the file via MCPTool before editing${opts.contentAnchored === false ? ', or provide oldText matching the requested range.' : ', or set requireRecentRead:false only when intentional.'}`,
+        `${message}${why} Re-read the file via MCPTool before editing${opts.contentAnchored === false ? ', or provide oldText matching the requested range.' : ', or set requireRecentRead:false only when intentional.'}`,
       );
     }
     return { state: 'missing', message };
@@ -197,7 +198,7 @@ export async function checkReadState(
         message: 'File changed since last recorded read; proceeding because the edit is anchored to exact oldText.',
       };
     }
-    throw new Error('File changed since last recorded read. Re-read the target range via MCPTool localFetch before editing (shell reads do not refresh this guard): MCPTool(action:"call",server:"octocode",tool:"localFetch",arguments:{queries:[{path:"<absolute_path>"}]}).');
+    throw new Error('File changed since last recorded read. Re-read the target range via MCPTool localFetch before editing (shell reads do not refresh this guard): MCPTool({queries:[{action:"call",tool:"localFetch",arguments:{queries:[{path:"<absolute_path>"}]}}]}).');
   }
   return {
     state: 'fresh',

@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q3",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"code\",\"owner\":\"pallets\",\"repo\":\"flask\",\"keywords\":[\"def route(\"],\"path\":\"src/flask\",\"pageSize\":10}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:41.792Z",
+  "endedAt": "2026-09-18T08:27:42.582Z",
+  "elapsedMs": 789,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "ae66cdaadc97497dcaf7a1a7fd861654d1d8f6f4ffc08d59737bc7b80f42934b",
+  "stdoutBytes": 442,
+  "requestSha256": null
+}

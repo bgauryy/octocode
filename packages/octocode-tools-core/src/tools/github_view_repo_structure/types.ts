@@ -29,7 +29,9 @@ export interface GitHubRepositoryStructureResult {
   rawResponseChars?: number;
   isPartial?: boolean;
   terminalLimit?: boolean;
-  partialReasons?: Array<'providerTreeTruncated' | 'partialTreeFailures'>;
+  partialReasons?: Array<
+    'providerTreeTruncated' | 'providerContentsLimit' | 'partialTreeFailures'
+  >;
 }
 
 export interface GitHubRepositoryStructureError {

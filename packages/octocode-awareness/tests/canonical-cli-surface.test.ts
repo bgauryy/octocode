@@ -21,7 +21,7 @@ function workspace(): { root: string; db: string } {
 }
 
 describe('canonical Awareness CLI surface', () => {
-  it('discovers exactly five concepts and nineteen directly callable operations', async () => {
+  it('discovers the canonical concepts and directly callable operations', async () => {
     const result = await executeAwarenessCli(['schema', 'commands', '--compact']);
     expect(result.exitCode, JSON.stringify(result)).toBe(0);
     const payload = result.payload as {
@@ -32,7 +32,6 @@ describe('canonical Awareness CLI surface', () => {
     };
     expect(Object.keys(payload.concepts)).toEqual(AWARENESS_CONCEPTS);
     expect(payload.operations).toEqual(ROUTINE_AWARENESS_OPERATIONS);
-    expect(payload.operations).toHaveLength(19);
     expect(payload.call).toBe('<concept> <operation> [flags]');
     expect(payload.schema).toBe('schema command <concept> <operation>');
     expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(1_500);
@@ -45,18 +44,11 @@ describe('canonical Awareness CLI surface', () => {
     }
   });
 
-  it('keeps explicit operator and recovery discovery bounded and separate', async () => {
+  it('rejects the removed operator and recovery catalog', async () => {
     const result = await executeAwarenessCli(['schema', 'commands', '--all', '--compact']);
-    expect(result.exitCode, JSON.stringify(result)).toBe(0);
-    const payload = result.payload as { operations: string[]; operator: Array<{ command: string }> };
-    expect(payload.operations).toHaveLength(19);
-    expect(payload.operator.length).toBeLessThanOrEqual(45);
-    expect(payload.operator.map(row => row.command)).not.toEqual(expect.arrayContaining([
-      'attend', 'status', 'query', 'agent list', 'refinement get', 'session capture', 'hook run',
-    ]));
-    expect(payload.operator.map(row => row.command)).toEqual(expect.arrayContaining([
-      'database consolidate', 'maintenance digest', 'hooks install', 'schema entities',
-    ]));
+    expect(result).toMatchObject({ exitCode: 1, payload: { error_code: 'UNKNOWN_FLAG' } });
+    const removed = await executeAwarenessCli(['maintenance', 'digest', '--compact']);
+    expect(removed).toMatchObject({ exitCode: 1, payload: { error_code: 'UNKNOWN_OPERATION' } });
   });
 
   it('returns canonical direct-call schemas and executes canonical message routes', async () => {

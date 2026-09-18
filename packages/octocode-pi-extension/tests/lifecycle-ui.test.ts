@@ -3,8 +3,8 @@ import type { PiContext, PiInstance } from '../src/types.js';
 import { registerLifecycleUi } from '../src/tools/lifecycle-ui.js';
 import {
   bindRuntimeRenderer,
-  runtimeActivityPresentation,
 } from '../src/tools/runtime-renderer.js';
+import { runtimeActivityPresentation } from '../src/tools/activity-presentation.js';
 import { activeExecutionTools } from '../src/tools/execution-event-io.js';
 import { createRuntimeStore } from '../src/tools/runtime-store.js';
 import { emitExecution } from '../src/tools/execution-runtime.js';
@@ -16,7 +16,7 @@ function harness() {
   >();
   const notify = vi.fn();
   const repaint = vi.fn();
-  const ctx: PiContext = { hasUI: true, ui: { notify } };
+  const ctx: PiContext = { hasUI: true, ui: { notify }, sessionManager: { getSessionId: () => 'lifecycle-test' } as PiContext['sessionManager'] };
   const store = createRuntimeStore();
   const dispose = bindRuntimeRenderer(ctx, store);
   registerLifecycleUi(
@@ -31,7 +31,7 @@ function harness() {
     notify,
     repaint,
     dispose,
-    fire: (name: string, event = {}) => handlers.get(name)?.(event, ctx),
+    fire: (name: string, event = {}) => handlers.get(name)?.(event, { ...ctx }),
   };
 }
 

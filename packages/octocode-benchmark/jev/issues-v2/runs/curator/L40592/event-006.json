@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "[{\"reasoning\":\"Read the reporter-linked implementation pull request and test patch as evidence, not as proof of acceptance.\",\"operation\":\"pullRequest\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"number\":40593,\"content\":{\"body\":true,\"changedFiles\":true,\"patches\":{\"mode\":\"all\"},\"comments\":{\"discussion\":true,\"includeBots\":true}},\"filePage\":1,\"collectionPages\":{\"changedFiles\":1,\"discussion\":1}}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:55:07.183Z",
+  "endedAt": "2026-09-18T08:55:09.811Z",
+  "elapsedMs": 2626,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "4d547eda08b63e69f6cf31779dfd71805ca8b2b83c00e064ebff3ad445b08a89",
+  "requestSha256": null
+}

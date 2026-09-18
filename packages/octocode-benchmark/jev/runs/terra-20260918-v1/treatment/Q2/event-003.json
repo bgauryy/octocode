@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q2",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"tree\",\"owner\":\"sindresorhus\",\"repo\":\"is\",\"include\":[\"branches\",\"languages\"],\"maxDepth\":2,\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:32.095Z",
+  "endedAt": "2026-09-18T08:26:32.840Z",
+  "elapsedMs": 744,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "97742db2b22b4d08765d396890121040d71b2e2539a2e310ca1d3a31a0d0d69b",
+  "stdoutBytes": 737,
+  "requestSha256": null
+}

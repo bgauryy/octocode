@@ -1,10 +1,10 @@
 import os from 'node:os';
 import path from 'node:path';
 import { getOctocodeHome } from '@octocodeai/config';
-import { repositoryDirectories } from '@octocodeai/agent-contracts/agent-skills';
-import { capabilitySourcePaths } from '@octocodeai/agent-contracts/capability-sources';
-import { getCapabilitySourceStatus, listCapabilitySourceReviews, reviewCapabilitySource, type CapabilitySourceStatus } from '@octocodeai/agent-contracts/capability-state';
-import type { ReadableSqlite } from '@octocodeai/agent-contracts/schema';
+import { repositoryDirectories } from '../../contracts/agent-skills.js';
+import { capabilitySourcePaths } from '../../contracts/capability-sources.js';
+import { getCapabilitySourceStatus, listCapabilitySourceReviews, reviewCapabilitySource, type CapabilitySourceStatus } from '../../contracts/capability-state.js';
+import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
 import { extensionWorkspaceRoot, extensionHome } from '../../extension-paths.js';
 import { openOctocodeDb } from '../storage-policy.js';
 import { discoverMcpSystem } from './discovery.js';

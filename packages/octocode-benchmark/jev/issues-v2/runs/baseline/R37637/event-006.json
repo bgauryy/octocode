@@ -1,0 +1,21 @@
+{
+  "arm": "baseline",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"reasoning\":\"Locate the current React implementation and tests that assign ViewTransition names/classes, especially portal and nested-boundary handling.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"viewTransitionClass\"],\"pageSize\":5}",
+    "{\"reasoning\":\"Locate the condition implementing ViewTransition enter/exit behavior and any parent-mount handling in the current default branch.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"view-transition-name\"],\"pageSize\":5}",
+    "{\"reasoning\":\"Find ViewTransition tests covering portals or nested boundaries to establish supported and missing behavior.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransition portal\"],\"pageSize\":5}",
+    "{\"reasoning\":\"Find source references to parent component mounting within ViewTransition behavior.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"parent Component is mounted\"],\"pageSize\":5}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:51.642Z",
+  "endedAt": "2026-09-18T08:56:51.950Z",
+  "elapsedMs": 307,
+  "exitCode": 2,
+  "signal": null,
+  "stdoutSha256": "17684fef2b9c7bb7f55ea9831a66f521f93af7efc6a029f1f5b8a20bd4b0a587",
+  "requestSha256": null
+}

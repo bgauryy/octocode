@@ -66,7 +66,7 @@ test('footer plan projection shows progress and the current task without duplica
   assert.deepEqual(segments.map((segment) => segment.text), [
     'Plan',
     '1 done',
-    'task 2 running: Unifying state projections',
+    'running: Unifying state projections',
     '1 active',
     '1 waiting',
     'plan',

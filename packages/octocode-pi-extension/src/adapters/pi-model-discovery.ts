@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { getOctocodeHome } from '@octocodeai/config';
-import { capabilitySourcePaths } from '@octocodeai/agent-contracts/capability-sources';
+import { capabilitySourcePaths } from '../contracts/capability-sources.js';
 import type { ModelRegistry } from '@earendil-works/pi-coding-agent';
 
 type ProviderConfigInput = Parameters<ModelRegistry['registerProvider']>[1];

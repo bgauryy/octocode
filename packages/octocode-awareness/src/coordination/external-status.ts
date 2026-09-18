@@ -1,4 +1,5 @@
 import { openAwarenessStore } from './open.js';
+import type { AwarenessOptions } from './coordination-shared.js';
 
 export interface ExternalAwarenessTaskActivity {
   taskId: string;
@@ -28,8 +29,8 @@ function preview(text: string): string {
 }
 
 /** Read the complete host-facing status projection through the typed Awareness API. */
-export function readExternalAwarenessStatus(input: { workspace: string; agentId?: string }): ExternalAwarenessStatus {
-  const aw = openAwarenessStore({ workspace: input.workspace });
+export function readExternalAwarenessStatus(input: AwarenessOptions & { workspace: string; agentId?: string }): ExternalAwarenessStatus {
+  const aw = openAwarenessStore({ workspace: input.workspace, dbPath: input.dbPath, scope: input.scope });
   try {
     const status = aw.status();
     const claimed = aw.listTasks({ status: 'IN_PROGRESS' });

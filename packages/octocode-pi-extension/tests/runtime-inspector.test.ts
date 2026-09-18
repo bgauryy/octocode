@@ -16,6 +16,14 @@ import {
 } from '../src/tools/execution-events.js';
 
 describe('runtime inspector', () => {
+  it('warns RPC hosts instead of silently invoking a terminal-only custom view', async () => {
+    const custom = vi.fn(async () => undefined);
+    const notify = vi.fn();
+    await openScrollInspector({ mode: 'rpc', hasUI: true, ui: { custom, notify } } as PiContext, 'Status', ['ready']);
+    expect(custom).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith('This view needs an interactive terminal.', 'warning');
+  });
+
   it('does not fill an idle session with empty feature sections', () => {
     const lines = executionStatusLines(createExecutionState());
     for (const title of ['Needs you', 'Tools', 'Skills', 'Plan', 'Agents', 'File operations']) {
@@ -26,7 +34,7 @@ describe('runtime inspector', () => {
   it('filters before wrapping and restores the complete view when search is cleared', async () => {
     let component: any;
     const done = vi.fn();
-    const ctx = { hasUI: true, ui: { custom: (factory: any) => {
+    const ctx = { mode: 'tui', hasUI: true, ui: { custom: (factory: any) => {
       component = factory({ terminal: { rows: 12 }, requestRender: vi.fn() }, undefined, {}, done);
     } } } as unknown as PiContext;
     await openScrollInspector(ctx, 'Status', ['tool success · parser', 'worker blocked · renderer', 'worker failed · parser']);
@@ -91,6 +99,7 @@ describe('runtime inspector', () => {
       };
       const ctx = {
         hasUI: true,
+        mode: 'tui',
         ui: {
           custom: (factory: any) => {
             component = factory(

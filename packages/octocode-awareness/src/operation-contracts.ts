@@ -1,4 +1,4 @@
-import type { ApprovalClass } from '@octocodeai/agent-contracts/protocols';
+export type ApprovalClass = 'fs-delete';
 import type { AwarenessStorageScope } from './storage-scope.js';
 
 export type AwarenessOperationEffect =
@@ -8,7 +8,7 @@ export type AwarenessOperationEffect =
   | 'host-config-write'
   | 'destructive-admin';
 
-export interface CanonicalOperationResult {
+export interface AwarenessOperationResult {
   payload: unknown;
   exitCode: number;
   text?: string;

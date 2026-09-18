@@ -94,10 +94,12 @@ export class AwarenessStore extends CoordinationPlanGraph {
       .get(JSON.stringify(repositoryWorkspacePaths(this.workspace))) as { sequence: number | null };
     const slowestCursor = slowest.sequence ?? 0;
     if (params.throughSequence > slowestCursor) throw new Error(`cannot prune beyond slowest consumer cursor ${slowestCursor}`);
-    const matched = (this.db.prepare('SELECT COUNT(*) AS count FROM event_outbox WHERE workspace_path = ? AND sequence <= ?')
+    // Experience records are canonical trace/archive state, not disposable delivery copies.
+    const eligible = "workspace_path = ? AND sequence <= ? AND aggregate_kind IS NOT 'experience'";
+    const matched = (this.db.prepare(`SELECT COUNT(*) AS count FROM event_outbox WHERE ${eligible}`)
       .get(this.workspace, params.throughSequence) as { count: number }).count;
     const dryRun = params.dryRun !== false;
-    const deleted = dryRun ? 0 : (this.db.prepare('DELETE FROM event_outbox WHERE workspace_path = ? AND sequence <= ?')
+    const deleted = dryRun ? 0 : (this.db.prepare(`DELETE FROM event_outbox WHERE ${eligible}`)
       .run(this.workspace, params.throughSequence) as { changes: number }).changes;
     return { matched, deleted, slowestCursor };
   }

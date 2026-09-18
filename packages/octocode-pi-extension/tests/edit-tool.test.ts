@@ -53,11 +53,11 @@ test('schema exposes queries and a sequential-only run policy', () => {
   assert.ok(schema.required?.includes('queries'), 'queries must be in required[]');
 });
 
-test('schema requires per-item reasoning', () => {
+test('schema exposes an optional per-item batch label', () => {
   type QuerySchema = { properties?: { queries?: { items?: { properties?: Record<string, unknown>; required?: string[] } } } };
   const items = (fileTool.parameters as QuerySchema).properties?.queries?.items;
   assert.ok(items?.properties?.['reasoning'], 'queries[].reasoning must exist in schema');
-  assert.ok(items?.required?.includes('reasoning'), 'reasoning must be in per-query required[]');
+  assert.ok(!items?.required?.includes('reasoning'), 'reasoning must remain optional');
 });
 
 test('schema has path and edits in per-query items', () => {
@@ -73,30 +73,8 @@ test('schema sets minItems:1 on the queries array', () => {
   assert.equal(schema.properties?.queries?.minItems, 1);
 });
 
-test('prepareArguments leaves flat edit input unchanged', () => {
-  const input = {
-    path: 'a.txt',
-    edits: [{  oldText: 'old', newText: 'new' }],
-  };
-  assert.deepEqual(fileTool.prepareArguments!(input), input);
-});
-
-test('prepareArguments fills missing query-level reasoning inside queries[]', () => {
-  const result = fileTool.prepareArguments!({
-    queries: [
-      { type: 'edit', path: 'a.txt', edits: [{  oldText: 'x', newText: 'y' }] },
-    ],
-  }) as { queries: { reasoning: string }[] };
-  assert.equal(result.queries[0]!.reasoning, 'file operation');
-});
-
-test('prepareArguments leaves existing query-level reasoning unchanged', () => {
-  const result = fileTool.prepareArguments!({
-    queries: [
-      { type: 'edit', reasoning: 'explicit', path: 'a.txt', edits: [{  oldText: 'x', newText: 'y' }] },
-    ],
-  }) as { queries: { reasoning: string }[] };
-  assert.equal(result.queries[0]!.reasoning, 'explicit');
+test('registration does not install argument-repair shims', () => {
+  assert.equal(fileTool.prepareArguments, undefined);
 });
 
 // ─── Execute: single query (passthroughSingle) ───────────────────────────────
@@ -150,7 +128,7 @@ test('single query returns file and replacement details', async () => {
   assert.equal(fs.readFileSync(path.join(tmpDir, 'a.txt'), 'utf8'), 'goodbye world\n');
 });
 
-test('single query includes query reasoning in result text', async () => {
+test('single query does not repeat its optional batch label in result text', async () => {
   writeFile('b.txt', 'alpha beta\n');
   const result = await run({
     queries: [{ type: 'edit',
@@ -159,7 +137,7 @@ test('single query includes query reasoning in result text', async () => {
       edits: [{  oldText: 'alpha', newText: 'gamma' }],
     }],
   });
-  assert.match((result.content[0] as { text: string }).text, /rename symbol/);
+  assert.doesNotMatch((result.content[0] as { text: string }).text, /rename symbol|Reasoning:/);
 });
 
 // ─── Execute: multiple ordered queries ───────────────────────────────────────
@@ -225,28 +203,24 @@ test('preflight rejects forbidden path before any writes happen', async () => {
 
 // ─── Validation errors ────────────────────────────────────────────────────────
 
-test('missing query-level reasoning throws', async () => {
+test('missing query-level label is accepted', async () => {
   writeFile('v.txt', 'val\n');
-  await assert.rejects(
-    () => run({
-      // Note: no reasoning on the query item — bypasses prepareArguments
-      queries: [{ type: 'edit', path: 'v.txt', edits: [{  oldText: 'val', newText: 'new' }] }],
-    }),
-    /reasoning/i,
-  );
+  const result = await run({
+    queries: [{ type: 'edit', path: 'v.txt', edits: [{ oldText: 'val', newText: 'new' }] }],
+  });
+  assert.equal(result.isError ?? false, false);
+  assert.equal(fs.readFileSync(path.join(tmpDir, 'v.txt'), 'utf8'), 'new\n');
 });
 
-test('empty reasoning on query throws', async () => {
+test('blank query label is omitted', async () => {
   writeFile('v.txt', 'val\n');
-  await assert.rejects(
-    () => run({
-      queries: [{ type: 'edit', reasoning: '   ', path: 'v.txt', edits: [{  oldText: 'val', newText: 'new' }] }],
-    }),
-    /reasoning/i,
-  );
+  const result = await run({
+    queries: [{ type: 'edit', reasoning: '   ', path: 'v.txt', edits: [{ oldText: 'val', newText: 'new' }] }],
+  });
+  assert.doesNotMatch((result.content[0] as { text: string }).text, /Reasoning:/);
 });
 
-test('query reasoning applies to edits without duplicate per-edit reasoning', async () => {
+test('query label is not propagated into edit evidence', async () => {
   writeFile('e.txt', 'data\n');
   const result = await run({
       queries: [{ type: 'edit',
@@ -255,7 +229,7 @@ test('query reasoning applies to edits without duplicate per-edit reasoning', as
         edits: [{ oldText: 'data', newText: 'other' }], // no reasoning
       }],
     });
-  assert.match((result.content[0] as { text: string }).text, /file level ok/);
+  assert.doesNotMatch((result.content[0] as { text: string }).text, /file level ok|Reasoning:/);
   assert.equal(fs.readFileSync(path.join(tmpDir, 'e.txt'), 'utf8'), 'other\n');
 });
 
@@ -631,6 +605,67 @@ test('overlapping edits in the same query are rejected before any write', async 
   );
   // file must remain unchanged
   assert.equal(fs.readFileSync(filePath, 'utf8'), original);
+});
+
+test('normalized mode matches template-literal backtick escapes in file content', async () => {
+  const filePath = path.join(tmpDir, 'backtick-escape.ts');
+  // File contains raw \` (backslash-backtick) as appears in TypeScript template literals.
+  fs.writeFileSync(filePath, 'const x = `<tag>\nTreat a crash-left \\`started\\` effect as terminal \\`uncertain\\`.\n</tag>`;\n', 'utf8');
+  await recordFileReadState(filePath);
+  // oldText uses plain backticks (no backslash) — normalized mode should bridge the gap.
+  const result = await run({
+    queries: [{ type: 'edit',
+      reasoning: 'backtick normalization test',
+      path: 'backtick-escape.ts',
+      edits: [{ matchMode: 'normalized', oldText: 'Treat a crash-left `started` effect as terminal `uncertain`.', newText: 'Treat a crash-left `started` effect as terminal `uncertain`; retry may duplicate.' }],
+    }],
+  });
+  assert.ok(!result.isError, `unexpected error: ${JSON.stringify(result.content)}`);
+  const written = fs.readFileSync(filePath, 'utf8');
+  assert.ok(written.includes('retry may duplicate'), 'replacement should be present');
+  assert.ok(!written.includes('as terminal \\`uncertain\\`.\n'), 'old text should be gone');
+});
+
+test('lineRange replacing a mid-file line preserves newline so next line stays on its own line', async () => {
+  const filePath = path.join(tmpDir, 'lr-newline.ts');
+  fs.writeFileSync(filePath, 'line1\nline2 old content\nline3\n', 'utf8');
+  await recordFileReadState(filePath);
+  const result = await run({
+    queries: [{ type: 'edit',
+      reasoning: 'lineRange newline preservation test',
+      path: 'lr-newline.ts',
+      edits: [{ matchMode: 'lineRange', startLine: 2, endLine: 2, newText: 'line2 new content' }],
+    }],
+  });
+  assert.ok(!result.isError, `unexpected error: ${JSON.stringify(result.content)}`);
+  const written = fs.readFileSync(filePath, 'utf8');
+  assert.equal(written, 'line1\nline2 new content\nline3\n', 'line3 must remain on its own line');
+});
+
+test('lineRange newLines[] replaces a mid-file line without trailing-newline ambiguity', async () => {
+  const filePath = path.join(tmpDir, 'lr-newlines.ts');
+  fs.writeFileSync(filePath, 'alpha\nbeta old\ngamma\n', 'utf8');
+  await recordFileReadState(filePath);
+  const result = await run({
+    queries: [{ type: 'edit',
+      reasoning: 'newLines array test',
+      path: 'lr-newlines.ts',
+      edits: [{ matchMode: 'lineRange', startLine: 2, endLine: 2, newLines: ['beta new'] }],
+    }],
+  });
+  assert.ok(!result.isError, `unexpected error: ${JSON.stringify(result.content)}`);
+  assert.equal(fs.readFileSync(filePath, 'utf8'), 'alpha\nbeta new\ngamma\n', 'gamma must stay on own line');
+});
+
+test('newLines[] rejects when matchMode is not lineRange', async () => {
+  const filePath = path.join(tmpDir, 'lr-newlines-reject.ts');
+  fs.writeFileSync(filePath, 'x\n', 'utf8');
+  await recordFileReadState(filePath);
+  await assert.rejects(
+    () => run({ queries: [{ type: 'edit', reasoning: 'r', path: 'lr-newlines-reject.ts',
+      edits: [{ newLines: ['y'], newText: 'z' }] }] }),
+    /mutually exclusive|lineRange/i,
+  );
 });
 
 test('lineRange out-of-bounds throws a clear error', async () => {

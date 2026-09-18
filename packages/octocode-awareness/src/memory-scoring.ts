@@ -23,7 +23,7 @@ export const JUDGMENT_RELEVANCE_FLOOR = 0.35;
 // importance unless --max-importance explicitly raises the ceiling.
 export const SALIENCE_FLOOR = 8;
 // Per-label decay half-life defaults (days). Durable knowledge decays slowly;
-// post-task reflections (EXPERIENCE) decay fast; everything else uses the
+// post-task outcomes (EXPERIENCE) decay fast; everything else uses the
 // read-time DEFAULT_HALF_LIFE_DAYS.
 export const LABEL_HALF_LIFE_DAYS: Record<string, number> = {
   DECISION: 90, ARCHITECTURE: 90, SECURITY: 90, GOTCHA: 90,

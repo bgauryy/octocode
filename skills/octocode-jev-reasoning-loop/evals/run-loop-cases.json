@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "frozen": true,
+  "description": "Pre-change ergonomics failure reproduced from the real self-check: duplicated DecisionBrief text, five low-level commands, and a manual action map for one triage point.",
+  "baselineLobbyWords": 936,
+  "thresholds": {
+    "authorInputByteReductionMinimum": 0.25,
+    "lobbyWordReductionMinimum": 0.25,
+    "candidateCommandsMaximum": 1
+  },
+  "case": {
+    "route": "hypothesis_triage",
+    "model": "jev-1.13.0",
+    "decisionBrief": {
+      "observations": "E1 records a warm-only failure in revision abc.",
+      "inferences": ["The cache path may be involved."],
+      "assumptions": ["The reproduction uses the same cache layer."],
+      "strongest_counter": "A caller-specific branch could produce the same symptom.",
+      "uncertainty": "Whether cache invalidation or caller branching explains the failure.",
+      "prediction": "A cache bypass should pass if invalidation is stale.",
+      "falsifier": "The bypass also fails.",
+      "discriminating_observation": "Compare one request with and without caching.",
+      "direct_check": { "available": false },
+      "jev_will_change_action": true
+    },
+    "state": {
+      "mainGoal": "Find the regression cause.",
+      "goal": "Choose the first discriminating check.",
+      "scope": "revision abc",
+      "evidence": [
+        { "id": "E1", "source": "test.log:1", "scope": "revision abc", "content": "Warm requests fail; cold requests pass." }
+      ],
+      "hypotheses": [
+        { "id": "H1", "statement": "Invalidation is stale.", "assumption": "The failing path reads the cache.", "predicts": ["Bypass passes."], "weakenedBy": "Bypass fails." },
+        { "id": "H2", "statement": "Caller branch is wrong.", "assumption": "Warm requests choose another branch.", "predicts": ["Caller traces differ."], "weakenedBy": "Caller traces match." }
+      ],
+      "next_checks": [
+        {
+          "id": "C1", "action": "Run the request with cache bypassed.", "cost": "low",
+          "expectedOutcomes": [
+            { "observation": "Bypass passes.", "effect": { "H1": "strengthen", "H2": "weaken" } },
+            { "observation": "Bypass fails.", "effect": { "H1": "weaken", "H2": "strengthen" } }
+          ]
+        },
+        {
+          "id": "C2", "action": "Compare warm and cold caller traces.", "cost": "medium",
+          "expectedOutcomes": [
+            { "observation": "Traces differ.", "effect": { "H1": "weaken", "H2": "strengthen" } },
+            { "observation": "Traces match.", "effect": { "H1": "strengthen", "H2": "weaken" } }
+          ]
+        }
+      ],
+      "unknowns": []
+    },
+    "manualActions": {
+      "hypothesis": "Keep H1 provisional and run C1 before drawing a conclusion.",
+      "next_check": "Run C1 with cache bypass and record both branches."
+    },
+    "manualNetAction": "Run the request with cache bypassed.",
+    "response": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "hypothesis": { "type": "choice", "choice": "H1", "probabilities": { "H1": 0.7, "H2": 0.2, "none": 0.1 }, "confidence": 0.6 },
+        "next_check": { "type": "choice", "choice": "C1", "probabilities": { "C1": 0.8, "C2": 0.15, "none": 0.05 }, "confidence": 0.8 }
+      },
+      "usage": { "input_tokens": 100, "output_tokens": 20 }
+    }
+  }
+}

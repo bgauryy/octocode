@@ -1,14 +1,39 @@
 import { visibleWidth } from '../src/tui/width.js';
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
-import type { PiTheme } from '../src/types.js';
-import { OCTOCODE_OVERLAY_OPTIONS, octocodeSelectListTheme, applyFilterKey, selectItemMatchesFilter } from '../src/tools/ui-overlays.js';
+import { test, expect, vi } from 'vitest';
+import type { PiContext, PiTheme } from '../src/types.js';
+import { OCTOCODE_OVERLAY_OPTIONS, octocodeSelectListTheme, applyFilterKey, selectItemMatchesFilter, runSelectOverlay, runMultiSelectOverlay } from '../src/tools/ui-overlays.js';
 
 
 const theme = {
   fg: (color: string, t: string) => `<${color}>${t}</${color}>`,
   bold: (t: string) => `*${t}*`,
 } as unknown as PiTheme;
+
+test.each([runSelectOverlay, runMultiSelectOverlay])('picker abort settles the host dialog and removes its listener (%#)', async (open) => {
+  const controller = new AbortController();
+  const removed = vi.spyOn(controller.signal, 'removeEventListener');
+  let doneCalls = 0;
+  const ctx = {
+    mode: 'tui', hasUI: true, signal: controller.signal,
+    ui: { custom: (factory: (...args: any[]) => unknown) => new Promise(resolve => {
+      factory({ requestRender() {} }, theme, {}, (result: unknown) => { doneCalls++; resolve(result); });
+    }) },
+  } as unknown as PiContext;
+  const pending = open(ctx, { title: 'Choose', items: [{ value: 'one', label: 'One' }] });
+  const rejected = expect(pending).rejects.toThrow('picker aborted');
+  controller.abort(new Error('picker aborted'));
+  expect(doneCalls).toBe(1);
+  await rejected;
+  expect(removed).toHaveBeenCalledWith('abort', expect.any(Function));
+});
+
+test.each([runSelectOverlay, runMultiSelectOverlay])('pre-aborted picker never opens a host dialog (%#)', async (open) => {
+  const custom = vi.fn();
+  const ctx = { mode: 'tui', hasUI: true, signal: AbortSignal.abort(new Error('already cancelled')), ui: { custom } } as unknown as PiContext;
+  await expect(open(ctx, { title: 'Choose', items: [] })).rejects.toThrow('already cancelled');
+  expect(custom).not.toHaveBeenCalled();
+});
 
 test('shared picker overlays use a bounded modern dialog geometry', () => {
   assert.deepEqual(OCTOCODE_OVERLAY_OPTIONS, {

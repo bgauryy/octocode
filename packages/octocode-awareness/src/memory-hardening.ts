@@ -73,7 +73,7 @@ export const MEMORY_EVALUATION_CORPUS_V1: MemoryEvaluationCorpusV1 = {
 };
 
 export function containsSecretLikeText(text: string): boolean {
-  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*[^\s]{6,}|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{16,}\b/i.test(text);
+  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)["']?\s*[:=]\s*["']?[^\s"',}]{6,}|\b(?:sk[-_]|ghp_|github_pat_)[A-Za-z0-9_-]{16,}\b|\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*/i.test(text);
 }
 
 export function evaluateMemoryRecall(cases: MemoryEvaluationCaseV1[]): MemoryEvaluationResultV1 {

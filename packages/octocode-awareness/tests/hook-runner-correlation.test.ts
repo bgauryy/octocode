@@ -11,6 +11,7 @@ import { removeStaleHookRunStateLock } from '../src/hooks/run-state.js';
 import { writeWorkspacePolicy } from '../src/workspace-policy.js';
 import { withEnabledAwarenessConfig } from './helpers/enabled-awareness-config.js';
 import { tsxCli } from './helpers/tsx-cli.js';
+import { AWARENESS_DB_FILENAME } from '../src/storage-scope.js';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(TEST_DIR, '..');
@@ -92,7 +93,7 @@ describe('shell hook correlation state', () => {
       const first = runHook('pre-edit', payload, memoryHome, workspace);
       expect(first.status, first.stderr).toBe(0);
 
-      const dbPath = join(workspace, '.octocode', 'awareness.sqlite3');
+      const dbPath = join(workspace, '.octocode', AWARENESS_DB_FILENAME);
       const db = new DatabaseSync(dbPath);
       const firstRun = db.prepare('SELECT run_id FROM task_runs').get() as { run_id: string };
       const now = new Date().toISOString();
@@ -135,7 +136,7 @@ describe('shell hook correlation state', () => {
       const post = runHook('post-edit', payload, memoryHome, workspace);
       expect(post.status, post.stderr).toBe(0);
 
-      const db = new DatabaseSync(join(workspace, '.octocode', 'awareness.sqlite3'));
+      const db = new DatabaseSync(join(workspace, '.octocode', AWARENESS_DB_FILENAME));
       expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'ACTIVE'").get() as { c: number }).c).toBe(1);
       expect((db.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'PENDING'").get() as { c: number }).c).toBe(1);
       expect(stateJsonFiles(workspace)).toHaveLength(0);
@@ -156,7 +157,7 @@ describe('shell hook correlation state', () => {
       )));
       for (const start of starts) expect(start.code, start.stderr).toBe(0);
 
-      const before = new DatabaseSync(join(workspace, '.octocode', 'awareness.sqlite3'));
+      const before = new DatabaseSync(join(workspace, '.octocode', AWARENESS_DB_FILENAME));
       expect((before.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'ACTIVE'").get() as { c: number }).c).toBe(3);
       before.close();
 
@@ -165,7 +166,7 @@ describe('shell hook correlation state', () => {
       )));
       for (const finish of finishes) expect(finish.code, finish.stderr).toBe(0);
 
-      const after = new DatabaseSync(join(workspace, '.octocode', 'awareness.sqlite3'));
+      const after = new DatabaseSync(join(workspace, '.octocode', AWARENESS_DB_FILENAME));
       expect(
         (after.prepare("SELECT COUNT(*) AS c FROM task_runs WHERE status = 'PENDING'").get() as { c: number }).c,
         finishes.map((finish) => finish.stderr).filter(Boolean).join('\n'),
@@ -178,15 +179,15 @@ describe('shell hook correlation state', () => {
     }
   });
 
-  it('writes the scoped preview marker only after a dry-run digest succeeds', () => {
+  it('writes the scoped preview marker only after a retention report succeeds', () => {
     const source = readFileSync(SOURCE_LIFECYCLE, 'utf8');
-    const digestCall = source.indexOf('const preview = digest(database, {');
-    const dryRun = source.indexOf('dry_run: true', digestCall);
-    const markerWrite = source.indexOf("writeFileSync(markerPath, String(now), 'utf8');", digestCall);
+    const reportCall = source.indexOf('const preview = runMaintenanceRetention(');
+    const reportMode = source.indexOf("maintenanceRetentionSchema.parse({ action: 'report' })", reportCall);
+    const markerWrite = source.indexOf("writeFileSync(markerPath, String(now), 'utf8');", reportCall);
     expect(source).toContain('const memoryHome = dirname(resolveDbPath(null));');
-    expect(source).toContain('.last-digest-preview-${scopeHash}-epoch-ms');
-    expect(digestCall).toBeGreaterThanOrEqual(0);
-    expect(dryRun).toBeGreaterThan(digestCall);
-    expect(markerWrite).toBeGreaterThan(dryRun);
+    expect(source).toContain('.last-retention-preview-${scopeHash}-epoch-ms');
+    expect(reportCall).toBeGreaterThanOrEqual(0);
+    expect(reportMode).toBeGreaterThan(reportCall);
+    expect(markerWrite).toBeGreaterThan(reportMode);
   });
 });

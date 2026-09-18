@@ -1,22 +1,15 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { access } from 'node:fs/promises';
 import { ToolErrors } from '../../errors/errorFactories.js';
-import type { ProcessedBulkResult } from '../../types/toolResults.js';
 import type { ToolExecutionArgs } from '../../types/execution.js';
 import { executeBulkOperation } from '../../utils/response/bulk/response.js';
 import { executeWithToolBoundary } from '../executionGuard.js';
-import { searchContentRipgrep } from '../local_ripgrep/searchContentRipgrep.js';
-import {
-  LocalRipgrepQuerySchema,
-  type RipgrepQuery,
-} from '@octocodeai/octocode-core/schema';
 import {
   LocalSearchQuerySchema,
-  type LocalTextResultView,
   type LocalSearchQuery,
 } from '@octocodeai/octocode-core/schema';
-import { toLegacyTextQuery } from './nativeQuery.js';
 import { LOCAL_SEARCH_TOOL_NAME } from '@octocodeai/octocode-core/schema';
+import { runTypedLexicalSearch } from './typedLexicalService.js';
 
 export async function executeLocalSearch(
   args: ToolExecutionArgs<LocalSearchQuery>
@@ -40,36 +33,13 @@ export async function executeLocalSearch(
             );
           }
           return normalizeOperationContinuations(
-            stripVolatileTelemetry(await runOperation(parsed.data))
+            await runTypedLexicalSearch(parsed.data)
           );
         },
       }),
     { toolName: LOCAL_SEARCH_TOOL_NAME },
     args
   );
-}
-
-async function runOperation(
-  query: LocalSearchQuery
-): Promise<ProcessedBulkResult> {
-  const { resultView, ...input } = query;
-  return searchContentRipgrep(
-    LocalRipgrepQuerySchema.parse(
-      toLegacyTextQuery(input, resultView as LocalTextResultView)
-    ) as RipgrepQuery
-  );
-}
-
-function stripVolatileTelemetry<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map(stripVolatileTelemetry) as T;
-  }
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key !== 'searchTime')
-      .map(([key, item]) => [key, stripVolatileTelemetry(item)])
-  ) as T;
 }
 
 function normalizeOperationContinuations<T>(value: T): T {
@@ -79,10 +49,9 @@ function normalizeOperationContinuations<T>(value: T): T {
   if (!value || typeof value !== 'object') return value;
 
   const record = Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      normalizeOperationContinuations(item),
-    ])
+    Object.entries(value)
+      .filter(([key]) => key !== 'searchTime')
+      .map(([key, item]) => [key, normalizeOperationContinuations(item)])
   ) as Record<string, unknown>;
   if (record.tool === 'local.text') {
     record.tool = LOCAL_SEARCH_TOOL_NAME;

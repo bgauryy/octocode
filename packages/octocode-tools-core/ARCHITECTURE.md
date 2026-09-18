@@ -30,10 +30,17 @@ attaches runtime behavior to core's canonical catalog.
   `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`,
   and `ghCloneRepo`.
 - **Package**: `artifactSearch`.
-- **Local** (`security: 'basic'`): `localSearch`, `astSearch`, and
-  `localFetch`.
+- **Local** (`security: 'basic'`): `localSearch`, `astSearch`, `astRewrite`,
+  and `localFetch`.
 - **LSP**: `lspSearch`; its engine-managed local client pool does not initialize
   GitHub providers or the server runtime.
+
+Exact LSP positions bypass fuzzy name resolution. Native import token ranges
+identify alias candidates; tools-core verifies identity through matching
+language-server definitions and collects their references before one canonical
+deduplication and pagination pass. Inspection limits and failed verification
+remain explicit partial coverage. Parser coordinates never replace semantic
+evidence, and provider-scoped results do not prove exhaustive workspace usage.
 
 Each tool lives in `src/tools/<tool_name>/` with `execution.ts` (the bulk-loop
 `executionFn`), plus `finalizer.ts` / `types.ts` and helper modules as needed.
@@ -56,6 +63,29 @@ topology analyses, dead-code policy, pagination, and response shaping are owned
 by `src/tools/ast_search/topology/`. `astSearch` is the public graph surface;
 private graph helpers and harnesses are implementation details and are not
 separate catalog tools.
+
+### Lexical continuation snapshots
+
+`src/tools/local_ripgrep/pageManifest.ts` owns optional immutable result manifests.
+Explicit `noIgnore:true` searches can return an opaque `pagination.snapshot` and
+carry it on executable file/match continuations. Default ignore-aware searches
+remain live: their ancestor/global ignore dependencies are not exposed by the
+native contract. Access-time sorts and scopes containing symlinks, unreadable
+entries, inventory caps, or native search errors also remain live. Live pagination
+carries a result fingerprint and rescans normally; a changed result/order/coverage
+returns a restart before mixing pages. Volatile scan timings and byte counts are
+excluded from this fingerprint.
+
+Eligible searches validate two complete native filesystem inventories before
+searching and again before saving sanitized results. Continuations recheck the
+full scope, including previously unmatched files, using nanosecond file metadata.
+This avoids repeating native content scans at the cost of filesystem metadata
+work; it is not an unconditional latency improvement. Single-page eligible calls
+perform the initial check but do not persist a manifest. Storage is private,
+content-addressed, limited to 1 MiB per manifest, and pruned toward 64 entries
+when writing. Manifests expire after 60 seconds. A supplied token that is expired,
+evicted, changed, corrupt, or unsafe fails closed with `staleSnapshot` and a
+schema-valid `next.restart`; it never silently rescans or serves stale snippets.
 
 ## Execution flow
 
@@ -86,6 +116,12 @@ Input preparation rejects unknown fields by default with a correction hint;
 adapters must explicitly opt into field filtering. Valid batches isolate runtime
 query failures and retain one indexed result per query; they are not transactions.
 
+Handlers distinguish failed execution from incomplete evidence. `status: 'error'`
+and domain receipts describe validation, provider, or recovery failures. Emit
+`complete:false` / `isPartial:true` only for incomplete result evidence, with an
+executable continuation or an explicit terminal limit. Shared response diagnostics
+check those flags even on error rows; handlers must not attach them to every failure.
+
 ## Providers
 
 GitHub-only today, behind an `ICodeHostProvider` abstraction so the surface stays
@@ -94,6 +130,14 @@ provider-agnostic. `src/providers/factory.ts` caches provider instances
 builds the execution context from `serverConfig`, runs operations, and
 normalizes provider errors. GitHub API plumbing (client, search, content, PRs,
 structure, history) lives in `src/github/`.
+
+Issue listing keeps GitHub's repository-list endpoint, including its ordering and
+coverage beyond the Search API window. Because that endpoint also returns PRs,
+`issues/fetchers.ts` can skip up to five consecutive PR-only pages after the
+requested page. It stops at the first issue-bearing page, provider exhaustion,
+or that request bound. Pagination records the actual provider page and extra
+requests; continuations resume after that page. This reduces empty agent calls,
+not upstream API calls.
 
 ## Cross-cutting modules
 
@@ -104,8 +148,14 @@ structure, history) lives in `src/github/`.
   Output schemas are not published.
 - `src/utils/pagination/` (incl. `hints.ts` — next-step hints: pagination
   cursors, token-budget warnings, structure hints) + `src/utils/response/` — the
-  single lossless char-pagination flow and YAML/JSON result rendering shared by
-  text + `structuredContent`.
+  shared YAML/JSON result rendering and lossless whole-response text pagination.
+  Text pages preserve Unicode code points and carry executable snapshot-bound
+  continuations. An offset inside a code point returns a restart. This pagination
+  scopes `content.text`; it does not truncate `structuredContent`.
+- Direct structured projections carry an internal per-execution render flag to
+  skip unused text rendering after response normalization. Text still renders
+  for pagination and errors; structured-content sanitization remains mandatory
+  before egress.
 - `src/utils/{http,exec,file,package,parsers}/` — fetch+retry+cache+circuit
   breaker, safe `spawn`, file helpers, npm, ripgrep/diff parsers.
 - `src/errors/` — `ToolError` hierarchy and domain/local error factories.

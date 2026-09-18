@@ -1,0 +1,1 @@
+{"hypotheses":["Confirmed: the file is route-regex.ts; getRouteRegex calls getParametrizedRoute."],"currentDirection":"Answer exact exported function shape.","uncertainty":"None material.","actualNextCheck":"Exact canary source read completed."}

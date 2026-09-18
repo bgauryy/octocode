@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "claim-check",
+  "title": "Jev Claim Check Request",
+  "description": "Public Jev packet for checking a bounded claim against exact evidence and caller-declared evidence bases.",
+  "$comment": "Use scripts/research.mjs after packet validation. Reflection updates hypotheses; this route judges whether accumulated evidence establishes one proposition.",
+  "type": "object",
+  "required": ["model", "state", "questions"],
+  "properties": {
+    "model": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "description": "VISIBILITY BOUNDARY: one claim, strongest counterclaim, deciding evidence, and unknowns.",
+      "required": ["mainGoal", "goal", "reasoning", "claim", "current_rationale", "counterclaim", "evidence", "evidence_bases"],
+      "properties": {
+        "mainGoal": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "reasoning": { "$ref": "#/$defs/ReasoningSummary" },
+        "claim": { "type": "string", "minLength": 1 },
+        "current_rationale": { "type": "string", "minLength": 1 },
+        "counterclaim": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "array", "minItems": 1, "maxItems": 254,
+          "items": {
+            "type": "object", "required": ["id", "kind", "source", "scope", "content"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^E[0-9]+$" },
+              "kind": { "enum": ["source-snippet", "test-output", "log-excerpt", "doc-quote", "observation"] },
+              "source": { "type": "string", "minLength": 1 },
+              "scope": { "type": "string", "minLength": 1 },
+              "content": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "evidence_bases": {
+          "type": "array", "minItems": 1, "maxItems": 254,
+          "items": {
+            "type": "object", "required": ["id", "evidenceIds", "description"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^B[0-9]+$" },
+              "evidenceIds": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^E[0-9]+$" } },
+              "description": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unknowns": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "questions": {
+      "type": "object",
+      "required": ["claim_status", "decisive_basis"],
+      "properties": {
+        "claim_status": {
+          "type": "object", "required": ["type", "instructions", "criteria"],
+          "properties": {
+            "type": { "const": "choice" },
+            "instructions": { "type": "string", "minLength": 1 },
+            "criteria": {
+              "type": "object", "required": ["supported", "contradicted", "insufficient", "conflicting"],
+              "properties": {
+                "supported": { "const": "Evidence establishes the claim." },
+                "contradicted": { "const": "Evidence establishes that the claim is false." },
+                "insufficient": { "const": "Evidence is not enough to decide." },
+                "conflicting": { "const": "Evidence gives an unresolved contradiction." }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "decisive_basis": {
+          "type": "object", "required": ["type", "instructions", "criteria"],
+          "properties": {
+            "type": { "const": "choice" },
+            "instructions": { "type": "string", "minLength": 1 },
+            "criteria": { "type": "object", "minProperties": 2, "patternProperties": { "^B[0-9]+$": { "type": "string" }, "^none$": { "type": "string" } }, "additionalProperties": false }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "ReasoningSummary": {
+      "type": "object",
+      "description": "Bounded, auditable decision summary for agentic use; never hidden chain-of-thought or private scratch.",
+      "required": ["observations", "uncertainty"],
+      "properties": {
+        "observations": { "type": "string", "minLength": 1 },
+        "inferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "strongest_counter": { "type": "string", "minLength": 1 },
+        "uncertainty": { "type": "string", "minLength": 1 },
+        "prediction": { "type": "string", "minLength": 1 },
+        "falsifier": { "type": "string", "minLength": 1 },
+        "discriminating_observation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -73,7 +73,7 @@ describe('readMedia tool', () => {
     expect(q?.items?.properties?.['reasoning']).toBeDefined();
     expect(q?.items?.properties?.['type']).toBeDefined();
     expect(q?.items?.properties?.['path']).toBeDefined();
-    expect(q?.items?.required ?? []).toContain('reasoning');
+    expect(q?.items?.required ?? []).not.toContain('reasoning');
     expect(q?.items?.required ?? []).toContain('type');
   });
 

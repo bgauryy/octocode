@@ -72,6 +72,27 @@ describe('sanitizeStructuredContent', () => {
     ).toBe('foo(bar)');
   });
 
+  it('leaves next.tool/query and location unsanitized so continuations stay executable', () => {
+    const input = {
+      title: `secret ${PAT}`,
+      location: { localPath: `/tmp/${PAT}/repo` },
+      next: {
+        continue: {
+          tool: 'secret-tool',
+          query: { path: `${PAT}.rs` },
+          confidence: 'exact',
+          why: `because ${PAT}`,
+        },
+      },
+    };
+    const out = sanitizeStructuredContent(input) as typeof input;
+    expect(out.next.continue.tool).toBe('secret-tool');
+    expect(out.next.continue.query.path).toBe(`${PAT}.rs`);
+    expect(out.location.localPath).toBe(`/tmp/${PAT}/repo`);
+    expect(out.next.continue.why).toContain('[REDACTED-');
+    expect(out.title).toContain('[REDACTED-');
+  });
+
   it('handles a bare secret string and non-string primitives', () => {
     expect(sanitizeStructuredContent(PAT)).toContain('[REDACTED-');
     expect(sanitizeStructuredContent('foo(bar)')).toBe('foo(bar)');

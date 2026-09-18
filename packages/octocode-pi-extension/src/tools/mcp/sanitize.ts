@@ -1,11 +1,26 @@
 import type { ContentPart } from '../../types.js';
+import { isDeepStrictEqual } from 'node:util';
 import { isPlainRecord } from './config.js';
+
+export function assistantText(message: unknown): string | undefined {
+  if (!isPlainRecord(message) || !Array.isArray(message["content"]))
+    return undefined;
+  const text = message["content"]
+    .filter(isPlainRecord)
+    .filter(
+      (part) => part["type"] === "text" && typeof part["text"] === "string",
+    )
+    .map((part) => String(part["text"]))
+    .join("\n")
+    .trim();
+  return text || undefined;
+}
 
 /**
  * Interop fallback for MCP call results: octocode-mcp (without
  * OCTOCODE_MCP_FULL_TEXT) replaces text content with a compact
  * "structuredContent available …" stub while the real data lives in
- * structuredContent. Pi renders only text blocks, so when the stub sentinel is
+ * structuredContent. When the stub sentinel is
  * detected (or content is empty) and structuredContent exists, surface the
  * structured payload instead — otherwise the model researches blind.
  */
@@ -15,7 +30,7 @@ export function resolveMcpCallText(payload: unknown): string {
     .join("\n");
 }
 
-/** Preserve MCP model content natively; use structuredContent for compact stubs. */
+/** Preserve both MCP content channels; expand compact stubs instead of duplicating them. */
 export function resolveMcpCallContent(payload: unknown): ContentPart[] {
   if (!isPlainRecord(payload))
     return [{ type: "text", text: stringify(payload) }];
@@ -39,50 +54,40 @@ export function resolveMcpCallContent(payload: unknown): ContentPart[] {
     );
     return [
       { type: "text", text: stringify(structured) },
-      ...nonText.map((item): ContentPart => {
-        if (
-          isPlainRecord(item) &&
-          item["type"] === "image" &&
-          typeof item["data"] === "string" &&
-          typeof item["mimeType"] === "string"
-        ) {
-          return {
-            type: "image",
-            data: item["data"],
-            mimeType: item["mimeType"],
-          };
-        }
-        return { type: "text", text: stringify(item) };
-      }),
+      ...nonText.map(toPiContent),
     ];
   }
   if (content.length > 0) {
-    return content.map((item): ContentPart => {
-      if (
-        isPlainRecord(item) &&
-        item["type"] === "text" &&
-        typeof item["text"] === "string"
-      ) {
-        return { type: "text", text: item["text"] };
-      }
-      if (
-        isPlainRecord(item) &&
-        item["type"] === "image" &&
-        typeof item["data"] === "string" &&
-        typeof item["mimeType"] === "string"
-      ) {
-        return {
-          type: "image",
-          data: item["data"],
-          mimeType: item["mimeType"],
-        };
-      }
-      // Pi currently accepts text/image content only. Keep unsupported MCP blocks
-      // losslessly as JSON text rather than silently dropping them.
-      return { type: "text", text: stringify(item) };
-    });
+    const parts = content.map(toPiContent);
+    if (hasStructured && !textBlocks.some(item => containsStructuredContent(String(item['text']), structured))) {
+      parts.push({ type: 'text', text: stringify(structured) });
+    }
+    return parts;
   }
   return [{ type: "text", text: stringify(payload) }];
+}
+
+function toPiContent(item: unknown): ContentPart {
+  if (isPlainRecord(item)) {
+    if (item['type'] === 'text' && typeof item['text'] === 'string') {
+      return { type: 'text', text: item['text'] };
+    }
+    if (item['type'] === 'image' && typeof item['data'] === 'string' && typeof item['mimeType'] === 'string') {
+      return { type: 'image', data: item['data'], mimeType: item['mimeType'] };
+    }
+  }
+  // Pi accepts text/image blocks; retain other MCP blocks as JSON text.
+  return { type: 'text', text: stringify(item) };
+}
+
+function containsStructuredContent(text: string, structured: unknown): boolean {
+  if (text === stringify(structured)) return true;
+  try {
+    return isDeepStrictEqual(JSON.parse(text), structured);
+  } catch {
+    // Ordinary prose is a separate content channel, not a JSON copy.
+    return false;
+  }
 }
 
 function mcpStructuredRows(payload: unknown): Record<string, unknown>[] {
@@ -170,7 +175,7 @@ function summarizeStructuredRow(row: Record<string, unknown>): string {
   return metrics.join(" · ") || "ok";
 }
 
-/** Optional model-facing table view for large structured MCP batches. */
+/** Optional summary followed by complete evidence, including continuations. */
 export function resolveMcpCallTable(payload: unknown): ContentPart[] | undefined {
   const rows = mcpStructuredRows(payload);
   const aggregate = summarizeMcpStructuredResults(payload);
@@ -189,6 +194,7 @@ export function resolveMcpCallTable(payload: unknown): ContentPart[] | undefined
       type: "text",
       text: `${aggregate}\nindex | status | item | summary\n${lines.join("\n")}`,
     },
+    ...resolveMcpCallContent(payload),
   ];
 }
 

@@ -20,7 +20,7 @@ import { z } from 'zod';
 type RegisterFn = typeof registerUniqueTool;
 
 interface LocalServerQuery {
-  reasoning: string;
+  reasoning?: string;
   action: 'serve' | 'unmount' | 'status' | 'stop';
   name?: string;
   dir?: string;
@@ -87,11 +87,10 @@ export function registerLocalServerTool(
       indexFile: z.string().optional()
         .describe('File served at the mount root for action:serve. Default index.html.'),
       open: z.boolean().optional()
-        .describe('Open the mounted page only after the user explicitly asks or approves. Defaults to false in every mode.'),
+        .describe('Open the page; only when user explicitly asks or approves. Always false by default.'),
       browser: z.enum(['auto', 'chrome', 'system', 'vscode', 'none']).optional()
-        .describe('Browser target for action:serve. auto prefers VS Code when available, then Chrome, then the system opener.'),
+        .describe('Browser for action:serve: auto→VS Code→Chrome→system.'),
     }),
-    { reasoningDescription: 'Concise reason this local server operation is necessary.' },
   );
   registerFn(pi, registeredToolNames, {
     name: 'localServer',
@@ -99,10 +98,10 @@ export function registerLocalServerTool(
     description: DIRECT_TOOL_DESCRIPTIONS.localServer!,
     promptSnippet: 'Serve local static artifacts over a loopback-only, path-guarded local server.',
     promptGuidelines: [
-      'Use localServer for generated HTML/Markdown artifacts that are clearer in a browser (plans, design diagrams, reports).',
-      'localServer action:serve returns a URL without opening a browser. Pass open:true only when the user has asked or approved.',
-      'Serve only directories you authored or inspected; never expose secrets, home directories wholesale, or untrusted downloads.',
-      'Unmount or stop surfaces when they are no longer useful.',
+      'Use for HTML/Markdown artifacts clearer in browser (plans, diagrams, reports).',
+      'action:serve returns URL; open:true only on explicit user request or approval.',
+      'Serve only authored/inspected dirs; never expose secrets or untrusted downloads.',
+      'Unmount when no longer useful.',
     ],
     parameters,
 

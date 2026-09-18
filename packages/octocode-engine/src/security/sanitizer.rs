@@ -2,7 +2,7 @@ use super::detector;
 use super::detector::{CONTENT_SIZE_LIMIT_PLACEHOLDER, MAX_CONTENT_SIZE};
 use super::types::SanitizationResult;
 
-pub(crate) fn sanitize_content(content: &str, file_path: Option<&str>) -> SanitizationResult {
+pub fn sanitize_content(content: &str, file_path: Option<&str>) -> SanitizationResult {
     // Byte-based cap (the JS fallback uses Buffer.byteLength) so the same content
     // is redacted identically whether or not the native addon is available.
     if content.len() > MAX_CONTENT_SIZE {

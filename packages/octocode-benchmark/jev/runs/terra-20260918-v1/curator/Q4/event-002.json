@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q4",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"follow-redirects\",\"repo\":\"follow-redirects\",\"path\":\"index.js\",\"matchString\":\"function RedirectableRequest\",\"contextLines\":35},{\"owner\":\"follow-redirects\",\"repo\":\"follow-redirects\",\"path\":\"index.js\",\"matchString\":\"RedirectableRequest.prototype._performRequest\",\"contextLines\":38},{\"owner\":\"follow-redirects\",\"repo\":\"follow-redirects\",\"path\":\"index.js\",\"matchString\":\"function processResponse\",\"contextLines\":45}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:49.897Z",
+  "endedAt": "2026-09-18T08:25:50.245Z",
+  "elapsedMs": 347,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "3dbef442d56df6105358c9814ffb3ec575cbe7a8261d67399ef91ec3df5616a2",
+  "stdoutBytes": 6358,
+  "requestSha256": null
+}

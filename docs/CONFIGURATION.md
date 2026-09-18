@@ -1,6 +1,6 @@
 # Octocode configuration and authentication
 
-Use this page for credentials, registries, feature gates, storage, timeouts, and environment precedence. Configuration controls whether a capability is available; it does not redefine a tool's input schema. See [`OCTOCODE_TOOLS.md`](OCTOCODE_TOOLS.md) for tool fields and internal/external behavior, [`OCTOCODE_MCP.md`](OCTOCODE_MCP.md) for server lifecycle, and [`SECURITY.md`](SECURITY.md) for path, secret, and command boundaries.
+This reference configures the interfaces and shared runtime of the Octocode agentic toolkit. Use it for credentials, registries, feature gates, storage, timeouts, and environment precedence. Configuration controls whether a capability is available; it does not redefine a tool's input schema. See [`OCTOCODE_TOOLS.md`](OCTOCODE_TOOLS.md) for tool fields and internal/external behavior, [`OCTOCODE_MCP.md`](OCTOCODE_MCP.md) for server lifecycle, and [`SECURITY.md`](SECURITY.md) for path, secret, and command boundaries.
 
 ## Table of contents
 
@@ -321,6 +321,10 @@ code ~/.octocode/.octocoderc
     // Requires storage.mode="persistent" (the default); memory mode disables materialization writes.
     "enableClone": false,
 
+    // true → permit astRewrite apply mode after a hash-guarded preview
+    // Opt-in: false by default. Preview mode remains available when false.
+    "enableAstRewriteApply": false,
+
     // Lock the workspace root to a specific path (default: process.cwd())
     // Must be an absolute path. Example: "/home/user/projects"
     "workspaceRoot": null,
@@ -462,6 +466,7 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 | Env var | `.octocoderc` key | Default |
 |---------|------------------|---------|
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` |
+| `OCTOCODE_GITHUB_CLIENT_ID` | — | Built-in for `github.com`; required for GitHub Enterprise device login or refresh |
 
 #### Local tools
 
@@ -469,6 +474,7 @@ Set the GitHub token in an environment variable only. Octocode never reads it fr
 |---------|------------------|---------|-------|
 | `ENABLE_LOCAL` | `local.enabled` | `true` | `false` turns local tools off on every surface |
 | `ENABLE_CLONE` | `local.enableClone` | `false` | Opt-in: set `true` to enable `ghCloneRepo` and directory materialization. Requires `storage.mode="persistent"` (the default). |
+| `ENABLE_AST_REWRITE_APPLY` | `local.enableAstRewriteApply` | `false` | Opt-in mutation gate. `astRewrite` preview remains available; apply also requires every preview `beforeHash`. |
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | `process.cwd()` | Must be absolute. Base for resolving relative paths — not itself an allowed root; add it to `allowedPaths` to access a location outside home. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` (home only) | Extra roots added on top of the always-allowed home directory. Env: comma-separated; rc: JSON array. |
 
@@ -585,6 +591,9 @@ Octocode **always ignores** these keys when loading `~/.octocode/.env` or a proj
 export GITHUB_TOKEN="ghp_your_ghe_token"
 export GITHUB_API_URL="https://github.mycompany.com/api/v3"
 
+# OAuth device login/refresh against GHE requires your enterprise OAuth app ID
+export OCTOCODE_GITHUB_CLIENT_ID="your_oauth_app_client_id"
+
 # OAuth login against GHE
 npx octocode auth login --hostname github.mycompany.com
 ```
@@ -613,14 +622,16 @@ npx octocode status --json
 | Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable | Check `tools --json` for the effective availability gate. Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`. Materialization also requires `OCTOCODE_STORAGE_MODE=persistent`; tool allowlists and disable lists still apply. |
+| `astRewrite` apply is disabled | Preview first, then set `ENABLE_AST_REWRITE_APPLY=true` or `local.enableAstRewriteApply: true` and submit every returned absolute-path `beforeHash`. |
 | Local tools turned off | Check that neither `ENABLE_LOCAL` nor `local.enabled` is `false` |
 | A tool is missing | Inspect `tools --json` for registered names and availability. Check `TOOLS_TO_RUN` / `tools.enabled` (strict allowlists) and `DISABLE_TOOLS` / `tools.disabled`. Removed tool names are not aliases. |
 | Slow / timeouts | Raise `REQUEST_TIMEOUT` (max `300000` ms) |
-| A skill's external search is unavailable | Follow that skill's provider and credential instructions. The ten-tool Octocode catalog does not expose a general web-search tool. |
+| A skill's external search is unavailable | Follow that skill's provider and credential instructions. The eleven-tool Octocode catalog does not expose a general web-search tool. |
 | `stats.json` never written | Set `OCTOCODE_ENABLE_STATS=1` in your shell or MCP `env` block (off by default) |
 | `.env` key ignored | Octocode blocks token vars in `.env` — use your shell or the MCP `env` block |
 | `.env` key not loading | Confirm the agent session restarted and the project is trusted |
 | Enterprise hitting github.com | Set `GITHUB_API_URL` in both shell and `.octocoderc` |
+| Enterprise device login or refresh rejects configuration | Set `OCTOCODE_GITHUB_CLIENT_ID` to the client ID of an OAuth app registered on that GitHub Enterprise host |
 | Settings not taking effect | Restart the MCP server or start a new agent session after editing `.octocoderc` |
 
 ---

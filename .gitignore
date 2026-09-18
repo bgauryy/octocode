@@ -10,8 +10,14 @@ _scripts
 campaigns
 # DXT files (distribute via GitHub releases)
 *.dxt
+# npm pack output
+*.tgz
 
-# ─── Rust / NAPI (packages/octocode-security) ────────────────────────────────
+# Package READMEs are authored source and must remain trackable.
+!packages/*/README.md
+!packages/*/npm/*/README.md
+
+# ─── Rust / NAPI packages ───────────────────────────────────────────────────
 # Cargo build artefacts
 target/
 # Compiled NAPI native bindings — built locally per platform, never committed
@@ -20,6 +26,7 @@ target/
 **/bench/results/
 out
 coverage
+.vitest/
 .octocode
 .codex
 .env
@@ -45,7 +52,7 @@ mcp.sqlite
 
 context
 .claude
-
+.pi
 AUDIT.md
 
 # Development/benchmark artifacts
@@ -56,5 +63,4 @@ devScripts
 .agents
 output
 __pycache__
-output
 releases/**

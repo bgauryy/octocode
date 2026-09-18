@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe('all-tool real SDK catalog parity', () => {
-  it('lists the same 10 canonical contracts through a real MCP client without output schemas', async () => {
+  it('lists the same 11 canonical contracts through a real MCP client with output schemas', async () => {
     for (const flag of FEATURE_FLAGS) process.env[flag] = 'true';
     vi.resetModules();
 
@@ -28,6 +28,7 @@ describe('all-tool real SDK catalog parity', () => {
       'ghCloneRepo',
       'localSearch',
       'astSearch',
+      'astRewrite',
       'localFetch',
       'lspSearch',
     ];
@@ -80,11 +81,14 @@ describe('all-tool real SDK catalog parity', () => {
           io: 'input',
         });
         expect(listedTool.inputSchema).toEqual(expectedSchema);
-        expect(listedTool).not.toHaveProperty('outputSchema');
+        expect(listedTool.outputSchema).toMatchObject({
+          type: 'object',
+          properties: { results: expect.any(Object) },
+        });
       }
     } finally {
       await client.close();
       await server.close();
     }
-  });
+  }, 30_000);
 });

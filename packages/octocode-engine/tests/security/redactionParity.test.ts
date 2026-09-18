@@ -48,7 +48,8 @@ const CORPUS: Case[] = [
     // file-context-gated pattern: must behave the same in both engines when a
     // matching path is supplied.
     name: 'k8s-secret-yaml',
-    content: 'apiVersion: v1\nkind: Secret\ndata:\n  password: c3VwZXJzZWNyZXQ=',
+    content:
+      'apiVersion: v1\nkind: Secret\ndata:\n  password: c3VwZXJzZWNyZXQ=',
     path: 'k8s/secret.yaml',
   },
   {

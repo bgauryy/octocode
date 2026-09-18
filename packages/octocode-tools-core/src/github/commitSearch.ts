@@ -6,6 +6,7 @@ import { resolveDateWindow } from './dateWindow.js';
 import { handleGitHubAPIError } from './errors.js';
 import type { GitHubAPIResponse } from './githubAPI.js';
 import { countSerializedChars } from '../utils/response/charSavings.js';
+import { rejectUnreachableSearchPage } from './searchWindow.js';
 
 interface CommitSearchParams {
   owner: string;
@@ -36,14 +37,8 @@ export async function searchCommits(
         status: 400,
       };
     }
-    if ((page - 1) * perPage >= 1000) {
-      return {
-        error:
-          'GitHub commit search exposes at most 1000 matches. Narrow keywords or date bounds before requesting this page.',
-        type: 'http',
-        status: 400,
-      };
-    }
+    const windowError = rejectUnreachableSearchPage(page, perPage);
+    if (windowError) return windowError;
     const since = params.since ? resolveDateWindow(params.since) : undefined;
     const until = params.until ? resolveDateWindow(params.until) : undefined;
     if (since?.warning || until?.warning) {

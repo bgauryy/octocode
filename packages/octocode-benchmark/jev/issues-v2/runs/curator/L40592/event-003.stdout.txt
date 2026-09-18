@@ -1,0 +1,1 @@
+{"content":[{"type":"text","text":"Tool 'ghSearch' timed out after 60s. Try reducing query complexity or scope."}],"isError":true}

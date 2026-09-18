@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "Octocode defaults for applying Jev research judgments. These are host policy, not Jev semantics, and must be calibrated with representative benchmarks.",
+  "softTieGap": 0.15,
+  "clearLeadGap": 0.4,
+  "groundedMinimum": 0.5,
+  "maxJevCallsPerCrossroad": 2,
+  "highCostReviewRequired": true,
+  "noul": {
+    "strongYesMinimum": 0.8,
+    "leanYesMinimum": 0.6,
+    "leanNoMaximum": 0.4,
+    "strongNoMaximum": 0.2
+  }
+}

@@ -38,6 +38,10 @@ vi.mock('../../src/tools/ast_search/execution.js', () => ({
   executeAstSearch: (input: unknown) =>
     fixtureExecution('astSearch', input),
 }));
+vi.mock('../../src/tools/ast_rewrite/execution.js', () => ({
+  executeAstRewrite: (input: unknown) =>
+    fixtureExecution('astRewrite', input),
+}));
 vi.mock('../../src/tools/local_search/execution.js', () => ({
   executeLocalSearch: (input: unknown) =>
     fixtureExecution('localSearch', input),
@@ -52,7 +56,7 @@ import {
   _overrideInitialize,
   _resetInitialize,
   executeDirectTool,
-} from '../../src/tools/directToolCatalog.exec.js';
+} from '../helpers/executeDirectTool.js';
 import { cleanup } from '../../src/serverConfig.js';
 import {
   ADAPTER_PARITY_CASES,
@@ -90,7 +94,7 @@ describe('canonical adapter parity fixture', () => {
     cleanup();
   });
 
-  it('covers exactly the ten tools owned by the direct-tool specification', () => {
+  it('covers every tool owned by the direct-tool specification', () => {
     expect(CANONICAL_ADAPTER_TOOL_NAMES).toEqual(
       DIRECT_TOOL_SPECIFICATIONS.map(tool => tool.name)
     );

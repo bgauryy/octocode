@@ -12,7 +12,6 @@ import {
   resolveFilePath,
   withFileMutationQueue,
 } from './file-state.js';
-import { peerWipNotice } from './peer-wip.js';
 import { countMutationLines, createCommittedMutationReceipt, finishFileMutation } from './file-mutation-receipt.js';
 import { deleteNativeFile, snapshotNativeFile } from './native-files.js';
 import { assertWellFormedText } from './file-text.js';
@@ -83,13 +82,9 @@ async function prepareOperation(query: QueryRecord, index: number, cwd: string):
       throw new Error('edit requires a non-empty edits array.');
     }
     fileItemSchema.parse(query);
-    const edits = query['edits'].map((value) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-      return { ...(value as Record<string, unknown>), reasoning: query.reasoning };
-    });
     const editQuery = validateEditQuery({
       path,
-      edits,
+      edits: query['edits'],
       ...(query['requireRecentRead'] === undefined ? {} : { requireRecentRead: query['requireRecentRead'] }),
     }, index);
     return { operation, edit: await prepareEdit(editQuery, cwd, false) };
@@ -118,7 +113,6 @@ function canonicalDeletePath(absolutePath: string): string {
 
 async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: AbortSignal): Promise<ToolCallResult> {
   if (signal?.aborted) throw new Error('Operation aborted');
-  const peerNotice = peerWipNotice(prepared.absolutePath, prepared.path);
   let committed: Awaited<ReturnType<typeof deleteNativeFile>>;
   let warnings: string[];
   try {
@@ -139,7 +133,7 @@ async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: Abor
     rethrowFileMutationConflict(error, { requestPath: prepared.path, canonicalPath: prepared.canonicalPath });
   }
   return {
-    content: [{ type: 'text', text: `Deleted ${prepared.path}.${peerNotice}${warnings.length ? `\n${warnings.join('\n')}` : ''}` }],
+    content: [{ type: 'text', text: `Deleted ${prepared.path}.${warnings.length ? `\n${warnings.join('\n')}` : ''}` }],
     details: {
       operation: 'delete',
       committed: true,
@@ -154,7 +148,8 @@ async function commitDelete(prepared: PreparedDelete, cwd: string, signal?: Abor
 
 const fileEditOperationSchema = z.strictObject({
   oldText: z.string().optional().describe('Current text; required except for lineRange.'),
-  newText: z.string().describe('Replacement text.'),
+  newText: z.string().optional().describe('Replacement text; required unless newLines is set.'),
+  newLines: z.array(z.string()).optional().describe('Line-array alternative to newText for lineRange: each element is one line without \\n. Eliminates trailing-newline ambiguity. Mutually exclusive with newText.'),
   replaceAll: z.boolean().optional().describe('Replace every match; default false.'),
   matchMode: z.enum(['exact', 'normalized', 'lineRange']).optional().describe('Match strategy; default exact.'),
   startLine: z.number().int().min(1).optional().describe('First line for lineRange.'),
@@ -180,16 +175,12 @@ export function registerFileTool(
     description: DIRECT_TOOL_DESCRIPTIONS.file!,
     promptSnippet: 'Apply scoped file edits, full writes, or deletions.',
     promptGuidelines: [
-      'Use type:"edit" for targeted replacements, type:"write" for new files or intentional full rewrites, and type:"delete" only when removal is explicitly in scope.',
-      'After reasoning and type, write accepts path+content; delete accepts path; edit accepts path+edits+requireRecentRead. Extra fields such as confirm, force, or dryRun fail preflight.',
-      'Read and understand existing files before edit/delete. Use exact oldText by default; normalized or lineRange matching is opt-in.',
-      'For requireRecentRead or a lineRange edit without oldText, read through MCPTool localFetch first; shell reads do not refresh the stale-edit guard.',
-      'Keep replacements bounded with the smallest unique anchor, and split large mutations across separate calls before the model output limit.',
-      'Batch edits to one path in a single query. All queries are preflighted before mutation; duplicate target paths are rejected.',
+      'Read existing files before edit/delete. Prefer exact oldText; lineRange and normalized are opt-in.',
+      'requireRecentRead or lineRange-without-oldText requires prior localFetch; shell reads do not count.',
+      'Use smallest unique anchor; split large mutations across calls before output limit.',
+      'Batch edits to one path per query.',
     ],
-    parameters: buildQueryEnvelopeSchema(fileItemSchema, {
-      reasoningDescription: 'Why this file mutation is necessary.',
-    }),
+    parameters: buildQueryEnvelopeSchema(fileItemSchema),
     async execute(toolCallId, params, signal, onUpdate, ctx): Promise<ToolCallResult> {
       const cwd = ctx?.cwd ?? process.cwd();
       const rawQueries = Array.isArray(params['queries']) ? params['queries'] as Array<Record<string, unknown>> : [];

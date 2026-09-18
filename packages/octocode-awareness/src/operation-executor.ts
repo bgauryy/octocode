@@ -1,13 +1,11 @@
-import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { attendWorkspace } from './attend-presence.js';
 import {
   AwarenessInputError,
   commandOutput,
   emit,
-  type AwarenessCommandOutput,
+  type AwarenessOperationOutput,
 } from './command-output.js';
 import {
   MAX_CLI_RETRY_INTERVAL_SECONDS,
@@ -25,32 +23,15 @@ import { cmdAuditUnverified, cmdPreFlightIntent, cmdReleaseFileLock, cmdVerify, 
 import { connectDb, resolveDbPath } from './db-runtime.js';
 import { beginWrite } from './db-transaction.js';
 import { ensureCanonicalMutationEvent, workspaceEventHighWater } from './event-outbox.js';
-import { normalizeWorkspacePath, repositoryWorkspacePaths } from './git.js';
+import { normalizeWorkspacePath } from './git.js';
 import { HistoryError } from './history-store.js';
 import { commandSchemaProperties } from './schema/command-properties.js';
 import { DEFAULT_RETRY_MS, DEFAULT_WAIT_MS } from './maintenance-stale.js';
 import { waitForLock } from './maintenance-session.js';
-import type { CanonicalExecutionContext, CanonicalOperationResult, CanonicalRouteBinding } from './operation-contracts.js';
-import { storageScopeForCommand } from './workspace-policy.js';
+import type { AwarenessOperationResult, CanonicalExecutionContext, CanonicalRouteBinding } from './operation-contracts.js';
+import { storageScopeForOperation } from './workspace-policy.js';
 
 const validators = new Map<string, z.ZodType>();
-const hash = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const text = (value: unknown, limit = 120): string | undefined => {
-  const output = String(value ?? '').trim();
-  return output ? output.slice(0, limit) : undefined;
-};
-const record = (value: unknown): Record<string, unknown> | undefined =>
-  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-const asRows = (value: unknown): Array<Record<string, unknown>> =>
-  Array.isArray(value) ? value.filter((row): row is Record<string, unknown> => Boolean(record(row))) : [];
-
-interface OrientParams {
-  if_revision?: string;
-  limit?: number;
-  offset?: number;
-  file?: string | string[];
-  query?: string;
-}
 
 function validate(command: string, params: Record<string, unknown>, schema: Record<string, unknown>): void {
   let validator = validators.get(command);
@@ -154,14 +135,15 @@ async function executeDomainHandler(
   }
 }
 
-/** Canonical operation execution path: direct domain binding, no legacy registry or dispatcher. */
+/** Canonical operation execution path with direct domain binding. */
 export async function executeCanonicalRoute(
+  operation: string,
   binding: CanonicalRouteBinding,
   input: Record<string, unknown>,
   context: CanonicalExecutionContext,
-): Promise<CanonicalOperationResult> {
+): Promise<AwarenessOperationResult> {
   const command = binding.command;
-  const output: AwarenessCommandOutput = { command, compact: true, text: '', diagnostics: [] };
+  const output: AwarenessOperationOutput = { command, compact: true, text: '', diagnostics: [] };
   return commandOutput.run(output, async () => {
     try {
       context.signal?.throwIfAborted();
@@ -175,9 +157,7 @@ export async function executeCanonicalRoute(
       bindHost(params, properties, 'session_id', context.sessionId);
       validate(command, params, binding.schema as Record<string, unknown>);
       const workspace = normalizeWorkspacePath(context.workspace, context.workspace) ?? resolve(context.workspace);
-      const storageCommand = binding.handler === 'memory-record' ? 'tell-memory'
-        : binding.handler === 'memory-recall' ? 'get-memory' : command;
-      const scope = storageScopeForCommand(storageCommand, workspace, context.scope);
+      const scope = storageScopeForOperation(operation, workspace, context.scope);
       const dbPath = resolveDbPath(context.database, { scope, workspace });
       const db = connectDb(dbPath);
       // Memory evidence performs filesystem reads before its domain-owned
@@ -203,7 +183,7 @@ export async function executeCanonicalRoute(
           try {
             ensureCanonicalMutationEvent(db, {
               workspace, actorId: context.agentId, sessionId: context.sessionId,
-              command, beforeSequence, payload: { effect: binding.effect },
+              command: operation, beforeSequence, payload: { effect: binding.effect },
             });
             if (!outer) eventWrite.commit();
           } catch (error) {
@@ -239,131 +219,4 @@ export async function executeCanonicalRoute(
       };
     }
   });
-}
-
-interface AttendDetail {
-  partial?: boolean;
-  partial_reasons?: string[];
-  workboard?: Record<string, Array<Record<string, unknown>>>;
-  counts?: Record<string, number>;
-  operational_state?: { unavailable?: unknown[]; context?: { pressure?: string } };
-  next?: { continuations?: Array<{ command?: string; params?: Record<string, unknown> }> };
-}
-
-function itemSummary(row: Record<string, unknown>) {
-  const id = text(row.id ?? row.run_id ?? row.task_id ?? row.signal_id, 128);
-  const title = text(row.title, 100);
-  const detail = text(row.detail ?? row.body, 160);
-  const actorId = text(row.agent_id ?? row.actor_id, 128);
-  const path = text(row.path ?? row.file_path, 240);
-  const status = text(row.status, 32);
-  return {
-    ...(id ? { id } : {}), ...(title ? { title } : {}), ...(detail ? { detail } : {}),
-    ...(actorId ? { actorId } : {}), ...(path ? { path } : {}), ...(status ? { status } : {}),
-    ...(row.locked === true ? { locked: true } : {}),
-  };
-}
-
-/** One read transaction; the not-modified branch stops after the event high-water query. */
-export async function executeContextOrient(
-  context: CanonicalExecutionContext,
-  input: OrientParams = {},
-): Promise<CanonicalOperationResult> {
-  const limit = input.limit ?? 3;
-  const offset = input.offset ?? 0;
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 3) throw new Error('context.orient limit must be an integer from 1 to 3');
-  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('context.orient offset must be a non-negative integer');
-  const workspace = resolve(context.workspace);
-  const scope = storageScopeForCommand('attend', workspace, context.scope);
-  const dbPath = resolveDbPath(context.database, { scope, workspace });
-  const db = connectDb(dbPath);
-  db.exec('BEGIN');
-  try {
-    const workspaces = repositoryWorkspacePaths(workspace);
-    const highWater = db.prepare(`SELECT COALESCE(MAX(sequence), 0) AS sequence
-      FROM event_outbox WHERE workspace_path IN (SELECT value FROM json_each(?))`)
-      .get(JSON.stringify(workspaces)) as { sequence: number | bigint };
-    const revision = `o2.${hash({ sequence: String(highWater.sequence), workspaces, agentId: context.agentId,
-      sessionId: context.sessionId, limit, offset, file: input.file, query: input.query })}`;
-    if (input.if_revision === revision) {
-      db.exec('COMMIT');
-      return { exitCode: 0, payload: { revision, unchanged: true } };
-    }
-
-    const detail = attendWorkspace(db, {
-      details: true,
-      limit,
-      ...(input.file === undefined ? {} : { file: input.file }),
-      ...(input.query === undefined ? {} : { query: input.query }),
-      agentId: context.agentId,
-      workspacePath: workspace,
-      compact: true,
-    }) as AttendDetail;
-    const presence = attendWorkspace(db, {
-      limit, offset, agentId: context.agentId, workspacePath: workspace, compact: true,
-    }) as { peers?: Array<Record<string, unknown>>; partial?: boolean; partialReasons?: string[] };
-    const peers = asRows(presence.peers).map(peer => ({
-      actorId: String(peer.agent_id ?? ''),
-      ...(text(peer.agent_name, 80) ? { name: text(peer.agent_name, 80) } : {}),
-      ...(text(peer.status, 24) ? { status: text(peer.status, 24) } : {}),
-      ...(text(peer.last_seen_at, 40) ? { lastSeenAt: text(peer.last_seen_at, 40) } : {}),
-    }));
-    const board = detail.workboard ?? {};
-    const claimed = asRows(board.Claimed);
-    const files = asRows(board.FilesUnderWork);
-    const inbox = asRows(board.Inbox).slice(0, 3).map(itemSummary);
-    const owned = claimed.find(row => String(row.agent_id ?? '') === context.agentId);
-    const overlaps = files.filter(row => {
-      const agents = Array.isArray(row.agents) ? row.agents.map(String) : [];
-      return agents.some(agent => agent !== context.agentId)
-        || (row.locked === true && String(row.lock_agent ?? '') !== context.agentId);
-    }).slice(0, 3).map(itemSummary);
-    const verifyRows = asRows(board.Verify);
-    const partialReasons = [...new Set([...(presence.partialReasons ?? []), ...(detail.partial_reasons ?? [])])];
-    const next: Array<Record<string, unknown>> = [];
-    if (presence.partial === true) next.push({ operation: 'context.orient', params: { limit, offset: offset + peers.length } });
-    if (detail.partial === true) {
-      const continuations = detail.next?.continuations ?? [];
-      if (!continuations.length) throw new Error('partial orientation detail is missing an executable continuation');
-      next.push(...continuations);
-    }
-    const unavailable = detail.operational_state?.unavailable ?? [];
-    const handoff = inbox.find(message => message.title?.toLowerCase().includes('handoff'));
-    const payload: Record<string, unknown> = {
-      revision,
-      unchanged: false,
-      self: { actorId: context.agentId, ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
-      peers: { items: peers, partial: presence.partial === true },
-      work: { ...(owned ? { owned: itemSummary(owned) } : {}), overlaps },
-      inbox,
-      verification: { pending: Number(detail.counts?.Verify ?? verifyRows.length), stale: verifyRows.filter(row => row.stale === true || row.stale_file === true).length },
-      ...(handoff ? { continuation: handoff } : {}),
-      ...(unavailable.length ? { recovery: { degraded: true, pressure: text(detail.operational_state?.context?.pressure, 80) } } : {}),
-      next,
-      partial: presence.partial === true || detail.partial === true,
-      partialReasons,
-    };
-    db.exec('COMMIT');
-    if (context.insightProvider) {
-      const suggested = await context.insightProvider.suggest({
-        workspace, agentId: context.agentId, overlaps, limit: 3,
-      });
-      const candidates = suggested.slice(0, 3).flatMap(candidate => {
-        const summary = text(candidate.summary, 160);
-        const attribution = text(candidate.attribution, 80);
-        if (!summary || !attribution || !Number.isFinite(candidate.confidence)) return [];
-        return [{
-          summary, attribution, confidence: Math.max(0, Math.min(1, candidate.confidence)),
-          ...(text(candidate.path, 240) ? { path: text(candidate.path, 240) } : {}),
-        }];
-      });
-      if (candidates.length) payload.insights = { advisory: true, candidates };
-    }
-    return { exitCode: 0, payload };
-  } catch (error) {
-    try { db.exec('ROLLBACK'); } catch { /* transaction already ended */ }
-    throw error;
-  } finally {
-    db.close();
-  }
 }

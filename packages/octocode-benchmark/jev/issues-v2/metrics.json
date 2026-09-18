@@ -1,0 +1,343 @@
+{
+  "at": "2026-09-18T10:34:15.053Z",
+  "integrity": [
+    {
+      "path": "CONTRACT.md",
+      "valid": true
+    },
+    {
+      "path": "run.mjs",
+      "valid": true
+    },
+    {
+      "path": "../../../../skills/octocode-jev-logical-if/SKILL.md",
+      "valid": false
+    },
+    {
+      "path": "../../../../skills/octocode-jev-logical-if/references/research.md",
+      "valid": false
+    },
+    {
+      "path": "../../../../skills/octocode-jev-logical-if/references/context.md",
+      "valid": false
+    },
+    {
+      "path": "../../../octocode/out/octocode.js",
+      "valid": false
+    }
+  ],
+  "rows": [
+    {
+      "arm": "baseline",
+      "id": "R37637",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 10,
+      "queryRows": 27,
+      "schemaCalls": 4,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 1,
+      "hostElapsedMs": 228453,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": "octocode",
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "baseline",
+      "id": "R37619",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3208,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "baseline",
+      "id": "L40592",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3055,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "baseline",
+      "id": "L40590",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3324,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "baseline",
+      "id": "O151639",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3253,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "baseline",
+      "id": "O151637",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3347,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "treatment",
+      "id": "R37637",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 6,
+      "queryRows": 17,
+      "schemaCalls": 3,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 238425,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": "octocode",
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "treatment",
+      "id": "R37619",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3234,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "treatment",
+      "id": "L40592",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3366,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "treatment",
+      "id": "L40590",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3300,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "treatment",
+      "id": "O151639",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3251,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    },
+    {
+      "arm": "treatment",
+      "id": "O151637",
+      "status": "failed",
+      "answers": false,
+      "artifactsComplete": false,
+      "researchCalls": 0,
+      "queryRows": 0,
+      "schemaCalls": 0,
+      "checkCalls": 0,
+      "jevCalls": 0,
+      "jevSucceeded": 0,
+      "jevInput": 0,
+      "jevOutput": 0,
+      "toolErrors": 0,
+      "hostElapsedMs": 3108,
+      "hostUsage": null,
+      "receiptErrors": [],
+      "lastEvent": null,
+      "hostErrors": [
+        "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.",
+        {
+          "message": "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM."
+        }
+      ]
+    }
+  ]
+}

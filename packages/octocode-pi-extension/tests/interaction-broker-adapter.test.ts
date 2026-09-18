@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'vitest';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 
 import {
   registerInteractionBrokerAdapter,

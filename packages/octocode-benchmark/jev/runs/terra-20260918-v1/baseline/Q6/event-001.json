@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q6",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"owner\":\"expressjs\",\"repo\":\"express\",\"path\":\"package.json\",\"matchString\":\"router\",\"contextLines\":8},{\"owner\":\"pillarjs\",\"repo\":\"router\",\"path\":\"index.js\",\"matchString\":\"function next\",\"contextLines\":100},{\"owner\":\"pillarjs\",\"repo\":\"router\",\"path\":\"lib/layer.js\",\"matchString\":\"Layer.prototype.match\",\"contextLines\":80}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:43.249Z",
+  "endedAt": "2026-09-18T08:25:44.728Z",
+  "elapsedMs": 1478,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "74e5ad1e239f11e588b735646cca16634ed60a3e0f46a6374c60a17954ecc12a",
+  "stdoutBytes": 10838,
+  "requestSha256": null
+}

@@ -149,14 +149,12 @@ export function registerRunFfmpegTool(
     promptSnippet:
       'Run advanced ffmpeg operations outside the media presets.',
     promptGuidelines: [
-      'args is argv WITHOUT the binary name. Both binaries receive -hide_banner; ffmpeg also receives -nostdin. Paths are auto-resolved and path-guarded.',
-      'Use a fresh destination by default. Include -y only for an authorized overwrite; without it an existing output fails because stdin is disabled.',
-      'binary:"ffprobe" auto-captures stdout (no need for captureStdout:true). Use captureStdout:true only for ffmpeg commands that write binary/data to stdout (output arg "-").',
+      'args = argv without binary name. Both get -hide_banner; ffmpeg gets -nostdin. Paths auto-resolved.',
+      'Default fresh dest; -y only for authorized overwrite (stdin disabled without it).',
+      'ffprobe auto-captures stdout. captureStdout:true only for ffmpeg binary-to-stdout (output arg "-").',
       'Use docs/FFMPEG.md#cookbook when a recipe is needed.',
     ],
-    parameters: buildQueryEnvelopeSchema(runFfmpegItemSchema, {
-      reasoningDescription: 'Why this ffmpeg command is needed and what it produces.',
-    }),
+    parameters: buildQueryEnvelopeSchema(runFfmpegItemSchema),
 
     async execute(toolCallId, params, signal, onUpdate, ctx): Promise<ToolCallResult> {
       const cwd = ctx?.cwd ?? process.cwd();

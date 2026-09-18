@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { DatabaseSync } from '@octocodeai/agent-contracts/sqlite';
+import { DatabaseSync } from './sqlite.js';
 import { schemaStateForMigrationVersion, type DatabaseMigrationVerification, type DatabaseMigrationVerificationRequest } from './db-migration-contracts.js';
 import { assertDatabaseIntegrity, inspectSchemaState, readAwarenessMeta } from './db-introspection.js';
 import { verifyLocalGitObjects, verifyMigrationContent } from './db-consolidation-validation.js';

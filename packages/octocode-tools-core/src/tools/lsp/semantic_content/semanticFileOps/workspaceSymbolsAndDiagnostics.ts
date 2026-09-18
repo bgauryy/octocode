@@ -1,10 +1,7 @@
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import type { LSPClient } from '@octocodeai/octocode-engine/lsp/client';
-import {
-  acquirePooledClientDetailed,
-  isLanguageServerAvailable,
-} from '@octocodeai/octocode-engine/lsp/manager';
+import { acquirePooledClientDetailed } from '@octocodeai/octocode-engine/lsp/manager';
 import { resolveWorkspaceRootForFile } from '@octocodeai/octocode-engine/lsp/workspaceRoot';
 import type {
   LspSemanticEnvelope,
@@ -54,14 +51,6 @@ export async function getWorkspaceSymbols(
   // extension-based. Use an explicit uri when provided; otherwise pick a
   // representative source file under the workspace root.
   const anchorFile = await resolveWorkspaceSymbolAnchor(query, workspaceRoot);
-  const serverAvailable = await isLanguageServerAvailable(
-    anchorFile,
-    workspaceRoot
-  );
-  if (!serverAvailable) {
-    throwLspUnavailable(anchorFile, 'workspaceSymbol');
-  }
-
   const clientResult = await acquirePooledClientDetailed(
     workspaceRoot,
     anchorFile,
@@ -71,12 +60,21 @@ export async function getWorkspaceSymbols(
     throwLspUnavailable(anchorFile, 'workspaceSymbol', clientResult);
   }
   const client = clientResult.client;
+  const receipt = (
+    clientResult as typeof clientResult & {
+      receipt: NonNullable<LspSemanticEnvelope['lsp']['receipt']>;
+    }
+  ).receipt;
 
   if (!client.hasCapability('workspaceSymbolProvider')) {
     return {
       type: 'workspaceSymbol',
       uri: anchorFile,
-      lsp: { serverAvailable: true, provider: 'workspaceSymbolProvider' },
+      lsp: {
+        serverAvailable: true,
+        provider: 'workspaceSymbolProvider',
+        receipt,
+      },
       payload: {
         kind: 'empty',
         category: 'unsupportedOperation',
@@ -103,7 +101,11 @@ export async function getWorkspaceSymbols(
   return {
     type: 'workspaceSymbol',
     uri: anchorFile,
-    lsp: { serverAvailable: true, provider: 'workspaceSymbolProvider' },
+    lsp: {
+      serverAvailable: true,
+      provider: 'workspaceSymbolProvider',
+      receipt,
+    },
     summary: { query: symbolQuery, totalSymbols: symbols.length },
     payload:
       symbols.length > 0
@@ -226,11 +228,6 @@ export async function getFileDiagnostics(
     query.workspaceRoot ??
     (uri ? await resolveWorkspaceRootForFile(uri) : process.cwd());
 
-  const serverAvailable = await isLanguageServerAvailable(uri, workspaceRoot);
-  if (!serverAvailable) {
-    throwLspUnavailable(uri, 'diagnostic');
-  }
-
   const clientResult = await acquirePooledClientDetailed(
     workspaceRoot,
     uri,
@@ -240,6 +237,11 @@ export async function getFileDiagnostics(
     throwLspUnavailable(uri, 'diagnostic', clientResult);
   }
   const client = clientResult.client;
+  const receipt = (
+    clientResult as typeof clientResult & {
+      receipt: NonNullable<LspSemanticEnvelope['lsp']['receipt']>;
+    }
+  ).receipt;
 
   const supportsPull = client.hasCapability('diagnosticProvider');
   const provider = supportsPull
@@ -255,7 +257,11 @@ export async function getFileDiagnostics(
       return {
         type: 'diagnostic',
         uri,
-        lsp: { serverAvailable: true, provider },
+        lsp: {
+          serverAvailable: true,
+          provider,
+          receipt,
+        },
         payload: {
           kind: 'empty',
           category: 'possiblyIncomplete',
@@ -287,7 +293,11 @@ export async function getFileDiagnostics(
   return {
     type: 'diagnostic',
     uri,
-    lsp: { serverAvailable: true, provider },
+    lsp: {
+      serverAvailable: true,
+      provider,
+      receipt,
+    },
     summary: {
       totalDiagnostics: diags.length,
       errorCount,

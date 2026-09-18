@@ -6,31 +6,24 @@ Write and repair instruction surfaces so they change behavior. A stated preferen
 
 - A goal must become a compact prompt, rule, tool description, or policy.
 - An instruction surface is unclear, unsafe, too expensive in context, or difficult to trigger.
+- Pi, LangChain, LangGraph, a skill host, or another runtime may assemble different effective context than the edited source suggests.
 - MCP server instructions, a tool description, and a schema disagree, or a shared field name drifted between tools.
 - A handoff omits authority, evidence, acceptance, or return shape.
+- Equivalent capabilities or payloads drift across agent apps, hosts, vendors, or protocol adapters.
 - A tool schema or pagination contract permits ambiguous or incomplete behavior.
+- Token, output, cache-write, tool-call, or retry costs need an explicit cost-per-success comparison.
+- A context window needs a usable budget that reserves output/reasoning space and counts tools, history, and cached tokens correctly.
+- OpenAI or Anthropic prompt caching misses, or a frozen agent base prompt may be drifting between workers.
 - Accumulated context must be compacted, summarized, or compressed without destroying evidence.
 - Reliability needs behavioral evaluation rather than wording judgment alone.
 
-## Method
+## Example
 
-Use these questions to diagnose an unclear rule; they are not required output sections:
+Weak: “Be efficient with tools.”
 
-| Part | States |
-|---|---|
-| Definition | the behavior, concretely |
-| Contrast | the smallest wrong → right pair |
-| Consequence | why the distinction matters |
-| Principle | the general rule behind the pair |
-| Action | the rule to apply while working |
+Decidable: “Reuse a schema already read; inspect it again only when the tool or schema version changes.”
 
-Keep an observable action. Add a distinction, example, or consequence only when it makes that action clearer. A short rule can stand alone without the other parts.
-
-Then each surviving sentence must define a distinction, set a boundary, explain a consequence, or direct an action. Everything else — repeated rules, motivational language, role-play, uninformative headings, decorative terminology — is cut. The target is behavioral information per token, not minimum length.
-
-## Layers
-
-Tool-facing work separates three surfaces that are read at different moments: MCP server instructions own tool families, cross-tool workflow, and shared conventions; a tool description owns when to call it and when not to; a schema owns exact fields and how to use each one. `references/contract-audit.md` then sweeps the full tool set for split owners, overlapping selection, and descriptors that drifted in name, type, or meaning.
+The skill first resolves the executing surface, runtime dependency, and effective context flow. It then separates prompt wording, context budgeting, tool/MCP contracts, agent contracts, and evaluation into load-on-demand reference domains.
 
 ## Workflow
 
@@ -38,7 +31,7 @@ Tool-facing work separates three surfaces that are read at different moments: MC
 READ → UNDERSTAND → RATE → FIX → VALIDATE → OUTPUT
 ```
 
-Small edits can combine adjacent phases. A goal with no existing prompt skips RATE. Claims of improved reliability need a fixed evaluation and measured comparison; wording review alone cannot establish them.
+Normal work follows the full flow. Active safety, permission, or production failures use the lobby's containment branch, then return for broader rating and cleanup. Claims of improved reliability need a fixed evaluation and measured comparison.
 
 ## Install
 

@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q5",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"operation\":\"pullRequest\",\"owner\":\"vuejs\",\"repo\":\"core\",\"number\":15035,\"content\":{\"body\":true,\"changedFiles\":true,\"patches\":{\"mode\":\"all\"}},\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:06.090Z",
+  "endedAt": "2026-09-18T08:26:06.485Z",
+  "elapsedMs": 393,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "6cca1f1bce6ea13a81f5da503ef39a539c4858c05b26e1bf6b63254517767814",
+  "stdoutBytes": 43099,
+  "requestSha256": null
+}

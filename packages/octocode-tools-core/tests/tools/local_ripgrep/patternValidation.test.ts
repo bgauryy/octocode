@@ -43,13 +43,19 @@ describe('preflightValidateRipgrepPattern', () => {
 
   it('keeps literal and lookaround guidance warnings', () => {
     const literal = preflightValidateRipgrepPattern({ pattern: 'src/foo.ts' });
-    expect(literal.warnings.join('\n')).toContain('regex:"fixed"');
+    expect(literal.warnings.join('\n')).toContain('regex:"literal"');
 
     const lookaround = preflightValidateRipgrepPattern({
       pattern: '(?<=foo)bar',
     });
-    expect(lookaround.warnings.join('\n')).toContain(
-      'requires perlRegex: true'
-    );
+    expect(lookaround.warnings.join('\n')).toContain('requires regex:"pcre2"');
+  });
+
+  it('does not advise regex mode for lookaround-shaped literal text', () => {
+    const result = preflightValidateRipgrepPattern({
+      pattern: '(?<=foo)bar',
+      fixedString: true,
+    });
+    expect(result.warnings).toEqual([]);
   });
 });

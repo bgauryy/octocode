@@ -1,5 +1,5 @@
 import type { PiContext } from '../types.js';
-import type { TaskStatus } from '@octocodeai/agent-contracts/entities';
+import type { TaskStatus } from '@octocodeai/octocode-awareness/host';
 import type { PlanCoordination, PlanDecision, PlanReviewComment, PlanStep, ReviewQuestion, ReviewState } from './planning/plan-types.js';
 import { dependencyIndexes } from './planning/plan-types.js';
 import { activePlanScope, getPlan, getPlanCoordination, getPlanReviewState, getPlanTurnsSinceUpdate } from './planning/plan-store.js';

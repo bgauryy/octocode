@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, bench, describe } from 'vitest';
+import { afterAll, beforeAll, describe, test } from 'vitest';
 
 type NativeAddon = typeof import('../index.js');
 
@@ -69,29 +69,33 @@ afterAll(() => {
 
 describe('native graph fact scan latency', () => {
   for (const fileCount of [1, 10, 50]) {
-    bench(
+    test(
       `${fileCount} TypeScript files — legacy per-file boundary`,
-      async () => {
-        const result = await legacyPerFileScan(
-          fixtureRoots.get(fileCount)!,
-          fileCount
-        );
-        if (result.parsedFiles !== fileCount || result.referenceCount === 0) {
-          throw new Error(
-            `unexpected legacy scan result for ${fileCount} files`
+      async ({ bench }) => {
+        await bench('legacy per-file boundary', async () => {
+          const result = await legacyPerFileScan(
+            fixtureRoots.get(fileCount)!,
+            fileCount
           );
-        }
+          if (result.parsedFiles !== fileCount || result.referenceCount === 0) {
+            throw new Error(
+              `unexpected legacy scan result for ${fileCount} files`
+            );
+          }
+        }).run();
       }
     );
 
-    bench(`${fileCount} TypeScript files — native batch boundary`, async () => {
-      const result = await addon.scanGraphFacts({
-        path: fixtureRoots.get(fileCount)!,
-        maxFiles: fileCount + 1,
-      });
-      if (result.entries.length !== fileCount || result.truncated) {
-        throw new Error(`unexpected graph scan result for ${fileCount} files`);
-      }
+    test(`${fileCount} TypeScript files — native batch boundary`, async ({ bench }) => {
+      await bench('native batch boundary', async () => {
+        const result = await addon.scanGraphFacts({
+          path: fixtureRoots.get(fileCount)!,
+          maxFiles: fileCount + 1,
+        });
+        if (result.entries.length !== fileCount || result.truncated) {
+          throw new Error(`unexpected graph scan result for ${fileCount} files`);
+        }
+      }).run();
     });
   }
 });

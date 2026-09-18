@@ -97,7 +97,6 @@ test('settings control-center reference covers every implemented domain and is i
     '`mcp_tool_overrides`',
     '`skill_overrides`',
     '`catalog.json`',
-    '`mcp.md`',
     '`x-octocode-action-token`',
     '`Cache-Control: no-store`',
     '`X-Content-Type-Options: nosniff`',

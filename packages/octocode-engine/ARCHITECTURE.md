@@ -1,161 +1,111 @@
-# Octocode engine architecture
+# octocode-engine architecture
 
-`octocode-engine` is a napi-rs native package **plus a TypeScript orchestration
-layer**. Rust modules (reached through thin NAPI bindings in `src/bindings/`)
-own the pure primitives — minify, search, structural, signatures, binary, text,
-and the secret-detection/sanitizer core. The TS layer in `src/lsp/` and
-`src/security/` owns what Rust cannot hold across NAPI calls — the LSP client
-pool, symbol resolver, path/command validators, the security registry, and the
-secret regex catalog. Rust is tested with `cargo test`; the TS wrappers with
-`vitest`.
+`octocode-engine` is the single Rust engine crate and published npm package for
+Octocode. It owns all algorithm primitives (search, LSP, signatures, structural
+analysis, minification, security, graph, index, text) plus the Node.js N-API
+bindings that expose them to JavaScript. When built with the `napi-addon`
+feature it produces the platform `.node` binary consumed by `octocode-tools-core`,
+`octocode`, and `octocode-pi-extension`. `octocode-native` links this crate as a
+pure `rlib` (no N-API) for the native CLI and MCP runtime.
 
 ## Boundary
 
 - Extension filesystem mutations and edit-preview diff generation belong to
   `octocode-extension-rust`; this engine retains research-tool diff filtering.
-- `src/lib.rs` wires modules and re-exports the public NAPI surface.
+- `src/lib.rs` owns all module declarations and explicitly re-exports the public
+  N-API surface.
 - `src/bindings/` is the FFI boundary. Keep wrappers thin: convert JS-owned
-  values, call inner Rust modules, map errors once.
-- `src/types.rs` holds NAPI-safe shared structs.
+  values, call the owning domain module, and map errors once. No logic in bindings.
+- Shared NAPI-safe Rust structs are defined once in `src/types.rs`.
 
 ## Domains
 
-- `src/minify/` owns content minification: dispatch, comment removal, file-type
-  config, and strategy implementations.
-- `src/search/` owns local search: filesystem queries, matching-line extraction,
-  ripgrep parsing, pattern validation, and in-process ripgrep search. Native
-  collection is mode-aware: file and count views retain paths/counts without
-  constructing discarded snippets, and normal matches enumerate a line once.
-- `src/text/` owns small text utilities: diff filtering, extensions, UTF-8/UTF-16
-  offsets, and YAML serialization.
-- `src/structural/` owns Octocode AST search: language adapter, query
-  validation, matcher compilation, file traversal, ripgrep-backed prefiltering,
-  and result types.
-- `src/lsp/` owns LSP support across two tiers: Rust (`*.rs`) — the NAPI
-  `NativeLspClient` (JSON-RPC, lifecycle, symbol-kind, grammar/config tables,
-  and bounded transport notifications such as `publishDiagnostics`);
-  TypeScript (`*.ts`) — the client pool (`lspClientPool.ts`), manager
-  (`manager.ts`), symbol resolver, URI/path validation, and workspace-root
-  detection. tools-core consumes the TS tier through the `./lsp/*` subpath
-  exports.
-  `config.rs` also owns language-server command resolution: environment
-  overrides first, then known fast paths such as `tsgo`, then package-local
-  fallbacks such as `node_modules/typescript-language-server/lib/cli.mjs`.
-  Resolver tests must inject cwd/PATH availability through helpers instead of
-  mutating process-global cwd.
-- `src/signatures/` owns syntax outlines and JS/TS symbol extraction.
-- `src/security/` owns secret detection and sanitization across two tiers: Rust
-  (`detector.rs`, `sanitizer.rs`, `patterns.rs`) for the detection engine and
-  TypeScript wrappers (`withSecurityValidation`, `registry`, `pathValidator`,
-  `commandValidator`, `mask`, `regexes/`) for orchestration. Both ship under
-  the engine package via the `./security/*` subpath exports.
+- `src/minify/`, `search/`, `text/`, `structural/`, `signatures/`, `graph/`,
+  and `index/` own the reusable Rust implementations. Matching files under
+  `src/bindings/` are N-API adapters only.
+- `src/lsp/` owns the portable JSON-RPC client, grammar/config tables, command
+  resolution, bounded notification transport, and shared pool lifecycle policy
+  (canonical keys, in-flight deduplication, health checks, idle expiry, LRU
+  eviction, and explicit cleanup).
+- TypeScript under the package's `src/lsp/` owns Node-only command
+  discovery/provisioning, workspace-root detection, URI/path validation, symbol
+  resolution, and the compatibility manager API. Its pool wrapper delegates
+  lifecycle ownership to the native facade. `octocode-tools-core` consumes this
+  tier through the `./lsp/*` subpath exports.
+- `src/security/` owns secret detection and sanitization. TypeScript wrappers
+  retain Node orchestration such as `withSecurityValidation`, registries,
+  validators, masking, and regex catalogs; these ship through the engine's
+  `./security/*` subpath exports.
+- Definition, type-definition, and implementation requests negotiate
+  `LocationLink` support. Native conversion preserves the provider's symbol
+  selection range separately from enclosing source context.
 
 ## Research graph direction
 
 Reachability/dead-code detection is exposed by `astSearch`'s `topology`
-operation, consuming this engine's per-file facts rather than tool-specific
-regex logic:
+operation, consuming this engine's per-file facts:
 
-- `signatures/graph_facts.rs` (JS/TS via `js_oxc.rs`, other registered languages via
-  Tree-sitter) parses files through the shared grammar registry and extracts
-  AST facts for declarations, imports, exports, calls, classes, and functions,
-  normalized into common symbol/relation facts;
-- `graph/mod.rs` owns the bounded filesystem walk, parallel file reads, native
-  fact extraction, and conservative same-file reference counts behind the
-  async `scanGraphFacts` batch binding; tools-core connects the returned facts
-  into file/symbol/dependency graph nodes and edges;
-- tools-core owns graph-policy algorithms over those facts:
-  `../octocode-tools-core/src/graph/reachability.ts` runs BFS reachability and
-  iterative Tarjan's SCC, while
-  `../octocode-tools-core/src/tools/ast_search/topology/deadCodeScan.ts`
-  performs transitive-dead pruning. The engine does not assign dead-code
-  verdicts.
+- `src/signatures/graph_facts.rs` (JS/TS via `js_oxc.rs`, other languages via
+  Tree-sitter) extracts AST facts for declarations, imports, exports, calls,
+  classes, and functions, normalized into common symbol/relation facts.
+- `src/graph/mod.rs` owns the bounded filesystem walk, parallel file reads,
+  native fact extraction, and conservative same-file reference counts behind the
+  async `scanGraphFacts` binding. Rust consumers use typed facts; the JSON form
+  is a compatibility adapter for N-API and TypeScript consumers. Per-file
+  omissions remain in the stable `skipped` diagnostic envelope.
+- `src/graph/model.rs` owns immutable graph snapshots, domain IDs, AST, and LSP
+  evidence, completeness, diagnostics, and deterministic build receipts.
+- `src/graph/algorithms.rs` owns reusable file-topology traversal, shortest-path,
+  SCC, condensation, cycle, and transitive-edge algorithms. Interface packages
+  decide policy and response shape; the engine doesn't assign dead-code verdicts.
 
-LSP remains the semantic proof layer for cross-file identity, references,
-definitions, implementations, callers, callees, and call hierarchy. Text/ripgrep
-is discovery only; `astSearch` topology output is candidate-grade and must be
-confirmed with `lspSearch` before a deletion claim, matching that rule.
+LSP provides semantic evidence for cross-file identity, references, definitions,
+implementations, callers, callees, and call hierarchy. Text/ripgrep is discovery
+only; `astSearch` topology output is candidate-grade and must be confirmed with
+`lspSearch` before a deletion claim. See [Code graph architecture](docs/CODE_GRAPH.md)
+for the evidence, freshness, and evaluation contracts.
 
-Graph declaration IDs identify occurrences using scope and source position.
-Same-named methods and separate Rust declaration/implementation occurrences
-remain distinct. An unresolved call spelling is a reference candidate, not a
-resolved same-file symbol. The public graph reports linking coverage separately
-from parser support: declared Rust modules, literal `#[path]` modules, and JS/TS
-relative imports have linkers. Tools-core can opt into bounded, offline Cargo
-metadata to identify custom crate roots, editions, and workspace dependency aliases.
-Conditional compilation and macro expansion remain unsupported; unresolved internal imports and parse recovery
-produce explicit coverage diagnostics. Same-file lexical occurrence counts are
-conservative retention evidence, not semantic references.
-
-Structural prefilters derive necessary literals from parsed rules. Negation
-does not supply a positive anchor, and an unrestricted OR branch disables a
-restrictive prefilter. Native file scans report `scanTruncated` when an extra
-candidate exists beyond `maxFiles`; result pagination can expand that scan.
-The asynchronous scan result carries the query plan used for that same scan,
-so callers can explain zero matches without repeating a synchronous directory
-walk on the JavaScript event loop.
+Structural prefilters derive necessary literals from parsed rules. Native file
+scans report `scanTruncated` when an extra candidate exists beyond `maxFiles`;
+result pagination can expand that scan.
 
 Search-result AST classification shares a two-second cooperative deadline across
-the candidate files. Exhausted classification leaves remaining hits unlabeled;
-it does not discard search results. Signature queries cache compiled queries,
-honor execution limits, and remove only nodes explicitly captured as `@body`.
-Helper captures used by predicates cannot remove signature lines.
-Execution limits instead carry staged diagnostics and an incomplete status.
-Completed files remain available, while exhausted matching cannot establish
-absence or satisfy a negation. Public tools preserve these diagnostics and
-report terminal limits when no continuation can complete the execution.
-
-**Note:** `signatures/graph_facts.rs`/`extractGraphFacts` has live consumers
-through both the single-file API and `scanGraphFacts` — it is not orphaned. A
-native Rust port of the graph algorithms above
-(reachability/SCC/retainer-lookup/pruning) was
-scoped in `docs/NATIVE_GRAPH_DOMAIN_SCOPE.md` but is superseded by this
-TypeScript implementation; see that doc's status before reviving the idea.
+candidate files. Exhausted classification leaves remaining hits unlabeled; it
+does not discard search results. Execution limits carry staged diagnostics and an
+incomplete status. Public tools preserve these diagnostics and report terminal
+limits when no continuation can complete the execution.
 
 ## Rules
 
-- Do not put logic in `lib.rs` or `bindings/`.
-- Put new code in the closest domain module; create a submodule only when a file
-  gains a separate responsibility.
-- Keep domain modules pure Rust where possible. NAPI types belong at the edge.
-- Stateful orchestration that must persist across NAPI calls (LSP client pool,
-  security registry) belongs in the TS tier (`src/lsp/*.ts`, `src/security/*.ts`),
-  not Rust. Protocol state received only by the native JSON-RPC reader remains
-  at that transport boundary and must be bounded before TypeScript can query it.
-- Declare the public NAPI and Rust benchmark exports explicitly in `lib.rs`.
-  Internal callers import from the owning module; avoid wildcard relay exports.
+- No logic in `lib.rs` or `src/bindings/`.
+- New reusable Rust code goes in the closest domain module under `src/`.
+- Stateful Node host orchestration (security registries, LSP provisioning)
+  remains in the TypeScript tier.
+- Declare all public N-API and Rust benchmark exports explicitly in `lib.rs`.
+  Avoid wildcard relay exports and compatibility-only duplicate modules.
 - Avoid duplicate helpers across domains. Shared LSP command/path checks live in
   `src/lsp/commands.rs`.
 
-## Cargo Deps
+## Cargo deps
 
-`package.json#version` is the release version source of truth for the engine.
-`yarn version:sync` updates `Cargo.toml`, `Cargo.lock`, the root
+`package.json#version` is the release version source of truth.
+`yarn version:sync` updates `Cargo.toml`, `Cargo.lock`, root
 `optionalDependencies`, and every `npm/<platform>/package.json` to match it.
 
-- NAPI: `napi`, `napi-derive`; build: `napi-build`; dev: `napi`.
+- N-API: `napi`, `napi-derive`; build: `napi-build`.
 - Serialization/text: `serde`, `serde_json`, `serde_yaml_ng`, `regex`,
-  `regex-syntax`, `aho-corasick`, and `url`.
+  `regex-syntax`, `aho-corasick`, `url`.
 - Async/process/LSP: `tokio`, `which`.
-- Search: `grep`, `ignore`; patched transitive security floors are pinned for
-  `crossbeam-epoch` and `memmap2`.
+- Search: `grep`, `ignore`, `memmap2`, `crossbeam-epoch`, `rayon`.
 - Minify/JS/CSS: `lightningcss`, `oxc_allocator`, `oxc_ast`, `oxc_codegen`,
   `oxc_minifier`, `oxc_parser`, `oxc_span`, `oxc_semantic`.
-- Structural search: `tree-sitter`.
-- Grammars: `tree-sitter-typescript`, `tree-sitter-javascript`,
-  `tree-sitter-python`, `tree-sitter-go`, `tree-sitter-rust`,
-  `tree-sitter-java`, `tree-sitter-c`, `tree-sitter-cpp`,
-  `tree-sitter-c-sharp`, `tree-sitter-ruby`, `tree-sitter-php`,
-  `tree-sitter-kotlin-ng`, `tree-sitter-json`,
-  `tree-sitter-yaml`, `tree-sitter-html`,
-  `tree-sitter-css`, `tree-sitter-scss`, `tree-sitter-scala`,
-  `tree-sitter-sequel`, and
-  `tree-sitter-swift`.
+- Structural search: `tree-sitter` + grammars for TypeScript, JavaScript,
+  Python, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, JSON, YAML, HTML,
+  CSS, SCSS, Scala, SQL, Swift.
 
 ## Distribution
 
-`@octocodeai/octocode-engine` is the only published native package in this
-repo. It ships as:
+`@octocodeai/octocode-engine` ships as:
 
 - a root package with JS/TS loader files and `dist/` wrappers, but no `.node`
   binary in the root tarball;
@@ -163,18 +113,17 @@ repo. It ships as:
   `octocode-engine.<platform>.node` binary;
 - exact root `optionalDependencies` pointing at those six platform packages.
 
-The root loader supports both ESM and CJS entrypoints, detects the current
-platform/libc, then loads the local dev binary, bundled standalone runtime
-binary, or matching npm optional dependency.
+The root loader supports ESM and CJS, detects platform/libc, then loads the
+local dev binary, bundled standalone runtime binary, or matching npm optional
+dependency.
 
 Publish the six platform packages first, then publish the engine root. Interface
-packages (`octocode-mcp` and `octocode`) are published only after this package is
-available on npm because they depend on it directly at runtime.
+packages (`octocode-mcp` and `octocode`) are published only after this package
+is on npm.
 
 ## Cross-compile build prerequisites
 
-`yarn build:all` cross-compiles the native addon for all 6 target platforms.
-The default `rustup` install only ships the host target; the others require:
+`yarn build:all` cross-compiles the native addon for all 6 target platforms:
 
 | platform | extra prerequisites |
 |---|---|
@@ -185,41 +134,7 @@ The default `rustup` install only ships the host target; the others require:
 | `linux-arm64-gnu` | `rustup target add aarch64-unknown-linux-gnu` + `brew install zig` |
 | `win32-x64-msvc` | `rustup target add x86_64-pc-windows-msvc` + `brew install llvm` + export PATH |
 
-One-time setup on macOS (covers all 6 platforms):
-
-```bash
-# Rust cross targets
-rustup target add x86_64-apple-darwin \
-  x86_64-unknown-linux-gnu x86_64-unknown-linux-musl \
-  aarch64-unknown-linux-gnu x86_64-pc-windows-msvc
-
-# zig — used by napi-rs cargo-zigbuild for linux cross-linking
-brew install zig
-
-# LLVM — provides llvm-lib (MSVC archiver) for the win32 cross-build
-brew install llvm
-export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
-
-# Now build all 6 platforms (~2 min each; ~12 min total)
-yarn build:all
-```
-
-**Why zig?** `napi build --cross-compile` uses `cargo-zigbuild` under the hood.
-`cargo-zigbuild` requires a `zig` binary on PATH; it does **not** auto-download
-one. Without `zig`: `Error: Failed to find zig / cannot find binary path`.
-
-**Why llvm?** The `cc-rs` build script of a C dependency (`pcre2`) needs
-`llvm-lib` (LLVM’s MSVC-compatible archiver) when cross-compiling to
-`x86_64-pc-windows-msvc`. `brew install llvm` installs it at
-`/opt/homebrew/opt/llvm/bin/llvm-lib`. Without it:
-`error occurred in cc-rs: failed to find tool "llvm-lib"`.
-
-CI builds all 6 platforms in a zig-equipped Linux environment and publishes
-them before the root package. See `RELEASE_GUIDE.md`.
-
 ## Verification
-
-Run from `packages/octocode-engine/`:
 
 ```bash
 yarn version:sync

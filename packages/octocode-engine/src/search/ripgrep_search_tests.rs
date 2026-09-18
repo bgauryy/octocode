@@ -40,6 +40,84 @@ fn opts(path: String, pattern: &str) -> RipgrepSearchOptions {
 }
 
 #[test]
+fn span_collection_reports_dropped_matches_as_incomplete() {
+    let t = TmpDir::new();
+    t.write("many.txt", &"needle ".repeat(1001));
+    for count_unique in [false, true] {
+        let mut options = opts(t.path(), "needle");
+        options.only_matching = Some(true);
+        options.count_unique = Some(count_unique);
+        let result = search(options).expect("search ok");
+        assert_eq!(result.stats.match_count, Some(1001));
+        assert_eq!(result.stats.capped, Some(true));
+        assert_eq!(
+            result.stats.cap_reason.as_deref(),
+            Some("maxOnlyMatchingPerLine")
+        );
+        if count_unique {
+            assert_eq!(result.files[0].matches[0].count, Some(1000));
+        } else {
+            assert_eq!(result.files[0].matches.len(), 1000);
+        }
+    }
+}
+
+#[test]
+fn span_collection_at_the_bound_remains_complete() {
+    let t = TmpDir::new();
+    t.write("many.txt", &"needle ".repeat(1000));
+    let mut options = opts(t.path(), "needle");
+    options.only_matching = Some(true);
+    let result = search(options).expect("search ok");
+    assert_eq!(result.files[0].matches.len(), 1000);
+    assert_eq!(result.stats.capped, Some(false));
+    assert_eq!(result.stats.cap_reason, None);
+}
+
+#[test]
+fn collection_errors_do_not_report_complete_absence() {
+    let t = TmpDir::new();
+    let missing = t.0.join("missing").to_string_lossy().into_owned();
+    let result = search(opts(missing, "needle")).expect("partial search");
+    assert!(result.files.is_empty());
+    assert_eq!(result.stats.error_count, Some(1));
+    assert!(result
+        .stats
+        .first_error
+        .as_ref()
+        .is_some_and(|e| !e.is_empty()));
+    assert_eq!(result.stats.capped, Some(false));
+}
+
+#[cfg(unix)]
+#[test]
+fn collection_errors_preserve_successful_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = TmpDir::new();
+    t.write("good.txt", "needle\n");
+    t.write("denied.txt", "needle\n");
+    let denied = t.0.join("denied.txt");
+    fs::set_permissions(&denied, fs::Permissions::from_mode(0o000)).unwrap();
+    // Privileged test runners can read mode-000 files; the missing-root test
+    // remains deterministic on those hosts.
+    let inaccessible = fs::read(&denied).is_err();
+    let result = search(opts(t.path(), "needle"));
+    fs::set_permissions(&denied, fs::Permissions::from_mode(0o600)).unwrap();
+    if !inaccessible {
+        return;
+    }
+    let result = result.expect("partial search");
+    assert_eq!(result.files.len(), 1);
+    assert!(result.files[0].path.ends_with("good.txt"));
+    assert_eq!(result.stats.error_count, Some(1));
+    assert!(result
+        .stats
+        .first_error
+        .as_ref()
+        .is_some_and(|e| e.contains("denied.txt")));
+}
+
+#[test]
 fn finds_matches_with_line_and_column() {
     let t = TmpDir::new();
     t.write("a.txt", "hello world\nno match here\nhello again\n");
@@ -309,6 +387,15 @@ fn results_are_sorted_by_path() {
     let mut sorted = paths.clone();
     sorted.sort_unstable();
     assert_eq!(paths, sorted);
+}
+
+#[test]
+fn explicit_traversal_sort_bypasses_post_collection_sorting() {
+    let mut o = opts("/fixture".to_owned(), "m");
+    o.sort = Some("traversal".to_owned());
+    assert!(preserves_traversal_order(&o));
+    o.sort = None;
+    assert!(!preserves_traversal_order(&o));
 }
 
 #[test]

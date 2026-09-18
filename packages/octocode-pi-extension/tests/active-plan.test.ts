@@ -8,8 +8,8 @@ import type { ToolDefinition } from '../src/types.js';
 import {
   setPlan, clearPlan, getPlan,
   bumpPlanTurn, readPersistedPlanForTests,
-  activePlanScope, adoptPlanFromBranch, setPlanEntryAppender, PLAN_ENTRY_TYPE,
-  getPlanRfc, setPlanRfc, resolveRfcPath, readPersistedRfcForTests,
+  activePlanScope, adoptPlanFromBranch, releasePlanScope, setPlanEntryAppender, PLAN_ENTRY_TYPE,
+  getPlanRfc, setPlanRfc, readPersistedRfcForTests,
   getPlanDecisions, addPlanDecision, setPlanDecisions, readPersistedDecisionsForTests,
   getPlanLifecycle, setPlanLifecycle, finishPlanVerification, getPlanReviewState, readPersistedLifecycleForTests,
   currentRfcRevision, setPlanAwarenessMappings, getPlanCoordination,
@@ -23,7 +23,7 @@ import { renderList } from '../src/tools/planning/plan-presentation.js';
 import { projectPlanStatus } from './helpers/plan-status.js';
 import { renderFooterView } from '../src/tui/footer-view.js';
 import { planArtifactsDir, setPlanOpenerForTests } from '../src/tools/plan-html.js';
-import { isPlanMode, enterPlanMode, exitPlanMode, planModeToolGate } from '../src/tools/plan-mode.js';
+import { isPlanMode, enterPlanMode, exitPlanMode } from '../src/tools/plan-mode.js';
 import { createSessionArtifactContext, readPlanProjection } from '../src/tools/session-artifacts.js';
 import type { PiContext } from '../src/types.js';
 import { buildPlanReadModel, getCurrentPlanReadModel, renderPlanContext, renderPlanReadModel } from '../src/tools/plan-read-model.js';
@@ -388,7 +388,7 @@ test('plan detail projection renders compact progress and the running step activ
   const joined = lines.join('\n');
   assert.match(joined, /Plan.*1 done/, 'footer has compact progress');
   assert.doesNotMatch(joined, /Edit file/, 'completed detail stays out of the persistent panel');
-  assert.match(joined, /task 2 running: Run tests/, 'running task is explicit');
+  assert.match(joined, /running: Run tests/, 'running task is explicit');
   assert.deepEqual(calls.widget, [], 'the footer remains the only persistent state surface');
   clearPlan(cwd);
 });
@@ -719,12 +719,10 @@ test('plan tool gives compact behavioral routing and truthful transition contras
   const tool = loadTool();
   assert.match(tool.description, /Use a plan only for complex work/);
   assert.match(tool.description, /Skip routine fixes, straightforward steps, and simple delegation/);
-  assert.match(tool.description, /complete only after an observed check/i);
   const guidelines = tool.promptGuidelines?.join('\n') ?? '';
-  assert.match(guidelines, /queries.*reasoning.*action/is);
-  assert.match(guidelines, /For complex work.*action:"set".*already authorized.*action:"propose".*review/is);
-  assert.match(guidelines, /Wrong: complete because a worker said DONE.*verify.*action:"complete"/is);
-  assert.match(guidelines, /independent lanes.*dependsOn.*delegation/is);
+  assert.match(guidelines, /set for authorized execution and propose when review is required/i);
+  assert.match(guidelines, /Complete only after the declared check succeeds, never from a worker DONE claim/i);
+  assert.match(guidelines, /independent-lane dependencies.*start runnable steps/is);
   assert.doesNotMatch(guidelines, /plan\(/i);
 });
 
@@ -843,6 +841,20 @@ test('plan mutations write private session-root branch snapshots and a generatio
     assert.equal(fs.readdirSync(artifacts.resolve('plan/branches')).length, 1);
   } finally {
     clearPlan(scope);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('released session scopes evict memory-only plan state', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-scope-release-'));
+  const scope = activePlanScope({ cwd: workspace, sessionManager: { getSessionId: () => 'released' } });
+  setPlanEntryAppender(null);
+  try {
+    setPlan(scope, ['ephemeral']);
+    releasePlanScope(scope);
+    assert.deepEqual(getPlan(scope), []);
+  } finally {
+    releasePlanScope(scope);
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
@@ -1111,35 +1123,6 @@ test('rfcPath round-trips through the session snapshot and adoptPlanFromBranch',
   }
 });
 
-test('resolveRfcPath resolves a dir to its RFC.md, and a direct RFC.md file', () => {
-  const { ws, rfcDir, rfcFile } = makeRfcWorkspace();
-  try {
-    const fromDir = resolveRfcPath(ws, rfcDir);
-    assert.equal(fromDir.path, fs.realpathSync(rfcFile), 'a directory resolves to its RFC.md');
-    const fromFile = resolveRfcPath(ws, rfcFile);
-    assert.equal(fromFile.path, fs.realpathSync(rfcFile));
-    const fromRel = resolveRfcPath(ws, path.join('.octocode', 'rfc', 'unify-plan-rfc'));
-    assert.equal(fromRel.path, fs.realpathSync(rfcFile), 'a workspace-relative path resolves too');
-  } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
-  }
-});
-
-test('resolveRfcPath rejects paths outside .octocode/rfc/, missing files, and traversal', () => {
-  const { ws } = makeRfcWorkspace();
-  const outside = path.join(ws, 'NOTES.md');
-  fs.writeFileSync(outside, '# not an rfc');
-  try {
-    assert.ok(resolveRfcPath(ws, outside).error, 'a file outside .octocode/rfc/ is rejected');
-    assert.match(resolveRfcPath(ws, outside).error!, /\.octocode\/rfc/);
-    assert.ok(resolveRfcPath(ws, path.join('.octocode', 'rfc', 'nope')).error, 'missing path rejected');
-    assert.ok(resolveRfcPath(ws, '').error, 'empty input rejected');
-    assert.ok(resolveRfcPath(ws, path.join('.octocode', 'rfc', '..', '..', 'NOTES.md')).error, 'traversal out of the rfc tree rejected');
-  } finally {
-    fs.rmSync(ws, { recursive: true, force: true });
-  }
-});
-
 // ─── Decision log ─────────────────────────────────────────────────────────────
 
 test('addPlanDecision records Q→A, round-trips through disk, and clears with the plan', () => {
@@ -1278,14 +1261,31 @@ test('plan(set) trivial (consequential:false) needs no RFC', async () => {
   });
 });
 
-test('plan(set) with an unresolvable rfcPath is blocked with a resolve error', async () => {
+test('plan(set) with a non-existent rfcPath inside the workspace is accepted as a forward reference', async () => {
   await withTempHome(async () => {
     const { ws } = makeRfcWorkspace();
     try {
       const tool = loadTool();
       const ctx = { cwd: ws } as unknown as PiContext;
       clearPlan(ws);
-      const res = (await tool.execute('id', { action: 'set', steps: ['x'], rfcPath: path.join('.octocode', 'rfc', 'does-not-exist') }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
+      // The agent declares the RFC path before creating the file (forward reference).
+      const res = (await tool.execute('id', { action: 'set', steps: ['x'], rfcPath: path.join('.octocode', 'rfc', 'does-not-exist', 'RFC.md') }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
+      assert.equal(res.isError, undefined, 'forward-reference rfcPath must not error');
+      assert.equal(getPlan(ws).length, 1, 'plan is set with the forward-declared RFC path');
+    } finally {
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+test('plan(set) with rfcPath outside workspace is blocked with a resolve error', async () => {
+  await withTempHome(async () => {
+    const { ws } = makeRfcWorkspace();
+    try {
+      const tool = loadTool();
+      const ctx = { cwd: ws } as unknown as PiContext;
+      clearPlan(ws);
+      const res = (await tool.execute('id', { action: 'set', steps: ['x'], rfcPath: path.join('..', 'outside-workspace.md') }, undefined, undefined, ctx)) as { content: Array<{ text: string }>; isError?: boolean };
       assert.equal(res.isError, true);
       assert.match(res.content[0]!.text, /did not resolve/);
       assert.equal(getPlan(ws).length, 0, 'a bad rfcPath does not set the plan');
@@ -1415,7 +1415,7 @@ test('the footer shows current work without discarding tasks from full inspectio
   const model = panelModel(steps);
   const lines = renderFooterView({ rows: [projectPlanStatus(model)] }, { width: 80 });
   assert.equal(lines.length, 1, 'footer keeps current work compact');
-  assert.match(lines[0]!, /Plan.*0 done.*task 1 running: Step 1/);
+  assert.match(lines[0]!, /Plan.*0 done.*running: Step 1/);
   assert.doesNotMatch(lines.join('\n'), /Step 4/);
   const full = renderPlanReadModel(model, 'terminal') as string;
   for (const step of steps) assert.ok(full.includes(step.text));
@@ -1468,9 +1468,6 @@ test('plan mode tracks planning without disabling tools', async () => {
   exitPlanMode(ctx);
   enterPlanMode(ctx);
   assert.equal(isPlanMode(ctx), true);
-  for (const toolName of ['edit', 'Write', 'localSearch', 'bash', 'chromeDebug']) {
-    assert.equal(planModeToolGate(toolName, ctx), undefined, `${toolName} remains available while planning`);
-  }
   assert.ok(calls.status.some((s) => (s as { name: string }).name === 'octocode-plan-mode'), 'status chip shown');
   exitPlanMode(ctx);
   assert.equal(isPlanMode(ctx), false);

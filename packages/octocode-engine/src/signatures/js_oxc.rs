@@ -69,6 +69,7 @@ struct DocumentSymbol {
 #[serde(rename_all = "camelCase")]
 struct GraphFacts {
     kind: &'static str,
+    schema_version: u32,
     source: &'static str,
     language: String,
     file: String,
@@ -106,6 +107,10 @@ struct GraphImport {
     local_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     imported_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    imported_range: Option<Range>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_range: Option<Range>,
 }
 
 #[derive(Serialize)]
@@ -232,7 +237,16 @@ pub fn find_in_file_references(
 /// function/class containment, and direct call expressions. It deliberately
 /// avoids type inference and cross-file resolution; callers combine it with LSP
 /// proof when they need semantic identity.
+#[cfg(test)]
 pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
+    extract_graph_facts_with_metadata(content, file_path)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
+
+pub(crate) fn extract_graph_facts_with_metadata(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
     if content.len() > crate::minify::minifier::MAX_SIZE {
         return None;
     }
@@ -240,16 +254,25 @@ pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
     let file_path = file_path.to_owned();
     run_on_deep_stack(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            extract_graph_facts_inner::<true>(&content, &file_path)
+            extract_graph_facts_with_metadata_inner::<true>(&content, &file_path)
         }))
         .unwrap_or(None)
     })
 }
 
+#[cfg(test)]
 fn extract_graph_facts_inner<const COMMON_JS: bool>(
     content: &str,
     file_path: &str,
 ) -> Option<String> {
+    extract_graph_facts_with_metadata_inner::<COMMON_JS>(content, file_path)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
+
+fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
     let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
     if !is_js_ts_extension(&ext) {
         return None;
@@ -360,6 +383,7 @@ fn extract_graph_facts_inner<const COMMON_JS: bool>(
 
     let facts = GraphFacts {
         kind: "graphFacts",
+        schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
         source: "native-ast",
         language: ext,
         file: file_path.to_string(),
@@ -375,7 +399,18 @@ fn extract_graph_facts_inner<const COMMON_JS: bool>(
             .map(|diagnostic| diagnostic.message.to_string())
             .collect(),
     };
-    serde_json::to_string(&facts).ok()
+    let exported_declaration_names = facts
+        .declarations
+        .iter()
+        .filter(|declaration| declaration.exported)
+        .map(|declaration| declaration.name.clone())
+        .collect();
+    let facts_json = serde_json::to_string(&facts).ok()?;
+    let facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
+    Some(super::GraphFactsExtraction {
+        facts,
+        exported_declaration_names,
+    })
 }
 
 fn find_in_file_references_inner(
@@ -518,7 +553,7 @@ fn collect_import_declaration(
     let specifier = decl.source.value.as_str().to_string();
     if let Some(specifiers) = &decl.specifiers {
         for (index, item) in specifiers.iter().enumerate() {
-            let (local_name, imported_name, import_kind) = match item {
+            let (local_name, imported_name, import_kind, imported_range, local_range) = match item {
                 ImportDeclarationSpecifier::ImportSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     module_export_name(&spec.imported),
@@ -527,16 +562,22 @@ fn collect_import_declaration(
                     } else {
                         spec.import_kind
                     }),
+                    Some(li.range(spec.imported.span())),
+                    Some(li.range(spec.local.span)),
                 ),
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     Some("default".to_string()),
                     import_export_kind(decl.import_kind),
+                    None,
+                    Some(li.range(spec.local.span)),
                 ),
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(spec) => (
                     Some(spec.local.name.as_str().to_string()),
                     Some("*".to_string()),
                     import_export_kind(decl.import_kind),
+                    None,
+                    Some(li.range(spec.local.span)),
                 ),
             };
             out.push(GraphImport {
@@ -546,6 +587,8 @@ fn collect_import_declaration(
                 import_kind,
                 local_name,
                 imported_name,
+                imported_range,
+                local_range,
             });
         }
     } else {
@@ -556,6 +599,8 @@ fn collect_import_declaration(
             import_kind: import_export_kind(decl.import_kind),
             local_name: None,
             imported_name: None,
+            imported_range: None,
+            local_range: None,
         });
     }
 }
@@ -722,6 +767,40 @@ fn flatten_symbols(
 
 #[cfg(test)]
 mod graph_occurrence_tests {
+    #[test]
+    fn import_ranges_do_not_invent_synthetic_name_tokens() {
+        let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("import value from './a'; import * as namespace from './b'; import { plain } from './c'; import './side';", "imports.ts").unwrap()).unwrap();
+        let imports = value["imports"].as_array().unwrap();
+        for import in &imports[..2] {
+            assert!(import.get("importedRange").is_none());
+            assert!(import.get("localRange").is_some());
+        }
+        assert_eq!(imports[2]["localRange"], imports[2]["importedRange"]);
+        assert!(imports[3].get("importedRange").is_none());
+        assert!(imports[3].get("localRange").is_none());
+    }
+
+    #[test]
+    fn named_import_binding_ranges_are_exact_utf16() {
+        let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("const marker = \"😀\"; import { target as first, target as second } from './origin';\nimport {\n target as third\n} from './origin';\n", "aliases.ts").unwrap()).unwrap();
+        let imports = value["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 3);
+        for (index, (line, imported, local, length)) in
+            [(0, 30, 40, 5), (0, 47, 57, 6), (2, 1, 11, 5)]
+                .into_iter()
+                .enumerate()
+        {
+            assert_eq!(
+                imports[index]["importedRange"],
+                serde_json::json!({"start":{"line":line,"character":imported},"end":{"line":line,"character":imported+6}})
+            );
+            assert_eq!(
+                imports[index]["localRange"],
+                serde_json::json!({"start":{"line":line,"character":local},"end":{"line":line,"character":local+length}})
+            );
+        }
+    }
+
     use super::extract_graph_facts;
 
     fn common_js(source: &str) -> serde_json::Value {

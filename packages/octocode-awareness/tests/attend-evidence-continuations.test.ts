@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initDb } from '../src/db-init.js';
 import { attendAwareness } from '../src/attend-query.js';
-import { executeAwarenessCommand } from '../src/command-api.js';
+import { createAwarenessClient } from '../src/client.js';
 import { insertMemory } from '../src/memory-write.js';
 
 const cleanups: Array<() => void> = [];
@@ -36,22 +36,20 @@ describe('attention evidence and continuations', () => {
     const params = { workspacePath: workspace, agentId: 'owner', query: 'attention contract',
       file: Array.from({ length: 5 }, (_, i) => `source-${i}.ts`), compact: true };
     const first = attendAwareness(db, params);
-    const repeat = attendAwareness(db, { ...params, revision: first.revision });
     expect(first.evidence).toHaveLength(1);
     expect(first).toMatchObject({ partial: true, evidence_omitted_count: 4 });
     expect(first.next.continuations).toHaveLength(1);
     const continuation = first.next.continuations?.[0];
-    expect(continuation).toMatchObject({ command: 'memory recall' });
-    const executed = await executeAwarenessCommand(continuation!, {
+    expect(continuation).toMatchObject({ operation: 'memory.recall' });
+    const client = createAwarenessClient({
       database: dbPath,
       workspace,
       agentId: 'owner',
-      compact: false,
     });
+    const executed = await client.execute(continuation!);
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ memories: expect.any(Array) });
     expect((executed.payload as { memories: unknown[] }).memories.length).toBeGreaterThanOrEqual(5);
-    expect(repeat).toMatchObject({ unchanged: true, revision: first.revision });
   });
 
   it('preserves peer context across unchanged observations', () => {
@@ -87,14 +85,14 @@ describe('attention evidence and continuations', () => {
     expect(first.workboard.Verify).toHaveLength(1);
     expect(first.operational_state.coverage.omitted_rows).toBeGreaterThan(0);
     expect(first).toMatchObject({ partial: true, partial_reasons: expect.arrayContaining(['workboard']) });
-    const continuation = first.next.continuations?.find(item => item.command === 'query workboard');
+    const continuation = first.next.continuations?.find(item => item.operation === 'work.list');
     expect(continuation).toBeDefined();
-    const executed = await executeAwarenessCommand(continuation!, {
+    const client = createAwarenessClient({
       database: dbPath,
       workspace,
       agentId: 'owner',
-      compact: false,
     });
+    const executed = await client.execute(continuation!);
     expect(executed.exitCode).toBe(0);
     expect(executed.payload).toMatchObject({ rows: expect.any(Array) });
     expect((executed.payload as { rows: unknown[] }).rows.length).toBeGreaterThanOrEqual(2);

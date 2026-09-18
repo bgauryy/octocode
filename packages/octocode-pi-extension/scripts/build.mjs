@@ -430,7 +430,9 @@ async function build() {
 
   if (fs.existsSync(SOURCE_PATHS.subagents)) {
     copyDirectory(SOURCE_PATHS.subagents, OUTPUT_PATHS.subagents);
-    const { expandSubagentPrompt, SUBAGENT_PLACEHOLDERS } = await import('@octocodeai/agent-contracts/prompts');
+    const { expandSubagentPrompt, SUBAGENT_PLACEHOLDERS } = await import(
+      pathToFileURL(path.join(distDir, 'contracts', 'prompts', 'index.js')).href
+    );
     for (const entry of fs.readdirSync(OUTPUT_PATHS.subagents, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const promptPath = path.join(OUTPUT_PATHS.subagents, entry.name, 'SYSTEM_PROMPT.md');
@@ -463,6 +465,11 @@ async function build() {
     );
   } finally {
     fs.rmSync(stagedSkills, { recursive: true, force: true });
+    // `build:skills` materializes this legacy package-root tree for explicit
+    // development workflows. A normal build owns the single discoverable copy
+    // in dist/skills and must remove the legacy tree even when compilation or a
+    // later packaging step fails.
+    fs.rmSync(SOURCE_PATHS.skills, { recursive: true, force: true });
     releaseBuildLock(buildLock);
   }
 }

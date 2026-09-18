@@ -4,6 +4,10 @@ import { resolve } from 'node:path';
 import type { GraphFacts } from '@octocodeai/octocode-engine';
 import { contextUtils } from '../../utils/contextUtils.js';
 import type { AstSearchQuery } from '@octocodeai/octocode-core/schema';
+import {
+  decodeGraphFactsJson,
+  decodeGraphScanResult,
+} from '../../graph/scanContract.js';
 
 type SyntaxQuery = Extract<AstSearchQuery, { treeKind: 'syntax' }>;
 type SymbolsQuery = Extract<AstSearchQuery, { operation: 'symbols' }>;
@@ -91,8 +95,10 @@ export async function inspectSyntax(query: SyntaxQuery) {
       ? { status: undefined }
       : { status: 'error' as const, errorCode: `ast.syntax.${result.status}` }),
     snapshot,
-    complete,
-    isPartial: !complete,
+    // isPartial is the inverse of complete; only emit when true to save tokens.
+    ...(result.status !== 'error'
+      ? { complete, ...(!complete ? { isPartial: true } : {}) }
+      : {}),
     ...(hasMore
       ? {
           next: {
@@ -104,7 +110,7 @@ export async function inspectSyntax(query: SyntaxQuery) {
           },
         }
       : {}),
-    ...(!complete && !hasMore ? { terminalLimit: true } : {}),
+    ...(result.status === 'partial' && !hasMore ? { terminalLimit: true } : {}),
   };
 }
 
@@ -113,6 +119,7 @@ export async function inspectSymbols(query: SymbolsQuery) {
   let entries: Array<{ path: string; facts: GraphFacts }>;
   let truncated = false;
   let filesSkipped = 0;
+  let scanDiagnostics: Array<{ path: string; message: string }> = [];
   if (isFile) {
     const content = await readBounded(query.path);
     if (content === undefined) return sourceLimit(query.path);
@@ -122,11 +129,19 @@ export async function inspectSymbols(query: SymbolsQuery) {
         status: 'error' as const,
         errorCode: 'ast.symbols.unsupported',
         path: query.path,
-        complete: false,
         error:
           'No native declaration extractor supports this source. Inspect its syntax tree or exact content.',
       };
-    entries = [{ path: query.path, facts: JSON.parse(raw) as GraphFacts }];
+    const decoded = decodeGraphFactsJson<GraphFacts>(raw);
+    if (decoded.ok === true) {
+      entries = [{ path: query.path, facts: decoded.parsed }];
+    } else {
+      entries = [];
+      filesSkipped = 1;
+      scanDiagnostics = [
+        { path: query.path, message: `${decoded.code}: ${decoded.message}` },
+      ];
+    }
   } else {
     const result = await contextUtils.scanGraphFacts({
       path: query.path,
@@ -134,17 +149,28 @@ export async function inspectSymbols(query: SymbolsQuery) {
       maxFileBytes: MAX_SOURCE_BYTES,
       excludeDir: query.excludeDir,
     });
-    entries = result.entries.map(entry => ({
+    const decoded = decodeGraphScanResult(result);
+    entries = decoded.entries.map(entry => ({
       path: resolve(query.path, entry.relativePath),
-      facts: JSON.parse(entry.factsJson) as GraphFacts,
+      facts: entry.parsed as GraphFacts,
     }));
     truncated = result.truncated;
-    filesSkipped = result.filesSkipped;
+    filesSkipped = decoded.filesSkipped;
+    scanDiagnostics = decoded.diagnostics.map(diagnostic => ({
+      path: resolve(query.path, diagnostic.file),
+      message:
+        diagnostic.code === 'scan-skip'
+          ? diagnostic.message
+          : `${diagnostic.code}: ${diagnostic.message}`,
+    }));
   }
   entries.sort((a, b) => a.path.localeCompare(b.path));
-  const diagnostics = entries.flatMap(entry =>
-    entry.facts.diagnostics.map(message => ({ path: entry.path, message }))
-  );
+  const diagnostics = [
+    ...scanDiagnostics,
+    ...entries.flatMap(entry =>
+      entry.facts.diagnostics.map(message => ({ path: entry.path, message }))
+    ),
+  ];
   const declarations = entries
     .flatMap(entry =>
       entry.facts.declarations.map(declaration => ({
@@ -188,21 +214,29 @@ export async function inspectSymbols(query: SymbolsQuery) {
     declarations: declarations.slice(offset, offset + query.pageSize),
     totalDeclarations: declarations.length,
     filesScanned: entries.length,
-    filesSkipped,
-    diagnostics,
+    // filesSkipped: omit when 0 — non-zero is an actionable coverage signal.
+    ...(filesSkipped > 0 ? { filesSkipped } : {}),
+    // diagnostics: omit when empty — non-empty signals parse/scan issues.
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
     complete: !hasMore && !incompleteScan,
-    isPartial: hasMore || incompleteScan,
+    // isPartial is the inverse of complete; only emit when true to save tokens.
+    ...(hasMore || incompleteScan ? { isPartial: true } : {}),
     ...(declarations.length === 0 && !incompleteScan
       ? { status: 'empty' as const }
       : {}),
     ...(incompleteScan ? { terminalLimit: true } : {}),
-    pagination: {
-      currentPage: query.page,
-      totalPages: Math.max(1, Math.ceil(declarations.length / query.pageSize)),
-      hasMore,
-    },
+    // Include pagination only when there are multiple pages to navigate;
+    // when hasMore:false the totalDeclarations field carries the count.
     ...(hasMore
       ? {
+          pagination: {
+            currentPage: query.page,
+            totalPages: Math.max(
+              1,
+              Math.ceil(declarations.length / query.pageSize)
+            ),
+            hasMore: true,
+          },
           next: {
             nextPage: continuation({
               ...query,

@@ -17,6 +17,15 @@ interface AuthStatusPayload {
 
 const AUTH_PROBE_TIMEOUT_MS = 10_000;
 
+export function githubAuthLabel(status: GitHubAuthState['status']): string {
+  return {
+    authenticated: 'GitHub signed in',
+    missing: 'GitHub not signed in',
+    checking: 'GitHub checking',
+    error: 'GitHub status unavailable',
+  }[status];
+}
+
 function normalizeSource(value: unknown): GitHubAuthSource {
   return value === 'octocode' || value === 'env' || value === 'gh-cli' ? value : 'unknown';
 }
@@ -63,7 +72,7 @@ export async function probeGitHubAuth(
   try {
     const result = await exec(
       'npx',
-      ['octocode', 'auth', 'status', '--json'],
+      ['-y', 'octocode', 'auth', 'status', '--json'],
       { timeout: AUTH_PROBE_TIMEOUT_MS },
     );
     const state = parseGitHubAuthStatus(result.stdout);

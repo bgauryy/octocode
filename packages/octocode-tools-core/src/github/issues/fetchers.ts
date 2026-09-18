@@ -1,5 +1,5 @@
 import type { AuthInfo } from '@modelcontextprotocol/server';
-import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
+import { sanitizeContent } from '../../security/sanitize.js';
 import { getOctokit, resolveCacheAuthFingerprint } from '../client.js';
 import { withDataCache } from '../../utils/http/cache/dataCache.js';
 import { generateCacheKey } from '../../utils/http/cache/key.js';
@@ -18,6 +18,7 @@ import {
   MAX_PAGE_NUMBER,
 } from '@octocodeai/octocode-core/schema';
 import type { FetchIssuesParams, IssueRow, IssuesResult } from './types.js';
+import { rejectUnreachableSearchPage } from '../searchWindow.js';
 import {
   createIssueError,
   firstString,
@@ -25,6 +26,12 @@ import {
   toIssueRow,
   windowText,
 } from './helpers.js';
+
+// GitHub's issues endpoint also returns pull requests. A single bounded retry
+// budget saves agents from advancing one empty page at a time without turning
+// pagination into an unbounded request loop. The final provider page remains
+// the continuation source, so no issue rows are skipped.
+const MAX_PR_ONLY_PAGES_TO_SKIP = 5;
 
 export async function fetchIssueByNumber(
   params: FetchIssuesParams,
@@ -65,9 +72,7 @@ export async function fetchIssueByNumber(
   const contentPagination: IssueRow['contentPagination'] = {};
 
   if (wantBody) {
-    const rawBody = ContentSanitizer.sanitizeContent(
-      response.data.body ?? ''
-    ).content;
+    const rawBody = sanitizeContent(response.data.body ?? '').content;
     const windowed = windowText(rawBody, params.charOffset, params.charLength);
     row.body = windowed.text;
     if (windowed.pagination) contentPagination.body = windowed.pagination;
@@ -91,7 +96,7 @@ export async function fetchIssueByNumber(
       : commentsResult.data.filter(c => !isBotAuthor(c.user?.login ?? ''));
     row.comments = kept.map(comment => {
       const windowed = windowText(
-        ContentSanitizer.sanitizeContent(comment.body ?? '').content,
+        sanitizeContent(comment.body ?? '').content,
         params.charOffset,
         params.charLength
       );
@@ -155,6 +160,13 @@ export async function searchIssues(
 ): Promise<GitHubAPIResponse<IssuesResult>> {
   const owner = firstString(params.owner) ?? '';
   const repo = firstString(params.repo) ?? '';
+  const perPage = Math.min(
+    params.limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
+    GITHUB_SEARCH_MAX_LIMIT
+  );
+  const currentPage = params.page ?? 1;
+  const windowError = rejectUnreachableSearchPage(currentPage, perPage);
+  if (windowError) return windowError;
   const octokit = await getOctokit(authInfo);
   // GitHub's Search API does not follow repo renames, so a search scoped to a
   // stale owner/repo silently returns 0 (false absence). Resolve the canonical
@@ -180,11 +192,6 @@ export async function searchIssues(
     }
   }
   const q = buildIssueSearchQuery(effectiveSearchParams);
-  const perPage = Math.min(
-    params.limit ?? GITHUB_SEARCH_DEFAULT_LIMIT,
-    GITHUB_SEARCH_MAX_LIMIT
-  );
-  const currentPage = params.page ?? 1;
   const sortValue =
     params.sort && params.sort !== 'best-match' ? params.sort : undefined;
 
@@ -254,46 +261,71 @@ export async function listIssues(
   const state =
     params.state === 'open' || params.state === 'closed' ? params.state : 'all';
 
-  const listResult = await octokit.rest.issues.listForRepo({
-    owner,
-    repo,
-    state,
-    per_page: perPage,
-    page: currentPage,
-    ...(params.assignee ? { assignee: params.assignee } : {}),
-    ...(params.author ? { creator: params.author } : {}),
-    ...(params.mentions ? { mentioned: params.mentions } : {}),
-    ...(params.milestone ? { milestone: params.milestone } : {}),
-    ...(params.sort === 'created' ||
-    params.sort === 'updated' ||
-    params.sort === 'comments'
-      ? { sort: params.sort }
-      : {}),
-    ...(params.order ? { direction: params.order } : {}),
-    ...(typeof params.label === 'string'
-      ? { labels: params.label }
-      : Array.isArray(params.label)
-        ? { labels: params.label.join(',') }
+  const fetchProviderPage = async (page: number) => {
+    const listResult = await octokit.rest.issues.listForRepo({
+      owner,
+      repo,
+      state,
+      per_page: perPage,
+      page,
+      ...(params.assignee ? { assignee: params.assignee } : {}),
+      ...(params.author ? { creator: params.author } : {}),
+      ...(params.mentions ? { mentioned: params.mentions } : {}),
+      ...(params.milestone ? { milestone: params.milestone } : {}),
+      ...(params.sort === 'created' ||
+      params.sort === 'updated' ||
+      params.sort === 'comments'
+        ? { sort: params.sort }
         : {}),
-  });
+      ...(params.order ? { direction: params.order } : {}),
+      ...(typeof params.label === 'string'
+        ? { labels: params.label }
+        : Array.isArray(params.label)
+          ? { labels: params.label.join(',') }
+          : {}),
+    });
+    return {
+      issues: listResult.data
+        .filter(item => !hasPullRequestField(item))
+        .map(item => toIssueRow(item)),
+      hasMore: parseHasMore(listResult.headers.link as string | undefined),
+    };
+  };
+  let providerPage = currentPage;
+  let providerPagesFetched = 1;
+  let skippedPullRequestPages = 0;
+  let { issues, hasMore } = await fetchProviderPage(providerPage);
 
-  const issues = listResult.data
-    .filter(item => !hasPullRequestField(item))
-    .map(item => toIssueRow(item));
-
-  const hasMore = parseHasMore(listResult.headers.link as string | undefined);
+  while (
+    issues.length === 0 &&
+    hasMore &&
+    skippedPullRequestPages < MAX_PR_ONLY_PAGES_TO_SKIP
+  ) {
+    skippedPullRequestPages += 1;
+    providerPage += 1;
+    ({ issues, hasMore } = await fetchProviderPage(providerPage));
+    providerPagesFetched += 1;
+  }
 
   // Pagination honesty: the issues endpoint returns PRs too, filtered out
   // above — so `issues.length` is a page-local, post-filter count, NOT a repo
-  // total. Only report it as `totalCount` when this single page is provably
-  // the complete result set (no further pages). And when a page filtered
-  // down to nothing while more pages exist, say WHY instead of emitting the
-  // contradictory-looking `totalCount:0` + `hasMore:true`.
+  // total. Report it only when the requested page and every scanned page form
+  // the complete result set. And when a page filtered down to nothing while
+  // more pages exist, say WHY instead of emitting `totalCount:0` + `hasMore:true`.
   const isCompleteResultSet = !hasMore && currentPage === 1;
   const warnings: string[] = [];
+  if (skippedPullRequestPages > 0) {
+    warnings.push(
+      `Skipped ${skippedPullRequestPages} pull-request-only provider page${skippedPullRequestPages === 1 ? '' : 's'}; results and pagination now reflect provider page ${providerPage}.`
+    );
+  }
   if (issues.length === 0 && hasMore) {
     warnings.push(
-      'This page contained only pull requests (the GitHub issues endpoint returns both; PRs are filtered out) — follow pagination.nextPage, later pages may contain issues.'
+      `This provider page contained only pull requests (the GitHub issues endpoint returns both; PRs are filtered out) — follow pagination.nextPage. ${
+        skippedPullRequestPages >= MAX_PR_ONLY_PAGES_TO_SKIP
+          ? `The useful-page scan reached its ${MAX_PR_ONLY_PAGES_TO_SKIP}-page skip budget.`
+          : 'Later pages may contain issues.'
+      }`
     );
   }
 
@@ -308,10 +340,13 @@ export async function listIssues(
       ...(isCompleteResultSet ? { totalCount: issues.length } : {}),
       ...(warnings.length ? { warnings } : {}),
       pagination: {
-        currentPage,
+        currentPage: providerPage,
         perPage,
         hasMore,
-        ...(hasMore ? { nextPage: currentPage + 1 } : {}),
+        ...(hasMore ? { nextPage: providerPage + 1 } : {}),
+        ...(providerPage !== currentPage ? { requestedPage: currentPage } : {}),
+        ...(skippedPullRequestPages > 0 ? { skippedPullRequestPages } : {}),
+        ...(providerPagesFetched > 1 ? { providerPagesFetched } : {}),
       },
     },
     status: 200,

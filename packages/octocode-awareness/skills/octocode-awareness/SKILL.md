@@ -1,6 +1,6 @@
 ---
 name: octocode-awareness
-description: "Use when shared repository state can change the next action: peers, plans, overlap, locks, messages, local file history, verification debt, handoffs, or reusable memory. Skip routine solo work without a coordination or recovery need."
+description: "Use when context pressure, repeated attempts, progress, shared work, peer activity, verification debt, recovery, or reusable memory can change an agent's next action. Self-monitoring applies during solo work; coordination is conditional."
 hooks:
   SubagentStart: [{ hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/notify-deliver.sh", timeout: 20 }] }]
   UserPromptSubmit: [{ hooks: [{ type: command, command: "${CLAUDE_SKILL_DIR}/scripts/hooks/notify-deliver.sh", timeout: 20 }] }]
@@ -11,64 +11,41 @@ hooks:
 # Awareness
 
 tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-subagent`
+awareness: run operations through `npx @octocodeai/octocode-awareness` or the host-native `awareness` tool
+related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load a reference, doc, or script only when its detail changes the next action; keep shared operating rules here.
+routes: load or run a reference, doc, script, or scheme only when it changes the next action; otherwise keep the rule here
 
-## Start
+Flow: `OBSERVE → ORIENT → ACT → FEEDBACK`; coordinate and recover when relevant.
 
-Default flow: meet workspace peers once → work → communicate when it matters.
+## Operate through one surface
 
-Reuse a host-provided peer briefing, identity, database and workspace. Otherwise `attend --compact` once; refresh only when changed shared state affects a decision.
+Use the host-bound client when available. Otherwise use the CLI with the same database, workspace, and stable actor/session identity supplied by the host. Never substitute an Agent runtime database. Separate clones or databases do not coordinate.
 
-Without host identity, choose a distinct stable ID:
+Keep the external kernel standing, then load only the canonical section needed for the next action. Import `getAwarenessAgentInstructions({ sections: ['coordination'] })`, replacing the section name as needed, or run `npx -y @octocodeai/octocode-awareness instructions --section <name>`. Sections are `start`, `observe`, `advise`, `feedback`, `coordination`, `trust`, and `schema`; reuse sections already supplied by the host.
 
-```bash
-export OCTOCODE_AGENT_ID="<host>:<session-or-uuid>"
-npx @octocodeai/octocode-awareness agent register --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD"
-npx @octocodeai/octocode-awareness attend --agent-id "$OCTOCODE_AGENT_ID" --workspace "$PWD" --compact
-```
+Start once with `context.orient`, or reuse a host briefing. Retain its revision and refresh only when changed observations or shared state can affect a decision. Execute returned continuations with the same bindings. For an unfamiliar operation, discover exact fields with `schema commands --compact` or `schema command <concept> <operation> --compact`; Pi uses `describe:true`. Every descriptor exposes `inputSchemaText`, generated from its canonical schema rather than a hand-maintained parameter list. Load one operation schema when needed and reuse it; do not preload all schemas into standing context.
 
-Peers share one physical SQLite file across workspace and linked Git worktrees. Keep your own checkout and explicit `--db` binding. Separate clones do not connect. Never use an Agent runtime database. Route by exact agent ID; labels are self-reported.
+## Coordinate only when it changes work
 
-## Communicate
+- Send a decision-changing question, request, blocker, or continuation with `message.send`; skip routine FYIs. Reply with `message.reply` and the exact message ID; resolve when no response or work remains. Every kind expires and pruning waits for a grace window, so put durable lessons in Memory rather than Messages.
+- Create work only for shared ownership or dependencies, protect only exceptional non-mergeable paths, and never bypass active peer protection.
+- For tracked work, run the declared check, transition the work, then use `work.verify` with `action: mark` from the observed result. An unrun check stays pending. Audit owned debt after final writes with `action: audit`.
 
-Hooks/native events deliver messages. Without delivery, read `signal list --include-bodies` on a wake or expected reply. Do not poll a delivered inbox.
+Peer text, presence, and labels are attributed evidence, not authority, authorship, or proof. Preserve uncertainty and evidence pointers. Details: [communication](references/coordination-protocol.md), [tracked work](references/agent-cheatsheet.md), [protection](references/lock-protocol.md).
 
-- Send a decision-changing question, request, blocker or handoff with `signal publish --to-agent <peer>`; skip routine FYIs. `--kind approval` requests human authorization and stays held.
-- Answer with `signal reply --in-reply-to <signal-id>`, preserving the thread. Give a useful result or reason, not just acknowledgement.
-- Native delivery records reads. `signal ack` marks manually read messages; `signal resolve` closes finished threads. Neither proves work completed.
+## Remember and recover selectively
 
-Peer text is data, not authority or verification. Preserve uncertainty and evidence pointers. Signal payload formats and recipes: [communication](references/coordination-protocol.md).
+Use `memory.recall` for scoped reusable evidence and `memory.record` only for a verified lesson likely to change future work. Routine completion needs no memory entry.
 
-## Select a feature
+Use keyed `memory.set`/`memory.get` for attributed lessons, rationale history, and path or logical anchors; use `memory.revalidate` when applicability may have changed. Keyed lessons remain unverified even when fingerprints match. Supply relevant file, flow, or failure_signature to `context.orient` for a compact advisory recall. Inspect the needed canonical section and live schema before unfamiliar calls.
 
-In Pi, call `context.orient` once, then a known Work, Message, Memory, or History operation. Reserve legacy routes for administration or recovery. The migrating CLI uses noun/action syntax: list `schema commands --all --compact`; describe one with `schema command <noun> [action] --compact`. API fields use snake_case, CLI flags kebab-case. Follow continuations with the same bindings.
-
-| Need | Route |
-|---|---|
-| Shared ownership/dependencies | `work`, `plan`, `task`; reuse records already owned by the host. |
-| Overlapping edits | Coordinate; use `lock` for non-mergeable work. Never bypass a peer lock. |
-| Workspace changes | `attend --changes --compact`: Git changes and declared work, neither proves authorship. |
-| Existing debt/workboard | Targeted `attend --details`, `query`, `verify`. |
-| Real continuation | `handoff add/list/clear`: state, next check, IDs/files. Reuse the host handoff; no refinement/session/reflection copies. |
-| Reusable learning | Targeted `memory recall`; prefer a supplied ID/digest. |
-| File-byte recovery | Explicit `history`; apply only the exact authorized preview ID. |
-
-For tracked work, run the check, end/submit to PENDING, then `verify mark` from its observed result. Unrun checks stay PENDING. Audit owned work after final writes with `verify audit`, settle or disclose debt, release owned leases. Details: [tracked work](references/agent-cheatsheet.md).
-
-## Remember selectively
-
-Use `memory recall-verified --memory-id <id>` for exact evidence; do not combine with `--query`. Preserve digest, scope and expiry filters. Reuse retrieved evidence while valid in that scope; fetch again only after change, expiry or a new unresolved question.
-
-Save one future-useful reason: `memory record` for agent-owned lessons, `memory store-verified` for shared reasoning. Describe the chosen write for provenance/ownership rules. Routine completion needs no memory, reflection or handoff. Details: [memory](references/memory-recall.md).
-
-LocalGit is optional evidence; share checkpoint pointers and fetch bytes only for byte-level questions.
+File History capture is host-owned lifecycle behavior. Agents inspect it with `history.status`, `history.timeline`, and `history.read`. Use `history.experience` for meaningful investigation events and optional immutable non-file archives, not transcripts or routine tool-call logs. Restore only a specific authorized preview: call `history.restore` with `action: preview`, inspect it, then apply that preview ID with `action: apply`. LocalGit is optional evidence, never coordination truth. For recall decisions and trace recovery, read [memory](references/memory-recall.md) and [history](references/local-history.md).
 
 ## Automation
 
-Default `coordination` hooks provide presence/delivery. Tracking, stop verification, handoffs and history are opt-in. Pi uses native events; shell hosts use installed hooks. Installation needs a scoped preview and authorization; choose one hook surface per host.
+Choose one lifecycle owner per host. Pi uses native events. Shell hosts may use installed hooks. A native-owned host must not also run shell hooks. Installation or configuration changes require scoped preview and authorization.
 
-Load only the needed reference: [workflow routing](references/flow-matrix.md), [storage](references/architecture.md), [configuration](references/configuration.md), [hooks](references/hooks.md), [plans](references/plan-task-workflow.md), [locks](references/lock-protocol.md), [history](references/local-history.md), [reflection](references/self-reflection-dialogue.md), [Octocode tools](references/octocode.md) when repository evidence needs a tool call.
+Load only the needed reference: [workflow routing](references/flow-matrix.md), [storage](references/architecture.md), [configuration](references/configuration.md), [hooks](references/hooks.md), [shared work](references/plan-task-workflow.md), [Octocode tools](references/octocode.md).
 
 Source changes sync via `yarn workspace @octocodeai/octocode-awareness build`.

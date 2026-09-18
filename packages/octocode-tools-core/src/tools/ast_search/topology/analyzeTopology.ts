@@ -1,5 +1,5 @@
 import { isAbsolute, relative } from 'node:path';
-import { inferRootFromAbsoluteFile } from './rootInference.js';
+import { resolveTopologyQueryPath } from './queryPath.js';
 import {
   buildFileGraph,
   resolveGraphExcludeDirs,
@@ -33,15 +33,11 @@ import type {
   TopologyAnalysisQuery,
 } from './analysisTypes.js';
 import { finalizeGraphOutput, paginateGraphResults } from './pagination.js';
+import { analyzeTopologyDrift } from './drift.js';
 
 const DEFAULT_MAX_FILES = 20_000;
 const DEFAULT_DEPTH = 1;
 
-/**
- * Return the graph-relative key for `file`.
- * When `file` is absolute it is made relative to `rootPath` first so that the
- * key matches what buildFileGraph stores (repo-relative paths).
- */
 function resolveFileForGraph(file: string, rootPath: string): string {
   return normalizeGraphFile(isAbsolute(file) ? relative(rootPath, file) : file);
 }
@@ -72,37 +68,9 @@ export async function analyzeTopology(
   rawQuery: TopologyAnalysisQuery,
   context: TopologyAnalysisContext = {}
 ): Promise<TopologyAnalysisOutput> {
-  // Resolve path: when omitted, infer from the first absolute file-like field.
-  let resolvedPath = rawQuery.path;
-  if (!resolvedPath) {
-    const candidate = [
-      rawQuery.file,
-      rawQuery.target,
-      ...(rawQuery.entrypoints ?? []),
-    ].find(value => value !== undefined && isAbsolute(value));
-    if (candidate) {
-      resolvedPath = inferRootFromAbsoluteFile(
-        candidate,
-        rawQuery.rustWorkspace
-      );
-    }
-  }
-  if (!resolvedPath) {
-    return {
-      status: 'error',
-      error:
-        'path is required — or provide an absolute file path to infer its nearest Cargo.toml (Rust) or package.json root',
-      errorCode: 'invalidGraphQuery',
-      operation: rawQuery.operation,
-      path: '',
-      results: [],
-    };
-  }
-  // Work with a query that always has a string path.
-  const query: TopologyAnalysisQuery & { path: string } = {
-    ...rawQuery,
-    path: resolvedPath,
-  };
+  const queryPath = resolveTopologyQueryPath(rawQuery);
+  if ('error' in queryPath) return queryPath.error;
+  const { query } = queryPath;
 
   const excludeDir = resolveGraphExcludeDirs(query.excludeDir);
   const maxFiles = query.maxFiles ?? DEFAULT_MAX_FILES;
@@ -159,6 +127,17 @@ export async function analyzeTopology(
         ...(scan.confidence ? { confidence: scan.confidence } : {}),
       },
       'Continue dead-code candidates.'
+    );
+  }
+
+  if (query.operation === 'drift') {
+    return analyzeTopologyDrift(
+      built,
+      query,
+      context,
+      excludeDir,
+      maxFiles,
+      finalize
     );
   }
 
@@ -272,18 +251,41 @@ export async function analyzeTopology(
     const layerByComponent = componentLayerMap(condensed.layers);
     const redundantEdges = findTransitiveEdges(condensed.edges);
     const depth = query.depth ?? DEFAULT_DEPTH;
-    // Every direct neighbor has a one-edge path from the source, so no
-    // intervening node can dominate it. Deeper queries still need the full
-    // reachable graph: paths outside the requested depth can change dominators.
     const immediateDominators =
       depth > 1 ? computeImmediateDominators(graph, file) : undefined;
+
+    const importLineIndex = new Map<string, Map<string, number>>();
+    for (const [importer, fileFacts] of built.facts) {
+      const targetMap = new Map<string, number>();
+      for (const imp of fileFacts.imports) {
+        if (imp.resolvedTarget !== null && !targetMap.has(imp.resolvedTarget)) {
+          targetMap.set(imp.resolvedTarget, imp.line);
+        }
+      }
+      if (targetMap.size > 0) importLineIndex.set(importer, targetMap);
+    }
+
+    const inDegree = new Map<string, number>();
+    for (const [, node] of built.fileGraph) {
+      for (const tgt of node.importsFiles) {
+        inDegree.set(tgt, (inDegree.get(tgt) ?? 0) + 1);
+      }
+    }
+
     const items = traverseGraph(graph, file, depth).map(result => {
       const resultFile = result.file as string;
       const via = result.via as string;
+      const importerFile =
+        query.operation === 'dependencies' ? via : resultFile;
+      const importedFile =
+        query.operation === 'dependencies' ? resultFile : via;
+      const importLine = importLineIndex.get(importerFile)?.get(importedFile);
       const fromComponent = condensed.componentOf.get(via);
       const toComponent = condensed.componentOf.get(resultFile);
       return {
         ...result,
+        ...(importLine !== undefined ? { importLine } : {}),
+        inboundCount: inDegree.get(resultFile) ?? 0,
         immediateDominator:
           depth === 1 ? file : (immediateDominators?.get(resultFile) ?? null),
         topologicalLayer:

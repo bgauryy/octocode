@@ -5,12 +5,10 @@
  * Depends on: types (← leaf), registry (← types).
  * No imports from agent-tools or other agents sub-modules.
  */
-import fs from 'node:fs';
 import type {
   WorkerLedgerEntry,
   WorkerLedgerEventType,
   WorkerMessageActivity,
-  WorkerWorktreeState,
 } from '../../types.js';
 import {
   type AgentRecord,
@@ -19,6 +17,7 @@ import {
   MAX_LEDGER_EVENTS,
 } from './types.js';
 import { agents, getLedgerHidden, isProcessAlive } from './registry.js';
+import { getArgCsv, getArgValue, statHandbackArtifact, worktreeSnapshot } from './worker-metadata.js';
 
 // ─── Ledger listeners ──────────────────────────────────────────────────────
 
@@ -117,34 +116,6 @@ export function recordMessageActivity(
     timestamp: Date.now(),
   };
   pushLedgerEvent(record, 'message', ledgerMessage, record.lastMessage);
-}
-
-// ─── Ledger entry serialisation helpers (local) ───────────────────────────────
-
-function getArgValue(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
-function getArgCsv(args: string[], flag: string): string[] | undefined {
-  const value = getArgValue(args, flag);
-  return value ? value.split(',').map((item) => item.trim()).filter(Boolean) : undefined;
-}
-
-function statHandbackArtifact(
-  filePath: string,
-): { path: string; exists: boolean; bytes?: number; modifiedAt?: string } {
-  try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile()) return { path: filePath, exists: false };
-    return { path: filePath, exists: true, bytes: stat.size, modifiedAt: stat.mtime.toISOString() };
-  } catch {
-    return { path: filePath, exists: false };
-  }
-}
-
-function worktreeSnapshot(worktree: WorkerWorktreeState | undefined): WorkerWorktreeState | undefined {
-  return worktree ? { ...worktree } : undefined;
 }
 
 // ─── Ledger entry builders ─────────────────────────────────────────────────────

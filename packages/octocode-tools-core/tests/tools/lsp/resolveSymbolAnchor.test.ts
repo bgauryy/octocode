@@ -41,6 +41,46 @@ afterEach(async () => {
 });
 
 describe('resolveSymbolAnchor', () => {
+  it.each([
+    ['const use = object["123"];', 20],
+    ['const use = object["run-task"];', 23],
+    ['const use = import("./target.js");', 20],
+    ['const use = target;', 15],
+    ['const use = "😀" + café;', 22],
+  ])(
+    'preserves exact UTF-16 positions in %s without fuzzy resolution',
+    async (content, character) => {
+      tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+      const filePath = join(tempDir, 'fixture.ts');
+      await writeFile(filePath, content);
+      const position = { line: 0, character };
+      const result = await resolveSymbolAnchor(
+        { uri: filePath, operation: 'definition', position },
+        'lspSearch'
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok)
+        expect(result.value.resolvedSymbol.position).toEqual(position);
+      expect(resolverMocks.resolvePositionFromContent).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    { line: 1, character: 0 },
+    { line: 0, character: 99 },
+  ])('rejects an exact position outside the source: %j', async position => {
+    tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
+    const filePath = join(tempDir, 'fixture.ts');
+    await writeFile(filePath, 'const value = 1;');
+    const result = await resolveSymbolAnchor(
+      { uri: filePath, operation: 'definition', position },
+      'lspSearch'
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.errorType).toBe('anchor_drift');
+    expect(resolverMocks.resolvePositionFromContent).not.toHaveBeenCalled();
+  });
+
   it.each(['étarget', '東京', '𐐀', '$target', 'target\u0301', 'target\u200c'])(
     'counts complete Unicode identifier %s when reporting ambiguous anchors',
     async symbolName => {
@@ -55,7 +95,12 @@ describe('resolveSymbolAnchor', () => {
         lineContent: line,
       });
       const result = await resolveSymbolAnchor(
-        { uri: filePath, operation: 'definition', symbolName, lineHint: 3 } as never,
+        {
+          uri: filePath,
+          operation: 'definition',
+          symbolName,
+          lineHint: 3,
+        } as never,
         'lspSearch'
       );
       expect(result.ok).toBe(false);
@@ -138,15 +183,7 @@ describe('resolveSymbolAnchor', () => {
     );
   });
 
-  /**
-   * Regression for the audit-found silent-misbind: with multiple same-named
-   * occurrences in a file, a stale lineHint that resolves 1-3 lines away used
-   * to bind silently under full confidence (isAmbiguous only fired at
-   * deviation > 3, while the resolver searches radius 5). ANY nonzero
-   * deviation with multiple candidates is lower-confidence evidence and must
-   * say so.
-   */
-  it('flags isAmbiguous + lineDeviation when a multi-occurrence symbol resolves off the hint line', async () => {
+  it('rejects a stale hint instead of silently binding a nearby occurrence', async () => {
     tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
     const filePath = join(tempDir, 'fixture.ts');
     // Two occurrences of `target`; hint points at line 5, resolver finds line 3.
@@ -183,7 +220,7 @@ describe('resolveSymbolAnchor', () => {
     });
   });
 
-  it('does not flag a unique symbol that resolves off the hint line', async () => {
+  it('rejects a stale hint even when the symbol is unique', async () => {
     tempDir = await mkdtemp(join(process.cwd(), '.tmp-octocode-anchor-'));
     const filePath = join(tempDir, 'fixture.ts');
     const content = 'const pad = 1;\n\nfunction target() {}\n';

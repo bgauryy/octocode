@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { PiInstance } from "../../src/types.js";
+import { semanticUi } from './pi-semantic-ui.js';
 
 const PROVIDER = "octocode-production-probe";
 const MODEL = "deterministic-v1";
@@ -464,68 +465,6 @@ interface RuntimeOptions {
     keepRecentTokens: number;
     behavior?: "complete" | "wait-for-abort";
   }>;
-}
-function semanticUi(
-  events: Event[],
-  observations: Event[] = [],
-): Record<string, unknown> {
-  const push = (kind: string, data?: unknown): void => {
-    events.push({ kind, ...(data === undefined ? {} : { data }) });
-  };
-  return {
-    select: async (title: string, options: string[]) => {
-      push("ui.select", { title, count: options.length });
-      return options[0];
-    },
-    confirm: async (title: string) => {
-      push("ui.confirm", { title });
-      return true;
-    },
-    input: async (title: string) => {
-      push("ui.input", { title });
-      return "probe-input";
-    },
-    editor: async (title: string) => {
-      push("ui.editor", { title });
-      return "probe-editor";
-    },
-    notify: (message: string, type?: string) => {
-      if (message.startsWith("probe:")) push("ui.notify", { message, type });
-      else
-        observations.push({
-          kind: "ui.host-notification",
-          data: { message, type },
-        });
-    },
-    onTerminalInput: () => () => undefined,
-    setStatus: (key: string, value?: string) => {
-      if (key.startsWith("probe"))
-        push("ui.status", { key, active: value !== undefined });
-    },
-    setWorkingMessage: () => undefined,
-    setWorkingVisible: () => undefined,
-    setWorkingIndicator: () => undefined,
-    setHiddenThinkingLabel: () => undefined,
-    setWidget: () => undefined,
-    setFooter: () => undefined,
-    setHeader: () => undefined,
-    setTitle: (title: string) => {
-      if (title.startsWith("probe")) push("ui.title", { title });
-    },
-    custom: async () => undefined,
-    pasteToEditor: () => undefined,
-    setEditorText: () => undefined,
-    getEditorText: () => "",
-    addAutocompleteProvider: () => undefined,
-    setEditorComponent: () => undefined,
-    getEditorComponent: () => undefined,
-    theme: {},
-    getAllThemes: () => [],
-    getTheme: () => undefined,
-    setTheme: () => ({ success: false }),
-    getToolsExpanded: () => false,
-    setToolsExpanded: () => undefined,
-  };
 }
 async function openRuntime(
   cwd: string,

@@ -6,7 +6,7 @@ Everything the extension registers with Pi on load: tools, system-prompt section
 
 ## System Prompt
 
-The prompt is assembled from a small Pi host adapter, the canonical coder kernel from `@octocodeai/agent-contracts/prompts`, and the canonical `EXTERNAL_AGENT_AWARENESS_PROMPT`. The kernel owns intent classification, execution and delegation, verification, continuation, repository/tool routing, lifecycle, and output rules. Full Awareness recipes remain on demand through `guide` and the skill. The built prompt is supplied through `before_agent_start`; no regex-triggered repo-state, output-recovery, or editor-comment prompts are injected.
+The prompt is assembled from a small Pi host adapter, the canonical coder kernel from `src/contracts/prompts`, and the canonical `EXTERNAL_AGENT_AWARENESS_PROMPT`. The kernel owns intent classification, execution and delegation, verification, continuation, repository/tool routing, lifecycle, and output rules. Full Awareness recipes remain on demand through `guide` and the skill. The built prompt is supplied through `before_agent_start`; no regex-triggered repo-state, output-recovery, or editor-comment prompts are injected.
 
 Before every turn, the hook refreshes a versioned effective capability snapshot
 and replaces its owned prompt projection. The seven core segments contain product
@@ -29,19 +29,19 @@ All 10 catalogued Octocode research tools (GitHub, local, graph, LSP, npm) are *
 
 **Call pattern:**
 ```js
-MCPTool({queries:[{reasoning:"Search remote code.", action:"call", server:"octocode", tool:"ghSearch",
-  arguments:{queries:[{reasoning:"Find candidate files.", operation:"code", keywords:["..."]}]}}]})
+MCPTool({queries:[{action:"call", tool:"ghSearch",
+  arguments:{queries:[{operation:"code", keywords:["..."]}]}}]})
 ```
 
-Catalogued tools via `MCPTool server:"octocode"`: `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
+Catalogued tools via `MCPTool` (omitted `server` defaults to `octocode`): `ghSearch` · `ghGetFileContent` · `ghSearchHistory` · `ghGetHistoryItem` · `ghCloneRepo` · `artifactSearch` · `localSearch` · `astSearch` · `localFetch` · `lspSearch`. Runtime availability can disable individual tools such as cloning.
 
-`warmMcpCatalog()` runs at `session_start`. The default prompt lists every enabled server/tool description and complete input contract in `<mcp_catalog_index>`, including the required `MCPTool → queries[] → arguments` call envelope. `MCPTool action:"list"` remains a revision-bound inspection surface with executable continuations, while `action:"describe"` returns one selected exact JSON schema. Calls validate against the current enabled catalog. Set `OCTOCODE_COMPACT_MCP=0` to inspect the unoptimized exact catalog projection for debugging; `OCTOCODE_MCP_AI_GUIDE=1` opts into model-authored descriptions without removing schema contracts.
+`warmMcpCatalog()` runs at `session_start`. The prompt receives one deterministic `<mcp_catalog_index>` with enabled server instructions plus tool names and descriptions; input schemas are not injected. The initial index is bounded and exposes an executable `MCPTool action:"list"` continuation when needed. `action:"describe"` returns the exact JSON schema and, when the host admits dynamic names, activates a namespaced Pi proxy whose provider-visible parameters are that schema. Call the returned proxy directly; a fixed host allowlist is reported and uses the generic gateway fallback. Generic gateway calls are blocked until describe and are bound to the described schema digest. Calls also validate against the current enabled `catalog.json` snapshot. The gateway's own `queries[]` schema uses strict action-discriminated branches, so unrelated fields are rejected before execution.
 
 **Edit stale-check**: `MCPTool` intercepts `server:"octocode" tool:"localFetch"` calls and runs `recordFileReadState()` so `file` operations with `type:"edit"` can detect stale targets.
 
 ### Support Tools — 14
 
-Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `file`, `web`, `chromeDebug`, `agent`, `callTool`, `skill`, `plan`, `localServer`, `awareness`, `MCPTool`, `askUser`, `inspectMedia`, `media`, and `runFfmpeg`. Together with the guarded `bash` override, these form the 15-tool direct palette. Every direct tool exposes only a top-level `queries[]` array; each query requires concise `reasoning`. `/config` and its `/configuration` alias open the OS browser management page.
+Registered from extension sources and named in `OCTOCODE_SUPPORT_TOOL_NAMES`: `file`, `web`, `chromeDebug`, `agent`, `callTool`, `skill`, `plan`, `localServer`, `awareness`, `MCPTool`, `askUser`, `inspectMedia`, `media`, and `runFfmpeg`. Together with the guarded `bash` override, these form the 15-tool direct palette. Every direct tool exposes only a top-level `queries[]` array; `reasoning` is an optional bounded batch label. `/config` and its `/configuration` alias open the OS browser management page.
 
 | Tool | Label | Description |
 |---|---|---|
@@ -210,8 +210,8 @@ Registered via `createHookComposer(pi, …)` (middleware composer that catches a
 | Event | Middleware ID | What it does |
 |---|---|---|
 | `resources_discover` | `bundled-skills` | Returns `{ skillPaths: [dist/skills/] }` so Pi discovers bundled skills |
-| `session_start` | `octocode-session-start` | Resets metrics state, applies Octocode UI, starts cron scheduler, reasserts the native-tool replacement set for direct hosts, loads `.env` via `propagateOctocodeEnv` (global + project, trust-gated), notifies on env changes |
-| `session_shutdown` | `octocode-session-shutdown` | Stops cron scheduler, kills spawned agents, stops MCP servers, clears all status labels and widgets |
+| `session_start` | `octocode-session-start` | Resets metrics state, applies Octocode UI, claims Pi's native Awareness lifecycle ownership, reasserts the native-tool replacement set for direct hosts, loads `.env` via `propagateOctocodeEnv` (global + project, trust-gated), notifies on env changes |
+| `session_shutdown` | `octocode-session-shutdown` | Kills spawned agents, stops MCP servers, and clears all status labels and widgets |
 | `model_select` | `octocode-model-select` | Logs model selection; updates UI thinking-level label |
 | `thinking_level_select` | `octocode-thinking-select` | Logs thinking level; refreshes UI label |
 | `input` | `octocode-session-autoname` | Names the session from the first substantive user message |
@@ -242,8 +242,8 @@ their host ownership.
 
 The harness imports `@octocodeai/octocode-awareness` for native registry membership,
 shared plan projection, mutation guards/presence and peer-event delivery/policy.
-Model-facing signals, explicit locks, memory, verification, history, bookkeeping,
-and maintenance use the single `awareness` list/describe/call facade, importing the package API directly. Internal hook callbacks stay with the host lifecycle; setup and instruction export use the native API. The stable Awareness runtime segment supplies the physical SQLite path, normalized workspace, and identity; native execution needs no CLI runner.
+Model-facing signals, explicit locks, memory, verification, history, and bookkeeping
+use the single `awareness` list/describe/call facade, importing the package API directly. Operator retention and whole-store retirement remain outside routine Pi discovery. Internal hook callbacks stay with the host lifecycle; setup and instruction export use the native API. The stable Awareness runtime segment supplies the physical SQLite path, normalized workspace, and identity; native execution needs no CLI runner.
 External CLI agents communicate through that same database/workspace with their own
 distinct IDs. Workers keep their physical worktree as workspace, while the inherited
 `OCTOCODE_AWARENESS_DB` selects the parent ledger for native calls, CLI fallback,
@@ -257,7 +257,9 @@ Each Pi session also writes one version 2 contract across `manifest.json`, `sess
 
 ## UI status surfaces
 
-Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
+Transient labels use `ctx.ui.setStatus(name, value)`. The extension deliberately
+avoids persistent widgets and mutable headers; one register-once footer owns live
+session presentation.
 
 | Status key | Content |
 |---|---|
@@ -267,7 +269,7 @@ Set via `ctx.ui.setStatus(name, value)` and `ctx.ui.setWidget(name, value)`.
 | `chrome-debug` | Active CDP action label during `chromeDebug` calls |
 | `octocode-mcp` | MCP connection status label |
 
-The register-once footer owns activity, exact measured context, plan progress, worker attention, and session metadata. Pending decisions stop the motion indicator. The event reducer owns turn timing and tool counts; initialization and provider context remain separate runtime facts. Git line totals describe the whole working tree, including changes that preceded the session. GitHub authentication problems appear as attention; successful checks stay quiet.
+The register-once footer owns activity, exact measured context, plan progress, worker attention, and session metadata. Pending decisions stop the motion indicator. The event reducer owns turn timing and tool counts; initialization and provider context remain separate runtime facts. Pi's footer data supplies the current branch; passive UI lifecycle never starts Git commands. GitHub authentication problems appear as attention; successful checks stay quiet.
 
 `lifecycle-ui.ts` records structured host observations through `execution-runtime.ts` into Pi custom state entries. `execution-events.ts` owns their typed payloads and replay reducer. These entries never enter model context. Pi retains user/assistant text and full tool results; the event journal references those native records instead of copying private reasoning or large output. `/octocode-status` and `/octocode-status events` inspect this state without sending an assistant message. See [UI contract](docs/UI.md).
 

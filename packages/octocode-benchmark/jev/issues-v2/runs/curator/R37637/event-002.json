@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"reasoning\":\"Read the selected issue body and maintainer discussion to establish reported behavior, reproduction, versions, and any resolution evidence.\",\"operation\":\"issue\",\"owner\":\"react\",\"repo\":\"react\",\"number\":37637,\"content\":{\"body\":true,\"comments\":{\"discussion\":true,\"includeBots\":true}},\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:03.576Z",
+  "endedAt": "2026-09-18T08:52:05.668Z",
+  "elapsedMs": 2085,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "5fb66b37443c9c4ae36b5f16cf9f881b538e535edd4082aa1758339b989ef9e0",
+  "requestSha256": null
+}

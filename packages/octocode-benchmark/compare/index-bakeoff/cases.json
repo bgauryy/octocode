@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "repositories": {
+    "langchain": {
+      "commit": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
+      "path": "/Users/bgaryy/.octocode/tmp/clone/langchain-ai/langchain/67ee6cb63dd9ae7f3a4dfedc3095652bce15a125__host_4f9820f36e499d38"
+    },
+    "nextjs": {
+      "commit": "d155ba9ebfffe4742efefda8d68c2e0e8e490924",
+      "path": "/Users/bgaryy/.octocode/tmp/clone/vercel/next.js/d155ba9ebfffe4742efefda8d68c2e0e8e490924__host_87c33434e817364e"
+    }
+  },
+  "cases": [
+    {
+      "id": "langchain-content-base-chat-model",
+      "repository": "langchain",
+      "kind": "content",
+      "query": "class BaseChatModel",
+      "caseSensitive": true
+    },
+    {
+      "id": "langchain-symbol-base-chat-model",
+      "repository": "langchain",
+      "kind": "symbol",
+      "query": "BaseChatModel",
+      "caseSensitive": true
+    },
+    {
+      "id": "langchain-path-chat-models",
+      "repository": "langchain",
+      "kind": "path",
+      "query": "chat_models.py",
+      "caseSensitive": true
+    },
+    {
+      "id": "nextjs-content-next-config",
+      "repository": "nextjs",
+      "kind": "content",
+      "query": "interface NextConfig",
+      "caseSensitive": true
+    },
+    {
+      "id": "nextjs-symbol-next-config",
+      "repository": "nextjs",
+      "kind": "symbol",
+      "query": "NextConfig",
+      "caseSensitive": true
+    },
+    {
+      "id": "nextjs-path-config-shared",
+      "repository": "nextjs",
+      "kind": "path",
+      "query": "config-shared.ts",
+      "caseSensitive": true
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, test } from 'vitest';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { createIsolatedAwarenessStore, createPiFlowHarness } from '@octocodeai/agent-testing';
-import { openAwarenessStore } from '@octocodeai/octocode-awareness';
+import { openAwarenessStore } from '@octocodeai/octocode-awareness/host';
 import {
   clearPlan,
 } from '../src/tools/planning/plan-store.js';
@@ -202,7 +202,7 @@ test('terminal footer keeps current work visible and width-safe while the canoni
     assert.ok(!normalized.includes(steps[0]!.text), 'completed detail stays in the durable full plan');
     assert.ok(!normalized.includes(steps[4]!.text), 'later work stays collapsed in the persistent panel');
     assert.match(normalized, /Plan/, 'plan identity survives every width');
-    if (width >= 80) assert.match(normalized, /task 2/, 'the active lane remains identifiable when space allows');
+    if (width >= 80) assert.match(normalized, /running:/, 'the active lane remains identifiable when space allows');
     const full = renderPlanReadModel(model, 'terminal') as string;
     for (const step of steps) assert.ok(full.includes(step.text), 'the full plan retains every task');
   }

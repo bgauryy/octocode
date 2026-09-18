@@ -113,16 +113,57 @@ describe('paginateBulkText', () => {
     expect(result.pagination!.hasMore).toBe(false);
   });
 
+  it('restarts a manually selected offset inside a Unicode code point', () => {
+    const text = 'a😀b';
+    const first = paginateBulkText(text, { responseCharLength: 1 });
+    const result = paginateBulkText(text, {
+      responseCharLength: 1,
+      responseCharOffset: 2,
+      responseSnapshot: first.pagination!.snapshot,
+    });
+    expect(result.pagination).toMatchObject({
+      restart: true,
+      changed: false,
+      charLength: 0,
+      nextCharOffset: 0,
+    });
+    expect(result.text).toContain('Unicode');
+  });
+
   it('snaps to a newline boundary when possible', () => {
     // 20-char page on text with a \n at position 10
     const text = '0123456789\n0123456789abc';
     const result = paginateBulkText(text, { responseCharLength: 15 });
     const pageContent = result.text.replace(/# Response page.*\n/, '');
     // Should snap to after the \n at position 11
-    expect(pageContent.endsWith('\n') || result.pagination!.hasMore).toBe(
-      pageContent.endsWith('\n') || result.pagination!.hasMore
-    );
+    expect(pageContent).toBe('0123456789\n');
+    expect(result.pagination!.nextCharOffset).toBe(11);
   });
+
+  it.each([1, 2, 3, 7])(
+    'preserves Unicode through separately encoded pages of length %i',
+    length => {
+      const text = 'a😀b\n🧪研究c😀';
+      let offset = 0;
+      let snapshot: string | undefined;
+      const pages: string[] = [];
+      do {
+        const result = paginateBulkText(text, {
+          responseCharLength: length,
+          responseCharOffset: offset,
+          responseSnapshot: snapshot,
+        });
+        const chunk = result.text.slice(result.text.indexOf('\n') + 1);
+        pages.push(Buffer.from(chunk, 'utf8').toString('utf8'));
+        snapshot = result.pagination!.snapshot;
+        if (!result.pagination!.hasMore) break;
+        expect(result.pagination!.nextCharOffset).toBeGreaterThan(offset);
+        offset = result.pagination!.nextCharOffset!;
+        expect(pages.length).toBeLessThanOrEqual(text.length);
+      } while (true);
+      expect(pages.join('')).toBe(text);
+    }
+  );
 
   it('calculates totalPages >= currentPage', () => {
     const text = 'x'.repeat(200);

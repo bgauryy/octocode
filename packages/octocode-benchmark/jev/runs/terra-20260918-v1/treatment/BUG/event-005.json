@@ -1,0 +1,16 @@
+{
+  "arm": "treatment",
+  "caseId": "BUG",
+  "kind": "jev",
+  "args": [
+    "/Users/bgaryy/code/octocode/packages/octocode-benchmark/jev/runs/terra-20260918-v1/treatment/BUG/request.json"
+  ],
+  "startedAt": "2026-09-18T08:34:43.036Z",
+  "endedAt": "2026-09-18T08:34:43.939Z",
+  "elapsedMs": 902,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "b3783f419b89f520233be2c372328c96f91bc52fbcac97d3cd50cd03160c7044",
+  "stdoutBytes": 305,
+  "requestSha256": "11e1b6d43f9bd9cd94855e34bb4f8e4db026d54cf7ee9da03bd474cdec8c6429"
+}

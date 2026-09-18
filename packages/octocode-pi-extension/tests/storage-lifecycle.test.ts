@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'vitest';
-import { closeOctocodeDb } from '@octocodeai/agent-contracts/db';
-import { getMcpEnablement, getSkillEnablement, setMcpServerEnabled, setMcpToolEnabled, setSkillEnabled } from '@octocodeai/agent-contracts/mcp-state';
+import { closeOctocodeDb } from '../src/contracts/db.js';
+import { getMcpEnablement, getSkillEnablement, setMcpServerEnabled, setMcpToolEnabled, setSkillEnabled } from '../src/contracts/mcp-state.js';
 import { extensionStateDbPath } from '../src/extension-paths.js';
 import { openOctocodeDb } from '../src/tools/storage-policy.js';
 

@@ -16,8 +16,8 @@ import { StringDecoder } from 'node:string_decoder';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FORBIDDEN_WORKER_TOOL_NAMES } from '../../contracts/capabilities.js';
 import { withPeerCoordination } from './coordination.js';
-export { withPeerCoordination } from './coordination.js';
 import { getInstallSource } from '../../assets.js';
 import { extensionTmpRoot, extensionWorkspaceRoot } from '../../extension-paths.js';
 import { inspectWorkerAwarenessAutomatically } from '../awareness-worker-audit.js';
@@ -46,10 +46,8 @@ import {
   isAssistantOutputMessage,
 } from './normalization.js';
 import {
-  FORBIDDEN_WORKER_TOOLS,
   resolveSpawnPolicy,
   getWorkerTools,
-  shouldForceThinkingOffForToolCallingWorker,
   buildInitialPrompt,
   resolveWorkerModelParams,
   validateWorkerModelParams,
@@ -348,13 +346,11 @@ function buildPiArgs(
     for (const skillPath of params.skills ?? []) args.push('--skill', skillPath);
   }
   args.push('--name', name);
-  args.push('--exclude-tools', [...FORBIDDEN_WORKER_TOOLS].join(','));
+  args.push('--exclude-tools', FORBIDDEN_WORKER_TOOL_NAMES.join(','));
 
   if (params.provider) args.push('--provider', params.provider);
   if (params.model) args.push('--model', params.model);
-  if (shouldForceThinkingOffForToolCallingWorker(params, workerTools))
-    args.push('--thinking', 'off');
-  else if (params.thinking) args.push('--thinking', params.thinking);
+  if (params.thinking) args.push('--thinking', params.thinking);
   if (workerTools.length) args.push('--tools', workerTools.join(','));
   else args.push('--no-tools');
   args.push('--no-context-files');

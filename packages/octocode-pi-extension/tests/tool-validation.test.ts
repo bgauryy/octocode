@@ -33,7 +33,7 @@ test('plan rejects flat calls and accepts queries[] when reasoning is omitted', 
   const plan = capture(registerPlanTool);
   assert.throws(() => prepareAndValidate(plan, { action: 'show' }), /queries/i);
   const envelope = prepareAndValidate(plan, { queries: [{ action: 'show' }] });
-  assert.equal((envelope.queries as Array<Record<string, unknown>>)[0]?.reasoning, 'plan operation');
+  assert.equal((envelope.queries as Array<Record<string, unknown>>)[0]?.reasoning, undefined);
 });
 
 test('every plan action branch passes Pi validation through the shared query boundary', () => {
@@ -61,7 +61,7 @@ test('file rejects flat calls and accepts queries[] when reasoning is omitted', 
     /queries/i,
   );
   const envelope = prepareAndValidate(file, { queries: [{ type: 'delete', path: 'note.txt' }] });
-  assert.equal((envelope.queries as Array<Record<string, unknown>>)[0]?.reasoning, 'file operation');
+  assert.equal((envelope.queries as Array<Record<string, unknown>>)[0]?.reasoning, undefined);
 });
 
 test('shared registration preserves explicit reasoning for every query', () => {

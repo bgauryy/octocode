@@ -8,7 +8,6 @@ import { runHookCommand } from '../src/hooks/runner.js';
 import { connectDb } from '../src/db-runtime.js';
 import { listAgents, registerAgent } from '../src/agents.js';
 import { DEFAULT_AWARENESS_CONFIG, writeAwarenessConfig } from '../src/awareness-config.js';
-import { execCli } from '../src/coordination/cli.js';
 
 let directory: string;
 let database: ReturnType<typeof connectDb>;
@@ -93,15 +92,4 @@ describe('hook identity labels in the shared registry', () => {
     expect(listAgents(database, { workspacePath: directory }).agents).toEqual([]);
   });
 
-  it('keeps the alternate pre-edit CLI adapter on the same stable identity contract', () => {
-    const invoke = (event: Record<string, unknown>, flags: string[] = []) => execCli(['hooks', 'pre-edit', '--workspace', directory, '--db', join(directory, 'awareness.sqlite3'), '--event-json', JSON.stringify(event), ...flags]);
-    expect(invoke({}).code).toBe(1);
-    expect(invoke({}).stderr).toContain('stable agent_id/session_id');
-    vi.stubEnv('OCTOCODE_AGENT_ID', 'parent');
-    expect(JSON.parse(invoke({ agent_id: 'child' }).stdout).agentId).toBe('child');
-    expect(JSON.parse(invoke({ session_id: 'host-session' }).stdout).agentId).toBe('parent');
-    expect(invoke({}, ['--agent-id', '   ']).code).toBe(1);
-    vi.stubEnv('OCTOCODE_AGENT_ID', undefined);
-    expect(JSON.parse(invoke({ session_id: 'host-session' }).stdout).agentId).toBe('host-session');
-  });
 });

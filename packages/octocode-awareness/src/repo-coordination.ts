@@ -3,7 +3,6 @@ import { parseJsonList } from './helpers.js';
 import { AwarenessQueryParams, AwarenessQueryRow, BindValue, limitOf, stringList } from './repo-model.js';
 import { addExactScope, addNullableScope, addStateFilter, addTextFilter, repositoryScopeFromParams, scopeFromParams, workspaceArtifactScope } from './repo-scope.js';
 import { summarize } from './repo-formats.js';
-import { AGENTS_LIST_SELECT, AGENTS_LIST_ORDER } from './sql/agents.js';
 
 export function countPendingStandaloneRuns(db: DatabaseSync, params: AwarenessQueryParams): number {
   const scope = scopeFromParams(params);
@@ -63,29 +62,112 @@ export function lockRows(db: DatabaseSync, params: AwarenessQueryParams): Awaren
 
 export function agentRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
   const scope = repositoryScopeFromParams(params);
-  const where: string[] = [];
-  const binds: BindValue[] = [];
+  const registeredWhere: string[] = [];
+  const registeredBinds: BindValue[] = [];
   if (scope.workspacePaths.length > 0) {
-    where.push(`(workspace_path IN (${scope.workspacePaths.map(() => '?').join(',')}) OR workspace_path = '')`);
-    binds.push(...scope.workspacePaths);
+    registeredWhere.push(`(a.workspace_path IN (${scope.workspacePaths.map(() => '?').join(',')}) OR a.workspace_path = '')`);
+    registeredBinds.push(...scope.workspacePaths);
   }
   if (scope.artifact) {
-    where.push('(artifact = ? OR artifact IS NULL)');
-    binds.push(scope.artifact);
+    registeredWhere.push('(a.artifact = ? OR a.artifact IS NULL)');
+    registeredBinds.push(scope.artifact);
   }
-  addTextFilter(where, binds, params.query, ['agent_id', 'agent_name', 'context']);
+  const registeredSqlWhere = registeredWhere.length > 0 ? `WHERE ${registeredWhere.join(' AND ')}` : '';
+
+  const signalWhere: string[] = [];
+  const signalBinds: BindValue[] = [];
+  addExactScope(signalWhere, signalBinds, scope, 's');
+  const signalSqlWhere = signalWhere.length > 0 ? `WHERE ${signalWhere.join(' AND ')}` : '';
+  const outerWhere: string[] = [];
+  const binds: BindValue[] = [...registeredBinds, ...signalBinds];
+  const query = params.query?.trim();
+  if (query) {
+    outerWhere.push(`INSTR(LOWER(
+      COALESCE(c.agent_id, '') || ' ' || COALESCE(c.agent_name, '') || ' ' ||
+      COALESCE(c.context, '') || ' ' || COALESCE(c.agent_vendor, '') || ' ' ||
+      COALESCE(c.agent_host, '') || ' ' || COALESCE(c.provenance, '')
+    ), LOWER(?)) > 0`);
+    binds.push(query);
+  }
   if (params.agentId) {
-    where.push('agent_id = ?');
+    outerWhere.push('c.agent_id = ?');
     binds.push(params.agentId);
   }
-  const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db.prepare(
-    `${AGENTS_LIST_SELECT}
-       ${sqlWhere}
-       ${AGENTS_LIST_ORDER}
-      LIMIT ?`
-  ).all(...binds, limitOf(params.limit)) as unknown as AwarenessQueryRow[];
-  return rows;
+  const outerSqlWhere = outerWhere.length > 0 ? `WHERE ${outerWhere.join(' AND ')}` : '';
+  const offset = params.offset == null || !Number.isFinite(params.offset)
+    ? 0
+    : Math.max(0, Math.floor(params.offset));
+  return db.prepare(`WITH
+    registered_candidates AS (
+      SELECT a.agent_id, a.agent_name, a.workspace_path, a.artifact, a.context, a.status,
+        a.registered_at, a.last_seen_at,
+        CASE WHEN json_type(a.metadata_json, '$.vendor') = 'text'
+          THEN json_extract(a.metadata_json, '$.vendor') ELSE NULL END AS agent_vendor,
+        CASE WHEN json_type(a.metadata_json, '$.host') = 'text'
+          THEN json_extract(a.metadata_json, '$.host') ELSE NULL END AS agent_host,
+        ROW_NUMBER() OVER (
+          PARTITION BY a.agent_id
+          ORDER BY a.last_seen_at DESC, a.workspace_path, a.agent_id
+        ) AS identity_rank
+      FROM awareness_agents a
+      ${registeredSqlWhere}
+    ),
+    registered AS (
+      SELECT agent_id, agent_name, workspace_path, artifact, context, status,
+        registered_at, last_seen_at, agent_vendor, agent_host, 'registered' AS provenance
+      FROM registered_candidates
+      WHERE identity_rank = 1
+    ),
+    scoped_signals AS (
+      SELECT s.signal_id, s.from_agent, s.to_agent, s.workspace_path, s.artifact, s.created_at
+      FROM signals s
+      ${signalSqlWhere}
+    ),
+    observed_candidates AS (
+      SELECT TRIM(s.from_agent) AS agent_id, s.workspace_path, s.artifact, s.created_at, s.signal_id
+      FROM scoped_signals s
+      WHERE LENGTH(TRIM(s.from_agent)) BETWEEN 1 AND 128
+      UNION ALL
+      SELECT TRIM(CAST(recipient.value AS TEXT)) AS agent_id,
+        s.workspace_path, s.artifact, s.created_at, s.signal_id
+      FROM scoped_signals s
+      JOIN json_each(CASE
+        WHEN json_valid(s.to_agent) AND json_type(s.to_agent) IN ('array', 'text') THEN s.to_agent
+        WHEN SUBSTR(LTRIM(COALESCE(s.to_agent, '')), 1, 1) NOT IN ('[', '"')
+          THEN json_array(s.to_agent)
+        ELSE json('[]')
+      END) AS recipient
+      WHERE recipient.type = 'text'
+        AND LENGTH(TRIM(CAST(recipient.value AS TEXT))) BETWEEN 1 AND 128
+    ),
+    observed_ranked AS (
+      SELECT agent_id, workspace_path, artifact, created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY agent_id
+          ORDER BY created_at DESC, signal_id DESC
+        ) AS identity_rank
+      FROM observed_candidates
+    ),
+    observed AS (
+      SELECT o.agent_id, '' AS agent_name, o.workspace_path, o.artifact,
+        NULL AS context, NULL AS status, NULL AS registered_at, o.created_at AS last_seen_at,
+        NULL AS agent_vendor, NULL AS agent_host, 'observed' AS provenance
+      FROM observed_ranked o
+      WHERE o.identity_rank = 1
+        AND NOT EXISTS (SELECT 1 FROM registered r WHERE r.agent_id = o.agent_id)
+    ),
+    combined AS (
+      SELECT * FROM registered
+      UNION ALL
+      SELECT * FROM observed
+    )
+    SELECT c.agent_id, c.agent_name, c.status, c.agent_vendor, c.agent_host,
+      c.workspace_path, c.artifact, c.context, c.registered_at, c.last_seen_at, c.provenance
+    FROM combined c
+    ${outerSqlWhere}
+    ORDER BY c.last_seen_at DESC, c.agent_id COLLATE BINARY ASC
+    LIMIT ? OFFSET ?`
+  ).all(...binds, limitOf(params.limit), offset) as unknown as AwarenessQueryRow[];
 }
 
 /** Shared signal recipient visibility for list, workboard, profile, and snapshots. */
@@ -141,101 +223,15 @@ export function signalRows(db: DatabaseSync, params: AwarenessQueryParams): Awar
   }));
 }
 
-export function refinementRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
-  const scope = scopeFromParams(params);
-  const where: string[] = [];
-  const binds: BindValue[] = [];
-  addExactScope(where, binds, scope);
-  addTextFilter(where, binds, params.query, ['reasoning', 'remember', 'quality', 'state', 'files_json', 'agent_id']);
-  addStateFilter(where, binds, stringList(params.state), 'state', state => state.toLowerCase());
-  const since = params.since?.trim();
-  if (since) {
-    where.push('created_at >= ?');
-    binds.push(since);
-  }
-  const sqlWhere = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-  const rows = db.prepare(
-    `SELECT refinement_id, agent_id, workspace_path, artifact, repo, ref, files_json,
-            reasoning, remember, quality, state, created_at, updated_at
-       FROM refinements
-       ${sqlWhere}
-      ORDER BY
-        CASE state WHEN 'open' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END,
-        datetime(updated_at) DESC
-      LIMIT ?`
-  ).all(...binds, limitOf(params.limit)) as unknown as Array<Record<string, string | null>>;
-
-  return rows.map(row => ({
-    refinement_id: String(row['refinement_id']),
-    agent_id: String(row['agent_id']),
-    quality: String(row['quality']),
-    state: String(row['state']),
-    reasoning: String(row['reasoning']),
-    remember: String(row['remember']),
-    files: parseJsonList(row['files_json']),
-    workspace_path: String(row['workspace_path']),
-    artifact: row['artifact'] ?? null,
-    repo: row['repo'] ?? null,
-    ref: row['ref'] ?? null,
-    created_at: String(row['created_at']),
-    updated_at: String(row['updated_at']),
-  }));
-}
-
-/** Pull the feedback clause out of a reflection narrative, if present. */
-export function extractInstructionsFeedback(observation: string): string {
-  const marker = 'instructions feedback:';
-  const idx = observation.toLowerCase().indexOf(marker);
-  if (idx === -1) return observation;
-  const after = observation.slice(idx + marker.length);
-  // The narrative joins clauses with ' | ' and closes reflection bodies with ')'.
-  const end = after.search(/\s\|\s|\)\s*$/);
-  return (end === -1 ? after : after.slice(0, end)).trim();
-}
-
 /**
  * Feedback addressed to the human developer who authored the agent's operating
- * instructions. Primary source is the tracked `instructions`-quality refinement queue
- * (open/ongoing/done lifecycle); developer-review-tagged memories that no refinement
- * already represents are folded in so manually-tagged or historical feedback still shows.
+ * instructions. Developer-review-tagged memories are the canonical source.
  */
 export function developerReviewRows(db: DatabaseSync, params: AwarenessQueryParams): AwarenessQueryRow[] {
   const scope = scopeFromParams(params);
   const limit = limitOf(params.limit, 60, 500);
 
-  const refWhere = ["quality = 'instructions'"];
-  const refBinds: BindValue[] = [];
-  addExactScope(refWhere, refBinds, scope);
-  addTextFilter(refWhere, refBinds, params.query, ['reasoning', 'remember', 'files_json', 'agent_id']);
-  addStateFilter(refWhere, refBinds, stringList(params.state), 'state', state => state.toLowerCase());
-  const refRows = db.prepare(
-    `SELECT refinement_id, agent_id, workspace_path, artifact, repo, ref, files_json,
-            reasoning, remember, state, created_at, updated_at
-       FROM refinements
-      WHERE ${refWhere.join(' AND ')}
-      ORDER BY CASE state WHEN 'open' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END, datetime(updated_at) DESC
-      LIMIT ?`
-  ).all(...refBinds, limit) as unknown as Array<Record<string, string | null>>;
-
-  const rows: AwarenessQueryRow[] = refRows.map(row => ({
-    source: 'refinement',
-    id: String(row['refinement_id']),
-    refinement_id: String(row['refinement_id']),
-    state: String(row['state']),
-    feedback: String(row['remember']),
-    context: String(row['reasoning']),
-    files: parseJsonList(row['files_json']),
-    agent_id: String(row['agent_id']),
-    workspace_path: row['workspace_path'] ?? null,
-    artifact: row['artifact'] ?? null,
-    repo: row['repo'] ?? null,
-    ref: row['ref'] ?? null,
-    created_at: String(row['created_at']),
-    updated_at: String(row['updated_at']),
-  }));
-
-  // Fold in developer-review memories a refinement doesn't already carry.
-  const refTexts = refRows.map(row => String(row['remember'] ?? '').trim()).filter(Boolean);
+  const rows: AwarenessQueryRow[] = [];
   const memWhere = ["state = 'ACTIVE'", `tags_json LIKE '%"developer-review"%'`];
   const memBinds: BindValue[] = [];
   addNullableScope(memWhere, memBinds, scope);
@@ -249,13 +245,12 @@ export function developerReviewRows(db: DatabaseSync, params: AwarenessQueryPara
   ).all(...memBinds, limit) as unknown as Array<Record<string, string | number | null>>;
   for (const row of memRows) {
     const observation = String(row['observation'] ?? '');
-    if (refTexts.some(text => text && observation.includes(text))) continue;
     rows.push({
       source: 'memory',
       id: String(row['memory_id']),
       memory_id: String(row['memory_id']),
       state: 'recorded',
-      feedback: extractInstructionsFeedback(observation),
+      feedback: observation,
       context: String(row['task_context'] ?? ''),
       importance: Number(row['importance'] ?? 0),
       files: [],

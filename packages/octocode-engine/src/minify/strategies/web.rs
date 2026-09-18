@@ -1,7 +1,9 @@
 use crate::minify::comment_remover::remove_comments;
 use crate::minify::strategies::code::minify_js_oxc;
+use crate::signatures::extractor::{parse_before, AST_EXECUTION_TIMEOUT};
 use regex::Regex;
 use std::sync::LazyLock;
+use std::time::Instant;
 
 // ── CSS ──────────────────────────────────────────────────────────────────────
 
@@ -103,14 +105,7 @@ static ATTR_LANG: LazyLock<Regex> = LazyLock::new(|| {
 /// embedded languages, not the markup. Each sub-minifier falls back to the
 /// original block text when it cannot handle the content.
 pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
-    let mut parser = tree_sitter::Parser::new();
-    if parser
-        .set_language(&tree_sitter_html::LANGUAGE.into())
-        .is_err()
-    {
-        return content.to_owned();
-    }
-    let Some(tree) = parser.parse(content, None) else {
+    let Some(tree) = parse_html_before(content, Instant::now() + AST_EXECUTION_TIMEOUT) else {
         return content.to_owned();
     };
     if tree.root_node().has_error() {
@@ -157,6 +152,11 @@ pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
     }
     output.push_str(&content[offset..]);
     output
+}
+
+fn parse_html_before(content: &str, deadline: Instant) -> Option<tree_sitter::Tree> {
+    let language = tree_sitter_html::LANGUAGE.into();
+    parse_before(content, &language, deadline)
 }
 
 fn minify_style_blocks(content: &str) -> String {
@@ -213,7 +213,13 @@ fn script_virtual_path(open_tag: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{minify_html_core, minify_html_quality};
+    use super::{minify_html_core, minify_html_quality, parse_html_before};
+    use std::time::Instant;
+
+    #[test]
+    fn html_parser_honors_an_expired_deadline() {
+        assert!(parse_html_before("<html><body>safe</body></html>", Instant::now()).is_none());
+    }
 
     #[test]
     fn html_core_tightens_newline_separated_tags() {
