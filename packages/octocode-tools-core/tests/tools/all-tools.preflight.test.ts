@@ -15,8 +15,8 @@ vi.mock('../../src/providers/factory.js', () => ({
 vi.mock('../../src/cacheMaintenance.js', () => ({
   runCacheMaintenanceIfDue: runtime.maintenance,
 }));
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
+import { prepareDirectToolInput } from '../helpers/prepareDirectToolInput.js';
 
 beforeEach(() => vi.clearAllMocks());
 describe('all canonical tools validate the complete envelope before runtime work', () => {

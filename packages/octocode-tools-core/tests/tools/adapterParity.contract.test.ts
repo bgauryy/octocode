@@ -56,7 +56,7 @@ import {
   _overrideInitialize,
   _resetInitialize,
   executeDirectTool,
-} from '../../src/tools/directToolCatalog.exec.js';
+} from '../helpers/executeDirectTool.js';
 import { cleanup } from '../../src/serverConfig.js';
 import {
   ADAPTER_PARITY_CASES,

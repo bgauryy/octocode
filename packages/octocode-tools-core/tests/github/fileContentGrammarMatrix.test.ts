@@ -11,7 +11,7 @@ import { fetchGitHubFileContentAPI } from '../../src/github/fileContent.js';
 import { readFileEntry } from '../../src/tools/github_fetch_content/finalizer/entryParsers.js';
 import { FileContentBulkQueryLocalSchema } from '@octocodeai/octocode-core/schema';
 import type { FileContentExecutionQuery } from '../../src/tools/github_fetch_content/types.js';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { findDirectToolDefinition } from '@octocodeai/octocode-core/schema';
 
 const fixture = vi.hoisted(() => ({ source: '' }));
@@ -44,6 +44,11 @@ type FileView = {
 };
 
 async function local(query: Record<string, unknown>): Promise<FileView> {
+  query = {
+    reasoning: 'Exercise localFetch across the file-content grammar matrix.',
+    debug: true,
+    ...query,
+  };
   const schema = findDirectToolDefinition('localFetch')!.schema;
   expect(schema.safeParse(query).success, JSON.stringify(query)).toBe(true);
   const out = await executeDirectTool('localFetch', {
@@ -60,6 +65,11 @@ async function local(query: Record<string, unknown>): Promise<FileView> {
 }
 
 async function github(query: Record<string, unknown>): Promise<FileView> {
+  query = {
+    reasoning: 'Exercise ghGetFileContent across the file-content grammar matrix.',
+    debug: true,
+    ...query,
+  };
   expect(
     FileContentBulkQueryLocalSchema.safeParse({ queries: [query] }).success,
     JSON.stringify(query)

@@ -1,0 +1,3 @@
+# Q8 — VS Code keybinding dispatch
+
+The concrete workbench class is `WorkbenchKeybindingService` in [`src/vs/workbench/services/keybinding/browser/keybindingService.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/services/keybinding/browser/keybindingService.ts). It extends `AbstractKeybindingService`, defined in [`src/vs/platform/keybinding/common/abstractKeybindingService.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/platform/keybinding/common/abstractKeybindingService.ts). The base's public receiver is `dispatchEvent(e, target)`, which calls `_dispatch(e, target)`.

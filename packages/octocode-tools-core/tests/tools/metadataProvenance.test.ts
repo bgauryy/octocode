@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AstSearchQuerySchema,
   DIRECT_TOOL_SPECIFICATIONS,
   localCompleteMetadata,
   PUBLIC_TOOL_DESCRIPTIONS,
@@ -89,8 +88,13 @@ describe('metadata provenance — core owns executable contracts', () => {
     const definition = DIRECT_TOOL_DISCOVERY_DEFINITIONS.find(
       tool => tool.name === 'astSearch'
     );
-    expect(definition?.schema).toBe(AstSearchQuerySchema);
-    expect(AstSearchQuerySchema.safeParse(query).success).toBe(true);
+    expect(definition).toBeDefined();
+    expect(
+      definition!.schema.safeParse({
+        reasoning: 'Verify the canonical astSearch operation contract.',
+        ...query,
+      }).success
+    ).toBe(true);
   });
 
   it('does not expose a second schema registry beside the direct catalog', () => {

@@ -1,0 +1,11 @@
+{
+  "arm": "treatment",
+  "id": "R37637",
+  "model": "gpt-5.6-terra",
+  "effort": "high",
+  "startedAt": "2026-09-18T08:55:58.309Z",
+  "endedAt": "2026-09-18T08:59:56.734Z",
+  "exitCode": 1,
+  "signal": null,
+  "status": "failed"
+}

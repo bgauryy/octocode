@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "decision-review",
+  "title": "Jev Decision Review Request",
+  "description": "Public Jev packet for reviewing a supplied proposal before an expensive, close, or difficult-to-reverse action.",
+  "$comment": "This is a bounded review over host-supplied assumptions and risks, not a generic critic or text generator.",
+  "type": "object",
+  "required": ["model", "state", "questions"],
+  "properties": {
+    "model": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "description": "VISIBILITY BOUNDARY: proposal plus caller-owned assumptions and risks.",
+      "required": ["mainGoal", "goal", "reasoning", "proposal", "actionCost", "difficultToReverse", "assumptions", "risks"],
+      "properties": {
+        "mainGoal": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "reasoning": { "type": "object" },
+        "proposal": { "type": "string", "minLength": 1 },
+        "actionCost": { "enum": ["trivial", "low", "medium", "high"] },
+        "difficultToReverse": { "type": "boolean" },
+        "assumptions": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "required": ["id", "statement"],
+            "properties": { "id": { "type": "string", "pattern": "^A[0-9]+$" }, "statement": { "type": "string", "minLength": 1 } },
+            "additionalProperties": false
+          }
+        },
+        "risks": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "required": ["id", "statement"],
+            "properties": { "id": { "type": "string", "pattern": "^R[0-9]+$" }, "statement": { "type": "string", "minLength": 1 } },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "questions": {
+      "type": "object",
+      "required": ["proposal_viable", "primary_risk", "more_evidence_needed"],
+      "properties": {
+        "proposal_viable": { "$ref": "#/$defs/Noul" },
+        "primary_risk": { "$ref": "#/$defs/Choice" },
+        "more_evidence_needed": { "$ref": "#/$defs/Noul" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Choice": {
+      "type": "object", "required": ["type", "instructions", "criteria"],
+      "properties": { "type": { "const": "choice" }, "instructions": { "type": "string", "minLength": 1 }, "criteria": { "type": "object", "minProperties": 2 } },
+      "additionalProperties": false
+    },
+    "Noul": {
+      "type": "object", "required": ["type", "instructions", "criteria"],
+      "properties": { "type": { "const": "noul" }, "instructions": { "type": "string", "minLength": 1 }, "criteria": { "type": "object", "required": ["true", "false"] } },
+      "additionalProperties": false
+    }
+  }
+}

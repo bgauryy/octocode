@@ -231,7 +231,6 @@ fn build_continuation(
     let next_offset = page.next_char_offset.filter(|_| page.has_more)?;
     let mut clean = query.as_object().cloned().unwrap_or_default();
     clean.remove("goal");
-    clean.remove("reasoning");
     // Emit as { queries: [q] } so continuation tokens round-trip through
     // the backward-compatible single-element path in prepare().
     let mut continuation = Map::new();
@@ -383,13 +382,13 @@ mod tests {
     }
 
     #[test]
-    fn prepares_both_channels_and_strips_prompt_only_fields_from_next_query() {
+    fn prepares_both_channels_and_preserves_required_debug_state() {
         let pager = ResponsePager::new(ResponsePagerConfig::default());
         let result = pager
             .prepare(
                 ResponseInput {
                     tool: "localFetch".into(),
-                    query: json!({"path":"a", "goal":"g", "reasoning":"r"}),
+                    query: json!({"path":"a", "goal":"g", "reasoning":"r", "debug":true}),
                     structured: json!({"results":[]}),
                     rendered_text: Some("line1\nline2\nline3".into()),
                     is_error: false,
@@ -401,7 +400,10 @@ mod tests {
         assert_eq!(result.content.len(), 1);
         let next = &result.structured_content["responsePagination"]["next"]["query"];
         // continuation wraps in { queries: [q] } for backward compat
-        assert_eq!(next["queries"][0], json!({"path":"a"}));
+        assert_eq!(
+            next["queries"][0],
+            json!({"path":"a", "reasoning":"r", "debug":true})
+        );
         assert!(
             next["responseSnapshot"]
                 .as_str()

@@ -441,6 +441,8 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             }
         }
         Command::Read {
+            reasoning,
+            debug,
             path,
             lines,
             full,
@@ -454,7 +456,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             chunk,
             minify,
         } => {
-            let mut query = json!({"path":path});
+            let mut query = json!({"path":path,"reasoning":reasoning,"debug":debug});
             if let Some(lines) = lines {
                 let Some((start, end)) = lines
                     .split_once(':')
@@ -506,6 +508,8 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             .await
         }
         Command::Fetch {
+            reasoning,
+            debug,
             r#ref,
             branch,
             lines,
@@ -526,6 +530,8 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                     }
                 };
             let mut query = json!({
+                "reasoning": reasoning,
+                "debug": debug,
                 "owner": owner,
                 "repo": repo_name,
                 "path": file_path,

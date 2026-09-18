@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q2",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"operation\":\"repositories\",\"keywords\":[\"is type checking utility\"],\"owner\":\"sindresorhus\",\"pageSize\":10},{\"operation\":\"code\",\"owner\":\"sindresorhus\",\"repo\":\"is\",\"keywords\":[\"isQuantumSuperposition\"],\"pageSize\":10},{\"operation\":\"tree\",\"owner\":\"sindresorhus\",\"repo\":\"is\",\"maxDepth\":2,\"include\":[\"languages\",\"branches\"],\"pageSize\":100}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:15.352Z",
+  "endedAt": "2026-09-18T08:25:18.515Z",
+  "elapsedMs": 3161,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "f148ce2f12b580e4f9b5e830403b7f2afb6ceef9212d134a664468b7a998447c",
+  "stdoutBytes": 1420,
+  "requestSha256": null
+}

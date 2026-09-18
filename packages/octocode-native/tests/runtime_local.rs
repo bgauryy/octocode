@@ -4,6 +4,22 @@ use serde_json::json;
 use support::{Workspace, call, query_path, row_data, row_status};
 
 #[tokio::test]
+async fn runtime_requires_explicit_non_blank_reasoning() {
+    let workspace = Workspace::new();
+    let path = workspace.write("reasoning.txt", "ok\n");
+    let runtime = workspace.runtime(&[]);
+    let path = path.to_string_lossy().into_owned();
+    for query in [json!({"path":path}), json!({"path":path,"reasoning":"   "})] {
+        let error = runtime
+            .execute("reasoning-test".into(), "localFetch".into(), query)
+            .await
+            .expect_err("reasoning is required");
+        assert_eq!(error.code, "invalidInput");
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn local_fetch_pages_and_unions_through_the_runtime() {
     let workspace = Workspace::new();
     let path = workspace.write("source.txt", "one\ntwo 😀\nthree\n");

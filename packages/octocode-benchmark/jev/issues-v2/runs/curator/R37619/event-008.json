@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37619",
+  "kind": "octocode",
+  "args": [
+    "ghSearchHistory",
+    "--queries",
+    "[{\"reasoning\":\"Search React history for Map Set Flight cyclic-reference fixes beyond the reporter claim.\",\"operation\":\"pullRequests\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"Flight Map Set cyclic\"],\"state\":\"merged\",\"pageSize\":20},{\"reasoning\":\"Search React issues for Map Set Flight cycle evidence and limitations.\",\"operation\":\"issues\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"Map Set cyclic Flight\"],\"state\":\"open\",\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:14.433Z",
+  "endedAt": "2026-09-18T08:56:17.686Z",
+  "elapsedMs": 3252,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "c05b9f3103ff83639d4572f809473aa286c7362ac2f3144de57cd405cb2ef527",
+  "requestSha256": null
+}

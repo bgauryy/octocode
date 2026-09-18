@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151639",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"queries\":[{\"reasoning\":\"Locate Telegram streaming delivery code handling assistant content or text.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"telegram\",\"streaming\",\"content\"],\"pageSize\":30},{\"reasoning\":\"Locate anthropic-messages provider content normalization and thinking blocks.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"anthropic-messages\",\"thinking\"],\"pageSize\":30},{\"reasoning\":\"Locate source code that JSON-stringifies content arrays in messaging paths.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"JSON.stringify\",\"content\"],\"pageSize\":50}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:28.198Z",
+  "endedAt": "2026-09-18T08:53:30.690Z",
+  "elapsedMs": 62492,
+  "exitCode": 5,
+  "signal": null,
+  "stdoutSha256": "ff9ce23edfb14e834a8a71af7d712943e6a5e3d94a83012d01db39f31733a667",
+  "requestSha256": null
+}

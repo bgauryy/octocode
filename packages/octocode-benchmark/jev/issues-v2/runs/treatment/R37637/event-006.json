@@ -1,0 +1,18 @@
+{
+  "arm": "treatment",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read the reconciler component logic that computes enter/exit classes and names, including parent/appearing conditions.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberViewTransitionComponent.js\",\"matchString\":\"function getClassNameByType\",\"contextLines\":80},{\"reasoning\":\"Read commit traversal logic around inserted or appearing ViewTransition fibers to determine whether portal ancestry can suppress nested enters.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberCommitViewTransitions.js\",\"matchString\":\"If an inserted or appearing Fiber is a ViewTransition\",\"contextLines\":100},{\"reasoning\":\"Read the public ViewTransition prop type/documentation supplying the reported parent-mounted contract.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/shared/ReactTypes.js\",\"matchString\":\"export type ViewTransitionProps\",\"contextLines\":70}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:57:04.395Z",
+  "endedAt": "2026-09-18T08:57:05.692Z",
+  "elapsedMs": 1296,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "b19954f1d91ddfe0408e18fefc6bee2a9e1dfc99c0925b265b7a91b22a2cf878",
+  "requestSha256": null
+}

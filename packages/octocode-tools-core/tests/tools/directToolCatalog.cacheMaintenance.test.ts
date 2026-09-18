@@ -12,7 +12,7 @@ import {
   _overrideInitialize,
   _resetInitialize,
   executeDirectTool,
-} from '../../src/tools/directToolCatalog.exec.js';
+} from '../helpers/executeDirectTool.js';
 import {
   AST_SEARCH_TOOL_NAME,
   LSP_SEARCH_TOOL_NAME,

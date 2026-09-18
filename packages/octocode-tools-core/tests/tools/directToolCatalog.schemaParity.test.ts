@@ -215,12 +215,26 @@ describe('direct-tool meta catalog parity with ALL_TOOLS (P3)', () => {
       );
 
       for (const query of valid) {
-        const input = { queries: [query] };
+        const input = {
+          queries: [
+            {
+              reasoning: 'Validate generated executable schema parity.',
+              ...query,
+            },
+          ],
+        };
         expect(executable.safeParse(input).success).toBe(true);
         expect(generated.safeParse(input).success).toBe(true);
       }
       for (const query of invalid) {
-        const input = { queries: [query] };
+        const input = {
+          queries: [
+            {
+              reasoning: 'Validate generated executable schema parity.',
+              ...query,
+            },
+          ],
+        };
         expect(executable.safeParse(input).success).toBe(false);
         expect(generated.safeParse(input).success).toBe(false);
       }

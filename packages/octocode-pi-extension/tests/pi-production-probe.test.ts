@@ -155,7 +155,7 @@ describe("Pi production scenario probe", () => {
     expect(receipt.observations).toEqual([
       {
         kind: "persistence.durable-entry-count",
-        data: { count: 14, recoveredCustomEntry: true },
+        data: { count: 15, recoveredCustomEntry: true },
       },
     ]);
   }, 20_000);

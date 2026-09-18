@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "goal": "Use bounded Jev judgments to help host agents abandon or reframe attractive wrong beliefs after contradictory real evidence, without adding inert calls.",
+  "primaryKpi": {
+    "name": "wrong_lean_recovery_rate",
+    "direction": "increase",
+    "population": "held-out cases with an attractive wrong initial lead and later contradictory evidence",
+    "measure": "fraction where the host abandons or materially reframes the wrong lead before the final claim",
+    "target": "improve over the matched host-only baseline"
+  },
+  "implementationGate": {
+    "name": "planned_failure_fixture_pass_rate",
+    "baseline": "0/15 executable fixtures before the implementation",
+    "target": "15/15"
+  },
+  "leadingIndicators": [
+    "direct lookups and empty-evidence assertions skip Jev",
+    "testable checks freeze predictions before observing results",
+    "new observations route through reflection-delta",
+    "high-cost or difficult-to-reverse actions route through decision-review"
+  ],
+  "guardrails": [
+    "final correctness and unsupported-assertion rate do not regress",
+    "tokens, tool calls, elapsed time, and unnecessary Jev calls remain within frozen budgets",
+    "existing offline transport and research tests pass",
+    "all request schemas pass structural verification and native dry-run",
+    "emitted requests contain only model, state, and questions",
+    "skill review reports zero ERROR"
+  ],
+  "decisionRule": "ACCEPT only when the 15/15 implementation gate holds and a matched held-out evaluation improves Wrong-Lean Recovery Rate without guardrail regression. Contract-valid typed judgments alone are not evidence of semantic benefit."
+}

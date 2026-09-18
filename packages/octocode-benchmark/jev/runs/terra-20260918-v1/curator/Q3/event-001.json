@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q3",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"pallets\",\"repo\":\"flask\",\"path\":\"src/flask/sansio/scaffold.py\",\"matchString\":\"def route(\",\"contextLines\":35},{\"owner\":\"pallets\",\"repo\":\"flask\",\"path\":\"src/flask/sansio/scaffold.py\",\"matchString\":\"class Scaffold\",\"contextLines\":12}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:39.808Z",
+  "endedAt": "2026-09-18T08:25:40.142Z",
+  "elapsedMs": 332,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "2828b3d1503943648272df03cfb5df7ce57e2e5acfab03408f8a4704df5656fd",
+  "stdoutBytes": 4734,
+  "requestSha256": null
+}

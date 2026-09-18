@@ -1500,8 +1500,11 @@ mod tests {
 
     #[test]
     fn validates_local_fetch_and_applies_schema_defaults() {
-        let output =
-            validate("localFetch", json!({"queries":[{"path":"/tmp/a"}]})).expect("valid query");
+        let output = validate(
+            "localFetch",
+            json!({"queries":[{"path":"/tmp/a","reasoning":"Read the fixture."}]}),
+        )
+        .expect("valid query");
         assert_eq!(output["queries"][0]["goal"], Value::Null);
     }
 
@@ -1509,7 +1512,7 @@ mod tests {
     fn rejects_local_fetch_relations_and_unknown_fields() {
         let relation = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","fullContent":true,"limit":2}]}),
+            json!({"queries":[{"path":"/tmp/a","fullContent":true,"limit":2,"reasoning":"Read the complete fixture."}]}),
         )
         .expect_err("invalid relation");
         assert_eq!(
@@ -1523,7 +1526,7 @@ mod tests {
         assert!(
             validate(
                 "localFetch",
-                json!({"queries":[{"path":"/tmp/a","wat":true}]})
+                json!({"queries":[{"path":"/tmp/a","wat":true,"reasoning":"Exercise unknown-field validation."}]})
             )
             .is_err()
         );
@@ -1558,7 +1561,7 @@ mod tests {
     fn formats_stable_cli_input_errors() {
         let range = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2}]}),
+            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2,"reasoning":"Exercise range validation."}]}),
         )
         .expect_err("range");
         assert_eq!(
@@ -1570,7 +1573,7 @@ mod tests {
         );
         let unknown = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","madeUp":true}]}),
+            json!({"queries":[{"path":"/tmp/a","madeUp":true,"reasoning":"Exercise unknown-field validation."}]}),
         )
         .expect_err("unknown");
         assert_eq!(

@@ -1,0 +1,67 @@
+{
+  "caseId": "R37637",
+  "arm": "treatment",
+  "stage": "before_jev",
+  "provisionalClassification": "possible React ViewTransition contract/implementation mismatch; not yet supported as a code bug",
+  "provisionalDirection": "Verify the exact public enter-prop contract and the release-version portal traversal before proposing a code edit. Current source explicitly limits a newly mounted subtree to its first ViewTransition, so a portal-specific change must not be assumed safe.",
+  "observations": [
+    {
+      "id": "issue",
+      "source": "https://github.com/react/react/issues/37637",
+      "excerpt": "The reporter says an inner portal-mounted <ViewTransition> receives neither a name nor class in React 19.3.0; no comments or maintainer disposition are present."
+    },
+    {
+      "id": "release-enter",
+      "source": "https://github.com/react/react/blob/1d34f91dfde6bba84d08b683aaba164c7194dacb/packages/react-reconciler/src/ReactFiberCommitViewTransitions.js#L482-L528",
+      "excerpt": "commitEnterViewTransitions applies a name/class when its placement is a ViewTransition; otherwise it recursively visits children only when ViewTransitionStatic is present."
+    },
+    {
+      "id": "current-caller",
+      "source": "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-reconciler/src/ReactFiberCommitWork.js#L2911-L2920",
+      "excerpt": "Current source states: 'The first ViewTransition inside a newly mounted tree runs an enter transition but other nested ones don't unless they have a named pair.'"
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "h1_contract_bug",
+      "claim": "The documented enter contract requires the nested portal boundary to receive its own enter name/class, and the first-only traversal is a bug.",
+      "necessaryAssumption": "The quoted documentation applies to nested ViewTransition boundaries, not merely a parent component's own mount semantics.",
+      "weakeningObservation": "An authoritative prop document/test states nested entries are intentionally suppressed."
+    },
+    {
+      "id": "h2_intentional_semantics",
+      "claim": "The behavior is intentional first-boundary semantics; the report misreads or exposes ambiguous documentation, so no reconciler edit is safe.",
+      "necessaryAssumption": "The first-only source comment reflects the released intended contract and applies through HostPortal.",
+      "weakeningObservation": "Release tests/docs explicitly require independent nested enters."
+    },
+    {
+      "id": "h3_portal_gap",
+      "claim": "Only the HostPortal traversal fails to schedule an otherwise-supported nested entry.",
+      "necessaryAssumption": "A non-portal nested boundary receives an enter independently under the same mount conditions.",
+      "weakeningObservation": "A matched non-portal control also runs only the outer boundary."
+    },
+    {
+      "id": "none",
+      "claim": "Available evidence is insufficient to choose a mechanism or fix.",
+      "necessaryAssumption": "Neither docs/tests nor release source can be made specific enough.",
+      "weakeningObservation": "An exact release test or source path distinguishes the alternatives."
+    }
+  ],
+  "plannedDiscriminatingChecks": [
+    {
+      "id": "c1_contract_test",
+      "check": "Read the authoritative ViewTransition documentation and release tests for the enter prop's nested/parent-mounted semantics.",
+      "distinguishes": ["h1_contract_bug", "h2_intentional_semantics"]
+    },
+    {
+      "id": "c2_portal_path",
+      "check": "Read the 19.3.0 HostPortal after-mutation path and compare its newly mounted control flow with a non-portal nested tree.",
+      "distinguishes": ["h2_intentional_semantics", "h3_portal_gap"]
+    },
+    {
+      "id": "c3_release_regression_test",
+      "check": "Locate the ViewTransition test suite at v19.3.0 for existing nested and portal controls.",
+      "distinguishes": ["h1_contract_bug", "h2_intentional_semantics", "h3_portal_gap"]
+    }
+  ]
+}

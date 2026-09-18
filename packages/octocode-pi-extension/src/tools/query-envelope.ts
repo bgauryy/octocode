@@ -1,6 +1,7 @@
-import { z, type ZodTypeAny } from "zod";
-import type { PiContext, ToolCallResult } from "../types.js";
+import { z, type ZodTypeAny } from 'zod';
+import type { PiContext, ToolCallResult } from '../types.js';
 import { QueryBatchError } from './query-batch-error.js';
+import { addOptionalReasoning } from './query-envelope-schema.js';
 
 /** Convert to Pi's Draft 7 schema without weakening the owning validators. */
 export function toToolSchema(schema: ZodTypeAny): Record<string, unknown> {
@@ -13,7 +14,7 @@ export function toToolSchema(schema: ZodTypeAny): Record<string, unknown> {
 
 export const QUERY_BATCH_MAX_ITEMS = 100;
 export const QUERY_PARALLEL_MAX_CONCURRENCY = 4;
-export type QueryRunType = "sequential" | "parallel";
+export type QueryRunType = 'sequential' | 'parallel';
 
 export interface QueryEnvelopeOptions {
   maxItems?: number;
@@ -41,7 +42,7 @@ export interface QueryBatchItemResult {
 export interface QueryBatchResultRow {
   index: number;
   reasoning?: string;
-  status: "success" | "failed" | "not-run";
+  status: 'success' | 'failed' | 'not-run';
   summary: string;
   result?: unknown;
   content?: ToolCallResult['content'];
@@ -60,85 +61,79 @@ export interface ExecuteQueryBatchOptions extends PreparedQueryBatchOptions {
     itemToolCallId: string,
     signal?: AbortSignal,
     onUpdate?: (update: ToolCallResult) => void,
-    ctx?: PiContext,
+    ctx?: PiContext
   ) => Promise<ToolCallResult>;
   summarize?: (
     result: ToolCallResult,
     query: QueryRecord,
-    index: number,
+    index: number
   ) => string;
   /** Preserve the original result/detail shape when the envelope contains one query. */
   passthroughSingle?: boolean;
 }
 
-
 class QueryResultError extends Error {
-  constructor(readonly result: ToolCallResult) { super(defaultSummary(result)); }
+  constructor(readonly result: ToolCallResult) {
+    super(defaultSummary(result));
+  }
 }
 class QueryNotRunError extends Error {}
 
 function errorRecovery(error: unknown): unknown {
-  if (!error || typeof error !== 'object' || !('recovery' in error)) return undefined;
+  if (!error || typeof error !== 'object' || !('recovery' in error))
+    return undefined;
   return (error as { recovery?: unknown }).recovery;
 }
 
 /**
  * Build the standard query-envelope JSON Schema from a Zod item schema.
  * The item schema owns unknown-field handling. An optional batch label is added
- * for clients that want descriptive progress receipts.
+ * for clients that want descriptive progress receipts; an item-owned required
+ * reasoning field remains required.
  */
-function addReasoningToQuerySchema(
-  itemSchema: ZodTypeAny,
-  reasoning: z.ZodOptional<z.ZodString>,
-): ZodTypeAny {
-  if (itemSchema instanceof z.ZodObject) return itemSchema.extend({ reasoning });
-  if (itemSchema instanceof z.ZodUnion) {
-    const options = itemSchema.options.map((option) =>
-      addReasoningToQuerySchema(option as ZodTypeAny, reasoning),
-    );
-    if (options.length < 2) throw new Error('Query unions require at least two branches');
-    return z.union(options as [ZodTypeAny, ZodTypeAny, ...ZodTypeAny[]]);
-  }
-  throw new Error('Query item schema must be an object or union of objects');
-}
-
 export function buildQueryEnvelopeSchema(
   itemSchema: ZodTypeAny,
-  options: QueryEnvelopeOptions = {},
+  options: QueryEnvelopeOptions = {}
 ): Record<string, unknown> {
-  const reasoning = z.string().max(400).optional().describe('Optional batch label.');
-  const querySchema = addReasoningToQuerySchema(itemSchema, reasoning);
   const schema = z.object({
-    queries: z.array(querySchema)
+    queries: z
+      .array(itemSchema)
       .min(1)
       .max(options.maxItems ?? QUERY_BATCH_MAX_ITEMS)
       .describe(
         options.allowParallel
           ? 'Queries return in source order; queryRunType selects sequential or parallel execution.'
-          : 'Queries run one-by-one in source order.',
+          : 'Queries run one-by-one in source order.'
       ),
     queryRunType: z.optional(
       (options.allowParallel
-        ? z.enum(['sequential', 'parallel'])
-            .describe('Run policy: sequential is one-by-one; parallel overlaps independent queries.')
+        ? z
+            .enum(['sequential', 'parallel'])
+            .describe(
+              'Run policy: sequential is one-by-one; parallel overlaps independent queries.'
+            )
         : z.enum(['sequential'])
-      ).default('sequential'),
+      ).default('sequential')
     ),
   });
-  return toToolSchema(schema);
+  const rendered = toToolSchema(schema);
+  const properties = rendered.properties as
+    Record<string, Record<string, unknown>> | undefined;
+  addOptionalReasoning(properties?.queries?.items);
+  return rendered;
 }
 
 function resolveQueryRunType(
   raw: Record<string, unknown>,
-  allowParallel = false,
+  allowParallel = false
 ): QueryRunType {
-  const value = raw["queryRunType"] ?? "sequential";
-  if (value !== "sequential" && value !== "parallel") {
+  const value = raw['queryRunType'] ?? 'sequential';
+  if (value !== 'sequential' && value !== 'parallel') {
     throw new Error('queryRunType must be "sequential" or "parallel".');
   }
-  if (value === "parallel" && !allowParallel) {
+  if (value === 'parallel' && !allowParallel) {
     throw new Error(
-      'parallel query execution is not supported by this tool; use queryRunType:"sequential".',
+      'parallel query execution is not supported by this tool; use queryRunType:"sequential".'
     );
   }
   return value;
@@ -146,46 +141,34 @@ function resolveQueryRunType(
 
 function assertBatchShape(
   raw: Record<string, unknown>,
-  maxItems: number,
+  maxItems: number
 ): QueryRecord[] {
-  const values = raw["queries"];
+  const values = raw['queries'];
   if (!Array.isArray(values) || values.length === 0) {
-    throw new Error("queries must be a non-empty array.");
+    throw new Error('queries must be a non-empty array.');
   }
   if (values.length > maxItems) {
     throw new Error(
-      `queries supports at most ${maxItems} operations per call.`,
+      `queries supports at most ${maxItems} operations per call.`
     );
   }
 
   return values.map((value, index) => {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error(`queries[${index}] must be an object.`);
     }
-    const query = value as Record<string, unknown>;
-    if (query["reasoning"] !== undefined && typeof query["reasoning"] !== "string") {
-      throw new Error(`queries[${index}].reasoning must be a string when provided.`);
-    }
-    const reasoning = typeof query["reasoning"] === "string" ? query["reasoning"].trim() : "";
-    if (reasoning.length > 400) {
-      throw new Error(`queries[${index}].reasoning must be at most 400 characters.`);
-    }
-    if (!reasoning) {
-      const { reasoning: _reasoning, ...rest } = query;
-      return rest as QueryRecord;
-    }
-    return { ...query, reasoning } as QueryRecord;
+    return value as QueryRecord;
   });
 }
 
 /** Validate the entire batch before any executor is invoked. */
 export async function prepareQueryBatch(
   raw: Record<string, unknown>,
-  options: PreparedQueryBatchOptions = {},
+  options: PreparedQueryBatchOptions = {}
 ): Promise<QueryRecord[]> {
   const queries = assertBatchShape(
     raw,
-    options.maxItems ?? QUERY_BATCH_MAX_ITEMS,
+    options.maxItems ?? QUERY_BATCH_MAX_ITEMS
   );
   if (!options.preflight) return queries;
 
@@ -201,54 +184,59 @@ export async function prepareQueryBatch(
 }
 
 function nonEmptyLines(value: unknown): string[] {
-  return typeof value === "string"
+  return typeof value === 'string'
     ? value
-        .split("\n")
-        .map((line) => line.trim())
+        .split('\n')
+        .map(line => line.trim())
         .filter(Boolean)
     : [];
 }
 
 function defaultSummary(result: ToolCallResult): string {
   const details =
-    result.details && typeof result.details === "object"
+    result.details && typeof result.details === 'object'
       ? (result.details as Record<string, unknown>)
       : {};
-  const text = result.content.find((part) => part.type === "text") as
+  const text = result.content.find(part => part.type === 'text') as
     { text?: string } | undefined;
   const textLines = nonEmptyLines(text?.text);
 
   if (result.isError) {
-    for (const key of ["error", "message"]) {
+    for (const key of ['error', 'message']) {
       const structured = nonEmptyLines(details[key]);
       if (structured.length > 0) return structured.at(-1)!;
     }
-    const stderr = nonEmptyLines(details["stderr"]);
+    const stderr = nonEmptyLines(details['stderr']);
     if (stderr.length > 0) return stderr.at(-1)!;
     const diagnostics = textLines.filter(
-      (line) => !/^\((?:exit|killed by|aborted)\b/i.test(line),
+      line => !/^\((?:exit|killed by|aborted)\b/i.test(line)
     );
-    return diagnostics.at(-1) ?? textLines.at(-1) ?? "failed";
+    return diagnostics.at(-1) ?? textLines.at(-1) ?? 'failed';
   }
 
-  return textLines[0] ?? "ok";
+  return textLines[0] ?? 'ok';
 }
 
 function progressResult(
   index: number,
   total: number,
   reasoning: string | undefined,
-  queryRunType: QueryRunType,
+  queryRunType: QueryRunType
 ): ToolCallResult {
   const label = reasoning ? `: ${reasoning}` : '';
   return {
     content: [
       {
-        type: "text",
-        text: `${queryRunType === "parallel" ? "Starting" : "Running"} query ${index + 1}/${total} · ${queryRunType}${label}`,
+        type: 'text',
+        text: `${queryRunType === 'parallel' ? 'Starting' : 'Running'} query ${index + 1}/${total} · ${queryRunType}${label}`,
       },
     ],
-    details: { index, total, ...(reasoning ? { reasoning } : {}), queryRunType },
+    details: {
+      index,
+      total,
+      ...(reasoning ? { reasoning } : {}),
+      queryRunType,
+    },
   };
 }
 
@@ -257,7 +245,7 @@ function progressResult(
  * rollback: a runtime error stops the batch and reports how many effects remain.
  */
 export async function executeQueryBatch(
-  options: ExecuteQueryBatchOptions,
+  options: ExecuteQueryBatchOptions
 ): Promise<ToolCallResult> {
   const queryRunType = resolveQueryRunType(options.raw, options.allowParallel);
   const queries = await prepareQueryBatch(options.raw, options);
@@ -265,10 +253,10 @@ export async function executeQueryBatch(
   const summarize =
     options.summarize ?? ((result: ToolCallResult) => defaultSummary(result));
   const successRows = (): QueryBatchResultRow[] =>
-    results.map((entry) => ({
+    results.map(entry => ({
       index: entry.index,
       reasoning: entry.reasoning,
-      status: "success",
+      status: 'success',
       summary: summarize(entry.result, queries[entry.index]!, entry.index),
       result: entry.result.details,
       content: entry.result.content,
@@ -276,13 +264,13 @@ export async function executeQueryBatch(
 
   const runOne = async (
     query: QueryRecord,
-    index: number,
+    index: number
   ): Promise<QueryBatchItemResult> => {
     if (options.signal?.aborted) {
-      throw new QueryNotRunError("query batch aborted before execution");
+      throw new QueryNotRunError('query batch aborted before execution');
     }
     options.onUpdate?.(
-      progressResult(index, queries.length, query.reasoning, queryRunType),
+      progressResult(index, queries.length, query.reasoning, queryRunType)
     );
 
     const result = await options.execute(
@@ -291,7 +279,7 @@ export async function executeQueryBatch(
       `${options.toolCallId}:${index}`,
       options.signal,
       options.onUpdate,
-      options.ctx,
+      options.ctx
     );
     if (
       result.isError &&
@@ -302,19 +290,19 @@ export async function executeQueryBatch(
     return { index, reasoning: query.reasoning, result };
   };
 
-  if (queryRunType === "parallel") {
+  if (queryRunType === 'parallel') {
     if (options.signal?.aborted) {
       throw new QueryBatchError(
         0,
         0,
-        new Error("query batch aborted"),
+        new Error('query batch aborted'),
         queries.map((query, index) => ({
           index,
           reasoning: query.reasoning,
-          status: "not-run",
-          summary: "not run",
+          status: 'not-run',
+          summary: 'not run',
         })),
-        queryRunType,
+        queryRunType
       );
     }
     const maxParallel = options.maxParallel ?? QUERY_PARALLEL_MAX_CONCURRENCY;
@@ -324,11 +312,11 @@ export async function executeQueryBatch(
       maxParallel > QUERY_BATCH_MAX_ITEMS
     ) {
       throw new Error(
-        `maxParallel must be an integer between 1 and ${QUERY_BATCH_MAX_ITEMS}`,
+        `maxParallel must be an integer between 1 and ${QUERY_BATCH_MAX_ITEMS}`
       );
     }
     const settled: PromiseSettledResult<QueryBatchItemResult>[] = new Array(
-      queries.length,
+      queries.length
     );
     let nextIndex = 0;
     const runWorker = async (): Promise<void> => {
@@ -337,23 +325,23 @@ export async function executeQueryBatch(
         nextIndex += 1;
         try {
           settled[index] = {
-            status: "fulfilled",
+            status: 'fulfilled',
             value: await runOne(queries[index]!, index),
           };
         } catch (reason) {
-          settled[index] = { status: "rejected", reason };
+          settled[index] = { status: 'rejected', reason };
         }
       }
     };
     await Promise.all(
-      Array.from({ length: Math.min(maxParallel, queries.length) }, runWorker),
+      Array.from({ length: Math.min(maxParallel, queries.length) }, runWorker)
     );
     const rows: QueryBatchResultRow[] = settled.map((entry, index) =>
-      entry.status === "fulfilled"
+      entry.status === 'fulfilled'
         ? {
             index,
             reasoning: queries[index]!.reasoning,
-            status: "success",
+            status: 'success',
             summary: summarize(entry.value.result, queries[index]!, index),
             result: entry.value.result.details,
             content: entry.value.result.content,
@@ -361,30 +349,38 @@ export async function executeQueryBatch(
         : {
             index,
             reasoning: queries[index]!.reasoning,
-            status: entry.reason instanceof QueryNotRunError ? 'not-run' : 'failed',
+            status:
+              entry.reason instanceof QueryNotRunError ? 'not-run' : 'failed',
             summary:
               entry.reason instanceof Error
                 ? entry.reason.message
                 : String(entry.reason),
-            ...(errorRecovery(entry.reason) === undefined ? {} : { recovery: errorRecovery(entry.reason) }),
-            ...(entry.reason instanceof QueryResultError ? { result: entry.reason.result.details, content: entry.reason.result.content } : {}),
-          },
+            ...(errorRecovery(entry.reason) === undefined
+              ? {}
+              : { recovery: errorRecovery(entry.reason) }),
+            ...(entry.reason instanceof QueryResultError
+              ? {
+                  result: entry.reason.result.details,
+                  content: entry.reason.result.content,
+                }
+              : {}),
+          }
     );
     results.push(
-      ...settled.flatMap((entry) =>
-        entry.status === "fulfilled" ? [entry.value] : [],
-      ),
+      ...settled.flatMap(entry =>
+        entry.status === 'fulfilled' ? [entry.value] : []
+      )
     );
-    const failedIndex = rows.findIndex((row) => row.status !== "success");
+    const failedIndex = rows.findIndex(row => row.status !== 'success');
     if (failedIndex >= 0) {
       throw new QueryBatchError(
         failedIndex,
         results.length,
-        settled[failedIndex]!.status === "rejected"
+        settled[failedIndex]!.status === 'rejected'
           ? settled[failedIndex]!.reason
           : new Error(rows[failedIndex]!.summary),
         rows,
-        queryRunType,
+        queryRunType
       );
     }
     results.sort((a, b) => a.index - b.index);
@@ -405,19 +401,24 @@ export async function executeQueryBatch(
               reasoning: query.reasoning,
               status: error instanceof QueryNotRunError ? 'not-run' : 'failed',
               summary: detail,
-              ...(errorRecovery(error) === undefined ? {} : { recovery: errorRecovery(error) }),
-              ...(error instanceof QueryResultError ? { result: error.result.details, content: error.result.content } : {}),
+              ...(errorRecovery(error) === undefined
+                ? {}
+                : { recovery: errorRecovery(error) }),
+              ...(error instanceof QueryResultError
+                ? {
+                    result: error.result.details,
+                    content: error.result.content,
+                  }
+                : {}),
             },
-            ...queries
-              .slice(index + 1)
-              .map((remaining, offset) => ({
-                index: index + 1 + offset,
-                reasoning: remaining.reasoning,
-                status: "not-run" as const,
-                summary: "not run",
-              })),
+            ...queries.slice(index + 1).map((remaining, offset) => ({
+              index: index + 1 + offset,
+              reasoning: remaining.reasoning,
+              status: 'not-run' as const,
+              summary: 'not run',
+            })),
           ],
-          queryRunType,
+          queryRunType
         );
       }
     }
@@ -427,10 +428,10 @@ export async function executeQueryBatch(
     return results[0]!.result;
   }
 
-  const summaries = results.map((entry) => ({
+  const summaries = results.map(entry => ({
     index: entry.index,
     reasoning: entry.reasoning,
-    status: "success" as const,
+    status: 'success' as const,
     summary: summarize(entry.result, queries[entry.index]!, entry.index),
     result: entry.result.details,
   }));
@@ -441,10 +442,10 @@ export async function executeQueryBatch(
     // successful batched reads invisible and drops non-text blocks such as images.
     content: [
       {
-        type: "text",
-        text: `${results.length} quer${results.length === 1 ? "y" : "ies"} succeeded · ${queryRunType}.\n${summaries.map((entry) => `✓ [${entry.index}] ${entry.summary}`).join("\n")}`,
+        type: 'text',
+        text: `${results.length} quer${results.length === 1 ? 'y' : 'ies'} succeeded · ${queryRunType}.\n${summaries.map(entry => `✓ [${entry.index}] ${entry.summary}`).join('\n')}`,
       },
-      ...results.flatMap((entry) => entry.result.content),
+      ...results.flatMap(entry => entry.result.content),
     ],
     details: { queryRunType, results: summaries },
   };

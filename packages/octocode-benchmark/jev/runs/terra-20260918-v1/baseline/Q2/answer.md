@@ -1,0 +1,5 @@
+# Q2 — `@sindresorhus/is`
+
+The repository is [`sindresorhus/is`](https://github.com/sindresorhus/is): its manifest identifies the package as `@sindresorhus/is` and the repository as `sindresorhus/is` ([package.json](https://github.com/sindresorhus/is/blob/7821031c66cdeb7256a0feb2d506535f9e84fcaf/package.json#L1-L14)). The examined repository metadata reports default branch `main` and dominant language TypeScript.
+
+**Bounded NO:** I found no public export named `isQuantumSuperposition`. The package's public export map exposes only the built `distribution/index.{js,d.ts}` entrypoints ([manifest](https://github.com/sindresorhus/is/blob/7821031c66cdeb7256a0feb2d506535f9e84fcaf/package.json#L10-L14)); a repository-scoped code search for the exact identifier was empty, and an exact search of `source/types.ts` found no `Quantum` occurrence. This is deliberately bounded evidence: the 2,038-line `source/index.ts` could not be returned as one file, so it is not a universal proof that no historical/generated artifact has ever contained the string.

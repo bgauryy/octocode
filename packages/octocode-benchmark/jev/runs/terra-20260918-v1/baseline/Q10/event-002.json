@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q10",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"tree\",\"owner\":\"axios\",\"repo\":\"axios\",\"maxDepth\":1,\"include\":[\"languages\",\"branches\"],\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:00.047Z",
+  "endedAt": "2026-09-18T08:26:01.160Z",
+  "elapsedMs": 1110,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "d4b2cb887caee6310ede7914990c572ebceab963621b2791d366379f6b1f918f",
+  "stdoutBytes": 1110,
+  "requestSha256": null
+}

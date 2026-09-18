@@ -100,7 +100,11 @@ const CASE_QUERIES: Readonly<
 
 export const ADAPTER_PARITY_CASES: readonly AdapterParityCase[] =
   CANONICAL_ADAPTER_TOOL_NAMES.map(name => {
-    const query = CASE_QUERIES[name];
+    const query = {
+      reasoning: `Exercise ${name} adapter parity.`,
+      debug: true,
+      ...CASE_QUERIES[name],
+    };
     return { name, query, input: { queries: [query, query] } };
   });
 

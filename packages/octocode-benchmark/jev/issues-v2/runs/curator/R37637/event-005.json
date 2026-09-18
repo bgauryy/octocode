@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read declared ViewTransition properties and enter exit class semantics.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/shared/ReactTypes.js\",\"matchString\":\"export type ViewTransitionProps\",\"contextLines\":30},{\"reasoning\":\"Read nested ViewTransition class selection in commit traversal.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberCommitViewTransitions.js\",\"matchString\":\"hasParentClass\",\"contextLines\":65},{\"reasoning\":\"Read portal commit handling that treats a portal as a new root for mutation context.\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberCommitWork.js\",\"matchString\":\"A Portal\",\"contextLines\":35}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:55:44.196Z",
+  "endedAt": "2026-09-18T08:55:46.036Z",
+  "elapsedMs": 1839,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "2d5132c5e42845c0393f1817fd3123570dfedd799c399d6bc323c1e5048b8023",
+  "requestSha256": null
+}

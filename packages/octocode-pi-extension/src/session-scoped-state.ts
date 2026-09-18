@@ -28,11 +28,10 @@ export interface SessionScopedState {
   managedPromptAddendum: string | undefined;
   capabilityRevision: string | undefined;
   /**
-   * The capability revision that was last delivered to the model via the
-   * per-turn contextMessage. Tracked separately so the system prompt bytes
-   * remain frozen (no volatile SHA-256 embedded in the cacheable prefix) while
-   * the model still receives the current revision on every turn through the
-   * non-cached turn context.
+   * The capability revision last delivered through attributed turn context.
+   * Pi persists that message, so unchanged turns can omit it without changing
+   * the frozen system prompt. Recovery re-delivers the revision when compaction
+   * no longer retains the current tag.
    */
   deliveredCapabilityRevision: string | undefined;
   workerGrantSignature: string | undefined;

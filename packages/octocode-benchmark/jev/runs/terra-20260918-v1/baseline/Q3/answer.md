@@ -1,0 +1,5 @@
+# Q3 — Flask route history
+
+The current decorator is `Scaffold.route` in [`src/flask/sansio/scaffold.py`](https://github.com/pallets/flask/blob/d73fa1cdcbd8b1465c151db8924ba58b1dd14e35/src/flask/sansio/scaffold.py#L344-L376). Its returned decorator removes `endpoint` from options and calls `self.add_url_rule(rule, endpoint, f, **options)` ([lines 370–375](https://github.com/pallets/flask/blob/d73fa1cdcbd8b1465c151db8924ba58b1dd14e35/src/flask/sansio/scaffold.py#L370-L375)).
+
+Commit [`705e5268`](https://github.com/pallets/flask/commit/705e52684a9063889c16a289695a2e4429df6887) added method-named registration shortcuts: `_method_route` rejects an explicit `methods` option and forwards to `route(rule, methods=[method], **options)`; it then added `get`, `post`, `put`, `delete`, and `patch`. The changed test invokes each resulting decorated endpoint and separately asserts the explicit-`methods` error. Thus the behavior introduced was registration through the existing `route` path with a fixed single HTTP method—not a new dispatch/matching mechanism.

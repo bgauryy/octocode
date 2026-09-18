@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hypothesis-triage",
+  "title": "Jev Hypothesis Triage Request",
+  "description": "Public Jev packet for selecting a provisional hypothesis and the most discriminating supplied check.",
+  "$comment": "Truth and check cost remain separate. Jev judges plausibility and discrimination; host policy applies cost after receiving probabilities.",
+  "type": "object",
+  "required": ["model", "state", "questions"],
+  "properties": {
+    "model": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "description": "VISIBILITY BOUNDARY: Jev sees only this distilled state.",
+      "required": ["mainGoal", "goal", "reasoning", "evidence", "hypotheses", "next_checks"],
+      "properties": {
+        "mainGoal": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "reasoning": { "$ref": "#/$defs/PublicReasoning" },
+        "scope": { "type": "string" },
+        "evidence": {
+          "type": "array", "minItems": 1,
+          "items": { "$ref": "#/$defs/Evidence" }
+        },
+        "hypotheses": {
+          "type": "array", "minItems": 2, "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["id", "statement", "assumption", "predicts", "weakenedBy"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^H[0-9]+$" },
+              "statement": { "type": "string", "minLength": 1 },
+              "assumption": { "type": "string", "minLength": 1 },
+              "predicts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+              "weakenedBy": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "next_checks": {
+          "type": "array", "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["id", "action", "cost", "expectedOutcomes"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^C[0-9]+$" },
+              "action": { "type": "string", "minLength": 1 },
+              "cost": { "enum": ["trivial", "low", "medium", "high"] },
+              "expectedOutcomes": {
+                "type": "array", "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["observation", "effect"],
+                  "properties": {
+                    "observation": { "type": "string", "minLength": 1 },
+                    "effect": {
+                      "type": "object",
+                      "patternProperties": { "^H[0-9]+$": { "enum": ["strengthen", "weaken", "neutral"] } },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unknowns": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "questions": {
+      "type": "object",
+      "required": ["hypothesis", "next_check"],
+      "properties": {
+        "hypothesis": { "$ref": "#/$defs/Choice" },
+        "next_check": { "$ref": "#/$defs/Choice" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Evidence": {
+      "type": "object", "required": ["id", "source", "scope", "content"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^E[0-9]+$" },
+        "source": { "type": "string", "minLength": 1 },
+        "scope": { "type": "string", "minLength": 1 },
+        "content": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "PublicReasoning": {
+      "type": "object",
+      "required": ["observations", "uncertainty"],
+      "properties": {
+        "observations": { "type": "string" },
+        "inferences": { "type": "array", "items": { "type": "string" } },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "strongest_counter": { "type": "string" },
+        "uncertainty": { "type": "string" },
+        "prediction": { "type": "string" },
+        "falsifier": { "type": "string" },
+        "discriminating_observation": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "Choice": {
+      "type": "object", "required": ["type", "instructions", "criteria"],
+      "properties": {
+        "type": { "const": "choice" },
+        "instructions": { "type": "string", "minLength": 1 },
+        "criteria": { "type": "object", "minProperties": 3 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

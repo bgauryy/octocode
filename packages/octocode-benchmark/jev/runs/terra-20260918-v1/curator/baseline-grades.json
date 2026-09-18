@@ -1,0 +1,122 @@
+{
+  "suite": "terra-20260918-v1",
+  "arm": "baseline",
+  "goldSha256": "74a8ef357b7d1a686f3bea8631e7bf26ae938d59430ff9a8d78e590b94ef6db2",
+  "gradedAt": "2026-09-18T00:00:00.000Z",
+  "rubric": {
+    "factualCorrectness": "/4",
+    "coverage": "/2",
+    "verifiableCitations": "/2",
+    "calibration": "/2",
+    "pass": "total >= 8 and no major false claim"
+  },
+  "cases": {
+    "Q1": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correctly identifies the canary file, the exactly spelled getParametrizedRoute helper, and only re/groups as the top-level fields. The pinned source link directly verifies all requested facts."
+    },
+    "Q2": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correct repository, TypeScript/main metadata, public export-map observation, and a properly bounded NO. The baseline source log records a scoped zero search and tree metadata; it explicitly does not turn the unreturned source/index.ts into universal absence."
+    },
+    "Q3": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Names current Scaffold.route and add_url_rule delegation, then derives the historical behavior from the commit patch: fixed single-method shortcut decorators and TypeError for explicit methods, with tests."
+    },
+    "Q4": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correctly traces dependency, import, custom/native/follow-redirect transport selection, RedirectableRequest, _performRequest/nativeProtocol.request, and _processResponse across both repositories. It does not imply a runtime request was executed."
+    },
+    "Q5": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Provides two concrete async/Suspense hydration scenarios from the patch and explains the distinct runtime-core placeholder/renderer versus runtime-vapor block-anchor/interop ownership. The PR-file links and retrieved patch hunks are original-source evidence."
+    },
+    "Q6": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correctly follows Express's router dependency to pillarjs/router, identifies nested next as the layer advancer and both matchLayer and Layer.prototype.match as the one-layer path path. Exact file anchors are supplied."
+    },
+    "Q7": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correctly distinguishes module-level Context from factory-created store, names createContext/useContext/createStore/useStore, and qualifies per-request lifetime as caller/provider behavior. Correctly establishes React as optional through peerDependenciesMeta."
+    },
+    "Q8": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correct class, base class, exact files, and public dispatchEvent entry point; it properly distinguishes public dispatchEvent from private _dispatch."
+    },
+    "Q9": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Reports the lifecycle in documented order, including Routing and Instance Logger, and accurately gives context.onRequest plus onRequestHookRunner with its continuation."
+    },
+    "Q10": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "rationale": "Correctly identifies axios/axios and JavaScript dominance, distinguishes legacy main from exports['.'].default.require, gives their shared Node CJS target, and cautiously labels index.js -> lib/axios.js as source counterpart rather than claiming the generated bundle was unpacked."
+    },
+    "BUG": {
+      "scores": {"factualCorrectness": 4, "coverage": 2, "verifiableCitations": 2, "calibration": 2, "total": 10},
+      "pass": true,
+      "majorFalseClaims": [],
+      "unsupportedClaims": [],
+      "missingAtoms": [],
+      "bugDiagnostics": {
+        "runtimeReproduction": "not performed; 0 reproduction credit by design",
+        "sourceMechanismVerification": "strong: actual ReactFiberHooks source shows append-only mountHookTypesDev, replay index/cursor reset, the useThenable dispatcher switch, and DEV _debugHookTypes commit.",
+        "repairSpecificity": "strong: transition-scoped suffix truncation preserves ordinary mounts and avoids globally disabling hook-order comparison.",
+        "regressionCoverage": "strong proposal, not executed: DEV Suspense/two-thenable case, later update/no warning, plus one-use/same-thenable/stateful-gap/genuine-mismatch controls."
+      },
+      "rationale": "It correctly labels the issue and release label as allegations, separates actual source tracing from runtime reproduction, and supplies a constrained alternative explanation. It neither claims production/DevTools impact nor awards itself a reproduction."
+    }
+  },
+  "goldAdjudications": [
+    {
+      "caseId": "BUG",
+      "frozenGoldUncertainty": "Gold described a narrow candidate that truncates the stale hook-type suffix before a mount append while preserving genuine mismatch detection.",
+      "adjudication": "The baseline's more specific placement—at the useThenable rerender-to-mount DEV dispatcher transition—is consistent with the actual source control flow and is preferable to an unconditional change inside mountHookTypesDev. This is not a gold modification; it is a source-truth refinement applied while grading."
+    },
+    {
+      "caseId": "Q10",
+      "frozenGoldUncertainty": "Language tree and manifest had independently resolved refs.",
+      "adjudication": "Baseline reports the returned language breakdown as metadata and does not pin it to the manifest ref, so it does not make the ref-conflation error identified in frozen gold."
+    }
+  ],
+  "summary": {"completedCases": 11, "passes": 11, "meanTotal": 10, "majorFalseClaimCount": 0, "reproductionClaimsAwarded": 0}
+}

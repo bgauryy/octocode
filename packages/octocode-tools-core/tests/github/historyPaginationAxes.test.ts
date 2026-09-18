@@ -31,6 +31,11 @@ const commit = {
 };
 
 async function execute(query: Record<string, unknown>) {
+  query = {
+    reasoning: 'Exercise GitHub history pagination axes losslessly.',
+    debug: true,
+    ...query,
+  };
   expect(GitHubGetHistoryItemQueryLocalSchema.safeParse(query).success).toBe(
     true
   );
@@ -85,6 +90,8 @@ describe('history pagination axes remain lossless when traversed together', () =
           ? { ref: 'main' }
           : { base: 'v1', head: 'v2' }),
         includeDiff: true,
+        reasoning: 'Verify omitted patch diagnostics are explicit.',
+        debug: true,
       };
       const result = await getMultipleGitHubHistoryItems({
         queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],

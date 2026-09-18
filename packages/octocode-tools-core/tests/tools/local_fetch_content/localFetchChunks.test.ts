@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fetchContent } from '../../../src/tools/local_fetch_content/fetchContent.js';
 import { executeFetchContent } from '../../../src/tools/local_fetch_content/execution.js';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../../helpers/prepareDirectToolInput.js';
 
 describe('localFetch selected-view pagination', () => {
   let directory: string;

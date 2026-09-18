@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q3",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"operation\":\"commit\",\"owner\":\"pallets\",\"repo\":\"flask\",\"ref\":\"705e5268\",\"includeDiff\":true}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:40.185Z",
+  "endedAt": "2026-09-18T08:25:40.906Z",
+  "elapsedMs": 720,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "e4c88adbbb7134cb82246e6aabc1000802c44d1916d7f57aa3f82c8f45e47011",
+  "stdoutBytes": 4352,
+  "requestSha256": null
+}

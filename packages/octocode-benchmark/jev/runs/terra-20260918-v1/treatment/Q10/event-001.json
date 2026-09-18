@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q10",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"axios\",\"repo\":\"axios\",\"path\":\"package.json\",\"matchString\":\"\\\"main\\\"\",\"contextLines\":28},{\"owner\":\"axios\",\"repo\":\"axios\",\"path\":\"index.js\",\"matchString\":\"./lib/axios.js\",\"contextLines\":8}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:33:16.355Z",
+  "endedAt": "2026-09-18T08:33:17.972Z",
+  "elapsedMs": 1615,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "4958e9faa07e5a86de346fda727b4521c08beba532bdda5aae6ca2d4463cf4db",
+  "stdoutBytes": 2622,
+  "requestSha256": null
+}

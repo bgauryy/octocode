@@ -115,7 +115,8 @@ export async function getFileContent(
     forceRefresh: query.forceRefresh,
     minify: query.minify ?? 'none',
     goal: query.goal,
-    reasoning: query.reasoning,
+    reasoning: query.reasoning ?? 'Read GitHub file content.',
+    debug: false,
   };
 
   const result = await fetchGitHubFileContentAPI(githubQuery, authInfo);

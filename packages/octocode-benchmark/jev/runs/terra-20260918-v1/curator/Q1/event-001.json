@@ -1,0 +1,16 @@
+{
+  "arm": "curator",
+  "caseId": "Q1",
+  "kind": "schema",
+  "args": [
+    "ghGetFileContent"
+  ],
+  "startedAt": "2026-09-18T08:23:49.115Z",
+  "endedAt": "2026-09-18T08:23:49.399Z",
+  "elapsedMs": 283,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "ef03a2564d80da29c31ba86d568d70d937e61f8f7a8380e3ff0fbe80e005fbfe",
+  "stdoutBytes": 1627,
+  "requestSha256": null
+}

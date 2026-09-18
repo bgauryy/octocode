@@ -207,6 +207,7 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
   // fullContent→none resolution — the live bug the unit tests above missed.
   it('schema does not inject a minify default (single query)', () => {
     const parsed = FileContentQueryLocalSchema.parse({
+      reasoning: 'Verify full-content minify schema defaults.',
       owner: 'o',
       repo: 'r',
       path: 'src/a.ts',
@@ -258,6 +259,8 @@ describe('ghGetFileContent — fullContent is verbatim (minify:none) by default'
     const result = await fetchMultipleGitHubFileContents({
       queries: [
         {
+          reasoning: 'Exercise partial GitHub file metadata and continuation.',
+          debug: true,
           owner: 'o',
           repo: 'r',
           path: 'src/a.ts',

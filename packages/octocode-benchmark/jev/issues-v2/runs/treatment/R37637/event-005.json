@@ -1,0 +1,18 @@
+{
+  "arm": "treatment",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Locate the implementation that assigns ViewTransition names/classes and handles nested boundaries, to trace the reported same-commit behavior.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"viewTransitionClass\"],\"pageSize\":5},{\"reasoning\":\"Locate tests and documentation for ViewTransition enter/exit behavior and parent-mounted condition.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"parent Component is mounted\"],\"pageSize\":5},{\"reasoning\":\"Locate ViewTransition implementation branches that distinguish nested or appearing boundaries.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransition\"],\"filename\":\"ReactFiberCommitViewTransitions.js\",\"pageSize\":5}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:51.797Z",
+  "endedAt": "2026-09-18T08:56:56.738Z",
+  "elapsedMs": 4940,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "75de86a0cb79579979b017a85435b3699cf34709134f341c9c3abccdd10f908d",
+  "requestSha256": null
+}

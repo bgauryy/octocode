@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q6",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"expressjs\",\"repo\":\"express\",\"path\":\"package.json\",\"matchString\":\"router\",\"contextLines\":8},{\"owner\":\"pillarjs\",\"repo\":\"router\",\"path\":\"index.js\",\"matchString\":\"function next\",\"contextLines\":20},{\"owner\":\"pillarjs\",\"repo\":\"router\",\"path\":\"lib/layer.js\",\"matchString\":\"Layer.prototype.match\",\"contextLines\":14}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:29:59.034Z",
+  "endedAt": "2026-09-18T08:29:59.762Z",
+  "elapsedMs": 727,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "c4f3d8b6ceec9746d20f5b9a89eadb53a92048ddc1ec9cffeb0cb7cf60e3330b",
+  "stdoutBytes": 4686,
+  "requestSha256": null
+}

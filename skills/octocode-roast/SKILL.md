@@ -18,7 +18,7 @@ Reports: `<output>/octocode-roast/`; scratch: `<output>/tmp/octocode-roast/`. Ch
 ## Lobby rules
 - Target patterns, never people; obey the requested scope and widen only with approval.
 - Cite or drop it: every major finding needs an exact anchor, impact, confidence, and repair move.
-- Use explicit user targets first. Widen to staged/diff/repo scope only when no target exists or you approve a broader pass. <!-- style-lint: ignore-line passive-voice -->
+- Use explicit user targets first. Widen to staged/diff/repo scope only when no target exists or you approve a broader pass.
 - Punch the code, not the coder; avoid insults about ability, identity, or experience.
 - Never reveal a secret; redact values and use restrained language for security or production-sensitive findings.
 - Rank confirmed security, data loss, correctness, and user-impacting performance above style or taste.
@@ -33,11 +33,11 @@ Use the memorable labels in `references/sin-catalog.md`, but rank by demonstrate
 - When building the inventory and ranking generic smells, load `references/sin-catalog.md`; for language-specific patterns or structural queries load `references/language-sins.md` — choose evidence appropriate to the code.
 - When you pick repairs at the checkpoint, load `references/redemption-flow.md` — redeem findings through consent-gated fixes and verification.
 - When scope spans a monorepo or many categories, load `references/parallel-roasting.md` — split the inspection and inventory across workers without duplicating findings.
-- When research tooling is needed, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, follow executable continuations, and mark reduced coverage — verify before joking. <!-- style-lint: ignore-line passive-voice -->
-- When improving this skill, use `octocode-eval-benchmark`; if unavailable, record goal, KPI, baseline, smallest change, comparable result, and accept/revert.
+- For research tooling, use `octocode-research`; if unavailable, use `octocode-mcp` / `npx octocode` and mark reduced coverage.
+- When improving this skill, use `octocode-eval-benchmark`.
 
 ## Related routes
-- Use `octocode-research` for evidence gathering; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-eval-benchmark` to measure roast usefulness and `octocode-prompt-optimizer` only for tone/instruction wording.
+- Use `octocode-research` for evidence, `octocode-eval-benchmark` to measure usefulness, `octocode-prompt-optimizer` for wording only.
 - Use `octocode-skills` when changing this skill folder.
 
 ## Output

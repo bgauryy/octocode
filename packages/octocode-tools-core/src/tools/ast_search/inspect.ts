@@ -95,7 +95,10 @@ export async function inspectSyntax(query: SyntaxQuery) {
       ? { status: undefined }
       : { status: 'error' as const, errorCode: `ast.syntax.${result.status}` }),
     snapshot,
-    ...(result.status !== 'error' ? { complete, isPartial: !complete } : {}),
+    // isPartial is the inverse of complete; only emit when true to save tokens.
+    ...(result.status !== 'error'
+      ? { complete, ...(!complete ? { isPartial: true } : {}) }
+      : {}),
     ...(hasMore
       ? {
           next: {
@@ -211,21 +214,29 @@ export async function inspectSymbols(query: SymbolsQuery) {
     declarations: declarations.slice(offset, offset + query.pageSize),
     totalDeclarations: declarations.length,
     filesScanned: entries.length,
-    filesSkipped,
-    diagnostics,
+    // filesSkipped: omit when 0 — non-zero is an actionable coverage signal.
+    ...(filesSkipped > 0 ? { filesSkipped } : {}),
+    // diagnostics: omit when empty — non-empty signals parse/scan issues.
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
     complete: !hasMore && !incompleteScan,
-    isPartial: hasMore || incompleteScan,
+    // isPartial is the inverse of complete; only emit when true to save tokens.
+    ...(hasMore || incompleteScan ? { isPartial: true } : {}),
     ...(declarations.length === 0 && !incompleteScan
       ? { status: 'empty' as const }
       : {}),
     ...(incompleteScan ? { terminalLimit: true } : {}),
-    pagination: {
-      currentPage: query.page,
-      totalPages: Math.max(1, Math.ceil(declarations.length / query.pageSize)),
-      hasMore,
-    },
+    // Include pagination only when there are multiple pages to navigate;
+    // when hasMore:false the totalDeclarations field carries the count.
     ...(hasMore
       ? {
+          pagination: {
+            currentPage: query.page,
+            totalPages: Math.max(
+              1,
+              Math.ceil(declarations.length / query.pageSize)
+            ),
+            hasMore: true,
+          },
           next: {
             nextPage: continuation({
               ...query,

@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q9",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"docs/Reference/Lifecycle.md\",\"matchString\":\"Incoming Request\",\"contextLines\":30},{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"lib/route.js\",\"matchString\":\"onRequestHookRunner(\",\"contextLines\":20},{\"owner\":\"fastify\",\"repo\":\"fastify\",\"path\":\"lib/route.js\",\"matchString\":\"onRequest: opts.onRequest\",\"contextLines\":8}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:57.159Z",
+  "endedAt": "2026-09-18T08:26:57.493Z",
+  "elapsedMs": 332,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "4e915f58253aecfa390c8b1cd9f7a02488e6d134381e7dbbe8b5d295cbfe2591",
+  "stdoutBytes": 5006,
+  "requestSha256": null
+}

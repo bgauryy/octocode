@@ -1,0 +1,5 @@
+# Q10 — Axios repository and Node entry chain
+
+The repository is [`axios/axios`](https://github.com/axios/axios). Repository metadata reports JavaScript as the dominant language (1,040,879 bytes versus 107,821 TypeScript bytes in the returned language breakdown).
+
+For CommonJS, the manifest's legacy `main` is `./dist/node/axios.cjs`; the package `exports["."].default.require` target is also `./dist/node/axios.cjs` ([package.json](https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/package.json#L1-L35)). In modern Node resolution, `exports` controls the package-root `require` condition, so it selects that Node CJS distribution target rather than falling through to `main`. The source entry counterpart [`index.js`](https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/index.js#L1-L2) imports `./lib/axios.js`, whose default export constructs the Axios instance ([`lib/axios.js`](https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/lib/axios.js#L19-L89)). This last hop is the source entry chain; I did not independently unpack the generated `dist/node/axios.cjs` bundle.

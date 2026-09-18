@@ -1,0 +1,16 @@
+{
+  "arm": "curator",
+  "caseId": "Q1",
+  "kind": "schema",
+  "args": [
+    "ghSearchHistory"
+  ],
+  "startedAt": "2026-09-18T08:25:07.856Z",
+  "endedAt": "2026-09-18T08:25:08.111Z",
+  "elapsedMs": 254,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "859be19a4ae66fcca04692b9523d903b768fc5530e0ed99d70f8e6bae0d755c8",
+  "stdoutBytes": 2086,
+  "requestSha256": null
+}

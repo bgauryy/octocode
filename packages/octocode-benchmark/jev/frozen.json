@@ -1,0 +1,13 @@
+{
+  "suite": "terra-20260918-v1",
+  "model": "gpt-5.6-terra",
+  "reasoningEffort": "high",
+  "jevModel": "jev-1.13.0",
+  "hashes": {
+    "CONTRACT.md": "a2cb270b5cb097707ec29a09efb0b1d16d256ff0463b0d146b6d06082c04c0ff",
+    "questions.json": "4a2455779d64abcfbc544a23be2da3a2428ec088167f67dba30f519c3d25211f",
+    "run-case.mjs": "6015b3997756fa68ca8a5c95986c0d8d6af45b3a0fafdd965e69aeb69aa6415c"
+  },
+  "isolation": "fresh context per arm; shared within-arm context across cases; instruction-enforced filesystem isolation",
+  "hostTokenTelemetry": "not exposed; record null"
+}

@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q3",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"owner\":\"pallets\",\"repo\":\"flask\",\"path\":\"src/flask/sansio/scaffold.py\",\"matchString\":\"def route(\",\"contextLines\":70}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:18.582Z",
+  "endedAt": "2026-09-18T08:25:19.988Z",
+  "elapsedMs": 1403,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "2baac57a7a6e84772048441306d2a28638e95b6a86eece6665ff0ee52669e0bf",
+  "stdoutBytes": 5672,
+  "requestSha256": null
+}

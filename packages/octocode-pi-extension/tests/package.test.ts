@@ -622,7 +622,7 @@ test('workers project granted research tools and skills with one Awareness guide
       systemPromptOptions: {
         skills: [{ name: 'octocode-research', description: 'Evidence-first research.', source: 'bundled' }],
       },
-    }, { cwd: packageRoot })) as { systemPrompt?: string } | undefined;
+    }, { cwd: packageRoot })) as { systemPrompt?: string; message?: { content?: string } } | undefined;
 
     assert.ok(result?.systemPrompt?.startsWith('typed specialist prompt from --append-system-prompt'));
     assert.match(result!.systemPrompt!, /<awareness>/);
@@ -636,8 +636,9 @@ test('workers project granted research tools and skills with one Awareness guide
     assert.match(result!.systemPrompt!, /<available_skills>[\s\S]*octocode-research/);
     assert.equal((result!.systemPrompt!.match(/<awareness>/g) ?? []).length, 1);
     assert.doesNotMatch(result!.systemPrompt!, /<native_tools>|Do not over-engineer\.|<octocode>/, 'workers preserve the typed prompt without duplicate host policy');
+    assert.match(result?.message?.content ?? '', /<capability_revision>/);
     const repeated = await handlers.get('before_agent_start')!.at(-1)!({ systemPrompt: result!.systemPrompt! }, { cwd: packageRoot });
-    assert.deepEqual(repeated, result, 'worker turns reuse the trusted composed prompt without duplicating runtime guidance');
+    assert.equal(repeated, undefined, 'steady worker turns reuse the trusted prompt without duplicating capability context');
     await assertRevokedWorkerPrompt(broker, result!.systemPrompt!, handlers.get('before_agent_start')!.at(-1)!, { cwd: packageRoot }, () => pi.getActiveTools());
     ready.mockRestore();
     catalog.mockRestore();
@@ -673,19 +674,25 @@ test('main-session capabilities refresh between turns while product policy remai
   const discovery = vi.spyOn(skillDiscovery, 'discoverSkills').mockImplementation(() => [{ name, description: 'Current effective skill.', source: 'bundled', sourceId: name, path: `/fixture/${name}/SKILL.md`, dir: `/fixture/${name}` }]);
   const beforeStart = handlers.get('before_agent_start')!.at(-1)!;
   const ctx = { cwd: packageRoot, hasUI: false };
-  const first = (await beforeStart({
+  const initialEvent = {
     systemPrompt: 'Pi base prompt v1',
     systemPromptOptions: {
       skills: [{ name: 'initial-skill', description: 'Loaded at session initialization.', source: 'bundled' }],
     },
-  }, ctx)) as { systemPrompt?: string } | undefined;
+  };
+  const first = (await beforeStart(initialEvent, ctx)) as { systemPrompt?: string; message?: { content?: string } } | undefined;
   name = 'late-skill';
-  const second = (await beforeStart({
+  const changedEvent = {
     systemPrompt: 'Pi base prompt v1',
     systemPromptOptions: {
       skills: [{ name: 'late-skill', description: 'Must wait for a new session.', source: 'dynamic' }],
     },
-  }, ctx)) as { systemPrompt?: string } | undefined;
+  };
+  const second = (await beforeStart(changedEvent, ctx)) as typeof first;
+  // Capability source reconciliation can settle one turn after the host's skill
+  // inventory changes; once settled, identical turns must not repeat the tag.
+  const settled = (await beforeStart(changedEvent, ctx)) as typeof first;
+  const unchanged = (await beforeStart(changedEvent, ctx)) as typeof first;
   discovery.mockRestore();
 
   assert.ok(first?.systemPrompt);
@@ -693,6 +700,14 @@ test('main-session capabilities refresh between turns while product policy remai
   assert.match(first.systemPrompt, /initial-skill/);
   assert.match(second!.systemPrompt!, /late-skill/);
   assert.doesNotMatch(second!.systemPrompt!, /initial-skill/);
+  const firstRevision = first.message?.content?.match(/<capability_revision>([^<]+)<\/capability_revision>/)?.[1];
+  const changedRevisions = [second, settled]
+    .map(result => result?.message?.content?.match(/<capability_revision>([^<]+)<\/capability_revision>/)?.[1])
+    .filter((revision): revision is string => Boolean(revision));
+  assert.ok(firstRevision);
+  assert.ok(changedRevisions.length > 0);
+  assert.ok(changedRevisions.some(revision => revision !== firstRevision), 'changed capabilities deliver a new revision');
+  assert.equal(unchanged?.message, undefined, 'unchanged capabilities do not duplicate revision context');
 });
 
 test('session restart refreshes prompt source while turns inside a session keep frozen bytes', withTempMemoryHome(async (tmp) => {

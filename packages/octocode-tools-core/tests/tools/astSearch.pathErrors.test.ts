@@ -9,7 +9,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { contextUtils } from '../../src/utils/contextUtils.js';
 
 describe('astSearch structural path errors', () => {

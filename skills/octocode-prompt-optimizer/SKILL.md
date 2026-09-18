@@ -25,11 +25,11 @@ Before judging text, record the context that changes the optimization:
 | Field | Record |
 |---|---|
 | Target | exact prompt, instruction, tool/schema, policy, or handoff and its owning source |
-| Runtime | executing surface; runtime-resolved host/framework, dependency version, entrypoint, configuration, assembly, serialization, caching, and reader |
+| Runtime | executing surface, host/framework version, assembly, caching, and reader |
 | Readers | model, agent, tool client, server, human, or downstream parser and their authority boundaries |
 | Outcome | observable behavior to change and evidence of the current failure |
-| Invariants | intent, precedence, frozen bytes/contracts, identifiers, permissions, and working branches |
-| Delivery | requested output, write authority, context/eval budget, and checks that can prove success |
+| Invariants | intent, frozen contracts, identifiers, permissions, and working branches |
+| Delivery | output, write authority, budget, and success checks |
 | Urgency | active safety, permission, or production failure versus normal improvement |
 
 For an active safety, permission, or production failure, contain first: `READ affected source → UNDERSTAND authority/invariants → FIX the smallest reversible critical rule → VALIDATE the affected branch → OUTPUT`. Then return to RATE for broader work. Urgency never expands authority, permits a partial read of the affected source, or skips validation.
@@ -40,7 +40,7 @@ For an active safety, permission, or production failure, contain first: `READ af
 - For short, low-risk text, combine adjacent phases. For complex, tool-facing, or risky instructions, keep the phases explicit. Always validate the finished draft.
 - Make every rule decide an observable action. Keep one owner per behavior; use `references/writing/behavior.md` only when its action or scope remains ambiguous.
 - Maximize behavior per token, not brevity. Justify growth by the boundary it adds.
-- Treat context capacity, token billing, cache reuse, and prompt integrity as separate constraints. Optimizing one does not prove the others improved.
+- Treat context capacity, token billing, cache reuse, and prompt integrity as separate constraints.
 - Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before rewriting them.
 - Reserve mandatory language for real requirements. Keep preferences flexible and mutate files only when authorized.
 - When the request is for prompt text, output only that text.
@@ -76,7 +76,7 @@ Load references that resolve the current decision. Reuse material already read a
 | A token saving, compression ratio, or context-cost claim needs proof | `references/context/token-measurement.md` | tokens per fact, task-specific comparison, and verification |
 | A reliability claim needs proof | `references/flow/evaluation-data.md` | held-out scenarios, verifiers, metrics, failure ledger |
 | Instructions consume retrieved or user-supplied content | `references/context/untrusted-content.md` | the boundary between data and authority |
-| Improving this skill | `octocode-eval-benchmark`; if unavailable, freeze goal/KPI/baseline and use comparable accept/revert evidence | measurable acceptance instead of intuition |
+| Improving this skill | `octocode-eval-benchmark` | — |
 
 ## Related routes
 - Use `octocode-skills` for skill-folder architecture/review and `octocode-eval-benchmark` for held-out behavior. To verify technical contracts, `octocode-research` owns the MCP/CLI workflow and live tool/grammar discovery.

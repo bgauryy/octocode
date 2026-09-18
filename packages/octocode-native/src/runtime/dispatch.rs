@@ -32,6 +32,7 @@ pub(super) fn execute_local(
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
         object.remove("reasoning");
+        object.remove("debug");
     }
     match tool {
         "localFetch" => {

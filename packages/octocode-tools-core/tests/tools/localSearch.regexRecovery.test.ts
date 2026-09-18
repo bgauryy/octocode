@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 
 type SearchRow = {
   status?: string;

@@ -19,7 +19,11 @@ function textResult(
 describe("query envelope", () => {
   it("builds the query contract with an explicit sequential execution policy", () => {
     const schema = buildQueryEnvelopeSchema(
-      z.looseObject({ value: z.string() }),
+      z.looseObject({
+        value: z.string(),
+        reasoning: z.string().trim().min(1),
+        debug: z.boolean().default(false),
+      }),
     ) as {
       properties?: {
         queries?: {
@@ -51,11 +55,14 @@ describe("query envelope", () => {
     expect(schema.additionalProperties).toBe(false);
     expect(schema.properties?.queries?.minItems).toBe(1);
     expect(schema.properties?.queries?.maxItems).toBe(100);
-    expect(
-      schema.properties?.queries?.items?.properties?.reasoning,
-    ).toMatchObject({ maxLength: 400 });
-    expect(schema.properties?.queries?.items?.required).not.toContain("reasoning");
-    expect(schema.properties?.queries?.items?.properties).toHaveProperty("value");
+    expect(schema.properties?.queries?.items?.properties?.reasoning).toMatchObject({
+      minLength: 1,
+    });
+    expect(schema.properties?.queries?.items?.required).toContain("reasoning");
+    expect(schema.properties?.queries?.items?.properties).toMatchObject({
+      value: expect.any(Object),
+      debug: expect.objectContaining({ default: false }),
+    });
     expect(schema.properties?.queryRunType).toMatchObject({
       default: "sequential",
       enum: ["sequential"],
@@ -75,7 +82,7 @@ describe("query envelope", () => {
     ]);
   });
 
-  it("preflights every query before execution and treats reasoning as an optional label", async () => {
+  it("preflights every query and preserves schema-owned query fields unchanged", async () => {
     const preflight = vi.fn(
       async (query: Record<string, unknown>, index: number) => {
         if (query.value === "bad") throw new Error(`bad ${index}`);
@@ -95,15 +102,13 @@ describe("query envelope", () => {
     ).rejects.toThrow(/queries\[1\].*bad 1/);
     expect(preflight).toHaveBeenCalledTimes(2);
 
-    await expect(
-      prepareQueryBatch({ queries: [{ value: "ok" }, { reasoning: "   ", value: "also ok" }] }),
-    ).resolves.toEqual([{ value: "ok" }, { value: "also ok" }]);
-
-    await expect(
-      prepareQueryBatch({
-        queries: [{ reasoning: "x".repeat(401), value: "ok" }],
-      }),
-    ).rejects.toThrow(/at most 400/);
+    const untouched = [
+      { value: "ok" },
+      { reasoning: "   ", debug: true, value: "also ok" },
+    ];
+    await expect(prepareQueryBatch({ queries: untouched })).resolves.toEqual(
+      untouched,
+    );
   });
 
   it("executes prepared queries in order and returns every child content block to the agent by default", async () => {

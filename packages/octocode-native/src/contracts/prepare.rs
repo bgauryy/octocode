@@ -81,11 +81,9 @@ pub fn prepare(
         "goal",
         format!("Execute {tool_name} via {}", options.source_label),
     );
-    default_blank(
-        &mut object,
-        "reasoning",
-        format!("Executed via {} tool command", options.source_label),
-    );
+    object
+        .entry("debug".to_owned())
+        .or_insert(Value::Bool(false));
     if tool_name == "artifactSearch" {
         trim_string(&mut object, "packageName");
         if let Some(Value::Array(keywords)) = object.get_mut("keywords") {
@@ -122,7 +120,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn defaults_blank_meta_fields_for_single_query() {
+    fn defaults_goal_and_debug_but_never_invents_reasoning() {
         let prepared = prepare(
             "localFetch",
             json!({"path":"/tmp/a", "goal":" "}),
@@ -132,10 +130,8 @@ mod tests {
         )
         .expect("valid input");
         assert_eq!(prepared.query["goal"], "Execute localFetch via native CLI");
-        assert_eq!(
-            prepared.query["reasoning"],
-            "Executed via native CLI tool command"
-        );
+        assert_eq!(prepared.query["debug"], false);
+        assert!(prepared.query.get("reasoning").is_none());
     }
 
     #[test]

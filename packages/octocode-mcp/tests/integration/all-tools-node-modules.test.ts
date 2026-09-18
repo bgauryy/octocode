@@ -24,7 +24,13 @@ async function runLocalTool(
   query: Record<string, unknown>
 ): Promise<LocalSearchData> {
   const response = await executeDirectTool(toolName, {
-    queries: [query],
+    queries: [
+      {
+        reasoning: `Exercise ${toolName} against installed dependencies.`,
+        debug: true,
+        ...query,
+      },
+    ],
   });
   expect(response.isError, JSON.stringify(response)).not.toBe(true);
   const result = (
@@ -293,6 +299,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         minify: 'standard',
         goal: 'Read full package.json content',
         reasoning: 'Testing full content fetch',
+        debug: false,
       });
 
       verifySmartData(result, 'localFetch');
@@ -316,6 +323,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         minify: 'standard',
         goal: 'Read first 20 lines',
         reasoning: 'Testing line range fetch',
+        debug: false,
       });
 
       verifySmartData(result, 'localFetch');
@@ -337,6 +345,7 @@ describe('Integration Tests: All Tools on node_modules', () => {
         minify: 'standard',
         goal: 'Extract dependencies section',
         reasoning: 'Testing pattern-based extraction',
+        debug: false,
       });
 
       verifySmartData(result, 'localFetch');

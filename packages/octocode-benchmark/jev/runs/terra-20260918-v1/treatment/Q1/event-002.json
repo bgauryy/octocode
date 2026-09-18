@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q1",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"code\",\"owner\":\"vercel\",\"repo\":\"next.js\",\"keywords\":[\"getRouteRegex\"],\"pageSize\":10}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:03.450Z",
+  "endedAt": "2026-09-18T08:25:04.413Z",
+  "elapsedMs": 961,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "99322b3bf1e77ba056c4d089bb8a55d8f7d55e20bf068d1e84f2decde617c5f8",
+  "stdoutBytes": 5260,
+  "requestSha256": null
+}

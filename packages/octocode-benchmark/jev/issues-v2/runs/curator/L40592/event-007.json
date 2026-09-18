@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"reasoning\":\"Read current in-memory list implementation including the full limit branch and async wrapper.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/core/langchain_core/indexing/base.py\",\"startLine\":330,\"endLine\":390},{\"reasoning\":\"Read current test file regions that exercise list_keys limits.\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"path\":\"libs/core/tests/unit_tests/indexing/test_in_memory_record_manager.py\",\"matchString\":\"limit\",\"contextLines\":25}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:55:44.201Z",
+  "endedAt": "2026-09-18T08:55:45.086Z",
+  "elapsedMs": 884,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "449545b15c11b68deb15a548089a6732e5dce6d25dd52eb0dd0b32d3fc63d5b6",
+  "requestSha256": null
+}

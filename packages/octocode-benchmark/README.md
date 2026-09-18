@@ -20,6 +20,8 @@ metrics or with any other campaign.
 
 ## Other deterministic diagnostics
 
+- [Terra with and without Jev](jev/README.md) compares research decisions and answer quality on ten canonical GitHub questions plus a React bug investigation; it is a separate pilot.
+
 - [Artifact routing v2](evals/artifact-routing-v2/README.md) compares native and
   emulated tool calls against frozen schemas and validators.
 - [Local-tool removal held-out eval](docs/UNIFIED_ROUTING_EVAL.md) is a regression

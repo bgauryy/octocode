@@ -1,0 +1,3912 @@
+{
+  "kind": "octocode.toolSchemas",
+  "version": 1,
+  "schemas": [
+    {
+      "kind": "octocode.toolSchema",
+      "version": 1,
+      "name": "ghSearch",
+      "category": "GitHub",
+      "description": "Discover GitHub repositories, indexed code, or a repository tree. Use repositories for an unknown repo, code for lexical anchors, and tree for paths or non-default refs. Use ghGetFileContent for a known file and ghCloneRepo for repeated cross-file analysis. Code search is default-branch only.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queries": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "keywords": {
+                      "description": "ANDed; keep a phrase as one item; alternatives need separate queries.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "owner": {
+                      "description": "Repository owner (user or org).",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "repo": {
+                      "description": "Repository name, without the owner.",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "extension": {
+                      "description": "File extension filter, e.g. \"ts\" (no dot).",
+                      "type": "string"
+                    },
+                    "filename": {
+                      "description": "Exact filename filter.",
+                      "type": "string"
+                    },
+                    "path": {
+                      "description": "Repo path prefix, not a full file path.",
+                      "type": "string"
+                    },
+                    "language": {
+                      "description": "GitHub language filter, e.g. \"typescript\".",
+                      "type": "string"
+                    },
+                    "match": {
+                      "default": "file",
+                      "description": "For operation:\"code\": \"file\" returns snippets; \"path\" returns paths only.",
+                      "type": "string",
+                      "enum": [
+                        "file",
+                        "path"
+                      ]
+                    },
+                    "page": {
+                      "default": 1,
+                      "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "concise": {
+                      "description": "Flat \"owner/repo:path\" rows.",
+                      "type": "boolean"
+                    },
+                    "pageSize": {
+                      "default": 30,
+                      "description": "Results returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "code",
+                      "description": "Search code contents or file paths."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "keywords": {
+                      "description": "ANDed; keep a phrase as one item; alternatives need separate queries.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "language": {
+                      "description": "Primary language filter, e.g. \"rust\".",
+                      "type": "string"
+                    },
+                    "owner": {
+                      "description": "Repository owner (user or org).",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "stars": {
+                      "description": "Star range: \">100\", \"10..50\".",
+                      "type": "string"
+                    },
+                    "forks": {
+                      "description": "Fork range: \">50\", \"10..100\".",
+                      "type": "string"
+                    },
+                    "goodFirstIssues": {
+                      "description": "Good-first-issue count range, e.g. \">5\".",
+                      "type": "string"
+                    },
+                    "updated": {
+                      "description": "Last push date: \">2024-01-01\" or \"a..b\".",
+                      "type": "string"
+                    },
+                    "created": {
+                      "description": "Creation date: \">2023-01-01\" or \"a..b\".",
+                      "type": "string"
+                    },
+                    "size": {
+                      "description": "Repo size in KB: \">1000\", \"50..500\".",
+                      "type": "string"
+                    },
+                    "match": {
+                      "description": "For operation:\"repositories\": fields to search: name, description, or readme.",
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "name",
+                          "description",
+                          "readme"
+                        ]
+                      }
+                    },
+                    "sort": {
+                      "default": "best-match",
+                      "description": "stars, forks, updated, help-wanted-issues, best-match.",
+                      "type": "string",
+                      "enum": [
+                        "stars",
+                        "forks",
+                        "help-wanted-issues",
+                        "updated",
+                        "best-match"
+                      ]
+                    },
+                    "page": {
+                      "default": 1,
+                      "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "archived": {
+                      "description": "true = archived only; default excludes archived.",
+                      "type": "boolean"
+                    },
+                    "visibility": {
+                      "description": "\"public\" or \"private\" (private needs token scope).",
+                      "type": "string",
+                      "enum": [
+                        "public",
+                        "private"
+                      ]
+                    },
+                    "license": {
+                      "description": "SPDX id, e.g. \"mit\".",
+                      "type": "string"
+                    },
+                    "concise": {
+                      "description": "Flat \"owner/repo\" rows for triage.",
+                      "type": "boolean"
+                    },
+                    "topics": {
+                      "description": "Repository topics; all must match.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "pageSize": {
+                      "default": 30,
+                      "description": "Results returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "repositories",
+                      "description": "Discover repositories by keywords and repository filters."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "branch": {
+                      "description": "Ref; fallback warning means default branch was used.",
+                      "type": "string"
+                    },
+                    "path": {
+                      "description": "Repo-relative directory; \"\"/\".\" for root.",
+                      "type": "string"
+                    },
+                    "maxDepth": {
+                      "description": "Tree recursion depth.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 20
+                    },
+                    "page": {
+                      "default": 1,
+                      "description": "1-based result page. Copy returned next queries; depth, metadata, and materialization continuations are independent.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "metadataPage": {
+                      "description": "Page of the requested contributors, branches, or tags; follow next for each list independently.",
+                      "default": 1,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "include": {
+                      "description": "Optional sizes, languages, contributors, branches, or tags; each adds an API call.",
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "sizes",
+                          "languages",
+                          "contributors",
+                          "branches",
+                          "tags"
+                        ]
+                      }
+                    },
+                    "materialize": {
+                      "description": "Write this tree page's blob files under OCTOCODE_HOME/tmp/tree and return location.localPath.",
+                      "type": "boolean"
+                    },
+                    "materializeOffset": {
+                      "description": "0-based index into this listing page; resume blob writes after a write-cap continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 200
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "tree",
+                      "description": "Browse the tree of a known repository."
+                    },
+                    "pageSize": {
+                      "default": 100,
+                      "description": "Tree entries returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 200
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "description": "Independent queries; response rows preserve matching zero-based indexes and isolate runtime row errors."
+          },
+          "responseCharOffset": {
+            "description": "Full-response UTF-16 code-unit offset; copy the complete returned next query unchanged.",
+            "type": "number",
+            "minimum": 0
+          },
+          "responseCharLength": {
+            "description": "Full-response window in UTF-16 code units.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000
+          },
+          "responseSnapshot": {
+            "description": "Snapshot token from responsePagination.snapshot; required for later pages.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "fullDescription": "Discover GitHub repositories, indexed code, or a repository tree. Use repositories for an unknown repo, code for lexical anchors, and tree for paths or non-default refs. Use ghGetFileContent for a known file and ghCloneRepo for repeated cross-file analysis. Code search is default-branch only.",
+      "availability": {
+        "enabled": true
+      },
+      "fields": [
+        {
+          "name": "reasoning",
+          "type": "string",
+          "required": true,
+          "description": "Why this query advances the goal."
+        },
+        {
+          "name": "debug",
+          "type": "boolean",
+          "required": false,
+          "constraints": "default false",
+          "description": "Include structured execution evidence, diagnostics, and probe metadata."
+        },
+        {
+          "name": "keywords",
+          "type": "array<string>",
+          "required": false,
+          "description": "ANDed; keep a phrase as one item; alternatives need separate queries."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "required": false,
+          "description": "Repository owner (user or org)."
+        },
+        {
+          "name": "repo",
+          "type": "string",
+          "required": false,
+          "description": "Repository name, without the owner."
+        },
+        {
+          "name": "extension",
+          "type": "string",
+          "required": false,
+          "description": "File extension filter, e.g. \"ts\" (no dot)."
+        },
+        {
+          "name": "filename",
+          "type": "string",
+          "required": false,
+          "description": "Exact filename filter."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "language",
+          "type": "string",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "match",
+          "type": "enum(file, path) | array<enum(name, description, readme)>",
+          "required": false,
+          "constraints": "default \"file\"",
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "constraints": "default 1",
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "concise",
+          "type": "boolean",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "operation",
+          "type": "enum(code, repositories, tree)",
+          "required": true,
+          "description": "Required operation selector."
+        },
+        {
+          "name": "stars",
+          "type": "string",
+          "required": false,
+          "description": "Star range: \">100\", \"10..50\"."
+        },
+        {
+          "name": "forks",
+          "type": "string",
+          "required": false,
+          "description": "Fork range: \">50\", \"10..100\"."
+        },
+        {
+          "name": "goodFirstIssues",
+          "type": "string",
+          "required": false,
+          "description": "Good-first-issue count range, e.g. \">5\"."
+        },
+        {
+          "name": "updated",
+          "type": "string",
+          "required": false,
+          "description": "Last push date: \">2024-01-01\" or \"a..b\"."
+        },
+        {
+          "name": "created",
+          "type": "string",
+          "required": false,
+          "description": "Creation date: \">2023-01-01\" or \"a..b\"."
+        },
+        {
+          "name": "size",
+          "type": "string",
+          "required": false,
+          "description": "Repo size in KB: \">1000\", \"50..500\"."
+        },
+        {
+          "name": "sort",
+          "type": "enum(stars, forks, help-wanted-issues, updated, best-match)",
+          "required": false,
+          "constraints": "default \"best-match\"",
+          "description": "stars, forks, updated, help-wanted-issues, best-match."
+        },
+        {
+          "name": "archived",
+          "type": "boolean",
+          "required": false,
+          "description": "true = archived only; default excludes archived."
+        },
+        {
+          "name": "visibility",
+          "type": "enum(public, private)",
+          "required": false,
+          "description": "\"public\" or \"private\" (private needs token scope)."
+        },
+        {
+          "name": "license",
+          "type": "string",
+          "required": false,
+          "description": "SPDX id, e.g. \"mit\"."
+        },
+        {
+          "name": "topics",
+          "type": "array<string>",
+          "required": false,
+          "description": "Repository topics; all must match."
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "required": false,
+          "description": "Ref; fallback warning means default branch was used."
+        },
+        {
+          "name": "maxDepth",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-20",
+          "description": "Tree recursion depth."
+        },
+        {
+          "name": "metadataPage",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000, default 1",
+          "description": "Page of the requested contributors, branches, or tags; follow next for each list independently."
+        },
+        {
+          "name": "include",
+          "type": "array<enum(sizes, languages, contributors, branches, tags)>",
+          "required": false,
+          "description": "Optional sizes, languages, contributors, branches, or tags; each adds an API call."
+        },
+        {
+          "name": "materialize",
+          "type": "boolean",
+          "required": false,
+          "description": "Write this tree page's blob files under OCTOCODE_HOME/tmp/tree and return location.localPath."
+        },
+        {
+          "name": "materializeOffset",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-200",
+          "description": "0-based index into this listing page; resume blob writes after a write-cap continuation."
+        }
+      ],
+      "relations": [
+        "Use only fields listed for the selected operation.",
+        "code and repositories need at least one search term or scope filter.",
+        "match: code=file|path; repositories=name|description|readme.",
+        "code cannot select branch; it searches GitHub's indexed default branch."
+      ],
+      "variants": [
+        {
+          "name": "code",
+          "when": "Search code contents or file paths",
+          "requires": [
+            "operation",
+            "reasoning"
+          ],
+          "excludes": [
+            "branch"
+          ],
+          "example": {
+            "reasoning": "Use ghSearch for the code variant.",
+            "operation": "code",
+            "keywords": [
+              "toolSchemas"
+            ],
+            "owner": "bgauryy",
+            "repo": "octocode"
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "keywords",
+            "owner",
+            "repo",
+            "extension",
+            "filename",
+            "path",
+            "language",
+            "match",
+            "page",
+            "concise",
+            "pageSize"
+          ]
+        },
+        {
+          "name": "repositories",
+          "when": "Discover repositories",
+          "requires": [
+            "operation",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghSearch for the repositories variant.",
+            "operation": "repositories",
+            "keywords": [
+              "octocode"
+            ]
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "keywords",
+            "language",
+            "owner",
+            "stars",
+            "forks",
+            "goodFirstIssues",
+            "updated",
+            "created",
+            "size",
+            "match",
+            "sort",
+            "page",
+            "archived",
+            "visibility",
+            "license",
+            "concise",
+            "topics",
+            "pageSize"
+          ]
+        },
+        {
+          "name": "tree",
+          "when": "Browse a known repository tree",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghSearch for the tree variant.",
+            "operation": "tree",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "packages",
+            "maxDepth": 2
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "branch",
+            "path",
+            "maxDepth",
+            "page",
+            "metadataPage",
+            "include",
+            "materialize",
+            "materializeOffset",
+            "pageSize"
+          ]
+        }
+      ],
+      "guidance": [
+        "Batch 1–5 independent queries in queries[] per call; keep dependent probes sequential."
+      ],
+      "autoFilledFields": [
+        "goal"
+      ],
+      "commands": {
+        "catalog": "tools --json",
+        "schema": "tools ghSearch --scheme --json",
+        "compactSchema": "tools ghSearch --scheme --json --compact",
+        "humanSchema": "tools ghSearch --scheme",
+        "runCompact": "tools ghSearch --queries '{\"reasoning\":\"Use ghSearch for the code search example.\",\"operation\":\"code\",\"keywords\":[\"localSearch\"],\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"pageSize\":5}' --compact",
+        "runJson": "tools ghSearch --queries '<json>' --json"
+      },
+      "commandPatterns": [
+        {
+          "label": "code search",
+          "query": {
+            "reasoning": "Use ghSearch for the code search example.",
+            "operation": "code",
+            "keywords": [
+              "localSearch"
+            ],
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "pageSize": 5
+          },
+          "command": "tools ghSearch --queries '{\"reasoning\":\"Use ghSearch for the code search example.\",\"operation\":\"code\",\"keywords\":[\"localSearch\"],\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"pageSize\":5}'"
+        },
+        {
+          "label": "repository search",
+          "query": {
+            "reasoning": "Use ghSearch for the repository search example.",
+            "operation": "repositories",
+            "keywords": [
+              "code research"
+            ],
+            "language": "TypeScript",
+            "pageSize": 5
+          },
+          "command": "tools ghSearch --queries '{\"reasoning\":\"Use ghSearch for the repository search example.\",\"operation\":\"repositories\",\"keywords\":[\"code research\"],\"language\":\"TypeScript\",\"pageSize\":5}'"
+        },
+        {
+          "label": "repository tree",
+          "query": {
+            "reasoning": "Use ghSearch for the repository tree example.",
+            "operation": "tree",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "packages",
+            "maxDepth": 2
+          },
+          "command": "tools ghSearch --queries '{\"reasoning\":\"Use ghSearch for the repository tree example.\",\"operation\":\"tree\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"packages\",\"maxDepth\":2}'"
+        }
+      ]
+    },
+    {
+      "kind": "octocode.toolSchema",
+      "version": 1,
+      "name": "ghGetFileContent",
+      "category": "GitHub",
+      "description": "Read a known GitHub file or exact region at a selected ref. Exact by default. Use matchString for a known anchor, line ranges for known lines, minify:symbols to orient, and fullContent only for the whole file. Use ghSearch to find paths and ghCloneRepo for repeated cross-file analysis.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queries": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "branch": {
+                      "description": "Exact branch, tag, or commit ref; defaults to the repository default branch.",
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository-relative file path; exact case, no leading slash."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "chunkType": {
+                      "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes.",
+                      "type": "string",
+                      "enum": [
+                        "lines",
+                        "bytes"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50000
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "forceRefresh": {
+                      "description": "Bypass the 24h fetch cache and re-read from GitHub.",
+                      "type": "boolean"
+                    },
+                    "fullContent": {
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue.",
+                      "type": "boolean",
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "branch": {
+                      "description": "Exact branch, tag, or commit ref; defaults to the repository default branch.",
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository-relative file path; exact case, no leading slash."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "forceRefresh": {
+                      "description": "Bypass the 24h fetch cache and re-read from GitHub.",
+                      "type": "boolean"
+                    },
+                    "fullContent": {
+                      "type": "boolean",
+                      "const": true,
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "path",
+                    "fullContent"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "branch": {
+                      "description": "Exact branch, tag, or commit ref; defaults to the repository default branch.",
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository-relative file path; exact case, no leading slash."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "chunkType": {
+                      "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes.",
+                      "type": "string",
+                      "enum": [
+                        "lines",
+                        "bytes"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50000
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "forceRefresh": {
+                      "description": "Bypass the 24h fetch cache and re-read from GitHub.",
+                      "type": "boolean"
+                    },
+                    "fullContent": {
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue.",
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "matchString": {
+                      "description": "Literal or regex source match; merge overlapping context windows, then page the selected view. Empty patterns are rejected.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "contextBytes": {
+                      "description": "UTF-8 bytes before/after each match; omission uses 256 for byte chunks when contextLines is absent. Edges preserve code points; disjoint windows use a newline. Matching follows full-source redaction.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 16384
+                    },
+                    "matchStringIsRegex": {
+                      "description": "Makes matchString a regex.",
+                      "type": "boolean"
+                    },
+                    "matchStringCaseSensitive": {
+                      "description": "Case-sensitive matchString.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "path",
+                    "matchString"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "branch": {
+                      "description": "Exact branch, tag, or commit ref; defaults to the repository default branch.",
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository-relative file path; exact case, no leading slash."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "chunkType": {
+                      "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes.",
+                      "type": "string",
+                      "enum": [
+                        "lines",
+                        "bytes"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50000
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "forceRefresh": {
+                      "description": "Bypass the 24h fetch cache and re-read from GitHub.",
+                      "type": "boolean"
+                    },
+                    "fullContent": {
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue.",
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "startLine": {
+                      "description": "First source line of an exact range.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000000
+                    },
+                    "endLine": {
+                      "description": "Last source line of an exact range; must be >= startLine.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000000
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "path",
+                    "startLine",
+                    "endLine"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "description": "Independent queries; response rows preserve matching zero-based indexes and isolate runtime row errors."
+          },
+          "responseCharOffset": {
+            "description": "Full-response UTF-16 code-unit offset; copy the complete returned next query unchanged.",
+            "type": "number",
+            "minimum": 0
+          },
+          "responseCharLength": {
+            "description": "Full-response window in UTF-16 code units.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000
+          },
+          "responseSnapshot": {
+            "description": "Snapshot token from responsePagination.snapshot; required for later pages.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "fullDescription": "Read a known GitHub file or exact region at a selected ref. Exact by default. Use matchString for a known anchor, line ranges for known lines, minify:symbols to orient, and fullContent only for the whole file. Use ghSearch to find paths and ghCloneRepo for repeated cross-file analysis.",
+      "availability": {
+        "enabled": true
+      },
+      "fields": [
+        {
+          "name": "reasoning",
+          "type": "string",
+          "required": true,
+          "description": "Why this query advances the goal."
+        },
+        {
+          "name": "debug",
+          "type": "boolean",
+          "required": false,
+          "constraints": "default false",
+          "description": "Include structured execution evidence, diagnostics, and probe metadata."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "required": true,
+          "description": "Repository owner (user or org)."
+        },
+        {
+          "name": "repo",
+          "type": "string",
+          "required": true,
+          "description": "Repository name, without the owner."
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "required": false,
+          "description": "Exact branch, tag, or commit ref; defaults to the repository default branch."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "Repository-relative file path; exact case, no leading slash."
+        },
+        {
+          "name": "fullContent",
+          "type": "boolean",
+          "required": false,
+          "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue."
+        },
+        {
+          "name": "matchString",
+          "type": "string",
+          "required": false,
+          "description": "Literal or regex source match; merge overlapping context windows, then page the selected view. Empty patterns are rejected."
+        },
+        {
+          "name": "matchStringIsRegex",
+          "type": "boolean",
+          "required": false,
+          "description": "Makes matchString a regex."
+        },
+        {
+          "name": "matchStringCaseSensitive",
+          "type": "boolean",
+          "required": false,
+          "description": "Case-sensitive matchString."
+        },
+        {
+          "name": "startLine",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000000000",
+          "description": "First source line of an exact range."
+        },
+        {
+          "name": "endLine",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000000000",
+          "description": "Last source line of an exact range; must be >= startLine."
+        },
+        {
+          "name": "contextLines",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-100",
+          "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations."
+        },
+        {
+          "name": "contextBytes",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-16384",
+          "description": "UTF-8 bytes before/after each match; omission uses 256 for byte chunks when contextLines is absent. Edges preserve code points; disjoint windows use a newline. Matching follows full-source redaction."
+        },
+        {
+          "name": "chunkType",
+          "type": "enum(lines, bytes)",
+          "required": false,
+          "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes."
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-9007199254740991",
+          "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation."
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-50000",
+          "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point."
+        },
+        {
+          "name": "minify",
+          "type": "enum(none, standard, symbols)",
+          "required": false,
+          "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline."
+        },
+        {
+          "name": "forceRefresh",
+          "type": "boolean",
+          "required": false,
+          "description": "Bypass the 24h fetch cache and re-read from GitHub."
+        }
+      ],
+      "relations": [
+        "Choose at most one extraction mode: fullContent, startLine+endLine, or matchString; a path-only read is valid.",
+        "fullContent rejects chunk controls; minify:\"symbols\" rejects ranges and matchString.",
+        "chunkType selects lines (default) or UTF-8 bytes of the returned view; offset is zero-based.",
+        "Match options and contextBytes require matchString; contextLines and contextBytes are exclusive. Omitted context uses 5 lines or 256 UTF-8 bytes according to chunkType; explicit units survive continuations."
+      ],
+      "guidance": [
+        "Batch 1–5 independent queries in queries[] per call; keep dependent probes sequential."
+      ],
+      "autoFilledFields": [
+        "goal"
+      ],
+      "commands": {
+        "catalog": "tools --json",
+        "schema": "tools ghGetFileContent --scheme --json",
+        "compactSchema": "tools ghGetFileContent --scheme --json --compact",
+        "humanSchema": "tools ghGetFileContent --scheme",
+        "runCompact": "tools ghGetFileContent --queries '{\"reasoning\":\"Use ghGetFileContent for the exact context around a match example.\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"packages/octocode-tools-core/src/responses.ts\",\"matchString\":\"export function cleanJsonObject\",\"contextLines\":5}' --compact",
+        "runJson": "tools ghGetFileContent --queries '<json>' --json"
+      },
+      "commandPatterns": [
+        {
+          "label": "exact context around a match",
+          "query": {
+            "reasoning": "Use ghGetFileContent for the exact context around a match example.",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "packages/octocode-tools-core/src/responses.ts",
+            "matchString": "export function cleanJsonObject",
+            "contextLines": 5
+          },
+          "command": "tools ghGetFileContent --queries '{\"reasoning\":\"Use ghGetFileContent for the exact context around a match example.\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"packages/octocode-tools-core/src/responses.ts\",\"matchString\":\"export function cleanJsonObject\",\"contextLines\":5}'"
+        },
+        {
+          "label": "symbols outline (unknown/large file)",
+          "query": {
+            "reasoning": "Use ghGetFileContent for the symbols outline (unknown/large file) example.",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "packages/octocode-tools-core/src/responses.ts",
+            "minify": "symbols"
+          },
+          "command": "tools ghGetFileContent --queries '{\"reasoning\":\"Use ghGetFileContent for the symbols outline (unknown/large file) example.\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"packages/octocode-tools-core/src/responses.ts\",\"minify\":\"symbols\"}'"
+        },
+        {
+          "label": "Markdown headings before an exact section read",
+          "query": {
+            "reasoning": "Use ghGetFileContent for the Markdown headings before an exact section read example.",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "README.md",
+            "minify": "symbols"
+          },
+          "command": "tools ghGetFileContent --queries '{\"reasoning\":\"Use ghGetFileContent for the Markdown headings before an exact section read example.\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"README.md\",\"minify\":\"symbols\"}'"
+        },
+        {
+          "label": "complete file",
+          "query": {
+            "reasoning": "Use ghGetFileContent for the complete file example.",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "README.md",
+            "fullContent": true
+          },
+          "command": "tools ghGetFileContent --queries '{\"reasoning\":\"Use ghGetFileContent for the complete file example.\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"README.md\",\"fullContent\":true}'"
+        }
+      ]
+    },
+    {
+      "kind": "octocode.toolSchema",
+      "version": 1,
+      "name": "ghGetHistoryItem",
+      "category": "GitHub",
+      "description": "Read a known pull request, issue, commit, or ref comparison. Request only needed content; inspect changed files before PR patches. Only pullRequest accepts minify:none for exact text or diff context; commit reads are exact by default. Use ghSearchHistory to discover items and ghGetFileContent for final source.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queries": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "description": "Repository owner (user or org).",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "repo": {
+                      "description": "Repository name, without the owner.",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "pageSize": {
+                      "description": "PRs or detail-list items returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "filePage": {
+                      "description": "Changed-files page from contentPagination.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "commentPage": {
+                      "description": "Comments page from contentPagination.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "commitPage": {
+                      "description": "PR commits page within the current provider batch.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "reviewPage": {
+                      "description": "Reviews page within the current provider batch; copy next.nextReviewsPage.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "collectionPages": {
+                      "description": "Provider batch positions from next.*; copy unchanged. Zero marks an exhausted source. Each call fetches at most one page per requested source.",
+                      "type": "object",
+                      "properties": {
+                        "changedFiles": {
+                          "description": "Changed-files provider page copied from next.*; zero means exhausted.",
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 30
+                        },
+                        "discussion": {
+                          "description": "Discussion provider page copied from next.*; zero means exhausted.",
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "inline": {
+                          "description": "Inline-comment provider page copied from next.*; zero means exhausted.",
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "reviews": {
+                          "description": "Reviews provider page copied from next.*; zero means exhausted.",
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "commits": {
+                          "description": "PR-commits provider page copied from next.*; zero means exhausted.",
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 5
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "content": {
+                      "description": "Body, changed-file, patch, comment, review, or commit selectors for this pull request.",
+                      "type": "object",
+                      "properties": {
+                        "body": {
+                          "description": "Include the PR description body.",
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "changedFiles": {
+                          "description": "Include changed files and +/- counts.",
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "patches": {
+                          "description": "Patch selector for changed files.",
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "const": "selected",
+                                  "description": "\"selected\" or \"all\"; selected is cheapest."
+                                },
+                                "files": {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "description": "Restrict selected patches to these files (mode:\"selected\")."
+                                },
+                                "ranges": {
+                                  "description": "Line ranges for selected patch hunks.",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "file": {
+                                        "type": "string",
+                                        "description": "File the line range applies to."
+                                      },
+                                      "additions": {
+                                        "description": "Added-side line numbers to include.",
+                                        "type": "array",
+                                        "items": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1000000000
+                                        }
+                                      },
+                                      "deletions": {
+                                        "description": "Deleted-side line numbers to include.",
+                                        "type": "array",
+                                        "items": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1000000000
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "file"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "files"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "const": "selected",
+                                  "description": "\"selected\" or \"all\"; selected is cheapest."
+                                },
+                                "files": {
+                                  "description": "Restrict selected patches to these files (mode:\"selected\").",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "ranges": {
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "file": {
+                                        "type": "string",
+                                        "description": "File the line range applies to."
+                                      },
+                                      "additions": {
+                                        "description": "Added-side line numbers to include.",
+                                        "type": "array",
+                                        "items": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1000000000
+                                        }
+                                      },
+                                      "deletions": {
+                                        "description": "Deleted-side line numbers to include.",
+                                        "type": "array",
+                                        "items": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1000000000
+                                        }
+                                      }
+                                    },
+                                    "required": [
+                                      "file"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  "description": "Line ranges for selected patch hunks."
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "ranges"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "const": "all",
+                                  "description": "\"selected\" or \"all\"; selected is cheapest."
+                                }
+                              },
+                              "required": [
+                                "mode"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "comments": {
+                          "description": "Select discussion and/or reviewInline explicitly; omitted surfaces are not fetched.",
+                          "type": "object",
+                          "properties": {
+                            "discussion": {
+                              "description": "Include the PR conversation timeline.",
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "reviewInline": {
+                              "description": "Include inline review threads.",
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "includeBots": {
+                              "description": "Include bot/CI comments.",
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "file": {
+                              "description": "Filter comments to one file path.",
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "reviews": {
+                          "description": "Include review verdicts per reviewer.",
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "commits": {
+                          "description": "PR-bound commits selector.",
+                          "type": "object",
+                          "properties": {
+                            "includeFiles": {
+                              "description": "Attach per-commit file changes.",
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "matchString": {
+                      "description": "Substring filter for body/patch/comment windows.",
+                      "type": "string"
+                    },
+                    "commentBodyOffset": {
+                      "description": "Comment-body continuation offset copied from the returned executable next.* query.",
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "charOffset": {
+                      "description": "Body or patch continuation offset copied from the returned executable next.* query.",
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "charLength": {
+                      "description": "Content-window length; continue with the returned offset when partial.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "minify": {
+                      "default": "standard",
+                      "description": "\"standard\" compacts PR body/comments/reviews and trims diff context; \"none\" preserves selected text after redaction. Match reads retain source text. No symbols mode.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard"
+                      ]
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "pullRequest",
+                      "description": "Required operation selector."
+                    },
+                    "number": {
+                      "description": "Pull request number to retrieve.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000000
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "operation",
+                    "number"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "pageSize": {
+                      "description": "Issues or detail comments returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "commentPage": {
+                      "description": "Comments page from contentPagination.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "content": {
+                      "description": "Body or comment selectors for this issue.",
+                      "type": "object",
+                      "properties": {
+                        "body": {
+                          "description": "Include the issue description body.",
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "comments": {
+                          "description": "Comment-thread selector.",
+                          "type": "object",
+                          "properties": {
+                            "discussion": {
+                              "description": "Include the comment thread.",
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "includeBots": {
+                              "description": "Include bot/CI comments.",
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "charOffset": {
+                      "description": "Character offset in the selected issue body or comment bodies; follow next calls.",
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "charLength": {
+                      "description": "Characters per selected body window (default 12000); commentPage selects comment items independently.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "issue",
+                      "description": "Required operation selector."
+                    },
+                    "number": {
+                      "description": "Issue number to retrieve.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000000
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "operation",
+                    "number"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name."
+                    },
+                    "path": {
+                      "description": "File/dir prefix; trailing / scopes the subtree.",
+                      "type": "string"
+                    },
+                    "pageSize": {
+                      "description": "Commits or changed files returned per page; resume with the exact returned next query (including page or filePage).",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "includeDiff": {
+                      "default": false,
+                      "description": "Attach diffs; prefer one commit or a tight window.",
+                      "type": "boolean"
+                    },
+                    "filePage": {
+                      "description": "Changed-file page from pagination.nextFilePage.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "charOffset": {
+                      "description": "Patch offset from patchPagination.nextCharOffset.",
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "charLength": {
+                      "description": "Patch-window length.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "commit",
+                      "description": "Required operation selector."
+                    },
+                    "ref": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Commit SHA or ref to retrieve exactly."
+                    },
+                    "fileBatch": {
+                      "description": "Provider file batch from next.nextFilePage; copy unchanged.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 30
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "operation",
+                    "ref"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name."
+                    },
+                    "path": {
+                      "description": "File/dir prefix; trailing / scopes the subtree.",
+                      "type": "string"
+                    },
+                    "base": {
+                      "description": "Compare-mode base ref; set with head.",
+                      "type": "string"
+                    },
+                    "head": {
+                      "description": "Compare-mode head ref; set with base.",
+                      "type": "string"
+                    },
+                    "pageSize": {
+                      "description": "Commits or changed files returned per page; resume with the exact returned next query (including page or filePage).",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "includeDiff": {
+                      "default": false,
+                      "description": "Attach diffs; prefer one commit or a tight window.",
+                      "type": "boolean"
+                    },
+                    "page": {
+                      "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "filePage": {
+                      "description": "Changed-file page from pagination.nextFilePage.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "charOffset": {
+                      "description": "Patch offset from patchPagination.nextCharOffset.",
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "charLength": {
+                      "description": "Patch-window length.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "compare",
+                      "description": "Required operation selector."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "base",
+                    "head",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                }
+              ],
+              "description": "Retrieve one GitHub pull request, issue, commit, or ref comparison using one strict operation branch."
+            },
+            "description": "Independent queries; response rows preserve matching zero-based indexes and isolate runtime row errors."
+          },
+          "responseCharOffset": {
+            "description": "Full-response UTF-16 code-unit offset; copy the complete returned next query unchanged.",
+            "type": "number",
+            "minimum": 0
+          },
+          "responseCharLength": {
+            "description": "Full-response window in UTF-16 code units.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000
+          },
+          "responseSnapshot": {
+            "description": "Snapshot token from responsePagination.snapshot; required for later pages.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "fullDescription": "Read a known pull request, issue, commit, or ref comparison. Request only needed content; inspect changed files before PR patches. Only pullRequest accepts minify:none for exact text or diff context; commit reads are exact by default. Use ghSearchHistory to discover items and ghGetFileContent for final source.",
+      "availability": {
+        "enabled": true
+      },
+      "fields": [
+        {
+          "name": "reasoning",
+          "type": "string",
+          "required": true,
+          "description": "Why this query advances the goal."
+        },
+        {
+          "name": "debug",
+          "type": "boolean",
+          "required": false,
+          "constraints": "default false",
+          "description": "Include structured execution evidence, diagnostics, and probe metadata."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "required": true,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "repo",
+          "type": "string",
+          "required": true,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "filePage",
+          "type": "integer",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "commentPage",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000",
+          "description": "Comments page from contentPagination."
+        },
+        {
+          "name": "commitPage",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000",
+          "description": "PR commits page within the current provider batch."
+        },
+        {
+          "name": "reviewPage",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000",
+          "description": "Reviews page within the current provider batch; copy next.nextReviewsPage."
+        },
+        {
+          "name": "collectionPages",
+          "type": "object",
+          "required": false,
+          "description": "Provider batch positions from next.*; copy unchanged. Zero marks an exhausted source. Each call fetches at most one page per requested source."
+        },
+        {
+          "name": "collectionPages.changedFiles",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-30",
+          "description": "Changed-files provider page copied from next.*; zero means exhausted."
+        },
+        {
+          "name": "collectionPages.discussion",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-9007199254740991",
+          "description": "Discussion provider page copied from next.*; zero means exhausted."
+        },
+        {
+          "name": "collectionPages.inline",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-9007199254740991",
+          "description": "Inline-comment provider page copied from next.*; zero means exhausted."
+        },
+        {
+          "name": "collectionPages.reviews",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-9007199254740991",
+          "description": "Reviews provider page copied from next.*; zero means exhausted."
+        },
+        {
+          "name": "collectionPages.commits",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-5",
+          "description": "PR-commits provider page copied from next.*; zero means exhausted."
+        },
+        {
+          "name": "content",
+          "type": "object",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "content.body",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Include the PR description body."
+        },
+        {
+          "name": "content.changedFiles",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Include changed files and +/- counts."
+        },
+        {
+          "name": "content.patches",
+          "type": "object",
+          "required": false,
+          "description": "Patch selector for changed files."
+        },
+        {
+          "name": "content.patches.mode",
+          "type": "enum(selected, all)",
+          "required": true,
+          "description": "\"selected\" or \"all\"; selected is cheapest."
+        },
+        {
+          "name": "content.patches.files",
+          "type": "array<string>",
+          "required": false,
+          "description": "Restrict selected patches to these files (mode:\"selected\")."
+        },
+        {
+          "name": "content.patches.ranges",
+          "type": "array<object>",
+          "required": false,
+          "description": "Line ranges for selected patch hunks."
+        },
+        {
+          "name": "content.patches.ranges.file",
+          "type": "string",
+          "required": true,
+          "description": "File the line range applies to."
+        },
+        {
+          "name": "content.patches.ranges.additions",
+          "type": "array<integer>",
+          "required": false,
+          "description": "Added-side line numbers to include."
+        },
+        {
+          "name": "content.patches.ranges.deletions",
+          "type": "array<integer>",
+          "required": false,
+          "description": "Deleted-side line numbers to include."
+        },
+        {
+          "name": "content.comments",
+          "type": "object",
+          "required": false,
+          "description": "Select discussion and/or reviewInline explicitly; omitted surfaces are not fetched."
+        },
+        {
+          "name": "content.comments.discussion",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Include the PR conversation timeline."
+        },
+        {
+          "name": "content.comments.reviewInline",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Include inline review threads."
+        },
+        {
+          "name": "content.comments.includeBots",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Include bot/CI comments."
+        },
+        {
+          "name": "content.comments.file",
+          "type": "string",
+          "required": false,
+          "description": "Filter comments to one file path."
+        },
+        {
+          "name": "content.reviews",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Include review verdicts per reviewer."
+        },
+        {
+          "name": "content.commits",
+          "type": "object",
+          "required": false,
+          "description": "PR-bound commits selector."
+        },
+        {
+          "name": "content.commits.includeFiles",
+          "type": "enum(true)",
+          "required": false,
+          "description": "Attach per-commit file changes."
+        },
+        {
+          "name": "matchString",
+          "type": "string",
+          "required": false,
+          "description": "Substring filter for body/patch/comment windows."
+        },
+        {
+          "name": "commentBodyOffset",
+          "type": "number",
+          "required": false,
+          "constraints": ">=0",
+          "description": "Comment-body continuation offset copied from the returned executable next.* query."
+        },
+        {
+          "name": "charOffset",
+          "type": "number",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "charLength",
+          "type": "integer",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "minify",
+          "type": "enum(none, standard)",
+          "required": false,
+          "constraints": "default \"standard\"",
+          "description": "\"standard\" compacts PR body/comments/reviews and trims diff context; \"none\" preserves selected text after redaction. Match reads retain source text. No symbols mode."
+        },
+        {
+          "name": "operation",
+          "type": "enum(pullRequest, issue, commit, compare)",
+          "required": true,
+          "description": "Required operation selector."
+        },
+        {
+          "name": "number",
+          "type": "integer",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "description": "File/dir prefix; trailing / scopes the subtree."
+        },
+        {
+          "name": "includeDiff",
+          "type": "boolean",
+          "required": false,
+          "constraints": "default false",
+          "description": "Attach diffs; prefer one commit or a tight window."
+        },
+        {
+          "name": "ref",
+          "type": "string",
+          "required": false,
+          "description": "Commit SHA or ref to retrieve exactly."
+        },
+        {
+          "name": "fileBatch",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-30",
+          "description": "Provider file batch from next.nextFilePage; copy unchanged."
+        },
+        {
+          "name": "base",
+          "type": "string",
+          "required": false,
+          "description": "Compare-mode base ref; set with head."
+        },
+        {
+          "name": "head",
+          "type": "string",
+          "required": false,
+          "description": "Compare-mode head ref; set with base."
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000",
+          "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool."
+        }
+      ],
+      "relations": [
+        "Every operation requires owner+repo.",
+        "pullRequest and issue need number; commit needs ref; compare needs base+head.",
+        "Fields and pagination axes cannot cross operations."
+      ],
+      "variants": [
+        {
+          "name": "pullRequest",
+          "when": "Retrieve one pull request",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "number",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghGetHistoryItem for the pullRequest variant.",
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "pageSize",
+            "filePage",
+            "commentPage",
+            "commitPage",
+            "reviewPage",
+            "collectionPages",
+            "content",
+            "matchString",
+            "commentBodyOffset",
+            "charOffset",
+            "charLength",
+            "minify",
+            "number"
+          ]
+        },
+        {
+          "name": "issue",
+          "when": "Retrieve one issue",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "number",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghGetHistoryItem for the issue variant.",
+            "operation": "issue",
+            "owner": "o",
+            "repo": "r",
+            "number": 1
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "pageSize",
+            "commentPage",
+            "content",
+            "charOffset",
+            "charLength",
+            "number"
+          ]
+        },
+        {
+          "name": "commit",
+          "when": "Retrieve one commit",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "ref",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghGetHistoryItem for the commit variant.",
+            "operation": "commit",
+            "owner": "o",
+            "repo": "r",
+            "ref": "main"
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "path",
+            "pageSize",
+            "includeDiff",
+            "filePage",
+            "charOffset",
+            "charLength",
+            "ref",
+            "fileBatch"
+          ]
+        },
+        {
+          "name": "compare",
+          "when": "Compare two refs",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "base",
+            "head",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghGetHistoryItem for the compare variant.",
+            "operation": "compare",
+            "owner": "o",
+            "repo": "r",
+            "base": "main",
+            "head": "next"
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "path",
+            "base",
+            "head",
+            "pageSize",
+            "includeDiff",
+            "page",
+            "filePage",
+            "charOffset",
+            "charLength"
+          ]
+        }
+      ],
+      "guidance": [
+        "Batch 1–5 independent queries in queries[] per call; keep dependent probes sequential."
+      ],
+      "autoFilledFields": [
+        "goal"
+      ],
+      "commands": {
+        "catalog": "tools --json",
+        "schema": "tools ghGetHistoryItem --scheme --json",
+        "compactSchema": "tools ghGetHistoryItem --scheme --json --compact",
+        "humanSchema": "tools ghGetHistoryItem --scheme",
+        "runCompact": "tools ghGetHistoryItem --queries '{\"reasoning\":\"Use ghGetHistoryItem for the pull request detail example.\",\"operation\":\"pullRequest\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"number\":1,\"content\":{\"body\":true,\"changedFiles\":true}}' --compact",
+        "runJson": "tools ghGetHistoryItem --queries '<json>' --json"
+      },
+      "commandPatterns": [
+        {
+          "label": "pull request detail",
+          "query": {
+            "reasoning": "Use ghGetHistoryItem for the pull request detail example.",
+            "operation": "pullRequest",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "number": 1,
+            "content": {
+              "body": true,
+              "changedFiles": true
+            }
+          },
+          "command": "tools ghGetHistoryItem --queries '{\"reasoning\":\"Use ghGetHistoryItem for the pull request detail example.\",\"operation\":\"pullRequest\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"number\":1,\"content\":{\"body\":true,\"changedFiles\":true}}'"
+        },
+        {
+          "label": "issue detail",
+          "query": {
+            "reasoning": "Use ghGetHistoryItem for the issue detail example.",
+            "operation": "issue",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "number": 1,
+            "content": {
+              "body": true,
+              "comments": {
+                "discussion": true
+              }
+            }
+          },
+          "command": "tools ghGetHistoryItem --queries '{\"reasoning\":\"Use ghGetHistoryItem for the issue detail example.\",\"operation\":\"issue\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"number\":1,\"content\":{\"body\":true,\"comments\":{\"discussion\":true}}}'"
+        },
+        {
+          "label": "exact commit",
+          "query": {
+            "reasoning": "Use ghGetHistoryItem for the exact commit example.",
+            "operation": "commit",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "ref": "main"
+          },
+          "command": "tools ghGetHistoryItem --queries '{\"reasoning\":\"Use ghGetHistoryItem for the exact commit example.\",\"operation\":\"commit\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"ref\":\"main\"}'"
+        },
+        {
+          "label": "compare two refs (base...head)",
+          "query": {
+            "reasoning": "Use ghGetHistoryItem for the compare two refs (base...head) example.",
+            "operation": "compare",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "base": "main",
+            "head": "update-tools"
+          },
+          "command": "tools ghGetHistoryItem --queries '{\"reasoning\":\"Use ghGetHistoryItem for the compare two refs (base...head) example.\",\"operation\":\"compare\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"base\":\"main\",\"head\":\"update-tools\"}'"
+        }
+      ]
+    },
+    {
+      "kind": "octocode.toolSchema",
+      "version": 1,
+      "name": "ghSearchHistory",
+      "category": "GitHub",
+      "description": "Find pull requests, issues, or commits when the number or ref is unknown. Filter metadata first, then use ghGetHistoryItem for bodies, comments, and diffs. Commit keyword search is default-branch only; traversal supports path, ref, or date filters.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queries": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "keywords": {
+                      "description": "PR search terms.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "owner": {
+                      "description": "Repository owner (user or org).",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "repo": {
+                      "description": "Repository name, without the owner.",
+                      "type": "string",
+                      "pattern": "\\S"
+                    },
+                    "concise": {
+                      "description": "PR list triage; list mode only.",
+                      "type": "boolean"
+                    },
+                    "state": {
+                      "description": "open, closed, or merged.",
+                      "type": "string",
+                      "enum": [
+                        "open",
+                        "closed",
+                        "merged"
+                      ]
+                    },
+                    "assignee": {
+                      "description": "Assigned GitHub login.",
+                      "type": "string"
+                    },
+                    "author": {
+                      "description": "PR author login.",
+                      "type": "string"
+                    },
+                    "commenter": {
+                      "description": "Commenter login.",
+                      "type": "string"
+                    },
+                    "mentions": {
+                      "description": "Mentioned login.",
+                      "type": "string"
+                    },
+                    "review-requested": {
+                      "description": "Requested reviewer login.",
+                      "type": "string"
+                    },
+                    "reviewed-by": {
+                      "description": "Reviewer login.",
+                      "type": "string"
+                    },
+                    "label": {
+                      "description": "Label name(s); multiple are ANDed.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "checks": {
+                      "description": "success, failure, or pending.",
+                      "type": "string",
+                      "enum": [
+                        "success",
+                        "failure",
+                        "pending"
+                      ]
+                    },
+                    "review": {
+                      "description": "approved, changes_requested, required, or none.",
+                      "type": "string",
+                      "enum": [
+                        "approved",
+                        "changes_requested",
+                        "required",
+                        "none"
+                      ]
+                    },
+                    "head": {
+                      "description": "Head branch name filter.",
+                      "type": "string"
+                    },
+                    "base": {
+                      "description": "Base branch name filter.",
+                      "type": "string"
+                    },
+                    "created": {
+                      "description": "Created date/range, e.g. \">2024-01-01\" or \"a..b\".",
+                      "type": "string"
+                    },
+                    "updated": {
+                      "description": "Updated-date filter (same format as created).",
+                      "type": "string"
+                    },
+                    "closed": {
+                      "description": "Closed-date filter (same format as created).",
+                      "type": "string"
+                    },
+                    "merged-at": {
+                      "description": "Merged-date filter (same format as created).",
+                      "type": "string"
+                    },
+                    "comments": {
+                      "description": "Comment-count range filter (\">5\"); not comment content.",
+                      "type": "string"
+                    },
+                    "reactions": {
+                      "description": "Reaction-count range filter (\">10\").",
+                      "type": "string"
+                    },
+                    "draft": {
+                      "description": "true = only drafts; false = exclude drafts.",
+                      "type": "boolean"
+                    },
+                    "match": {
+                      "description": "PR text fields searched by keywords: title, body, comments. ghSearch operation:\"code\" instead uses match to select file content or paths.",
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "title",
+                          "body",
+                          "comments"
+                        ]
+                      }
+                    },
+                    "sort": {
+                      "description": "created, updated, comments, reactions, best-match.",
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "updated",
+                        "best-match",
+                        "comments",
+                        "reactions"
+                      ]
+                    },
+                    "order": {
+                      "description": "asc/desc; asc+created helps archaeology.",
+                      "type": "string",
+                      "enum": [
+                        "asc",
+                        "desc"
+                      ]
+                    },
+                    "pageSize": {
+                      "description": "PRs or detail-list items returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "page": {
+                      "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "archived": {
+                      "description": "Include PRs from archived repos.",
+                      "type": "boolean"
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "pullRequests",
+                      "description": "Required operation selector."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner (user or org)."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name, without the owner."
+                    },
+                    "keywords": {
+                      "description": "Issue search terms.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "concise": {
+                      "description": "Issue list triage; list mode only.",
+                      "type": "boolean"
+                    },
+                    "state": {
+                      "description": "open or closed.",
+                      "type": "string",
+                      "enum": [
+                        "open",
+                        "closed"
+                      ]
+                    },
+                    "assignee": {
+                      "description": "Assigned GitHub login.",
+                      "type": "string"
+                    },
+                    "author": {
+                      "description": "Issue author login.",
+                      "type": "string"
+                    },
+                    "commenter": {
+                      "description": "Commenter login.",
+                      "type": "string"
+                    },
+                    "mentions": {
+                      "description": "Mentioned login.",
+                      "type": "string"
+                    },
+                    "label": {
+                      "description": "Label name(s); multiple are ANDed.",
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "created": {
+                      "description": "Created date/range, e.g. \">2024-01-01\" or \"a..b\".",
+                      "type": "string"
+                    },
+                    "updated": {
+                      "description": "Updated-date filter (same format as created).",
+                      "type": "string"
+                    },
+                    "closed": {
+                      "description": "Closed-date filter (same format as created).",
+                      "type": "string"
+                    },
+                    "comments": {
+                      "description": "Comment-count range filter (\">5\"); not comment content.",
+                      "type": "string"
+                    },
+                    "reactions": {
+                      "description": "Reaction-count range filter (\">10\").",
+                      "type": "string"
+                    },
+                    "match": {
+                      "description": "Keyword fields: title, body, comments.",
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "title",
+                          "body",
+                          "comments"
+                        ]
+                      }
+                    },
+                    "sort": {
+                      "description": "created, updated, comments, reactions, best-match.",
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "updated",
+                        "best-match",
+                        "comments",
+                        "reactions"
+                      ]
+                    },
+                    "order": {
+                      "description": "asc/desc; asc+created helps archaeology.",
+                      "type": "string",
+                      "enum": [
+                        "asc",
+                        "desc"
+                      ]
+                    },
+                    "pageSize": {
+                      "description": "Issues or detail comments returned per page.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "page": {
+                      "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "archived": {
+                      "description": "Include issues from archived repos.",
+                      "type": "boolean"
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "issues",
+                      "description": "Required operation selector."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "owner": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository owner."
+                    },
+                    "repo": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Repository name."
+                    },
+                    "keywords": {
+                      "description": "Commit-message words or phrases on the default branch; cannot combine with path, branch, compare, or diffs.",
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "path": {
+                      "description": "File/dir prefix; trailing / scopes the subtree.",
+                      "type": "string"
+                    },
+                    "since": {
+                      "description": "Lower date bound: ISO date or relative window such as \"30d\".",
+                      "type": "string"
+                    },
+                    "until": {
+                      "description": "Upper date bound; same formats as since.",
+                      "type": "string"
+                    },
+                    "branch": {
+                      "description": "Ref to walk; defaults to the default branch.",
+                      "type": "string"
+                    },
+                    "author": {
+                      "description": "Author login or email.",
+                      "type": "string"
+                    },
+                    "committer": {
+                      "description": "Committer login or email.",
+                      "type": "string"
+                    },
+                    "pageSize": {
+                      "description": "Commits or changed files returned per page; resume with the exact returned next query (including page or filePage).",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "page": {
+                      "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000
+                    },
+                    "operation": {
+                      "type": "string",
+                      "const": "commits",
+                      "description": "Required operation selector."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "owner",
+                    "repo",
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                }
+              ],
+              "description": "Search or list GitHub pull requests, issues, or commits using one strict operation branch."
+            },
+            "description": "Independent queries; response rows preserve matching zero-based indexes and isolate runtime row errors."
+          },
+          "responseCharOffset": {
+            "description": "Full-response UTF-16 code-unit offset; copy the complete returned next query unchanged.",
+            "type": "number",
+            "minimum": 0
+          },
+          "responseCharLength": {
+            "description": "Full-response window in UTF-16 code units.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000
+          },
+          "responseSnapshot": {
+            "description": "Snapshot token from responsePagination.snapshot; required for later pages.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "fullDescription": "Find pull requests, issues, or commits when the number or ref is unknown. Filter metadata first, then use ghGetHistoryItem for bodies, comments, and diffs. Commit keyword search is default-branch only; traversal supports path, ref, or date filters.",
+      "availability": {
+        "enabled": true
+      },
+      "fields": [
+        {
+          "name": "reasoning",
+          "type": "string",
+          "required": true,
+          "description": "Why this query advances the goal."
+        },
+        {
+          "name": "debug",
+          "type": "boolean",
+          "required": false,
+          "constraints": "default false",
+          "description": "Include structured execution evidence, diagnostics, and probe metadata."
+        },
+        {
+          "name": "keywords",
+          "type": "array<string>",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "owner",
+          "type": "string",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "repo",
+          "type": "string",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "concise",
+          "type": "boolean",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "state",
+          "type": "enum(open, closed, merged) | enum(open, closed)",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "assignee",
+          "type": "string",
+          "required": false,
+          "description": "Assigned GitHub login."
+        },
+        {
+          "name": "author",
+          "type": "string",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "commenter",
+          "type": "string",
+          "required": false,
+          "description": "Commenter login."
+        },
+        {
+          "name": "mentions",
+          "type": "string",
+          "required": false,
+          "description": "Mentioned login."
+        },
+        {
+          "name": "review-requested",
+          "type": "string",
+          "required": false,
+          "description": "Requested reviewer login."
+        },
+        {
+          "name": "reviewed-by",
+          "type": "string",
+          "required": false,
+          "description": "Reviewer login."
+        },
+        {
+          "name": "label",
+          "type": "array<string>",
+          "required": false,
+          "description": "Label name(s); multiple are ANDed."
+        },
+        {
+          "name": "checks",
+          "type": "enum(success, failure, pending)",
+          "required": false,
+          "description": "success, failure, or pending."
+        },
+        {
+          "name": "review",
+          "type": "enum(approved, changes_requested, required, none)",
+          "required": false,
+          "description": "approved, changes_requested, required, or none."
+        },
+        {
+          "name": "head",
+          "type": "string",
+          "required": false,
+          "description": "Head branch name filter."
+        },
+        {
+          "name": "base",
+          "type": "string",
+          "required": false,
+          "description": "Base branch name filter."
+        },
+        {
+          "name": "created",
+          "type": "string",
+          "required": false,
+          "description": "Created date/range, e.g. \">2024-01-01\" or \"a..b\"."
+        },
+        {
+          "name": "updated",
+          "type": "string",
+          "required": false,
+          "description": "Updated-date filter (same format as created)."
+        },
+        {
+          "name": "closed",
+          "type": "string",
+          "required": false,
+          "description": "Closed-date filter (same format as created)."
+        },
+        {
+          "name": "merged-at",
+          "type": "string",
+          "required": false,
+          "description": "Merged-date filter (same format as created)."
+        },
+        {
+          "name": "comments",
+          "type": "string",
+          "required": false,
+          "description": "Comment-count range filter (\">5\"); not comment content."
+        },
+        {
+          "name": "reactions",
+          "type": "string",
+          "required": false,
+          "description": "Reaction-count range filter (\">10\")."
+        },
+        {
+          "name": "draft",
+          "type": "boolean",
+          "required": false,
+          "description": "true = only drafts; false = exclude drafts."
+        },
+        {
+          "name": "match",
+          "type": "array<enum(title, body, comments)>",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "sort",
+          "type": "enum(created, updated, best-match, comments, reactions)",
+          "required": false,
+          "description": "created, updated, comments, reactions, best-match."
+        },
+        {
+          "name": "order",
+          "type": "enum(asc, desc)",
+          "required": false,
+          "description": "asc/desc; asc+created helps archaeology."
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "page",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000",
+          "description": "Result page, 1-based. Set only from an executable next.* query returned by the tool."
+        },
+        {
+          "name": "archived",
+          "type": "boolean",
+          "required": false,
+          "description": "Allowed values and meaning depend on the selected operation."
+        },
+        {
+          "name": "operation",
+          "type": "enum(pullRequests, issues, commits)",
+          "required": true,
+          "description": "Required operation selector."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "description": "File/dir prefix; trailing / scopes the subtree."
+        },
+        {
+          "name": "since",
+          "type": "string",
+          "required": false,
+          "description": "Lower date bound: ISO date or relative window such as \"30d\"."
+        },
+        {
+          "name": "until",
+          "type": "string",
+          "required": false,
+          "description": "Upper date bound; same formats as since."
+        },
+        {
+          "name": "branch",
+          "type": "string",
+          "required": false,
+          "description": "Ref to walk; defaults to the default branch."
+        },
+        {
+          "name": "committer",
+          "type": "string",
+          "required": false,
+          "description": "Committer login or email."
+        }
+      ],
+      "relations": [
+        "Choose pullRequests, issues, or commits; fields cannot cross operations.",
+        "issues and commits require owner+repo; pullRequests may search globally.",
+        "commits: keywords cannot combine with path or branch; keyword search covers the indexed default branch.",
+        "Search/list operations reject exact identities, content, and diff pagination."
+      ],
+      "variants": [
+        {
+          "name": "pullRequests",
+          "when": "Search or list pull requests",
+          "requires": [
+            "operation",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghSearchHistory for the pullRequests variant.",
+            "operation": "pullRequests",
+            "keywords": [
+              "schema"
+            ]
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "keywords",
+            "owner",
+            "repo",
+            "concise",
+            "state",
+            "assignee",
+            "author",
+            "commenter",
+            "mentions",
+            "review-requested",
+            "reviewed-by",
+            "label",
+            "checks",
+            "review",
+            "head",
+            "base",
+            "created",
+            "updated",
+            "closed",
+            "merged-at",
+            "comments",
+            "reactions",
+            "draft",
+            "match",
+            "sort",
+            "order",
+            "pageSize",
+            "page",
+            "archived"
+          ]
+        },
+        {
+          "name": "issues",
+          "when": "Search or list issues",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghSearchHistory for the issues variant.",
+            "operation": "issues",
+            "owner": "o",
+            "repo": "r"
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "keywords",
+            "concise",
+            "state",
+            "assignee",
+            "author",
+            "commenter",
+            "mentions",
+            "label",
+            "created",
+            "updated",
+            "closed",
+            "comments",
+            "reactions",
+            "match",
+            "sort",
+            "order",
+            "pageSize",
+            "page",
+            "archived"
+          ]
+        },
+        {
+          "name": "commits",
+          "when": "List commit history",
+          "requires": [
+            "operation",
+            "owner",
+            "repo",
+            "reasoning"
+          ],
+          "example": {
+            "reasoning": "Use ghSearchHistory for the commits variant.",
+            "operation": "commits",
+            "owner": "o",
+            "repo": "r"
+          },
+          "fields": [
+            "reasoning",
+            "debug",
+            "owner",
+            "repo",
+            "keywords",
+            "path",
+            "since",
+            "until",
+            "branch",
+            "author",
+            "committer",
+            "pageSize",
+            "page"
+          ]
+        }
+      ],
+      "guidance": [
+        "Batch 1–5 independent queries in queries[] per call; keep dependent probes sequential."
+      ],
+      "autoFilledFields": [
+        "goal"
+      ],
+      "commands": {
+        "catalog": "tools --json",
+        "schema": "tools ghSearchHistory --scheme --json",
+        "compactSchema": "tools ghSearchHistory --scheme --json --compact",
+        "humanSchema": "tools ghSearchHistory --scheme",
+        "runCompact": "tools ghSearchHistory --queries '{\"reasoning\":\"Use ghSearchHistory for the PR search (list) example.\",\"operation\":\"pullRequests\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"keywords\":[\"localSearch\"],\"concise\":true,\"pageSize\":5}' --compact",
+        "runJson": "tools ghSearchHistory --queries '<json>' --json"
+      },
+      "commandPatterns": [
+        {
+          "label": "PR search (list)",
+          "query": {
+            "reasoning": "Use ghSearchHistory for the PR search (list) example.",
+            "operation": "pullRequests",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "keywords": [
+              "localSearch"
+            ],
+            "concise": true,
+            "pageSize": 5
+          },
+          "command": "tools ghSearchHistory --queries '{\"reasoning\":\"Use ghSearchHistory for the PR search (list) example.\",\"operation\":\"pullRequests\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"keywords\":[\"localSearch\"],\"concise\":true,\"pageSize\":5}'"
+        },
+        {
+          "label": "issue search (list)",
+          "query": {
+            "reasoning": "Use ghSearchHistory for the issue search (list) example.",
+            "operation": "issues",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "keywords": [
+              "schema"
+            ],
+            "state": "open",
+            "pageSize": 5
+          },
+          "command": "tools ghSearchHistory --queries '{\"reasoning\":\"Use ghSearchHistory for the issue search (list) example.\",\"operation\":\"issues\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"keywords\":[\"schema\"],\"state\":\"open\",\"pageSize\":5}'"
+        },
+        {
+          "label": "commit history",
+          "query": {
+            "reasoning": "Use ghSearchHistory for the commit history example.",
+            "operation": "commits",
+            "owner": "bgauryy",
+            "repo": "octocode",
+            "path": "packages/octocode-tools-core/src",
+            "since": "6m",
+            "pageSize": 10
+          },
+          "command": "tools ghSearchHistory --queries '{\"reasoning\":\"Use ghSearchHistory for the commit history example.\",\"operation\":\"commits\",\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"path\":\"packages/octocode-tools-core/src\",\"since\":\"6m\",\"pageSize\":10}'"
+        }
+      ]
+    },
+    {
+      "kind": "octocode.toolSchema",
+      "version": 1,
+      "name": "localFetch",
+      "category": "Local Code",
+      "description": "Read a known local file or exact region. Exact by default. Use matchString for a known anchor, line ranges for known lines, minify:symbols to orient, and fullContent only for the whole file. Exact pages include sourceLineRanges; text output labels source lines while structured content stays undecorated. Use localSearch or astSearch to locate an unknown target, then pass the fetched URI/name/line—not view offsets—to lspSearch.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "queries": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Local file path; use an absolute path to avoid cwd-dependent resolution."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "chunkType": {
+                      "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes.",
+                      "type": "string",
+                      "enum": [
+                        "lines",
+                        "bytes"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50000
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "fullContent": {
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue.",
+                      "type": "boolean",
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Local file path; use an absolute path to avoid cwd-dependent resolution."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "fullContent": {
+                      "type": "boolean",
+                      "const": true,
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue."
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "path",
+                    "fullContent"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Local file path; use an absolute path to avoid cwd-dependent resolution."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "chunkType": {
+                      "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes.",
+                      "type": "string",
+                      "enum": [
+                        "lines",
+                        "bytes"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50000
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "fullContent": {
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue.",
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "matchString": {
+                      "description": "Literal or regex source match; merge overlapping context windows, then page the selected view. Empty patterns are rejected.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "contextBytes": {
+                      "description": "UTF-8 bytes before/after each match; omission uses 256 for byte chunks when contextLines is absent. Edges preserve code points; disjoint windows use a newline. Matching follows full-source redaction.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 16384
+                    },
+                    "matchStringIsRegex": {
+                      "description": "Makes matchString a regex.",
+                      "type": "boolean"
+                    },
+                    "matchStringCaseSensitive": {
+                      "description": "Case-sensitive matchString.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "path",
+                    "matchString"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "goal": {
+                      "description": "What this query should accomplish.",
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Why this query advances the goal."
+                    },
+                    "debug": {
+                      "default": false,
+                      "description": "Include structured execution evidence, diagnostics, and probe metadata.",
+                      "type": "boolean"
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "\\S",
+                      "description": "Local file path; use an absolute path to avoid cwd-dependent resolution."
+                    },
+                    "contextLines": {
+                      "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "chunkType": {
+                      "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes.",
+                      "type": "string",
+                      "enum": [
+                        "lines",
+                        "bytes"
+                      ]
+                    },
+                    "offset": {
+                      "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation.",
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50000
+                    },
+                    "minify": {
+                      "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline.",
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "standard",
+                        "symbols"
+                      ]
+                    },
+                    "fullContent": {
+                      "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue.",
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "startLine": {
+                      "description": "First source line of an exact range.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000000
+                    },
+                    "endLine": {
+                      "description": "Last source line of an exact range; must be >= startLine.",
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000000
+                    }
+                  },
+                  "required": [
+                    "reasoning",
+                    "path",
+                    "startLine",
+                    "endLine"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "description": "Independent queries; response rows preserve matching zero-based indexes and isolate runtime row errors."
+          },
+          "responseCharOffset": {
+            "description": "Full-response UTF-16 code-unit offset; copy the complete returned next query unchanged.",
+            "type": "number",
+            "minimum": 0
+          },
+          "responseCharLength": {
+            "description": "Full-response window in UTF-16 code units.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50000
+          },
+          "responseSnapshot": {
+            "description": "Snapshot token from responsePagination.snapshot; required for later pages.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "queries"
+        ],
+        "additionalProperties": false
+      },
+      "fullDescription": "Read a known local file or exact region. Exact by default. Use matchString for a known anchor, line ranges for known lines, minify:symbols to orient, and fullContent only for the whole file. Exact pages include sourceLineRanges; text output labels source lines while structured content stays undecorated. Use localSearch or astSearch to locate an unknown target, then pass the fetched URI/name/line—not view offsets—to lspSearch.",
+      "availability": {
+        "enabled": true
+      },
+      "fields": [
+        {
+          "name": "reasoning",
+          "type": "string",
+          "required": true,
+          "description": "Why this query advances the goal."
+        },
+        {
+          "name": "debug",
+          "type": "boolean",
+          "required": false,
+          "constraints": "default false",
+          "description": "Include structured execution evidence, diagnostics, and probe metadata."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "Local file path; use an absolute path to avoid cwd-dependent resolution."
+        },
+        {
+          "name": "fullContent",
+          "type": "boolean",
+          "required": false,
+          "description": "Request the whole file view in one response, up to 50,000 UTF-8 bytes; larger recoverable views return next.continue."
+        },
+        {
+          "name": "matchString",
+          "type": "string",
+          "required": false,
+          "description": "Literal or regex source match; merge overlapping context windows, then page the selected view. Empty patterns are rejected."
+        },
+        {
+          "name": "matchStringIsRegex",
+          "type": "boolean",
+          "required": false,
+          "description": "Makes matchString a regex."
+        },
+        {
+          "name": "matchStringCaseSensitive",
+          "type": "boolean",
+          "required": false,
+          "description": "Case-sensitive matchString."
+        },
+        {
+          "name": "startLine",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000000000",
+          "description": "First source line of an exact range."
+        },
+        {
+          "name": "endLine",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-1000000000",
+          "description": "Last source line of an exact range; must be >= startLine."
+        },
+        {
+          "name": "contextLines",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-100",
+          "description": "Source lines before/after each match; omission uses 5 for line chunks. An explicit value survives byte continuations."
+        },
+        {
+          "name": "contextBytes",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-16384",
+          "description": "UTF-8 bytes before/after each match; omission uses 256 for byte chunks when contextLines is absent. Edges preserve code points; disjoint windows use a newline. Matching follows full-source redaction."
+        },
+        {
+          "name": "chunkType",
+          "type": "enum(lines, bytes)",
+          "required": false,
+          "description": "Page in source-view lines or UTF-8 bytes; omission uses lines. Oversized lines continue by bytes."
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "required": false,
+          "constraints": "0-9007199254740991",
+          "description": "Zero-based view offset in chunkType units. Byte offsets must be UTF-8 code-point boundaries; copy the returned continuation."
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "constraints": "1-50000",
+          "description": "Page size in chunkType units; omission uses 100 lines for unscoped reads, or fills the 16384-byte budget for selected ranges/matches. Byte pages default to 16384 bytes. Explicit limits are honored; byte ends may expand to preserve a code point."
+        },
+        {
+          "name": "minify",
+          "type": "enum(none, standard, symbols)",
+          "required": false,
+          "description": "\"none\" preserves exact redacted source; \"symbols\" returns code signatures or Markdown headings with source lines; \"standard\" may remove comments or formatting. Matches force none. contentView/minifyFallback reports an unavailable outline."
+        }
+      ],
+      "relations": [
+        "Choose at most one extraction mode: fullContent, startLine+endLine, or matchString; a path-only read is valid.",
+        "fullContent rejects chunk controls; minify:\"symbols\" rejects ranges and matchString.",
+        "chunkType selects lines (default) or UTF-8 bytes of the returned view; offset is zero-based.",
+        "Match options and contextBytes require matchString; contextLines and contextBytes are exclusive. Omitted context uses 5 lines or 256 UTF-8 bytes according to chunkType; explicit units survive continuations."
+      ],
+      "guidance": [
+        "Batch 1–5 independent queries in queries[] per call; keep dependent probes sequential.",
+        "Local path: use an absolute path; relative paths resolve from command cwd."
+      ],
+      "autoFilledFields": [
+        "goal"
+      ],
+      "commands": {
+        "catalog": "tools --json",
+        "schema": "tools localFetch --scheme --json",
+        "compactSchema": "tools localFetch --scheme --json --compact",
+        "humanSchema": "tools localFetch --scheme",
+        "runCompact": "tools localFetch --queries '{\"reasoning\":\"Use localFetch for the exact line range example.\",\"path\":\"/ABS/repo/packages/octocode-tools-core/package.json\",\"startLine\":1,\"endLine\":30,\"minify\":\"none\"}' --compact",
+        "runJson": "tools localFetch --queries '<json>' --json"
+      },
+      "commandPatterns": [
+        {
+          "label": "exact line range",
+          "query": {
+            "reasoning": "Use localFetch for the exact line range example.",
+            "path": "/ABS/repo/packages/octocode-tools-core/package.json",
+            "startLine": 1,
+            "endLine": 30,
+            "minify": "none"
+          },
+          "command": "tools localFetch --queries '{\"reasoning\":\"Use localFetch for the exact line range example.\",\"path\":\"/ABS/repo/packages/octocode-tools-core/package.json\",\"startLine\":1,\"endLine\":30,\"minify\":\"none\"}'"
+        },
+        {
+          "label": "matched slice",
+          "query": {
+            "reasoning": "Use localFetch for the matched slice example.",
+            "path": "/ABS/repo/src/index.ts",
+            "matchString": "export",
+            "contextLines": 5,
+            "minify": "none"
+          },
+          "command": "tools localFetch --queries '{\"reasoning\":\"Use localFetch for the matched slice example.\",\"path\":\"/ABS/repo/src/index.ts\",\"matchString\":\"export\",\"contextLines\":5,\"minify\":\"none\"}'"
+        },
+        {
+          "label": "Markdown headings before an exact section read",
+          "query": {
+            "reasoning": "Use localFetch for the Markdown headings before an exact section read example.",
+            "path": "/ABS/repo/README.md",
+            "minify": "symbols"
+          },
+          "command": "tools localFetch --queries '{\"reasoning\":\"Use localFetch for the Markdown headings before an exact section read example.\",\"path\":\"/ABS/repo/README.md\",\"minify\":\"symbols\"}'"
+        },
+        {
+          "label": "complete file",
+          "query": {
+            "reasoning": "Use localFetch for the complete file example.",
+            "path": "/ABS/repo/README.md",
+            "fullContent": true
+          },
+          "command": "tools localFetch --queries '{\"reasoning\":\"Use localFetch for the complete file example.\",\"path\":\"/ABS/repo/README.md\",\"fullContent\":true}'"
+        }
+      ]
+    }
+  ]
+}

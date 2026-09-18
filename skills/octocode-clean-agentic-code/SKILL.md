@@ -49,8 +49,7 @@ Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocod
 - When code, comments, skills, or docs record how a decision was made — probe output, provenance, process metadata, or counts nobody re-derives — load `references/decision-residue.md` — residue types, the number test, and what to keep.
 - When the task involves removing numbered/dated iteration test files, skipped tests, rigid mocks, redundant stubs, or unused test setup, load `references/test-hygiene.md` — the test smell classes, the evidence each delete requires, and the excision protocol.
 - When writing replacement tests after removing legacy or rigid ones (to recover lost coverage), load `references/test-quality.md` — isolation patterns, naming conventions, and the coverage replacement rule.
-- When symbol proof, caller lists, import graphs, or structural search are needed, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, and follow executable continuations.
+- For symbol proof, caller lists, import graphs, or structural search, use `octocode-research`.
 
 ## Related routes
-- Use `octocode-research` for blast-radius evidence before deletions; it owns the MCP/CLI workflow and live tool/grammar discovery. Use `octocode-roast` for a blunt smell inventory, `octocode-eval-benchmark` for before/after metrics, and `octocode-skills` when changing this folder.
-- No scripts — proof uses `octocode-research` and the project's own repo tools; verification runs the project's own test suite.
+- Related: `octocode-research` for blast-radius evidence, `octocode-roast` for smell inventory, `octocode-eval-benchmark` for metrics, `octocode-skills` for folder changes. No scripts.

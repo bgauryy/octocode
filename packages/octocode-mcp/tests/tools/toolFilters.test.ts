@@ -19,6 +19,14 @@ function makeTool(
     isLocal: overrides.isLocal ?? false,
     isClone: overrides.isClone,
     type: overrides.type ?? 'search',
+    outputSchema: overrides.outputSchema ?? z.object({}),
+    annotations: overrides.annotations ?? {
+      title: overrides.title ?? overrides.name,
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     direct: overrides.direct ?? {
       schema: z.object({}),
       inputSchema: z.object({}),

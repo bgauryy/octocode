@@ -93,6 +93,7 @@ pub async fn execute(
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
         object.remove("reasoning");
+        object.remove("debug");
     }
     let query: LspSearchQuery = serde_json::from_value(query).map_err(|error| error.to_string())?;
     let path = if let Some(uri) = query.uri.as_deref() {
@@ -1335,6 +1336,15 @@ fn recovery_next(query: &LspSearchQuery) -> Value {
         .or_else(|| query.workspace_root.clone())
         .unwrap_or_default();
     let symbol = query.symbol_name.clone().unwrap_or_default();
+    if symbol.trim().is_empty() {
+        return json!({
+            "readFile": {
+                "tool": "localFetch",
+                "query": { "path": path },
+                "confidence": "exact"
+            }
+        });
+    }
     json!({
         "searchText": {
             "tool": "localSearch",

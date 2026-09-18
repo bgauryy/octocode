@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Locate InMemoryRecordManager.list_keys implementation.\",\"operation\":\"code\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"class InMemoryRecordManager\"],\"pageSize\":10},{\"reasoning\":\"Locate tests for InMemoryRecordManager list_keys limits.\",\"operation\":\"code\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"test_list_keys\",\"InMemoryRecordManager\"],\"pageSize\":20},{\"reasoning\":\"Locate record-manager API definition and limit validation contract.\",\"operation\":\"code\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"def list_keys\",\"limit\"],\"pageSize\":30}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:53:37.653Z",
+  "endedAt": "2026-09-18T08:53:38.231Z",
+  "elapsedMs": 576,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "2e3d3828043fb75e196fdb25ed6eb09b55eb6e5a0ff7ce1a53d183ef7d8684c3",
+  "requestSha256": null
+}

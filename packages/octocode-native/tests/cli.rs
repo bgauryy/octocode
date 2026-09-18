@@ -201,6 +201,8 @@ fn read_pages_and_next_reconstructs_source() {
             "lines",
             "--limit",
             "3",
+            "--reasoning",
+            "Verify paginated native reads.",
         ])
         .output()
         .expect("first read");
@@ -229,6 +231,8 @@ fn read_pages_and_next_reconstructs_source() {
             "--limit",
             "3",
             "--all",
+            "--reasoning",
+            "Verify complete native reads.",
         ])
         .output()
         .expect("drain");
@@ -400,7 +404,13 @@ fn ast_without_lang_on_dir_exits_two_with_hint() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["ast", ".", "fn $NAME"])
+        .args([
+            "ast",
+            ".",
+            "fn $NAME",
+            "--reasoning",
+            "Exercise language validation.",
+        ])
         .output()
         .expect("ast");
     assert_eq!(exit_code(&output), Some(2));
@@ -432,7 +442,15 @@ fn rewrite_missing_lang_emits_hint() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["rewrite", ".", "fn $N", "--to", "fn ${N}_v2"])
+        .args([
+            "rewrite",
+            ".",
+            "fn $N",
+            "--to",
+            "fn ${N}_v2",
+            "--reasoning",
+            "Exercise rewrite language validation.",
+        ])
         .output()
         .expect("rewrite");
     assert_eq!(exit_code(&output), Some(2));
@@ -448,7 +466,14 @@ fn history_pr_without_number_exits_two() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["history", "pr", "--repo", "owner/repo"])
+        .args([
+            "history",
+            "pr",
+            "--repo",
+            "owner/repo",
+            "--reasoning",
+            "Exercise pull-request identity validation.",
+        ])
         .output()
         .expect("history pr");
     assert_eq!(exit_code(&output), Some(2));
@@ -461,7 +486,14 @@ fn history_commit_without_ref_exits_two() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["history", "commit", "--repo", "owner/repo"])
+        .args([
+            "history",
+            "commit",
+            "--repo",
+            "owner/repo",
+            "--reasoning",
+            "Exercise commit identity validation.",
+        ])
         .output()
         .expect("history commit");
     assert_eq!(exit_code(&output), Some(2));
@@ -692,7 +724,8 @@ fn tools_accepts_queries_flag_like_the_node_cli() {
     let query = serde_json::json!({
         "path": path,
         "startLine": 1,
-        "endLine": 1
+        "endLine": 1,
+        "reasoning": "Verify the native tools --queries adapter."
     })
     .to_string();
     let output = workspace
@@ -717,7 +750,14 @@ fn search_emits_one_selected_output_mode() {
 
     let human = workspace
         .cli()
-        .args(["search", "needle", path, "--fixed-strings"])
+        .args([
+            "search",
+            "needle",
+            path,
+            "--fixed-strings",
+            "--reasoning",
+            "Verify human lexical output.",
+        ])
         .output()
         .expect("human search");
     assert!(human.status.success(), "{}", stderr(&human));
@@ -734,7 +774,15 @@ fn search_emits_one_selected_output_mode() {
 
     let json = workspace
         .cli()
-        .args(["search", "needle", path, "--fixed-strings", "--json"])
+        .args([
+            "search",
+            "needle",
+            path,
+            "--fixed-strings",
+            "--json",
+            "--reasoning",
+            "Verify structured lexical output.",
+        ])
         .output()
         .expect("json search");
     assert!(json.status.success(), "{}", stderr(&json));
@@ -758,6 +806,8 @@ fn rewrite_apply_previews_then_applies_with_hash_guards() {
             "--lang",
             "rust",
             "--apply",
+            "--reasoning",
+            "Verify guarded native rewrite application.",
         ])
         .output()
         .expect("rewrite apply");
@@ -779,7 +829,13 @@ fn json_errors_do_not_leak_duplicate_stderr() {
     let missing = workspace.workspace.join("missing.rs");
     let output = workspace
         .cli()
-        .args(["--json-errors", "read", missing.to_str().expect("utf8")])
+        .args([
+            "--json-errors",
+            "read",
+            missing.to_str().expect("utf8"),
+            "--reasoning",
+            "Verify native read errors.",
+        ])
         .output()
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));

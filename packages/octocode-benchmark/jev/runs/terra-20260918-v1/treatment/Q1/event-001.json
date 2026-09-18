@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q1",
+  "kind": "schema",
+  "args": [
+    "ghSearch",
+    "ghGetFileContent",
+    "ghGetHistoryItem",
+    "ghSearchHistory"
+  ],
+  "startedAt": "2026-09-18T08:24:55.041Z",
+  "endedAt": "2026-09-18T08:24:55.311Z",
+  "elapsedMs": 268,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "e329f945013e72d1e8477920f1daf40944c7e51e25f96e671471cde7918fd3fc",
+  "stdoutBytes": 8344,
+  "requestSha256": null
+}

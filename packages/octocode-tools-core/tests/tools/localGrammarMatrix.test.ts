@@ -10,7 +10,7 @@ import {
   getSupportedStructuralExtensions,
   structuralSearchDetailed,
 } from '@octocodeai/octocode-engine';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { toStructuralSearchIncludeGlobs } from '../../src/shared/languageSelectors/classify.js';
 import { findDirectToolDefinition } from '@octocodeai/octocode-core/schema';
 import { AstSearchQuerySchema } from '@octocodeai/octocode-core/schema';
@@ -74,6 +74,11 @@ type Row = {
   };
 };
 async function run(tool: string, query: Record<string, unknown>): Promise<Row> {
+  query = {
+    reasoning: `Exercise ${tool} across the production grammar matrix.`,
+    debug: true,
+    ...query,
+  };
   const parsed =
     tool === 'astSearch'
       ? AstSearchQuerySchema.safeParse(query)

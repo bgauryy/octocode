@@ -46,6 +46,12 @@ function validatePublicContinuations(result: CallToolResult): CallToolResult {
 export async function runPublicTopology(args: {
   queries: PublicTopologyQuery[];
 }): Promise<CallToolResult> {
-  const queries = args.queries.map(toPublicTopologyQuery);
+  const queries = args.queries.map(query =>
+    toPublicTopologyQuery({
+      reasoning: 'Exercise public astSearch topology behavior and continuations.',
+      debug: true,
+      ...query,
+    })
+  );
   return validatePublicContinuations(await executeAstSearch({ queries }));
 }

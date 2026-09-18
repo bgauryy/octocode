@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151639",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Locate Telegram outbound streaming response finalization code with renderable assistant text.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"telegram\",\"streaming\",\"final text\"],\"pageSize\":15},{\"reasoning\":\"Locate shared assistant content conversion logic that reduces message content to text.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"thinking blocks\",\"text blocks\",\"content\"],\"pageSize\":20},{\"reasoning\":\"Locate provider normalization for anthropic-messages and MiniMax.\",\"operation\":\"code\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"anthropic-messages\",\"MiniMax\"],\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:55:44.235Z",
+  "endedAt": "2026-09-18T08:55:49.223Z",
+  "elapsedMs": 4987,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "6df3783c4f429b2e1d285de4d69a120479b0a041939d2a26eb0e1a733959044b",
+  "requestSha256": null
+}

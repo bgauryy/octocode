@@ -1,0 +1,5 @@
+Reading additional input from stdin...
+2026-09-18T09:00:03.004075Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-18T09:00:03.010863Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-18T09:00:03.015140Z  WARN codex_rollout::list: state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back
+2026-09-18T09:00:04.265001Z  WARN codex_core::session_startup_prewarm: startup websocket prewarm setup failed: You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 19th, 2026 6:47 PM.

@@ -1,0 +1,16 @@
+{
+  "arm": "baseline",
+  "caseId": "Q2",
+  "kind": "schema",
+  "args": [
+    "ghSearch"
+  ],
+  "startedAt": "2026-09-18T08:24:28.004Z",
+  "endedAt": "2026-09-18T08:24:28.253Z",
+  "elapsedMs": 246,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "550b3a6cfee8e59af71cf7bdc07e2210940082111bebb9ac0bebe6708e4b096b",
+  "stdoutBytes": 1976,
+  "requestSha256": null
+}

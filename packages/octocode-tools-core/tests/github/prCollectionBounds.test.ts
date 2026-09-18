@@ -54,10 +54,18 @@ import { clearAllCache } from '../../src/utils/http/cache/management.js';
 import { getMultipleGitHubHistoryItems } from '../../src/tools/github_search_pull_requests/historyExecutions.js';
 import { GitHubGetHistoryItemQueryLocalSchema } from '@octocodeai/octocode-core/schema';
 
+function parseQuery(query: Record<string, unknown>) {
+  return GitHubGetHistoryItemQueryLocalSchema.parse({
+    reasoning: 'Exercise bounded pull-request collection behavior.',
+    debug: true,
+    ...query,
+  });
+}
+
 async function execute(content: Record<string, unknown>) {
   const result = await getMultipleGitHubHistoryItems({
     queries: [
-      GitHubGetHistoryItemQueryLocalSchema.parse({
+      parseQuery({
         operation: 'pullRequest',
         owner: 'o',
         repo: 'r',
@@ -76,7 +84,7 @@ beforeEach(() => {
 
 async function run(query: Record<string, unknown>) {
   const result = await getMultipleGitHubHistoryItems({
-    queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],
+    queries: [parseQuery(query)],
   });
   const row = (result.structuredContent as any).results[0];
   expect(row.data.error).toBeUndefined();
@@ -285,7 +293,7 @@ it.each(['discussion', 'inline', 'reviews'] as const)(
     for (let budget = 0; query && budget < 30; budget++) {
       const before = mocks[surface].mock.calls.length;
       const result = await getMultipleGitHubHistoryItems({
-        queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],
+        queries: [parseQuery(query)],
       });
       const data = (result.structuredContent as any).results[0].data;
       expect(data.error).toBeUndefined();
@@ -339,7 +347,7 @@ it('bounds nested commit files and executes exact-commit continuations', async (
   for (let budget = 0; query && budget < 110; budget++) {
     const before = mocks.detail.mock.calls.length;
     const result = await getMultipleGitHubHistoryItems({
-      queries: [GitHubGetHistoryItemQueryLocalSchema.parse(query)],
+      queries: [parseQuery(query)],
     });
     const page = (result.structuredContent as any).results[0].data;
     expect(page.error).toBeUndefined();

@@ -25,7 +25,10 @@ export function expectExecutableNext(value: unknown): void {
       })
     ).toBe(true);
     expect(record.query).not.toHaveProperty('goal');
-    expect(record.query).not.toHaveProperty('reasoning');
+    expect(record.query).toMatchObject({
+      reasoning: expect.stringMatching(/\S/),
+      debug: expect.any(Boolean),
+    });
   }
   for (const [key, child] of Object.entries(record)) {
     if (key !== 'query') expectExecutableNext(child);

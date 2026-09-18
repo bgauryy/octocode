@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q9",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"code\",\"owner\":\"fastify\",\"repo\":\"fastify\",\"keywords\":[\"preValidation preHandler onRequest preParsing\"],\"pageSize\":20}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:23.885Z",
+  "endedAt": "2026-09-18T08:26:25.066Z",
+  "elapsedMs": 1180,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "3328abe13d3b45bd727514e60af1a3960345009c764910b092551c9a29bcfd70",
+  "stdoutBytes": 532,
+  "requestSha256": null
+}

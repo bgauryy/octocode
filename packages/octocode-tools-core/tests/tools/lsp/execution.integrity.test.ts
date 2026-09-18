@@ -42,6 +42,11 @@ function location(uri: string, line = 0, character = 16) {
   };
 }
 async function execute(query: Record<string, unknown>) {
+  query = {
+    reasoning: 'Exercise LSP execution integrity and semantic pagination.',
+    debug: true,
+    ...query,
+  };
   const result = await executeLspSearch({ queries: [query] } as never);
   return (
     result.structuredContent as {

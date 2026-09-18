@@ -3,9 +3,18 @@ import { rewriteError } from '../../../src/tools/ast_rewrite/result.js';
 import { executeBulkOperation } from '../../../src/utils/response/bulk/response.js';
 
 async function response(data: Record<string, unknown>) {
-  const result = await executeBulkOperation([{}], async () => data, {
-    toolName: 'astRewrite',
-  });
+  const result = await executeBulkOperation(
+    [
+      {
+        reasoning: 'Exercise astRewrite result evidence and diagnostics.',
+        debug: true,
+      },
+    ],
+    async () => data,
+    {
+      toolName: 'astRewrite',
+    }
+  );
   return result.structuredContent as {
     results: Array<{
       status?: string;

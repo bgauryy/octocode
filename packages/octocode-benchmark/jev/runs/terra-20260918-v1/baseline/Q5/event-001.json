@@ -1,0 +1,16 @@
+{
+  "arm": "baseline",
+  "caseId": "Q5",
+  "kind": "schema",
+  "args": [
+    "ghGetHistoryItem"
+  ],
+  "startedAt": "2026-09-18T08:25:41.480Z",
+  "endedAt": "2026-09-18T08:25:41.747Z",
+  "elapsedMs": 264,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "af4b13b7065ea54115e02df8423cace925bbe6882aa6a70b161324898422a9c6",
+  "stdoutBytes": 2591,
+  "requestSha256": null
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "decision-brief",
+  "title": "Private Decision Brief",
+  "description": "A short private metacognitive checkpoint used before building a public Jev request. This object is never serialized verbatim. Prefer piping it to build-decision-packet.mjs through stdin and avoid durable storage.",
+  "$comment": "OBSERVE, UNCERTAINTY, DIRECT-CHECK, STOP. Add INFER, ASSUME, COUNTER, PREDICT, FALSIFY, and DISCRIMINATE only when they clarify the current route. Export only the decision-relevant summary produced by scripts/build-decision-packet.mjs; never a hidden reasoning transcript.",
+  "type": "object",
+  "required": [
+    "observations",
+    "uncertainty",
+    "direct_check",
+    "jev_will_change_action"
+  ],
+  "properties": {
+    "observations": { "type": "string", "minLength": 1, "description": "What is directly known, with source IDs when available." },
+    "inferences": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Optional conclusions not directly observed." },
+    "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Optional premises connecting observations to the current belief." },
+    "strongest_counter": { "type": "string", "minLength": 1, "description": "Optional strongest plausible alternative or objection." },
+    "uncertainty": { "type": "string", "minLength": 1, "description": "The exact unresolved gap." },
+    "prediction": { "type": "string", "minLength": 1, "description": "Optional precommitted result expected by the current belief before an empirical check." },
+    "falsifier": { "type": "string", "minLength": 1, "description": "Optional observation that would weaken the current belief; omit for non-testable classifications." },
+    "discriminating_observation": { "type": "string", "minLength": 1, "description": "Optional observation that best separates testable alternatives." },
+    "direct_check": {
+      "type": "object",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "action": { "type": "string", "description": "Required by the builder when available=true; execute it instead of calling Jev." }
+      },
+      "additionalProperties": false
+    },
+    "jev_will_change_action": { "type": "boolean", "description": "False means stop deliberating and do not call Jev." }
+  },
+  "additionalProperties": false
+}

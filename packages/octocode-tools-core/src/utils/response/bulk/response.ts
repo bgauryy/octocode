@@ -5,6 +5,7 @@ import type {
   ProcessedBulkResult,
   FlatQueryResult,
   QueryError,
+  ToolResultMeta,
 } from '../../../types/toolResults.js';
 import type {
   BulkResponseConfig,
@@ -23,8 +24,17 @@ import {
   isPartialResult,
 } from './paginationDiagnostics.js';
 import { processBulkQueries } from './queries.js';
+import { preserveContinuationMetadata } from './continuationMetadata.js';
 
 const DEFAULT_BULK_CONCURRENCY = 3;
+
+function isDebugQuery(query: unknown): boolean {
+  return (
+    query !== null &&
+    typeof query === 'object' &&
+    (query as Record<string, unknown>).debug === true
+  );
+}
 
 export async function executeBulkOperation<
   TQuery extends object,
@@ -89,12 +99,24 @@ function createBulkResponse<
 
   results.forEach(r => {
     const status = r.result.status;
-    const data = extractToolData(r.result);
+    const data = preserveContinuationMetadata(
+      extractToolData(r.result),
+      r.originalQuery as Readonly<Record<string, unknown>>
+    ) as Record<string, unknown>;
     orderedQueries[r.queryIndex] = {
       index: r.queryIndex,
       ...(status !== undefined ? { status } : {}),
       ...(r.result.cache === 1 ? { cache: 1 as const } : {}),
-      meta: buildToolResultMeta(config.toolName, r.originalQuery, data, status),
+      ...(isDebugQuery(r.originalQuery)
+        ? {
+            meta: buildToolResultMeta(
+              config.toolName,
+              r.originalQuery,
+              data,
+              status
+            ),
+          }
+        : {}),
       data,
     };
   });
@@ -106,12 +128,16 @@ function createBulkResponse<
     orderedQueries[err.queryIndex] = {
       index: err.queryIndex,
       status: 'error',
-      meta: buildToolResultMeta(
-        config.toolName,
-        originalQuery,
-        { error: err.error },
-        'error'
-      ),
+      ...(isDebugQuery(originalQuery)
+        ? {
+            meta: buildToolResultMeta(
+              config.toolName,
+              originalQuery,
+              { error: err.error },
+              'error'
+            ),
+          }
+        : {}),
       data: { error: err.error },
     };
   });
@@ -125,7 +151,11 @@ function createBulkResponse<
     config,
   });
   const responseData: Record<string, unknown> = finalized
-    ? attachFinalizedResultMeta(finalized.structuredContent, flatQueries)
+    ? attachFinalizedResultMeta(
+        finalized.structuredContent,
+        flatQueries,
+        queries
+      )
     : ({ results: flatQueries } satisfies BulkToolResponse);
   const renderText = shouldRenderText(
     execution,
@@ -192,9 +222,13 @@ function shouldRenderText(
   );
 }
 
-function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
+function attachFinalizedResultMeta<
+  TQuery extends object,
+  TOutput extends Record<string, unknown>,
+>(
   structuredContent: TOutput,
-  sourceRows: FlatQueryResult[]
+  sourceRows: FlatQueryResult[],
+  originalQueries: TQuery[]
 ): TOutput {
   if (!Array.isArray(structuredContent.results)) return structuredContent;
   const byIndex = new Map(sourceRows.map(row => [row.index, row]));
@@ -213,21 +247,33 @@ function attachFinalizedResultMeta<TOutput extends Record<string, unknown>>(
       (typeof row.index === 'number' ? byIndex.get(row.index) : undefined) ??
       sourceRows[index];
     if (!source) return row;
-    const { cache: _untrustedCacheMarker, ...finalizedRow } = row;
+    const { cache: _untrustedCacheMarker, ...rawFinalizedRow } = row;
+    const originalQuery = originalQueries[source.index] as
+      Readonly<Record<string, unknown>> | undefined;
+    const finalizedRow = originalQuery
+      ? (preserveContinuationMetadata(rawFinalizedRow, originalQuery) as Record<
+          string,
+          unknown
+        >)
+      : rawFinalizedRow;
     const data =
       row.data !== null &&
       typeof row.data === 'object' &&
       !Array.isArray(row.data)
         ? (row.data as Record<string, unknown>)
         : source.data;
-    const meta = reconcilePaginationDiagnostics(
-      (row.meta as FlatQueryResult['meta'] | undefined) ?? source.meta,
-      shared ? { ...shared, ...data } : data
-    );
+    const sourceMeta =
+      (row.meta as FlatQueryResult['meta'] | undefined) ?? source.meta;
+    const meta = sourceMeta
+      ? reconcilePaginationDiagnostics(
+          sourceMeta,
+          shared ? { ...shared, ...data } : data
+        )
+      : undefined;
     return {
       ...finalizedRow,
       ...(source.cache === 1 ? { cache: 1 } : {}),
-      meta,
+      ...(meta ? { meta } : {}),
     };
   });
   return { ...structuredContent, results };
@@ -238,7 +284,7 @@ export function buildToolResultMeta(
   query: object,
   data: Record<string, unknown>,
   status?: 'empty' | 'error'
-): FlatQueryResult['meta'] {
+): ToolResultMeta {
   const kind = inferEvidenceKind(toolName, query, data);
   const reportedConfidence = data.confidence;
   const confidence =
@@ -272,9 +318,9 @@ export function buildToolResultMeta(
 }
 
 function reconcilePaginationDiagnostics(
-  meta: FlatQueryResult['meta'],
+  meta: ToolResultMeta,
   data: Record<string, unknown>
-): FlatQueryResult['meta'] {
+): ToolResultMeta {
   const { diagnostics, ...stableMeta } = meta;
   const codes = [
     ...(diagnostics?.codes ?? []).filter(
@@ -332,6 +378,7 @@ function extractToolData(result: ProcessedBulkResult): Record<string, unknown> {
     'cache',
     'goal',
     'reasoning',
+    'debug',
     'researchSuggestions',
     'query',
   ]);

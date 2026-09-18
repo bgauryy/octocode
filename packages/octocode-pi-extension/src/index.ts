@@ -1151,10 +1151,13 @@ async function wireOctocodePiExtension(
       const currentSessionMemory = session.sessionArtifactContext
         ? readSessionMemoryForContext(ctx, session.sessionArtifactContext) ?? ''
         : '';
+      const currentCapabilityRevision = session.capabilityRevision
+        ? `<capability_revision>${session.capabilityRevision}</capability_revision>`
+        : '';
       const recoveryPending = Boolean(ctx && hasPendingRehydration(ctx));
       const currentUserRequests = ctx && recoveryPending ? readSessionUserRequestContext(ctx) ?? '' : '';
       const retainedDigests = ctx && recoveryPending
-        ? collectPiRetainedContentDigests(ctx, { knownSegmentContents: { 'active-plan': planContext, 'session-memory': currentSessionMemory, 'user-request-history': currentUserRequests } })
+        ? collectPiRetainedContentDigests(ctx, { knownSegmentContents: { 'active-plan': planContext, 'capability-revision': currentCapabilityRevision, 'session-memory': currentSessionMemory, 'user-request-history': currentUserRequests } })
         : new Set<string>();
       const planSig = planContext;
       const planChanged = planSig !== session.deliveredPlanSignature;
@@ -1201,10 +1204,17 @@ async function wireOctocodePiExtension(
       //
       // capability_revision is delivered here (not in the frozen system prompt)
       // so the provider's prefix cache survives turns where only the capability
-      // snapshot changes.  The tag is ~20 tokens and arrives on every turn so
-      // the model always has the current value without needing compaction recovery.
-      const capabilityRevisionContent = session.capabilityRevision
-        ? `<capability_revision>${session.capabilityRevision}</capability_revision>`
+      // snapshot changes. Pi persists injected messages in session context, so
+      // steady-state turns do not duplicate the tag. Recovery re-delivers it only
+      // when compaction no longer retains the current revision.
+      const capabilityChanged = session.capabilityRevision !== session.deliveredCapabilityRevision;
+      const capabilityAlreadyRetained = recoveryPending
+        && currentCapabilityRevision.length > 0
+        && retainedDigests.has(contentDigest(currentCapabilityRevision));
+      const capabilityRevisionContent = currentCapabilityRevision
+        && !capabilityAlreadyRetained
+        && (capabilityChanged || recoveryPending)
+        ? currentCapabilityRevision
         : '';
       const physiologyDelivery = physiologyAdvisory(ctx ? physiology.read(ctx) : undefined);
       const contextAssembly = assembleContextSegments([

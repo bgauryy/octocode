@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"reasoning\":\"Read the selected issue body and maintainer discussion to establish reported behavior, reproduction, versions, and any resolution evidence.\",\"operation\":\"issue\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"number\":40592,\"content\":{\"body\":true,\"comments\":{\"discussion\":true,\"includeBots\":true}},\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:03.606Z",
+  "endedAt": "2026-09-18T08:52:05.481Z",
+  "elapsedMs": 1874,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "3cb2e2be5ca69632fa2e4805fd94545132b21735065d9622f1dd1015b98f65c7",
+  "requestSha256": null
+}

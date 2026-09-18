@@ -1,0 +1,60 @@
+{
+  "suite": "terra-20260918-v1",
+  "questions": [
+    {
+      "id": "Q1",
+      "source": "compare/github-questions/Q1.md",
+      "prompt": "# Q1 — Next.js route-regex result\n\n**id:** `gh-route-regex-builder`\n\n## Question\n\nIn `vercel/next.js` on `canary`, locate the exported `getRouteRegex()` function.\nName its file, the internal helper it calls to parameterize the route, and the\ntop-level fields returned by `getRouteRegex()`.\n"
+    },
+    {
+      "id": "Q2",
+      "source": "compare/github-questions/Q2.md",
+      "prompt": "# Q2 — Repository discovery and bounded absence\n\n**id:** `gh-is-repo-absence`\n\n## Question\n\nDiscover the GitHub repository owned by `sindresorhus` for the type-checking\nutility package named `is`. Confirm its primary language and default branch,\nthen determine with bounded evidence whether its public export surface defines\nor exports `isQuantumSuperposition`. Explain the search and evidence used for\nthe YES/NO answer.\n"
+    },
+    {
+      "id": "Q3",
+      "source": "compare/github-questions/Q3.md",
+      "prompt": "# Q3 — Flask route history\n\n**id:** `gh-flask-route-history`\n\n## Question\n\nIn `pallets/flask`, identify the current file and owning base class for the\n`route` decorator. Then explain, from the changed code in commit `705e5268`\nrather than its title alone, what route-registration behavior it introduced.\n"
+    },
+    {
+      "id": "Q4",
+      "source": "compare/github-questions/Q4.md",
+      "prompt": "# Q4 — Axios redirect implementation across repositories\n\n**id:** `gh-axios-follow-redirects-trace`\n\n## Question\n\nAcross `axios/axios` and `follow-redirects/follow-redirects`, trace how Axios's\nNode adapter delegates redirect-following HTTP(S) requests. Cite the Axios\ndependency field, import and transport-selection branch, then name the upstream\nrequest type and methods that issue a request and process a redirect response,\nwith their files.\n"
+    },
+    {
+      "id": "Q5",
+      "source": "compare/github-questions/Q5.md",
+      "prompt": "# Q5 — Vue hydration diff review\n\n**id:** `gh-vue-pr-diff-review`\n\n## Question\n\nReview the code changes in `vuejs/core` PR `#15035`. Name at least two concrete\nhydration/interoperability scenarios fixed by the patch and explain why changes\nwere required in both `runtime-core` and `runtime-vapor`.\n"
+    },
+    {
+      "id": "Q6",
+      "source": "compare/github-questions/Q6.md",
+      "prompt": "# Q6 — Express router cross-repository trace\n\n**id:** `gh-express-router-trace`\n\n## Question\n\nOn the current default branch of `expressjs/express`, determine whether the\nlayer-matching loop lives in that repository. If not, cite the dependency that\nleads to the implementation repository, then name the function that advances\nlayers and the helper that tests one layer against the path, with their files.\n"
+    },
+    {
+      "id": "Q7",
+      "source": "compare/github-questions/Q7.md",
+      "prompt": "# Q7 — Zustand's Next.js integration contract\n\n**id:** `gh-zustand-next-contract`\n\n## Question\n\nAcross `vercel/next.js` and `pmndrs/zustand`, determine whether\n`examples/with-zustand/src/lib/store.ts` creates a module singleton or a React\nContext-backed per-request store factory. Name the APIs used, then cite the\nfield in Zustand's root `package.json` that establishes whether React is a\nrequired dependency or an optional peer.\n"
+    },
+    {
+      "id": "Q8",
+      "source": "compare/github-questions/Q8.md",
+      "prompt": "# Q8 — VS Code keybinding dispatch\n\n**id:** `gh-vscode-keybinding-dispatch`\n\n## Question\n\nIn `microsoft/vscode`, identify the concrete workbench keybinding service class\nand file. Then identify the base class, file, and public method that receives a\nkeypress for dispatch.\n"
+    },
+    {
+      "id": "Q9",
+      "source": "compare/github-questions/Q9.md",
+      "prompt": "# Q9 — Fastify lifecycle contract\n\n**id:** `gh-fastify-lifecycle`\n\n## Question\n\nIn `fastify/fastify`, report the documented order from Incoming Request through\nUser Handler, including `onRequest`, `preParsing`, Parsing, `preValidation`,\nValidation, and `preHandler`. Then identify the per-route context property and\nrunner function used by `lib/route.js` to invoke `onRequest` hooks.\n"
+    },
+    {
+      "id": "Q10",
+      "source": "compare/github-questions/Q10.md",
+      "prompt": "# Q10 — Axios repository and Node entry chain\n\n**id:** `gh-axios-entry-chain`\n\n## Question\n\nDiscover the GitHub repository for Axios, report the dominant implementation\nlanguage from the repository language breakdown, and trace Node CommonJS\nresolution from `main` through the relevant `exports` target to the underlying\nsource entry under `lib/`.\n"
+    },
+    {
+      "id": "BUG",
+      "source": "https://github.com/react/react/issues/37655",
+      "prompt": "Investigate https://github.com/react/react/issues/37655 using Octocode. Verify the reported double-suspension false hook-order warning against current source and the reported release where possible. Distinguish issue allegations from evidence. Explain trigger, mechanism and affected behavior; examine the suggested fix critically, propose a precise solution and regression tests, and report what was actually reproduced versus only traced. Do not post externally or modify upstream. Local minimal reproductions are permitted without executing downloaded repository scripts; keep artifacts in your own case directory. Include an alternative explanation and how evidence supports or weakens it."
+    }
+  ]
+}

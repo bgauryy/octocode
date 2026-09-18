@@ -36,13 +36,17 @@ describe('ghSearch unified public contract', () => {
       },
     ]) {
       expect(
-        definition!.schema.safeParse(query).success,
+        definition!.schema.safeParse({
+          reasoning: 'Validate the unified ghSearch public branch.',
+          ...query,
+        }).success,
         JSON.stringify(query)
       ).toBe(true);
     }
 
     expect(
       definition!.schema.safeParse({
+        reasoning: 'Reject a repository-only field from code search.',
         operation: 'code',
         keywords: ['toolSchemas'],
         stars: '>100',
@@ -50,6 +54,7 @@ describe('ghSearch unified public contract', () => {
     ).toBe(false);
     expect(
       definition!.schema.safeParse({
+        reasoning: 'Reject code keywords from tree search.',
         operation: 'tree',
         owner: 'bgauryy',
         repo: 'octocode',

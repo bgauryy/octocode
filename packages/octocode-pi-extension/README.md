@@ -29,7 +29,7 @@ The live source inventory is authoritative. Use `/config` inside Pi to open the 
 | Guarded Pi builtin overrides | 1 (`bash`) |
 | Disabled Pi builtins | 6 |
 | Slash command entries | 5 |
-| Bundled main-agent skills | 14 |
+| Bundled main-agent skills | 15 |
 
 ### Support tools
 
@@ -111,7 +111,7 @@ skill sources, command hooks, permissions, theme, effort, and footer density. It
 for review. Host-provided and user-installed commands remain in the live inventory.
 The recovery command remains preview-first and does not rewrite input through regex triggers.
 
-## Bundled skills (14)
+## Bundled skills (15)
 
 The build copies these main-agent skills into `dist/skills/`:
 
@@ -122,6 +122,7 @@ The build copies these main-agent skills into `dist/skills/`:
 - `octocode-clean-agentic-code`
 - `octocode-documentation`
 - `octocode-eval-benchmark`
+- `octocode-jev-reasoning-loop`
 - `octocode-prompt-optimizer`
 - `octocode-research`
 - `octocode-rfc-generator`

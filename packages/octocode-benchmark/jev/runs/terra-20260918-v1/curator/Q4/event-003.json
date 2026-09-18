@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q4",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"axios\",\"repo\":\"axios\",\"path\":\"lib/adapters/http.js\",\"matchString\":\"config.maxRedirects\",\"contextLines\":20},{\"owner\":\"follow-redirects\",\"repo\":\"follow-redirects\",\"path\":\"index.js\",\"matchString\":\"RedirectableRequest.prototype._processResponse\",\"contextLines\":55}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:54.782Z",
+  "endedAt": "2026-09-18T08:25:55.121Z",
+  "elapsedMs": 337,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "798e988a17fdb13ab83bd6bf126522023684e5323e52f3a23501895bd658def5",
+  "stdoutBytes": 5468,
+  "requestSha256": null
+}

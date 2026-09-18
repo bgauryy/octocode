@@ -31,6 +31,7 @@ describe('structural frontend validation contract', () => {
     ({ field, value }) => {
       expect(
         LocalRipgrepQuerySchema.safeParse({
+          reasoning: 'Reject blank structural patterns at the execution schema.',
           path: process.cwd(), langType: 'ts',
           mode: 'structural',
           [field]: value,
@@ -45,6 +46,8 @@ describe('structural frontend validation contract', () => {
       const result = await executeAstSearch({
         queries: [
           {
+            reasoning: 'Return a typed structural validation error.',
+            debug: true,
             path: process.cwd(), langType: 'ts',
             operation: 'match',
             [field]: value,

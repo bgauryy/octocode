@@ -31,7 +31,7 @@ Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. 
 - Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — check navigation, useful content, and standalone execution. Assess advisory formatting warnings in context.
 - When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md`, and use `assets/hooks/` — map the correct host event and avoid silent no-ops.
 - When installing, load `references/install-gates.md`, then `references/install-destinations.md`; remote sources use `references/fetch-remote.md`, local creation uses `references/create-local-skill.md`, and vendor links use `references/skill-sync.md` — secure approval, destination, and provenance before writes.
-- When evidence needs code/package/repo research, use `octocode-research`; if unavailable, use `octocode-mcp` or `npx octocode`, inspect live context/schema once, and follow executable continuations — do not duplicate tool contracts.
+- For code/package/repo research, use `octocode-research`.
 - When tracing source provenance, load `references/references.md`; when authoring a source appendix, start from `references/references-template.md` — keep claims auditable without bloating instructions.
 
 ## Related routes
@@ -39,7 +39,7 @@ Reviews: `<output>/octocode-skills/`; scratch: `<output>/tmp/octocode-skills/`. 
 - Use `octocode-rfc-generator` before a large skill-system redesign.
 
 ## Scripts and verification
-- Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required. <!-- style-lint: ignore-line passive-voice -->
+- Run `scripts/skill-review.mjs` after any create/edit — zero ERRORs must pass.
 - Run `scripts/skill-sync.mjs` after inspecting its dry-run and confirming that existing authorization covers the source, destinations, and conflict policy. Ask only for missing authority.
 - `scripts/skill-lint.mjs` is an alias for `scripts/skill-review.mjs` — same gate under the older name.
 - A skill script that needs Octocode home or env imports `./octocode-config.mjs`, a build artifact that `packages/octocode-config` injects into each skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.

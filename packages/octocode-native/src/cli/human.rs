@@ -6,8 +6,14 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 /// Output formatting options shared by all human-facing commands.
-#[derive(Args, Debug, Default, Clone, Copy)]
+#[derive(Args, Debug, Default, Clone)]
 pub struct OutputOpts {
+    /// Why this query advances the current goal.
+    #[arg(long)]
+    pub reasoning: String,
+    /// Include structured execution evidence, diagnostics, and probe metadata.
+    #[arg(long)]
+    pub debug: bool,
     /// Emit indented (pretty-printed) JSON instead of compact JSON.
     #[arg(long)]
     pub pretty: bool,
@@ -227,7 +233,7 @@ pub async fn files(runtime: &ToolRuntime, args: FilesArgs) -> u8 {
     if !args.names.is_empty() {
         query["names"] = json!(args.names);
     }
-    run(runtime, "astSearch", query, !args.output.pretty).await
+    run(runtime, "astSearch", query, &args.output).await
 }
 
 pub async fn tree(runtime: &ToolRuntime, args: TreeArgs) -> u8 {
@@ -239,7 +245,7 @@ pub async fn tree(runtime: &ToolRuntime, args: TreeArgs) -> u8 {
             "path":args.path,
             "treeKind": if args.syntax { "syntax" } else { "filesystem" }
         }),
-        !args.output.pretty,
+        &args.output,
     )
     .await
 }
@@ -249,7 +255,7 @@ pub async fn symbols(runtime: &ToolRuntime, args: SymbolsArgs) -> u8 {
     if let Some(name) = args.name {
         query["name"] = json!(name);
     }
-    run(runtime, "astSearch", query, !args.output.pretty).await
+    run(runtime, "astSearch", query, &args.output).await
 }
 
 pub async fn ast(runtime: &ToolRuntime, args: AstArgs) -> u8 {
@@ -268,7 +274,7 @@ pub async fn ast(runtime: &ToolRuntime, args: AstArgs) -> u8 {
     if let Some(l) = lang {
         query["langType"] = json!(l);
     }
-    run(runtime, "astSearch", query, !args.output.pretty).await
+    run(runtime, "astSearch", query, &args.output).await
 }
 
 pub async fn graph(runtime: &ToolRuntime, args: GraphArgs) -> u8 {
@@ -283,7 +289,7 @@ pub async fn graph(runtime: &ToolRuntime, args: GraphArgs) -> u8 {
     if let Some(target) = args.target {
         query["target"] = json!(target);
     }
-    run(runtime, "astSearch", query, !args.output.pretty).await
+    run(runtime, "astSearch", query, &args.output).await
 }
 
 pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
@@ -305,8 +311,9 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
         "ruleKind": "pattern",
         "langType": lang,
     });
+    apply_output_options(&mut query, &args.output);
     if !args.apply {
-        return run(runtime, "astRewrite", query, !pretty).await;
+        return run(runtime, "astRewrite", query, &args.output).await;
     }
 
     // Applying is deliberately a two-step transaction. The preview supplies the
@@ -366,7 +373,7 @@ pub async fn rewrite(runtime: &ToolRuntime, args: RewriteArgs) -> u8 {
     query["apply"] = json!(true);
     query["snapshot"] = json!(snapshot);
     query["expectedHashes"] = Value::Object(expected_hashes);
-    run(runtime, "astRewrite", query, !pretty).await
+    run(runtime, "astRewrite", query, &args.output).await
 }
 
 pub async fn lsp(runtime: &ToolRuntime, operation: &str, args: LspArgs) -> u8 {
@@ -383,7 +390,7 @@ pub async fn lsp(runtime: &ToolRuntime, operation: &str, args: LspArgs) -> u8 {
             "character": args.character.unwrap_or(0)
         });
     }
-    run(runtime, "lspSearch", query, !args.output.pretty).await
+    run(runtime, "lspSearch", query, &args.output).await
 }
 
 /// Show hover documentation for a symbol.
@@ -433,12 +440,13 @@ fn repos_query(args: &ReposArgs) -> Value {
             query[field] = json!(value);
         }
     }
+    apply_output_options(&mut query, &args.output);
     query
 }
 
 pub async fn repos(runtime: &ToolRuntime, args: ReposArgs) -> u8 {
     let query = repos_query(&args);
-    run(runtime, "ghSearch", query, !args.output.pretty).await
+    run(runtime, "ghSearch", query, &args.output).await
 }
 
 /// Search code on GitHub by keyword.
@@ -482,12 +490,13 @@ fn code_query(args: &CodeArgs) -> Value {
     if let Some(language) = &args.lang {
         query["language"] = json!(language);
     }
+    apply_output_options(&mut query, &args.output);
     query
 }
 
 pub async fn code_search(runtime: &ToolRuntime, args: CodeArgs) -> u8 {
     let query = code_query(&args);
-    run(runtime, "ghSearch", query, !args.output.pretty).await
+    run(runtime, "ghSearch", query, &args.output).await
 }
 
 /// Browse a known GitHub repository tree.
@@ -518,7 +527,7 @@ pub async fn gh_tree(runtime: &ToolRuntime, args: GhTreeArgs) -> u8 {
     if let Some(branch) = args.branch {
         query["branch"] = json!(branch);
     }
-    run(runtime, "ghSearch", query, !args.output.pretty).await
+    run(runtime, "ghSearch", query, &args.output).await
 }
 
 pub async fn clone_repo(runtime: &ToolRuntime, args: CloneArgs) -> u8 {
@@ -533,7 +542,7 @@ pub async fn clone_repo(runtime: &ToolRuntime, args: CloneArgs) -> u8 {
     if let Some(path) = args.sparse_path {
         query["sparsePath"] = json!(path);
     }
-    run(runtime, "ghCloneRepo", query, !args.output.pretty).await
+    run(runtime, "ghCloneRepo", query, &args.output).await
 }
 
 pub async fn package(runtime: &ToolRuntime, args: PackageArgs) -> u8 {
@@ -543,7 +552,7 @@ pub async fn package(runtime: &ToolRuntime, args: PackageArgs) -> u8 {
     } else {
         query["keywords"] = json!([args.query]);
     }
-    run(runtime, "artifactSearch", query, !args.output.pretty).await
+    run(runtime, "artifactSearch", query, &args.output).await
 }
 
 pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
@@ -610,7 +619,7 @@ pub async fn history(runtime: &ToolRuntime, args: HistoryArgs) -> u8 {
             return 2;
         }
     };
-    run(runtime, tool, query, !args.output.pretty).await
+    run(runtime, tool, query, &args.output).await
 }
 
 /// Group tool names into CLI families.
@@ -1242,14 +1251,20 @@ fn lang_from_path(path: &str) -> Option<&'static str> {
     })
 }
 
-async fn run(runtime: &ToolRuntime, tool: &str, query: Value, compact: bool) -> u8 {
+fn apply_output_options(query: &mut Value, output: &OutputOpts) {
+    query["reasoning"] = json!(output.reasoning);
+    query["debug"] = json!(output.debug);
+}
+
+async fn run(runtime: &ToolRuntime, tool: &str, mut query: Value, output: &OutputOpts) -> u8 {
+    apply_output_options(&mut query, output);
     execute(
         runtime,
         tool,
         query,
         ExecuteOptions {
             structured: true,
-            compact,
+            compact: !output.pretty,
             ..ExecuteOptions::default()
         },
     )
@@ -1268,7 +1283,10 @@ mod tests {
             repo: Some("bgauryy/octocode".into()),
             path: Some("src".into()),
             lang: Some("rust".into()),
-            output: OutputOpts::default(),
+            output: OutputOpts {
+                reasoning: "Verify canonical code search construction.".into(),
+                ..OutputOpts::default()
+            },
         });
         assert_eq!(query["language"], "rust");
         assert!(query.get("langType").is_none());
@@ -1290,7 +1308,10 @@ mod tests {
             language: Some("rust".into()),
             stars: Some(">100".into()),
             sort: Some("stars".into()),
-            output: OutputOpts::default(),
+            output: OutputOpts {
+                reasoning: "Verify canonical repository search construction.".into(),
+                ..OutputOpts::default()
+            },
         });
         octocode_native::contracts::prepare_and_validate(
             "ghSearch",

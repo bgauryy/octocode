@@ -1559,6 +1559,7 @@ fn base_public_query(q: &GhGetHistoryItemQuery, operation: ItemOperation) -> Val
         );
         m.remove("goal");
         m.remove("reasoning");
+        m.remove("debug");
         match operation {
             ItemOperation::PullRequest => {
                 m.insert(

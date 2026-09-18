@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"queries\":[{\"operation\":\"code\",\"keywords\":[\"use suspends\"],\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/__tests__\",\"pageSize\":20},{\"operation\":\"code\",\"keywords\":[\"useContext\"],\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/__tests__/ReactUse-test.js\",\"pageSize\":20}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:58.566Z",
+  "endedAt": "2026-09-18T08:28:01.325Z",
+  "elapsedMs": 2758,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "544d219c643cb759163f139f5fd9c0c47d5b24582030a2d9330910bc8ea056ca",
+  "stdoutBytes": 1263,
+  "requestSha256": null
+}

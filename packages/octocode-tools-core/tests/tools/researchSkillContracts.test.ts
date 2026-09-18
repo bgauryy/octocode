@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../helpers/prepareDirectToolInput.js';
 import { getDirectToolSchemaVariants } from '@octocodeai/octocode-core/schema';
 import { ArtifactSearchQueryLocalSchema } from '@octocodeai/octocode-core/schema';
 

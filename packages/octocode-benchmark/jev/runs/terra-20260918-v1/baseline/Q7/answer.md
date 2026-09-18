@@ -1,0 +1,5 @@
+# Q7 — Zustand Next.js example
+
+The example is not a module-level Zustand store singleton. It creates a module-level React `storeContext`, exports its `Provider`, and exposes `initializeStore(preloadedState)`, which calls Zustand `createStore`; consumers call React `useContext(storeContext)` and Zustand `useStore(store, selector)` ([example source](https://github.com/vercel/next.js/blob/3bf71ee3fd1f55fbe0f53956973de64b85b2bdf9/examples/with-zustand/src/lib/store.ts#L1-L59)). In other words, the shared module object is the Context, while the actual store is factory-created and supplied through that Context—compatible with a caller creating a store per request/provider rather than leaking one module store across requests.
+
+Zustand lists React in `peerDependencies` and marks it optional under `peerDependenciesMeta.react.optional: true` ([root package.json](https://github.com/pmndrs/zustand/blob/b57db4f86ef179285da216eeb291266da82c361c/package.json#L159-L177)). React is therefore an optional peer, not a required installed dependency.

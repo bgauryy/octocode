@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "Q3",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"owner\":\"pallets\",\"repo\":\"flask\",\"path\":\"src/flask/sansio/scaffold.py\",\"matchString\":\"class Scaffold\",\"contextLines\":16}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:28:10.111Z",
+  "endedAt": "2026-09-18T08:28:10.837Z",
+  "elapsedMs": 724,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "0c6f0c036488f3c4a23792a0800a3b9921c2b70a8100b483b65550fddaa7f3d6",
+  "stdoutBytes": 2028,
+  "requestSha256": null
+}

@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Locate the ViewTransition prop contract and implementation path for nested transitions.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransitionProps\",\"enter\",\"exit\"],\"pageSize\":10},{\"reasoning\":\"Locate portal-related ViewTransition traversal and naming logic.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"view-transition-name\",\"ViewTransition\"],\"pageSize\":20},{\"reasoning\":\"Locate tests covering nested ViewTransition or portal mounting behavior.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransition\",\"portal\"],\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:53:37.642Z",
+  "endedAt": "2026-09-18T08:53:38.244Z",
+  "elapsedMs": 600,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "4da6632df93b51f13dcd5f8e27e18a23e616f77fdd9d1d96debb5affa504bc30",
+  "requestSha256": null
+}

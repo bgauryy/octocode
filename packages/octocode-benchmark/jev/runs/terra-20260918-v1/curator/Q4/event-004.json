@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q4",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"code\",\"keywords\":[\"maxRedirects\"],\"owner\":\"axios\",\"repo\":\"axios\",\"filename\":\"http.js\",\"pageSize\":10}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:00.245Z",
+  "endedAt": "2026-09-18T08:26:01.141Z",
+  "elapsedMs": 896,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "4b984219ccdf101870bae46d2606452b5b7a713577ffaaa5b6aee4b560b05c7f",
+  "stdoutBytes": 717,
+  "requestSha256": null
+}

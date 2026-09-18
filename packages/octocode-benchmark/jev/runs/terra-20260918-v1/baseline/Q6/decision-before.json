@@ -1,0 +1,1 @@
+{"hypotheses":["Express delegates router matching to the router dependency, likely pillarjs/router."],"currentDirection":"Confirm Express dependency then trace implementation symbols upstream.","uncertainty":"Current dependency version and exact function/helper names/files.","plannedNextCheck":"Fetch Express manifest and router source."}

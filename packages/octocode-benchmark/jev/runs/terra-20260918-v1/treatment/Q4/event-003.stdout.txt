@@ -1,0 +1,1 @@
+{"answers":{"hypothesis":{"choice":"H2","confidence":0.65,"probabilities":{"H1":0.22,"H2":0.77,"none":0.01},"type":"choice"},"next_check":{"choice":"C1","confidence":0.96,"probabilities":{"C1":0.97,"C2":0.01,"none":0.02},"type":"choice"}},"model":"jev-1.13.0","usage":{"input_tokens":780,"output_tokens":82}}

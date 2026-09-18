@@ -49,7 +49,7 @@ function withoutOpaqueCursors(value) {
 
 async function collect(client) {
   let args = {
-    queries: [{ path: source, fullContent: true, goal: 'page', reasoning: 'parity' }],
+    queries: [{ path: source, fullContent: true, goal: 'page', reasoning: 'Exercise response pagination parity.', debug: false }],
     responseCharLength: 96,
   };
   const pages = [];
@@ -92,7 +92,7 @@ try {
   const stale = await native.callTool({
     name: 'localFetch',
     arguments: {
-      queries: [{ path: source, fullContent: true }],
+      queries: [{ path: source, fullContent: true, reasoning: 'Exercise stale response pagination restart parity.', debug: false }],
       responseCharLength: 96,
       responseCharOffset: first.nextCharOffset,
       responseSnapshot: 'response-v1:stale',

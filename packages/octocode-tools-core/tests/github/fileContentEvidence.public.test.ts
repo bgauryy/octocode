@@ -1,7 +1,7 @@
 import { expectExecutableNext } from '../helpers/executableNext.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitHubProvider } from '../../src/providers/github/GitHubProvider.js';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { FileContentQueryLocalSchema } from '@octocodeai/octocode-core/schema';
 import type { FileEntry } from '../../src/tools/github_fetch_content/finalizer/types.js';
 import { cleanup } from '../../src/serverConfig.js';
@@ -68,6 +68,11 @@ afterEach(() => {
 });
 
 async function read(query: Record<string, unknown>): Promise<FileEntry> {
+  query = {
+    reasoning: 'Exercise exact GitHub file evidence and continuations.',
+    debug: true,
+    ...query,
+  };
   expect(FileContentQueryLocalSchema.safeParse(query).success).toBe(true);
   const out = await executeDirectTool('ghGetFileContent', { queries: [query] });
   expect(

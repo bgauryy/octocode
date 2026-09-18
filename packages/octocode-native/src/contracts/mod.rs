@@ -70,6 +70,21 @@ mod contract_owner_tests {
     use serde_json::json;
 
     #[test]
+    fn public_queries_require_explicit_reasoning() {
+        for reasoning in [None, Some("   ")] {
+            let mut query = json!({"path":"/tmp/source.rs"});
+            if let Some(reasoning) = reasoning {
+                query["reasoning"] = json!(reasoning);
+            }
+            let result = prepare_and_validate("localFetch", query, PrepareOptions::default());
+            assert!(
+                result.is_err(),
+                "reasoning must be caller-supplied and nonblank: {result:?}"
+            );
+        }
+    }
+
+    #[test]
     fn syntax_operation_is_rejected_without_core_alias() {
         assert!(
             prepare_and_validate(
@@ -133,12 +148,12 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn output_contract_rejects_unattributed_rows() {
+    fn output_contract_rejects_rows_without_an_index() {
         let error = validate_output(
             "localSearch",
             &json!({"results":[{"data":{"searchEngine":"rg","files":[]}}]}),
         )
-        .expect_err("rows require index and evidence metadata");
+        .expect_err("rows require an index");
         assert!(
             error
                 .issues
@@ -148,18 +163,18 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn output_contract_accepts_attributed_tool_data() {
-        validate_output(
-            "localSearch",
-            &json!({
-                "results":[{
-                    "index":0,
-                    "meta":{"evidence":{"kind":"lexical","confidence":"medium"}},
-                    "data":{"searchEngine":"rg","files":[]}
-                }]
+    fn output_contract_accepts_tool_data_with_or_without_debug_meta() {
+        for row in [
+            json!({"index":0,"data":{"searchEngine":"rg","files":[]}}),
+            json!({
+                "index":0,
+                "meta":{"evidence":{"kind":"lexical","confidence":"medium"}},
+                "data":{"searchEngine":"rg","files":[]}
             }),
-        )
-        .expect("canonical result envelope");
+        ] {
+            validate_output("localSearch", &json!({"results":[row]}))
+                .expect("canonical result envelope");
+        }
     }
 
     #[test]
@@ -171,7 +186,8 @@ mod contract_owner_tests {
                 "owner": "a",
                 "repo": "b",
                 "materialize": true,
-                "materializeOffset": 12
+                "materializeOffset": 12,
+                "reasoning": "Exercise materialized tree validation."
             }),
             PrepareOptions::default(),
         )

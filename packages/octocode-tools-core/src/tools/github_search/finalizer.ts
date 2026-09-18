@@ -91,7 +91,7 @@ function publicPageQuery(
   query: GitHubSearchQuery,
   page: number
 ): Record<string, unknown> {
-  const { goal: _goal, reasoning: _reasoning, ...publicQuery } = query;
+  const { goal: _goal, ...publicQuery } = query;
   return { ...publicQuery, page };
 }
 

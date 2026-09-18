@@ -1,0 +1,18 @@
+{
+  "arm": "treatment",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Find every commit-phase site that computes an enter class so the same-commit condition can be traced precisely.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"getViewTransitionClassName\"],\"path\":\"packages/react-reconciler/src/ReactFiberCommitViewTransitions.js\",\"pageSize\":5},{\"reasoning\":\"Find code that marks ViewTransitionStaticParent or decides parent enter/exit behavior.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransitionStaticParent\"],\"path\":\"packages/react-reconciler/src\",\"pageSize\":5},{\"reasoning\":\"Find React tests that cover ViewTransition parentEnter or parentExit behavior, including portal arrangements if present.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"parentEnter\"],\"path\":\"packages/react-dom/src/__tests__\",\"pageSize\":5},{\"reasoning\":\"Find direct tests of nested ViewTransition boundaries in the React repository.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"<ViewTransition\"],\"path\":\"packages/react-dom/src/__tests__\",\"pageSize\":5}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:57:16.313Z",
+  "endedAt": "2026-09-18T08:57:56.400Z",
+  "elapsedMs": 40086,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "d9bd9dee106e3a4af054729ace08b89fb626f91205db9965af77475ea6f1f917",
+  "requestSha256": null
+}

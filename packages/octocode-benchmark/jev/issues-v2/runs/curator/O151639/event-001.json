@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151639",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "{\"reasoning\":\"Read the selected issue body and maintainer discussion to establish reported behavior, reproduction, versions, and any resolution evidence.\",\"operation\":\"issue\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"number\":151639,\"content\":{\"body\":true,\"comments\":{\"discussion\":true,\"includeBots\":true}},\"pageSize\":100}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:03.627Z",
+  "endedAt": "2026-09-18T08:52:05.351Z",
+  "elapsedMs": 1720,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "cac5ec9b35b34dc90ea0bf9818fce77e54ff012e54869b04c3dd2abc862207d6",
+  "requestSha256": null
+}

@@ -1,0 +1,7 @@
+{
+  "name": "jev-react-37655-reproduction",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node reproduce.mjs" },
+  "dependencies": { "react": "19.2.8", "react-dom": "19.2.8", "jsdom": "30.1.0" }
+}

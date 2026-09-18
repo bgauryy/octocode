@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37619",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"queries\":[{\"reasoning\":\"Locate Flight server Map and Set serialization implementations.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"function serializeMap\"],\"pageSize\":10},{\"reasoning\":\"Locate Flight client handling for Map and Set row references.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"case \\\"$Q\\\"\"],\"pageSize\":10},{\"reasoning\":\"Locate Flight tests covering cyclic references and Map or Set serialization.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"cyclic\",\"Map\",\"Flight\"],\"pageSize\":30}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:28.177Z",
+  "endedAt": "2026-09-18T08:53:30.360Z",
+  "elapsedMs": 62182,
+  "exitCode": 5,
+  "signal": null,
+  "stdoutSha256": "ff9ce23edfb14e834a8a71af7d712943e6a5e3d94a83012d01db39f31733a667",
+  "requestSha256": null
+}

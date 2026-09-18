@@ -1,0 +1,16 @@
+{
+  "name": "octocode-jev-reasoning-loop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bounded Jev judgments inside an evidence-driven host reasoning loop",
+  "type": "module",
+  "bin": { "octocode-jev-reasoning-loop": "scripts/jev.mjs" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test scripts/test.mjs scripts/research.test.mjs scripts/decision.test.mjs && node scripts/verify-reasoning-loop.mjs && node scripts/eval-decision-loop.mjs",
+    "jev": "node scripts/jev.mjs",
+    "research": "node scripts/research.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "files": ["SKILL.md", "README.md", "PLAN.md", "references", "assets", "evals", "scripts", "bin", "Cargo.toml", "Cargo.lock", "src"]
+}

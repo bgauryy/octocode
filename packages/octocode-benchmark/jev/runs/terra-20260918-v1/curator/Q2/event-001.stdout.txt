@@ -1,0 +1,1 @@
+{"kind":"octocode.toolError","version":1,"tool":"ghSearch","error":"Tool input must be valid JSON.","details":["Use a JSON object for one query, or tools ghSearch --queries '{\"queries\":[{\"operation\":\"code\",\"keywords\":[\"localSearch\"],\"owner\":\"bgauryy\",\"repo\":\"octocode\",\"pageSize\":5}]}' for a batch."]}

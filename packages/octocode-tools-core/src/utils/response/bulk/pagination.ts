@@ -183,11 +183,7 @@ export function buildResponsePaginationContinuation(
     return undefined;
   }
   const cleanQueries = queries.map(query => {
-    const {
-      goal: _goal,
-      reasoning: _reasoning,
-      ...clean
-    } = query as Record<string, unknown>;
+    const { goal: _goal, ...clean } = query as Record<string, unknown>;
     return clean;
   });
   return {

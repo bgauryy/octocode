@@ -7,7 +7,7 @@ import type {
   LspSearchQuery,
   LspSemanticEnvelope,
 } from '../../../src/tools/lsp/shared/semanticTypes.js';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../../helpers/prepareDirectToolInput.js';
 
 /**
  * The tool description promises: "Empty/incomplete: re-anchor or fall back to
@@ -48,6 +48,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     operation: 'definition' | 'references'
   ): { query: LspSearchQuery; result: LspSemanticEnvelope } => {
     const query = {
+      reasoning: 'Exercise LSP semantic empty fallback continuations.',
+      debug: true,
       operation,
       uri: 'file:///repo/src/foo.ts',
       symbolName: 'doThing',
@@ -88,6 +90,8 @@ describe('withSemanticNext — empty-state fallback', () => {
     expectExecutableContinuations(withSemanticNext(query, result));
 
     const documentQuery = {
+      reasoning: 'Exercise document-symbol fallback continuations.',
+      debug: true,
       operation: 'documentSymbols',
       uri: 'file:///repo/src/Big.js',
     } as LspSearchQuery;
@@ -256,13 +260,14 @@ describe('withSemanticNext — empty-state fallback', () => {
 
   it('turns pagination.nextPage into an executable schema-valid continuation', () => {
     const query = {
+      reasoning: 'Exercise LSP semantic pagination continuations.',
+      debug: true,
       operation: 'documentSymbols',
       uri: 'file:///repo/src/foo.ts',
       page: 1,
       pageSize: 1,
       format: 'compact',
       goal: 'auto-filled goal',
-      reasoning: 'auto-filled reasoning',
     } as LspSearchQuery & Record<string, unknown>;
     const result: LspSemanticEnvelope = {
       type: 'documentSymbols',
@@ -296,7 +301,10 @@ describe('withSemanticNext — empty-state fallback', () => {
       confidence: 'exact',
     });
     expect(nextPage?.query).not.toHaveProperty('goal');
-    expect(nextPage?.query).not.toHaveProperty('reasoning');
+    expect(nextPage?.query).toMatchObject({
+      reasoning: 'Exercise LSP semantic pagination continuations.',
+      debug: true,
+    });
     expect(() =>
       prepareDirectToolInput('lspSearch', nextPage?.query ?? {}, {
         rejectUnknownFields: true,

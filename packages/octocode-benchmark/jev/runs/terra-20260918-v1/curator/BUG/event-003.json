@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberHooks.js\",\"matchString\":\"function mountHookTypesDev\",\"contextLines\":35},{\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberHooks.js\",\"matchString\":\"function useThenable\",\"contextLines\":45},{\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberHooks.js\",\"matchString\":\"function renderWithHooksAgain\",\"contextLines\":30},{\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/ReactFiberHooks.js\",\"matchString\":\"function updateHookTypesDev\",\"contextLines\":25}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:39.278Z",
+  "endedAt": "2026-09-18T08:27:40.090Z",
+  "elapsedMs": 811,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "99bc4edb0e3b037d54b2b0d117f948a0528c8832fd6d00dafa86171e96b41668",
+  "stdoutBytes": 12622,
+  "requestSha256": null
+}

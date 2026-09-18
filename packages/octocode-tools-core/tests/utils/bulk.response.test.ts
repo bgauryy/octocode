@@ -31,6 +31,35 @@ describe('executeBulkOperation batch correlation', () => {
     });
   });
 
+  it('emits result metadata only for debug queries', async () => {
+    const normal = await executeBulkOperation(
+      [{ value: 'normal' }],
+      async query => query,
+      { toolName: 'localSearch' }
+    );
+    expect(normal.structuredContent).toMatchObject({
+      results: [{ index: 0, data: { value: 'normal' } }],
+    });
+    expect(
+      (normal.structuredContent as { results: unknown[] }).results[0]
+    ).not.toHaveProperty('meta');
+
+    const debug = await executeBulkOperation(
+      [{ value: 'debug', debug: true }],
+      async query => query,
+      { toolName: 'localSearch' }
+    );
+    expect(debug.structuredContent).toMatchObject({
+      results: [
+        {
+          index: 0,
+          meta: { evidence: { kind: 'lexical', confidence: 'medium' } },
+          data: { value: 'debug' },
+        },
+      ],
+    });
+  });
+
   it('keeps finalized and ordinary response-envelope hoisting in parity', async () => {
     const queries = [{ value: 'one' }, { value: 'two' }];
     const processor = async (query: { value: string }) => ({
@@ -60,7 +89,13 @@ describe('executeBulkOperation batch correlation', () => {
 
   it('reconciles continuation diagnostics after a finalizer adds next-page data', async () => {
     const result = await executeBulkOperation(
-      [{ page: 1 }],
+      [
+        {
+          page: 1,
+          reasoning: 'Continue the GitHub search.',
+          debug: true,
+        },
+      ],
       async () => ({ pagination: { hasMore: true } }),
       {
         toolName: 'ghSearch',
@@ -89,7 +124,17 @@ describe('executeBulkOperation batch correlation', () => {
       results: [
         {
           meta: { diagnostics: { partial: true } },
-          data: { next: { nextPage: { tool: 'ghSearch' } } },
+          data: {
+            next: {
+              nextPage: {
+                tool: 'ghSearch',
+                query: {
+                  reasoning: 'Continue the GitHub search.',
+                  debug: true,
+                },
+              },
+            },
+          },
         },
       ],
     });
@@ -109,7 +154,7 @@ describe('executeBulkOperation batch correlation', () => {
 
   it('includes finalized shared partial state in each row diagnostic', async () => {
     const result = await executeBulkOperation(
-      [{ path: 'file.ts' }],
+      [{ path: 'file.ts', debug: true }],
       async () => ({ value: 'slice' }),
       {
         toolName: 'ghGetFileContent',
@@ -140,7 +185,13 @@ describe('executeBulkOperation batch correlation', () => {
 
   it('labels whole-response pagination as text-channel-only', async () => {
     const result = await executeBulkOperation(
-      [{ value: 'x'.repeat(200) }],
+      [
+        {
+          value: 'x'.repeat(200),
+          reasoning: 'Verify continuation metadata.',
+          debug: true,
+        },
+      ],
       async query => query,
       { toolName: 'testTool' },
       { responseCharLength: 40 }
@@ -154,7 +205,13 @@ describe('executeBulkOperation batch correlation', () => {
         next: {
           tool: 'testTool',
           query: {
-            queries: [{ value: 'x'.repeat(200) }],
+            queries: [
+              {
+                value: 'x'.repeat(200),
+                reasoning: 'Verify continuation metadata.',
+                debug: true,
+              },
+            ],
             responseCharLength: 40,
             responseCharOffset: expect.any(Number),
             responseSnapshot: expect.stringMatching(/^response-v1:/),

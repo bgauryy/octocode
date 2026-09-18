@@ -25,9 +25,10 @@ describe('direct-tool command patterns', () => {
       },
     });
     expect(patterns[0]?.command).toBe(
-      'tools localSearch --queries \'{"path":"/ABS/repo/src","searchText":"buildDirectToolCommandPatterns","regex":"literal","maxFiles":20}\''
+      'tools localSearch --queries \'{"reasoning":"Use localSearch for the text anchors example.","path":"/ABS/repo/src","searchText":"buildDirectToolCommandPatterns","regex":"literal","maxFiles":20}\''
     );
     expect(buildDirectToolExampleQuery(LOCAL_SEARCH_TOOL_NAME)).toEqual({
+      reasoning: 'Use localSearch for the text anchors example.',
       path: '/ABS/repo/src',
       searchText: 'buildDirectToolCommandPatterns',
       regex: 'literal',
@@ -72,6 +73,7 @@ describe('direct-tool command patterns', () => {
       'symbol outline (absolute uri)',
     ]);
     expect(patterns[2]?.query).toEqual({
+      reasoning: 'Use lspSearch for the symbol outline (absolute uri) example.',
       uri: '/ABS/packages/octocode-tools-core/src/scheme/pagination.ts',
       operation: 'documentSymbols',
     });
@@ -109,7 +111,10 @@ describe('direct-tool command patterns', () => {
     expect(patterns).toContainEqual(
       expect.objectContaining({
         label: 'keyword discovery (paged candidates)',
-        query: { type: 'npm', keywords: ['schema', 'validation'] },
+        query: expect.objectContaining({
+          type: 'npm',
+          keywords: ['schema', 'validation'],
+        }),
       })
     );
   });

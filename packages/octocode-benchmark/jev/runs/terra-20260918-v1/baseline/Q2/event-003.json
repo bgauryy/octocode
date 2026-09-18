@@ -1,0 +1,19 @@
+{
+  "arm": "baseline",
+  "caseId": "Q2",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "[{\"owner\":\"sindresorhus\",\"repo\":\"is\",\"path\":\"package.json\",\"fullContent\":true},{\"owner\":\"sindresorhus\",\"repo\":\"is\",\"path\":\"source/index.ts\",\"fullContent\":true},{\"owner\":\"sindresorhus\",\"repo\":\"is\",\"path\":\"source/types.ts\",\"matchString\":\"Quantum\",\"contextLines\":3}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:25:29.566Z",
+  "endedAt": "2026-09-18T08:25:31.009Z",
+  "elapsedMs": 1440,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "189f6b7172026fd133a16f760dd5b125da28412850b905bb8bb27992ac1868f3",
+  "stdoutBytes": 3958,
+  "requestSha256": null
+}

@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "L40590",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"queries\":[{\"reasoning\":\"Locate ChatGroq n validation in current integration source.\",\"operation\":\"code\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"class ChatGroq\"],\"pageSize\":10},{\"reasoning\":\"Locate existing ChatGroq tests and supported n behavior.\",\"operation\":\"code\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"ChatGroq\",\"n=1\"],\"pageSize\":20},{\"reasoning\":\"Locate ChatGroq environment or model validator that handles streaming and n.\",\"operation\":\"code\",\"owner\":\"langchain-ai\",\"repo\":\"langchain\",\"keywords\":[\"streaming\",\"n > 1\"],\"pageSize\":20}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:52:28.189Z",
+  "endedAt": "2026-09-18T08:53:30.334Z",
+  "elapsedMs": 62145,
+  "exitCode": 5,
+  "signal": null,
+  "stdoutSha256": "ff9ce23edfb14e834a8a71af7d712943e6a5e3d94a83012d01db39f31733a667",
+  "requestSha256": null
+}

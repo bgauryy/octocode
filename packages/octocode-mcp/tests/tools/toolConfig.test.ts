@@ -147,6 +147,7 @@ describe('Tool Configuration', () => {
       expect(LOCAL_SEARCH.fn).toBeTypeOf('function');
       expect(
         LOCAL_SEARCH.direct.schema.safeParse({
+          reasoning: 'Validate the localSearch tool configuration.',
           path: '.',
           searchText: 'needle',
           regex: 'literal',

@@ -1,0 +1,266 @@
+{
+  "version": 1,
+  "purpose": "Frozen, independently curated expected-answer atoms for issues-v2. These are evidence constraints, not required wording.",
+  "cases": [
+    {
+      "caseId": "R37637",
+      "classification": "not-a-supported-bug-as-framed; likely usage/API-contract mismatch, with a possible documentation-clarity follow-up",
+      "confidence": "high",
+      "supportedContract": [
+        "A nested ViewTransition's own enter/onEnter does not run merely because its ancestor mounts.",
+        "Ancestor-triggered behavior is opt-in through parentEnter/onParentEnter and is gated as experimental."
+      ],
+      "mechanism": "commitEnterViewTransitions applies enter to the placed outer boundary, then commitParentEnterViewTransitions traverses descendants only when their parentEnter or onParentEnter opts in. The test explicitly asserts that nested enter does not fire and parentEnter does.",
+      "credibleAlternatives": [
+        "A portal-specific traversal/naming defect could exist if the same reproduction uses parentEnter and still fails.",
+        "The public documentation may be ambiguous or contradict this behavior; that would be a documentation/API-design issue, not evidence for changing enter semantics."
+      ],
+      "disposition": "No production code change from the supplied reproduction. Reproduce with parentEnter on the inner boundary and the experimental feature enabled before filing a portal bug. If docs say plain enter applies in this situation, correct docs or explicitly redesign the API with compatibility review.",
+      "safeFixCriteria": [
+        "Do not make nested enter fire by default: current tests deliberately prohibit it.",
+        "Any portal repair must preserve the portal-as-separate-root model and normal non-portal parentEnter relay behavior."
+      ],
+      "regressionTests": [
+        "Portal + outer enter + inner parentEnter receives class/name and callback when the feature is enabled.",
+        "Portal + only inner enter remains non-participating, matching the existing non-portal test.",
+        "Explicit name and auto name controls; parentEnter none stops relay."
+      ],
+      "negativeTests": [
+        "Do not claim that the issue reporter's computed-style observation establishes a contract violation.",
+        "Do not use the portal root-animation PR as proof that nested enter is supported."
+      ],
+      "anchors": [
+        "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-dom/src/__tests__/ReactDOMViewTransition-test.js#L485",
+        "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-reconciler/src/ReactFiberCommitViewTransitions.js#L462",
+        "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/shared/ReactFeatureFlags.js#L98",
+        "https://github.com/react/react/pull/32772"
+      ],
+      "majorFalseClaims": [
+        "Calling this a confirmed React portal bug without testing parentEnter.",
+        "Proposing to recurse enter into every nested ViewTransition."
+      ],
+      "uncertainty": "No public prose documentation page was retrieved; the source and client tests establish implementation contract, while a docs conflict remains unverified."
+    },
+    {
+      "caseId": "R37619",
+      "classification": "likely Flight identity/cycle bug; source establishes the risky outlined-row mechanism, but no runtime reproduction was executed",
+      "confidence": "medium",
+      "supportedContract": [
+        "Flight must preserve supported reference identity/cycles rather than silently replacing a cycle with null.",
+        "Map and Set are serialized as separately outlined entry rows ($Q/$W), unlike an inline ordinary object path."
+      ],
+      "mechanism": "serializeMap and serializeSet call outlineModel on entries and return references to those rows. A self reference through the parent property can therefore create a dependency cycle between the container row and its entry row. The previous cycle repair in PR 37542 distinguishes genuine cycles from nested listeners that must wait, but its included Set+external-object shape is not proof that self Map/Set identity is fixed.",
+      "credibleAlternatives": [
+        "The reported 19.3.0 build may predate or differ from current main; source-at-current and reported-version behavior must be kept separate.",
+        "The decoder may already resolve this exact root cycle; only a real stream assertion can disprove that alternative."
+      ],
+      "disposition": "Treat as a likely bug pending a focused Flight test/reproduction, not as a license to blindly change all listener timing.",
+      "safeFixCriteria": [
+        "Preserve container identity by making the Map/Set instance available before its entries complete, or otherwise correctly classify the self cycle.",
+        "Do not regress PR 37542's distinction between real cycles and noncyclic nested listeners, and do not turn parse errors into partial/null values."
+      ],
+      "regressionTests": [
+        "Root and object-property Map self cycles assert map.get(key) === map.",
+        "Root and object-property Set self cycles assert first value === set.",
+        "Set containing an object whose back property points to that same Set.",
+        "Existing external-object Set cycle and error-row cases from PR 37542 remain passing."
+      ],
+      "negativeTests": [
+        "A noncyclic Map/Set round trip remains unchanged.",
+        "Unsupported values still reject; they must not be converted to null merely to break a cycle."
+      ],
+      "anchors": [
+        "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-server/src/ReactFlightServer.js#L3410",
+        "https://github.com/react/react/pull/37542",
+        "https://github.com/react/react/issues/37619"
+      ],
+      "majorFalseClaims": [
+        "Saying PR 37542 proves this self-cycle report is fixed or proves it is unfixed.",
+        "Claiming a tested runtime fix when only static source was inspected."
+      ],
+      "uncertainty": "The client tag-dispatch search was inconclusive and no package runtime was run; exact current behavior of the reporter's stream shape is unverified."
+    },
+    {
+      "caseId": "L40592",
+      "classification": "confirmed small correctness bug",
+      "confidence": "high",
+      "supportedContract": [
+        "list_keys exposes limit as an optional cap; None is the documented unbounded sentinel.",
+        "The async alist_keys path delegates to the synchronous behavior."
+      ],
+      "mechanism": "The in-memory implementation builds result then checks if limit. Python treats 0 as false, so the slice is skipped and all keys are returned; a positive limit slices as expected.",
+      "credibleAlternatives": [
+        "A project-wide convention could define zero as unbounded, but the public type/docs use int | None and source reserves None for optional omission; no such convention was found.",
+        "Negative limits have existing Python-slice behavior and are not part of this report."
+      ],
+      "disposition": "Fix in the current InMemoryRecordManager implementation: replace the truthiness guard with an explicit None check.",
+      "safeFixCriteria": [
+        "None remains unbounded; 1 and existing filters preserve order and output.",
+        "Do not alter negative-limit semantics incidentally unless separately specified."
+      ],
+      "regressionTests": [
+        "After three updates, list_keys(limit=0) == [] and await alist_keys(limit=0) == [].",
+        "Controls: omitted/None returns all and limit=1 returns the first key.",
+        "At least one filtered zero-limit call returns [] as well."
+      ],
+      "negativeTests": [
+        "Do not duplicate async logic; prove it delegates or exercise it directly.",
+        "Do not claim the issue-linked unaccepted PR is a merged repair."
+      ],
+      "anchors": [
+        "https://github.com/langchain-ai/langchain/blob/fd4f1615359371fbb1b3b2de9183a18a15ee9e34/libs/core/langchain_core/indexing/base.py#L352",
+        "https://github.com/langchain-ai/langchain/blob/fd4f1615359371fbb1b3b2de9183a18a15ee9e34/libs/core/tests/unit_tests/indexing/test_in_memory_record_manager.py",
+        "https://github.com/langchain-ai/langchain/issues/40592"
+      ],
+      "majorFalseClaims": [
+        "Changing all record managers without evidence.",
+        "Treating limit=0 as a feature request or using an unanchored file path."
+      ],
+      "uncertainty": "Static source evidence is decisive for the branch; no local test suite was run."
+    },
+    {
+      "caseId": "L40590",
+      "classification": "confirmed local-validation/request-contract bug",
+      "confidence": "high",
+      "supportedContract": [
+        "Current ChatGroq validation already recognizes n must be at least 1 and restricts n > 1 only when streaming.",
+        "The model forwards n unchanged in default request parameters; provider support for only n=1 makes nonstreaming n>1 fail late remotely."
+      ],
+      "mechanism": "validate_environment has if self.n > 1 and self.streaming, leaving nonstreaming n=2 valid. _default_params then sends n: self.n, so the invalid provider value reaches the network instead of producing a local validation error.",
+      "credibleAlternatives": [
+        "Future Groq API support for multiple choices could justify an expanded range, but current integration evidence says the limit is one.",
+        "A model-specific API exception would need provider documentation and a compatibility decision; it is not established here."
+      ],
+      "disposition": "Change the validator to reject every n != 1 (or equivalently reject n > 1 after retaining the <1 guard), before clients/request use.",
+      "safeFixCriteria": [
+        "n=1 remains valid for both streaming modes.",
+        "No API request is made for n=2, and the validation message reflects the provider constraint.",
+        "Do not silently coerce n to one."
+      ],
+      "regressionTests": [
+        "Parameterized construction for streaming True/False with n=2 raises ValueError.",
+        "n=1 constructs and produces params containing n: 1.",
+        "Existing n=0 invalid case remains invalid."
+      ],
+      "negativeTests": [
+        "Do not require a real Groq key/network call for the local validator test.",
+        "Do not report PR 40591 as accepted merely because it exists."
+      ],
+      "anchors": [
+        "https://github.com/langchain-ai/langchain/blob/fd4f1615359371fbb1b3b2de9183a18a15ee9e34/libs/partners/groq/langchain_groq/chat_models.py#L540",
+        "https://github.com/langchain-ai/langchain/blob/fd4f1615359371fbb1b3b2de9183a18a15ee9e34/libs/partners/groq/langchain_groq/chat_models.py#L814",
+        "https://github.com/langchain-ai/langchain/issues/40590"
+      ],
+      "majorFalseClaims": [
+        "Only changing streaming validation or forwarding code.",
+        "Claiming provider-side 400 is the desired local validation behavior."
+      ],
+      "uncertainty": "Provider documentation was reported in the issue rather than independently fetched; current integration source is sufficient for the local mismatch."
+    },
+    {
+      "caseId": "O151639",
+      "classification": "unverified potential streaming-rendering bug; no source-backed root cause or repair yet",
+      "confidence": "medium-low",
+      "supportedContract": [
+        "The custom-provider documentation explicitly supports MiniMax-M3 on an Anthropic-compatible streaming path and says M3 uses omitted/adaptive thinking by default.",
+        "User-visible streaming output should not expose raw reasoning/content-array serialization, but the exact Telegram assembly boundary was not located in the source pass."
+      ],
+      "mechanism": "The issue supplies a plausible stringify-at-stream-assembly hypothesis, but it is only an allegation. Repository history shows related fixes for preserving rich stream text and stripping thinking tags, which makes a rendering defect plausible but does not identify a JSON.stringify call or prove this provider/session path.",
+      "credibleAlternatives": [
+        "MiniMax may return a provider-specific malformed or text-encoded payload only under the named endpoint/version.",
+        "The persistence/session replay layer rather than Telegram delivery may stringify structured content.",
+        "A pre-existing release may already contain a related fix while the reported build differs."
+      ],
+      "disposition": "No code fix is justified yet. Request a redacted minimal payload plus a source trace across provider event normalization, streamed assistant payload construction, Telegram rendering, and session persistence; then classify.",
+      "safeFixCriteria": [
+        "Normalize/select visible text blocks without leaking thinking or signatures.",
+        "Preserve ordinary text streaming, tool-call handling, and session replay behavior.",
+        "Do not blanket JSON.parse arbitrary assistant text or disable thinking globally."
+      ],
+      "regressionTests": [
+        "A focused mock Anthropic streaming fixture with thinking and text blocks emits only permitted visible text to Telegram.",
+        "Thinking off and normal text-only paths are controls.",
+        "Persisted session representation remains structured or follows the established replay contract; no raw JSON array becomes user-visible."
+      ],
+      "negativeTests": [
+        "Do not call the configuration unsupported: upstream docs explicitly support this transport/model family.",
+        "Do not assert a particular JSON.stringify site without a trace or test."
+      ],
+      "anchors": [
+        "https://github.com/openclaw/openclaw/blob/34c8ae00b678330a2bf531687efaae49e85e248c/docs/concepts/model-providers/custom-providers.md#L192",
+        "https://github.com/openclaw/openclaw/blob/34c8ae00b678330a2bf531687efaae49e85e248c/CHANGELOG/2026.2.13.md#L43",
+        "https://github.com/openclaw/openclaw/issues/151639"
+      ],
+      "majorFalseClaims": [
+        "Presenting the issue body as confirmed root-cause evidence.",
+        "Calling this an unsupported custom-provider setup or proposing unscoped JSON parsing."
+      ],
+      "uncertainty": "The eight-call source budget found support/config and related history but not the decisive stream-to-Telegram conversion function or a runnable reproduction."
+    },
+    {
+      "caseId": "O151637",
+      "classification": "confirmed P3 layout-stability defect; repair disposition is defer to the explicitly held maintainer batch",
+      "confidence": "high",
+      "supportedContract": [
+        "Pending search feedback is intentionally accessible through role=status and aria-busy, and existing tests protect pending, error, stale-result, and usable-command behavior.",
+        "The palette footer follows the results region in normal layout, so inserting a normal-flow status sibling before results changes its geometry."
+      ],
+      "mechanism": "renderCommandPalette conditionally inserts cmd-palette__empty role=status between input and cmd-palette__results. Its flex display, 16px vertical padding and text size occupy normal flow; results and the following footer are displaced. The issue's measured 52px shift is consistent with that structure, though this curation did not run browser geometry.",
+      "credibleAlternatives": [
+        "Result rows legitimately change after a search completes; the defect is container/footer displacement, not identity of a selected result row.",
+        "A hidden fixed-height/short-viewport constraint can affect the safest visual design and must be checked in browser."
+      ],
+      "disposition": "Do not dispatch an independent production patch: the issue and maintainer review explicitly hold it for a coherent owner batch. Keep it open with an actionable presentation-level fix brief.",
+      "safeFixCriteria": [
+        "Keep accessible pending feedback and aria-busy while preserving result ranking, cancellation, errors, keyboard/pointer selection, and immediate usable commands.",
+        "Use a stable/reserved or non-layout-displacing status presentation; do not hide feedback, delay results, or merely mask overflow.",
+        "Prove desktop, narrow, and short-height geometry in a browser."
+      ],
+      "regressionTests": [
+        "Browser geometry test/capture: input, results top, footer and panel height remain stable through pending/settled cycles at desktop and narrow widths.",
+        "Existing jsdom pending cases for match, empty, failure, stale responses, close/detach/disconnect and static commands remain passing.",
+        "Manual scrolling and selection visibility during rapid query changes."
+      ],
+      "negativeTests": [
+        "Do not remove the status node or aria-busy to obtain stable geometry.",
+        "Do not claim jsdom proves CSS geometry."
+      ],
+      "anchors": [
+        "https://github.com/openclaw/openclaw/blob/34c8ae00b678330a2bf531687efaae49e85e248c/ui/src/components/command-palette.ts#L225",
+        "https://github.com/openclaw/openclaw/blob/34c8ae00b678330a2bf531687efaae49e85e248c/ui/src/styles/components.css#L4896",
+        "https://github.com/openclaw/openclaw/blob/34c8ae00b678330a2bf531687efaae49e85e248c/ui/src/components/command-palette-pending.test.ts#L35",
+        "https://github.com/openclaw/openclaw/pull/146938",
+        "https://github.com/openclaw/openclaw/issues/151637"
+      ],
+      "majorFalseClaims": [
+        "Calling the layout report unsubstantiated or a functionality outage.",
+        "Treating an independent CSS patch as authorized despite the explicit batch hold."
+      ],
+      "uncertainty": "Source proves normal-flow mechanism and jsdom behavior; the reported pixel geometry is issue/browser evidence rather than a freshly run local browser test."
+    }
+  ],
+  "rubric": {
+    "scoring": {
+      "triageAndContract": 2,
+      "mechanismAndAlternative": 3,
+      "safeFixOrNoFix": 3,
+      "regressionAndNegativeTests": 2
+    },
+    "pass": "8 or higher, with no major false claim",
+    "requiredAcrossCases": [
+      "Separate reported behavior from verified source facts and reported-version from current-main facts.",
+      "State a supported contract before calling an issue a bug.",
+      "Name a concrete mechanism only where the cited source supports it, and test/discuss a credible alternative.",
+      "Give a smallest safe fix only for a confirmed/well-supported defect; otherwise give a precise no-fix or defer disposition.",
+      "Include regression and negative-control design plus honest verification limits."
+    ],
+    "caseSpecificGates": {
+      "R37637": "Full no-fix credit requires recognizing parentEnter semantics and the experimental gate; a nested-enter production fix is a major error.",
+      "R37619": "Credit requires distinguishing static mechanism evidence from unexecuted runtime proof and preserving PR 37542 cycle semantics.",
+      "L40592": "Full credit requires explicit None rather than truthiness and direct async coverage.",
+      "L40590": "Full credit requires nonstreaming n>1 local rejection, no coercion, and no network-dependent validation test.",
+      "O151639": "Full no-fix credit requires recognizing documented support for the environment while refusing to invent a stringify root cause.",
+      "O151637": "Full no-fix/defer credit requires recognizing the confirmed layout mechanism, preserving accessibility/lifecycle, and honoring the batch hold."
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "arm": "baseline",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Enumerate the bounded reconciler test directory to identify the exact ViewTransition test file for a proposed regression and negative control.\",\"operation\":\"tree\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-reconciler/src/__tests__\",\"maxDepth\":1,\"pageSize\":200},{\"reasoning\":\"Enumerate the bounded react-dom test directory to identify any DOM-specific ViewTransition test file relevant to portal mounting.\",\"operation\":\"tree\",\"owner\":\"react\",\"repo\":\"react\",\"path\":\"packages/react-dom/src/__tests__\",\"maxDepth\":1,\"pageSize\":200}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:59:43.598Z",
+  "endedAt": "2026-09-18T08:59:44.893Z",
+  "elapsedMs": 1294,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "50ef6e57865d7517e417e369f5fd4b4be816bc6da05fa1846fc78d6c3c472ce8",
+  "requestSha256": null
+}

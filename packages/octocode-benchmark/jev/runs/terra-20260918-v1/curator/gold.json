@@ -1,0 +1,130 @@
+{
+  "suite": "terra-20260918-v1",
+  "role": "sealed-source-truth-curator",
+  "createdAt": "2026-09-18T00:00:00.000Z",
+  "policy": {
+    "score": "0-10: factual correctness 0-4; coverage 0-2; verifiable original-source citations 0-2; calibration/no unsupported claims 0-2. Pass >=8 and no major false claim.",
+    "general": "Award only claims supported by the listed source anchors (or equally specific original source). Version/ref changes must be disclosed. A citation to an issue establishes an allegation, not behavior.",
+    "bug": "The reporter's conceptual trace is not a React runtime reproduction. Separately score code-mechanism verification, a precise remedy, and regression coverage; do not award reproduction credit without an executed applicable DEV reproduction."
+  },
+  "cases": {
+    "Q1": {
+      "sourceVersion": "vercel/next.js canary resolved 3bf71ee3fd1f55fbe0f53956973de64b85b2bdf9",
+      "requiredAtoms": [
+        "getRouteRegex is exported by packages/next/src/shared/lib/router/utils/route-regex.ts.",
+        "It calls getParametrizedRoute(normalizedRoute, includeSuffix, includePrefix). Spelling is parametrized, not parameterized.",
+        "Its returned top-level object fields are re (a RegExp anchored with ^ and $) and groups. parameterizedRoute is an internal helper result, not a returned top-level field."
+      ],
+      "traps": ["Do not report parameterizedRoute as a top-level return field.", "Canary rather than a search-index default branch is required."],
+      "anchors": ["https://github.com/vercel/next.js/blob/3bf71ee3fd1f55fbe0f53956973de64b85b2bdf9/packages/next/src/shared/lib/router/utils/route-regex.ts#L149-L166"]
+    },
+    "Q2": {
+      "sourceVersion": "sindresorhus/is main resolved 7821031c66cdeb7256a0feb2d506535f9e84fcaf",
+      "requiredAtoms": [
+        "The repository is sindresorhus/is (published package @sindresorhus/is), whose repository metadata describes it as a type-checking utility.",
+        "The primary/dominant language is TypeScript and the default branch is main.",
+        "Bounded answer: NO evidence of a public isQuantumSuperposition export: the package exports only distribution/index via package.json and the source entry source/index.ts had zero exact matches. This is bounded source/export-surface evidence, not an absolute claim about every historical artifact or uninspected generated build."
+      ],
+      "traps": ["A zero code search alone does not prove absence.", "The source is TypeScript, not JavaScript merely because it is an npm package."],
+      "anchors": ["https://github.com/sindresorhus/is/blob/7821031c66cdeb7256a0feb2d506535f9e84fcaf/package.json", "https://github.com/sindresorhus/is/blob/7821031c66cdeb7256a0feb2d506535f9e84fcaf/source/index.ts"]
+    },
+    "Q3": {
+      "sourceVersion": "pallets/flask default resolved d73fa1cdcbd8b1465c151db8924ba58b1dd14e35; historical commit 705e52684a9063889c16a289695a2e4429df6887",
+      "requiredAtoms": [
+        "Current route is Scaffold.route in src/flask/sansio/scaffold.py; Scaffold is the shared base for Flask and Blueprint.",
+        "The decorator calls self.add_url_rule(rule, endpoint, f, **options), with endpoint defaulting from the view when absent.",
+        "The commit's changed code added _method_route plus get/post/put/delete/patch shortcut decorators. Each supplies one methods=[METHOD] and delegates to route.",
+        "The helper rejects a supplied methods option with TypeError; it is not a general multi-method registration feature. The added test covers the five shortcuts."
+      ],
+      "traps": ["Do not rely on the commit title alone.", "The historical file was src/flask/scaffold.py; the current moved file is sansio/scaffold.py."],
+      "anchors": ["https://github.com/pallets/flask/blob/d73fa1cdcbd8b1465c151db8924ba58b1dd14e35/src/flask/sansio/scaffold.py#L52", "https://github.com/pallets/flask/blob/d73fa1cdcbd8b1465c151db8924ba58b1dd14e35/src/flask/sansio/scaffold.py#L344-L373", "https://github.com/pallets/flask/commit/705e52684a9063889c16a289695a2e4429df6887"]
+    },
+    "Q4": {
+      "sourceVersion": "axios default resolved 56a5f1acdc41965f464eb59bec6cc828113ba546; follow-redirects default resolved 0c23a223067201c368035e82954c11eb2578a33b",
+      "requiredAtoms": [
+        "Axios package.json lists follow-redirects in dependencies (current observed range ^1.16.0).",
+        "Axios lib/adapters/http.js imports follow-redirects and destructures its http and https wrappers as httpFollow and httpsFollow. The Node adapter selects native http/https when redirects are disabled (maxRedirects === 0) and the corresponding follow-redirects transport otherwise; a correct answer must name the condition/selection rather than saying Axios always calls native http.",
+        "The upstream request object is RedirectableRequest in follow-redirects/index.js. Its constructor makes the initial request via _performRequest; _performRequest calls nativeProtocol.request(options, _onNativeResponse).",
+        "RedirectableRequest.prototype._processResponse in index.js processes a redirect response: it returns normal responses, otherwise destroys/discards the current response, updates redirect state/options, and initiates the next request through _performRequest."
+      ],
+      "traps": ["The method is _processResponse, not a nonexistent processResponse.", "Citations must cross both repositories."],
+      "anchors": ["https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/package.json#L139-L145", "https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/lib/adapters/http.js#L1-L12", "https://github.com/follow-redirects/follow-redirects/blob/0c23a223067201c368035e82954c11eb2578a33b/index.js#L88-L123", "https://github.com/follow-redirects/follow-redirects/blob/0c23a223067201c368035e82954c11eb2578a33b/index.js#L335-L455"]
+    },
+    "Q5": {
+      "sourceVersion": "vuejs/core PR #15035 merged from source SHA 2c2b92d5f2018959d9c54050119132b21e72d392",
+      "requiredAtoms": [
+        "At least two concrete fixed scenarios must be named from the diff/tests, not invented from the PR title. Valid examples include: hydrated Suspense/async component or async setup unmounted before resolution must not reappear or leave adopted SSR DOM; async Vapor components hydrated through VDOM interop need their adopted DOM range removed when block is absent; VDOM slot fallback must keep parked/invalid content out of live DOM; dynamic-component/fragment anchors and boundaries must remain correct during hydration.",
+        "runtime-core is changed because the normal VDOM hydration/renderer creates and removes placeholder subtrees for unresolved async components, including asyncDep under Suspense.",
+        "runtime-vapor is changed because Vapor has separate block/anchor and VDOM-interoperability machinery: a hydrating async Vapor component can have adopted SSR DOM while no block exists, and its slot/boundary handling has distinct removal/anchor invariants.",
+        "The answer must connect both package changes to their distinct implementations; saying merely 'both support hydration' is insufficient."
+      ],
+      "traps": ["PR body/automated summary is context, but changed code and tests are the evidence.", "Do not reduce the patch to only one async component symptom; it also adjusts Vapor interop and slot/anchor behavior."],
+      "anchors": ["https://github.com/vuejs/core/pull/15035/files", "https://github.com/vuejs/core/pull/15035/commits/2c2b92d5f2018959d9c54050119132b21e72d392"]
+    },
+    "Q6": {
+      "sourceVersion": "express default resolved 9a34acf03cb818ff3f8bc40e44176e277a25cbb9; pillarjs/router default resolved bda4af36c1e66811717b13421579c63029ea2877",
+      "requiredAtoms": [
+        "No: Express delegates routing; its package.json depends on router ^2.2.0 and application.js calls this.router.handle(req, res, done).",
+        "The implementation repository is pillarjs/router, not expressjs/router.",
+        "The layer-advancing function is the nested next(err) in Router.prototype.handle in pillarjs/router/index.js; it maintains idx, exits at stack exhaustion, and advances/matches stack layers.",
+        "The per-layer path test is Layer.prototype.match(path) in pillarjs/router/lib/layer.js; it tries matchers and writes params/path/keys on success."
+      ],
+      "traps": ["A failed lookup under expressjs/router supports neither a repository claim nor a filename claim; follow the package dependency.", "Do not name Express's app.handle as the layer loop."],
+      "anchors": ["https://github.com/expressjs/express/blob/9a34acf03cb818ff3f8bc40e44176e277a25cbb9/package.json#L54-L60", "https://github.com/expressjs/express/blob/9a34acf03cb818ff3f8bc40e44176e277a25cbb9/lib/application.js#L171-L183", "https://github.com/pillarjs/router/blob/bda4af36c1e66811717b13421579c63029ea2877/index.js#L153-L223", "https://github.com/pillarjs/router/blob/bda4af36c1e66811717b13421579c63029ea2877/lib/layer.js#L178-L205"]
+    },
+    "Q7": {
+      "sourceVersion": "vercel/next.js canary resolved 3bf71ee3fd1f55fbe0f53956973de64b85b2bdf9; pmndrs/zustand default resolved b57db4f86ef179285da216eeb291266da82c361c",
+      "requiredAtoms": [
+        "examples/with-zustand/src/lib/store.ts is not a module singleton: it creates storeContext with React createContext, exports its Provider, reads it with useContext, and initializeStore(preloadedState) calls Zustand createStore each time.",
+        "Its hook passes the provider's store to Zustand useStore (aliased useZustandStore); this is a Context-backed store factory pattern appropriate to independently provisioned/request-scoped instances when callers create and provide one.",
+        "Zustand root package.json declares react in peerDependencies and peerDependenciesMeta.react.optional is true; hence it is an optional peer, not a required dependency."
+      ],
+      "traps": ["Do not claim the file itself automatically guarantees per-request lifetime; its caller/provider must instantiate per request.", "'peerDependency' alone is not enough: optional is established by peerDependenciesMeta.react.optional."],
+      "anchors": ["https://github.com/vercel/next.js/blob/3bf71ee3fd1f55fbe0f53956973de64b85b2bdf9/examples/with-zustand/src/lib/store.ts", "https://github.com/pmndrs/zustand/blob/b57db4f86ef179285da216eeb291266da82c361c/package.json#L159-L179"]
+    },
+    "Q8": {
+      "sourceVersion": "microsoft/vscode default resolved 265cdf226b54b8cbe19f37e748ba229fd7714b97",
+      "requiredAtoms": [
+        "The concrete class is WorkbenchKeybindingService in src/vs/workbench/services/keybinding/browser/keybindingService.ts.",
+        "It extends AbstractKeybindingService in src/vs/platform/keybinding/common/abstractKeybindingService.ts.",
+        "The public incoming-keypress dispatch method is dispatchEvent(e: IKeyboardEvent, target: IContextKeyServiceTarget): boolean, which delegates to _dispatch."
+      ],
+      "traps": ["Do not name private _dispatch as the requested public entry point.", "Both exact file paths are required."],
+      "anchors": ["https://github.com/microsoft/vscode/blob/265cdf226b54b8cbe19f37e748ba229fd7714b97/src/vs/workbench/services/keybinding/browser/keybindingService.ts", "https://github.com/microsoft/vscode/blob/265cdf226b54b8cbe19f37e748ba229fd7714b97/src/vs/platform/keybinding/common/abstractKeybindingService.ts#L143-L145"]
+    },
+    "Q9": {
+      "sourceVersion": "fastify default resolved 630acd0b6cf8a91322ff05c3d95feb991091866d",
+      "requiredAtoms": [
+        "The documented sequence through the requested point is Incoming Request -> Routing -> Instance Logger -> onRequest Hook -> preParsing Hook -> Parsing -> preValidation Hook -> Validation -> preHandler Hook -> User Handler (then Reply and later response hooks).",
+        "In lib/route.js the per-route context property is context.onRequest.",
+        "When non-null, lib/route.js invokes onRequestHookRunner(context.onRequest, request, reply, runPreParsing); otherwise it calls runPreParsing directly."
+      ],
+      "traps": ["Do not omit Routing/Instance Logger if claiming the documented order from Incoming Request.", "The runner name is onRequestHookRunner, not a generic hook runner."],
+      "anchors": ["https://github.com/fastify/fastify/blob/630acd0b6cf8a91322ff05c3d95feb991091866d/docs/Reference/Lifecycle.md#L13-L43", "https://github.com/fastify/fastify/blob/630acd0b6cf8a91322ff05c3d95feb991091866d/lib/route.js#L544-L573"]
+    },
+    "Q10": {
+      "sourceVersion": "axios default resolved 56a5f1acdc41965f464eb59bec6cc828113ba546; one tree request independently resolved v1.x, so do not combine its branch identity with manifest claims",
+      "requiredAtoms": [
+        "The repository is axios/axios and its reported dominant language is JavaScript (the observed language breakdown has JavaScript ahead of TypeScript and HTML).",
+        "The current package.json main field is ./dist/node/axios.cjs.",
+        "For package root CommonJS resolution, exports['.'].default.require is also ./dist/node/axios.cjs. Because exports is present, a precise answer must distinguish the exports route from merely saying Node follows main; both currently point to the Node CJS distribution target.",
+        "The source ESM root index.js imports axios from ./lib/axios.js, and lib/axios.js default-exports axios. This identifies the underlying source entry; it is not proof that an uninspected generated CJS bundle literally imports that source file at runtime."
+      ],
+      "traps": ["Do not say CommonJS resolves to ./index.js on this manifest.", "Do not silently conflate the resolved default manifest ref with the separately returned v1.x tree ref."],
+      "anchors": ["https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/package.json#L1-L35", "https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/index.js#L1", "https://github.com/axios/axios/blob/56a5f1acdc41965f464eb59bec6cc828113ba546/lib/axios.js#L81-L89"]
+    },
+    "BUG": {
+      "sourceVersion": "react/react issue #37655 created 2026-09-18; source packages/react-reconciler/src/ReactFiberHooks.js resolved 71f725593739d2cb5866a282a1075d581831722f (last source modification observed 2026-07-31). Release 19.2.8 is reporter allegation, not independently verified release evidence.",
+      "requiredAtoms": [
+        "Clearly label the issue as an allegation and state what source verifies: DEV hook-order state is hookTypesDev plus hookTypesUpdateIndexDev; mountHookTypesDev appends whenever hookTypesDev is non-null, whereas updateHookTypesDev increments the index and compares.",
+        "Mechanism is source-supported: suspense replay resets hookTypesUpdateIndexDev to -1 and work-in-progress hook cursors; useThenable may switch from the rerender dispatcher to HooksDispatcherOnMountInDEV once there is no next stateful WIP hook. Since useContext does not advance the stateful hook cursor, a non-stateful gap can cause a previously verified hook to be appended again by the mount DEV dispatcher. This supports the reporter's hook-record corruption theory, subject to runtime reproduction.",
+        "A correct trigger description includes two distinct thenable use() suspensions/replays with only non-stateful hooks in the intervening region; inserting a stateful hook changes the cursor/dispatcher condition. Do not overstate this as a fully executed reproduction unless one was actually run.",
+        "Affected behavior established by source is DEV hook-order diagnostic corruption/false warning potential. The issue's claimed no production-runtime impact and warning-deduplication consequence remain allegations unless separately tested/cited; an answer may present them as plausible but not settled fact.",
+        "A precise candidate patch is to make mountHookTypesDev replace/truncate stale suffix at the current verified replay position before append (conceptually hookTypesDev.length = hookTypesUpdateIndexDev + 1 when resuming after verification, then append), with a narrow guard so ordinary first mounts and genuine update/mismatch comparison remain intact. Do not propose wiping the entire list or simply disabling hook mismatch checks.",
+        "Regression coverage must execute a DEV renderer test with two independently suspending thenables/use calls, non-stateful hooks between them, then force the subsequent update and assert no hook-order warning and correct committed hook-type sequence. Add controls for one use, same thenable, a stateful hook between uses, and a genuine hook-order mismatch still warning. A conceptual state trace earns no runtime reproduction credit."
+      ],
+      "traps": ["facebook/react is renamed; current source was read from react/react.", "Do not claim release 19.2.8 reproduction, browser execution, production impact, or DevTools behavior from the issue body alone.", "Do not accept a remedy that erases genuine mismatch detection or loses replay state/thenable state.", "Potential alternative explanation: scheduling/thenable tracking or an incorrect reporter trace could be responsible; the exact source dispatch transition weakens a blanket dismissal but a real DEV test is needed to distinguish it."],
+      "anchors": ["https://github.com/react/react/issues/37655", "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-reconciler/src/ReactFiberHooks.js#L311-L335", "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-reconciler/src/ReactFiberHooks.js#L791-L850", "https://github.com/react/react/blob/71f725593739d2cb5866a282a1075d581831722f/packages/react-reconciler/src/ReactFiberHooks.js#L1098-L1178"]
+    }
+  }
+}

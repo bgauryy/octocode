@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "BUG",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "{\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"mountHookTypesDev\"],\"pageSize\":10}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:34:13.565Z",
+  "endedAt": "2026-09-18T08:34:14.393Z",
+  "elapsedMs": 826,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "f6ac0ab38e0344cb3ad0495c166d041bbdbc5d4b8360f382f13b46079cb31bd5",
+  "stdoutBytes": 454,
+  "requestSha256": null
+}

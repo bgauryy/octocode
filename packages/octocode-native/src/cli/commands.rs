@@ -18,6 +18,12 @@ pub(super) enum Command {
     },
     /// Read a local file with optional pagination, line ranges, match filtering, and minification.
     Read {
+        /// Why this query advances the current goal.
+        #[arg(long)]
+        reasoning: String,
+        /// Include structured execution evidence, diagnostics, and probe metadata.
+        #[arg(long)]
+        debug: bool,
         /// Path to the local file to read.
         path: String,
         /// Exact line range, e.g. `10:50` (1-based, inclusive).
@@ -57,6 +63,12 @@ pub(super) enum Command {
     /// Read a file from a GitHub repository without cloning it locally.
     /// Reference format: `owner/repo/path`, `owner/repo/path@branch`, or a full GitHub URL.
     Fetch {
+        /// Why this query advances the current goal.
+        #[arg(long)]
+        reasoning: String,
+        /// Include structured execution evidence, diagnostics, and probe metadata.
+        #[arg(long)]
+        debug: bool,
         /// GitHub reference: `owner/repo`, `owner/repo/path`, or `owner/repo/path@branch`.
         r#ref: String,
         /// Branch, tag, or commit SHA — overrides an @branch suffix in the reference.

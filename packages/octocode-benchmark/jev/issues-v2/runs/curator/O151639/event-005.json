@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "O151639",
+  "kind": "octocode",
+  "args": [
+    "ghSearchHistory",
+    "--queries",
+    "[{\"reasoning\":\"Search issue history for related current streaming-thinking fixes or documented known behavior in OpenClaw.\",\"operation\":\"issues\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"Telegram streaming thinking\"],\"match\":[\"title\",\"body\",\"comments\"],\"state\":\"open\",\"pageSize\":20},{\"reasoning\":\"Search merged pull requests for Telegram stream content normalization or thinking-block handling.\",\"operation\":\"pullRequests\",\"owner\":\"openclaw\",\"repo\":\"openclaw\",\"keywords\":[\"telegram thinking stream\"],\"state\":\"merged\",\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:55:07.227Z",
+  "endedAt": "2026-09-18T08:55:10.513Z",
+  "elapsedMs": 3284,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "3eadbe4c6c688a73a3be1d770b69142af34e8fc94e5b03e75b5e4a36d3191d8d",
+  "requestSha256": null
+}

@@ -101,6 +101,18 @@ async function connectClient(serverPath, env, cwd) {
   return client;
 }
 
+function withCallerMetadata(toolName, args) {
+  if (!Array.isArray(args?.queries)) return args;
+  return {
+    ...args,
+    queries: args.queries.map(query => ({
+      reasoning: `Exercise ${toolName} through the native parity harness.`,
+      debug: false,
+      ...query,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Pagination collector
 // ---------------------------------------------------------------------------
@@ -245,8 +257,9 @@ export class Harness {
     // Execute sequentially because some tools coordinate through workspace
     // locks (notably astRewrite preview/recovery). Parallel differential calls
     // would test lock contention rather than runtime parity.
-    const ref = await this.#reference.callTool({ name: toolName, arguments: args });
-    const nat = await this.#native.callTool({ name: toolName, arguments: args });
+    const publicArgs = withCallerMetadata(toolName, args);
+    const ref = await this.#reference.callTool({ name: toolName, arguments: publicArgs });
+    const nat = await this.#native.callTool({ name: toolName, arguments: publicArgs });
     const sanitizedRef = sanitize(ref, this.#workspaceDir);
     const sanitizedNat = sanitize(nat, this.#workspaceDir);
     assert.deepEqual(
@@ -267,8 +280,9 @@ export class Harness {
    * coverage. `opts.minPages` (default 2) proves pagination was exercised.
    */
   async testPagination(toolName, args, { minPages = 2 } = {}) {
-    const refPages = await collectPages(this.#reference, toolName, args);
-    const natPages = await collectPages(this.#native, toolName, args);
+    const publicArgs = withCallerMetadata(toolName, args);
+    const refPages = await collectPages(this.#reference, toolName, publicArgs);
+    const natPages = await collectPages(this.#native, toolName, publicArgs);
 
     assert.equal(
       natPages.length,

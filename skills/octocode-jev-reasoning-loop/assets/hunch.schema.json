@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hunch",
+  "title": "Jev Hunch Check Request",
+  "description": "Public Jev packet for deciding whether a weak signal deserves promotion into competing hypotheses.",
+  "$comment": "Build through scripts/build-decision-packet.mjs. The private DecisionBrief is not part of this request. Serialize only model, state, and questions.",
+  "type": "object",
+  "required": ["model", "state", "questions"],
+  "properties": {
+    "model": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "description": "VISIBILITY BOUNDARY: Jev sees only this public decision state.",
+      "required": ["mainGoal", "goal", "reasoning", "hunch", "basis"],
+      "properties": {
+        "mainGoal": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "reasoning": { "$ref": "#/$defs/PublicReasoning" },
+        "hunch": { "type": "string", "minLength": 5 },
+        "basis": { "type": "string", "minLength": 5 },
+        "bias_risk": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "questions": {
+      "type": "object",
+      "required": ["worth_pursuing"],
+      "properties": {
+        "worth_pursuing": {
+          "type": "object",
+          "required": ["type", "instructions", "criteria"],
+          "properties": {
+            "type": { "const": "noul" },
+            "instructions": { "type": "string", "minLength": 1 },
+            "criteria": { "type": "object", "required": ["true", "false"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "PublicReasoning": {
+      "type": "object",
+      "required": ["observations", "uncertainty"],
+      "properties": {
+        "observations": { "type": "string" },
+        "inferences": { "type": "array", "items": { "type": "string" } },
+        "assumptions": { "type": "array", "items": { "type": "string" } },
+        "strongest_counter": { "type": "string" },
+        "uncertainty": { "type": "string" },
+        "prediction": { "type": "string" },
+        "falsifier": { "type": "string" },
+        "discriminating_observation": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

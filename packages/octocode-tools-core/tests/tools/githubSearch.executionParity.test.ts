@@ -75,6 +75,14 @@ import { searchGitHubReposAPI } from '../../src/github/repoSearch.js';
 import { executeGitHubSearch } from '../../src/tools/github_search/execution.js';
 import { GitHubSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 
+function parseQuery(query: Record<string, unknown>) {
+  return GitHubSearchQuerySchema.parse({
+    reasoning: 'Exercise unified GitHub search execution parity.',
+    debug: true,
+    ...query,
+  });
+}
+
 const pagination = {
   currentPage: 1,
   totalPages: 2,
@@ -254,12 +262,12 @@ describe('ghSearch recorded-response execution parity', () => {
 
     const unified = await executeGitHubSearch({
       queries: [
-        GitHubSearchQuerySchema.parse({ operation: 'code', ...code }),
-        GitHubSearchQuerySchema.parse({
+        parseQuery({ operation: 'code', ...code }),
+        parseQuery({
           operation: 'repositories',
           ...repositories,
         }),
-        GitHubSearchQuerySchema.parse({ operation: 'tree', ...tree }),
+        parseQuery({ operation: 'tree', ...tree }),
       ],
     });
     const unifiedRows = rows(unified);
@@ -303,18 +311,18 @@ describe('ghSearch recorded-response execution parity', () => {
     );
     const result = await executeGitHubSearch({
       queries: [
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'tree',
           owner: 'recorded',
           repo: 'fixture',
         }),
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'code',
           owner: 'recorded',
           repo: 'fixture',
           keywords: ['needle'],
         }),
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'repositories',
           keywords: ['fixture'],
         }),
@@ -340,7 +348,7 @@ describe('ghSearch recorded-response execution parity', () => {
         pagination: { ...pagination, hasMore: false, nextPage: undefined },
       })
     );
-    const query = GitHubSearchQuerySchema.parse({
+    const query = parseQuery({
       operation: 'code',
       owner: 'recorded',
       repo: 'fixture',
@@ -384,7 +392,7 @@ describe('ghSearch recorded-response execution parity', () => {
     );
     const result = await executeGitHubSearch({
       queries: [
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'tree',
           owner: 'recorded',
           repo: 'fixture',
@@ -417,7 +425,7 @@ describe('ghSearch recorded-response execution parity', () => {
     );
     const result = await executeGitHubSearch({
       queries: [
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'tree',
           owner: 'recorded',
           repo: 'fixture',
@@ -445,7 +453,7 @@ describe('ghSearch recorded-response execution parity', () => {
   it('emits and replays an executable next-page continuation for every operation', async () => {
     const result = await executeGitHubSearch({
       queries: [
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'code',
           owner: 'recorded',
           repo: 'fixture',
@@ -455,7 +463,7 @@ describe('ghSearch recorded-response execution parity', () => {
           goal: 'find the implementation',
           reasoning: 'search the recorded fixture',
         }),
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'repositories',
           keywords: ['fixture'],
           pageSize: 20,
@@ -463,7 +471,7 @@ describe('ghSearch recorded-response execution parity', () => {
           goal: 'find repositories',
           reasoning: 'discover candidates',
         }),
-        GitHubSearchQuerySchema.parse({
+        parseQuery({
           operation: 'tree',
           owner: 'recorded',
           repo: 'fixture',
@@ -490,11 +498,14 @@ describe('ghSearch recorded-response execution parity', () => {
     ]);
     for (const next of continuations) {
       expect(next.query).not.toHaveProperty('goal');
-      expect(next.query).not.toHaveProperty('reasoning');
+      expect(next.query).toMatchObject({
+        reasoning: expect.stringMatching(/\S/),
+        debug: expect.any(Boolean),
+      });
     }
 
     const replayQueries = continuations.map(next =>
-      GitHubSearchQuerySchema.parse(next.query)
+      parseQuery(next.query)
     );
     await expect(
       executeGitHubSearch({ queries: replayQueries })
@@ -525,7 +536,7 @@ describe('ghSearch recorded-response execution parity', () => {
       try {
         const result = await executeGitHubSearch({
           queries: [
-            GitHubSearchQuerySchema.parse({
+            parseQuery({
               operation,
               ...input,
               page: 1000,

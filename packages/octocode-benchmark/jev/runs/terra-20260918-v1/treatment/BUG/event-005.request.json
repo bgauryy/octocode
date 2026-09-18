@@ -1,0 +1,57 @@
+{
+  "model": "jev-1.13.0",
+  "state": {
+    "mainGoal": "Assess React issue 37655 double-suspension false hook-order warning, distinguish evidence from allegation, and propose a testable fix.",
+    "goal": "Choose whether current source lends enough support to prioritize stale/duplicated DEV hook-type recording over a real hook-order violation.",
+    "reasoning": "The issue alleges React 19.2.8, two use() suspensions separated only by non-stateful hooks, then a later stateful hook causes a false warning; no comments/repro execution were retrieved. Current react/react ReactFiberHooks.js declares hookTypesDev and hookTypesUpdateIndexDev; mountHookTypesDev initializes or pushes, while updateHookTypesDev increments the index and compares. This directly supports an append/index asymmetry, but not the complete runtime replay trace. Unknown: exact 19.2.8 source/reproduction and all dispatcher transition constraints.",
+    "hypotheses": [
+      {
+        "id": "H1",
+        "claim": "Stale DEV hook-type append is a plausible primary mechanism needing a focused regression.",
+        "missingPremise": "Replay reaches mount recording past already reverified non-stateful hooks."
+      },
+      {
+        "id": "H2",
+        "claim": "A true hook-order violation or another transition explains warning.",
+        "missingPremise": "Reporter reproduction may alter hooks elsewhere."
+      }
+    ],
+    "checks": [
+      {
+        "id": "C1",
+        "text": "Inspect current recording/comparison code and design a regression with two distinct thenables plus only non-stateful hooks between; warning absence and exact recorded list distinguish H1.",
+        "distinguishes": "H1/H2."
+      },
+      {
+        "id": "C2",
+        "text": "Treat issue description as runtime reproduction.",
+        "distinguishes": "Not valid."
+      },
+      {
+        "id": "none",
+        "text": "No supplied check is informative.",
+        "distinguishes": "Neither."
+      }
+    ]
+  },
+  "questions": {
+    "hypothesis": {
+      "type": "choice",
+      "instructions": "Choose the provisional explanation most worth prioritizing for the next source/test check; do not treat it as a root-cause verdict.",
+      "criteria": {
+        "H1": "Stale DEV record append mechanism.",
+        "H2": "Real hook-order/different mechanism.",
+        "none": "Neither is suitable."
+      }
+    },
+    "next_check": {
+      "type": "choice",
+      "instructions": "Choose the supplied check that best separates the hypotheses.",
+      "criteria": {
+        "C1": "Source plus focused regression design.",
+        "C2": "Treat report as reproduction.",
+        "none": "No useful check."
+      }
+    }
+  }
+}

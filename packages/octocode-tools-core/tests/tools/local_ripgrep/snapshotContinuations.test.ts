@@ -5,7 +5,7 @@ import {
   LocalSearchQuerySchema,
   type LocalSearchQuery,
 } from '@octocodeai/octocode-core/schema';
-import { executeDirectTool } from '../../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../../helpers/executeDirectTool.js';
 import { contextUtils } from '../../../src/utils/contextUtils.js';
 
 type Next = { tool: string; query: LocalSearchQuery };

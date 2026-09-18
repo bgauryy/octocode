@@ -7,7 +7,11 @@ import { AstSearchQuerySchema } from '@octocodeai/octocode-core/schema';
 
 let root: string;
 async function run(query: Record<string, unknown>) {
-  const parsed = AstSearchQuerySchema.parse(query);
+  const parsed = AstSearchQuerySchema.parse({
+    reasoning: 'Exercise astSearch integration behavior and continuations.',
+    debug: true,
+    ...query,
+  });
   const response = await executeAstSearch({ queries: [parsed] });
   const row = (response.structuredContent as any).results[0];
   return { ...row.data, status: row.status ?? row.data.status, meta: row.meta };

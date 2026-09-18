@@ -6,7 +6,9 @@ pub(super) fn attach_diagnostics(
     row: &mut Value,
     diagnostics: crate::tools::result::ToolDiagnostics,
 ) {
-    if diagnostics.codes.is_empty() && diagnostics.hints.is_empty() && !diagnostics.partial {
+    if row.get("meta").is_none()
+        || (diagnostics.codes.is_empty() && diagnostics.hints.is_empty() && !diagnostics.partial)
+    {
         return;
     }
     for (field, values) in [("codes", diagnostics.codes), ("hints", diagnostics.hints)] {
@@ -318,6 +320,37 @@ pub(super) fn sanitize_fields(
     })
 }
 
+fn preserve_continuation_metadata(value: &mut Value, original_query: &Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                preserve_continuation_metadata(value, original_query);
+            }
+        }
+        Value::Object(object) => {
+            for value in object.values_mut() {
+                preserve_continuation_metadata(value, original_query);
+            }
+            let continuation_tool = object
+                .get("tool")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            if let (Some(_tool), Some(mut next_query)) = (continuation_tool, object.remove("query"))
+            {
+                if let Some(next_query_object) = next_query.as_object_mut() {
+                    for field in ["reasoning", "debug"] {
+                        if let Some(value) = original_query.get(field) {
+                            next_query_object.insert(field.into(), value.clone());
+                        }
+                    }
+                }
+                object.insert("query".into(), next_query);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub fn result_row(
     tool: &str,
     index: usize,
@@ -325,12 +358,14 @@ pub fn result_row(
     mut data: Value,
     status: Option<&str>,
 ) -> Value {
+    preserve_continuation_metadata(&mut data, query);
     if let Some(object) = data.as_object_mut() {
         for key in [
             "status",
             "cache",
             "goal",
             "reasoning",
+            "debug",
             "researchSuggestions",
             "query",
         ] {
@@ -386,7 +421,10 @@ pub fn result_row(
         }
         meta["diagnostics"] = Value::Object(diagnostics);
     }
-    let mut row = json!({"index":index,"meta":meta,"data":data});
+    let mut row = json!({"index":index,"data":data});
+    if query.get("debug").and_then(Value::as_bool) == Some(true) {
+        row["meta"] = meta;
+    }
     if let Some(status) = status {
         row["status"] = json!(status);
     }
@@ -777,7 +815,13 @@ mod tests {
     #[test]
     fn path_compaction_never_rewrites_evidence_or_executable_queries() {
         let data = json!({"path":"/repo/src/a.ts","content":"/repo/src/a.ts","pagination":{"hasMore":true},"next":{"continue":{"tool":"localFetch","query":{"path":"/repo/src/a.ts","offset":2}}}});
-        let output = envelope(vec![result_row("localFetch", 0, &json!({}), data, None)]);
+        let output = envelope(vec![result_row(
+            "localFetch",
+            0,
+            &json!({"debug":true}),
+            data,
+            None,
+        )]);
         assert_eq!(output["base"], "/repo/src");
         assert_eq!(output["results"][0]["data"]["path"], "a.ts");
         assert_eq!(output["results"][0]["data"]["content"], "/repo/src/a.ts");
@@ -795,7 +839,7 @@ mod tests {
         let missing = result_row(
             "astSearch",
             0,
-            &json!({"operation":"symbols"}),
+            &json!({"operation":"symbols","debug":true}),
             json!({"hasMore":true,"nextPage":2}),
             None,
         );
@@ -806,13 +850,60 @@ mod tests {
         let terminal = result_row(
             "localFetch",
             0,
-            &json!({}),
+            &json!({"debug":true}),
             json!({"isPartial":true,"terminalLimit":true}),
             None,
         );
         assert_eq!(
             terminal.pointer("/meta/diagnostics/codes"),
             Some(&json!(["terminalLimitReached"]))
+        );
+    }
+
+    #[test]
+    fn result_metadata_requires_debug() {
+        let normal = result_row(
+            "localSearch",
+            0,
+            &json!({"debug":false}),
+            json!({"files":[]}),
+            None,
+        );
+        assert!(normal.get("meta").is_none());
+
+        let debug = result_row(
+            "localSearch",
+            0,
+            &json!({"debug":true}),
+            json!({"files":[]}),
+            None,
+        );
+        assert_eq!(debug["meta"]["evidence"]["kind"], "lexical");
+    }
+
+    #[test]
+    fn result_rows_preserve_invocation_metadata_in_continuations() {
+        let row = result_row(
+            "localFetch",
+            0,
+            &json!({"reasoning":"Read the next exact page.","debug":false}),
+            json!({
+                "next": {
+                    "continue": {
+                        "tool": "localFetch",
+                        "query": {"path":"/repo/a.rs","offset":2}
+                    }
+                }
+            }),
+            None,
+        );
+        assert_eq!(
+            row.pointer("/data/next/continue/query/reasoning"),
+            Some(&json!("Read the next exact page."))
+        );
+        assert_eq!(
+            row.pointer("/data/next/continue/query/debug"),
+            Some(&json!(false))
         );
     }
 

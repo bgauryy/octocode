@@ -57,10 +57,13 @@ function result(text: string, details?: unknown, isError = false): ToolCallResul
 
 type SkillPartialReason = 'content-limit' | 'file-limit' | 'file-depth' | 'file-filter' | 'file-read-error';
 
-function skillContinuation(tool: 'localFetch' | 'astSearch', query: Record<string, unknown>, why: string) {
+function skillContinuation(
+  tool: 'localFetch' | 'astSearch', query: Record<string, unknown>, why: string,
+  invocation: { reasoning: string; debug: boolean },
+) {
   return {
     tool: 'MCPTool' as const,
-    query: { queries: [{ action: 'call' as const, tool, arguments: { queries: [query] } }] },
+    query: { queries: [{ action: 'call' as const, tool, arguments: { queries: [{ ...invocation, ...query }] } }] },
     why,
   };
 }
@@ -95,7 +98,7 @@ function listSkillFiles(dir: string): { files: string[]; partialReasons: SkillPa
   return { files, partialReasons: [...partialReasons] };
 }
 
-function loadSkill(skill: DiscoveredSkill): ToolCallResult {
+function loadSkill(skill: DiscoveredSkill, invocation: { reasoning: string; debug: boolean }): ToolCallResult {
   let text: string;
   try {
     text = fs.readFileSync(skill.path, 'utf8');
@@ -112,10 +115,10 @@ function loadSkill(skill: DiscoveredSkill): ToolCallResult {
     const next = {
       ...(contentPartial ? { content: skillContinuation('localFetch', {
         path: skill.path, minify: 'none', chunkType: 'bytes', offset: Buffer.byteLength(text.slice(0, returnedChars)), limit: SKILL_CONTENT_CAP,
-      }, 'Read the next page of skill instructions before acting.') } : {}),
+      }, 'Read the next page of skill instructions before acting.', invocation) } : {}),
       ...(filePartialReasons.length ? { files: skillContinuation('astSearch', {
         operation: 'files', path: skill.dir, entryType: 'f', excludeDir: [], maxDepth: 100, limit: 10_000, pageSize: 50, sort: 'path',
-      }, 'Discover all supporting files; merge with this preview and follow returned continuations.') } : {}),
+      }, 'Discover all supporting files; merge with this preview and follow returned continuations.', invocation) } : {}),
     };
     const isPartial = partialReasons.length > 0;
     const lines = [
@@ -177,7 +180,10 @@ function executeLoadItem(
     return result(`Unknown skill: ${name}\nAvailable: ${skills.map((s) => s.name).join(', ') || 'none'}`, { skills: skills.map((s) => s.name) }, true);
   }
   if (!skill.path) return result(`skill "${skill.name}" has no resolvable SKILL.md path.`, undefined, true);
-  return loadSkill(skill);
+  const invocationReasoning = typeof query['reasoning'] === 'string' && query['reasoning'].trim()
+    ? query['reasoning'].trim()
+    : reason;
+  return loadSkill(skill, { reasoning: invocationReasoning, debug: query['debug'] === true });
 }
 
 async function executeCallItem(

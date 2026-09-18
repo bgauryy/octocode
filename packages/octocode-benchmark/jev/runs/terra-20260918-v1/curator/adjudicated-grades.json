@@ -1,0 +1,39 @@
+{
+  "suite": "terra-20260918-v1",
+  "purpose": "Post-grade BUG proposal adjudication. Frozen gold and original baseline-grades.json are not modified; initial scores are retained alongside runtime-informed corrected scores.",
+  "evidence": {
+    "baselineAnswer": "runs/terra-20260918-v1/baseline/BUG/answer.md",
+    "treatmentAnswer": "runs/terra-20260918-v1/treatment/BUG/answer.md",
+    "candidateTranslation": "repro/build-candidate.mjs",
+    "baselineRuntimeResults": "repro/baseline-proposal-results.json",
+    "treatmentInterpretationResults": "repro/treatment-interpretation-results.json",
+    "independentCursorAwareCandidate": ["repro/candidate-source.patch", "repro/candidate-results.json"]
+  },
+  "translationCheck": {
+    "verdict": "faithful to the literal baseline transition proposal",
+    "details": "Baseline says that at the useThenable rerender-to-mount transition, when currentFiber has no state, hookTypesDev is truncated to hookTypesUpdateIndexDev + 1 before HooksDispatcherOnMountInDEV is selected. build-candidate.mjs replaces that exact minified transition with the same condition, truncation, and dispatcher selection. The source text contains no dispatcher-identity or one-shot guard, so the candidate correctly applies truncation on every qualifying transition, not just the first newly-mounted hook."
+  },
+  "baseline": {
+    "initial": {"total":10,"pass":true,"source":"baseline-grades.json","majorFalseClaims":[]},
+    "corrected": {
+      "scores":{"factualCorrectness":2,"coverage":2,"verifiableCitations":2,"calibration":1,"total":7},
+      "pass":false,
+      "majorFalseClaims":["The concrete transition patch was presented as retaining the replayed prefix and avoiding ordinary mount corruption, but the faithful React DOM 19.2.8 candidate makes all six non-violation controls warn and introduces fresh-mount hook-record corruption."],
+      "proposalAssessment":{"sourceCoverage":"strong: actual dispatcher/replay/commit source trace","proposalSpecificity":"high syntactic specificity but materially wrong because it lacks a one-shot/identity guard","regressionCompleteness":"good proposed matrix, including genuine mismatch, but no executed regression and no fresh-mount safety control sufficient to expose this failure","calibration":"partly good about no reproduction, but too confident about patch safety"},
+      "runtimeEvidence":"baseline-proposal-results.json records warnings for double-context plus single, same-promise, state-between, adjacent, and debug-value non-violation variants; genuine-mismatch also warns as expected."
+    }
+  },
+  "treatment": {
+    "initial": {"total":9,"pass":true,"source":"treatment-grades.json","majorFalseClaims":[]},
+    "corrected": {
+      "scores":{"factualCorrectness":3.5,"coverage":1.5,"verifiableCitations":2,"calibration":2,"total":9},
+      "pass":true,
+      "majorFalseClaims":[],
+      "proposalAssessment":{"sourceCoverage":"narrow: recorder append/index code only; not the replay/dispatcher path","proposalSpecificity":"moderate and potentially safer: it says truncate once before the first newly-mounted hook only after re-verification, with index >= 0, rather than truncating every append; however no code identifies or proves that one-shot condition","regressionCompleteness":"includes issue controls and a DEV recorded-list assertion but omits a genuine-mismatch-still-warns test","calibration":"strong: explicitly labels the solution as requiring replay-path and DEVTools verification and claims no runtime reproduction"},
+      "runtimeEvidence":"The parent-authored treatment interpretation adds an explicit didTrimReplayHookTypes once-per-replay flag and reset, then passes all seven React DOM 19.2.8 variants: six non-violation controls have no warning and genuine-mismatch still warns. This validates a plausible implementation of the treatment prose, but the arm supplied neither this code nor a runtime result, so it is adjudication evidence rather than arm-produced verification."
+    }
+  },
+  "independentCandidateNote": "A separate parent-authored cursor-aware patch also passes the same seven variants. It supports the general stale-record diagnosis but does not rescue the baseline arm's literal transition edit, which is independently and faithfully tested as failing.",
+  "delta": {"rawTreatmentMinusBaseline":-1,"correctedTreatmentMinusBaseline":2,"interpretation":"The raw answer rubric favored the baseline's stronger source trace. After the baseline's literal repair is falsified by runtime controls, treatment has higher adjudicated BUG quality because its proposal is cautious and one-shot in concept and a parent-authored interpretation passes, not because the treatment arm itself demonstrated a working fix."},
+  "attribution": "Neither BUG artifact shows a causal Jev direction change: both before states already chose source/allegation separation and the after states retain that direction."
+}

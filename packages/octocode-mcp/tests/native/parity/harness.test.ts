@@ -57,17 +57,17 @@ describe('Parity harness (S6)', () => {
 
   it('CORPUS.localFetch is already covered by response-pagination.mjs', async () => {
     const { CORPUS } = await importHarness();
-    expect(CORPUS.localFetch.status).toBe('covered');
+    expect(CORPUS.localFetch?.status).toBe('covered');
   });
 
   it('each CORPUS entry has a valid status value', async () => {
     const { CORPUS } = await importHarness();
     const validStatuses = new Set(['pending', 'partial', 'blocked', 'covered']);
     for (const [tool, entry] of Object.entries(CORPUS)) {
-      expect(validStatuses).toContain(
-        entry.status,
+      expect(
+        validStatuses.has(entry.status),
         `${tool}.status must be pending|partial|blocked|covered`
-      );
+      ).toBe(true);
       if (entry.status !== 'pending') {
         expect(entry.script).toBeTruthy();
       }

@@ -9,6 +9,7 @@ function parsedQuery(query: Record<string, unknown>): Record<string, unknown> {
 describe('artifactSearch schema', () => {
   it('keeps exact package lookup unpaginated', () => {
     expect(parsedQuery({ type: 'npm', packageName: 'lodash' })).toEqual({
+      debug: false,
       type: 'npm',
       packageName: 'lodash',
     });

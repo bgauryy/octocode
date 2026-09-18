@@ -1,0 +1,18 @@
+{
+  "arm": "curator",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghGetHistoryItem",
+    "--queries",
+    "[{\"reasoning\":\"Read the only related merged portal ViewTransition pull request to distinguish root animation handling from nested naming behavior.\",\"operation\":\"pullRequest\",\"owner\":\"react\",\"repo\":\"react\",\"number\":32772,\"content\":{\"body\":true,\"changedFiles\":true,\"patches\":{\"mode\":\"all\"}},\"filePage\":1,\"collectionPages\":{\"changedFiles\":1}}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:56:36.738Z",
+  "endedAt": "2026-09-18T08:56:38.276Z",
+  "elapsedMs": 1537,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "8c679212b20ffc072d0a52369b06c5ba147b3ef1a2fcd56e7f8d61d9373c735f",
+  "requestSha256": null
+}

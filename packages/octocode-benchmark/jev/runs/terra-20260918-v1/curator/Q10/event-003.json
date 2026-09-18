@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q10",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"axios\",\"repo\":\"axios\",\"path\":\"index.js\",\"fullContent\":true},{\"owner\":\"axios\",\"repo\":\"axios\",\"path\":\"lib/axios.js\",\"matchString\":\"export default\",\"contextLines\":8},{\"owner\":\"axios\",\"repo\":\"axios\",\"path\":\"dist/node/axios.cjs\",\"matchString\":\"lib/axios.js\",\"contextLines\":3}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:27:14.036Z",
+  "endedAt": "2026-09-18T08:27:15.458Z",
+  "elapsedMs": 1420,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "81b7096b116e88da663b2bfa017836b8cb6c2c01846f81f0ea2d826685fe1f5d",
+  "stdoutBytes": 2521,
+  "requestSha256": null
+}

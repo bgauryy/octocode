@@ -18,6 +18,7 @@ pub async fn execute(
     if let Some(object) = query.as_object_mut() {
         object.remove("goal");
         object.remove("reasoning");
+        object.remove("debug");
     }
     let query: ArtifactQuery = serde_json::from_value(query)
         .map_err(|error| ArtifactError::new("invalid_query", error.to_string()))?;

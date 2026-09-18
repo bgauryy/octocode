@@ -1,0 +1,1 @@
+{"hypotheses":["Axios is axios/axios; package main and exports require target lib/axios.js for Node."],"currentDirection":"Discover repository/languages then inspect root package manifest.","uncertainty":"Dominant language and precise CJS resolution chain.","plannedNextCheck":"Repository discovery and package.json read."}

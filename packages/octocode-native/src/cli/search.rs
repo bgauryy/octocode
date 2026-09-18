@@ -5,6 +5,12 @@ use std::io::{self, Write};
 /// Search for text or a regex pattern across local files.
 #[derive(Parser)]
 pub struct SearchArgs {
+    /// Why this query advances the current goal.
+    #[arg(long)]
+    pub reasoning: String,
+    /// Include structured execution evidence, diagnostics, and probe metadata.
+    #[arg(long)]
+    pub debug: bool,
     /// Text pattern to search for; regex by default, literal with -F.
     pub pattern: String,
     /// Files or directories to search (default: current directory).
@@ -126,6 +132,8 @@ impl SearchArgs {
             self.view.as_deref().unwrap_or("paginated")
         };
         let mut query = json!({
+            "reasoning": self.reasoning,
+            "debug": self.debug,
             "searchText":self.pattern, "regex":self.regex.as_deref().unwrap_or(if self.fixed_strings {"literal"} else {"rust"}),
             "caseMode":if self.ignore_case {"insensitive"} else if self.smart_case {"smart"} else {"sensitive"},
             "contextLines":self.context, "sort":self.sort, "resultView":view,

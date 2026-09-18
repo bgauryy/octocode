@@ -255,7 +255,7 @@ pub async fn execute<R: CredentialResolver>(
                 .and_then(Value::as_u64)
                 && let (Some(owner), Some(repo)) = (&query.owner, &query.repo)
             {
-                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}}},"confidence":"low"});
+                v["next"]["readPr"] = json!({"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":owner,"repo":repo,"number":number,"content":{"body":true,"changedFiles":true,"comments":{"discussion":true}},"pageSize":30,"minify":"standard"},"confidence":"low"});
             }
             v
         }

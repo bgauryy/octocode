@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q6",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"queries\":[{\"owner\":\"pillarjs\",\"repo\":\"router\",\"path\":\"index.js\",\"matchString\":\"function next\",\"contextLines\":35},{\"owner\":\"pillarjs\",\"repo\":\"router\",\"path\":\"lib/layer.js\",\"matchString\":\"Layer.prototype.match\",\"contextLines\":35}]}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:19.430Z",
+  "endedAt": "2026-09-18T08:26:19.775Z",
+  "elapsedMs": 343,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "a74190f3c9081be98b6937a97bacfc152b5de240a85c6d9a27bf9075b7f921f3",
+  "stdoutBytes": 4277,
+  "requestSha256": null
+}

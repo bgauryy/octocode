@@ -1,0 +1,12 @@
+--- a/packages/react-reconciler/src/ReactFiberHooks.js
++++ b/packages/react-reconciler/src/ReactFiberHooks.js
+@@ -315,5 +315,9 @@
+     if (hookTypesDev === null) {
+       hookTypesDev = [hookName];
++      hookTypesUpdateIndexDev = 0;
++    } else if (hookTypesUpdateIndexDev + 1 < hookTypesDev.length) {
++      updateHookTypesDev();
+     } else {
++      hookTypesUpdateIndexDev++;
+       hookTypesDev.push(hookName);
+     }

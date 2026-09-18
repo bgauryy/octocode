@@ -1,0 +1,19 @@
+{
+  "arm": "curator",
+  "caseId": "Q8",
+  "kind": "octocode",
+  "args": [
+    "ghGetFileContent",
+    "--queries",
+    "{\"owner\":\"microsoft\",\"repo\":\"vscode\",\"path\":\"src/vs/platform/keybinding/common/abstractKeybindingService.ts\",\"matchString\":\"public dispatchEvent\",\"contextLines\":25}",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:26:44.431Z",
+  "endedAt": "2026-09-18T08:26:44.764Z",
+  "elapsedMs": 331,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "886be1b5fceff76049df4c00cec48b011cf950515397d1686c7c0de0956777c3",
+  "stdoutBytes": 2973,
+  "requestSha256": null
+}

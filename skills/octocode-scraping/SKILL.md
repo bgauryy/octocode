@@ -16,7 +16,7 @@ Corpora/runs: `<output>/tmp/scrape/`; reports: `<output>/octocode-scraping/`. Ch
 
 Frame URL/domain, goal, depth, and output before fetching; vague scope → `references/user-inputs.md`. Default to one public URL, `--mode html`, no explicit provider (keyless `cdp`→`direct`), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. Search an existing corpus before refetching. Live interaction belongs to `octocode-chrome-devtools`; process its HAR into the same session.
 
-For repo, package, or code claims next to a scrape, use `octocode-research`; it owns the MCP/CLI workflow and live tool/grammar discovery. Keep URL fetching and corpus extraction in this skill.
+For repo, package, or code claims, use `octocode-research`. Keep URL fetching and corpus extraction in this skill.
 
 Ask before auth, hosted spend, crawl expansion, CAPTCHA/MFA, personal-data export, form submits, purchases, sends, deletes, or account changes. Stop after two same-class failures, a hosted `403`, an auth/challenge gate, one failed CDP escalation, or enough saved evidence. Stop before expanding a crawl whose summary is not yet useful. Use `references/failure-recovery.md`; cite artifact paths plus URL metadata, never raw dumps.
 

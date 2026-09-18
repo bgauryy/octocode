@@ -1,0 +1,15 @@
+{
+  "arm": "curator",
+  "id": "L40592",
+  "kind": "schema",
+  "args": [
+    "ghGetFileContent"
+  ],
+  "startedAt": "2026-09-18T08:51:55.980Z",
+  "endedAt": "2026-09-18T08:51:56.383Z",
+  "elapsedMs": 401,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "f762beec29d7125ee286714650056c8140c1dd56d25c234ad56f303a69d068ef",
+  "requestSha256": null
+}

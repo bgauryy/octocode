@@ -1,0 +1,15 @@
+{
+  "arm": "curator",
+  "id": "L40590",
+  "kind": "schema",
+  "args": [
+    "ghSearchHistory"
+  ],
+  "startedAt": "2026-09-18T08:51:55.971Z",
+  "endedAt": "2026-09-18T08:51:56.391Z",
+  "elapsedMs": 419,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "5866791ec90d01f5b7ea05f505de6df428c5d50057500afe270542b1c3b1eaf0",
+  "requestSha256": null
+}

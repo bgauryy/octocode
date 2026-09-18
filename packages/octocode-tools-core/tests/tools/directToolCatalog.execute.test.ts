@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
 
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import {
   LOCAL_SEARCH_TOOL_NAME,
   AST_SEARCH_TOOL_NAME,

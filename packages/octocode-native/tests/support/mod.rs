@@ -120,8 +120,14 @@ impl Workspace {
 pub async fn call(
     runtime: &ToolRuntime,
     tool: &str,
-    query: Value,
+    mut query: Value,
 ) -> Result<ToolOutcome, RuntimeError> {
+    if let Some(object) = query.as_object_mut() {
+        object
+            .entry("reasoning")
+            .or_insert_with(|| json!("Exercise the native runtime integration path."));
+        object.entry("debug").or_insert_with(|| json!(true));
+    }
     runtime.execute("test-1".into(), tool.into(), query).await
 }
 

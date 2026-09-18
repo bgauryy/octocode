@@ -124,6 +124,11 @@ afterEach(async () => {
 });
 
 async function execute(query: Record<string, unknown>) {
+  query = {
+    reasoning: 'Exercise the production LSP operation matrix.',
+    debug: true,
+    ...query,
+  };
   const result = await executeLspSearch({ queries: [query] } as never);
   return (
     result.structuredContent as {

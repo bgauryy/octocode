@@ -1,0 +1,1 @@
+{"hypotheses":["WorkbenchKeybindingService extends AbstractKeybindingService, whose dispatch method receives keypresses."],"currentDirection":"Find class declaration and base method exact definitions.","uncertainty":"Current class/file and public dispatch method name/signature.","plannedNextCheck":"Search concrete service then read inheritance and base source."}

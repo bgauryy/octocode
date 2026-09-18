@@ -1,0 +1,18 @@
+{
+  "arm": "treatment",
+  "id": "R37637",
+  "kind": "octocode",
+  "args": [
+    "ghSearch",
+    "--queries",
+    "[{\"reasoning\":\"Locate callers of commitEnterViewTransitions to see which placement roots are traversed and whether portal subtrees are omitted.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"commitEnterViewTransitions(\"],\"path\":\"packages/react-reconciler/src\",\"pageSize\":10},{\"reasoning\":\"Locate ViewTransition tests involving portal creation to check intended coverage and a potential regression location.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"createPortal\"],\"path\":\"packages/react-dom/src/__tests__\",\"pageSize\":20},{\"reasoning\":\"Locate ViewTransition test files so a minimal regression test can be identified.\",\"operation\":\"code\",\"owner\":\"react\",\"repo\":\"react\",\"keywords\":[\"ViewTransition\"],\"path\":\"packages/react-dom/src/__tests__\",\"pageSize\":20}]",
+    "--compact"
+  ],
+  "startedAt": "2026-09-18T08:58:12.098Z",
+  "endedAt": "2026-09-18T08:58:55.200Z",
+  "elapsedMs": 43101,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutSha256": "3d7aa9c9c4b249a012ea8ede711ffcbc13a9e12985b1c1ada9d5f7d0387cfa73",
+  "requestSha256": null
+}

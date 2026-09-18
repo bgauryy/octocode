@@ -67,7 +67,8 @@ export interface TopologyAnalysisOutput {
     totalPages: number;
     entriesPerPage: number;
     totalEntries: number;
-    hasMore: boolean;
+    /** Absent when there are no further pages (same as false). */
+    hasMore?: boolean;
     outOfRange?: boolean;
   };
   next?: Record<string, unknown>;

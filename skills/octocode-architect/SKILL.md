@@ -38,7 +38,7 @@ Flow: `FRAME → MODEL → PROVE → CHANGE → VERIFY`.
 
 - Report a candidate—not a defect—when decisive scope, flow, symbol identity, runtime impact, or measurement remains unresolved.
 - Ask before public-contract rewires, cross-package moves, schema/storage migrations, or deletes/renames unless the user already authorized that exact scope.
-- Cleanup stays caused by or directly adjacent to the change. Broader refactoring requires evidence, an acceptance sensor, and authorization. <!-- style-lint: ignore-line passive-voice -->
+- Keep cleanup caused by or directly adjacent to the change. Broader refactoring requires evidence, an acceptance sensor, and authorization.
 - Bookkeeping follows the repo and release contract: update only required docs, manifests, versions, generated artifacts, lockfiles, changelogs, or snapshots.
 - Unimplemented reachable paths fail explicitly. Tests prove outcomes, not merely calls.
 - Chat-only output stays in chat. Requested source edits stay in their named repo; do not create planning artifacts unless asked.

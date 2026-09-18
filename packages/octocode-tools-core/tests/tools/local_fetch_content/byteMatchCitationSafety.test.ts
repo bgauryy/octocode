@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContentSanitizer } from '@octocodeai/octocode-engine/contentSanitizer';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../../helpers/prepareDirectToolInput.js';
 import { executeFetchContent } from '../../../src/tools/local_fetch_content/execution.js';
 import { countLines } from '../../../src/utils/core/lines.js';
 import { selectMatchingBytes } from '../../../src/utils/file/byteMatchSelection.js';

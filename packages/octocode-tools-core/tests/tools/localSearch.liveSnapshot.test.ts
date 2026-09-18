@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { LocalSearchQuerySchema } from '@octocodeai/octocode-core/schema';
-import { executeDirectTool } from '../../src/tools/directToolCatalog.exec.js';
+import { executeDirectTool } from '../helpers/executeDirectTool.js';
 import { contextUtils } from '../../src/utils/contextUtils.js';
 import { regexErrorRecovery } from '../../src/tools/local_ripgrep/regexErrorRecovery.js';
 import { LocalRipgrepQuerySchema } from '@octocodeai/octocode-core/schema';

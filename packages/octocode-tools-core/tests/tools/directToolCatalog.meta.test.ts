@@ -10,7 +10,7 @@ import {
   getDirectToolSchemaRelations,
   getDirectToolSchemaVariants,
 } from '@octocodeai/octocode-core/schema';
-import { prepareDirectToolInput } from '@octocodeai/octocode-core/schema';
+import { prepareDirectToolInput } from '../helpers/prepareDirectToolInput.js';
 import { getToolSchemaRelations } from '@octocodeai/octocode-core/schema';
 
 describe('prepareDirectToolInput', () => {
@@ -275,15 +275,21 @@ describe('prepareDirectToolInput', () => {
         variant,
       ])
     );
-    expect(variants.get('code')?.requires).toEqual(['operation']);
+    expect(variants.get('code')?.requires).toEqual(['operation', 'reasoning']);
     expect(variants.get('code')?.excludes).toEqual(['branch']);
-    expect(variants.get('repositories')?.requires).toEqual(['operation']);
+    expect(variants.get('repositories')?.requires).toEqual([
+      'operation',
+      'reasoning',
+    ]);
     expect(variants.get('tree')?.requires).toEqual([
       'operation',
       'owner',
       'repo',
+      'reasoning',
     ]);
     expect(variants.get('code')?.fields).toEqual([
+      'reasoning',
+      'debug',
       'keywords',
       'owner',
       'repo',
@@ -297,6 +303,8 @@ describe('prepareDirectToolInput', () => {
       'pageSize',
     ]);
     expect(variants.get('tree')?.fields).toEqual([
+      'reasoning',
+      'debug',
       'owner',
       'repo',
       'branch',
@@ -320,11 +328,17 @@ describe('prepareDirectToolInput', () => {
       variant => variant.name === 'workspace:root'
     );
 
-    expect(workspaceUri?.requires).toEqual(['operation', 'symbolName', 'uri']);
+    expect(workspaceUri?.requires).toEqual([
+      'operation',
+      'symbolName',
+      'uri',
+      'reasoning',
+    ]);
     expect(workspaceRoot?.requires).toEqual([
       'operation',
       'symbolName',
       'workspaceRoot',
+      'reasoning',
     ]);
   });
 
@@ -354,7 +368,11 @@ describe('prepareDirectToolInput', () => {
         variant,
       ])
     );
-    expect(variants.get('match')?.requires).toEqual(['operation', 'path']);
+    expect(variants.get('match')?.requires).toEqual([
+      'operation',
+      'path',
+      'reasoning',
+    ]);
     expect(variants.get('match')?.fields).toEqual(
       expect.arrayContaining(['pattern', 'rule'])
     );
@@ -376,7 +394,7 @@ describe('prepareDirectToolInput', () => {
     const list = getDirectToolSchemaVariants('ghSearchHistory').find(
       variant => variant.name === 'pullRequests'
     );
-    expect(list?.requires).toEqual(['operation']);
+    expect(list?.requires).toEqual(['operation', 'reasoning']);
     expect(getDirectToolSchemaRelations('ghSearchHistory')).toContain(
       'issues and commits require owner+repo; pullRequests may search globally.'
     );

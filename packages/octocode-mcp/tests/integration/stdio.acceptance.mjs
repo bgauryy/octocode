@@ -45,6 +45,7 @@ const receipt = {
   calls: [],
   transportErrors: [],
   stderrBytes: 0,
+  stderrTail: '',
 };
 const cliMcpParitySamples = new Map();
 const transport = new StdioClientTransport({
@@ -97,7 +98,12 @@ const invoke = async (name, args) => {
   return response;
 };
 const call = async (name, query) => {
-  const response = await invoke(name, { queries: [query] });
+  const publicQuery = {
+    reasoning: `Exercise ${name} through built stdio acceptance.`,
+    debug: false,
+    ...query,
+  };
+  const response = await invoke(name, { queries: [publicQuery] });
   assert.equal(response.isError, false, `${name} returned a tool error`);
   assert.ok(response.structuredContent, `${name} has no structured content`);
   assert.ok(
@@ -155,6 +161,7 @@ try {
   pid = transport.pid;
   transport.stderr?.on('data', chunk => {
     receipt.stderrBytes += chunk.length;
+    receipt.stderrTail = `${receipt.stderrTail}${chunk.toString('utf8')}`.slice(-65_536);
   });
   const list = await client.listTools();
   receipt.catalog = list.tools.map(tool => ({
@@ -162,10 +169,17 @@ try {
     inputSchema: tool.inputSchema,
     outputSchema: tool.outputSchema ?? null,
   }));
+  receipt.catalogBytes = Buffer.byteLength(JSON.stringify(receipt.catalog));
   await check('initialize and list every canonical direct tool', () =>
     assert.deepEqual(
       list.tools.map(t => t.name).sort(),
       [...expectedTools].sort()
+    )
+  );
+  await check('MCP tool catalog stays below the production transport budget', () =>
+    assert.ok(
+      receipt.catalogBytes < 2_000_000,
+      `serialized MCP catalog is ${receipt.catalogBytes} bytes`
     )
   );
   await check('CLI and MCP input schema parity for every tool', () => {
@@ -231,7 +245,14 @@ try {
           assert.equal(content, matched ? 'needle 🌍\r\nneedle café\n' : source);
         }
       }
-      const invalid = await invoke('localFetch', { queries: [{ path: file, charLength: 3 }] });
+      const invalid = await invoke('localFetch', {
+        queries: [{
+          reasoning: 'Verify retired localFetch charLength input is rejected.',
+          debug: false,
+          path: file,
+          charLength: 3,
+        }],
+      });
       assert.equal(invalid.isError, true);
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -301,7 +322,12 @@ try {
       'outer text pagination preserves structured data and reconstructs every character',
       async () => {
         const args = {
-          queries: [{ path: path.join(fixture, 'math.ts'), minify: 'none' }],
+          queries: [{
+            reasoning: 'Exercise localFetch response pagination through built stdio acceptance.',
+            debug: false,
+            path: path.join(fixture, 'math.ts'),
+            minify: 'none',
+          }],
         };
         const full = await invoke('localFetch', args);
         let current = await invoke('localFetch', {
@@ -358,7 +384,12 @@ try {
       try {
         await writeFile(file, 'export const value = 1;\n');
         const first = await invoke('localFetch', {
-          queries: [{ path: file, minify: 'none' }],
+          queries: [{
+            reasoning: 'Exercise stale localFetch response pagination through built stdio acceptance.',
+            debug: false,
+            path: file,
+            minify: 'none',
+          }],
           responseCharLength: 100,
         });
         const before = first.structuredContent.responsePagination;
@@ -655,6 +686,7 @@ try {
       const cacheVolatileTools = new Set([
         'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch',
       ]);
+      const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
         const sample = cliMcpParitySamples.get(name);
         const selected = sample?.selected ?? receipt.calls.find(call =>
@@ -664,6 +696,18 @@ try {
           && call.response.structuredContent?.results?.[0]?.status !== 'empty'
           && (name !== 'astRewrite' || call.arguments.queries[0].apply !== true)
         );
+        if (
+          !selected
+          && liveOnlyTools.has(name)
+          && (!values.live || values.quick)
+        ) {
+          parity.push({
+            name,
+            status: 'not-run',
+            reason: 'Successful provider-backed parity requires --live without --quick.',
+          });
+          continue;
+        }
         assert.ok(selected, `${name}: no successful non-mutating MCP call to compare`);
         const cliResponse = sample?.cliResponse ?? executeCliTool(name, selected.arguments.queries);
         const cliResults = sample?.cliResults ?? cliResponse.results;
@@ -725,7 +769,11 @@ try {
   );
 } finally {
   const start = Date.now();
-  await client.close();
+  try {
+    await client.close();
+  } catch (error) {
+    receipt.closeError = error.message;
+  }
   receipt.shutdownMs = Date.now() - start;
   await check('child shuts down and releases its PID', () => {
     assert.ok(pid);

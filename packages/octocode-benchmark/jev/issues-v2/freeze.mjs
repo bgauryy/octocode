@@ -1,0 +1,15 @@
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {dirname,resolve,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=dirname(fileURLToPath(import.meta.url)),repo=resolve(root,'../../../..');
+if(existsSync(join(root,'frozen.json')))throw Error('Already frozen');
+const paths=['CONTRACT.md','run.mjs','../../../../skills/octocode-jev-logical-if/SKILL.md','../../../../skills/octocode-jev-logical-if/references/research.md','../../../../skills/octocode-jev-logical-if/references/context.md','../../../octocode/out/octocode.js'];
+const files=paths.map(path=>({path,sha256:createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')}));
+const cli=join(repo,'packages/octocode/out/octocode.js');
+const schemas=spawnSync(process.execPath,[cli,'tools','ghSearch','ghGetFileContent','ghGetHistoryItem','ghSearchHistory','localFetch','--scheme','--json'],{cwd:repo,encoding:'utf8',maxBuffer:8*1024*1024});
+if(schemas.status!==0)throw Error(schemas.stderr);
+writeFileSync(join(root,'schemas.json'),schemas.stdout);
+writeFileSync(join(root,'frozen.json'),JSON.stringify({at:new Date().toISOString(),files,schemasSha256:createHash('sha256').update(schemas.stdout).digest('hex')},null,2)+'\n');
+console.log('Frozen contract, wrapper, skill context, CLI and schemas.');

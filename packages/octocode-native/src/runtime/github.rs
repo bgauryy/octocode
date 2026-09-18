@@ -186,25 +186,47 @@ impl GitHubServices {
         regex: &LocalFetchRegex,
         paths: &PathPolicy,
     ) -> Result<DomainResult, ExecutionError> {
+        let mut execution_query = query.clone();
+        if let Some(object) = execution_query.as_object_mut() {
+            object.remove("goal");
+            object.remove("reasoning");
+            object.remove("debug");
+        }
         match tool {
             "ghGetFileContent" => {
-                self.execute_file_resolved(query, request_context, context, security, regex)
-                    .await
+                self.execute_file_resolved(
+                    &execution_query,
+                    request_context,
+                    context,
+                    security,
+                    regex,
+                )
+                .await
             }
             "ghGetHistoryItem" => {
-                self.execute_history_item_resolved(query, request_context, context, security)
-                    .await
+                self.execute_history_item_resolved(
+                    &execution_query,
+                    request_context,
+                    context,
+                    security,
+                )
+                .await
             }
             "ghSearch" => {
-                self.execute_search_resolved(query, request_context, context, security)
+                self.execute_search_resolved(&execution_query, request_context, context, security)
                     .await
             }
             "ghSearchHistory" => {
-                self.execute_search_history_resolved(query, request_context, context, security)
-                    .await
+                self.execute_search_history_resolved(
+                    &execution_query,
+                    request_context,
+                    context,
+                    security,
+                )
+                .await
             }
             "ghCloneRepo" => {
-                self.execute_clone_resolved(query, request_context, context, paths)
+                self.execute_clone_resolved(&execution_query, request_context, context, paths)
                     .await
             }
             _ => Err(ExecutionError::WorkerFailed),
