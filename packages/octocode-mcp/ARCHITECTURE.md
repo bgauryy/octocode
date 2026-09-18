@@ -22,6 +22,8 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
+The public catalog is `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo`, `artifactSearch`, `localSearch`, `localFetch`, `astSearch`, `astRewrite`, and `lspSearch`.
+
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
 adapter omits tools with `available: false`. For every available tool, it:
 

@@ -40,17 +40,6 @@ const config = {
   ],
   versionGroups: [
     {
-      label: 'Use workspace protocol for internal packages',
-      dependencies: [
-        'octocode-security',
-        'octocode-security-utils',
-        'octocode-lsp',
-        '@octocodeai/octocode-context-utils',
-        '@octocodeai/octocode-tools-core',
-      ],
-      pinVersion: 'workspace:^',
-    },
-    {
       label: 'Align TypeScript across all packages',
       dependencies: ['typescript'],
       policy: 'sameRange',

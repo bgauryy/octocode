@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import {
   PUBLIC_NATIVE_EXPORT_NAMES,
   PUBLIC_NATIVE_FUNCTION_EXPORT_NAMES,
-} from '../src/lsp/nativeExportNames.js';
+} from './support/nativeExportNames.js';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

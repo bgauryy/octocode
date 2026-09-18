@@ -1,4 +1,3 @@
-pub mod command;
 pub mod discovery;
 pub mod path;
 
@@ -19,7 +18,6 @@ pub enum PolicyErrorCode {
     InvalidInput,
     InputTooLarge,
     BinaryContent,
-    CommandDenied,
     RegistryFrozen,
     UnsupportedRegex,
     Io,

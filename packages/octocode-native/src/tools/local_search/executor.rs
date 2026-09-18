@@ -604,9 +604,9 @@ fn fingerprint(
     files: &[octocode_engine::types::RipgrepFile],
     stats: &octocode_engine::types::RipgrepStats,
 ) -> String {
-    let mut legacy = serde_json::Map::new();
-    legacy.insert("searchText".into(), json!(q.search_text));
-    legacy.insert(
+    let mut identity = serde_json::Map::new();
+    identity.insert("searchText".into(), json!(q.search_text));
+    identity.insert(
         "mode".into(),
         json!(match q.result_view.unwrap_or_default() {
             ResultView::Discovery => "discovery",
@@ -614,7 +614,7 @@ fn fingerprint(
             _ => "paginated",
         }),
     );
-    legacy.insert(
+    identity.insert(
         "regex".into(),
         json!(match q.regex.unwrap_or_default() {
             RegexMode::Literal => "fixed",
@@ -622,7 +622,7 @@ fn fingerprint(
             RegexMode::Rust => "smart",
         }),
     );
-    legacy.insert(
+    identity.insert(
         "caseMode".into(),
         json!(match q.case_mode.unwrap_or_default() {
             CaseMode::Sensitive => "sensitive",
@@ -630,7 +630,7 @@ fn fingerprint(
             CaseMode::Smart => "smart",
         }),
     );
-    legacy.insert(
+    identity.insert(
         "contextLines".into(),
         json!(
             q.context_lines
@@ -641,11 +641,11 @@ fn fingerprint(
                 })
         ),
     );
-    legacy.insert(
+    identity.insert(
         "matchContentLength".into(),
         json!(q.match_content_length.unwrap_or(500)),
     );
-    legacy.insert(
+    identity.insert(
         "multiline".into(),
         json!(match q.multiline.unwrap_or_default() {
             MultilineMode::Off => "off",
@@ -653,7 +653,7 @@ fn fingerprint(
             MultilineMode::Dotall => "dotall",
         }),
     );
-    legacy.insert(
+    identity.insert(
         "sort".into(),
         json!(match q.sort.unwrap_or_default() {
             SortMode::Relevance => "relevance",
@@ -665,11 +665,11 @@ fn fingerprint(
             SortMode::Created => "created",
         }),
     );
-    legacy.insert(
+    identity.insert(
         "rankingProfile".into(),
         json!(q.ranking_profile.as_deref().unwrap_or("auto")),
     );
-    legacy.insert(
+    identity.insert(
         "output".into(),
         json!(match q.result_view.unwrap_or_default() {
             ResultView::MatchOnly => "matchOnly",
@@ -680,7 +680,7 @@ fn fingerprint(
             _ => "content",
         }),
     );
-    legacy.insert(
+    identity.insert(
         "unique".into(),
         json!(match q.unique.unwrap_or_default() {
             UniqueMode::Off => "off",
@@ -691,7 +691,7 @@ fn fingerprint(
     macro_rules! opt {
         ($name:literal,$value:expr) => {
             if let Some(v) = $value {
-                legacy.insert($name.into(), json!(v));
+                identity.insert($name.into(), json!(v));
             }
         };
     }
@@ -706,7 +706,7 @@ fn fingerprint(
     opt!("langType", q.lang_type.as_ref());
     opt!("matchWindow", q.match_window);
     opt!("sortReverse", q.reverse);
-    let mut entries = legacy.into_iter().collect::<Vec<_>>();
+    let mut entries = identity.into_iter().collect::<Vec<_>>();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     let query_key = hex::encode(Sha256::digest(
         serde_json::to_vec(&json!([q.path, entries])).unwrap_or_default(),

@@ -1,113 +1,73 @@
 # Native tool runtime architecture
 
-The target runtime has one Rust execution path:
+`octocode-native` is the sole public tool execution owner.
 
 ```text
-native octocode CLI ──────────┐
-                             ├─ Rust runtime / policy / tools
-Node MCP → optional NAPI ─────┘           ├─ native config
-                                         ├─ providers / registry adapters
-                                         └─ octocode-engine primitives
+native CLI ───────────────────┐
+                             ├──▶ Rust ToolRuntime
+Node MCP → N-API adapter ─────┘       ├── generated octocode-core contracts
+                                      ├── config and security policy
+                                      ├── providers, credentials, and caches
+                                      ├── tool orchestration and responses
+                                      └── octocode-engine primitives
 ```
 
-The CLI never loads NAPI or runs JavaScript. The CLI module lives in the `octocode`
-binary crate only; it is not a library or NAPI module. The Node MCP interface owns protocol
-framing and generated registration only. It uses the same Rust runtime; no
-provider, config, security or LSP implementation lives in JavaScript.
+The CLI never loads N-API or JavaScript. The MCP addon and native CLI call the same Rust runtime. JavaScript interfaces own protocol framing, registration, interactive selection, and process startup only.
 
-## Current state
+## Public catalog
 
-The native CLI and optional addon execute the full 11-tool catalog through the
-same Rust runtime. Availability matches Node flags: local tools require
-`local.enabled` (default on), `ghCloneRepo` requires `ENABLE_CLONE` and
-persistent storage, and GitHub/artifact tools are on by default. LSP uses the
-shared `octocode-engine` language-server client and lifecycle pool.
-Config resolution, generated validation, path/content policy and request
-lifecycle are native. Local search passes 28 complete CLI and MCP fixture
-comparisons, including every continuation. Plain search passes 44 checks and
-plain reads pass 35. GitHub file reads pass 35 complete CLI and 35 actual stdio
-MCP comparisons, including strict-union input failures and domain continuations.
-Four actual CLI batch comparisons pass, with both implementations observing
-three simultaneous HTTP requests. ghSearch passes 25 complete CLI envelopes and
-25 stdio MCP structuredContent comparisons (code, repositories, tree, and one
-cross-operation invalid input). ghGetHistoryItem actual CLI envelopes pass 4/4
-on the compact JSON harness. Human commands cover the RFC families: `search`/`read`, `files`/`tree`/`symbols`/`ast`/`graph`/`rewrite`, the `def`/`refs`/`hover`/call-hierarchy/type-hierarchy/`diagnostics` LSP commands, `repos`/`code`/`gh-tree`/`clone`/`package`/`history`, plus `context`, `status`, `auth`, `login`, `logout`, `cache`, `install`, and `skill`. The native installer owns JSON-configured IDEs; TOML/YAML clients and the interactive management UI remain Node `octocode` responsibilities.
+The runtime executes all eleven tools:
 
-NAPI admits requests synchronously before scheduling futures, so cancellation
-cannot race the first Rust poll. Admission is bounded and owns cleanup through
-completion. Credential acquisition runs inside admitted blocking work and owns
-a thread handle that must join; the pooled HTTP client receives an already
-pinned credential shared by the whole batch. The batch owns an ordered stream
-of at most three in-flight HTTP operations, without detached tasks or extra
-per-query thread pools. Provider content uses the common bounded cache, partitioned
-by endpoint, credential and session identity. Final response sanitization also
-covers metadata and remote error strings.
+- `ghSearch`
+- `ghGetFileContent`
+- `ghSearchHistory`
+- `ghGetHistoryItem`
+- `ghCloneRepo`
+- `artifactSearch`
+- `localSearch`
+- `localFetch`
+- `astSearch`
+- `astRewrite`
+- `lspSearch`
 
-GitHub search is catalog-available through the same pooled HTTP client as file
-reads. Its request builder preserves canonical keyword quoting, file-path
-splitting, repository filters and media types. Shared portable minification and
-UTF-16 re-anchoring keep snippet match positions attached to transformed text.
-ICU4X collation replaces JavaScript locale comparison for repository ranking;
-its compiled data is initialized once. The additional dependency size and locale
-matrix remain measurement gates. Tree listings share the GitHub content cache
-(ETag conditional GET, optional disk persist under `{OCTOCODE_HOME}/tmp/response`
-when storage is persistent). Crate tests are Tokio/`cargo test` against
-`ToolRuntime` and the `octocode` binary. They do not spawn Python, Node, or
-external search/rewrite executables. Structural rewrite calls the embedded
-`octocode-engine` primitive through its `embedded-ast-grep-rewrite` feature;
-the runtime retains transaction, hash, policy, and response orchestration.
-
-Canonical instructions are generated for enabled-tool combinations and selected
-in Rust. Embedded contracts are parsed once into immutable data. Prepare fills
-envelope meta fields only; it does not alias tool fields. Human CLI commands
-emit canonical query shapes; adapter tests freeze fields that differ from Rust
-internal terminology. Completed responses are checked against generated,
-tool-specific output envelopes before they leave the runtime. The generated
-provenance sidecar records the clean canonical-core revision and matching
-contract fingerprint; crate tests reject dirty or fingerprint-mismatched
-provenance. Node
-forwards registration, instructions, request arguments and cancellation only.
-
-The crate builds binaries without addon features and builds the addon as a
-library with `napi-addon`. Advanced ECMAScript patterns use a separately bounded
-Rust helper; its integration and platform resource checks are still in progress.
-The helper is counted in process-tree latency/CPU/memory, never hidden as free
-work. Darwin RSS enforcement is sampled rather than a hard allocation ceiling.
-
-The frozen first-read release experiment measured 10.3–13.4× lower median
-process latency across four small read cases. This is a scoped observation, not
-a migration-wide speed claim; raw measurements and limitations are recorded in
-`.octocode/implementation/rust-migration/FIRST-READ-COMPARISON.md` at the repo root.
-Current-candidate resource and platform comparisons remain release gates.
+Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. Contract preparation accepts direct, array, and `{ "queries": [...] }` forms, validates the complete bulk envelope, and preserves ordered row indexes and isolated domain failures.
 
 ## Ownership
 
-| Module | Owns | May not depend on |
+| Module | Owns | Must not own |
 |---|---|---|
-| config | Home/env acquisition, parsing, validation, resolution and diagnostics | Engine, providers, tools, NAPI |
-| contracts | Generated canonical schemas/rules and native input validation | Tool execution or Node validators |
-| runtime/policy/cache | Dispatch, request context, security, cancellation and resource limits | CLI formatting or MCP SDK types |
-| tools | Canonical operations using shared services | Independent config/auth/security implementations |
-| providers/registries | Remote DTOs, HTTP/retry/cache/credential policy | CLI or MCP framing |
-| lsp | Runtime composition in `src/lsp`; tools call the core-owned pool as a shared service | A second lifecycle policy, TypeScript engine wrappers, CLI, NAPI types |
-| adapter_napi | Host conversion, runtime handle and lifecycle | A separate execution implementation |
-| CLI | Arguments, human output and shell exits (`octocode` binary crate; not a lib module) | Node runtime, NAPI, or the addon cdylib |
+| `config` | Native configuration acquisition and diagnostics | Tool behavior |
+| `contracts` | Generated schemas/rules, defaults, validation, and canonical contract fingerprint | Provider or tool execution |
+| `runtime` | Admission, dispatch, request context, cancellation, ordered bulk orchestration, and exit classification | CLI presentation or MCP SDK types |
+| `policy` / `security` | Path, content, command, and secret policy | Interface-specific behavior |
+| `providers` / `registries` / `cache` | Remote DTOs, HTTP, retries, credentials, endpoint caches | CLI or MCP framing |
+| `tools` | Public operations composed from shared runtime services and engine primitives | Independent config, auth, or response systems |
+| `response` | Contract-checked rows, compression, pagination, continuations, and sanitized rendering | Tool execution |
+| `lsp` | Runtime composition around the engine language-server pool | A second lifecycle implementation |
+| `adapter_napi` | Host conversion and native runtime lifecycle | An alternate execution path |
+| `cli` | Arguments, human output, and shell exits | Node, N-API, or duplicated tools |
 
-Reusable engine Rust algorithms live in `octocode-engine`, which this crate
-consumes as a pure `rlib` (no N-API, `default-features = false`). The engine's
-portable APIs accept resolved options and do not import this higher-level runtime.
-The same package also builds the Node.js `.node` addon via optional NAPI
-bindings. The public tool core remains the contract authoring owner;
-build-time generation produces Rust artifacts. Candidate generation must fail on
-unsupported executable rules rather than omit them.
+`octocode-engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. N-API engine bindings remain available to engine consumers but are not an alternate Octocode tool runtime.
 
-Config is acquired fresh into explicit inputs. Secrets remain private; no
-process-wide environment mutation occurs from concurrent native tasks. Runtime
-handles own persistent pools and registries across MCP calls and close them
-explicitly. Bounded queues, cancellation, partial results and executable
-continuations are part of each operation's contract.
+## Safety and lifecycle invariants
 
-The frozen Node reference uses separate source, dependencies, homes, caches,
-journals and artifact outputs. Unimplemented native operations fail explicitly.
-Quality, latency, CPU and whole-process memory are measured on matched inputs;
-the candidate is not promoted until its applicable gates pass.
+- Native runtime absence fails closed at every Node interface.
+- Requests are admitted before asynchronous work starts and own cleanup through completion.
+- Cancellation, worker handles, HTTP clients, caches, and LSP clients are runtime-owned resources.
+- Credentials are pinned per request and never copied into public responses.
+- Every completed row is checked against its generated tool output contract.
+- Pagination and continuations retain the query identity needed to resume safely.
+- Structural rewrite uses embedded engine primitives while the tool layer retains locks, hashes, path policy, selection, postconditions, transactions, and recovery.
+- Public rewrite paths are relative to the preview root; guarded apply resolves them against that root.
+- No external search, AST, rewrite, or provider executable is used. Intentional subprocesses are limited to system Git cloning, configured language servers, the bounded regex worker, and supported credential discovery.
+
+## Contract generation
+
+`@octocodeai/octocode-core` is the external contract authoring owner. Its generator emits `src/contracts/generated/` with the contract JSON, Rust constant, validation fixtures, provenance revision, and fingerprint. Tests reject stale, dirty, or fingerprint-mismatched provenance. Generated files are not hand edited.
+
+## Build modes
+
+- Binary builds use `--no-default-features` and contain the full CLI/runtime.
+- Addon builds enable `napi-addon` and expose the same runtime to MCP.
+- Platform packages contain optimized native CLI, regex-worker, and addon artifacts.
+- Release acceptance exercises the direct native CLI, the built Node launcher, direct N-API calls, and real stdio MCP calls.

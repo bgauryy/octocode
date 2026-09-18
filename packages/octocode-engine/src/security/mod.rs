@@ -1,9 +1,6 @@
-//! Secret detection & content sanitization.
+//! Rust-owned secret detection and content sanitization.
 //!
-//! The canonical pattern list lives in `octocode-engine/src/security/regexes/*.ts`
-//! and is compiled into this crate's `patterns.rs` by the engine package's
-//! `scripts/gen-patterns.mjs`, so Rust evaluation order matches the TypeScript
-//! fallback.
+//! `patterns.rs` is the canonical ordered pattern set.
 
 pub mod detector;
 pub mod patterns;

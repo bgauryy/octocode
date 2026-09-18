@@ -13,6 +13,7 @@ export declare class NativeLspClient {
   isAlive(): Promise<boolean>;
   /** Server-selected LSP `positionEncoding` (utf-16 unless the server is non-conformant); null if omitted/not started. */
   positionEncoding(): string | null;
+  getReadiness(): 'progressIdle' | 'settledFallback' | 'timeout' | null;
   getRecentStderr(): Array<string>;
   openDocument(filePath: string, content: string): Promise<void>;
   closeDocument(filePath: string): Promise<void>;

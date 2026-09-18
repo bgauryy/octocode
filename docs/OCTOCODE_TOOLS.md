@@ -214,9 +214,9 @@ separate because it reads and minifies known content rather than discovering it.
 
 <!-- tool: ghSearch -->
 ```json
-{ "operation": "code", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js" }
-{ "operation": "repositories", "keywords": ["code research"], "language": "TypeScript" }
-{ "operation": "tree", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2 }
+{"reasoning": "Use ghSearch for this documented evidence request.", "operation": "code", "keywords": ["useReducer"], "owner": "vercel", "repo": "next.js"}
+{"reasoning": "Use ghSearch for this documented evidence request.", "operation": "repositories", "keywords": ["code research"], "language": "TypeScript"}
+{"reasoning": "Use ghSearch for this documented evidence request.", "operation": "tree", "owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
 ```
 
 Operation-specific fields:
@@ -259,7 +259,7 @@ Examples:
 
 <!-- tool: ghGetFileContent -->
 ```json
-{ "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "limit": 20 }
+{"reasoning": "Use ghGetFileContent for this documented evidence request.", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "limit": 20}
 ```
 
 Cost by mode:
@@ -303,9 +303,9 @@ with `ghGetHistoryItem`; search queries do not accept singular-item identities.
 
 <!-- tool: ghSearchHistory -->
 ```json
-{ "operation": "pullRequests", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged" }
-{ "operation": "issues", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open" }
-{ "operation": "commits", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d" }
+{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "pullRequests", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged"}
+{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "issues", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open"}
+{"reasoning": "Use ghSearchHistory for this documented evidence request.", "operation": "commits", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d"}
 ```
 
 Prefer title-first PR and issue searches. For commit archaeology, narrow by path
@@ -328,10 +328,10 @@ identity is the `base` + `head` pair.
 
 <!-- tool: ghGetHistoryItem -->
 ```json
-{ "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "content": { "changedFiles": true } }
-{ "operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": { "body": true, "comments": {} } }
-{ "operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true }
-{ "operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0" }
+{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"changedFiles": true}}
+{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"body": true, "comments": {}}}
+{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true}
+{"reasoning": "Use ghGetHistoryItem for this documented evidence request.", "operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0"}
 ```
 
 Request selected PR patches instead of every patch for large PRs, and leave
@@ -391,8 +391,8 @@ Examples:
 
 <!-- tool: ghCloneRepo -->
 ```json
-{ "owner": "vercel", "repo": "next.js", "branch": "canary" }
-{ "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler" }
+{"reasoning": "Use ghCloneRepo for this documented evidence request.", "owner": "vercel", "repo": "next.js", "branch": "canary"}
+{"reasoning": "Use ghCloneRepo for this documented evidence request.", "owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler"}
 ```
 
 Rules:
@@ -418,11 +418,11 @@ Find packages for a capability, resolve a known dependency to registry metadata,
 
 <!-- tool: artifactSearch -->
 ```json
-{ "type": "npm", "packageName": "react" }
-{ "type": "pypi", "packageName": "requests" }
-{ "type": "crates", "keywords": ["async", "runtime"], "pageSize": 10 }
-{ "type": "maven", "packageName": "org.slf4j:slf4j-api" }
-{ "type": "npm", "packageName": "@example/widget", "registry": "https://registry.example.com/" }
+{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "npm", "packageName": "react"}
+{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "pypi", "packageName": "requests"}
+{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "crates", "keywords": ["async", "runtime"], "pageSize": 10}
+{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "maven", "packageName": "org.slf4j:slf4j-api"}
+{"reasoning": "Use artifactSearch for this documented evidence request.", "type": "npm", "packageName": "@example/widget", "registry": "https://registry.example.com/"}
 ```
 
 Each query selects one ecosystem. Compare ecosystems using independent entries in `queries` (maximum five), not `type:"all"`. All providers use official APIs. PyPI keyword discovery returns an unsupported-capability error with exact-lookup guidance; it does not silently fall back to a website or third-party service.

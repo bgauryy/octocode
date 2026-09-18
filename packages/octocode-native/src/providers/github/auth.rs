@@ -6,12 +6,9 @@ use std::{
 };
 
 use crate::config::ConfigOutput;
-use aes_gcm::{AesGcm, KeyInit, aead::AeadInOut, aead::consts::U16, aes::Aes256};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
-use zeroize::{Zeroize, Zeroizing};
 
 use super::ProviderError;
 
@@ -73,22 +70,6 @@ pub struct ConfigCredentialResolver<S> {
 
 #[derive(Clone, Debug, Default)]
 pub struct PlatformCredentialStore;
-
-#[derive(Clone, Debug)]
-pub struct LegacyCredentialStore {
-    home: PathBuf,
-}
-impl LegacyCredentialStore {
-    pub fn new(home: impl Into<PathBuf>) -> Self {
-        Self { home: home.into() }
-    }
-}
-impl CredentialSourceProvider for LegacyCredentialStore {
-    fn load_blocking(&self, host: &str) -> Result<Option<SecretString>, ProviderError> {
-        let host = normalize_host(host);
-        read_legacy(&self.home, &host)
-    }
-}
 
 pub struct ChainedCredentialSource<A, B> {
     first: A,
@@ -343,128 +324,6 @@ fn map_store_error(error: keyring_core::Error) -> ProviderError {
     ProviderError::new(kind, "secure credential store operation failed")
 }
 
-#[derive(Deserialize)]
-struct LegacyStore {
-    version: u64,
-    credentials: std::collections::BTreeMap<String, LegacyCredential>,
-}
-impl Drop for LegacyStore {
-    fn drop(&mut self) {
-        for value in self.credentials.values_mut() {
-            value.zeroize();
-        }
-        self.credentials.clear();
-    }
-}
-#[derive(Deserialize)]
-struct LegacyCredential {
-    hostname: String,
-    token: LegacyToken,
-}
-impl Zeroize for LegacyCredential {
-    fn zeroize(&mut self) {
-        self.hostname.zeroize();
-        self.token.zeroize();
-    }
-}
-#[derive(Deserialize)]
-struct LegacyToken {
-    token: String,
-    #[serde(rename = "tokenType")]
-    token_type: String,
-}
-impl Zeroize for LegacyToken {
-    fn zeroize(&mut self) {
-        self.token.zeroize();
-        self.token_type.zeroize();
-    }
-}
-impl Drop for LegacyToken {
-    fn drop(&mut self) {
-        self.zeroize();
-    }
-}
-fn read_legacy(home: &Path, host: &str) -> Result<Option<SecretString>, ProviderError> {
-    let key_path = home.join(".key");
-    let credential_path = home.join("credentials.json");
-    if !key_path.exists() || !credential_path.exists() {
-        return Ok(None);
-    }
-    let key_text = read_capped(&key_path, 1024)?;
-    let key = Zeroizing::new(hex::decode(key_text.trim()).map_err(|_| corrupt_legacy())?);
-    if key.len() != 32 {
-        return Err(corrupt_legacy());
-    }
-    let encrypted = read_capped(&credential_path, 1024 * 1024)?;
-    let mut parts = encrypted.trim().split(':');
-    let iv = Zeroizing::new(
-        hex::decode(parts.next().ok_or_else(corrupt_legacy)?).map_err(|_| corrupt_legacy())?,
-    );
-    let tag = Zeroizing::new(
-        hex::decode(parts.next().ok_or_else(corrupt_legacy)?).map_err(|_| corrupt_legacy())?,
-    );
-    let mut ciphertext = Zeroizing::new(
-        hex::decode(parts.next().ok_or_else(corrupt_legacy)?).map_err(|_| corrupt_legacy())?,
-    );
-    if parts.next().is_some() || iv.len() != 16 || tag.len() != 16 {
-        return Err(corrupt_legacy());
-    }
-    let cipher = AesGcm::<Aes256, U16>::new_from_slice(&key).map_err(|_| corrupt_legacy())?;
-    let nonce: &[u8; 16] = iv.as_slice().try_into().map_err(|_| corrupt_legacy())?;
-    let tag: &[u8; 16] = tag.as_slice().try_into().map_err(|_| corrupt_legacy())?;
-    cipher
-        .decrypt_inout_detached(
-            nonce.into(),
-            b"",
-            ciphertext.as_mut_slice().into(),
-            tag.into(),
-        )
-        .map_err(|_| corrupt_legacy())?;
-    let mut store: LegacyStore =
-        serde_json::from_slice(&ciphertext).map_err(|_| corrupt_legacy())?;
-    if store.version != 1 {
-        return Err(corrupt_legacy());
-    }
-    let Some(mut value) = store.credentials.remove(host) else {
-        return Ok(None);
-    };
-    if normalize_host(&value.hostname) != host
-        || value.token.token_type != "oauth"
-        || value.token.token.trim().is_empty()
-    {
-        return Err(corrupt_legacy());
-    }
-    let token = Zeroizing::new(std::mem::take(&mut value.token.token));
-    Ok(Some(SecretString::from(token.as_str())))
-}
-fn read_capped(path: &Path, max: u64) -> Result<Zeroizing<String>, ProviderError> {
-    use std::io::Read;
-    let file = std::fs::File::open(path).map_err(|_| corrupt_legacy())?;
-    if !file
-        .metadata()
-        .map_err(|_| corrupt_legacy())?
-        .file_type()
-        .is_file()
-    {
-        return Err(corrupt_legacy());
-    }
-    let mut bytes = Zeroizing::new(Vec::new());
-    file.take(max + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| corrupt_legacy())?;
-    if bytes.len() as u64 > max {
-        return Err(corrupt_legacy());
-    }
-    String::from_utf8(std::mem::take(&mut *bytes))
-        .map(Zeroizing::new)
-        .map_err(|_| corrupt_legacy())
-}
-fn corrupt_legacy() -> ProviderError {
-    ProviderError::new(
-        super::ProviderErrorKind::CredentialStoreUnavailable,
-        "legacy credential store is invalid or unreadable",
-    )
-}
 fn normalize_host(host: &str) -> String {
     let lower = host.trim().to_ascii_lowercase();
     lower

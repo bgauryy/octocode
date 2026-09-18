@@ -635,13 +635,12 @@ mod tests {
     // AKIA + 16 uppercase alphanum satisfies awsAccessKeyId regex.
     const FAKE_AWS_KEY: &str = "AKIAIOSFODNN7EXAMPLE";
 
-    /// Differential guardrail: the prescan-gated matcher must agree EXACTLY
-    /// with the legacy full RegexSet on a corpus spanning gated patterns,
-    /// fallback-bucket patterns, case-folded keywords, and clean content.
-    /// A divergence here means the literal gate dropped a real match.
+    /// Differential guardrail: the prescan-gated matcher must agree exactly
+    /// with the complete reference set across gated patterns, fallback-bucket
+    /// patterns, case-folded keywords, and clean content.
     #[test]
-    fn prescan_agrees_with_legacy_regexset_on_corpus() {
-        use super::super::patterns::REGEX_SET;
+    fn prescan_agrees_with_reference_regex_set_on_corpus() {
+        use super::super::patterns::REFERENCE_REGEX_SET;
         let jwt = format!(
             "eyJ{}.eyJ{}.{}",
             "a".repeat(20),
@@ -669,11 +668,11 @@ mod tests {
             format!("SLACK_TOKEN = \"xoxp-{}\"", "1".repeat(30)),
         ];
         for content in &corpus {
-            let legacy: Vec<usize> = REGEX_SET.matches(content).into_iter().collect();
+            let reference: Vec<usize> = REFERENCE_REGEX_SET.matches(content).into_iter().collect();
             let prescanned = matching_pattern_indices(content);
             assert_eq!(
-                legacy, prescanned,
-                "prescan diverged from legacy RegexSet on: {content:?}"
+                reference, prescanned,
+                "prescan diverged from reference RegexSet on: {content:?}"
             );
         }
     }

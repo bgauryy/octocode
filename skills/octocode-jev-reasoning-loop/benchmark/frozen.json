@@ -1,10 +1,10 @@
 {
   "suiteId": "bug-triage-v1",
-  "frozenAt": "2026-09-18T14:38:15.571Z",
+  "frozenAt": "2026-09-18T15:21:06.185Z",
   "caseCount": 10,
   "files": {
     "CONTRACT.md": "a0c4757183643246a91e6ab1e515be95f27c6a69104edc47de06c84acd126bbd",
-    "cases.json": "d8161cc9bdf5b347c841643ab56786d5c5fc06956ebf34f26e404f3f31ae9b08",
+    "cases.json": "4c608b98f2884594f254a0fad3539c276bd98f9e8e543eaedc146b20f890e92d",
     "judge.mjs": "1959bd6f9fedecbfb626b52e7f8336374be30c1999bf0b89f2b2511017e2d790",
     "inspect.mjs": "403bebe9652e1992151f2b77b9c66b32bd124794514b6603092c69971f9cf366"
   }

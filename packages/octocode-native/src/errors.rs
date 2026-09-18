@@ -132,7 +132,6 @@ impl NativeError for crate::policy::PolicyError {
             crate::policy::PolicyErrorCode::InvalidInput => "invalidInput",
             crate::policy::PolicyErrorCode::InputTooLarge => "inputTooLarge",
             crate::policy::PolicyErrorCode::BinaryContent => "binaryContent",
-            crate::policy::PolicyErrorCode::CommandDenied => "commandDenied",
             crate::policy::PolicyErrorCode::RegistryFrozen => "registryFrozen",
             crate::policy::PolicyErrorCode::UnsupportedRegex => "unsupportedRegex",
             crate::policy::PolicyErrorCode::Io => "io",

@@ -67,7 +67,7 @@ npx octocode auth login
 ```
 
 - Opens GitHub's OAuth Device Flow in your browser.
-- Octocode stores the token **AES-256-GCM encrypted** at `~/.octocode/credentials.json` (key at `~/.octocode/.key`, both `chmod 600`).
+- Octocode stores the token in the operating-system credential store.
 - GitHub App tokens auto-refresh. Standard `ghp_*` personal access tokens don't expire.
 - Octocode reads it automatically on every request — nothing else to configure.
 
@@ -175,7 +175,6 @@ The following table lists the persistent files and cache directories inside the 
 |------|-------------|
 | `.env` | Your third-party API keys (Tavily, Serper, …). Loaded by agents and skills. |
 | `.octocoderc` | Octocode behavior settings (tools, network, paths, output, storage). Read by the MCP server and CLI. |
-| `credentials.json` | Encrypted GitHub token from `octocode auth login`. Don't edit manually. |
 | `stats.json` | Usage counters (tool calls, cache hits, …). Written only when `OCTOCODE_ENABLE_STATS=1`. |
 | `session.json` | Session identity. |
 | `tmp/clone/` | Git clones, keyed by owner, repository, and branch/sparse identity. |

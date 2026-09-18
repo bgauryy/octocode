@@ -40,6 +40,10 @@ const LOADER_ONLY_ALLOWLIST = new Set([
   'SUPPORTED_STRUCTURAL_EXTENSIONS',
 ]);
 
+// napi-rs declares this generated-loader marker even though the package's
+// hand-authored loader imports the platform addon directly and does not expose it.
+const NAPI_ONLY_ALLOWLIST = new Set(['__napiBindingTarget']);
+
 /** Extract the callable ABI surface as a map of `kind:path` -> arity|null. */
 function extractSurface(filePath) {
   const src = ts.createSourceFile(
@@ -101,7 +105,8 @@ function main() {
   const missingFromLoader = []; // real ABI symbol the hand types forgot
   const arityMismatch = [];
   for (const [key, ar] of napi) {
-    if (!loader.has(key)) {
+    const name = key.split(':')[1].split('.')[0];
+    if (!loader.has(key) && !NAPI_ONLY_ALLOWLIST.has(name)) {
       missingFromLoader.push(key);
     } else if (ar !== null && loader.get(key) !== ar) {
       arityMismatch.push(

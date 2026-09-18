@@ -190,8 +190,8 @@
       "reasoning": "Use ghGetFileContent for the exact context around a match example.",
       "owner": "bgauryy",
       "repo": "octocode",
-      "path": "packages/octocode-tools-core/src/responses.ts",
-      "matchString": "export function cleanJsonObject",
+      "path": "packages/octocode-native/src/runtime/engine.rs",
+      "matchString": "pub fn new",
       "contextLines": 5
     },
     "accepted": true,
@@ -203,9 +203,9 @@
           "debug": false,
           "owner": "bgauryy",
           "repo": "octocode",
-          "path": "packages/octocode-tools-core/src/responses.ts",
+          "path": "packages/octocode-native/src/runtime/engine.rs",
           "contextLines": 5,
-          "matchString": "export function cleanJsonObject"
+          "matchString": "pub fn new"
         }
       ]
     }
@@ -217,7 +217,7 @@
       "reasoning": "Use ghGetFileContent for the symbols outline (unknown/large file) example.",
       "owner": "bgauryy",
       "repo": "octocode",
-      "path": "packages/octocode-tools-core/src/responses.ts",
+      "path": "packages/octocode-native/src/runtime/engine.rs",
       "minify": "symbols"
     },
     "accepted": true,
@@ -229,7 +229,7 @@
           "debug": false,
           "owner": "bgauryy",
           "repo": "octocode",
-          "path": "packages/octocode-tools-core/src/responses.ts",
+          "path": "packages/octocode-native/src/runtime/engine.rs",
           "minify": "symbols"
         }
       ]
@@ -359,7 +359,7 @@
       "operation": "commits",
       "owner": "bgauryy",
       "repo": "octocode",
-      "path": "packages/octocode-tools-core/src",
+      "path": "packages/octocode-native/src",
       "since": "6m",
       "pageSize": 10
     },
@@ -372,7 +372,7 @@
           "debug": false,
           "owner": "bgauryy",
           "repo": "octocode",
-          "path": "packages/octocode-tools-core/src",
+          "path": "packages/octocode-native/src",
           "since": "6m",
           "pageSize": 10,
           "page": 1,
@@ -777,7 +777,7 @@
       "reasoning": "Use ghCloneRepo for the subtree clone example.",
       "owner": "bgauryy",
       "repo": "octocode",
-      "sparsePath": "packages/octocode-tools-core"
+      "sparsePath": "packages/octocode-native"
     },
     "accepted": true,
     "normalized": {
@@ -788,7 +788,7 @@
           "debug": false,
           "owner": "bgauryy",
           "repo": "octocode",
-          "sparsePath": "packages/octocode-tools-core"
+          "sparsePath": "packages/octocode-native"
         }
       ]
     }
@@ -1629,7 +1629,7 @@
     "tool": "localFetch",
     "input": {
       "reasoning": "Use localFetch for the exact line range example.",
-      "path": "/ABS/repo/packages/octocode-tools-core/package.json",
+      "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
       "startLine": 1,
       "endLine": 30,
       "minify": "none"
@@ -1641,7 +1641,7 @@
           "goal": "Execute localFetch via fixture",
           "reasoning": "Use localFetch for the exact line range example.",
           "debug": false,
-          "path": "/ABS/repo/packages/octocode-tools-core/package.json",
+          "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
           "minify": "none",
           "startLine": 1,
           "endLine": 30
@@ -1721,10 +1721,10 @@
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the semantic definition (absolute uri + lineHint) example.",
-      "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
+      "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
       "operation": "definition",
-      "symbolName": "buildNextPageContinuation",
-      "lineHint": 72
+      "symbolName": "ToolRuntime",
+      "lineHint": 80
     },
     "accepted": true,
     "normalized": {
@@ -1733,10 +1733,10 @@
           "goal": "Execute lspSearch via fixture",
           "reasoning": "Use lspSearch for the semantic definition (absolute uri + lineHint) example.",
           "debug": false,
-          "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
+          "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
           "operation": "definition",
-          "symbolName": "buildNextPageContinuation",
-          "lineHint": 72,
+          "symbolName": "ToolRuntime",
+          "lineHint": 80,
           "orderHint": 0,
           "includeDeclaration": true,
           "page": 1,
@@ -1780,7 +1780,7 @@
     "tool": "lspSearch",
     "input": {
       "reasoning": "Use lspSearch for the symbol outline (absolute uri) example.",
-      "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
+      "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
       "operation": "documentSymbols"
     },
     "accepted": true,
@@ -1790,7 +1790,7 @@
           "goal": "Execute lspSearch via fixture",
           "reasoning": "Use lspSearch for the symbol outline (absolute uri) example.",
           "debug": false,
-          "uri": "/ABS/packages/octocode-tools-core/src/scheme/pagination.ts",
+          "uri": "/ABS/repo/packages/octocode-native/src/runtime/engine.rs",
           "operation": "documentSymbols",
           "orderHint": 0,
           "includeDeclaration": true,

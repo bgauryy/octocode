@@ -103,18 +103,16 @@ does not establish which transformations ran. See the
 
 ## LSP — `lspSearch`
 
-Built-in routing covers 45 file extensions, 25 language IDs, and 19 server
-commands. LSP routing is separate from native grammar support: Shell, Less, and
-Elixir have LSP routes without structural grammars. Scala has a
-structural grammar and built-in Metals routes for `.scala` and `.sc`.
+LSP routing is separate from native grammar support. Shell, Less, and Elixir
+have LSP routes without structural grammars. Scala has a structural grammar and
+built-in Metals routes for `.scala` and `.sc`.
 
-| Tier | Languages | What happens |
+| Source | Languages | What happens |
 |---|---|---|
-| **Bundled** | TypeScript/JavaScript, Python, Bash, YAML, JSON, HTML, CSS/SCSS/Less | Runs from packaged dependencies when no override or executable is found |
-| **Auto-download** | Rust (rust-analyzer), C/C++ (clangd) | Downloaded + checksum-verified on first use |
-| **Detect-and-instruct** | PHP (intelephense), Go (gopls), Java (jdtls), Swift (sourcekit-lsp), C# (csharp-ls) | Needs the server or language toolchain installed; the error message gives an install or configuration hint |
-| **PATH or override** | Ruby, Kotlin, SQL, Elixir, Scala | Resolves a known command from `PATH`, ecosystem locations, or a language-specific `OCTOCODE_*_SERVER_PATH` override |
-| **Custom configuration** | Other file types or provider overrides | Register the extension, command, arguments, and language ID in `.octocode/lsp-servers.json` |
+| **Workspace, ecosystem, or PATH** | All built-in routes, including TypeScript/JavaScript, Python, Bash, data formats, and host toolchains | Resolves an installed known command; the engine npm package does not bundle language servers |
+| **Managed cache** | Rust (`rust-analyzer`), C/C++ (`clangd`) | Uses assets explicitly installed by `octocode lsp-server install` after HTTPS and SHA-256 verification |
+| **Language-specific override** | All built-in routes | Uses an `OCTOCODE_*_SERVER_PATH` command after executable validation |
+| **Custom configuration** | Other file types or provider overrides | Registers an extension, command, arguments, and language ID; project configuration requires explicit trust |
 
 `documentSymbols`, `definition`, `references`, `callers`, `callees`,
 `callHierarchy`, `hover`, `typeDefinition`, `implementation`,
@@ -136,13 +134,10 @@ Pagination continuations carry a result snapshot. Execute the returned `next`
 query unchanged. If the result set or query changes between pages, the tool
 returns `paginationChanged` and a restart query, without stale page rows.
 
-Production acceptance tests live in native runtime:
-`tests/tools/lsp/routeMatrix.test.ts` checks all 43 extension routes, uppercase
-extensions, and types without built-in routes; `productionMatrix.test.ts`
-checks all 13 operations, missing servers, startup failures, missing capabilities,
-and complete pagination unions with mutation/restart in both output formats.
-These tests validate contracts with deterministic providers. They do not establish
-that every external language server is installed or implements every operation.
+Engine and native Rust tests cover route resolution, uppercase extensions,
+unsupported file types, missing servers, startup failures, capabilities,
+readiness, cancellation, and pagination snapshots. Deterministic tests do not
+establish that an external server is installed or implements every operation.
 
 For `workspaceSymbol`, provide `uri` as a language anchor in mixed-language
 workspaces. The request accepts `workspaceRoot` without `uri`, but server

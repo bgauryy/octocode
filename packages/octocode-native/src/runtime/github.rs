@@ -21,10 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-type Store = ChainedCredentialSource<
-    ChainedCredentialSource<PlatformCredentialStore, LegacyCredentialStore>,
-    GhCliCredentialSource,
->;
+type Store = ChainedCredentialSource<PlatformCredentialStore, GhCliCredentialSource>;
 
 pub(super) struct GitHubServices {
     credentials: Arc<ConfigCredentialResolver<Store>>,
@@ -62,13 +59,7 @@ impl GitHubServices {
             .map(str::to_owned);
         let credentials = Arc::new(ConfigCredentialResolver::new(
             config,
-            ChainedCredentialSource::new(
-                ChainedCredentialSource::new(
-                    PlatformCredentialStore,
-                    LegacyCredentialStore::new(home.clone()),
-                ),
-                GhCliCredentialSource,
-            ),
+            ChainedCredentialSource::new(PlatformCredentialStore, GhCliCredentialSource),
         ));
         Ok(Self {
             credentials,

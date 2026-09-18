@@ -12,7 +12,7 @@
 - `SnapshotMetadata` includes normalized source paths, content digests, the graph-fact schema, a generation, and a canonical snapshot digest.
 - `GraphCompleteness` and `CodeGraphDiagnostic` represent skipped files, unsupported syntax, unavailable semantic enrichment, and other incomplete states.
 
-The implementation is in `src/graph/model.rs`. Native graph-fact extraction crosses the Rust package boundary as `GraphFactsTypedScanResult`; the JSON form remains only as a compatibility adapter for N-API and TypeScript consumers.
+The implementation is in `src/graph/model.rs`. Native graph-fact extraction crosses the Rust package boundary as `GraphFactsTypedScanResult`; N-API consumers receive its serialized representation through the thin binding layer.
 
 ## Ingestion flow
 

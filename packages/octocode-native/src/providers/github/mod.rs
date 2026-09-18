@@ -14,10 +14,9 @@ mod tree;
 pub use auth::{
     ChainedCredentialSource, ConfigCredentialResolver, CredentialRequest,
     CredentialResolutionHandle, CredentialResolver, CredentialSource, CredentialSourceProvider,
-    GhCliCredentialSource, LegacyCredentialStore, OAuthToken, OwnedCredentialRequest,
-    PlatformCredentialStore, ResolvedCredential, StaticCredentialResolver, StoredCredentials,
-    delete_platform_credential, load_stored_credentials, store_platform_credential,
-    token_from_stored_blob,
+    GhCliCredentialSource, OAuthToken, OwnedCredentialRequest, PlatformCredentialStore,
+    ResolvedCredential, StaticCredentialResolver, StoredCredentials, delete_platform_credential,
+    load_stored_credentials, store_platform_credential, token_from_stored_blob,
 };
 pub use budget::{
     GitHubBudget, GitHubResource, graphql_is_skipped, session_snapshot, skip_graphql_host,

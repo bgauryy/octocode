@@ -1,4 +1,3 @@
-use aes_gcm::{AesGcm, KeyInit, aead::AeadInOut, aead::consts::U16, aes::Aes256};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use secrecy::ExposeSecret;
 use std::{
@@ -49,7 +48,7 @@ impl CredentialSourceProvider for FailingSource {
 struct FixtureSource;
 impl CredentialSourceProvider for FixtureSource {
     fn load_blocking(&self, _: &str) -> Result<Option<secrecy::SecretString>, ProviderError> {
-        Ok(Some(secrecy::SecretString::from("legacy")))
+        Ok(Some(secrecy::SecretString::from("fallback")))
     }
 }
 
@@ -628,13 +627,13 @@ async fn pins_one_credential_across_partition_and_request() {
 }
 
 #[tokio::test]
-async fn legacy_fallback_survives_unavailable_platform_store() {
+async fn chained_source_falls_back_when_primary_store_is_unavailable() {
     let source = ChainedCredentialSource::new(FailingSource, FixtureSource);
     let value = source
         .load_blocking("github.com")
         .expect("fallback")
         .expect("token");
-    assert_eq!(value.expose_secret(), "legacy");
+    assert_eq!(value.expose_secret(), "fallback");
 }
 
 #[test]
@@ -727,43 +726,6 @@ async fn retries_transient_server_failure_once() {
         .expect("retry");
     assert_eq!(page.body, b"ok".as_slice());
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
-}
-
-#[tokio::test]
-async fn legacy_encrypted_store_is_read_only_and_strict() {
-    let home = std::env::temp_dir().join(format!("octocode-legacy-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&home);
-    std::fs::create_dir_all(&home).expect("home");
-    let key = [7_u8; 32];
-    let nonce = [3_u8; 16];
-    let mut plaintext = serde_json::to_vec(&serde_json::json!({"version":1,"credentials":{"github.com":{"hostname":"github.com","username":"u","gitProtocol":"https","createdAt":"x","updatedAt":"x","token":{"token":"legacy-secret","tokenType":"oauth"}}}})).expect("json");
-    let cipher = AesGcm::<Aes256, U16>::new_from_slice(&key).expect("cipher");
-    let tag = cipher
-        .encrypt_inout_detached((&nonce).into(), b"", plaintext.as_mut_slice().into())
-        .expect("encrypt");
-    std::fs::write(home.join(".key"), hex::encode(key)).expect("key");
-    std::fs::write(
-        home.join("credentials.json"),
-        format!(
-            "{}:{}:{}",
-            hex::encode(nonce),
-            hex::encode(tag),
-            hex::encode(plaintext)
-        ),
-    )
-    .expect("credentials");
-    let source = LegacyCredentialStore::new(&home);
-    let secret = source
-        .load_blocking("HTTPS://GITHUB.COM/")
-        .expect("read")
-        .expect("token");
-    assert_eq!(secret.expose_secret(), "legacy-secret");
-    assert!(home.join(".key").exists());
-    assert!(home.join("credentials.json").exists());
-    std::fs::write(home.join("credentials.json"), "bad").expect("corrupt");
-    let error = source.load_blocking("github.com").expect_err("corruption");
-    assert_eq!(error.kind, ProviderErrorKind::CredentialStoreUnavailable);
-    std::fs::remove_dir_all(home).expect("cleanup");
 }
 
 #[test]

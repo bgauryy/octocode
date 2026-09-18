@@ -1,156 +1,157 @@
 {
   "suiteId": "bug-triage-v1",
-  "description": "10 real ambiguous GitHub bugs from popular repositories. Each has 2–3 competing root-cause hypotheses that require source investigation to settle. All qualify as disputed_inference.",
+  "description": "10 real ambiguous GitHub bugs from 3 accessible repos (vercel/next.js, axios/axios, vitejs/vite). Each has 2–3 competing root-cause hypotheses requiring source investigation. All qualify as disputed_inference.",
+  "repos": ["vercel/next.js", "axios/axios", "vitejs/vite"],
   "cases": [
     {
       "id": "BUG-01",
-      "repo": "facebook/react",
-      "issueNumber": 37637,
-      "title": "Concurrent mode: batched state updates dropped after Suspense boundary resumes",
-      "task": "Diagnose the root cause of state updates being silently dropped when a component inside a Suspense boundary re-renders after a concurrent transition. Propose a minimal targeted fix with source-backed rationale.",
-      "anchorRef": "main",
-      "difficulty": "high",
-      "hypotheses": [
-        "H1: The scheduler flushes the transition work unit before the Suspense boundary commits its dehydrated children, losing the queued state update queue.",
-        "H2: The fiber reconciler resets the work-in-progress alternate during Suspense replay, discarding updates enqueued on the original fiber.",
-        "H3: The batching mechanism in ReactDOM.flushSync clears the batch queue on Suspense throw before updates propagate."
-      ],
-      "disputeReason": "All three paths involve scheduler/reconciler interaction at the Suspense boundary; a surface-level read of the issue description supports any of them."
-    },
-    {
-      "id": "BUG-02",
-      "repo": "facebook/react",
-      "issueNumber": 37619,
-      "title": "use() hook inside Context.Provider causes stale context value on replay",
-      "task": "Diagnose why use(promise) inside a Context.Provider subtree returns the context value from before the suspension, not after replay. Propose a fix with exact source file and function references.",
-      "anchorRef": "main",
-      "difficulty": "high",
-      "hypotheses": [
-        "H1: The context dispatcher is switched to the replay dispatcher before context reads are re-evaluated, reading the stale stack frame.",
-        "H2: The context value is captured by closure in the promise thenable before suspension and not refreshed on resume.",
-        "H3: ReactFiberNewContext.js restores the wrong context cursor after Suspense replay, returning the pre-suspension value."
-      ],
-      "disputeReason": "Context cursor restoration and dispatcher switching happen in close proximity; without reading both paths the blame is genuinely unclear."
-    },
-    {
-      "id": "BUG-03",
-      "repo": "langchain-ai/langchain",
-      "issueNumber": 40592,
-      "title": "StreamingStdOutCallbackHandler receives chunks out of order under async LLM calls",
-      "task": "Diagnose why streaming tokens arrive out-of-order at StreamingStdOutCallbackHandler when multiple async LLM calls run concurrently. Propose a fix and identify the exact callback dispatch path.",
-      "anchorRef": "master",
-      "difficulty": "medium",
-      "hypotheses": [
-        "H1: CallbackManager dispatches on_llm_new_token via fire-and-forget asyncio tasks without ordering guarantees, so concurrent calls interleave.",
-        "H2: The handler receives a shared mutable queue that is appended to without a lock across concurrent callback invocations.",
-        "H3: The LLM chain's astream method yields tokens through a generator that is not properly awaited, causing out-of-order delivery at the callback layer."
-      ],
-      "disputeReason": "The callback dispatch path in CallbackManager has both sync and async branches; the bug is in which branch is taken and whether ordering is preserved."
-    },
-    {
-      "id": "BUG-04",
-      "repo": "langchain-ai/langchain",
-      "issueNumber": 40590,
-      "title": "ConversationBufferMemory token count drifts when async tools inject mid-conversation",
-      "task": "Diagnose why ConversationBufferMemory reports an incorrect token count when an async tool result is injected into the conversation mid-run. Identify the counting path and propose a fix.",
-      "anchorRef": "master",
-      "difficulty": "medium",
-      "hypotheses": [
-        "H1: The token counter is updated on save_context but async tool messages bypass save_context and are appended directly to chat_memory.messages, skipping the counter update.",
-        "H2: The token counter reads from a cached _buffer_string that is not invalidated when messages are appended asynchronously.",
-        "H3: get_num_tokens_from_messages double-counts system messages when tool results are present, inflating the reported token count."
-      ],
-      "disputeReason": "The memory module has two code paths for adding messages (save_context vs direct append) and the counter can be stale from either direction."
-    },
-    {
-      "id": "BUG-05",
       "repo": "vercel/next.js",
       "issueNumber": 49169,
       "title": "Parallel routes: @slot renders stale content after soft navigation between sibling pages",
-      "task": "Diagnose why a parallel route @slot retains stale content after a soft navigation that changes the sibling segment. Identify which cache layer holds the stale render and propose a targeted fix.",
+      "task": "Diagnose why a parallel route @slot retains stale content after a soft navigation that changes the sibling dynamic segment. Identify which cache layer holds the stale render and propose a targeted fix with exact source references.",
       "anchorRef": "canary",
       "difficulty": "high",
       "hypotheses": [
-        "H1: The Router Cache does not invalidate the @slot segment entry when the sibling dynamic segment changes, because the cache key includes only the primary segment path.",
-        "H2: The FlightDataRenderer re-uses the previous slot's RSC payload because the layout component does not re-render when only sibling params change.",
-        "H3: The parallel route tree diff algorithm in the App Router treats unchanged @slot paths as stable and skips their re-fetch on soft navigation."
+        "H1: The Router Cache does not invalidate the @slot segment entry when the sibling dynamic segment changes, because the cache key excludes non-primary segment params.",
+        "H2: The FlightDataRenderer reuses the previous slot's RSC payload because the layout component does not re-render when only sibling params change.",
+        "H3: The parallel route tree diff algorithm treats unchanged @slot paths as stable and skips their re-fetch on soft navigation."
       ],
-      "disputeReason": "The Router Cache, RSC payload diffing, and layout re-render boundary are three separate systems; the bug depends on which one misidentifies the slot as unchanged."
+      "disputeReason": "Router Cache key construction, RSC payload diffing, and layout re-render boundaries are three separate systems; which one misidentifies the slot as unchanged determines the fix."
     },
     {
-      "id": "BUG-06",
+      "id": "BUG-02",
       "repo": "vercel/next.js",
       "issueNumber": 45508,
       "title": "Streaming RSC response aborts when error boundary catches during initial render",
-      "task": "Diagnose why a thrown error caught by an error boundary causes the full RSC stream to abort rather than allowing the rest of the page to stream. Trace the error propagation path and propose a fix.",
+      "task": "Diagnose why a thrown error caught by a React error boundary causes the full RSC stream to abort rather than allowing the rest of the page to stream. Trace the error propagation path through stream-ops and propose a fix.",
       "anchorRef": "canary",
       "difficulty": "high",
       "hypotheses": [
-        "H1: The RSC renderer closes the writable stream on any uncaught render error, including errors that React would later recover via an error boundary, before boundary recovery occurs.",
-        "H2: The error boundary's componentDidCatch is not invoked during RSC server rendering, so the error propagates uncaught to the stream controller and aborts it.",
-        "H3: The Fizz renderer flushes the error to the response stream before the reconciler can hand it to the nearest error boundary, racing with boundary recovery."
+        "H1: The RSC renderer closes the writable stream on any render error before React's error boundary recovery mechanism can run, because the stream abort precedes the boundary catch.",
+        "H2: Error boundaries are not invoked during server-side RSC rendering — only client boundaries apply — so the error propagates uncaught to the stream controller.",
+        "H3: The Fizz/Flight renderer flushes the error to the response before the reconciler hands it to the nearest error boundary, racing with boundary recovery."
       ],
-      "disputeReason": "Error boundary recovery in server-side Fizz rendering is fundamentally different from client-side recovery; which layer intercepts first determines the behavior."
+      "disputeReason": "Error boundary semantics differ between RSC server rendering, Fizz SSR, and client rendering; which layer intercepts the error first determines whether the stream aborts."
     },
     {
-      "id": "BUG-07",
-      "repo": "vitejs/vite",
-      "issueNumber": 14105,
-      "title": "HMR: import.meta.hot.accept callback not triggered after dynamic import re-evaluation",
-      "task": "Diagnose why import.meta.hot.accept is not triggered for a module that is re-imported via a dynamic import() after an HMR update. Identify the module graph traversal path and propose a fix.",
-      "anchorRef": "main",
+      "id": "BUG-03",
+      "repo": "vercel/next.js",
+      "issueNumber": 58440,
+      "title": "useSearchParams() causes full SSR re-render rather than partial Suspense-bounded hydration",
+      "task": "Diagnose why useSearchParams() inside a Suspense boundary forces a full SSR re-render of the page instead of hydrating only the bounded subtree. Identify the rendering bailout path and propose a fix.",
+      "anchorRef": "canary",
       "difficulty": "medium",
       "hypotheses": [
-        "H1: The HMR module graph records the accept boundary at the static import edge only; dynamic import() creates a new graph edge that is not linked to the registered acceptor.",
-        "H2: After a dynamic import re-evaluation, the module's exports are replaced in the module map but the HMR runtime's acceptCallbacks map still references the old module instance.",
-        "H3: The dev server invalidation walk stops at the first accepting ancestor in the static graph and never traverses the dynamic import edge that leads to the registered acceptor."
+        "H1: The App Router marks the entire route segment as dynamic when useSearchParams() is detected at build time, regardless of the Suspense boundary wrapping it.",
+        "H2: useSearchParams() triggers a dynamic rendering bailout inside the RSC renderer that propagates upward past the Suspense boundary to the root segment.",
+        "H3: The static generation optimizer cannot statically analyze the Suspense boundary wrapping useSearchParams() and conservatively opts the full page into dynamic rendering."
       ],
-      "disputeReason": "HMR graph traversal handles static and dynamic edges differently; the bug is in which edge type is walked during invalidation propagation."
+      "disputeReason": "The dynamic-rendering bailout can happen at build-time analysis, RSC render time, or static generation; the wrong layer triggers a page-wide re-render even when the hook is bounded."
     },
     {
-      "id": "BUG-08",
+      "id": "BUG-04",
+      "repo": "vercel/next.js",
+      "issueNumber": 54173,
+      "title": "revalidatePath() in Server Action does not purge full segment cache for dynamic routes",
+      "task": "Diagnose why calling revalidatePath('/[slug]') from a Server Action does not invalidate cached responses for all slug variants. Identify the path-matching logic and propose a fix.",
+      "anchorRef": "canary",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: revalidatePath performs exact string matching against the cache key, so '/[slug]' never matches '/product/abc' — dynamic segments are not expanded in the invalidation sweep.",
+        "H2: The cache invalidation propagates through the segment tree but stops at the first cached boundary because each cache node checks its own path prefix only, missing child segments.",
+        "H3: The revalidation mark is set on the route entry but the Router Cache client-side doesn't re-fetch because it validates staleness from the prefetch timestamp, which is unaffected by server-side revalidation."
+      ],
+      "disputeReason": "Server-side revalidation (Data Cache) and client-side Router Cache are decoupled systems; the staleness signal may reach only one of them depending on where the path matching fails."
+    },
+    {
+      "id": "BUG-05",
       "repo": "axios/axios",
-      "issueNumber": 5869,
-      "title": "Response interceptor error handler swallows rejection when previous interceptor returns modified config",
-      "task": "Diagnose why an error thrown in a response interceptor is silently swallowed when a prior response interceptor returned a modified response object. Trace the interceptor chain and propose a fix.",
+      "issueNumber": 5996,
+      "title": "Error thrown inside response interceptor fulfilled handler is silently swallowed",
+      "task": "Diagnose why an error thrown inside a response interceptor's fulfilled handler is not caught by that interceptor's rejected handler and is instead silently swallowed in some configurations. Trace the promise chain in Axios.js and propose a fix.",
+      "anchorRef": "v1.x",
+      "difficulty": "high",
+      "hypotheses": [
+        "H1: In the async interceptor chain, promise.then(fulfilled, rejected) means rejected only handles rejections from the INCOMING promise — a throw inside fulfilled creates a new rejection that is NOT caught by the same rejected handler, falling through unhandled.",
+        "H2: The synchronous interceptor path catches errors from fulfilled handlers with a try/catch and re-routes them to the rejected handler, but the async path lacks this try/catch, creating the discrepancy.",
+        "H3: axios's settle.js validates the HTTP status code after all response interceptors run; if a previous interceptor returns a modified response with a 2xx status, settle.js resolves the promise, masking the error thrown afterward."
+      ],
+      "disputeReason": "Promise.then(fulfilled, rejected) error semantics vs. try/catch semantics differ in a subtle way; the bug location is either in the async chain construction or in settle.js depending on which path is taken."
+    },
+    {
+      "id": "BUG-06",
+      "repo": "axios/axios",
+      "issueNumber": 5874,
+      "title": "Synchronous request interceptor rejection does not skip response interceptors",
+      "task": "Diagnose why a rejection thrown from a synchronous request interceptor is still processed by response interceptors instead of bypassing them. Trace the synchronous vs async code paths in Axios._request and propose a fix.",
       "anchorRef": "v1.x",
       "difficulty": "medium",
       "hypotheses": [
-        "H1: The interceptor chain builder inserts fulfilled and rejected handlers as alternating promise .then() nodes; a prior interceptor's fulfilled return resets the rejection path so subsequent rejections resolve instead of reject.",
-        "H2: The dispatchRequest adapts the previous interceptor's returned object as a success response, bypassing the error interceptor's rejected branch entirely.",
-        "H3: settle.js resolves the promise when the response status is in the validateStatus range even when the interceptor has thrown, ignoring the throw."
+        "H1: In the synchronous path, when a request interceptor throws, the code sets promise = Promise.reject(error) but then continues the while loop over responseInterceptorChain, chaining all response interceptors even though the request never fired.",
+        "H2: The synchronous path breaks out of the request interceptor loop correctly but incorrectly sets up the response interceptor chain using the same loop variable i, processing response interceptors starting from a non-zero index.",
+        "H3: The legacyInterceptorReqResOrdering flag interleaves request and response interceptors into a single chain, causing response rejected handlers to be called when a request interceptor throws."
       ],
-      "disputeReason": "The interceptor promise chain construction in Axios has subtly different behavior depending on whether synchronous interceptors are present; the swallow can happen at chain build or at settlement."
+      "disputeReason": "The synchronous path has a different control flow from the async path; the break statement and loop continuation semantics determine whether response interceptors are skipped after a request interceptor rejects."
     },
     {
-      "id": "BUG-09",
-      "repo": "prisma/prisma",
-      "issueNumber": 20469,
-      "title": "Nested disconnect inside $transaction causes foreign key constraint violation on PostgreSQL",
-      "task": "Diagnose why a prisma.$transaction that includes a nested disconnect on a relation throws a foreign key constraint error on PostgreSQL but succeeds on SQLite. Identify the query order and propose a fix.",
-      "anchorRef": "main",
+      "id": "BUG-07",
+      "repo": "axios/axios",
+      "issueNumber": 5689,
+      "title": "mergeConfig loses nested Authorization header when request config overrides defaults",
+      "task": "Diagnose why a custom Authorization header set in axios.defaults.headers.common is lost when the request config includes its own headers object. Identify the merge strategy in mergeConfig.js and propose a fix.",
+      "anchorRef": "v1.x",
       "difficulty": "medium",
       "hypotheses": [
-        "H1: The query engine serializes nested writes in creation order, placing the disconnect UPDATE before the parent record's UPDATE that would release the FK, violating the constraint before it is satisfied.",
-        "H2: PostgreSQL enforces FK constraints immediately per statement (not deferred), so the disconnect removes the relation before the parent write commits; SQLite defers FK checks to transaction end by default.",
-        "H3: The Prisma transaction wrapper issues the disconnect as a separate statement outside the atomic block when nested writes are involved, making it visible to FK enforcement before the parent transaction commits."
+        "H1: mergeConfig uses a deepMerge strategy for headers that calls utils.merge(), which does a shallow merge of the nested headers object — the request's headers object entirely replaces defaults.headers rather than being merged into it.",
+        "H2: The header flattening code in _request strips the per-method and common header namespaces before merging, so defaults.headers.common is deleted before it can be combined with the request's headers.",
+        "H3: AxiosHeaders.concat merges headers from multiple sources but uses the last-defined value strategy, and request config headers (defined later) overwrite the defaults.headers.common values entirely."
       ],
-      "disputeReason": "PostgreSQL vs SQLite FK deferral and Prisma's nested-write query ordering are both plausible explanations; only source reading determines which is the actual code path."
+      "disputeReason": "Header merging happens in two places (mergeConfig and the _request flattening step); the data loss could occur at either point depending on whether AxiosHeaders.concat or deepMerge is responsible."
     },
     {
-      "id": "BUG-10",
-      "repo": "microsoft/TypeScript",
-      "issueNumber": 55261,
-      "title": "Control-flow type narrowing lost after await in async function with try/catch",
-      "task": "Diagnose why TypeScript's control-flow narrowing of a union type is lost after an await expression inside a try block, requiring an unnecessary re-assertion. Identify the CFA node handling and propose a compiler fix.",
+      "id": "BUG-08",
+      "repo": "vitejs/vite",
+      "issueNumber": 14105,
+      "title": "HMR: import.meta.hot.accept callback silently skipped when module loaded via dynamic import()",
+      "task": "Diagnose why import.meta.hot.accept() callbacks are never invoked when the module is first loaded via a dynamic import() rather than a static import. Trace the hotModulesMap lookup in HMRClient.fetchUpdate and propose a fix.",
       "anchorRef": "main",
       "difficulty": "high",
       "hypotheses": [
-        "H1: The CFA resets all narrowed types at every await point because an await can resolve to a microtask that runs arbitrary code changing the variable's value; the reset is intentionally conservative.",
-        "H2: A bug in flowAnalyzeSlice treats the AwaitExpression node as a branch point that creates a new flow branch without carrying the pre-await narrowing into the post-await flow.",
-        "H3: The try/catch block creates a separate exception flow path that merges with the normal flow after each statement, and await inside try is modeled as a potential throw, widening the type back to the union."
+        "H1: fetchUpdate performs hotModulesMap.get(path) where path is the server-normalized URL. When a module is loaded via dynamic import(), its registered ownerPath in the HMRContext may differ (e.g., with or without a query string), causing the lookup to return undefined and silently skipping all callbacks.",
+        "H2: When a module is first loaded via dynamic import(), the HMRContext constructor is called but hot.accept() runs asynchronously after the module executes; the HMR update may arrive before accept() is called, missing the registration.",
+        "H3: The module graph on the server tracks dynamic import() edges separately from static imports; the HMR invalidation walk only traverses static import edges, so the accept boundary on the dynamic-import module is never reached."
       ],
-      "disputeReason": "The CFA's handling of await and try/catch flow merging involves two separate mechanisms; the blame depends on which one causes the type widening."
+      "disputeReason": "The hotModulesMap key format (URL normalization) and the timing of accept() registration relative to update arrival are two orthogonal causes; without reading both the server graph walk and the client hotModulesMap key construction, the blame is unclear."
+    },
+    {
+      "id": "BUG-09",
+      "repo": "vitejs/vite",
+      "issueNumber": 12423,
+      "title": "HMR queueUpdate flushes callbacks in wrong order when multiple rapid file saves occur",
+      "task": "Diagnose why hot module callbacks are invoked in incorrect order when multiple files are saved in rapid succession. Trace the queueUpdate and updateQueue logic in HMRClient and propose a fix.",
+      "anchorRef": "main",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: queueUpdate pushes all incoming fetchUpdate promises into updateQueue, then flushes with Promise.all(loading) — Promise.all resolves all in parallel, so the order of callback invocation depends on resolution order (network timing), not arrival order.",
+        "H2: The pendingUpdateQueue flag batches multiple rapid updates into one flush, but the queue is snapshot with [...updateQueue] before async fetches complete; a second rapid save arriving during the flush starts a new batch that fires before the first batch's callbacks.",
+        "H3: The HMR WebSocket message handler does not serialize incoming update messages — multiple messages enqueued by createHMRHandler can overlap in their queue.dequeue() scheduling when the handler function is async."
+      ],
+      "disputeReason": "The queue ordering issue can originate from Promise.all parallelism inside queueUpdate or from the outer HMRHandler queue serialization depending on the exact timing of the rapid saves."
+    },
+    {
+      "id": "BUG-10",
+      "repo": "vitejs/vite",
+      "issueNumber": 11234,
+      "title": "CSS HMR: style update skips module with @import dependency after first hot reload",
+      "task": "Diagnose why a CSS file that uses @import to include another CSS file stops receiving HMR updates after the first hot reload. Identify how the module graph tracks CSS @import edges and propose a fix.",
+      "anchorRef": "main",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: After the first HMR reload, the imported CSS file's module graph entry is replaced with the new version, but the parent CSS module's importers set is cleared or not updated in the new entry, so subsequent changes to the imported file no longer propagate invalidation to the parent.",
+        "H2: The CSS preprocessor plugin caches the resolved @import content keyed by file path. After the first hot reload the cache is not busted for the parent file, so the parent file returns the old @import result and its module graph entry appears unchanged, suppressing a new HMR update.",
+        "H3: The HMR update for a CSS @import dependency sets the acceptedPath to the imported file's path, but the accept boundary is registered on the parent's path; after the first update the parent's HMRContext is recreated (stale callbacks cleared), removing the accept registration."
+      ],
+      "disputeReason": "The CSS @import relationship is tracked in two places (the module graph importers set and the PostCSS/Sass cache); stale data in either causes the parent to stop receiving updates."
     }
   ]
 }

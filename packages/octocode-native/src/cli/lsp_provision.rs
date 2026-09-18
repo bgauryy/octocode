@@ -1,12 +1,10 @@
 //! LSP language-server provisioning for the native CLI: manifest data, managed
 //! cache resolution, and the download/verify/extract/install path.
 //!
-//! Faithful port of `octocode-engine/src/lsp/serverManifest.ts` +
-//! `serverProvisioner.ts`. Security invariants preserved: pinned-SHA gate
-//! (refuse when `sha256` is null), https host allowlist on every hop, atomic
-//! temp-write + chmod + rename, `.ok` completion marker written last, per-target
-//! lock. Archive support matches TS: `none`, `gz`, `zip` only; `tar.gz`/`tar.xz`
-//! return an explicit "install manually" error.
+//! Rust-owned provisioning requires pinned SHA-256 assets and allowed HTTPS
+//! hosts on every hop. It writes and marks completed executables atomically
+//! under per-target locks. Archive support is limited to `none`, `gz`, and
+//! `zip`; `tar.gz` and `tar.xz` return an explicit manual-install error.
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
@@ -69,7 +67,7 @@ const ALLOWED_HOSTS: [&str; 4] = [
     "releases.hashicorp.com",
 ];
 
-/// The auto-download manifest (source of truth: `serverManifestData.ts`).
+/// The canonical auto-download manifest.
 pub fn manifest() -> BTreeMap<&'static str, ManifestServer> {
     let mut servers = BTreeMap::new();
 

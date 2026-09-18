@@ -1,0 +1,13 @@
+{
+  "arm": "baseline",
+  "caseId": "BUG-09",
+  "repo": "vitejs/vite",
+  "issueNumber": 12423,
+  "octocodeCalls": 2,
+  "octocodeQueryRows": 4,
+  "toolErrorRows": 0,
+  "confidence": "medium",
+  "startedAt": "2026-09-18T10:00:00.000Z",
+  "endedAt": "2026-09-18T10:00:00.000Z",
+  "note": "vite queueUpdate source read"
+}

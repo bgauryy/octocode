@@ -6,7 +6,6 @@
         "@octocodeai/config",
         "@octocodeai/octocode-engine",
         "@octocodeai/octocode-engine-*",
-        "@octocodeai/octocode-tools-core",
         "octocode-mcp",
         "octocode"
       ],

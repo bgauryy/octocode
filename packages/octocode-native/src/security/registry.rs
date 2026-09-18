@@ -133,7 +133,6 @@ impl SensitiveDataPattern {
 #[derive(Clone, Debug, Default)]
 pub struct SecurityRegistry {
     secret_patterns: Vec<SensitiveDataPattern>,
-    allowed_commands: Vec<String>,
     allowed_roots: Vec<PathBuf>,
     ignored_path_patterns: Vec<Regex>,
     ignored_file_patterns: Vec<Regex>,
@@ -150,9 +149,6 @@ impl SecurityRegistry {
     }
     pub fn secret_patterns(&self) -> &[SensitiveDataPattern] {
         &self.secret_patterns
-    }
-    pub fn allowed_commands(&self) -> &[String] {
-        &self.allowed_commands
     }
     pub fn allowed_roots(&self) -> &[PathBuf] {
         &self.allowed_roots
@@ -176,26 +172,6 @@ impl SecurityRegistry {
                 .any(|existing| existing.name == pattern.name)
             {
                 self.secret_patterns.push(pattern);
-            }
-        }
-        self.version += 1;
-        Ok(())
-    }
-    pub fn add_allowed_commands(
-        &mut self,
-        commands: impl IntoIterator<Item = String>,
-    ) -> Result<(), PolicyError> {
-        self.mutable()?;
-        for command in commands {
-            if command.trim().is_empty() {
-                return Err(PolicyError::new(
-                    PolicyErrorCode::InvalidInput,
-                    "Each command must be a non-empty string",
-                ));
-            }
-            let command = normalize_command_name(&command);
-            if !self.allowed_commands.contains(&command) {
-                self.allowed_commands.push(command);
             }
         }
         self.version += 1;
@@ -260,7 +236,6 @@ impl SecurityRegistry {
     pub fn reset(&mut self) {
         self.frozen = false;
         self.secret_patterns.clear();
-        self.allowed_commands.clear();
         self.allowed_roots.clear();
         self.ignored_path_patterns.clear();
         self.ignored_file_patterns.clear();
@@ -278,15 +253,6 @@ impl SecurityRegistry {
     }
 }
 
-pub fn normalize_command_name(command: &str) -> String {
-    std::path::Path::new(command)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .trim_end_matches(".exe")
-        .to_ascii_lowercase()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,9 +260,9 @@ mod tests {
     fn registry_deduplicates_versions_and_freezes() {
         let mut registry = SecurityRegistry::default();
         registry
-            .add_allowed_commands(["/bin/RG".to_owned(), "rg".to_owned()])
+            .add_allowed_roots([PathBuf::from("/tmp")])
             .expect("security registry test setup should succeed");
-        assert_eq!(registry.allowed_commands(), ["rg"]);
+        assert_eq!(registry.allowed_roots(), [PathBuf::from("/tmp")]);
         assert_eq!(registry.version(), 1);
         registry.freeze();
         assert_eq!(

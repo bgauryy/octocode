@@ -28,6 +28,8 @@ export const structuralSearchDetailed = nativeBinding.structuralSearchDetailed;
 export const structuralSearchFiles = nativeBinding.structuralSearchFiles;
 export const structuralSearchFilesDetailed =
   nativeBinding.structuralSearchFilesDetailed;
+export const structuralRewriteContent = nativeBinding.structuralRewriteContent;
+export const structuralRewriteFiles = nativeBinding.structuralRewriteFiles;
 export const getSupportedStructuralExtensions =
   nativeBinding.getSupportedStructuralExtensions;
 export const getSemanticBoundaryOffsets =

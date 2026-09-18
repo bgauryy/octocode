@@ -1,0 +1,13 @@
+{
+  "arm": "baseline",
+  "caseId": "BUG-05",
+  "repo": "axios/axios",
+  "issueNumber": 5996,
+  "octocodeCalls": 3,
+  "octocodeQueryRows": 5,
+  "toolErrorRows": 0,
+  "confidence": "high",
+  "startedAt": "2026-09-18T10:00:00.000Z",
+  "endedAt": "2026-09-18T10:00:00.000Z",
+  "note": "axios source fully read"
+}

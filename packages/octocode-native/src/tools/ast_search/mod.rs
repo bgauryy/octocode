@@ -64,7 +64,6 @@ impl From<PolicyError> for AstError {
             PolicyErrorCode::InvalidInput => "invalidInput",
             PolicyErrorCode::InputTooLarge => "inputTooLarge",
             PolicyErrorCode::BinaryContent => "binaryContent",
-            PolicyErrorCode::CommandDenied => "commandDenied",
             PolicyErrorCode::RegistryFrozen => "registryFrozen",
             PolicyErrorCode::UnsupportedRegex => "unsupportedRegex",
             PolicyErrorCode::Io => "io",

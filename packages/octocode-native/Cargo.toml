@@ -41,7 +41,6 @@ bytes = "1"
 futures-util = "0.3"
 secrecy = "0.10"
 keyring-core = "1"
-aes-gcm = "0.11"
 hex = "0.4"
 zeroize = "1"
 octocode-engine = { path = "../octocode-engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }

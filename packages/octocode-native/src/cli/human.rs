@@ -736,8 +736,8 @@ pub async fn context(runtime: &ToolRuntime, json_out: bool, full: bool, minimal:
     }
 }
 
-/// Resolve authentication: checks env vars, then OS keychain, then credentials.json
-/// at OCTOCODE_HOME, then gh CLI.
+/// Resolve authentication: checks environment variables, the OS credential
+/// store, and then the GitHub CLI.
 /// Returns `(authenticated, username, source, raw_token)`.
 /// - `username` is populated natively only for the platform-keychain source.
 /// - `raw_token` is the credential secret when we can expose it (env / file / gh-cli);
@@ -776,8 +776,8 @@ fn resolve_auth(
     host: &str,
 ) -> (bool, Option<String>, &'static str, Option<String>) {
     use octocode_native::providers::github::{
-        CredentialSourceProvider, GhCliCredentialSource, LegacyCredentialStore,
-        PlatformCredentialStore, load_stored_credentials,
+        CredentialSourceProvider, GhCliCredentialSource, PlatformCredentialStore,
+        load_stored_credentials,
     };
     use secrecy::ExposeSecret;
     // 1. Environment variables (fast, no I/O)
@@ -791,7 +791,6 @@ fn resolve_auth(
             return (true, None, "env", Some(v.to_owned()));
         }
     }
-    let home = runtime.inspect_config().home;
     // 2. OS platform keychain — username comes from keychain metadata directly
     if matches!(PlatformCredentialStore.load_blocking(host), Ok(Some(_))) {
         let username = load_stored_credentials(host)
@@ -801,12 +800,7 @@ fn resolve_auth(
             .filter(|u| !u.is_empty());
         return (true, username, "platform", None);
     }
-    // 3. credentials.json at OCTOCODE_HOME (written by the JS CLI)
-    if let Ok(Some(secret)) = LegacyCredentialStore::new(&home).load_blocking(host) {
-        let token = secret.expose_secret().to_owned();
-        return (true, None, "file", Some(token));
-    }
-    // 4. gh CLI token
+    // 3. gh CLI token
     if let Ok(Some(secret)) = GhCliCredentialSource.load_blocking(host) {
         let token = secret.expose_secret().to_owned();
         return (true, None, "gh-cli", Some(token));
