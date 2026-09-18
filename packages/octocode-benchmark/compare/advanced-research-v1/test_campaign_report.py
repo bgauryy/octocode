@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 import unittest
@@ -130,8 +131,7 @@ class CampaignReportTests(unittest.TestCase):
             self.assertEqual(campaign_report.main(["--campaign", str(root), "--output", str(output)]), 0)
             self.assertTrue(json.loads(output.read_text())["verified"])
 
-    def test_current_protocol_replays_a_real_field_form_with_its_frozen_bridge(self):
-        import cli_input
+    def test_current_protocol_replays_a_real_positional_query(self):
         import pilot
 
         with tempfile.TemporaryDirectory() as directory:
@@ -141,15 +141,15 @@ class CampaignReportTests(unittest.TestCase):
             source = corpus / "fixture.py"
             source.write_text("value = 1\n", encoding="utf-8")
             report = campaign(root, arms=("octocode", "raw-tools"))
-            bridge = cli_input.prepare_bridge(root)
             cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
             for row in report["results"]:
                 row["protocol"] = pilot.PROTOCOL
                 row["budgets"] = {name: getattr(pilot.Budgets(), name) for name in pilot.Budgets.__dataclass_fields__}
                 events_path = root / f"{row['case']}-p{row['passNumber']:02}-{row['arm']}" / "events.jsonl"
                 events = [json.loads(line) for line in events_path.read_text().splitlines()]
+                query = json.dumps({"reasoning": "Read the campaign fixture.", "path": str(source)})
                 events[0]["item"]["command"] = (
-                    f"node {cli} tools localFetch --path {source}"
+                    shlex.join(["node", str(cli), "tools", "localFetch", query])
                     if row["arm"] == "octocode" else f"rg value {source}"
                 )
                 events.append({"type": "item.completed", "item": {
@@ -160,16 +160,11 @@ class CampaignReportTests(unittest.TestCase):
             report["plan"]["protocol"] = pilot.PROTOCOL
             report["preflight"] = {
                 "cli": str(cli),
-                "flagBridge": str(bridge),
-                "flagBridgeSha256": digest(bridge),
-                "flagParserSha256": digest(Path(cli_input.__file__)),
-                "flagBridgeSourceSha256": digest(Path(cli_input._BRIDGE_SOURCE)),
                 "runnerSha256": digest(Path(pilot.__file__)),
                 "corpora": {"fixture": {"path": str(corpus)}},
             }
             write_json(root / "report.json", report)
-            write_json(root / "manifest.json", {"report.json": digest(root / "report.json"),
-                                                  bridge.name: digest(bridge)})
+            write_json(root / "manifest.json", {"report.json": digest(root / "report.json")})
             actual = campaign_report.verify_campaign(root)
         self.assertEqual(actual["errors"], [], actual)
         self.assertTrue(actual["auditReplay"]["attempted"])

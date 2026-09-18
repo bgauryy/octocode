@@ -1,0 +1,11 @@
+{
+  "caseId": "BUG-09",
+  "scoreA": 9,
+  "scoreB": 9.5,
+  "winner": "B",
+  "majorFalseClaimA": false,
+  "majorFalseClaimB": false,
+  "jevChangeEvident": true,
+  "rationale": "Both arms correctly identify H2 (pendingUpdateQueue flag cleared before Promise.all) and correctly rule out H1 (Promise.all preserves input order per spec). Treatment adds Jev confirmation (claim_status: supported at 0.87, decisive_basis B1 at 0.93) and more explicitly rules out H1 with the Promise.all ordering argument. Decision snapshot documents clear before/after: H1 ruled out with 0.87 confidence. Jev influence is evident and the reasoning chain is cleaner.",
+  "gradedAt": "2026-09-18T11:00:00.000Z"
+}

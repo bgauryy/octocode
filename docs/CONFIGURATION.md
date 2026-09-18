@@ -495,6 +495,16 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 | `REQUEST_TIMEOUT` | `network.timeout` | `30000` ms | 5 000 – 300 000 |
 | `MAX_RETRIES` | `network.maxRetries` | `3` | 0 – 10 |
 
+#### Jev reasoning
+
+| Env var | Default | Notes |
+|---------|---------|-------|
+| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`; keep it in the process environment or a protected Octocode environment source. |
+| `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional model override. A query-level `model` takes precedence. |
+| `OCTOCODE_JEV_BASE_URL` | `https://api.typesafe.ai` | Optional trusted API root. Octocode sends the key to this origin, rejects redirects, and requires HTTPS except for loopback development servers. |
+
+The tool applies its deterministic action-change, direct-check, evidence-freshness, and one-call gates before provider access. Removing or blanking the resolved key removes `jevReasoning` from MCP registration.
+
 #### Output
 
 | Env var | `.octocoderc` key | Default | Notes |

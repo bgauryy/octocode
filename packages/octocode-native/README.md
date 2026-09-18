@@ -5,8 +5,8 @@
 
 Native Rust CLI for Octocode research tools. Runs the same tool engine used by
 the MCP server and the Node CLI — local file search, AST analysis, LSP
-semantics, GitHub, and package lookup — as a standalone binary with no Node
-dependency.
+semantics, GitHub, package lookup, and credential-gated Jev reasoning — as a
+standalone binary with no Node dependency.
 
 ```sh
 $ octocode --version
@@ -249,6 +249,7 @@ All LSP commands accept: `--symbol <name>` `--line <n>` `--character <n>` `--ope
 octocode tools                          # list enabled tools
 octocode tools <name> --scheme          # print the complete tool contract
 octocode tools <name> '<json>'          # run with a raw JSON query
+octocode <name> '<json>'                # direct tool-name form, including jevReasoning
 octocode tools <name> --json --compact  # schema in compact JSON
 ```
 

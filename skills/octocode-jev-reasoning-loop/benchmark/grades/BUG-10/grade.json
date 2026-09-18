@@ -1,0 +1,11 @@
+{
+  "caseId": "BUG-10",
+  "scoreA": 8.3,
+  "scoreB": 8.1,
+  "winner": "A",
+  "majorFalseClaimA": false,
+  "majorFalseClaimB": false,
+  "jevChangeEvident": false,
+  "rationale": "Both arms correctly identify H3 (HMRContext constructor clears callbacks; CSS transform-time registration not re-run on reload) directly from source. Treatment applies GATE=deterministic correctly (H3 is mechanistically confirmed from source — no inference dispute remains). Both propose similar fixes. Treatment advantage is marginal: better gate classification and calibration. No Jev call is correct given the deterministic nature.",
+  "gradedAt": "2026-09-18T11:00:00.000Z"
+}

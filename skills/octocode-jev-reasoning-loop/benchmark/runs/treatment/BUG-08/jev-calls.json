@@ -1,0 +1,27 @@
+{
+  "caseId": "BUG-08",
+  "arm": "treatment",
+  "totalCalls": 1,
+  "calls": [
+    {
+      "route": "disputed_inference",
+      "model": "jev-1.13.0",
+      "inputBytes": 2041,
+      "requestBytes": 2856,
+      "apiCalls": 1,
+      "inputTokens": 1198,
+      "outputTokens": 97,
+      "decisions": {
+        "claim_status": {
+          "selected": "insufficient",
+          "probability": 0.53
+        },
+        "decisive_basis": {
+          "selected": "B1",
+          "probability": 0.81
+        }
+      },
+      "status": "blocked"
+    }
+  ]
+}

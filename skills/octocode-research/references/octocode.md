@@ -6,19 +6,17 @@ Load when tool selection, transport, availability, or recovery is unclear. The l
 Prefer exposed Octocode MCP tools with current public contracts. If unavailable, use the built checkout CLI; an installed skill can use `npx -y octocode`. These share core-owned contracts and the native Rust runtime. Do not substitute a legacy tool with different fields.
 
 ```bash
-node packages/octocode/out/octocode.js context --compact
+node packages/octocode/out/octocode.js context
 node packages/octocode/out/octocode.js tools --json --compact
 node packages/octocode/out/octocode.js tools localSearch --scheme --json --compact
 node packages/octocode/out/octocode.js tools localSearch --queries '{"path":"/ABS/repo/src","searchText":"needle","maxFiles":10}' --compact
 ```
 
-Run `context --compact` once per session or tool-version change to discover enabled tools and the runtime grammar inventory. Treat that inventory as authoritative: a displayed language name, grammar ID, or alias selects its family; a dot-prefixed extension selects exactly; parser availability does not imply LSP availability. Never copy a static grammar list into a skill. Use `context --minimal` only when inventory is unnecessary.
-
-Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use full schema JSON when compact fields do not resolve a condition. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.
+Run `context` once per session or tool-version change to discover enabled tools and the runtime grammar inventory. Treat that inventory as authoritative: a displayed language name, grammar ID, or alias selects its family; a dot-prefixed extension selects exactly; parser availability does not imply LSP availability. Never copy a static grammar list into a skill. Inspect an unfamiliar schema once, including relations and operation variants; reuse it until the tool/version changes. Use full schema JSON when compact fields do not resolve a condition. Explicit commands above work in Bash and zsh without splitting a command stored in a scalar.
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 
-## 11 public tools
+## 12 public tools
 
 | Evidence question | Tool |
 |---|---|
@@ -28,8 +26,9 @@ Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also 
 | Repeated cross-file GitHub analysis | `ghCloneRepo` when enabled |
 | Local text / syntax or topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astRewrite` / `localFetch` / `lspSearch` |
 | Package metadata or capability discovery | `artifactSearch` |
+| Provisional typed judgment at an unresolved evidence fork | `jevReasoning` when a nonblank `OCTOCODE_JEV_KEY` is resolved |
 
-The default catalog contains 10 tools; the full discovery catalog includes opt-in `ghCloneRepo`. Local access, clone, storage, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
+The default catalog contains 10 tools. The full discovery catalog also includes opt-in `ghCloneRepo` and credential-gated `jevReasoning`. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 
 ## Output and recovery
 - CLI default is YAML; `--compact` gives structured data; `--json` gives the full MCP-style envelope. MCP returns text plus structured data. Inspect per-row status: error is failure, empty is scoped absence, and exit 0 alone does not establish success for every row.

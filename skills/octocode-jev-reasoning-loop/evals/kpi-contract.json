@@ -41,7 +41,7 @@
     "tokens, tool calls, elapsed time, and unnecessary Jev calls remain within frozen budgets",
     "existing offline transport and research tests pass",
     "all request schemas pass structural verification and native dry-run",
-    "emitted requests contain only model, state, and questions",
+    "emitted requests contain only model, state, and questions; optional input context is nested under state.context",
     "skill review reports zero ERROR"
   ],
   "decisionRule": "ACCEPT the compact runner only when frozen ergonomics targets and implementation guards pass. Claim semantic improvement only when a matched held-out host baseline improves Wrong-Lean Recovery Rate without false-recovery, unsupported-claim, correctness, or cost regression. Absolute characterization and contract-valid judgments alone are not comparative benefit evidence."

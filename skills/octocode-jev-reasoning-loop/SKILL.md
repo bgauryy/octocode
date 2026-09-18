@@ -1,6 +1,6 @@
 ---
 name: octocode-jev-reasoning-loop
-description: "Use when you hit a research fork you cannot cheaply settle: an attractive-but-unproven lead, contradictory evidence, a hunch on thin basis, or a claim about to be asserted. Think in the open first (structured CoT), then let Jev score your named alternatives and return a typed, provisional judgment. Jev is a fast decision primitive that calibrates your reasoning; it never supplies facts, alternatives, or the answer. Skip when a lookup, test, version, or obvious next action already decides the step."
+description: "Use when a high-cost or difficult-to-reverse plan needs viability/risk review, or when a semantic research fork has no cheap deterministic check: competing hypotheses, changed evidence, or a bounded claim. Think openly first; Jev returns a typed provisional judgment over caller-supplied state. It never supplies facts or the answer. Skip when a lookup, test, version, or obvious action decides."
 ---
 # Octocode Jev reasoning loop
 
@@ -11,16 +11,16 @@ routes: load/run a reference, doc, script, or scheme only when it changes the ne
 
 Flow: `THINK (System-2 CoT) → GATE → CALL Jev (System-1) → TYPED PROVISIONAL JUDGMENT → UPDATE / ABANDON / ASSERT`.
 
-**Two systems.** You supply slow, deliberate reasoning (System-2 CoT); Jev is a fast typed decision primitive (System-1) that scores the alternatives you named. It owns no facts or conclusions and never becomes evidence. The split fits any model size: the primitive runs on a small local model, and the THINK step gives a small host model the deliberation a large one has natively.
+**Two systems.** You supply deliberate reasoning (System-2 CoT); Jev is a fast typed primitive (System-1) that scores your alternatives. It owns no facts or conclusions and never becomes evidence.
 
 ## Step 1 — THINK (mandatory, before any call)
 
 Externalize a bounded, shareable summary — never private scratch:
 
-1. **Observations** — what the evidence shows, with source anchors.
-2. **Alternatives** — 2–5 competing answers you name (Jev never invents them).
-3. **Falsifier** — the one observation that would kill your leading alternative.
-4. **Anchor check** — have you only sought confirming evidence? Is your basis one observation? About to write "clearly/obviously"? Any "yes" is a real fork.
+1. **Observations** — evidence with source anchors.
+2. **Alternatives** — 2–5 answers you name.
+3. **Falsifier** — what would kill the lead.
+4. **Anchor check** — confirmation-only search, one-observation basis, or “obvious” wording means a real fork.
 
 If thinking settles the step, **stop — do not call Jev.**
 
@@ -30,15 +30,18 @@ If thinking settles the step, **stop — do not call Jev.**
 |---|---|---|
 | A lookup, test, version, or exact source read gives one right answer | `deterministic` | **No** — decide from evidence |
 | A needed fact, source, or result is absent | `missing_fact` | **No** — retrieve, or report insufficiency |
-| Two source-backed interpretations remain, no cheap check settles them, and the choice changes your next action | `disputed_inference` | **Yes** — one bounded call |
+| Executing or revising a supplied plan is high-cost, difficult to reverse, or a close judgment | `decision_review` | **Yes** — review viability, primary risk, and evidence need |
+| Collected evidence leaves one bounded factual or causal claim disputed | `disputed_inference` | **Yes** — check status and decisive evidence basis |
 
-A forced call on a decided question adds tokens and narrative without changing the answer. Most steps end here, uncalled.
+Judge the object, not the wording: “the plan is ready” remains `decision_review`; factual claim status uses `disputed_inference`. Skip forced calls that cannot change action.
 
 ## Step 3 — CALL (one judgment at the fork)
 
+- **Costly plan?** proposal + assumptions + risks → `decision_review`. “More evidence” returns to deterministic retrieval, not a claim check.
 - **Am I anchored?** an attractive lead not yet falsified → `hunch_check` (weak signal) or `hypothesis_triage` (2–5 leads + a discriminating check). Keep the lead provisional.
 - **Did new evidence move me?** one material observation after a frozen check → `reflection_delta` (update, abandon, or reframe). Send only material new evidence.
-- **Safe to assert?** a claim about to be stated → `hallucination_gate` / `disputed_inference` (proceed, qualify, or block). If blocked, reopen the source.
+- **Does collected evidence settle one proposition?** one bounded factual or causal claim → `disputed_inference` (supported, contradicted, insufficient, or conflicting). If blocked, reopen the selected source; do not repeat-vote.
+- **Safe to assert?** an evidence-backed claim about to be stated → `hallucination_gate` (proceed, qualify, or block).
 
 Build compact input from `assets/run-loop-input.schema.json` (route + `willChangeAction` + route state), then:
 
@@ -58,4 +61,4 @@ The runner routes deterministically, skips inert and direct-check calls, validat
 - For live-call auth, set `OCTOCODE_JEV_KEY` per `references/configuration.md`.
 - For provenance load `references/references.md`; for a structured host checkpoint load `references/deliberation.md`.
 
-After runtime edits run `npm test`, `scripts/eval-run-loop.mjs`, and `scripts/verify-reasoning-loop.mjs`; `npm test` owns `scripts/test.mjs`, `scripts/research.test.mjs`, `scripts/decision.test.mjs`, and `scripts/run-loop.test.mjs`. Run `scripts/eval-decision-loop.mjs` for routing and `scripts/eval-recovery-heldout.mjs` for recovery. Packaging uses `package.json`, `scripts/build.mjs`, and `bin/octocode-jev-darwin-arm64`. Then run the `octocode-skills` reviewer. Artifacts under `<output>/octocode-jev-reasoning-loop/`; scratch under `<output>/tmp/octocode-jev-reasoning-loop/`.
+After runtime edits run `npm test`; it owns `scripts/test.mjs`, `scripts/research.test.mjs`, `scripts/decision.test.mjs`, `scripts/run-loop.test.mjs`, `scripts/verify-reasoning-loop.mjs`, `scripts/eval-decision-loop.mjs`, `scripts/eval-run-loop.mjs`, and `scripts/eval-recovery-heldout.mjs`. Then run the `octocode-skills` reviewer. Packaging uses `package.json`, `scripts/build.mjs`, and `bin/octocode-jev-darwin-arm64`. Artifacts go under `<output>/octocode-jev-reasoning-loop/`; scratch uses `<output>/tmp/octocode-jev-reasoning-loop/`.

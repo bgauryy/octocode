@@ -149,6 +149,9 @@ fn fallback_hint(tool: &str, query: &Value) -> Option<&'static str> {
         "ghSearchHistory" => Some("Broaden keywords or remove history filters."),
         "ghGetHistoryItem" => Some("Verify owner/repo and the number, ref, or compare refs."),
         "artifactSearch" => Some("Check packageName, or broaden keywords."),
+        "jevReasoning" => Some(
+            "Inspect the deterministic gate, bounded evidence, route state, model, or Jev credentials.",
+        ),
         "ghCloneRepo" => Some("Verify owner/repo/branch and sparsePath."),
         "localSearch" => Some("Broaden searchText, path, or filters."),
         "astSearch"
@@ -444,7 +447,7 @@ fn evidence_kind<'a>(tool: &'a str, query: &Value, data: &Value) -> &'a str {
             _ => "semantic",
         },
         "localSearch" => "lexical",
-        "artifactSearch" => "provider",
+        "artifactSearch" | "jevReasoning" => "provider",
         name if name.starts_with("gh") => "provider",
         _ => "exact",
     }

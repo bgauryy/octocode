@@ -1,0 +1,12 @@
+{
+  "caseId": "BUG-08",
+  "arm": "treatment",
+  "phase": "after-jev",
+  "leadHypothesis": "H1",
+  "leadConfidence": 0.55,
+  "directionChanged": false,
+  "confidenceChanged": true,
+  "jevInfluence": "confirmed_lead",
+  "note": "GATE=disputed_inference; Jev: insufficient 0.53 — conservative fix recommended",
+  "decisionChangedByJev": false
+}

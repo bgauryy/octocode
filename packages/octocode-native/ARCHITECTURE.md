@@ -16,7 +16,7 @@ The CLI never loads N-API or JavaScript. The MCP addon and native CLI call the s
 
 ## Public catalog
 
-The runtime executes all eleven tools:
+The runtime executes all twelve tools:
 
 - `ghSearch`
 - `ghGetFileContent`
@@ -29,8 +29,9 @@ The runtime executes all eleven tools:
 - `astSearch`
 - `astRewrite`
 - `lspSearch`
+- `jevReasoning`
 
-Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. Contract preparation accepts direct, array, and `{ "queries": [...] }` forms, validates the complete bulk envelope, and preserves ordered row indexes and isolated domain failures.
+Availability is resolved natively. GitHub and artifact tools are enabled by default; local tools honor local policy; cloning requires its feature gate and persistent storage. `jevReasoning` is available only when the resolved `OCTOCODE_JEV_KEY` is nonblank. Contract preparation accepts direct, array, and `{ "queries": [...] }` forms, validates the complete bulk envelope, and preserves ordered row indexes and isolated domain failures.
 
 ## Ownership
 

@@ -1,0 +1,12 @@
+{
+  "caseId": "BUG-05",
+  "arm": "treatment",
+  "phase": "after-jev",
+  "leadHypothesis": "H1",
+  "leadConfidence": 0.99,
+  "directionChanged": false,
+  "confidenceChanged": true,
+  "jevInfluence": "confirmed_lead",
+  "note": "GATE=disputed_inference; Jev: claim supported 0.99; H3 ruled out",
+  "decisionChangedByJev": false
+}

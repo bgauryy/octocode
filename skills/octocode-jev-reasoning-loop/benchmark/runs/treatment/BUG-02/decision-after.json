@@ -1,0 +1,12 @@
+{
+  "caseId": "BUG-02",
+  "arm": "treatment",
+  "phase": "after-jev",
+  "leadHypothesis": "H1_H2",
+  "leadConfidence": 0.72,
+  "directionChanged": false,
+  "confidenceChanged": false,
+  "jevInfluence": "none",
+  "note": "GATE=deterministic; H2 confirmed as architectural root; H1 is consequence",
+  "decisionChangedByJev": false
+}

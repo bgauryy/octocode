@@ -1,0 +1,14 @@
+{
+  "caseId": "BUG-03",
+  "arm": "treatment",
+  "phase": "before-jev",
+  "leadHypothesis": "H1",
+  "leadConfidence": 0.75,
+  "altConfidence": {
+    "H2": 0.15,
+    "H3": 0.1
+  },
+  "gateClassification": "deterministic",
+  "willCallJev": false,
+  "reason": "GATE=deterministic; PrerenderStore imports + docs confirm segment-level marking"
+}

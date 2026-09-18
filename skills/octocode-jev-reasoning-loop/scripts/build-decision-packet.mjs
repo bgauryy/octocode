@@ -3,7 +3,7 @@ import { buildDecisionPacket, DEFAULT_POLICY } from './decision-contract.mjs';
 import { parseFlags, print, readJson, stop } from './cli-json.mjs';
 
 if (process.argv.slice(2).some(arg => ['--help', '-h'].includes(arg))) {
-  console.log('Usage: node scripts/build-decision-packet.mjs --input FILE|- [--policy FILE] [--pretty]\nBuilds and validates one public Jev request from a structured DecisionBrief. Prefer stdin so the brief stays ephemeral. Output contains only model, state, and questions.');
+  console.log('Usage: node scripts/build-decision-packet.mjs --input FILE|- [--policy FILE] [--pretty]\nBuilds and validates one public Jev request from a structured DecisionBrief. Prefer stdin so the brief stays ephemeral. Output contains only model, state, and questions; optional shareable input context is nested under state.context.');
   process.exit(0);
 }
 try {

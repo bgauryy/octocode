@@ -16,11 +16,11 @@ class CampaignContext(unittest.TestCase):
     def test_canonical_discovery_grammar_and_budget(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
         for suffix in ("tools", "tools --json --compact", "tools --json", "tools --help",
-                       "context", "context --compact", "context --minimal", "context --full",
+                       "context", "context --minimal", "context --full",
                        "context --minimal --json", "context --json"):
             self.assertIsNone(policy.audit(f"node {self.cli} {suffix}"), suffix)
         for suffix in ("tools --json --path /tmp", "tools --queries '{}'", "tools --json --json",
-                       "context --minimal --full", "context --compact --compact",
+                       "context --minimal --full", "context --compact",
                        "context --path /tmp", "context --env x", "tools astRewrite --queries '{}'",
                        "tools ghCloneRepo --queries '{}'", "skill install x"):
             self.assertIsNotNone(policy.audit(f"node {self.cli} {suffix}"), suffix)
@@ -35,7 +35,7 @@ class CampaignContext(unittest.TestCase):
         import subprocess
         cli = pilot.WORKSPACE / "packages/octocode/out/octocode.js"
         policy = pilot.Policy("octocode", cli, [self.corpus])
-        for args in (("tools", "--json", "--compact"), ("context", "--compact"),
+        for args in (("tools", "--json", "--compact"),
                      ("context", "--full"), ("context", "--minimal"),
                      ("context", "--minimal", "--json")):
             argv = ["node", str(cli), *args]
@@ -43,30 +43,31 @@ class CampaignContext(unittest.TestCase):
                 self.assertIsNone(policy.audit(shlex.join(argv)))
                 result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                self.assertIn("localSearch", result.stdout)
+                if args != ("context", "--minimal"):
+                    self.assertIn("localSearch", result.stdout)
                 if args[0] == "tools":
                     self.assertIn("localSearch", {row["name"] for row in json.loads(result.stdout)["tools"]})
     def test_cli_query_envelopes_preserve_every_scope_check(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        for payload in ({"queries": [{"path": str(self.source)}]},
-                        [{"path": str(self.source)}], {"path": str(self.source)}):
+        query = {"reasoning": "Read the scoped fixture.", "path": str(self.source)}
+        for payload in ({"queries": [query]}, [query], query):
             command = f"node {self.cli} tools localFetch --queries {shlex.quote(json.dumps(payload))} --compact"
             self.assertIsNone(policy.audit(command))
-        for payload in ({"queries": []}, {"queries": [{"path": str(self.source)}, {"path": "/etc/passwd"}]},
-                        {"queries": [{"path": str(self.source)}], "extra": True}):
+        for payload in ({"queries": []}, {"queries": [query, {"reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]},
+                        {"queries": [query], "extra": True}):
             command = f"node {self.cli} tools localFetch --queries {shlex.quote(json.dumps(payload))} --compact"
             self.assertIsNotNone(policy.audit(command))
 
     def test_response_continuation_envelope_preserves_scope_and_owns_no_schema_validation(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus])
-        payload = {"queries": [{"path": str(self.source)}], "responseCharLength": 1000,
+        payload = {"queries": [{"reasoning": "Read the scoped fixture.", "path": str(self.source)}], "responseCharLength": 1000,
                    "responseCharOffset": 1000, "responseSnapshot": "response-v1:fixture"}
         def audit(value):
             return policy.audit(f"node {self.cli} tools localFetch --queries {shlex.quote(json.dumps(value))} --compact")
         self.assertIsNone(audit(payload))
         self.assertIsNone(audit({**payload, "responseCharLength": "invalid-runtime-schema-value"}))
         self.assertIsNotNone(audit({**payload, "extra": True}))
-        self.assertIsNotNone(audit({**payload, "queries": [{"path": str(self.source)}, {"path": "/etc/passwd"}]}))
+        self.assertIsNotNone(audit({**payload, "queries": [payload["queries"][0], {"reasoning": "Attempt an unscoped read.", "path": "/etc/passwd"}]}))
 
     def test_whole_response_continuations_execute_unmodified_through_real_cli(self):
         import subprocess
@@ -76,7 +77,7 @@ class CampaignContext(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=pilot.WORKSPACE / ".octocode/tmp", prefix="response fixture ") as root:
             source = Path(root) / "source.py"
             source.write_text("".join(f"fixture source line {line}\n" for line in range(1, 101)))
-            query = {"queries": [{"path": str(source), "startLine": 1, "endLine": 100}], "responseCharLength": 1024}
+            query = {"queries": [{"reasoning": "Page the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 100}], "responseCharLength": 1024}
             policy = pilot.Policy("octocode", cli, [root])
             offsets, pages = [], []
             while True:
@@ -110,7 +111,7 @@ class CampaignContext(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=pilot.WORKSPACE / ".octocode/tmp", prefix="envelope fixture ") as root:
             source = Path(root) / "source.py"
             source.write_text("pass\n")
-            payload = {"queries": [{"path": str(source), "startLine": 1, "endLine": 1}]}
+            payload = {"queries": [{"reasoning": "Read the bounded local fixture.", "path": str(source), "startLine": 1, "endLine": 1}]}
             argv = ["node", str(cli), "tools", "localFetch", "--queries", json.dumps(payload), "--compact"]
             self.assertIsNone(pilot.Policy("octocode", cli, [root]).audit(shlex.join(argv)))
             result = subprocess.run(argv, capture_output=True, text=True, timeout=30)
@@ -136,8 +137,8 @@ class CampaignContext(unittest.TestCase):
 
     def test_read_only_remote_scope_requires_selected_repository_and_pinned_content(self):
         policy = pilot.Policy("octocode", self.cli, [self.corpus], remote=True)
-        query = {"owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts",
-                 "branch": pilot.COMMITS["nextjs"]}
+        query = {"reasoning": "Read the pinned remote fixture.", "owner": "vercel", "repo": "next.js",
+                 "path": "packages/next/src/server/config.ts", "branch": pilot.COMMITS["nextjs"]}
         def audit(tool, value):
             return policy.audit(f"node {self.cli} tools {tool} --queries {shlex.quote(json.dumps(value))} --compact")
         self.assertIsNone(audit("ghGetFileContent", query))

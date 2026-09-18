@@ -6,11 +6,13 @@ Load when naming the semantic signal and schema after deterministic routing. Why
 |---|---|---|---|
 | `hunch_check` | A weak signal exists but no competing deck is ready. | `assets/hunch.schema.json` | Promote or drop the hunch. |
 | `hypothesis_triage` | Two to five testable explanations and precommitted branchable checks exist. | `assets/hypothesis-triage.schema.json` | Provisional lead and discriminating check. |
-| `decision_review` | A planned action is high-cost, close, or difficult to reverse. | `assets/decision-review.schema.json` | Viability, primary supplied risk, and evidence need. |
+| `decision_review` | The next action is to execute, revise, or reject a supplied plan that is high-cost, close, or difficult to reverse. | `assets/decision-review.schema.json` | Viability, primary supplied risk, and evidence need. |
 | `reflection_delta` | One material observation arrived after a hypothesis check. | `assets/reflection-delta.schema.json` | Effect on prior lead, updated lead, and reframe signal. |
 | `disputed_inference` | Evidence is collected for one bounded claim. | `assets/claim-check.schema.json` | Supported, contradicted, insufficient, or conflicting plus basis. |
 | `hallucination_gate` | One evidence-backed claim is about to be asserted. | `assets/hallucination-gate.schema.json` | Proceed, qualify, or block. |
 | `apply` | Any Jev response succeeded. | `assets/apply-output.schema.json` | Provisional caller-owned action record. |
+
+Choose the judgment object before the grammar: a migration, architecture, rollout, or other proposal remains `decision_review` even if restated as the claim “this plan is ready.” Use `disputed_inference` only when the required output is the evidential status of one bounded factual or causal proposition.
 
 Do not route exact facts, arithmetic, permissions, dates, versions, empty-evidence assertions, stale evidence, or already-obvious checks to Jev. Do not add a Jev question merely because the primitive can express it: if the answer cannot change the next action, skip it. Run `scripts/route-decision.mjs` first when the boundary is uncertain.
 

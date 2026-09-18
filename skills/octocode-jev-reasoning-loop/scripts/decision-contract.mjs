@@ -106,6 +106,12 @@ export function prepareCompactRun(input, policy = DEFAULT_POLICY) {
   if (!Object.hasOwn(ROUTE_TYPES, input.route)) throw new Error(`$.route expected one of ${Object.keys(ROUTE_TYPES).join(', ')}; received ${JSON.stringify(input.route)}.`);
   if (typeof input.willChangeAction !== 'boolean') throw new Error(`$.willChangeAction expected boolean; received ${JSON.stringify(input.willChangeAction)}.`);
   if (!isObject(input.state)) throw new Error(`$.state expected object; received ${JSON.stringify(input.state)}.`);
+  if (input.context !== undefined && !isObject(input.context)) throw new Error(`$.context expected object; received ${JSON.stringify(input.context)}.`);
+  if (isObject(input.context)) {
+    for (const field of ['cot', 'thinking']) {
+      if (Object.hasOwn(input.context, field) && (!nonempty(input.context[field]) || input.context[field].length > 4000)) throw new Error(`$.context.${field} expected a nonempty shareable summary of at most 4000 characters.`);
+    }
+  }
   if (input.directCheck !== undefined && (!isObject(input.directCheck) || typeof input.directCheck.available !== 'boolean' || input.directCheck.available && !nonempty(input.directCheck.action))) {
     throw new Error('$.directCheck expected { available: boolean, action?: nonempty string }; received an invalid value.');
   }
@@ -137,6 +143,7 @@ export function prepareCompactRun(input, policy = DEFAULT_POLICY) {
   const request = buildDecisionPacket({
     route: input.route,
     model: input.model,
+    context: input.context,
     decisionBrief: brief,
     state: input.state,
     jevCallsAtCrossroad: input.jevCallsAtCrossroad
@@ -339,6 +346,13 @@ export function buildDecisionPacket(input, policy = DEFAULT_POLICY) {
   if (!ROUTE_TYPES[input.route]) throw new Error(`Route '${input.route}' does not require a Jev packet.`);
   const state = structuredClone(input.state || {});
   state.reasoning = publicReasoning(input.decisionBrief);
+  if (input.context !== undefined) {
+    if (!isObject(input.context)) throw new Error(`context expected an object; received ${JSON.stringify(input.context)}.`);
+    for (const field of ['cot', 'thinking']) {
+      if (Object.hasOwn(input.context, field) && (!nonempty(input.context[field]) || input.context[field].length > 4000)) throw new Error(`context.${field} expected a nonempty shareable summary of at most 4000 characters.`);
+    }
+    state.context = structuredClone(input.context);
+  }
   const packet = {
     model: input.model || 'jev-latest',
     state,

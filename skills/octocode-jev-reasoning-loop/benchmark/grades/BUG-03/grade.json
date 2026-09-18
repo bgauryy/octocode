@@ -1,0 +1,11 @@
+{
+  "caseId": "BUG-03",
+  "scoreA": 7.3,
+  "scoreB": 8.5,
+  "winner": "B",
+  "majorFalseClaimA": false,
+  "majorFalseClaimB": false,
+  "jevChangeEvident": false,
+  "rationale": "Both correctly identify segment-level dynamic marking (H1) grounded in PrerenderStore imports. Treatment adds explicit GATE=deterministic classification, proposes three concrete fix paths (PPR, searchParams prop, client component), and correctly contextualizes PPR as the existing mechanism that partially addresses this. Baseline is accurate but fix proposal is thinner. Clear treatment advantage on fix specificity.",
+  "gradedAt": "2026-09-18T11:00:00.000Z"
+}

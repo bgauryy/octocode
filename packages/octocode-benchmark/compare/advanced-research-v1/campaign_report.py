@@ -144,7 +144,6 @@ def _ratio(numerator, denominator):
 
 
 def _replay_current_protocol(report, rows, root, errors):
-    import cli_input
     import pilot
 
     PROTOCOL = pilot.PROTOCOL
@@ -156,18 +155,10 @@ def _replay_current_protocol(report, rows, root, errors):
     if not isinstance(preflight, dict):
         result["reason"] = "current protocol lacks frozen preflight"
         return result
-    cli, bridge_name = preflight.get("cli"), preflight.get("flagBridge")
+    cli = preflight.get("cli")
     roots = [item.get("path") for item in preflight.get("corpora", {}).values() if isinstance(item, dict)]
-    bridge = _safe_file(root, str(Path(bridge_name).resolve().relative_to(root)) if isinstance(bridge_name, str)
-                        and Path(bridge_name).resolve().is_relative_to(root) else None,
-                        errors, "preflight.flagBridge")
-    expected_hashes = {
-        "flagBridgeSha256": _digest(bridge) if bridge is not None and bridge.is_file() else None,
-        "flagParserSha256": _digest(Path(cli_input.__file__)),
-        "flagBridgeSourceSha256": _digest(Path(cli_input._BRIDGE_SOURCE)),
-        "runnerSha256": _digest(Path(pilot.__file__)),
-    }
-    if (not isinstance(cli, str) or bridge is None or not bridge.is_file()
+    expected_hashes = {"runnerSha256": _digest(Path(pilot.__file__))}
+    if (not isinstance(cli, str)
             or not all(isinstance(root_path, str) for root_path in roots)):
         result["reason"] = "current protocol lacks replay inputs"
         return result
@@ -185,7 +176,7 @@ def _replay_current_protocol(report, rows, root, errors):
             continue
         try:
             audit = pilot.EventAudit(
-                pilot.Policy(row["arm"], cli, roots, remote=bool(preflight.get("remote")), flag_bridge=bridge),
+                pilot.Policy(row["arm"], cli, roots, remote=bool(preflight.get("remote"))),
                 pilot.Budgets(**row["budgets"]),
             )
             for event in events:

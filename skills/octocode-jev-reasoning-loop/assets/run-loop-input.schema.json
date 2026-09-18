@@ -10,6 +10,16 @@
       "enum": ["hunch_check", "hypothesis_triage", "decision_review", "reflection_delta", "disputed_inference", "hallucination_gate"]
     },
     "model": { "type": "string", "minLength": 1, "default": "jev-latest" },
+    "context": {
+      "type": "object",
+      "description": "Optional supplemental Jev context nested under public state.context by the runner. Share only material safe for the provider; never include raw private chain-of-thought.",
+      "properties": {
+        "cot": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Compact shareable reasoning trace or decision brief, never raw private chain-of-thought." },
+        "thinking": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Shareable summary of current beliefs or considerations, never hidden internal reasoning." },
+        "context": { "description": "Task, conversation, memory, tool, or agent context relevant to this judgment." }
+      },
+      "additionalProperties": true
+    },
     "willChangeAction": { "type": "boolean" },
     "directCheck": {
       "type": "object",

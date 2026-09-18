@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "BUG-06",
+  "repo": "axios/axios",
+  "issueNumber": 5874,
+  "octocodeCalls": 2,
+  "octocodeQueryRows": 4,
+  "toolErrorRows": 0,
+  "jevCalls": 0,
+  "confidence": "high",
+  "startedAt": "2026-09-18T10:30:00.000Z",
+  "endedAt": "2026-09-18T10:30:00.000Z",
+  "decisionChangedByJev": false,
+  "gateClassification": "deterministic",
+  "jevInputTokens": 0,
+  "jevOutputTokens": 0,
+  "jevLatencyMs": 0,
+  "jevCalled": false
+}

@@ -1,0 +1,11 @@
+{
+  "caseId": "BUG-08",
+  "scoreA": 8,
+  "scoreB": 8.1,
+  "winner": "tie",
+  "majorFalseClaimA": false,
+  "majorFalseClaimB": false,
+  "jevChangeEvident": true,
+  "rationale": "Both arms correctly lead with H1 (URL normalization mismatch). Treatment receives a Jev verdict of claim_status: insufficient at 0.53, leading to a more conservative conclusion and a defensive fix (normalized fallback + diagnostic log) valid regardless of H1 vs H3. Baseline confidently asserts H1 with good source grounding. The arms are roughly equivalent: treatment has better calibration; baseline has higher correctness confidence that is not refuted by source. Scored as tie. Jev influence is evident in the conservative recommendation.",
+  "gradedAt": "2026-09-18T11:00:00.000Z"
+}

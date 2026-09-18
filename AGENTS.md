@@ -61,7 +61,7 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 
 ## Packages
 
-10 workspace packages + 1 external core. Each has its own `ARCHITECTURE.md` — read it.
+11 workspace packages + 1 external core. Each has its own `ARCHITECTURE.md` — read it.
 
 ### Core stack
 

@@ -1,0 +1,11 @@
+{
+  "caseId": "BUG-02",
+  "scoreA": 7.8,
+  "scoreB": 7,
+  "winner": "A",
+  "majorFalseClaimA": false,
+  "majorFalseClaimB": false,
+  "jevChangeEvident": false,
+  "rationale": "Both correctly identify the RSC server-component architecture as the root (no class components → no server-side error boundaries). Treatment more precisely identifies H2 (error boundary not invoked) as the architectural root and H1 (stream abort) as its observable consequence, improving the conceptual precision. GATE=deterministic is correctly applied. Baseline presents the same information less structured.",
+  "gradedAt": "2026-09-18T11:00:00.000Z"
+}

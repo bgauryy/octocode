@@ -637,6 +637,7 @@ pub fn tool_family(name: &str) -> &'static str {
         | "ghCloneRepo" => "GitHub",
         "localSearch" | "localFetch" | "astSearch" | "astRewrite" | "lspSearch" => "Local Code",
         "artifactSearch" => "Package",
+        "jevReasoning" => "Reasoning",
         _ => "Other",
     }
 }

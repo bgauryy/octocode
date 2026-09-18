@@ -1,0 +1,12 @@
+{
+  "caseId": "BUG-04",
+  "arm": "treatment",
+  "phase": "after-jev",
+  "leadHypothesis": "H1",
+  "leadConfidence": 0.9,
+  "directionChanged": false,
+  "confidenceChanged": true,
+  "jevInfluence": "none",
+  "note": "GATE=deterministic; Next.js docs confirm exact-string matching",
+  "decisionChangedByJev": false
+}

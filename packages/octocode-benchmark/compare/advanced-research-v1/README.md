@@ -49,8 +49,8 @@ artifacts cannot be placed inside a measured corpus.
 
 ## Run the controlled pilot
 
-The current runner uses `read-surface-recovery-v10`. It freezes and delivers the
-measured CLI's verbatim `context --compact`, together with the catalog and selected
+The current runner uses `read-surface-recovery-v11`. It freezes and delivers the
+measured CLI's verbatim `context --full`, together with the catalog and selected
 schemas; Octocode research examples are owned by public core.
 
 The observer accepts documented read-only `gh api -H/--header` and `-q/--jq` forms with
@@ -82,8 +82,8 @@ recoverable syntax error, so a repaired call may use the remaining shared budget
 Catalog and context discovery use strict read-only flags. Literal newlines inside a
 quoted argument are permitted; unquoted command composition, expansion, and source
 writes remain forbidden. Raw tools may read a known in-scope path directly. The
-canonical native field flags advertised by the frozen CLI context are converted through
-the CLI's shared query parser, then receive the same scope checks as `--queries`.
+canonical positional JSON form and the `--queries` alias receive the same scope checks.
+Field-flag compatibility is intentionally outside the native CLI surface.
 Schema discovery and failed calls consume the same budget. Arm order alternates across
 cases and passes, including a one-pass campaign.
 

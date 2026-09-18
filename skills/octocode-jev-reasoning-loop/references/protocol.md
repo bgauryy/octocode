@@ -8,7 +8,9 @@ Before writing or updating an integration, use the [documentation index](https:/
 
 ## Wire contract
 
-Authenticated POST to `https://api.typesafe.ai/v1/systemone` with `Content-Type: application/json` and `Authorization: Bearer <key>`. Send `{ "model": "jev-latest", "state": ..., "questions": { "id": ... } }`. GET `/v1/models` uses the same auth and returns a `models` array with `name`, `description`, and `release_date` strings.
+Authenticated POST to `https://api.typesafe.ai/v1/systemone` with `Content-Type: application/json` and `Authorization: Bearer <key>`. Send `{ "model": "jev-latest", "state": ..., "questions": { "id": ... } }`. The checked HTTP and JavaScript SDK references do not document a separate top-level `context` field. GET `/v1/models` uses the same auth and returns a `models` array with `name`, `description`, and `release_date` strings.
+
+The compact Octocode runner accepts optional supplemental `context` as an input convenience and nests it under public `state.context`. `context.cot` may carry a compact shareable reasoning trace or decision brief, `context.thinking` may summarize current beliefs or considerations, and nested `context.context` or additional JSON fields may carry relevant task, conversation, memory, tool, or agent facts. These fields never require or justify exposing raw private chain-of-thought; omit `context` when route state is sufficient.
 
 `state` is text, a JSON object/array, or null. Current official SDK types also permit object/array/null descriptions, optional instructions and null Noul criteria; the HTTP narrative shows a narrower text-centric form. The client supports the SDK's entry types. Supply explicit, meaningful instructions in agent-authored questions. Numbers and booleans can appear inside structured entries, but are not supported as entire entries.
 

@@ -11,7 +11,7 @@ node scripts/run-loop.mjs --input compact.json
 
 Use `assets/run-loop-input.schema.json`. The runner routes, derives a minimal DecisionBrief, validates, evaluates, checks claim consistency, and creates provisional APPLY. It exits before the API for inert calls, direct checks, missing facts, scope mismatch, or exhausted crossroads. `--response FILE` replays offline; `--output DIR` selects artifacts.
 
-Every request contains exactly `model`, `state`, and `questions`. `state.reasoning` is a bounded summary with observations and uncertainty—not hidden chain-of-thought. Testable triage also requires predictions, weakening conditions, and branch outcomes.
+Every provider request contains exactly `model`, `state`, and `questions`. Optional compact-runner `context` is nested under `state.context`; use it only for supplemental shareable summaries or relevant task facts, never raw private chain-of-thought. `state.reasoning` is a bounded public summary with observations and uncertainty. Testable triage also requires predictions, weakening conditions, and branch outcomes.
 
 ## Diagnose one layer
 

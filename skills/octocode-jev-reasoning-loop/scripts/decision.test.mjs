@@ -72,6 +72,23 @@ test('builder strips DecisionBrief and emits a valid triage request', () => {
   assert.equal(validateDecisionPacket('hypothesis_triage', packet, policy).valid, true);
 });
 
+test('builder nests optional shareable context in documented provider state', () => {
+  const input = triageInput();
+  input.context = {
+    cot: 'Compared both frozen hypotheses against E1 and identified the cache-bypass falsifier.',
+    thinking: 'H1 is the current provisional lead.',
+    context: { task: 'Choose the next evidence step.' },
+    agentRole: 'research host'
+  };
+  const packet = buildDecisionPacket(input, policy);
+  assert.deepEqual(Object.keys(packet), ['model', 'state', 'questions']);
+  assert.deepEqual(packet.state.context, input.context);
+  assert.equal(validateDecisionPacket('hypothesis_triage', packet, policy).valid, true);
+
+  input.context = { cot: ' '.repeat(10) };
+  assert.throws(() => buildDecisionPacket(input, policy), /context\.cot/i);
+});
+
 test('generic briefs do not manufacture prediction or falsifier fields', () => {
   const packet = buildDecisionPacket({
     route: 'hunch_check',

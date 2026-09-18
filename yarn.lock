@@ -2476,10 +2476,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 19.0.2
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=4accef&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=2b272c&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/8018f74b0b665c353a434f1de5f15908c85664d1f76923d63c3b16455de7200d2a37f216b0fdd9ab5fc0b03242ed546d774bc80c0c6c068486bf3a1c9d1581fd
+  checksum: 10c0/5fee8188508b29c2e5dbb4bfc836dbc067e1d1dee411e07c4daeec2b26307785c26aaa55c0f093eb3be13ff5091219347d98e7e21f2e32dd33d4be909da81b31
   languageName: node
   linkType: hard
 
@@ -6105,6 +6105,7 @@ __metadata:
     rollup: "npm:^4.63.1"
     rollup-plugin-dts: "npm:^6.5.1"
     typescript: "npm:^6.0.3"
+    typescript-language-server: "npm:^6.0.0"
     vite: "npm:^8.3.0"
     vitest: "npm:^5.0.0"
     zod: "npm:^4.6.2"
@@ -7142,6 +7143,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"typescript-language-server@npm:^6.0.0":
+  version: 6.0.0
+  resolution: "typescript-language-server@npm:6.0.0"
+  bin:
+    typescript-language-server: lib/cli.mjs
+  checksum: 10c0/de69a5745e7851d531a1130ed45845847873a48f1998b7f557d888dfcf6201df2888cfb2a4a040d819eda959cc5b8756dc53777a10ec376cabfa1fb83481734c
+  languageName: node
+  linkType: hard
+
 "typescript@npm:^6.0.3":
   version: 6.0.3
   resolution: "typescript@npm:6.0.3"
@@ -7342,6 +7352,37 @@ __metadata:
   bin:
     vitest: ./vitest.mjs
   checksum: 10c0/de56a0f2e989949e42cdf31150ef5c0c138c04950d14b158f618f8bd4dc9b7f1e9a20c98a2763c9fef0d2b5a97d86456a73dd18ebb8b2b99dd0837efd8688634
+  languageName: node
+  linkType: hard
+
+"vscode-jsonrpc@npm:9.0.2":
+  version: 9.0.2
+  resolution: "vscode-jsonrpc@npm:9.0.2"
+  checksum: 10c0/5eb4a902a4aa5b13655ea997dfdad6d5760df6acfd0388d7fccb641dff719af3ee1b9d99dc7548e21fe62e356f6b196c0bd37590f813137c7d9b6670fa22b237
+  languageName: node
+  linkType: hard
+
+"vscode-jsonrpc@npm:^5.0.1":
+  version: 5.0.1
+  resolution: "vscode-jsonrpc@npm:5.0.1"
+  checksum: 10c0/365dc54648247f0eb31ffdeb45b67c17f2cfac6cf55810b52376bad0becc7ee029dbe722e8d94fc779217e012466e8f7c7360749667946ff4e1156731abe1941
+  languageName: node
+  linkType: hard
+
+"vscode-languageserver-protocol@npm:^3.15.0":
+  version: 3.18.3
+  resolution: "vscode-languageserver-protocol@npm:3.18.3"
+  dependencies:
+    vscode-jsonrpc: "npm:9.0.2"
+    vscode-languageserver-types: "npm:3.18.3"
+  checksum: 10c0/4bff493ec34caf16eebdbfbc2baa4f35e909340344ff22d5165277b4d2a2221d821eec3bd1edb12403cdbb6f8c5af7eae0fbc9865f21ff93445f54a90e558306
+  languageName: node
+  linkType: hard
+
+"vscode-languageserver-types@npm:3.18.3":
+  version: 3.18.3
+  resolution: "vscode-languageserver-types@npm:3.18.3"
+  checksum: 10c0/a750da5edbfb08a009b9fcfd780accff17c6312658eab7fcd29baf1bf8318578fdcd4de87a1e25754af7aec72aa5ee9218712614763f27e93313c85768ea17bf
   languageName: node
   linkType: hard
 

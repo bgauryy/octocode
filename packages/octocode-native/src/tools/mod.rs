@@ -7,6 +7,7 @@ pub mod gh_get_file_content;
 pub mod gh_get_history_item;
 pub mod gh_search;
 pub mod gh_search_history;
+pub mod jev_reasoning;
 pub mod local_fetch;
 pub mod local_search;
 pub mod lsp_search;

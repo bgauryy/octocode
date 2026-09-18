@@ -6,7 +6,7 @@ use super::types::*;
 use super::validation::validate_config;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-const SOURCE_KEYS: [&str; 18] = [
+const SOURCE_KEYS: [&str; 21] = [
     "GITHUB_API_URL",
     "OCTOCODE_GITHUB_CLIENT_ID",
     "OCTOCODE_GITHUB_GRAPHQL",
@@ -25,6 +25,9 @@ const SOURCE_KEYS: [&str; 18] = [
     "OCTOCODE_ENABLE_STATS",
     "OCTOCODE_STORAGE_MODE",
     "OCTOCODE_EXTENSION_STORAGE_MODE",
+    "OCTOCODE_JEV_KEY",
+    "OCTOCODE_JEV_MODEL",
+    "OCTOCODE_JEV_BASE_URL",
 ];
 fn object<'a>(root: Option<&'a Value>, key: &str) -> Option<&'a serde_json::Map<String, Value>> {
     root?.get(key)?.as_object()

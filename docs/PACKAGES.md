@@ -1,6 +1,6 @@
 # Octocode package overview
 
-Ten workspace packages and one external contract package provide the Octocode research and agent-integration stack.
+Eleven workspace packages and one external contract package provide the Octocode research and agent-integration stack.
 
 ## Runtime flow
 

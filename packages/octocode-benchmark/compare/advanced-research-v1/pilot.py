@@ -21,7 +21,6 @@ import subprocess
 import time
 from urllib.parse import unquote, urlsplit
 import sandbox_permissions
-import cli_input
 from sandbox_permissions import permission_args, preflight_permissions
 
 HERE = Path(__file__).resolve().parent
@@ -29,7 +28,7 @@ WORKSPACE = HERE.parents[3]
 MODEL = "gpt-5.6-terra"
 COMMITS = {"langchain": "67ee6cb63dd9ae7f3a4dfedc3095652bce15a125",
            "nextjs": "d155ba9ebfffe4742efefda8d68c2e0e8e490924"}
-PROTOCOL = "read-surface-recovery-v10"
+PROTOCOL = "read-surface-recovery-v11"
 REMOTE_REPOS = {("langchain-ai", "langchain"): COMMITS["langchain"],
                 ("vercel", "next.js"): COMMITS["nextjs"]}
 GITHUB_HEADERS = {
@@ -84,13 +83,11 @@ class Policy:
     local_tools = {"localSearch", "localFetch", "astSearch", "lspSearch"}
     remote_tools = {"ghSearch", "ghGetFileContent", "ghSearchHistory", "ghGetHistoryItem"}
 
-    def __init__(self, arm, cli, roots, remote=False, flag_bridge=None):
+    def __init__(self, arm, cli, roots, remote=False):
         self.arm, self.cli = arm, Path(cli).resolve()
         self.roots = [Path(root).resolve() for root in roots]
         self.remote = remote
         self.allowed_tools = self.local_tools | (self.remote_tools if remote else set())
-        self.flag_bridge = flag_bridge
-        self.flag_queries = {}
 
     def scoped(self, value):
         if not isinstance(value, str) or not value.startswith("/"):
@@ -182,7 +179,7 @@ class Policy:
             return "non_tool_cli_command"
         if args[0] == "context":
             flags = args[1:]
-            modes = {"--compact", "--minimal", "--full"}
+            modes = {"--minimal", "--full"}
             valid = (len(flags) == len(set(flags)) and set(flags) <= modes | {"--json"}
                      and len(set(flags) & modes) <= 1)
             return None if valid else "unsupported_context_flags"
@@ -198,42 +195,34 @@ class Policy:
             valid = (args == ["--help"] or
                      (len(args) == len(set(args)) and set(args) <= {"--json", "--compact"}))
             return None if valid else "unsupported_catalog_flags"
-        names = []
-        while args and not args[0].startswith("-"):
-            names.append(args.pop(0))
-        if not names or names[0] not in self.allowed_tools:
+        tool = args.pop(0)
+        if tool not in self.allowed_tools:
             return "non_local_tool_or_inventory"
         if "--scheme" in args:
-            if not set(names) <= self.allowed_tools:
-                return "non_local_tool_or_inventory"
             return None if set(args) <= {"--scheme", "--json", "--compact", "--brief", "--yaml"} else "schema_flags"
-        if len(names) == 1 and args == ["--help"]:
+        if args == ["--help"]:
             return None
-        if "--queries" not in args:
-            if self.flag_bridge is None:
-                return "field_parser_unavailable"
-            tail = (*names[1:], *args)
-            key = (names[0], tail)
-            try:
-                if key not in self.flag_queries:
-                    self.flag_queries[key] = cli_input.parse_flag_query(self.flag_bridge, names[0], tail)
-            except cli_input.CliInputError:
-                return "recoverable_cli_syntax:invalid_field_flags"
-            return None if self.scoped_query(names[0], self.flag_queries[key]) else "query_outside_corpus"
-        if args.count("--queries") != 1:
-            return "missing_single_tool_queries"
-        index = args.index("--queries")
-        if index + 1 >= len(args):
-            return "missing_queries"
-        remainder = args[:index] + args[index + 2:]
-        if not set(remainder) <= {"--compact", "--json", "--yaml"}:
+        if "--queries" in args:
+            if args.count("--queries") != 1:
+                return "missing_single_tool_queries"
+            index = args.index("--queries")
+            if index + 1 >= len(args):
+                return "missing_queries"
+            query_text = args[index + 1]
+            remainder = args[:index] + args[index + 2:]
+        else:
+            positionals = [value for value in args if not value.startswith("-")]
+            if len(positionals) != 1:
+                return "missing_queries" if not positionals else "recoverable_cli_syntax:multiple_tool_names"
+            query_text = positionals[0]
+            remainder = [value for value in args if value != query_text]
+        output_flags = {"--compact", "--json", "--yaml"}
+        if any(value.startswith("-") and value not in output_flags for value in remainder):
             return "unsupported_cli_flags"
-        if len(names) != 1:
-            # getInputText rejects positional selectors alongside --queries
-            # before dispatch. Let the agent see and repair that actual error.
+        if any(not value.startswith("-") for value in remainder):
             return "recoverable_cli_syntax:multiple_tool_names"
         try:
-            queries = json.loads(args[index + 1])
+            queries = json.loads(query_text)
         except json.JSONDecodeError:
             # The CLI rejects malformed JSON before tool execution. Preserve its
             # actual error so the next call can repair it within the same budget.
@@ -244,7 +233,7 @@ class Policy:
                 return "invalid_query_envelope"
             queries = queries["queries"]
         queries = queries if isinstance(queries, list) else [queries]
-        if not queries or any(not self.scoped_query(names[0], q) for q in queries):
+        if not queries or any(not self.scoped_query(tool, q) for q in queries):
             return "query_outside_corpus"
         return None
 
@@ -781,8 +770,7 @@ def trial(case, arm, pass_number, question, args, corpora, budgets):
     argv = ["codex", "exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check",
             *permission_args(args.remote), "-C", "/tmp", "-m", MODEL,
             "-c", 'model_reasoning_effort="medium"', "--json", "-"]
-    audit = EventAudit(Policy(arm, args.cli, list(corpora.values()), remote=args.remote,
-                              flag_bridge=args.flag_bridge), budgets)
+    audit = EventAudit(Policy(arm, args.cli, list(corpora.values()), remote=args.remote), budgets)
     try:
         result = monitor(argv, prompt, directory, audit)
     except Exception as error:
@@ -812,7 +800,7 @@ def capture_tool_contract(cli, remote=False):
         captured[name] = json.loads(raw)
     catalog = {row["name"]: row for row in captured["catalog"]["tools"]}
     schemas = {row["name"] for row in captured["localSchemas"]["schemas"]}
-    context = command(["node", str(cli), "context", "--compact"])
+    context = command(["node", str(cli), "context", "--full"])
     if not context.strip() or len(context.encode("utf-8")) > 65536:
         raise RuntimeError("tool_context_missing_or_output_limit")
     captured["context"] = context
@@ -847,10 +835,6 @@ def frozen_state_changes(preflight, candidate, corpora, tool_contract):
                "permissionsSha256": digest(Path(sandbox_permissions.__file__)),
                "questionsSha256": digest(Path(preflight.get("questionsFile", HERE / "QUESTIONS.md"))),
                 "rubricSha256": digest(Path(preflight.get("rubricFile", HERE / "RUBRIC.md")))}
-    if "flagBridge" in preflight:
-        current.update(flagBridgeSha256=digest(Path(preflight["flagBridge"])),
-                       flagParserSha256=digest(Path(cli_input.__file__)),
-                       flagBridgeSourceSha256=digest(HERE / "cli_input_bridge.ts"))
     return [name for name, value in current.items() if value != preflight[name]]
 
 
@@ -880,12 +864,11 @@ def main(argv=None):
     if len(set(args.cases)) != len(args.cases) or any(case not in questions for case in args.cases):
         parser.error("cases must be unique question IDs from QUESTIONS.md")
     args.cli, args.output_dir = args.cli.resolve(), args.output_dir.resolve()
-    args.flag_bridge = args.output_dir / "cli-input-bridge.cjs"
     corpora = resolve_corpora(args, parser)
     if any(args.output_dir.is_relative_to(root) for root in corpora.values()):
         parser.error("output directory must be outside the measured corpora")
     plan = {"runRequested": args.run, "checkRequested": args.check, "protocol": PROTOCOL,
-            "cli": str(args.cli), "flagBridge": str(args.flag_bridge),
+            "cli": str(args.cli),
             "corpora": {name: {"path": str(root), "commit": COMMITS[name]} for name, root in corpora.items()},
             "trials": len(args.cases) * args.passes * 2,
             "cases": args.cases, "passes": args.passes, "remote": args.remote,
@@ -904,16 +887,12 @@ def main(argv=None):
         write_once(args.output_dir / "permission-preflight.json", permission_receipt)
         if not permission_receipt["passed"]:
             raise RuntimeError("permission_preflight_failed")
-        args.flag_bridge = cli_input.prepare_bridge(args.output_dir)
         corpus_before = corpus_receipts(corpora)
         preflight = {**plan, "candidate": fingerprint(args.cli), "corpora": corpus_before,
                      "permissionPreflight": permission_receipt,
                      "toolContract": capture_tool_contract(args.cli, remote=args.remote),
                      "questionsSha256": digest(args.questions_file), "rubricSha256": digest(args.rubric_file),
-                      "runnerSha256": digest(Path(__file__)), "platform": os.uname().sysname,
-                      "flagBridgeSha256": digest(args.flag_bridge),
-                      "flagParserSha256": digest(Path(cli_input.__file__)),
-                      "flagBridgeSourceSha256": digest(HERE / "cli_input_bridge.ts"),
+                     "runnerSha256": digest(Path(__file__)), "platform": os.uname().sysname,
                      "permissionsSha256": digest(Path(sandbox_permissions.__file__)),
                      "versions": {name: command([name, "--version"]).splitlines()[0] for name in (("codex", "node", "rg", "ast-grep", "gh") if args.remote else ("codex", "node", "rg", "ast-grep"))}}
         for filename, source in (("QUESTIONS.md", args.questions_file), ("RUBRIC.md", args.rubric_file)):

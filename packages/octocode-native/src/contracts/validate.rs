@@ -328,6 +328,7 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
             Some("ast_topology") => validate_topology_queries(input),
             Some("history_keyword_scope") => validate_history_keyword_scope(input),
             Some("lsp_rust_context") => validate_lsp_queries(input),
+            Some("jev_reasoning") => validate_jev_queries(input),
             Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
             Some("history_content_selection") => validate_history_content_selection(input),
             Some(opcode) => {
@@ -473,6 +474,199 @@ fn validate_ast_rewrite_rules(input: &Value) -> Result<(), ContractValidationErr
                     "experimental rules require a rewrite transformation",
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+fn validate_jev_queries(input: &Value) -> Result<(), ContractValidationError> {
+    fn ids(values: &Value) -> Vec<&str> {
+        values
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.get("id").and_then(Value::as_str))
+            .collect()
+    }
+    fn unique(values: &[&str]) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        values.iter().all(|value| seen.insert(*value))
+    }
+    for (index, query) in query_values(input) {
+        let state = &query["state"];
+        match query["route"].as_str() {
+            Some("hypothesis_triage") => {
+                let hypothesis_ids = ids(&state["hypotheses"]);
+                let evidence_ids = ids(&state["evidence"]);
+                let check_ids = ids(&state["nextChecks"]);
+                for (field, values) in [
+                    ("hypotheses", &hypothesis_ids),
+                    ("evidence", &evidence_ids),
+                    ("nextChecks", &check_ids),
+                ] {
+                    if !unique(values) {
+                        return Err(issue(
+                            "jev.references",
+                            vec![
+                                "queries".into(),
+                                index.to_string(),
+                                "state".into(),
+                                field.into(),
+                            ],
+                            format!("{field} IDs must be unique"),
+                        ));
+                    }
+                }
+                if let Some(checks) = state["nextChecks"].as_array() {
+                    for (check_index, check) in checks.iter().enumerate() {
+                        let mut discriminates = false;
+                        if let Some(outcomes) = check["expectedOutcomes"].as_array() {
+                            for (outcome_index, outcome) in outcomes.iter().enumerate() {
+                                let effects = outcome["effect"].as_object();
+                                if effects.is_some_and(|effects| {
+                                    effects
+                                        .keys()
+                                        .any(|id| !hypothesis_ids.contains(&id.as_str()))
+                                }) {
+                                    return Err(issue(
+                                        "jev.references",
+                                        vec![
+                                            "queries".into(),
+                                            index.to_string(),
+                                            "state".into(),
+                                            "nextChecks".into(),
+                                            check_index.to_string(),
+                                            "expectedOutcomes".into(),
+                                            outcome_index.to_string(),
+                                            "effect".into(),
+                                        ],
+                                        "effects may reference only supplied hypotheses",
+                                    ));
+                                }
+                                if effects.is_some_and(|effects| {
+                                    let mut values = effects.values();
+                                    values
+                                        .next()
+                                        .is_some_and(|first| values.any(|value| value != first))
+                                }) {
+                                    discriminates = true;
+                                }
+                            }
+                        }
+                        if !discriminates {
+                            return Err(issue(
+                                "jev.references",
+                                vec![
+                                    "queries".into(),
+                                    index.to_string(),
+                                    "state".into(),
+                                    "nextChecks".into(),
+                                    check_index.to_string(),
+                                ],
+                                "each check must distinguish at least two hypotheses",
+                            ));
+                        }
+                    }
+                }
+            }
+            Some("reflection_delta") => {
+                let hypothesis_ids = ids(&state["hypotheses"]);
+                if !unique(&hypothesis_ids) {
+                    return Err(issue(
+                        "jev.references",
+                        vec![
+                            "queries".into(),
+                            index.to_string(),
+                            "state".into(),
+                            "hypotheses".into(),
+                        ],
+                        "hypothesis IDs must be unique",
+                    ));
+                }
+                if !state["priorLead"]
+                    .as_str()
+                    .is_some_and(|lead| hypothesis_ids.contains(&lead))
+                {
+                    return Err(issue(
+                        "jev.references",
+                        vec![
+                            "queries".into(),
+                            index.to_string(),
+                            "state".into(),
+                            "priorLead".into(),
+                        ],
+                        "priorLead must identify a supplied hypothesis",
+                    ));
+                }
+            }
+            Some("disputed_inference") => {
+                let evidence_ids = ids(&state["evidence"]);
+                let basis_ids = ids(&state["evidenceBases"]);
+                if !unique(&evidence_ids) || !unique(&basis_ids) {
+                    return Err(issue(
+                        "jev.references",
+                        vec!["queries".into(), index.to_string(), "state".into()],
+                        "evidence and evidence-basis IDs must be unique",
+                    ));
+                }
+                if let Some(bases) = state["evidenceBases"].as_array() {
+                    for (basis_index, basis) in bases.iter().enumerate() {
+                        if basis["evidenceIds"].as_array().is_some_and(|references| {
+                            references
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .any(|id| !evidence_ids.contains(&id))
+                        }) {
+                            return Err(issue(
+                                "jev.references",
+                                vec![
+                                    "queries".into(),
+                                    index.to_string(),
+                                    "state".into(),
+                                    "evidenceBases".into(),
+                                    basis_index.to_string(),
+                                    "evidenceIds".into(),
+                                ],
+                                "evidence bases may reference only supplied evidence",
+                            ));
+                        }
+                    }
+                }
+            }
+            Some("hallucination_gate") => {
+                let evidence_ids = ids(&state["evidence"]);
+                if !unique(&evidence_ids) {
+                    return Err(issue(
+                        "jev.references",
+                        vec![
+                            "queries".into(),
+                            index.to_string(),
+                            "state".into(),
+                            "evidence".into(),
+                        ],
+                        "evidence IDs must be unique",
+                    ));
+                }
+                if let Some(scope) = state["claimScope"].as_str()
+                    && !state["evidence"].as_array().is_some_and(|evidence| {
+                        evidence
+                            .iter()
+                            .any(|item| item["scope"].as_str() == Some(scope))
+                    })
+                {
+                    return Err(issue(
+                        "jev.references",
+                        vec![
+                            "queries".into(),
+                            index.to_string(),
+                            "state".into(),
+                            "claimScope".into(),
+                        ],
+                        "at least one evidence item must match claimScope",
+                    ));
+                }
+            }
+            _ => {}
         }
     }
     Ok(())

@@ -201,6 +201,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 "ghGetHistoryItem",
                 "ghCloneRepo",
                 "artifactSearch",
+                "jevReasoning",
             ];
             if let Some(tool_name) = args.first().map(|s| s.as_str())
                 && KNOWN_TOOLS.contains(&tool_name)
@@ -350,7 +351,7 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                         println!("  Tip: use tool names directly — `octocode <toolName> '<json>'`");
                         println!("       or inspect schema — `octocode <toolName> --scheme`");
                         println!();
-                        let families = ["GitHub", "Local Code", "Package", "Other"];
+                        let families = ["GitHub", "Local Code", "Package", "Reasoning", "Other"];
                         for family in families {
                             let family_tools: Vec<_> = tools_arr
                                 .iter()

@@ -10,10 +10,12 @@ use crate::response::{
 use crate::security::{ContentSecurity, SecurityRegistry};
 use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
 
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -332,7 +334,17 @@ impl ToolRuntime {
                 tool,
                 "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch"
             );
-        (github || local_tools || (tool == "ghCloneRepo" && clone) || tool == "artifactSearch")
+        let jev = tool == "jevReasoning"
+            && self
+                .config
+                .env_value("OCTOCODE_JEV_KEY")
+                .map(str::trim)
+                .is_some_and(|value| !value.is_empty());
+        (github
+            || local_tools
+            || (tool == "ghCloneRepo" && clone)
+            || tool == "artifactSearch"
+            || jev)
             && self
                 .config
                 .resolved
@@ -531,6 +543,28 @@ impl ToolRuntime {
             config_path: self.config.resolved.lsp.config_path.clone(),
             trust_project_config: self.input.trusted_project,
         };
+        let jev_key = self
+            .config
+            .env_value("OCTOCODE_JEV_KEY")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| SecretString::from(value.to_owned()));
+        let jev_base_url = self
+            .config
+            .env_value("OCTOCODE_JEV_BASE_URL")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("https://api.typesafe.ai")
+            .to_owned();
+        let jev_model = self
+            .config
+            .env_value("OCTOCODE_JEV_MODEL")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("jev-latest")
+            .to_owned();
+        let jev_timeout = Duration::from_millis(self.config.resolved.network.timeout as u64);
+        let jev_retries = self.config.resolved.network.max_retries as u32;
         let output_tool = tool.clone();
         let cursor_scope = scope;
         let outcome = self
@@ -562,6 +596,36 @@ impl ToolRuntime {
                             )?,
                             Err(error) => super::github::provider_error(error.clone()),
                         }
+                    } else if tool == "jevReasoning" {
+                        let _enter = handle.enter();
+                        context.check()?;
+                        let Some(key) = jev_key.clone() else {
+                            return Err(ExecutionError::WorkerFailed);
+                        };
+                        let configured_deadline = Instant::now() + jev_timeout;
+                        let deadline = context.deadline.min(configured_deadline);
+                        handle.block_on(async {
+                            match crate::tools::jev_reasoning::execute(
+                                query,
+                                key,
+                                &jev_base_url,
+                                &jev_model,
+                                crate::tools::jev_reasoning::budget(
+                                    deadline,
+                                    context.cancellation.clone(),
+                                ),
+                                jev_retries,
+                            )
+                            .await
+                            {
+                                Ok(data) => super::dispatch::value_result(data),
+                                Err(error) => super::dispatch::provider_failure(
+                                    error.message,
+                                    error.code,
+                                    error.hints,
+                                ),
+                            }
+                        })
                     } else if tool == "artifactSearch" {
                         let _enter = handle.enter();
                         context.check()?;

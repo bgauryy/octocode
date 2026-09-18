@@ -1,0 +1,19 @@
+{
+  "arm": "treatment",
+  "caseId": "BUG-03",
+  "repo": "vercel/next.js",
+  "issueNumber": 58440,
+  "octocodeCalls": 3,
+  "octocodeQueryRows": 6,
+  "toolErrorRows": 0,
+  "jevCalls": 0,
+  "confidence": "medium_high",
+  "startedAt": "2026-09-18T10:30:00.000Z",
+  "endedAt": "2026-09-18T10:30:00.000Z",
+  "decisionChangedByJev": false,
+  "gateClassification": "deterministic",
+  "jevInputTokens": 0,
+  "jevOutputTokens": 0,
+  "jevLatencyMs": 0,
+  "jevCalled": false
+}

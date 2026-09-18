@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
+  STATIC_TOOL_NAMES,
   prepareDirectToolInput,
 } from '@octocodeai/octocode-core/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
@@ -17,9 +18,10 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
   definition => definition.name
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
-const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name =>
-  name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true
-);
+const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
+  if (name === STATIC_TOOL_NAMES.JEV_REASONING) return false;
+  return name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true;
+});
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
 const DOC_ROOTS = [
   path.join(ROOT, 'docs'),

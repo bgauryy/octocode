@@ -16,6 +16,7 @@ npx octocode tools <toolName> --scheme --json --compact
 | Packages | `artifactSearch` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
 | LSP | `lspSearch` |
+| Reasoning | `jevReasoning` |
 
 ## Contents
 
@@ -25,6 +26,7 @@ npx octocode tools <toolName> --scheme --json --compact
 - [GitHub tools reference](#github-tools-reference)
 - [Local code tools reference](#local-code-tools-reference)
 - [LSP tools reference](#lsp-tools-reference)
+- [Jev reasoning reference](#jev-reasoning-reference)
 - [Clone and local tools workflow](#clone-and-local-tools-workflow)
 - [Tool verification playbook](#tool-verification-playbook)
 - [MCP tool quality and agent workflow](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
@@ -106,7 +108,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 
 ## Internal, external, and hybrid tools
 
-"External" describes the data or provider boundary, not the MCP transport. All eleven tools can be called through MCP or the CLI.
+"External" describes the data or provider boundary, not the MCP transport. All twelve catalog entries use the same MCP and CLI contracts; availability gates can hide or reject an entry on a particular surface.
 
 | Tool | Boundary | How it works |
 | --- | --- | --- |
@@ -121,8 +123,9 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
+| `jevReasoning` | External | Sends one bounded, caller-specified reasoning fork to TypeSafe Jev and returns a provisional typed judgment. It does not supply facts, invent alternatives, execute checks, or turn its result into evidence. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jevReasoning` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register the tool.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -1347,6 +1350,39 @@ Workspace-symbol search:
 
 - [Local code tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#local-code-tools-reference)
 - [Clone and local tools workflow](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#clone-and-local-tools-workflow)
+
+---
+
+## Jev reasoning reference
+
+Use `jevReasoning` only at an evidence-driven reasoning crossroad that a deterministic lookup or test cannot settle cheaply. The caller must provide the alternatives, source-anchored observations, and a bounded public deliberation summary. Jev calibrates that supplied fork; its output remains provisional and is never a fact or evidence source.
+
+| Route | Use |
+| --- | --- |
+| `hunch_check` | Decide whether one weak lead merits further hypothesis work. |
+| `hypothesis_triage` | Rank two to five supplied hypotheses and candidate discriminating checks. |
+| `reflection_delta` | Reconsider a prior lead after one material new observation. |
+| `decision_review` | Review a costly or difficult-to-reverse proposal and its supplied risks. |
+| `disputed_inference` | Assess two source-backed interpretations that remain unresolved. |
+| `hallucination_gate` | Gate a bounded claim immediately before assertion. |
+
+Every query includes `willChangeAction`, `directCheck`, `evidenceFresh`, `jevCallsAtCrossroad`, and `deliberation`. These fields enforce deterministic preflight gates before provider access. A query is skipped without network access when the judgment cannot change the next action, when a direct check is available, when evidence is stale, or when the fork already used its one Jev call.
+
+Optional query `context` keeps supplemental material separate from the required route `state`. Use `context.cot` only for a compact, shareable decision trace, `context.thinking` for a shareable summary of current beliefs or considerations, and `context.context` or additional JSON fields for relevant task, conversation, memory, tool, or agent facts. Never provide raw private chain-of-thought. Omit `context` when the bounded route state is sufficient. Octocode nests supplied context under `state.context` in the documented provider request; it does not inject the mandatory host `deliberation`.
+
+The shared envelope accepts one to five independent queries. Each row is a separate fork and receives its own judgment; batching does not create a multi-step Jev conversation. Successful provider rows include `provisional: true`, the typed judgment, a `policyAction`, and a host-owned `nextAction`. Octocode can recommend that action but does not execute it.
+
+Set `OCTOCODE_JEV_KEY` through a protected resolved environment source to expose the tool. `OCTOCODE_JEV_MODEL` and `OCTOCODE_JEV_BASE_URL` optionally override the default model and trusted API root. Inspect the complete bounded route schema before constructing a call:
+
+```bash
+npx octocode jevReasoning --scheme
+```
+
+Invoke the direct CLI command with the same bulk JSON object accepted by MCP:
+
+```bash
+npx octocode jevReasoning '<json>'
+```
 
 ---
 

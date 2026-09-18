@@ -77,6 +77,10 @@
     {
       "name": "lspSearch",
       "description": "Run LSP semantic navigation over local files"
+    },
+    {
+      "name": "jevReasoning",
+      "description": "Request a bounded provisional Jev judgment for an evidence-driven reasoning fork"
     }
   ],
   "keywords": [

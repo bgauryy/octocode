@@ -1,0 +1,14 @@
+{
+  "caseId": "BUG-07",
+  "arm": "treatment",
+  "phase": "before-jev",
+  "leadHypothesis": "H2",
+  "leadConfidence": 0.6,
+  "altConfidence": {
+    "H1": 0.25,
+    "H3": 0.15
+  },
+  "gateClassification": "disputed_inference",
+  "willCallJev": false,
+  "reason": "GATE=disputed_inference; Jev deferred — utils.merge source not read; H1 disproven"
+}

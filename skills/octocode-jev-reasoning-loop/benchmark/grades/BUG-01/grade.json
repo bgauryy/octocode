@@ -1,0 +1,11 @@
+{
+  "caseId": "BUG-01",
+  "scoreA": 7,
+  "scoreB": 7.5,
+  "winner": "B",
+  "majorFalseClaimA": false,
+  "majorFalseClaimB": false,
+  "jevChangeEvident": false,
+  "rationale": "Both arms correctly identify H1 (Router Cache key excludes sibling segment params) but cannot confirm from source (router-reducer redirect-blocked). Treatment explicitly classifies GATE=missing_fact and defers Jev, demonstrating correct routing discipline. Baseline asserts H1 with slightly less acknowledgment of the evidence gap. Narrow treatment advantage on calibration.",
+  "gradedAt": "2026-09-18T11:00:00.000Z"
+}

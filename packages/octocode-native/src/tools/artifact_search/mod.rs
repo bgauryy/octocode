@@ -70,7 +70,15 @@ pub async fn execute(
         })?;
         let mut next = query.clone();
         next.cursor = Some(cursor);
-        if let Ok(next_query) = serde_json::to_value(next) {
+        if let Ok(mut next_query) = serde_json::to_value(next) {
+            // Keyword-discovery queries leave packageName/registry as `None`,
+            // which serialize to JSON `null` and fail the canonical
+            // continuation contract (its exact-lookup branch expects strings).
+            // Drop null fields so the query matches the keyword+cursor branch,
+            // mirroring gh_search's `remove_nulls` before building `nextPage`.
+            if let Some(object) = next_query.as_object_mut() {
+                object.retain(|_, value| !value.is_null());
+            }
             data["next"] = json!({
                 "nextPage": {
                     "tool": "artifactSearch",

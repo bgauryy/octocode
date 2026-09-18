@@ -1,60 +1,62 @@
 # Bug-Triage Benchmark — Results
 **Suite:** bug-triage-v1  
-**Status:** NOT YET RUN
+**Generated:** 2026-09-18T15:51:17.394Z  
+**Cases graded:** 10 / 10
 
-Run `node inspect.mjs --aggregate` after all agents complete and grades are filed to populate this file.
+## Verdict
+**ACCEPT — replicate**
 
-## How to run
+## Aggregate quality
 
-```sh
-# 1. Freeze the suite (run once before spawning any agents)
-node benchmark/harness.mjs --freeze
+| Metric | Baseline | Treatment | Delta |
+|---|---:|---:|---:|
+| Mean score /10 | 8.01 | 8.59 | 0.58 |
+| Cases won | 0 | 8 | — |
+| Ties | — | 2 | — |
+| Major false claims | 0 | 0 | — |
+| Jev-change evident (judge) | — | 3 | — |
 
-# 2. Preflight check
-node benchmark/harness.mjs --preflight
+## Per-case scores
 
-# 3. Print all 20 agent prompts and spawn via Pi workflow / Codex / equivalent
-node benchmark/harness.mjs --prompts
+| Case | Repo | Baseline | Treatment | Δ | Winner | Jev changed? | Baseline FC? | Treatment FC? |
+|---|---|---:|---:|---:|---|---|---|---|
+| BUG-01 | next.js | 7 | 7.5 | +0.5 | treatment | no | — | — |
+| BUG-02 | next.js | 7 | 7.8 | +0.7999999999999998 | treatment | no | — | — |
+| BUG-03 | next.js | 7.3 | 8.5 | +1.2000000000000002 | treatment | no | — | — |
+| BUG-04 | next.js | 8.3 | 9 | +0.6999999999999993 | treatment | no | — | — |
+| BUG-05 | axios | 9 | 9.5 | +0.5 | treatment | yes | — | — |
+| BUG-06 | axios | 9.1 | 9.3 | +0.20000000000000107 | tie | no | — | — |
+| BUG-07 | axios | 7.2 | 8.5 | +1.2999999999999998 | treatment | no | — | — |
+| BUG-08 | vite | 8.1 | 8 | -0.09999999999999964 | tie | yes | — | — |
+| BUG-09 | vite | 9 | 9.5 | +0.5 | treatment | yes | — | — |
+| BUG-10 | vite | 8.1 | 8.3 | +0.20000000000000107 | treatment | no | — | — |
 
-#    Or print one at a time:
-node benchmark/harness.mjs --prompt BUG-01 baseline
-node benchmark/harness.mjs --prompt BUG-01 treatment
+## Flow and token metrics
 
-# 4. After all 20 agents complete, check completeness
-node benchmark/inspect.mjs --summary
-node benchmark/inspect.mjs --save
+| Metric | Baseline | Treatment |
+|---|---:|---:|
+| Complete cases | 10 | 10 |
+| Octocode calls | 29 | 29 |
+| Octocode query rows | 47 | 58 |
+| Tool error rows | 0 | 0 |
+| Jev calls | — | 3 |
+| Cases where Jev called | — | 3 |
+| Cases where Jev changed decision | — | 0 |
+| Jev input tokens | — | 3601 |
+| Jev output tokens | — | 289 |
+| Summed Jev latency (ms) | — | 0 |
 
-# 5. Spawn 10 judge agents (one per case)
-node benchmark/judge.mjs --prompt BUG-01   # paste to judge agent
-# ... repeat for BUG-02 through BUG-10
+## Gate classification (treatment arm)
 
-# 6. Validate all grades
-node benchmark/judge.mjs --validate-all
+| Classification | Cases |
+|---|---:|
+| `disputed_inference` (Jev eligible) | 4 |
+| `deterministic` (no Jev) | 5 |
+| `missing_fact` (no Jev) | 1 |
 
-# 7. Aggregate and write RESULTS.md
-node benchmark/inspect.mjs --aggregate
-```
-
-## Expected output files
-
-```
-benchmark/
-├── frozen.json                       ← written by harness --freeze
-├── metrics.json                      ← written by inspect --save
-├── RESULTS.md                        ← written by inspect --aggregate
-├── runs/
-│   ├── baseline/
-│   │   ├── BUG-01/answer.md
-│   │   ├── BUG-01/result.json
-│   │   └── ... (BUG-02 through BUG-10)
-│   └── treatment/
-│       ├── BUG-01/answer.md
-│       ├── BUG-01/result.json
-│       ├── BUG-01/jev-calls.json
-│       ├── BUG-01/decision-before.json
-│       ├── BUG-01/decision-after.json
-│       └── ... (BUG-02 through BUG-10)
-└── grades/
-    ├── BUG-01/grade.json
-    └── ... (BUG-02 through BUG-10)
-```
+## Limitations
+- One run per arm; no statistical significance.
+- Judge model shares training with worker models; possible correlated bias.
+- Public issues may be partially in model training data.
+- Host LLM tokens not captured (Octocode calls and Jev tokens measured only).
+- A single positive pilot does not justify default Jev routing — only optional gate-routed calls.

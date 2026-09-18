@@ -12,6 +12,7 @@
 pub mod error;
 pub mod graph;
 pub mod index;
+pub mod jev;
 pub mod lsp;
 pub mod minify;
 pub mod portable;

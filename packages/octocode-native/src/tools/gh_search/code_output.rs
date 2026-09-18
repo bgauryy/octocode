@@ -34,7 +34,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         return Ok(());
     };
     let metadata = transport.repository_metadata(owner, repo, context).await;
-    let (name, next_query, why, confidence, code) = match metadata {
+    let (name, mut next_query, why, confidence, code) = match metadata {
         Err(error)
             if matches!(
                 error.kind,
@@ -92,6 +92,20 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         _ => ("ghScopedZeroUnproven", "No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.".to_owned()),
     };
     diagnostics.add(code, &hint, false);
+    // These are advisory "start a fresh query" actions (renamed repo / a
+    // different operation), not next-page continuations of the original
+    // search, so stamp page 1 rather than `page + 1`. The canonical
+    // continuation contract still requires page/pageSize (and `match` for
+    // code), which the hand-built queries above omit.
+    if let Some(object) = next_query.as_object_mut() {
+        object.entry("page").or_insert_with(|| json!(1));
+        object.entry("pageSize").or_insert_with(|| json!(30));
+        if object.get("operation").and_then(Value::as_str) == Some("code")
+            && !object.contains_key("match")
+        {
+            object.insert("match".to_owned(), json!("file"));
+        }
+    }
     value["next"][name] =
         json!({"tool":"ghSearch","query":next_query,"confidence":confidence,"why":why});
     Ok(())

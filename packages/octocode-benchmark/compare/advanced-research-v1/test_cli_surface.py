@@ -65,7 +65,7 @@ class CliSurface(unittest.TestCase):
             "id": "bad", "type": "command_execution", "command": command,
             "aggregated_output": failed.stdout + failed.stderr, "exit_code": failed.returncode}})
         self.assertFalse(audit.stop_requested)
-        args[-1] = json.dumps({"path": str(self.source)})
+        args[-1] = json.dumps({"reasoning": "Read the repaired local fixture.", "path": str(self.source)})
         repaired = subprocess.run(args, capture_output=True, text=True, timeout=20)
         self.assertEqual(repaired.returncode, 0, repaired.stderr)
         self.assertIn("pass", repaired.stdout)
@@ -93,21 +93,30 @@ class CliSurface(unittest.TestCase):
         self.assertIsNotNone(policy.audit(command + "\nid"))
         self.assertIsNotNone(policy.audit(command + ' "$(id)"'))
 
-    def test_native_field_inputs_use_canonical_parser_and_all_scope_checks(self):
-        bridge = pilot.cli_input.prepare_bridge(self.root / "parser")
-        policy = pilot.Policy("octocode", self.cli, [self.corpus], flag_bridge=bridge)
-        def call(tool, *tail):
-            return policy.audit(shlex.join(["node", str(self.cli), "tools", tool, *tail]))
-        self.assertIsNone(call("localFetch", "--path", str(self.source), "--start-line", "1", "--end-line=1"))
-        self.assertEqual(call("localFetch", "--path", "/outside/source.py"), "query_outside_corpus")
-        self.assertIsNone(call("astSearch", "topology", "reachability", "--path", str(self.corpus),
-                               "--entrypoints", str(self.source)))
-        self.assertEqual(call("astSearch", "topology", "reachability", "--path", str(self.corpus),
-                               "--entrypoints", str(self.source), "--entrypoints", "/outside/source.py"),
-                         "query_outside_corpus")
-        self.assertEqual(call("localFetch", "--path", str(self.source), "--unknown"),
-                         "recoverable_cli_syntax:invalid_field_flags")
-        self.assertIsNone(call("localFetch", "--help"))
+    def test_native_positional_inputs_preserve_all_scope_checks(self):
+        policy = pilot.Policy("octocode", self.cli, [self.corpus])
+        def call(tool, query, *tail):
+            return policy.audit(shlex.join(["node", str(self.cli), "tools", tool, json.dumps(query), *tail]))
+        self.assertIsNone(call("localFetch", {
+            "reasoning": "Read the scoped fixture.", "path": str(self.source), "startLine": 1, "endLine": 1
+        }))
+        self.assertEqual(call("localFetch", {
+            "reasoning": "Attempt an unscoped read.", "path": "/outside/source.py"
+        }), "query_outside_corpus")
+        self.assertIsNone(call("astSearch", {
+            "reasoning": "Check scoped reachability.", "operation": "topology", "analysis": "reachability",
+            "path": str(self.corpus), "entrypoints": [str(self.source)]
+        }))
+        self.assertEqual(call("astSearch", {
+            "reasoning": "Attempt mixed-scope reachability.", "operation": "topology", "analysis": "reachability",
+            "path": str(self.corpus), "entrypoints": [str(self.source), "/outside/source.py"]
+        }), "query_outside_corpus")
+        self.assertEqual(call("localFetch", {
+            "reasoning": "Read the scoped fixture.", "path": str(self.source)
+        }, "--unknown"), "unsupported_cli_flags")
+        self.assertIsNone(policy.audit(shlex.join([
+            "node", str(self.cli), "tools", "localFetch", "--help"
+        ])))
 
     def test_read_only_word_counts_keep_every_path_scoped(self):
         for flags in ([], ["-c"], ["-m"], ["-w"], ["-lc"], ["-l", "-c"]):
@@ -127,7 +136,7 @@ class CliSurface(unittest.TestCase):
         self.assertEqual(policy.audit(shlex.join(args)), "recoverable_cli_syntax:multiple_tool_names")
         actual = subprocess.run(args, capture_output=True, text=True, timeout=20)
         self.assertNotEqual(actual.returncode, 0)
-        self.assertIn("positional selector", actual.stdout + actual.stderr)
+        self.assertIn("cannot be used with '--queries", actual.stdout + actual.stderr)
         self.assertNotIn("source.py", actual.stdout + actual.stderr)
         self.assertEqual(policy.audit(shlex.join(args + ["--unexpected"])), "unsupported_cli_flags")
 

@@ -195,8 +195,9 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**11 tools in the full discovery catalog.** Ten are enabled by default on
-CLI and MCP. Repository cloning is opt-in:
+**12 tools in the full discovery catalog.** Ten are enabled by default on
+CLI and MCP when no Jev key is resolved. Repository cloning is opt-in, and
+`jevReasoning` is registered only with a nonblank `OCTOCODE_JEV_KEY`:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
@@ -229,6 +230,7 @@ or trees with its strict `operation` field.
 |------|--------------|------|
 | `localSearch` | Lexical text and regex search over local files. | `searchText` |
 | `astSearch` | AST shape, file, tree, symbol, and topology queries. | `operation` |
+| `astRewrite` | Preview or apply snapshot-bound structural rewrites. Apply is separately opt-in. | `apply` |
 | `localFetch` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
 ### Package search
@@ -242,6 +244,12 @@ or trees with its strict `operation` field.
 | Tool | What it does |
 |------|--------------|
 | `lspSearch` | Typed semantic navigation: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, and `diagnostic`. From the CLI, invoke it directly: `npx octocode tools lspSearch --queries '<json>'`. Navigation runs through installed language servers (see the [LSP tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md#lsp-tools-reference)). |
+
+### Reasoning
+
+| Tool | What it does |
+|------|--------------|
+| `jevReasoning` | Returns a bounded, provisional TypeSafe Jev judgment for one caller-supplied evidence fork. It is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank; the result is never evidence or a fact. The direct CLI form is `npx octocode jevReasoning '<json>'`. |
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
@@ -332,6 +340,7 @@ Most-used settings (both CLI and MCP unless noted):
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra path allowlist for local access. |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | Response format: `yaml` or `json`. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | Set `memory` to prevent persistent runtime state and materialization. |
+| `OCTOCODE_JEV_KEY` | env only | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`; never commit it. |
 
 `OCTOCODE_HOME`, GitHub Enterprise (`GITHUB_API_URL`), MCP tool filtering (`TOOLS_TO_RUN`/`DISABLE_TOOLS`), and network timeouts/retries: see the [Configuration Reference](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 

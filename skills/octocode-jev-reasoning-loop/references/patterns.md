@@ -18,6 +18,10 @@ Prefer selection over generation. Supply caller-owned handlers, values, source s
 
 If the next question depends on the winning route, either make a second call with that result in state or precompute independent conditional questions and consume only the applicable answer. State each condition in the question; answers cannot see one another. Track accuracy on representative examples, including ambiguous and hostile inputs, before treating confidence as an automation threshold.
 
+## Review a bundled proposal (decision_review)
+
+When a proposal bundles several changes, pass each distinct change as its own risk (`R1..Rn`) so `decision_review` can localize where the danger sits. A moderate `proposal_viable` (near 0.5–0.7) with probability concentrated on a single risk is a *split* signal, not an *abandon* signal: keep the parts the review leaves unthreatened and rework only the flagged part in its owning layer. Feed the concrete `strongestCounter` and `falsifier` for the leading part, since the review reasons over the risks and assumptions you supply — an unnamed risk cannot be surfaced. Example: a two-part fix (loosen a contract; reuse a paginator) scored 0.65 with `primary_risk` on the reuse at 0.70, because that paginator advanced `page+1` on advisory "look elsewhere" actions that were never continuations; the contract-loosening half was sound and shipped, the reuse half was replaced with a fresh page-1 stamp.
+
 ## Apply uncertainty and policy
 
 Choice and Score confidence summarizes probability concentration; it does not certify workflow correctness or authorize an action. Noul near 0.5 means similar probability for yes and no, not medium intensity. Set thresholds from representative user data and the consequence of error. Keep policy explicit: weighted scores fit compensating preferences, while an “any serious violation” rule needs separate conditions. Ignore uncertainty on branches code will not consume.

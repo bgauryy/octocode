@@ -38,6 +38,10 @@ const TOOL_PAGINATION_CONTRACT: Record<
   astRewrite: { controls: ['page', 'pageSize'] },
   localFetch: { controls: ['chunkType', 'offset', 'limit'] },
   lspSearch: { controls: ['page', 'pageSize'] },
+  jevReasoning: {
+    controls: [],
+    exemption: 'bounded typed-judgment operation',
+  },
 };
 
 const TOTAL_CAP_TOOLS = new Set(['astSearch']);
