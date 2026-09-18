@@ -29,8 +29,6 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Topic | Document |
 |-------|----------|
 | Acceptance criteria for public tool quality | [Tool quality and agent workflow acceptance](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
-| Dated CLI and MCP contract audit | [MCP and CLI tool contract audit](MCP_CLI_TOOL_CONTRACT_GAPS.md) |
-| Migration of local file and tree discovery into `astSearch` | [AST and core contract migration](AST_CORE_MIGRATION.md) |
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
 

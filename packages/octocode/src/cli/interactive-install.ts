@@ -23,14 +23,14 @@ function listInstallClients(bin: string): string[] {
       new Error(result.stderr.trim() || 'Native install discovery failed.')
     );
   }
-  const parsed = JSON.parse(result.stdout) as { supported?: unknown };
+  const parsed = JSON.parse(result.stdout) as { ides?: unknown };
   if (
-    !Array.isArray(parsed.supported) ||
-    !parsed.supported.every(value => typeof value === 'string')
+    !Array.isArray(parsed.ides) ||
+    !parsed.ides.every(value => typeof value === 'string')
   ) {
     throw new Error('Native install discovery returned an invalid response.');
   }
-  return parsed.supported;
+  return parsed.ides;
 }
 
 export async function runInteractiveInstall(

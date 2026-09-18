@@ -472,14 +472,14 @@ npx octocode skill help
 
 ## Architecture
 
-Octocode is a yarn-workspaces monorepo organized as a toolkit rather than one application. The **MCP server** and **CLI** are thin research interfaces over one shared TypeScript tool core. The tool core consumes canonical public contracts, central configuration, and a Rust engine compiled through [napi-rs](https://napi.rs). Skills, host integrations, coordination, file mutation, and evaluation packages build around that research spine without duplicating it.
+Octocode is a yarn-workspaces monorepo organized as a toolkit rather than one application. The **MCP server** and **CLI** are thin interfaces over one Rust runtime. `octocode-native` consumes canonical public contracts and the Rust primitives in `octocode-engine`; Node only launches the native CLI, registers MCP transport, and materializes Agent Skills. Skills, host integrations, coordination, file mutation, and evaluation packages build around that research spine without duplicating tool execution.
 
 ```mermaid
 graph LR
     CLI["octocode<br/>CLI"]
     MCP["octocode-mcp<br/>MCP server, stdio"]
     VSC["VS Code extension<br/>OAuth + install"]
-    CORE["octocode-native<br/>tools, GitHub client, auth, pagination, security bridge"]
+    CORE["octocode-native (Rust)<br/>tools, providers, auth, pagination, security"]
     ENGINE["octocode-engine (Rust)<br/>secrets, minify, AST, signatures, ripgrep/diff/YAML, LSP"]
     EXT["GitHub API, local FS + ripgrep, language servers"]
 
@@ -499,7 +499,7 @@ graph LR
 client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize + YAML-serialize + paginate (Rust) → result + next-step hints
 ```
 
-**One Rust engine** owns secret detection, sanitization, path and command validation, minification (70+ languages), signature extraction, structural AST search, ripgrep parsing, diff filtering, YAML serialization, and LSP. The Node event loop therefore stays unblocked, and there is no duplicate native loader. The engine ships prebuilt for darwin (arm64/x64), linux (arm64/x64, gnu and musl), and win32-x64; no Rust toolchain is needed at runtime.
+**One Rust execution path** owns provider calls, secret detection, sanitization, path and command validation, minification (70+ languages), signature extraction, structural AST search and rewrite, ripgrep parsing, diff filtering, serialization, and LSP. The native package ships prebuilt CLI and N-API artifacts for darwin (arm64/x64), linux (arm64/x64, gnu and musl), and win32-x64; no Rust toolchain is needed at runtime.
 
 ### Packages
 
@@ -532,7 +532,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 | Start and configure | [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) · [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [Configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) |
 | Research tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Local research workflow](https://github.com/bgauryy/octocode/blob/main/docs/LOCAL_RESEARCH_WORKFLOW.md) · [Tool data and handoff contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) |
 | Agent method | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Agent Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
-| Design and quality | [Routing and evidence position paper](https://github.com/bgauryy/octocode/blob/main/docs/ROUTING_EVIDENCE_POSITION_PAPER.md) · [Tool quality acceptance](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) · [Dated contract audit](https://github.com/bgauryy/octocode/blob/main/docs/MCP_CLI_TOOL_CONTRACT_GAPS.md) |
+| Design and quality | [Routing and evidence position paper](https://github.com/bgauryy/octocode/blob/main/docs/ROUTING_EVIDENCE_POSITION_PAPER.md) · [Tool quality acceptance](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
 | Safety and support | [Security model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
 | Packages and evaluation | [Package architecture index](https://github.com/bgauryy/octocode/blob/main/docs/README.md#package-guides) · [Benchmark workspace](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) |
 

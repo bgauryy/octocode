@@ -1,55 +1,32 @@
-/**
- * `octocode skill info <name>`
- *
- * Shows full skill details — name, description, env params, and SKILL.md content.
- * Use --json for agent-parseable output.
- */
-
 import { getSkill, getSkillContent } from '../registry.js';
-import {
-  getSkillEnvStatus,
-  isGroupSatisfied,
-  groupLabel,
-  type SkillEnvStatus,
-} from '../env-params.js';
-import { bold, dim, c } from '../../../../utils/colors.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function envStatusLine(env: SkillEnvStatus): string {
-  switch (env.readiness) {
-    case 'ok':
-      return dim('none needed');
-    case 'ready':
-      return c('green', 'all set');
-    case 'partial':
-      return c('yellow', 'partial — some recommended keys missing');
-    case 'needs-config':
-      return c('red', 'configuration required');
-  }
-}
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
+import { getSkillEnvStatus, isGroupSatisfied } from '../env-params.js';
+import { bold, c, dim } from '../../../../utils/colors.js';
 
 export function runInfo(skillName: string, opts: { json: boolean }): void {
   const skill = getSkill(skillName);
-
   if (!skill) {
-    const msg = `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.`;
-    if (opts.json) {
-      console.log(JSON.stringify({ success: false, error: msg }));
-    } else {
-      console.error(`\n  ${c('red', '✗')} ${msg}\n`);
-    }
+    const error = `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.`;
+    if (opts.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(`\n  ${c('red', '✗')} ${error}\n`);
     process.exitCode = 1;
     return;
   }
 
-  const content = getSkillContent(skill);
+  const skillMd = getSkillContent(skill);
   const env = getSkillEnvStatus(skill.folder);
-
-  // ── JSON ───────────────────────────────────────────────────────────────────
-
+  const params = env.params.map(param => ({
+    key: param.param.key,
+    status: param.status,
+    required: param.param.required,
+    description: param.param.description,
+    ...(param.param.group
+      ? {
+          group: param.param.group,
+          groupSatisfied: isGroupSatisfied(param, env.params),
+        }
+      : {}),
+    ...(param.param.link ? { link: param.param.link } : {}),
+  }));
   if (opts.json) {
     console.log(
       JSON.stringify(
@@ -60,23 +37,8 @@ export function runInfo(skillName: string, opts: { json: boolean }): void {
             folder: skill.folder,
             description: skill.description,
             dir: skill.dir,
-            skillMd: content ?? null,
-            env: {
-              readiness: env.readiness,
-              params: env.params.map(ps => ({
-                key: ps.param.key,
-                status: ps.status,
-                required: ps.param.required,
-                description: ps.param.description,
-                ...(ps.param.group
-                  ? {
-                      group: ps.param.group,
-                      groupSatisfied: isGroupSatisfied(ps, env.params),
-                    }
-                  : {}),
-                ...(ps.param.link ? { link: ps.param.link } : {}),
-              })),
-            },
+            skillMd: skillMd ?? null,
+            env: { readiness: env.readiness, params },
           },
         },
         null,
@@ -86,92 +48,14 @@ export function runInfo(skillName: string, opts: { json: boolean }): void {
     return;
   }
 
-  // ── Human ──────────────────────────────────────────────────────────────────
-
-  console.log();
-  console.log(`  ${bold(skill.name)}`);
-  console.log(`  ${dim('Folder:')}  ${skill.folder}`);
-  console.log(`  ${dim('Path:')}    ${skill.dir}`);
-  console.log();
-
-  // Env params block
-  if (env.readiness === 'ok') {
-    console.log(`  ${dim('Env params:')}  ${dim('none needed')}`);
-  } else {
-    console.log(`  ${bold('Env params')}  ${dim('·')}  ${envStatusLine(env)}`);
-    console.log();
-
-    const shownGroups = new Set<string>();
-
-    for (const ps of env.params) {
-      const { group, key, description, required, link } = ps.param;
-
-      if (group) {
-        if (shownGroups.has(group)) continue;
-        shownGroups.add(group);
-
-        const anySet = env.params.some(
-          p => p.param.group === group && p.status === 'set'
-        );
-        const groupIcon = anySet
-          ? c('green', '✓')
-          : required === 'required'
-            ? c('red', '✗')
-            : c('yellow', '⚠');
-        const groupStr = `${groupLabel(group)}  ${dim(`[${required} — at least one]`)}`;
-        console.log(
-          `  ${groupIcon}  ${anySet ? groupStr : c('yellow', groupStr)}`
-        );
-
-        for (const gp of env.params.filter(p => p.param.group === group)) {
-          const setStr =
-            gp.status === 'set' ? c('green', ' ✓ set') : dim(' – not set');
-          const linkStr = gp.param.link ? `  ${dim(gp.param.link)}` : '';
-          console.log(
-            `       ${(gp.status === 'set' ? c('green', gp.param.key) : dim(gp.param.key)).padEnd(32)}${setStr}${linkStr}`
-          );
-        }
-        console.log();
-      } else {
-        const icon =
-          ps.status === 'set'
-            ? c('green', '✓')
-            : required === 'required'
-              ? c('red', '✗')
-              : c('yellow', '⚠');
-        const keyStr = ps.status === 'set' ? c('green', key) : c('yellow', key);
-        const statusStr =
-          ps.status === 'set'
-            ? c('green', 'set')
-            : dim(`not set  [${required}]`);
-        const linkStr = link ? `  ${dim(link)}` : '';
-        console.log(`  ${icon}  ${keyStr.padEnd(32)} ${statusStr}${linkStr}`);
-        console.log(`       ${dim(description)}`);
-        console.log();
-      }
-    }
-
-    if (env.readiness !== 'ready') {
-      console.log(`  ${dim('Add to')} ~/.octocode/.env${dim(':')}  KEY=value`);
-      console.log(
-        `  ${dim('Verify:')} ${c('cyan', `octocode skill check ${skill.folder}`)}`
-      );
-      console.log();
-    }
+  console.log(`\n  ${bold(skill.name)}`);
+  console.log(`  ${dim(skill.description)}`);
+  console.log(`  Path: ${skill.dir}`);
+  console.log(`  Env: ${env.readiness}`);
+  for (const param of params) {
+    console.log(
+      `    ${param.status === 'set' ? c('green', '✓') : c('yellow', '–')} ${param.key} [${param.required}]`
+    );
   }
-
-  console.log(`  ${dim('─'.repeat(60))}`);
-  console.log();
-
-  // SKILL.md content
-  if (content) {
-    const lines = content.split('\n');
-    for (const line of lines) {
-      console.log(`  ${line}`);
-    }
-  } else {
-    console.log(`  ${dim('(SKILL.md not readable)')}`);
-  }
-
-  console.log();
+  console.log(`\n${skillMd ?? dim('(SKILL.md not readable)')}\n`);
 }

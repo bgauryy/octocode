@@ -15,11 +15,11 @@ The CLI discovery catalog includes disabled tools: eleven tools are discoverable
 |---|---|---|
 | Names, descriptions, input schemas, relations | `@octocodeai/octocode-core/schema` in the sibling `octocode-mcp-host` repository | Public requests and tool selection, independent of execution. |
 | Shared server instructions | `@octocodeai/octocode-core/mcp`: `buildMcpInstructions(enabledToolNames)` | Workflow and evidence guidance for the exposed tool subset. |
-| Execution, provider mapping, topology algorithms | [native runtime registry and runners](../packages/octocode-native/src/tools/toolConfig.ts) | Validated request dispatch, provider calls, and result construction. |
-| Search, syntax, minification, LSP primitives | [engine](../packages/octocode-engine/ARCHITECTURE.md) | Native and language-server operations used by native runtime. |
-| Output TypeScript types | [bulk envelope](../packages/octocode-native/src/types/toolOutput.ts) and per-tool types | Compile-time descriptions; these types do not validate external data at runtime. |
-| Response shaping and pagination | [bulk response](../packages/octocode-native/src/utils/response/bulk/response.ts) | Row status, evidence, presentation, and executable continuations. |
-| MCP registration | [registration adapter](../packages/octocode-mcp/src/tools/registerTool.ts) | Publishes input schemas and forwards requests to the shared runners. |
+| Execution, provider mapping, topology algorithms | [native runtime](../packages/octocode-native/src/runtime/engine.rs) and [tool modules](../packages/octocode-native/src/tools) | Validated request dispatch, provider calls, and result construction. |
+| Search, syntax, minification, LSP primitives | [engine](../packages/octocode-engine/ARCHITECTURE.md) | Native and language-server operations used by the runtime. |
+| Response contracts | [generated contract](../packages/octocode-native/src/contracts/generated/tool-contract.json) and Rust response types | Runtime-validated request and transport-neutral result structures. |
+| Response shaping and pagination | [native response module](../packages/octocode-native/src/response/mod.rs) | Row status, evidence, presentation, and executable continuations. |
+| MCP registration | [public adapter](../packages/octocode-mcp/src/public.ts) | Publishes Standard Schema definitions and forwards execution to the native runtime. |
 
 MCP publishes no `outputSchema`. It returns `structuredContent` and text content, but clients cannot discover a per-tool output JSON Schema from `tools/list`. This is an output-discovery limitation, not proof that responses are untyped internally. MCP makes output schemas optional; when a server advertises one, its structured results must conform. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema).
 
@@ -34,6 +34,7 @@ For example, this is a `localFetch` request. Substitute an observed path and lin
 {
   "queries": [
     {
+      "reasoning": "Read the exact parser range needed for the current claim.",
       "path": "/ABS/repo/src/parser.ts",
       "startLine": 20,
       "endLine": 40,

@@ -14,14 +14,12 @@ The native path is mandatory for public tools. If its platform package cannot be
 
 ## TypeScript management surface
 
-TypeScript remains only where Node or interactive terminal libraries are required:
+TypeScript remains only for:
 
 - `skill`, backed by the shared skill installer;
-- interactive `install` without `--ide`;
-- OAuth/menu presentation backed by native credential storage;
-- terminal, MCP-config, and platform presentation helpers.
+- the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Flag-only management commands, `tools`, `context`, `lsp-server`, status, human search/read/AST/LSP commands, and MCP installation are delegated to the native CLI. The TypeScript command registry contains only the interactive `install` and `skill` seams.
+Flag-only management commands, `tools`, `context`, `lsp-server`, status, authentication, human search/read/AST/LSP commands, and MCP installation are delegated to the native CLI. The TypeScript command registry contains only `skill`; interactive installation is a transport adapter, not a second installer.
 
 ## Build and packaging
 

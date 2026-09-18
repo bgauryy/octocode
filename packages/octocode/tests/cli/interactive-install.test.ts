@@ -15,7 +15,7 @@ describe('interactive native install picker', () => {
   it('discovers clients from native and delegates the selected id', async () => {
     mocks.spawn.mockReturnValue({
       status: 0,
-      stdout: '{"supported":["cursor","zed"]}',
+      stdout: '{"ides":["cursor","zed"]}',
       stderr: '',
     });
     mocks.select.mockResolvedValue('zed');
@@ -40,7 +40,7 @@ describe('interactive native install picker', () => {
   it('rejects malformed native discovery output', async () => {
     mocks.spawn.mockReturnValue({
       status: 0,
-      stdout: '{"supported":[1]}',
+      stdout: '{"ides":[1]}',
       stderr: '',
     });
     const { runInteractiveInstall } =

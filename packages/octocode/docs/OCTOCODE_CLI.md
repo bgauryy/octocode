@@ -89,10 +89,10 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```
 
 ```bash
-npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode/src"}'
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/packages/octocode/src","searchText":"executeDirectTool","resultView":"discovery"}'
-npx octocode tools localFetch --queries '{"path":"/ABS/repo/packages/octocode/src/cli/tool-command/execute.ts","matchString":"executeDirectTool"}'
-npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/packages/octocode/src/cli/tool-command/execute.ts","operation":"references","symbolName":"executeToolCommand","lineHint":111}'
+npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode-native/src"}'
+npx octocode tools localSearch --queries '{"path":"/ABS/repo/packages/octocode-native/src","searchText":"ToolRuntime","resultView":"discovery"}'
+npx octocode tools localFetch --queries '{"path":"/ABS/repo/packages/octocode-native/src/runtime/engine.rs","matchString":"ToolRuntime"}'
+npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/packages/octocode-native/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40}'
 ```
 
 ### Key flags for `tools`

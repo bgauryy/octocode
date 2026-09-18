@@ -431,4 +431,29 @@ describe('skill command', () => {
     expect(typeof parsed.skills[0]?.nothingFound).toBe('boolean');
     expect(parsed.summary.failed).toBe(0);
   });
+
+  it('renders concise human output for each retained skill operation', () => {
+    run(['list']);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Octocode skills')
+    );
+
+    vi.mocked(console.log).mockClear();
+    run(['info', 'octocode-research']);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('octocode-research')
+    );
+
+    vi.mocked(console.log).mockClear();
+    run(['check', 'octocode-research'], { 'no-env': true });
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Skill check')
+    );
+
+    vi.mocked(console.log).mockClear();
+    run(['remove', 'octocode-research'], { 'dry-run': true });
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Remove preview')
+    );
+  });
 });

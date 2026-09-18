@@ -43,9 +43,9 @@ pub struct PreparedQuery {
 
 /// Applies canonical meta-field defaults. Shape and relation validation is a
 /// later stage and must never rewrite tool fields or delegate to Node.
-/// Accepts a single query object directly, `[q]`, or `{ "queries": [q] }`
-/// with exactly one element (kept for CLI and continuation compatibility).
-/// Multiple queries in one call are not supported.
+/// Singular preparation helper for continuations and internal callers.
+/// Public bulk requests must use `prepare_many_and_validate`; singleton array
+/// and envelope forms remain accepted here for cursor compatibility.
 pub fn prepare(
     tool_name: &str,
     input: Value,
@@ -55,7 +55,7 @@ pub fn prepare(
         Value::Array(mut values) => {
             if values.len() != 1 {
                 return Err(ContractInputError::new(
-                    "multiple queries are not supported; send one query object directly",
+                    "singular preparation received multiple queries; use prepare_many_and_validate",
                 ));
             }
             match values.remove(0) {
@@ -67,7 +67,7 @@ pub fn prepare(
             Some(Value::Array(mut values)) => {
                 if values.len() != 1 {
                     return Err(ContractInputError::new(
-                        "multiple queries are not supported; send one query object directly",
+                        "singular preparation received multiple queries; use prepare_many_and_validate",
                     ));
                 }
                 match values.remove(0) {

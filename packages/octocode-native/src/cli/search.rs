@@ -121,8 +121,8 @@ pub struct SearchArgs {
 }
 
 impl SearchArgs {
-    /// Returns one query object per path. Callers iterate and execute each
-    /// query individually — multi-query batching has been removed.
+    /// Returns one query object per path for ordered bulk execution by the
+    /// shared native runtime.
     pub fn queries(&self) -> io::Result<Vec<Value>> {
         let view = if self.files || self.quiet {
             "files"
