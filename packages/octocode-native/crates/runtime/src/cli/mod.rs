@@ -74,6 +74,17 @@ fn compact_fields(tool: &Value) -> String {
     format!("[{}]", fields.join(", "))
 }
 
+fn availability_env_var(name: &str) -> Option<&'static str> {
+    match name {
+        "ghCloneRepo" => Some("OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"),
+        "jevReasoning" => Some("OCTOCODE_JEV_KEY"),
+        "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch" => {
+            Some("OCTOCODE_LOCAL")
+        }
+        _ => None,
+    }
+}
+
 fn compact_tool_catalog(catalog: &Value) -> Value {
     let tools = catalog
         .get("tools")
@@ -87,14 +98,25 @@ fn compact_tool_catalog(catalog: &Value) -> Value {
                         .get("description")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
+                    let enabled = tool
+                        .get("available")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    let mut availability = json!({ "enabled": enabled });
+                    if !enabled {
+                        if let Some(env_var) = availability_env_var(name) {
+                            availability["envVar"] = Value::String(env_var.to_owned());
+                        } else {
+                            availability["configuration"] =
+                                Value::String("tools.enabled/tools.disabled".to_owned());
+                        }
+                    }
                     json!({
                         "name": name,
                         "category": human::tool_family(name),
                         "description": compact_description(description, 96),
                         "fields": compact_fields(tool),
-                        "availability": {
-                            "enabled": tool.get("available").and_then(Value::as_bool).unwrap_or(false)
-                        }
+                        "availability": availability
                     })
                 })
                 .collect::<Vec<_>>()

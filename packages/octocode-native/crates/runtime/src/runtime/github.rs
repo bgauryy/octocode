@@ -529,9 +529,9 @@ fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
     }
 }
 
-/// Error formatter for ghSearch. The ghSearch output contract requires
-/// `data.error` to be a plain string — unlike history tools which use a
-/// nested object. Keep this separate from `history_error`.
+/// Error formatter for ghSearch. Like `history_error`, the output contract
+/// requires `data.error` to be a plain string; this variant carries a
+/// ghSearch-specific message/hint set, so keep it separate.
 fn search_error(error: ProviderError) -> DomainResult {
     let failure = failure_kind(error.kind);
     let message = match error.kind {
@@ -611,15 +611,20 @@ fn history_error(error: ProviderError) -> DomainResult {
     } else {
         "unknown"
     };
-    let mut detail = json!({"type":kind,"error":message});
+    // The canonical output contract requires `data.error` to be a plain
+    // string. Keep the diagnostic signal (type/status/rate-limit) as sibling
+    // top-level fields rather than nesting an object under `error`; a nested
+    // object here trips `outputContractViolation` and masks the real provider
+    // failure (e.g. a search 422 on a renamed repository).
+    let mut data = json!({"type":kind,"error":message});
     if let Some(status) = error.status {
-        detail["status"] = json!(status);
+        data["status"] = json!(status);
     }
     if let Some(suggestion) = suggestion {
-        detail["scopesSuggestion"] = json!(suggestion);
+        data["scopesSuggestion"] = json!(suggestion);
     }
     if error.kind == ProviderErrorKind::RateLimited {
-        detail["rateLimitRemaining"] = json!(
+        data["rateLimitRemaining"] = json!(
             error
                 .rate_limit
                 .as_ref()
@@ -631,16 +636,15 @@ fn history_error(error: ProviderError) -> DomainResult {
         if let Some(value) = rate.remaining
             && error.kind != ProviderErrorKind::RateLimited
         {
-            detail["rateLimitRemaining"] = json!(value);
+            data["rateLimitRemaining"] = json!(value);
         }
         if let Some(value) = rate.reset_epoch_seconds {
-            detail["rateLimitReset"] = json!(value.saturating_mul(1000));
+            data["rateLimitReset"] = json!(value.saturating_mul(1000));
         }
         if let Some(value) = rate.retry_after_seconds {
-            detail["retryAfter"] = json!(value);
+            data["retryAfter"] = json!(value);
         }
     }
-    let mut data = json!({"error":detail});
     if error.kind == ProviderErrorKind::Authentication {
         data["hints"] = json!(["octocode login, or set GITHUB_TOKEN / GH_TOKEN"]);
     }
@@ -651,5 +655,53 @@ fn history_error(error: ProviderError) -> DomainResult {
         source_digest: None,
         cache: false,
         failure: Some(failure),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: a provider failure whose body decoded into a structured
+    /// error (here modelled as a Validation 422 carrying rate-limit metadata)
+    /// must still shape `data.error` as a plain string. Before the fix
+    /// `history_error` nested the diagnostic object under `error`, producing
+    /// `results.0.data.error: Expected string` (`outputContractViolation`) and
+    /// masking the real 422.
+    #[test]
+    fn history_error_shapes_error_as_string() {
+        let error = ProviderError {
+            kind: ProviderErrorKind::Validation,
+            message: "Validation Failed: repository rename not followed".into(),
+            status: Some(422),
+            request_id: None,
+            documentation_url: None,
+            rate_limit: Some(RateLimit {
+                remaining: Some(11),
+                reset_epoch_seconds: Some(1_700_000_000),
+                retry_after_seconds: None,
+            }),
+            retryable: false,
+        };
+
+        let result = history_error(error);
+        let data = &result.data;
+
+        assert_eq!(result.status, Some("error"));
+        // The contract requires a string here; a nested object regresses it.
+        assert!(
+            data["error"].is_string(),
+            "data.error must be a string, got {}",
+            data["error"]
+        );
+        assert_eq!(
+            data["error"].as_str(),
+            Some("Invalid search query or request parameters"),
+        );
+        // Diagnostic signal is preserved as sibling fields, not nested.
+        assert_eq!(data["status"], json!(422));
+        assert_eq!(data["type"], json!("http"));
+        assert!(data["scopesSuggestion"].is_string());
+        assert_eq!(data["rateLimitRemaining"], json!(11));
     }
 }

@@ -713,6 +713,18 @@ fn tools_json_emits_compact_discovery_catalog() {
     assert!(first["name"].is_string());
     assert!(first["fields"].is_string());
     assert!(first["availability"]["enabled"].is_boolean());
+    let clone_tool = value["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .find(|tool| tool["name"] == "ghCloneRepo")
+        .expect("clone tool");
+    if clone_tool["availability"]["enabled"] == false {
+        assert_eq!(
+            clone_tool["availability"]["envVar"],
+            "OCTOCODE_ENABLE_CLONE|OCTOCODE_STORAGE_MODE"
+        );
+    }
     assert!(first.get("inputSchema").is_none());
     assert!(first.get("outputSchema").is_none());
 }
