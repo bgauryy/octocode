@@ -8,7 +8,7 @@
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
     "@octocodeai/octocode-core": "19.0.1",
-    "@octocodeai/octocode-native": "0.1.0"
+    "@octocodeai/octocode-native": "20.0.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

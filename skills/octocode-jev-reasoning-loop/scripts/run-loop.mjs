@@ -10,6 +10,7 @@ import {
   prepareCompactRun
 } from './decision-contract.mjs';
 import { checkResearch, hashResearchRequest } from './check-research.mjs';
+import { resolveEvidenceRefs } from './resolve-content-ref.mjs';
 import { parseFlags, print, readJson, stop } from './cli-json.mjs';
 
 const launcher = fileURLToPath(new URL('./jev.mjs', import.meta.url));
@@ -80,17 +81,31 @@ function evaluate(requestPath, options) {
   return JSON.parse(child.stdout);
 }
 
-function metricBlock(input, request, response, apiCalls) {
-  return {
+function metricBlock(input, request, response, apiCalls, refs) {
+  const block = {
     compact_input_bytes: Buffer.byteLength(JSON.stringify(input)),
     request_bytes: Buffer.byteLength(JSON.stringify(request)),
     api_calls: apiCalls,
     input_tokens: response?.usage?.input_tokens ?? 0,
     output_tokens: response?.usage?.output_tokens ?? 0
   };
+  if (refs && refs.stats.refsResolved > 0) {
+    block.content_ref = {
+      refs_resolved: refs.stats.refsResolved,
+      authored_input_bytes: refs.authoredBytes,        // what the host actually emitted (pointers)
+      file_chars_read_server_side: refs.stats.fileCharsRead,
+      content_chars_injected: refs.stats.contentCharsInjected,
+      host_bytes_saved: Math.max(0, refs.stats.fileCharsRead - refs.authoredBytes)
+    };
+  }
+  return block;
 }
 
 export function runLoop(input, options = {}, policy = DEFAULT_POLICY) {
+  const authoredBytes = Buffer.byteLength(JSON.stringify(input));
+  const resolution = resolveEvidenceRefs(input, { rootDir: options.rootDir || process.cwd() });
+  input = resolution.input;
+  const refs = { stats: resolution.stats, authoredBytes };
   const prepared = prepareCompactRun(input, policy);
   if (prepared.status !== 'ready') {
     return {
@@ -122,7 +137,7 @@ export function runLoop(input, options = {}, policy = DEFAULT_POLICY) {
       summary: {
         status: 'ready', route: prepared.route, policyAction: prepared.routing.policyAction,
         artifacts: { output, request: requestPath, dryRun: join(output, 'dry-run.json') },
-        metrics: metricBlock(input, prepared.request, undefined, 0)
+        metrics: metricBlock(input, prepared.request, undefined, 0, refs)
       }
     };
   }
@@ -156,7 +171,7 @@ export function runLoop(input, options = {}, policy = DEFAULT_POLICY) {
           ...(check.suggestion ? { narrowing: check.suggestion } : {}),
           model: response.model, decisions: responseSummary(response),
           artifacts: { output, request: requestPath, response: responsePath, envelope: envelopePath },
-          metrics: metricBlock(input, prepared.request, response, apiCalls)
+          metrics: metricBlock(input, prepared.request, response, apiCalls, refs)
         }
       };
     }
@@ -178,7 +193,7 @@ export function runLoop(input, options = {}, policy = DEFAULT_POLICY) {
       netAction: application.net_action,
       blockReasons: application.block_reasons,
       artifacts: { output, request: requestPath, response: responsePath, apply: applyPath },
-      metrics: metricBlock(input, prepared.request, response, apiCalls)
+      metrics: metricBlock(input, prepared.request, response, apiCalls, refs)
     }
   };
 }

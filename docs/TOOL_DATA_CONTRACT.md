@@ -15,10 +15,10 @@ The CLI discovery catalog includes disabled tools: eleven tools are discoverable
 |---|---|---|
 | Names, descriptions, input schemas, relations | `@octocodeai/octocode-core/schema` in the sibling `octocode-mcp-host` repository | Public requests and tool selection, independent of execution. |
 | Shared server instructions | `@octocodeai/octocode-core/mcp`: `buildMcpInstructions(enabledToolNames)` | Workflow and evidence guidance for the exposed tool subset. |
-| Execution, provider mapping, topology algorithms | [native runtime](../packages/octocode-native/src/runtime/engine.rs) and [tool modules](../packages/octocode-native/src/tools) | Validated request dispatch, provider calls, and result construction. |
-| Search, syntax, minification, LSP primitives | [engine](../packages/octocode-engine/ARCHITECTURE.md) | Native and language-server operations used by the runtime. |
-| Response contracts | [generated contract](../packages/octocode-native/src/contracts/generated/tool-contract.json) and Rust response types | Runtime-validated request and transport-neutral result structures. |
-| Response shaping and pagination | [native response module](../packages/octocode-native/src/response/mod.rs) | Row status, evidence, presentation, and executable continuations. |
+| Execution, provider mapping, topology algorithms | [native runtime](../packages/octocode-native/crates/runtime/src/runtime/engine.rs) and [tool modules](../packages/octocode-native/crates/runtime/src/tools) | Validated request dispatch, provider calls, and result construction. |
+| Search, syntax, minification, LSP primitives | [engine crate](../packages/octocode-native/ARCHITECTURE.md) | Native and language-server operations used by the runtime. |
+| Response contracts | [generated contract](../packages/octocode-native/crates/runtime/src/contracts/generated/tool-contract.json) and Rust response types | Runtime-validated request and transport-neutral result structures. |
+| Response shaping and pagination | [native response module](../packages/octocode-native/crates/runtime/src/response/mod.rs) | Row status, evidence, presentation, and executable continuations. |
 | MCP registration | [public adapter](../packages/octocode-mcp/src/public.ts) | Publishes Standard Schema definitions and forwards execution to the native runtime. |
 
 MCP publishes no `outputSchema`. It returns `structuredContent` and text content, but clients cannot discover a per-tool output JSON Schema from `tools/list`. This is an output-discovery limitation, not proof that responses are untyped internally. MCP makes output schemas optional; when a server advertises one, its structured results must conform. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#output-schema).

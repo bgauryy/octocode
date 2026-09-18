@@ -7,27 +7,28 @@ const extensionPackage = JSON.parse(readFileSync(new URL('../packages/octocode-e
 export const OCTOCODE_CORE_PACKAGE = '@octocodeai/octocode-core';
 export const AGENT_TESTING_PACKAGE = '@octocodeai/agent-testing';
 
-export function enginePlatformPackages(enginePackage) {
-  return Object.keys(enginePackage.optionalDependencies ?? {}).filter(name =>
-    name.startsWith('@octocodeai/octocode-engine-')
+export function nativePlatformPackages(nativePackage) {
+  return Object.keys(nativePackage.optionalDependencies ?? {}).filter(name =>
+    name.startsWith('@octocodeai/octocode-native-')
   );
 }
 
-export function workspaceResolutionPackages(enginePackage) {
+export function workspaceResolutionPackages(nativePackage) {
   return [
     '@octocodeai/octocode-awareness',
     '@octocodeai/octocode-skill-installer',
     '@octocodeai/config',
     '@octocodeai/octocode-engine',
     '@octocodeai/octocode-extension-rust',
-    ...enginePlatformPackages(enginePackage),
+    '@octocodeai/octocode-native',
+    ...nativePlatformPackages(nativePackage),
     ...Object.keys(extensionPackage.optionalDependencies ?? {}),
   ];
 }
 
-export function managedResolutionPackages(enginePackage) {
+export function managedResolutionPackages(nativePackage) {
   return [
-    ...workspaceResolutionPackages(enginePackage),
+    ...workspaceResolutionPackages(nativePackage),
     OCTOCODE_CORE_PACKAGE,
     AGENT_TESTING_PACKAGE,
   ];

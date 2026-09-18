@@ -1,6 +1,6 @@
 # Octocode tools reference
 
-This is the field-level reference for the research surface of the Octocode agentic toolkit. It covers every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution lives in `@octocodeai/octocode-native`; native search, minify, security, and LSP primitives live in `@octocodeai/octocode-engine`.
+This is the field-level reference for the research surface of the Octocode agentic toolkit. It covers every tool exposed through MCP and the CLI. Schemas and descriptions live in `@octocodeai/octocode-core`; execution and distribution live in `@octocodeai/octocode-native`; native search, minify, security, and LSP primitives live in its engine crate and `./engine` subpath.
 
 Use this page when you need field-level guidance, cross-tool workflows, known behavior, or release verification checks. For MCP tool ratings, quality gaps, per-tool improvement backlogs, and the recommended agent workflow, see [`MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md`](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md). For the exact active schema in a local checkout, run the compact form first; its `relations` list preserves mode-specific required and mutually exclusive fields:
 
@@ -289,7 +289,7 @@ Behaviors worth knowing:
 - `standard` compacts source without JS/TS optimization or type-declaration
   removal. It still removes comments and rewrites formatting. Use `none` for
   source quotes and comment-sensitive evidence. See
-  [minification coverage](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
+  [minification coverage](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
 - Files too large for the `/contents/` API fall back to the Git tree and blob API
   automatically. You do not need to switch to `ghCloneRepo` for size alone.
 
@@ -1180,7 +1180,7 @@ pagination includes that identity. Follow continuations unchanged; changing the
 context requires restarting pagination. This fingerprint does not pin source
 files, Cargo configuration, the toolchain, environment changes, or generated
 artifacts. It is not a reproducible-build identifier. See the
-[engine lifecycle contract](../packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#rust-context-and-server-identity)
+[engine lifecycle contract](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#rust-context-and-server-identity)
 and [rust-analyzer configuration](https://rust-analyzer.github.io/book/configuration.html).
 
 ### Root selection
@@ -1281,7 +1281,7 @@ for that extension:
 (passed verbatim in `initialize`) are optional. With the config present, the server can answer the
 semantic operations it advertises; without it the extension is unsupported and semantic ops throw
 `lspServerUnavailable` (→ fall back to `localSearch`). See
-[`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
+[`LSP_SERVER_LIFECYCLE.md`](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#custom--bring-your-own-lsp-any-language).
 
 ### Examples
 

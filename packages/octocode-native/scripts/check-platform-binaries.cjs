@@ -26,12 +26,20 @@ const PLATFORMS = [
 let allOk = true;
 
 for (const { dir, binaries } of PLATFORMS) {
-  for (const name of [...binaries, `octocode-native.${dir}.node`]) {
+  const artifacts = [
+    ...binaries,
+    `octocode-native.${dir}.node`,
+    `octocode-engine.${dir}.node`,
+  ];
+  for (const name of artifacts) {
     const p = join(root, 'npm', dir, name);
     try {
-      const { size } = statSync(p);
+      const { size, mode } = statSync(p);
       if (size === 0) {
         console.error(`\u2717 npm/${dir}/${name} is empty (0 bytes)`);
+        allOk = false;
+      } else if (!dir.startsWith('win32') && binaries.includes(name) && (mode & 0o111) === 0) {
+        console.error(`\u2717 npm/${dir}/${name} is not executable`);
         allOk = false;
       } else {
         console.log(`\u2713 npm/${dir}/${name} (${size} bytes)`);

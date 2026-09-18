@@ -30,7 +30,7 @@ Credentials are acquired after request admission and pinned for the request life
 
 ## Content sanitization
 
-`octocode-engine/src/security/` owns the canonical ordered secret-pattern set and native scanner. It covers cloud, AI-provider, version-control, package-registry, database, payment, communications, private-key, bearer-token, and connection-string formats. File-context patterns activate only for matching path classes to reduce false positives.
+`packages/octocode-native/crates/engine/src/security/` owns the canonical ordered secret-pattern set and native scanner. It covers cloud, AI-provider, version-control, package-registry, database, payment, communications, private-key, bearer-token, and connection-string formats. File-context patterns activate only for matching path classes to reduce false positives.
 
 The runtime scans untrusted provider and filesystem content before rendering it. Detected values are replaced with typed redaction markers and accompanied by warnings. Oversized values are replaced wholesale rather than partially exposed. A final recursive pass sanitizes nested strings while preserving executable continuation and location structures.
 
@@ -38,7 +38,7 @@ The Rust implementation is the only production scanner. `patterns.rs` is its sou
 
 ## Filesystem policy
 
-Every local operation resolves through `packages/octocode-native/src/policy/path.rs`.
+Every local operation resolves through `packages/octocode-native/crates/runtime/src/policy/path.rs`.
 
 - The OS home directory is allowed by default.
 - `WORKSPACE_ROOT` / `local.workspaceRoot` and `ALLOWED_PATHS` / `local.allowedPaths` add explicit roots.

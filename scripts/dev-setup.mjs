@@ -2,7 +2,7 @@
 /**
  * dev-setup.mjs — pin workspace packages and the sibling octocode-core locally.
  *
- * Adds the monorepo-internal packages and the octocode-engine platform packages
+ * Adds the monorepo-internal packages and consolidated native platform packages
  * to the root package.json `resolutions` field so Yarn resolves them from the
  * local workspace (not from the npm registry) during development. Any transitive
  * consumer of these packages will also get the local build, giving you a single
@@ -32,7 +32,7 @@ import {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PKG_PATH = join(ROOT, 'package.json');
-const ENGINE_PKG_PATH = join(ROOT, 'packages/octocode-engine/package.json');
+const NATIVE_PKG_PATH = join(ROOT, 'packages/octocode-native/package.json');
 const argv = process.argv.slice(2);
 const flags = {
   dryRun: argv.includes('--dry-run') || argv.includes('-n'),
@@ -54,11 +54,11 @@ for (const arg of argv) {
   }
 }
 
-const enginePkg = JSON.parse(readFileSync(ENGINE_PKG_PATH, 'utf8'));
+const nativePkg = JSON.parse(readFileSync(NATIVE_PKG_PATH, 'utf8')); 
 
 /** Packages that should resolve to this workspace during development. */
 const WORKSPACE_RESOLUTIONS = Object.fromEntries(
-  workspaceResolutionPackages(enginePkg).map(name => [name, 'workspace:*'])
+  workspaceResolutionPackages(nativePkg).map(name => [name, 'workspace:*'])
 );
 const coreResolution = localCoreResolution(ROOT);
 const agentTestingResolution = localAgentTestingResolution(ROOT);
@@ -73,7 +73,7 @@ pkg.resolutions ??= {};
 
 if (flags.reset) {
   const removed = [];
-  for (const name of managedResolutionPackages(enginePkg)) {
+  for (const name of managedResolutionPackages(nativePkg)) {
     if (!isLocalResolution(pkg.resolutions[name])) continue;
     delete pkg.resolutions[name];
     removed.push(name);

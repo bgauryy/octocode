@@ -1,9 +1,15 @@
 {
   "name": "@octocodeai/octocode-native",
-  "version": "0.1.0",
-  "description": "Native Octocode tool runtime and command-line interface",
+  "version": "20.0.0",
+  "description": "Native Octocode CLI, tool runtime, and engine primitives",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
+  "type": "module",
+  "main": "./js/runtime.cjs",
+  "types": "./js/runtime.d.ts",
+  "engines": {
+    "node": "^24.15.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/bgauryy/octocode.git",
@@ -13,18 +19,59 @@
     "octocode": "./bin/octocode.cjs",
     "octocode-regex-worker": "./bin/octocode-regex-worker.cjs"
   },
+  "exports": {
+    ".": {
+      "types": "./js/runtime.d.ts",
+      "import": "./js/runtime.js",
+      "require": "./js/runtime.cjs"
+    },
+    "./runtime": {
+      "types": "./js/runtime.d.ts",
+      "import": "./js/runtime.js",
+      "require": "./js/runtime.cjs"
+    },
+    "./engine": {
+      "types": "./js/engine.d.ts",
+      "import": "./js/engine.js",
+      "require": "./js/engine.cjs"
+    },
+    "./native.cjs": "./native.cjs",
+    "./bin/octocode.cjs": "./bin/octocode.cjs",
+    "./bin/octocode-regex-worker.cjs": "./bin/octocode-regex-worker.cjs",
+    "./package.json": "./package.json"
+  },
   "files": [
     "bin",
+    "js",
     "native.cjs",
+    "docs/engine",
     "README.md"
   ],
+  "napi": {
+    "binaryName": "octocode-engine",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
   "optionalDependencies": {
-    "@octocodeai/octocode-native-darwin-arm64": "0.1.0",
-    "@octocodeai/octocode-native-darwin-x64": "0.1.0",
-    "@octocodeai/octocode-native-linux-arm64-gnu": "0.1.0",
-    "@octocodeai/octocode-native-linux-x64-gnu": "0.1.0",
-    "@octocodeai/octocode-native-linux-x64-musl": "0.1.0",
-    "@octocodeai/octocode-native-win32-x64-msvc": "0.1.0"
+    "@octocodeai/octocode-native-darwin-arm64": "20.0.0",
+    "@octocodeai/octocode-native-darwin-x64": "20.0.0",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "20.0.0",
+    "@octocodeai/octocode-native-linux-x64-gnu": "20.0.0",
+    "@octocodeai/octocode-native-linux-x64-musl": "20.0.0",
+    "@octocodeai/octocode-native-win32-x64-msvc": "20.0.0"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.10.3",
+    "@types/node": "^24.13.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   },
   "publishConfig": {
     "access": "public"
@@ -32,30 +79,42 @@
   "scripts": {
     "audit": "yarn audit:rust",
     "audit:rust": "cargo audit -D unmaintained -D unsound -D yanked",
-    "build": "cargo build --release --bins --no-default-features",
-    "build:dev": "cargo build --bins --no-default-features",
-    "build:addon": "cargo build --release --lib --features napi-addon",
-    "build:addon:dev": "cargo build --lib --features napi-addon",
-    "build:all": "yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64",
-    "build:darwin-arm64": "cargo build --release --bins --no-default-features --target aarch64-apple-darwin && cargo build --release --lib --features napi-addon --target aarch64-apple-darwin && node scripts/copy-binaries.cjs darwin-arm64",
-    "build:darwin-x64": "cargo build --release --bins --no-default-features --target x86_64-apple-darwin && cargo build --release --lib --features napi-addon --target x86_64-apple-darwin && node scripts/copy-binaries.cjs darwin-x64",
-    "build:linux-arm64-gnu": "cargo build --release --bins --no-default-features --target aarch64-unknown-linux-gnu && cargo build --release --lib --features napi-addon --target aarch64-unknown-linux-gnu && node scripts/copy-binaries.cjs linux-arm64-gnu",
-    "build:linux-x64-gnu": "cargo build --release --bins --no-default-features --target x86_64-unknown-linux-gnu && cargo build --release --lib --features napi-addon --target x86_64-unknown-linux-gnu && node scripts/copy-binaries.cjs linux-x64-gnu",
-    "build:linux-x64-musl": "cargo build --release --bins --no-default-features --target x86_64-unknown-linux-musl && cargo build --release --lib --features napi-addon --target x86_64-unknown-linux-musl && node scripts/copy-binaries.cjs linux-x64-musl",
-    "build:windows-x64": "cargo build --release --bins --no-default-features --target x86_64-pc-windows-msvc && cargo build --release --lib --features napi-addon --target x86_64-pc-windows-msvc && node scripts/copy-binaries.cjs win32-x64-msvc",
-    "clean:binaries": "find npm -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' | xargs rm -f",
+    "build": "yarn build:runtime && yarn build:addons",
+    "build:runtime": "cargo build -p octocode-native --release --bins --no-default-features",
+    "build:runtime:dev": "cargo build -p octocode-native --bins --no-default-features",
+    "build:addon": "cargo build -p octocode-native --release --lib --features napi-addon && node scripts/copy-local-runtime-addon.cjs release",
+    "build:addon:dev": "cargo build -p octocode-native --lib --features napi-addon && node scripts/copy-local-runtime-addon.cjs debug",
+    "build:engine": "napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs",
+    "build:engine:dev": "napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs",
+    "build:addons": "yarn build:addon && yarn build:engine",
+    "build:addons:dev": "yarn build:addon:dev && yarn build:engine:dev",
+    "build:dev": "yarn build:runtime:dev && yarn build:addons:dev",
+    "build:all": "yarn clean:binaries && yarn build:darwin-arm64 && yarn build:darwin-x64 && yarn build:linux-x64-gnu && yarn build:linux-x64-musl && yarn build:linux-arm64-gnu && yarn build:windows-x64",
+    "build:darwin-arm64": "cargo build -p octocode-native --release --bins --no-default-features --target aarch64-apple-darwin && cargo build -p octocode-native --release --lib --features napi-addon --target aarch64-apple-darwin && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --target aarch64-apple-darwin --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs && node scripts/copy-binaries.cjs darwin-arm64",
+    "build:darwin-x64": "cargo build -p octocode-native --release --bins --no-default-features --target x86_64-apple-darwin && cargo build -p octocode-native --release --lib --features napi-addon --target x86_64-apple-darwin && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --target x86_64-apple-darwin --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs && node scripts/copy-binaries.cjs darwin-x64",
+    "build:linux-arm64-gnu": "cargo build -p octocode-native --release --bins --no-default-features --target aarch64-unknown-linux-gnu && cargo build -p octocode-native --release --lib --features napi-addon --target aarch64-unknown-linux-gnu && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --cross-compile --target aarch64-unknown-linux-gnu --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs && node scripts/copy-binaries.cjs linux-arm64-gnu",
+    "build:linux-x64-gnu": "cargo build -p octocode-native --release --bins --no-default-features --target x86_64-unknown-linux-gnu && cargo build -p octocode-native --release --lib --features napi-addon --target x86_64-unknown-linux-gnu && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --cross-compile --target x86_64-unknown-linux-gnu --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs && node scripts/copy-binaries.cjs linux-x64-gnu",
+    "build:linux-x64-musl": "cargo build -p octocode-native --release --bins --no-default-features --target x86_64-unknown-linux-musl && cargo build -p octocode-native --release --lib --features napi-addon --target x86_64-unknown-linux-musl && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --cross-compile --target x86_64-unknown-linux-musl --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs && node scripts/copy-binaries.cjs linux-x64-musl",
+    "build:windows-x64": "cargo build -p octocode-native --release --bins --no-default-features --target x86_64-pc-windows-msvc && cargo build -p octocode-native --release --lib --features napi-addon --target x86_64-pc-windows-msvc && napi build --manifest-path crates/engine/Cargo.toml --package-json-path package.json --output-dir . --platform --release --cross-compile --target x86_64-pc-windows-msvc --no-default-features --features portable-default,napi-addon --js .engine-generated.cjs --dts .engine-generated.d.ts && node scripts/postbuild-engine.cjs && node scripts/copy-binaries.cjs win32-x64-msvc",
+    "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' -o -name '*.node' \\) -delete && rm -f octocode-native.*.node octocode-engine.*.node",
     "deps:rust": "cargo tree --duplicates",
-    "test": "node bin/platform.test.cjs && cargo test --no-default-features",
-    "test:rust": "cargo test --no-default-features",
-    "lint": "cargo clippy --no-default-features --all-targets -- -D warnings",
-    "lint:rust": "cargo clippy --no-default-features --all-targets -- -D warnings",
+    "test": "node bin/platform.test.cjs && vitest run && cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features",
+    "test:node": "vitest run",
+    "test:rust": "cargo test -p octocode-native --no-default-features && cargo test -p octocode-engine --all-features",
+    "lint": "yarn lint:rust",
+    "lint:rust": "cargo clippy -p octocode-native --no-default-features --all-targets -- -D warnings && cargo clippy -p octocode-engine --all-targets --all-features -- -D warnings",
     "fmt:rust": "cargo fmt --all",
     "fmt:rust:check": "cargo fmt --all -- --check",
-    "check:rust": "cargo check --no-default-features --all-targets",
-    "typecheck": "cargo check --no-default-features --all-targets",
-    "udeps:rust": "cargo +nightly udeps --all-targets --all-features",
+    "check:rust": "cargo check -p octocode-native --no-default-features --all-targets && cargo check -p octocode-engine --all-targets --all-features",
+    "typecheck": "tsc --noEmit && yarn check:rust",
+    "udeps:rust": "cargo +nightly udeps --workspace --all-targets --all-features",
     "platforms:check": "node scripts/check-platform-binaries.cjs",
-    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn udeps:rust && yarn audit:rust",
-    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs"
+    "loader:check": "node scripts/check-engine-loader-entries.cjs",
+    "verify:napi-abi": "node scripts/check-engine-napi-abi.cjs",
+    "version:check": "node scripts/check-version-consistency.cjs",
+    "version:sync": "node scripts/sync-versions.cjs",
+    "pack:check": "node scripts/check-pack-size.cjs",
+    "verify": "yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn deps:rust && yarn loader:check && yarn verify:napi-abi && yarn version:check",
+    "prepublishOnly": "yarn version:sync && node ../octocode/scripts/check-no-workspace-protocol.mjs"
   }
 }

@@ -363,7 +363,7 @@ class TerraV3PreflightTests(unittest.TestCase):
             root = Path(tmp)
             source = root / "packages/octocode/src/main.ts"
             cli = root / "packages/octocode/out/octocode.js"
-            native = root / "packages/octocode-engine/octocode-engine.test.node"
+            native = root / "packages/octocode-native/octocode-runtime.test.node"
             lock = root / "yarn.lock"
             for path, content in ((source, "source"), (cli, "cli"), (native, "native"), (lock, "lock")):
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -390,7 +390,7 @@ class TerraV3PreflightTests(unittest.TestCase):
                 root / "packages/octocode-config/src/index.ts": "config",
                 root / "packages/octocode/src/main.ts": "cli-source",
                 root / "packages/octocode/out/octocode.js": "cli",
-                root / "packages/octocode-engine/native.node": "native",
+                root / "packages/octocode-native/native.node": "native",
                 root / "yarn.lock": "lock",
                 core: "core",
             }
@@ -401,7 +401,7 @@ class TerraV3PreflightTests(unittest.TestCase):
             for path in files:
                 os.utime(path, (now - 1, now - 1))
             os.utime(root / "packages/octocode/out/octocode.js", (now, now))
-            os.utime(root / "packages/octocode-engine/native.node", (now, now))
+            os.utime(root / "packages/octocode-native/native.node", (now, now))
             receipt = build_workspace_receipt(root, catalog_bytes=b"catalog")
             self.assertEqual(validate_workspace_receipt(receipt, root), [])
             core.write_text("changed", encoding="utf-8")

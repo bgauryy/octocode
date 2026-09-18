@@ -38,21 +38,19 @@ FROZEN_COMMITS = {
 }
 DEFAULT_PUBLIC_ORACLES = Path(__file__).resolve().parent.parent / "terra-v3/suite/public-oracles.json"
 BUILD_COMMANDS = (
-    ("yarn", "workspace", "@octocodeai/octocode-engine", "build:dev"),
     ("yarn", "workspace", "@octocodeai/octocode-native", "build:dev"),
     ("yarn", "workspace", "octocode", "build:dev"),
 )
 SOURCE_ROOTS = (
-    "packages/octocode-engine/src",
-    "packages/octocode-native/src",
+    "packages/octocode-native/crates/engine/src",
+    "packages/octocode-native/crates/runtime/src",
     "packages/octocode-config/src",
     "packages/octocode/src",
 )
 SOURCE_FILES = (
-    "packages/octocode-engine/Cargo.toml",
-    "packages/octocode-engine/build.rs",
-    "packages/octocode-engine/package.json",
     "packages/octocode-native/Cargo.toml",
+    "packages/octocode-native/crates/engine/Cargo.toml",
+    "packages/octocode-native/crates/runtime/Cargo.toml",
     "packages/octocode-native/package.json",
     "packages/octocode-config/package.json",
     "packages/octocode/package.json",
@@ -521,13 +519,15 @@ def _external_source_receipts(workspace: Path) -> list[dict[str, object]]:
 
 
 def _native_artifacts(workspace: Path) -> list[Path]:
-    loader = workspace / "packages/octocode-engine/index.cjs"
-    if loader.is_file():
+    runtime_loader = workspace / "packages/octocode-native/js/runtime.cjs"
+    engine_loader = workspace / "packages/octocode-native/js/engine.cjs"
+    if runtime_loader.is_file() and engine_loader.is_file():
         probe = subprocess.run(
             [
                 "node", "-e",
-                "require(process.argv[1]); process.stdout.write(JSON.stringify(Object.keys(require.cache).filter(p=>p.endsWith('.node'))))",
-                str(loader),
+                "require(process.argv[1]); require(process.argv[2]); process.stdout.write(JSON.stringify(Object.keys(require.cache).filter(p=>p.endsWith('.node'))))",
+                str(runtime_loader),
+                str(engine_loader),
             ],
             cwd=workspace, text=True, capture_output=True, check=False,
         )
@@ -541,8 +541,8 @@ def _native_artifacts(workspace: Path) -> list[Path]:
         if inside:
             return sorted(set(inside))
         raise PreflightError("loaded native addon does not resolve inside the workspace")
-    roots = (workspace / "packages/octocode-engine", workspace / "packages/octocode/runtime")
-    return sorted({path for root in roots if root.is_dir() for path in root.rglob("*.node") if path.is_file()})
+    root = workspace / "packages/octocode-native"
+    return sorted(path for path in root.rglob("*.node") if path.is_file()) if root.is_dir() else []
 
 
 def build_workspace_receipt(
@@ -646,12 +646,12 @@ def validate_workspace_receipt(
         external_mtimes = [int(item.get("sourceMaxMtimeNs", 0)) for item in external_sources]
         newest_source = max([path.stat().st_mtime_ns for path in sources] + external_mtimes)
         native_paths = [workspace / str(item["path"]) for item in native_entries if isinstance(item, dict)]
-        engine_sources = [
+        native_sources = [
             path for path in sources
-            if path.relative_to(workspace).as_posix().startswith("packages/octocode-engine/")
+            if path.relative_to(workspace).as_posix().startswith("packages/octocode-native/crates/")
         ]
-        native_stale = bool(engine_sources) and any(
-            path.is_file() and path.stat().st_mtime_ns < max(source.stat().st_mtime_ns for source in engine_sources)
+        native_stale = bool(native_sources) and any(
+            path.is_file() and path.stat().st_mtime_ns < max(source.stat().st_mtime_ns for source in native_sources)
             for path in native_paths
         )
         cli_stale = cli.is_file() and (
@@ -659,7 +659,7 @@ def validate_workspace_receipt(
             or any(path.is_file() and cli.stat().st_mtime_ns < path.stat().st_mtime_ns for path in native_paths)
         )
         if native_stale:
-            errors.append("stale native artifact predates engine source")
+            errors.append("stale native artifact predates native crate source")
         if cli_stale:
             errors.append("stale CLI artifact predates benchmark-relevant source or native artifact")
     return errors

@@ -1,6 +1,6 @@
 # Native tool runtime architecture
 
-`octocode-native` is the sole public tool execution owner.
+`octocode-native` is the sole public tool execution owner and the npm distribution owner for both the runtime and engine primitive addons.
 
 ```text
 native CLI ───────────────────┐
@@ -48,7 +48,7 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 | `adapter_napi` | Host conversion and native runtime lifecycle | An alternate execution path |
 | `cli` | Arguments, human output, and shell exits | Node, N-API, or duplicated tools |
 
-`octocode-engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. N-API engine bindings remain available to engine consumers but are not an alternate Octocode tool runtime.
+`crates/engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. Its N-API bindings are published at `@octocodeai/octocode-native/engine` but are not an alternate Octocode tool runtime. The deprecated `@octocodeai/octocode-engine` package is only a JavaScript re-export.
 
 ## Safety and lifecycle invariants
 
@@ -70,5 +70,6 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 
 - Binary builds use `--no-default-features` and contain the full CLI/runtime.
 - Addon builds enable `napi-addon` and expose the same runtime to MCP.
-- Platform packages contain optimized native CLI, regex-worker, and addon artifacts.
+- Each platform package contains the optimized native CLI, regex worker, runtime addon, and engine addon.
+- Root entrypoints are lazy and independent: `.`/`./runtime` load only the runtime addon, while `./engine` loads only the engine addon.
 - Release acceptance exercises the direct native CLI, the built Node launcher, direct N-API calls, and real stdio MCP calls.

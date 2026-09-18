@@ -17,7 +17,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 WORKSPACE = HERE.parents[3]
-ENGINE = WORKSPACE / "packages/octocode-engine/index.js"
+ENGINE = WORKSPACE / "packages/octocode-native/js/engine.js"
 INSTRUMENTER = HERE.parent / "bin/instrument_command.py"
 ARM = HERE / "arm.mjs"
 REQUIRED_COMMITS = {

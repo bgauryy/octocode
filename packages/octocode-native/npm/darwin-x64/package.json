@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-native-darwin-x64",
-  "description": "octocode-native CLI — darwin-x64 (Intel Mac)",
-  "version": "0.1.0",
+  "description": "Octocode CLI, runtime addon, and engine addon — darwin-x64",
+  "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
     "x64"
@@ -13,7 +13,8 @@
     "octocode",
     "octocode-regex-worker",
     "README.md",
-    "octocode-native.darwin-x64.node"
+    "octocode-native.darwin-x64.node",
+    "octocode-engine.darwin-x64.node"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -27,5 +28,11 @@
   "scripts": {
     "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"
   },
-  "main": "./octocode-native.darwin-x64.node"
+  "main": "./octocode-native.darwin-x64.node",
+  "exports": {
+    ".": "./octocode-native.darwin-x64.node",
+    "./runtime": "./octocode-native.darwin-x64.node",
+    "./engine": "./octocode-engine.darwin-x64.node",
+    "./package.json": "./package.json"
+  }
 }

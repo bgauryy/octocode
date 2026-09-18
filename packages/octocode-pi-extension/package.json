@@ -48,7 +48,6 @@
     "@octocodeai/agent-core": "0.1.0",
     "@octocodeai/config": "20.0.0",
     "@octocodeai/octocode-awareness": "2.1.0",
-    "@octocodeai/octocode-engine": "19.2.0",
     "@octocodeai/octocode-extension-rust": "0.1.0",
     "@resvg/resvg-js": "^2.6.2",
     "chrome-launcher": "^1.2.1",

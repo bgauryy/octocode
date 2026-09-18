@@ -650,5 +650,5 @@ npx octocode status --json
 - [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) — all tools and parameters
 - [Octocode MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) — startup lifecycle and client config
 - [Octocode CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) — all CLI commands
-- [LSP server lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) — custom language server config
+- [LSP server lifecycle](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) — custom language server config
 - [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) — secret redaction and path validation

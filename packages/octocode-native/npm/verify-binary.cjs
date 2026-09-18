@@ -31,6 +31,7 @@ const binaries = [
   `octocode${ext}`,
   `octocode-regex-worker${ext}`,
   `octocode-native.${packageSuffix}.node`,
+  `octocode-engine.${packageSuffix}.node`,
 ];
 
 for (const name of binaries) {
@@ -65,6 +66,16 @@ const addon = require(join(cwd, `octocode-native.${packageSuffix}.node`));
 if (typeof addon.NativeRuntime !== 'function') {
   console.error(
     `prepublishOnly: ${pkg.name} native addon does not expose NativeRuntime`
+  );
+  process.exit(1);
+}
+const engine = require(join(cwd, `octocode-engine.${packageSuffix}.node`));
+if (
+  typeof engine.minifyContent !== 'function' ||
+  typeof engine.getSupportedStructuralExtensions !== 'function'
+) {
+  console.error(
+    `prepublishOnly: ${pkg.name} engine addon does not expose the primitive API`
   );
   process.exit(1);
 }

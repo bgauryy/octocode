@@ -58,4 +58,8 @@ const addonName = `octocode-native.${platform}.node`;
 copyFileSync(join(srcDir, libraryName), join(destDir, addonName));
 console.log(`  ✔ ${addonName}  →  npm/${platform}/${addonName}`);
 
-console.log(`\nCopied binaries for ${platform} (${triple})`);
+const engineAddonName = `octocode-engine.${platform}.node`;
+copyFileSync(join(root, engineAddonName), join(destDir, engineAddonName));
+console.log(`  ✔ ${engineAddonName}  →  npm/${platform}/${engineAddonName}`);
+
+console.log(`\nCopied four artifacts for ${platform} (${triple})`);

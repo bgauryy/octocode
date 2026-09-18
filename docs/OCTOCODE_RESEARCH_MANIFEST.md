@@ -50,7 +50,7 @@ Do not add fields from another operation or assume a former tool name remains an
 
 Tool availability, a recognized extension, a parser fixture, and a running
 language server are separate facts. The
-[language and feature reference](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md)
+[language and feature reference](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md)
 separates structural grammars, outlines, graph extraction, LSP routing, and
 minification configuration.
 

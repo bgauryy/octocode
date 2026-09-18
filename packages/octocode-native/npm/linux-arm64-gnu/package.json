@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-native-linux-arm64-gnu",
-  "description": "octocode-native CLI — linux-arm64-gnu (Linux ARM64, glibc)",
-  "version": "0.1.0",
+  "description": "Octocode CLI, runtime addon, and engine addon — linux-arm64-gnu",
+  "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
     "arm64"
@@ -13,7 +13,8 @@
     "octocode",
     "octocode-regex-worker",
     "README.md",
-    "octocode-native.linux-arm64-gnu.node"
+    "octocode-native.linux-arm64-gnu.node",
+    "octocode-engine.linux-arm64-gnu.node"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -27,5 +28,11 @@
   "scripts": {
     "prepublishOnly": "node ../../../octocode/scripts/check-no-workspace-protocol.mjs && node ../verify-binary.cjs"
   },
-  "main": "./octocode-native.linux-arm64-gnu.node"
+  "main": "./octocode-native.linux-arm64-gnu.node",
+  "exports": {
+    ".": "./octocode-native.linux-arm64-gnu.node",
+    "./runtime": "./octocode-native.linux-arm64-gnu.node",
+    "./engine": "./octocode-engine.linux-arm64-gnu.node",
+    "./package.json": "./package.json"
+  }
 }

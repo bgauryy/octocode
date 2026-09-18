@@ -645,23 +645,19 @@ def runtime_manifest(root):
 
 
 def fingerprint(cli):
-    packages = ["packages/octocode/src", "packages/octocode-native/src",
-                "packages/octocode-engine/src", "packages/octocode-config/src",
+    packages = ["packages/octocode/src", "packages/octocode-native/crates/runtime/src",
+                "packages/octocode-native/crates/engine/src", "packages/octocode-config/src",
                 "packages/octocode-pi-extension/src/contracts",
                 "packages/octocode-awareness/src", "yarn.lock"]
     result = {"head": command(["git", "rev-parse", "HEAD"]).strip(),
               "sourceFiles": source_manifest(WORKSPACE, packages),
               "cliRuntimeFiles": runtime_manifest(cli.parent),
               "cliPath": str(cli), "cliSha256": digest(cli)}
-    engine = WORKSPACE / "packages/octocode-engine"
-    result["engineNativeFiles"] = {str(p.relative_to(engine)): digest(p)
-                                   for p in sorted(engine.glob("*.node")) if p.is_file()}
-    for directory in (engine / "out", engine / "dist", engine / "npm"):
-        if directory.exists():
-            result["engineRuntime:" + directory.name] = runtime_manifest(directory)
-    core = WORKSPACE.parent / "octocode-mcp-host/packages/octocode-core"
     native_runtime = WORKSPACE / "packages/octocode-native"
+    result["nativeAddonFiles"] = {str(p.relative_to(native_runtime)): digest(p)
+                                  for p in sorted(native_runtime.glob("*.node")) if p.is_file()}
     result["nativeRuntimeFiles"] = runtime_manifest(native_runtime / "npm")
+    core = WORKSPACE.parent / "octocode-mcp-host/packages/octocode-core"
     if core.exists():
         result["siblingCoreSourceFiles"] = source_manifest(core, ["src"])
         for name in ("out", "dist"):

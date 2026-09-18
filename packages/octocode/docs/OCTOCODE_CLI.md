@@ -89,10 +89,10 @@ map cheaply → search narrowly → read exact evidence → follow symbols or hi
 ```
 
 ```bash
-npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode-native/src"}'
-npx octocode tools localSearch --queries '{"path":"/ABS/repo/packages/octocode-native/src","searchText":"ToolRuntime","resultView":"discovery"}'
-npx octocode tools localFetch --queries '{"path":"/ABS/repo/packages/octocode-native/src/runtime/engine.rs","matchString":"ToolRuntime"}'
-npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/packages/octocode-native/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40}'
+npx octocode tools astSearch --queries '{"operation":"tree","path":"/ABS/repo/packages/octocode-native/crates/runtime/src"}'
+npx octocode tools localSearch --queries '{"path":"/ABS/repo/packages/octocode-native/crates/runtime/src","searchText":"ToolRuntime","resultView":"discovery"}'
+npx octocode tools localFetch --queries '{"path":"/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs","matchString":"ToolRuntime"}'
+npx octocode tools lspSearch --queries '{"uri":"/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs","operation":"references","symbolName":"ToolRuntime","lineHint":40}'
 ```
 
 ### Key flags for `tools`
@@ -386,7 +386,7 @@ client must retain. Removed compatibility names are rejected.
 The code boundary is intentionally thin:
 - `@octocodeai/octocode-native` owns tool schemas, descriptions, and execution logic.
 - `@octocodeai/octocode-core` supplies reusable output types.
-- `@octocodeai/octocode-engine` owns native primitives (minify, structural search, LSP, secret scanning).
+- `@octocodeai/octocode-native/engine` exposes native primitives (minify, structural search, LSP, secret scanning) from the internal engine crate.
 - `octocode` renders commands in a terminal.
 - `octocode-mcp` registers the same tools for MCP clients.
 

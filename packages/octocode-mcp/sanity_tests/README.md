@@ -19,9 +19,9 @@ These run with `npx vitest run` and gate every change:
 | Per-tool pagination declarations and no-silent-loss language | `packages/octocode-mcp/tests/tools/all-tools.pagination-contract.test.ts` |
 | Bulk-envelope numeric bounds (`responseChar*`, ≤5 queries) | `packages/octocode-mcp/tests/scheme/bulk_envelope_bounds.test.ts` |
 | Native catalog registration and execution boundary | `packages/octocode-mcp/tests/native/node-boundary.mjs` |
-| Shared pagination engine and result continuations | `packages/octocode-native/src/response/tests.rs`, `packages/octocode-native/src/runtime/response.rs` |
-| GitHub file and history pagination axes | `packages/octocode-native/src/tools/gh_get_file_content`, `packages/octocode-native/src/tools/gh_get_history_item` |
-| Package and topology executable page unions | `packages/octocode-native/src/tools/artifact_search`, `packages/octocode-native/src/tools/ast_graph` |
+| Shared pagination engine and result continuations | `packages/octocode-native/crates/runtime/src/response/tests.rs`, `packages/octocode-native/crates/runtime/src/runtime/response.rs` |
+| GitHub file and history pagination axes | `packages/octocode-native/crates/runtime/src/tools/gh_get_file_content`, `packages/octocode-native/crates/runtime/src/tools/gh_get_history_item` |
+| Package and topology executable page unions | `packages/octocode-native/crates/runtime/src/tools/artifact_search`, `packages/octocode-native/crates/runtime/src/tools/ast_graph` |
 
 The markdown here covers what a unit test can't cheaply assert: **live** cursor
 walks to completion, real-result quality spot-checks, and concise-vs-basic token

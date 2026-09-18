@@ -28,6 +28,7 @@ const PUBLISHED_PACKAGE_DIRS = [
   'packages/octocode-config',
   'packages/octocode-mcp',
   'packages/octocode-engine',
+  'packages/octocode-native',
   'packages/octocode',
 ];
 
@@ -43,7 +44,7 @@ const PUBLISHED_DEP_FIELDS = [
 /** Local dependency protocols that must never ship to npm. */
 const LOCAL_PROTOCOLS = ['workspace:', 'file:', 'link:', 'portal:'];
 
-const ENGINE_NPM_DIR = join(repoRoot, 'packages/octocode-engine/npm');
+const NATIVE_NPM_DIR = join(repoRoot, 'packages/octocode-native/npm');
 const EXTENSION_RUST_NPM_DIR = join(repoRoot, 'packages/octocode-extension-rust/npm');
 const offenders = [];
 const checkedPackages = [];
@@ -90,7 +91,7 @@ function checkPackage(packagePath) {
   checkPublishedDeps(packagePath, pkg);
 }
 
-/** Collect every workspace-member package name (packages/* and engine npm platform dirs). */
+/** Collect every workspace-member package name, including native platform dirs. */
 function collectWorkspaceMemberNames() {
   const names = new Set();
   // Root workspace package (e.g. octocode-monorepo) resolves via workspace:. legitimately.
@@ -99,7 +100,7 @@ function collectWorkspaceMemberNames() {
     const rootName = readJson(rootPkgPath).name;
     if (typeof rootName === 'string') names.add(rootName);
   }
-  const roots = [join(repoRoot, 'packages'), ENGINE_NPM_DIR, EXTENSION_RUST_NPM_DIR];
+  const roots = [join(repoRoot, 'packages'), NATIVE_NPM_DIR, EXTENSION_RUST_NPM_DIR];
   for (const root of roots) {
     if (!existsSync(root)) continue;
     for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -143,11 +144,11 @@ for (const packageDir of PUBLISHED_PACKAGE_DIRS) {
   checkPackage(join(repoRoot, packageDir, 'package.json'));
 }
 
-// Engine optional platform packages (packages/octocode-engine/npm/*).
-if (existsSync(ENGINE_NPM_DIR)) {
-  for (const entry of readdirSync(ENGINE_NPM_DIR, { withFileTypes: true })) {
+// Consolidated native optional platform packages.
+if (existsSync(NATIVE_NPM_DIR)) {
+  for (const entry of readdirSync(NATIVE_NPM_DIR, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    checkPackage(join(ENGINE_NPM_DIR, entry.name, 'package.json'));
+    checkPackage(join(NATIVE_NPM_DIR, entry.name, 'package.json'));
   }
 }
 

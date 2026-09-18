@@ -23,4 +23,4 @@ running a script directly, unless you need `--fix`/flags.
 - **Final publish gate** lives in the package:
   `packages/octocode/scripts/check-no-workspace-protocol.mjs` (run from each
   package's `prepublishOnly`) blocks local dependency protocols from shipping.
-  Engine-specific version/binary checks stay under `packages/octocode-engine/`.
+  Consolidated runtime/engine version and four-artifact checks live under `packages/octocode-native/`; `packages/octocode-engine/` is a JavaScript-only compatibility package.

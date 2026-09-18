@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 export function loadNativeBinding(env = process.env) {
   const bindingPath =
     env.OCTOCODE_NATIVE_BINDING ??
-    require.resolve('@octocodeai/octocode-native/native.cjs');
+    require.resolve('@octocodeai/octocode-native/runtime');
   const binding = require(bindingPath);
   if (typeof binding.NativeRuntime !== 'function') {
     throw new Error('The candidate addon does not export NativeRuntime');

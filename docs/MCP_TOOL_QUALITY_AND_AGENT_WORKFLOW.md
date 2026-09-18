@@ -154,7 +154,7 @@ filename overrides. Check every configured extension with meaningful syntax;
 configuration presence alone is not a correctness test. Keep grammar fixtures,
 outline fixtures, graph resolution, and real LSP-server runs as separate coverage
 dimensions. See the
-[language and feature reference](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md).
+[language and feature reference](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
 
 Include comments containing delimiters, strings containing comment-like text,
 TypeScript type declarations/imports, JSX/TSX, data and markup, indentation-sensitive

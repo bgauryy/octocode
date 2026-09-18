@@ -5,9 +5,9 @@ Audit trail for the local evidence used to consolidate this skill. Paths are rep
 | Source | Used for |
 |---|---|
 | `skills/octocode-code-graph/` before consolidation | graph triage, false-positive controls, proof ladder, refactoring, and evaluation cases |
-| `packages/octocode-native/src/tools/ast_search/topology/` | topology behavior, pagination, warnings, syntactic confidence, and dead-code candidates |
-| `packages/octocode-native/src/graph/advancedOperations.ts` | SCC condensation, layers, transitive edges, dominators, and path primitives |
-| `packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md` | AST, graph, and LSP capability boundaries |
+| `packages/octocode-native/crates/runtime/src/tools/ast_graph/` | topology behavior, pagination, warnings, syntactic confidence, and dead-code candidates |
+| `packages/octocode-native/crates/engine/src/graph/algorithms.rs` | SCC condensation, layers, transitive edges, dominators, and path primitives |
+| `packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md` | AST, graph, and LSP capability boundaries |
 | `skills/octocode-research/` | schema-first evidence collection and semantic proof lanes |
 | `skills/octocode-skills/` | progressive disclosure, trigger tuning, cleanup, and review gates |
 | Repository `AGENTS.md` and package architecture guides | authoritative local ownership, dependency direction, and verification contracts |

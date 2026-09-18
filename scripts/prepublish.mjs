@@ -39,9 +39,9 @@ const FIX = process.argv.includes('--fix');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 /** Packages whose root resolutions this script manages. */
-const ENGINE_PKG_PATH = join(ROOT, 'packages/octocode-engine/package.json');
-const enginePkg = JSON.parse(readFileSync(ENGINE_PKG_PATH, 'utf8'));
-const MANAGED_PACKAGES = new Set(managedResolutionPackages(enginePkg));
+const NATIVE_PKG_PATH = join(ROOT, 'packages/octocode-native/package.json');
+const nativePkg = JSON.parse(readFileSync(NATIVE_PKG_PATH, 'utf8'));
+const MANAGED_PACKAGES = new Set(managedResolutionPackages(nativePkg));
 
 // ---------------------------------------------------------------------------
 // Check: root resolutions must not contain local protocols for managed packages

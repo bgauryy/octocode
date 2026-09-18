@@ -45,9 +45,9 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 ```
  INTERFACES      octocode-mcp  ·  octocode (CLI)  ·  octocode-vscode  ·  octocode-pi-extension
                        └────────────────────────────┴─── depend on ───┐
- BRAIN           @octocodeai/octocode-native       (Rust tool runtime, security, response shaping)
+ BRAIN           @octocodeai/octocode-native       (Rust runtime + consolidated distribution)
                        ├── contracts ──▶  @octocodeai/octocode-core    (schemas / descriptions / types — sibling repo)
-                       ├── primitives ─▶  @octocodeai/octocode-engine  (Rust: ripgrep, AST, LSP, minify, secrets)
+                       ├── primitives ─▶  crates/engine               (Rust: ripgrep, AST, LSP, minify, secrets)
                        └── config   ───▶  @octocodeai/config           (env + home — zero-dep, single source)
 ```
 
@@ -68,8 +68,8 @@ After using a local tool or skill, note: _Did it work well? Was the output usefu
 | Package | npm name | Role |
 |---|---|---|
 | [`octocode-config`](packages/octocode-config) | `@octocodeai/config` | Zero-dep env/config loader. Single source for home, env, protected keys. Used by everything. |
-| [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain.** Rust runtime for all public tools, providers, security, bulk execution, response shaping, native CLI, and N-API MCP adapter. |
-| [`octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | Rust/napi primitives: ripgrep, AST structural search, LSP pool, minify, secret detection. |
+| [`octocode-native`](packages/octocode-native) | `@octocodeai/octocode-native` | **Brain and distribution owner.** Two Rust crates: runtime policy/CLI/N-API plus reusable engine primitives. Publishes runtime at `.`/`./runtime` and primitives at `./engine` through one six-platform family. |
+| [`octocode-engine`](packages/octocode-engine) | `@octocodeai/octocode-engine` | Deprecated JavaScript-only compatibility package that re-exports `@octocodeai/octocode-native/engine`. |
 | [`octocode-extension-rust`](packages/octocode-extension-rust) | `@octocodeai/octocode-extension-rust` | Rust primitives for the Pi extension: filesystem snapshots, mutations, durability, line diff. Separate from the research engine. |
 | `@octocodeai/octocode-core` *(external)* | sibling repo | All public tool contracts, schemas, descriptions, examples. Source of truth for what tools exist and how they're described. |
 
@@ -130,13 +130,12 @@ yarn build:native:all · yarn platforms:check
 **End-to-end after engine/native/CLI changes:**
 
 ```bash
-yarn workspace @octocodeai/octocode-engine build:dev
 yarn workspace @octocodeai/octocode-native build:dev
 yarn workspace octocode build:dev        # or: yarn workspace octocode-mcp build:dev
-$OCTO context --compact && $OCTO tools --json
+$OCTO context --json && $OCTO tools --json
 ```
 
-`build:dev` skips clean + lint; engine uses debug mode. Verify by exit code — don't inspect `target/debug/` paths. Coverage floors are per-package ratchets in `vitest.config.*` — never lower them, raise when coverage improves. Rust tests: `yarn workspace @octocodeai/octocode-engine test:rust`.
+`build:dev` skips clean + lint and builds both addons in debug mode. Verify by exit code — don't inspect `target/debug/` paths. Coverage floors are per-package ratchets in `vitest.config.*` — never lower them, raise when coverage improves. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`.
 
 ---
 
@@ -177,7 +176,7 @@ yarn install && yarn prepublish       # lockfile + final guard + readme sync
 | Config | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) |
 | Security | [`docs/SECURITY.md`](docs/SECURITY.md) |
 | CLI | [`packages/octocode/docs/OCTOCODE_CLI.md`](packages/octocode/docs/OCTOCODE_CLI.md) |
-| Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-engine/docs/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
+| Engine / LSP | [`LSP_SERVER_LIFECYCLE.md`](packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) · [`SUPPORTED_LANGUAGES_AND_FEATURES.md`](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) |
 | Research | [`docs/OCTOCODE_RESEARCH_MANIFEST.md`](docs/OCTOCODE_RESEARCH_MANIFEST.md) · [`docs/ROUTING_EVIDENCE_POSITION_PAPER.md`](docs/ROUTING_EVIDENCE_POSITION_PAPER.md) |
 | Benchmarks | [`BENCHMARK.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/BENCHMARK.md) · [`SCORING.md`](packages/octocode-benchmark/skills/octocode-benchmark/references/SCORING.md) |
 | Skills (repo) | [`skills/`](skills/) → linked into [`.agents/skills/`](.agents/skills/) · includes `octocode-jev-reasoning-loop` (bounded Jev judgment inside an evidence-driven host reasoning loop, available via CLI and MCP) |

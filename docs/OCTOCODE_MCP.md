@@ -1,6 +1,6 @@
 # Octocode MCP server
 
-The Octocode MCP server is the toolkit's standard interface for AI coding clients. It exposes Octocode's research tools through the Model Context Protocol over stdio. The server is intentionally thin: it registers schemas and transports requests, while tool behavior lives in `@octocodeai/octocode-native` and native primitives live in `@octocodeai/octocode-engine`.
+The Octocode MCP server is the toolkit's standard interface for AI coding clients. It exposes Octocode's research tools through the Model Context Protocol over stdio. The server is intentionally thin: it registers schemas and transports requests, while tool behavior and distribution live in `@octocodeai/octocode-native`; reusable primitives remain isolated in its engine crate and `./engine` subpath.
 
 Use this page for the MCP mental model, startup lifecycle, client configuration entry points, and session persistence. For every tool, see [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md). For settings, GitHub tokens, and encrypted credential storage, see [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 

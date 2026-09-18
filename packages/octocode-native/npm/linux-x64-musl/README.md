@@ -1,6 +1,6 @@
 # @octocodeai/octocode-native-linux-x64-musl
 
-Pre-compiled `octocode` and `octocode-regex-worker` binaries for **Linux x64 musl** (Alpine Linux, Docker).
+Pre-compiled `octocode` CLI, regex worker, runtime addon, and engine addon for **Linux x64 musl** (Alpine Linux, Docker).
 
 Installed automatically as an optional dependency of `@octocodeai/octocode-native`.
 Do not install this package directly.

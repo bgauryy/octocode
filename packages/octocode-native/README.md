@@ -3,14 +3,14 @@
 > **Package name:** `@octocodeai/octocode-native`  
 > **Directory:** `packages/octocode-native/`
 
-Native Rust CLI for Octocode research tools. Runs the same tool engine used by
-the MCP server and the Node CLI — local file search, AST analysis, LSP
-semantics, GitHub, package lookup, and credential-gated Jev reasoning — as a
-standalone binary with no Node dependency.
+Consolidated distribution for the Octocode native CLI, the `NativeRuntime`
+Node addon, and reusable engine primitives. The CLI runs without Node; Node
+consumers load the runtime from `.` or `./runtime` and primitives from
+`./engine`.
 
 ```sh
 $ octocode --version
-octocode 0.1.0
+octocode 20.0.0
 
 $ octocode search "ToolRuntime" src/
 src/runtime/engine.rs:54:11:pub struct ToolRuntime {
@@ -55,10 +55,10 @@ On Alpine / musl Linux the shim detects `/etc/alpine-release` and resolves
 # dev build
 yarn workspace @octocodeai/octocode-native build:dev
 # or
-cargo build --manifest-path packages/octocode-native/Cargo.toml --bins
+cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-native --bins --no-default-features
 
-# release build (LTO + strip, ~50 MB)
-cargo build --manifest-path packages/octocode-native/Cargo.toml --bins --release
+# release build (LTO + strip)
+cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-native --bins --release --no-default-features
 ```
 
 Binary locations:
@@ -69,37 +69,33 @@ packages/octocode-native/target/release/octocode
 
 ## Architecture
 
-```
-main.rs  (8 lines)
-  └─ cli::run(Args::parse())
-       └─ ToolRuntime::from_host()
-       └─ dispatch(command, &rt)
-            ├─ human.rs       — research commands (files, tree, symbols, ast, …)
-            ├─ search.rs      — lexical/regex search with 30+ flags
-            └─ mcp_install.rs — IDE MCP install
+```text
+crates/runtime  ── Rust rlib ──▶ crates/engine
+      │                              │
+      ├─ native CLI                  └─ primitive N-API addon (`./engine`)
+      └─ NativeRuntime addon (`.` / `./runtime`)
 ```
 
-The `ToolRuntime` carries its own concurrency controller, config loader,
-security registry, response shaper, and GitHub cache. Every tool call goes
-through the same execution path used by the MCP server and the Node CLI;
-`octocode-native` is a different _interface_ to the same engine, not a
-separate implementation.
+The runtime crate owns policy, providers, contracts, cancellation, response
+shaping, and CLI behavior. The engine crate owns reusable search, syntax,
+minification, security, graph, and LSP algorithms. They remain separate crates
+and separate addons even though one npm distribution owns their artifacts.
 
 ### npm / platform distribution layout
 
 ```
 packages/octocode-native/
-├─ bin/
-│   ├─ octocode.cjs              ← platform-selecting Node shim
-│   └─ octocode-regex-worker.cjs
-├─ npm/
-│   ├─ verify-binary.cjs         ← prepublishOnly gate
-│   ├─ darwin-arm64/  octocode + octocode-regex-worker
-│   ├─ darwin-x64/    octocode + octocode-regex-worker
-│   ├─ linux-arm64-gnu/ …
-│   ├─ linux-x64-gnu/   …
-│   ├─ linux-x64-musl/  …
-│   └─ win32-x64-msvc/ octocode.exe + octocode-regex-worker.exe
+├─ crates/runtime/               ← ToolRuntime, CLI, runtime N-API
+├─ crates/engine/                ← reusable primitives + engine N-API
+├─ js/                           ← independent runtime and engine loaders
+├─ bin/                          ← platform-selecting CLI launchers
+├─ npm/                          ← six packages, each with four artifacts
+│   ├─ darwin-arm64/
+│   ├─ darwin-x64/
+│   ├─ linux-arm64-gnu/
+│   ├─ linux-x64-gnu/
+│   ├─ linux-x64-musl/
+│   └─ win32-x64-msvc/
 └─ scripts/
     ├─ copy-binaries.cjs         ← cargo output → npm/<platform>/
     └─ check-platform-binaries.cjs

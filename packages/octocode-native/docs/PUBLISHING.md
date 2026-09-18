@@ -2,9 +2,9 @@
 
 ## What is this package?
 
-A pure **Rust CLI binary** distributed as a native executable via npm's
-`optionalDependencies` pattern (same as esbuild, Biome, SWC). No Node.js
-required at runtime.
+One npm distribution for the native CLI, regex worker, `NativeRuntime` addon,
+and engine primitive addon. The CLI requires no Node.js at runtime; Node
+consumers load the two addons independently through the root package.
 
 ```
 User types:  octocode search …
@@ -23,7 +23,10 @@ User types:  octocode search …
 ```
 packages/octocode-native/
 ├── package.json                  ← coordinator: @octocodeai/octocode-native
-├── Cargo.toml                    ← crate name: octocode-native  |  bin: octocode
+├── Cargo.toml                    ← virtual workspace
+├── crates/runtime/               ← octocode-native crate + binaries
+├── crates/engine/                ← octocode-engine reusable crate + N-API
+├── js/                           ← runtime and engine loaders/declarations
 ├── bin/
 │   ├── octocode.cjs              ← platform-selecting shim (Node)
 │   └── octocode-regex-worker.cjs ← regex-worker shim
@@ -433,12 +436,10 @@ git push
 
 ## crates.io (optional, later)
 
-Skip until `octocode-engine` is published to crates.io first (it's a `path`
-dependency today).
-
-When ready:
-1. Publish `octocode-engine` to crates.io
-2. Replace `path` dep with registry version in `Cargo.toml`
+Both Rust crates are internal (`publish = false`) and the runtime intentionally
+uses a workspace path dependency on `crates/engine`. Publish the npm root and
+all six platform packages; do not publish either crate to crates.io as part of
+this release.
 3. `cargo publish --manifest-path packages/octocode-native/Cargo.toml`
 4. Users: `cargo install octocode-native` → binary on PATH: `octocode`
 

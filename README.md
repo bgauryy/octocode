@@ -429,7 +429,7 @@ Four code-intelligence axes; three are native to the Rust engine and need no ext
 
 📋 **Full support matrix:** every extension with its exact AST, signature, LSP,
 and minify capability lives in the
-**[Full format support matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix)**.
+**[Full format support matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix)**.
 
 ---
 
@@ -481,15 +481,15 @@ npx octocode skill help
 
 ## Architecture
 
-Octocode is a yarn-workspaces monorepo organized as a toolkit rather than one application. The **MCP server** and **CLI** are thin interfaces over one Rust runtime. `octocode-native` consumes canonical public contracts and the Rust primitives in `octocode-engine`; Node only launches the native CLI, registers MCP transport, and materializes Agent Skills. Skills, host integrations, coordination, file mutation, and evaluation packages build around that research spine without duplicating tool execution.
+Octocode is a yarn-workspaces monorepo organized as a toolkit rather than one application. The **MCP server** and **CLI** are thin interfaces over one Rust runtime. `octocode-native` consumes canonical public contracts and contains separate runtime-policy and engine-primitive Rust crates; Node only launches the native CLI, registers MCP transport, and materializes Agent Skills. Skills, host integrations, coordination, file mutation, and evaluation packages build around that research spine without duplicating tool execution.
 
 ```mermaid
 graph LR
     CLI["octocode<br/>CLI"]
     MCP["octocode-mcp<br/>MCP server, stdio"]
     VSC["VS Code extension<br/>OAuth + install"]
-    CORE["octocode-native (Rust)<br/>tools, providers, auth, pagination, security"]
-    ENGINE["octocode-engine (Rust)<br/>secrets, minify, AST, signatures, ripgrep/diff/YAML, LSP"]
+    CORE["octocode-native runtime crate<br/>tools, providers, auth, pagination, security"]
+    ENGINE["octocode-native engine crate<br/>secrets, minify, AST, signatures, ripgrep/diff/YAML, LSP"]
     EXT["GitHub API, local FS + ripgrep, language servers"]
 
     CLI --> CORE
@@ -520,8 +520,8 @@ Each workspace package owns one layer of the toolkit. Package architecture pages
 | Interface | [`packages/octocode-mcp`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-mcp) · `octocode-mcp` | Thin stdio MCP server that publishes the enabled tool catalog and forwards validated calls to the shared runtime. |
 | Interface | [`packages/octocode-vscode`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-vscode) · `octocode-mcp-vscode` | VS Code extension for GitHub OAuth, token synchronization, and MCP installation across supported editors. |
 | Host | [`packages/octocode-pi-extension`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-pi-extension) · `@octocodeai/pi-extension` | Full Pi integration and canonical owner of Pi prompt, protocol, capability, discovery, path, and control-database contracts. |
-| Research runtime | [`packages/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) · `@octocodeai/octocode-native` | Shared execution layer for every public tool: provider clients, credentials, sessions, pagination, response shaping, and security integration. |
-| Native research | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) · `@octocodeai/octocode-engine` | Rust/napi primitives for search, minification, syntax analysis, topology analysis, LSP orchestration, serialization, and secret detection. |
+| Research runtime | [`packages/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) · `@octocodeai/octocode-native` | Consolidated distribution for the native CLI, runtime addon (`.`/`./runtime`), and engine primitive addon (`./engine`), backed by separate Rust crates. |
+| Compatibility | [`packages/octocode-engine`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-engine) · `@octocodeai/octocode-engine` | Deprecated JavaScript-only wrapper that re-exports `@octocodeai/octocode-native/engine` during migration. |
 | Native workspace | [`packages/octocode-extension-rust`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-extension-rust) · `@octocodeai/octocode-extension-rust` | Separate Rust/napi boundary for workspace snapshots, guarded mutations, durable history, and line-level diffs used by agent hosts and Awareness. |
 | Configuration | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Zero-dependency loader for Octocode home resolution, environment propagation, `.env`, and `.octocoderc`; the single configuration source for the monorepo. |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
@@ -542,7 +542,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 | Research tools | [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Local research workflow](https://github.com/bgauryy/octocode/blob/main/docs/LOCAL_RESEARCH_WORKFLOW.md) · [Tool data and handoff contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) |
 | Agent method | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) · [Agent Skills](https://github.com/bgauryy/octocode/tree/main/skills) |
 | Design and quality | [Routing and evidence position paper](https://github.com/bgauryy/octocode/blob/main/docs/ROUTING_EVIDENCE_POSITION_PAPER.md) · [Tool quality acceptance](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
-| Safety and support | [Security model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-engine/docs/LSP_SERVER_LIFECYCLE.md) |
+| Safety and support | [Security model](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) · [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
 | Packages and evaluation | [Package architecture index](https://github.com/bgauryy/octocode/blob/main/docs/README.md#package-guides) · [Benchmark workspace](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) |
 
 ---
