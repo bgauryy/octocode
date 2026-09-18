@@ -7,7 +7,6 @@ import {
   DIRECT_TOOL_DISCOVERY_DEFINITIONS,
   prepareDirectToolInput,
 } from '@octocodeai/octocode-core/schema';
-import { getToolAvailability } from '@octocodeai/octocode-tools-core/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,9 +17,9 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
   definition => definition.name
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
-const DEFAULT_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.filter(
-  definition => getToolAvailability(definition.name, DEFAULT_CONFIG).enabled
-).map(definition => definition.name);
+const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name =>
+  name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true
+);
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
 const DOC_ROOTS = [
   path.join(ROOT, 'docs'),
@@ -216,7 +215,7 @@ function validateDocumentationContracts() {
     'utf8'
   );
   const architecturePaths = [
-    path.join(ROOT, 'packages', 'octocode-tools-core', 'ARCHITECTURE.md'),
+    path.join(ROOT, 'packages', 'octocode-native', 'ARCHITECTURE.md'),
     path.join(ROOT, 'packages', 'octocode-mcp', 'ARCHITECTURE.md'),
   ];
   const architectures = architecturePaths.map(filePath => ({
@@ -247,28 +246,6 @@ function validateDocumentationContracts() {
         );
       }
     }
-  }
-
-  const obsoletePublishingClaims = [
-    'workspace-only build package',
-    'It is not published to npm',
-  ];
-  for (const claim of obsoletePublishingClaims) {
-    if (architectures[0].content.includes(claim)) {
-      failures.push(
-        `packages/octocode-tools-core/ARCHITECTURE.md contains obsolete publishing claim \"${claim}\"`
-      );
-    }
-  }
-  if (architectures[1].content.includes('unpublished tools-core package')) {
-    failures.push(
-      'packages/octocode-mcp/ARCHITECTURE.md calls the published tools-core package unpublished'
-    );
-  }
-  if (cliArchitecture.includes('workspace `devDependency`')) {
-    failures.push(
-      'packages/octocode/ARCHITECTURE.md incorrectly describes tools-core as a devDependency'
-    );
   }
 
   if (agentsGuide.includes('must match the root `package.json` version')) {

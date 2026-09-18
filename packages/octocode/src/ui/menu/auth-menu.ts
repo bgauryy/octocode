@@ -2,10 +2,7 @@ import { c, dim } from '../../utils/colors.js';
 import { selectWithCancel } from '../../utils/prompts.js';
 import { separatorChoice } from '../../utils/prompt-separator.js';
 import { checkGitHubAuth } from '../../features/gh-auth.js';
-import {
-  getGhCliToken,
-  getCredentials,
-} from '@octocodeai/octocode-tools-core/credentials';
+import { getCredentials } from '../../features/native-credentials.js';
 import { hasEnvToken } from '@octocodeai/config';
 import type { OctocodeAuthStatus } from '../../types/index.js';
 import type { AuthMenuChoice } from './types.js';
@@ -21,11 +18,10 @@ export async function showAuthMenu(
 
   const isUsingEnv = status.tokenSource === 'env';
 
-  const ghCliToken = await getGhCliToken();
   const ghAuth = checkGitHubAuth();
   const octocodeCredentials = await getCredentials();
 
-  const hasGhCli = !!ghCliToken;
+  const hasGhCli = ghAuth.authenticated;
   const hasOctocode = !!octocodeCredentials;
   const hasEnv = hasEnvToken();
 

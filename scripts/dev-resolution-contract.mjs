@@ -17,7 +17,6 @@ export function workspaceResolutionPackages(enginePackage) {
   return [
     '@octocodeai/octocode-awareness',
     '@octocodeai/octocode-skill-installer',
-    '@octocodeai/octocode-tools-core',
     '@octocodeai/config',
     '@octocodeai/octocode-engine',
     '@octocodeai/octocode-extension-rust',

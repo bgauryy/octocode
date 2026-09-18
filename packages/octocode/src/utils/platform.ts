@@ -1,15 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 
-export {
-  isWindows,
-  isMac,
-  HOME,
-  getAppDataPath,
-} from '@octocodeai/octocode-tools-core/platform';
-
-import { isWindows, isMac } from '@octocodeai/octocode-tools-core/platform';
+export const isWindows = os.platform() === 'win32';
+export const isMac = os.platform() === 'darwin';
+export const HOME = os.homedir();
+export function getAppDataPath(): string {
+  return isWindows
+    ? process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming')
+    : HOME;
+}
 
 const GIT_DIRS = new Set(['.git', '.svn', '.hg', '.bzr']);
 

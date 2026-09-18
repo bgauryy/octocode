@@ -6,7 +6,6 @@ import type {
   OAuthToken,
   StoredCredentials,
   OctocodeAuthStatus,
-  TokenResult,
   TokenSource,
 } from '../types/index.js';
 import { checkGitHubAuth } from './gh-auth.js';
@@ -17,11 +16,8 @@ import {
   isTokenExpired,
   getCredentialsFilePath,
   getCredentialsSync,
-  resolveTokenFull,
-  refreshAuthToken as sharedRefreshAuthToken,
-  getTokenWithRefresh,
-  getGhCliToken as sharedGetGhCliToken,
-} from '@octocodeai/octocode-tools-core/credentials';
+  refreshAuthToken as nativeRefreshAuthToken,
+} from './native-credentials.js';
 import { hasEnvToken, getEnvTokenSource } from '@octocodeai/config';
 
 const DEFAULT_CLIENT_ID = '178c6fc778ccc68e1d6a';
@@ -208,7 +204,7 @@ export async function logout(
 export async function refreshAuthToken(
   hostname: string = DEFAULT_HOSTNAME
 ): Promise<LoginResult> {
-  return sharedRefreshAuthToken(hostname, DEFAULT_CLIENT_ID);
+  return nativeRefreshAuthToken(hostname);
 }
 
 export function getAuthStatus(
@@ -293,90 +289,6 @@ export async function getAuthStatusAsync(
   return {
     authenticated: false,
     tokenSource: 'none',
-  };
-}
-
-export async function getValidToken(
-  hostname: string = DEFAULT_HOSTNAME
-): Promise<string | null> {
-  const result = await getTokenWithRefresh(hostname, DEFAULT_CLIENT_ID);
-  return result.token;
-}
-
-export async function getOctocodeToken(
-  hostname: string = DEFAULT_HOSTNAME
-): Promise<TokenResult> {
-  const result = await getTokenWithRefresh(hostname, DEFAULT_CLIENT_ID);
-
-  if (result.token) {
-    return {
-      token: result.token,
-      source: 'octocode',
-      username: result.username,
-    };
-  }
-
-  return {
-    token: null,
-    source: 'none',
-  };
-}
-
-export async function getGhCliToken(
-  hostname: string = DEFAULT_HOSTNAME
-): Promise<TokenResult> {
-  const ghToken = await sharedGetGhCliToken(hostname);
-
-  if (ghToken) {
-    const ghAuth = checkGitHubAuth();
-    return {
-      token: ghToken,
-      source: 'gh-cli',
-      username: ghAuth.username,
-    };
-  }
-
-  return {
-    token: null,
-    source: 'none',
-  };
-}
-
-type GetTokenSource = 'octocode' | 'gh' | 'auto';
-
-export async function getToken(
-  hostname: string = DEFAULT_HOSTNAME,
-  preferredSource: GetTokenSource = 'auto'
-): Promise<TokenResult> {
-  if (preferredSource === 'octocode') {
-    return getOctocodeToken(hostname);
-  }
-
-  if (preferredSource === 'gh') {
-    return getGhCliToken(hostname);
-  }
-
-  const result = await resolveTokenFull({ hostname });
-
-  if (result?.token) {
-    const source: TokenSource =
-      result.source === 'gh-cli'
-        ? 'gh-cli'
-        : result.source?.startsWith('env:')
-          ? 'env'
-          : 'octocode';
-
-    return {
-      token: result.token,
-      source,
-      username: result.username,
-      envSource: result.source?.startsWith('env:') ? result.source : undefined,
-    };
-  }
-
-  return {
-    token: null,
-    source: 'none',
   };
 }
 

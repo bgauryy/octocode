@@ -8,9 +8,7 @@
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
     "@octocodeai/config": "20.0.0",
-    "@octocodeai/octocode-engine": "19.2.0",
     "@octocodeai/octocode-native": "0.1.0",
-    "@octocodeai/octocode-tools-core": "19.2.0",
     "@octokit/auth-oauth-device": "^8.0.5",
     "@octokit/oauth-methods": "^6.0.5",
     "@octokit/request": "^10.0.16",
@@ -65,8 +63,7 @@
   },
   "scripts": {
     "build": "yarn lint && node build.mjs && node scripts/bundle-docs.mjs",
-    "release": "node ../../scripts/release.mjs --target cli",
-    "build:dev": "yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
+    "build:dev": "node build.mjs",
     "clean": "rm -rf out/",
     "lint": "node ../../node_modules/eslint/bin/eslint.js src tests",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src tests --fix",

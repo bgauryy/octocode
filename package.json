@@ -48,7 +48,6 @@
     "@octocodeai/octocode-native-linux-x64-musl": "workspace:*",
     "@octocodeai/octocode-native-win32-x64-msvc": "workspace:*",
     "@octocodeai/octocode-skill-installer": "workspace:*",
-    "@octocodeai/octocode-tools-core": "workspace:*",
     "minimatch@npm:10.0.1": "npm:10.2.6"
   },
   "scripts": {

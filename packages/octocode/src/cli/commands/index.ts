@@ -3,13 +3,7 @@ import type { CLICommand } from '../types.js';
 type CommandLoader = () => Promise<CLICommand>;
 
 const commandLoaders: Record<string, CommandLoader> = {
-  cache: async () => (await import('./cache.js')).cacheCommand,
   install: async () => (await import('./install.js')).installCommand,
-  auth: async () => (await import('./auth/auth-command.js')).authCommand,
-  login: async () => (await import('./auth/login-command.js')).loginCommand,
-  logout: async () => (await import('./auth/logout-command.js')).logoutCommand,
-  status: async () => (await import('./status.js')).statusCommand,
-  'lsp-server': async () => (await import('./lsp-server.js')).lspServerCommand,
   skill: async () => (await import('./skill.js')).skillCommand,
 };
 

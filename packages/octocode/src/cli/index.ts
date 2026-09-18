@@ -23,55 +23,6 @@ async function loadStaticCommandHelpModule(): Promise<{
   return import('./command-help-specs.js');
 }
 
-async function loadToolCommandModule(): Promise<{
-  toolCommand: CLICommand;
-  getToolsContextString(options?: {
-    full?: boolean;
-    minimal?: boolean;
-  }): Promise<string>;
-  printToolsContext(options?: {
-    full?: boolean;
-    minimal?: boolean;
-  }): Promise<void>;
-  showToolHelp(toolName: string): Promise<boolean>;
-  showAvailableTools(): Promise<void>;
-  showMultipleToolSchemas(toolNames: string[]): Promise<void>;
-}> {
-  const [command, context, help, list] = await Promise.all([
-    import('./tool-command/command.js'),
-    import('./tool-command/context.js'),
-    import('./tool-command/help.js'),
-    import('./tool-command/list-view.js'),
-  ]);
-  return {
-    toolCommand: command.toolCommand,
-    getToolsContextString: context.getToolsContextString,
-    printToolsContext: context.printToolsContext,
-    showToolHelp: help.showToolHelp,
-    showAvailableTools: list.showAvailableTools,
-    showMultipleToolSchemas: help.showMultipleToolSchemas,
-  };
-}
-
-async function loadLightToolHelpModule(): Promise<{
-  printLightInstructions(options?: { full?: boolean; minimal?: boolean }): void;
-  printToolRuntimeUnavailable(): void;
-  showLightAvailableTools(): void;
-  showLightToolHelp(toolName: string): boolean;
-}> {
-  return import('./light-tool-help.js');
-}
-
-async function tryLoadToolCommandModule(): Promise<Awaited<
-  ReturnType<typeof loadToolCommandModule>
-> | null> {
-  try {
-    return await loadToolCommandModule();
-  } catch {
-    return null;
-  }
-}
-
 async function loadMainHelpModule(): Promise<{
   showHelp(): Promise<void>;
 }> {
@@ -141,25 +92,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   }
 
   if (hasHelpFlag(args)) {
-    if (args.command === 'tools') {
-      if (typeof args.args[0] === 'string') {
-        const toolModule = await tryLoadToolCommandModule();
-        if (toolModule && (await toolModule.showToolHelp(args.args[0]))) {
-          return true;
-        }
-        const { showLightToolHelp } = await loadLightToolHelpModule();
-        if (showLightToolHelp(args.args[0])) return true;
-      }
-      const toolModule = await tryLoadToolCommandModule();
-      if (toolModule) {
-        await toolModule.showAvailableTools();
-        return true;
-      }
-      const { showLightAvailableTools } = await loadLightToolHelpModule();
-      showLightAvailableTools();
-      return true;
-    }
-
     if (args.command) {
       const [{ isRegisteredCommand }, { findStaticCommandHelp }] =
         await Promise.all([
@@ -216,53 +148,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
       return true;
     }
     return false;
-  }
-
-  if (args.command === 'tools') {
-    const toolModule = await tryLoadToolCommandModule();
-    if (!toolModule) {
-      const {
-        printToolRuntimeUnavailable,
-        showLightAvailableTools,
-        showLightToolHelp,
-      } = await loadLightToolHelpModule();
-      if (!args.args[0] && args.options.list === undefined) {
-        showLightAvailableTools();
-        return true;
-      }
-      if (!args.options.queries && showLightToolHelp(args.args[0])) {
-        return true;
-      }
-      printToolRuntimeUnavailable();
-      process.exitCode = EXIT.TOOL;
-      return true;
-    }
-
-    await toolModule.toolCommand.handler(args);
-    return true;
-  }
-
-  if (args.command === 'context') {
-    const toolModule = await tryLoadToolCommandModule();
-    if (toolModule) {
-      const options = {
-        full: args.options['full'] === true,
-        minimal: args.options['minimal'] === true,
-      };
-      if (args.options['json'] === true) {
-        const context = await toolModule.getToolsContextString(options);
-        console.log(JSON.stringify({ context }));
-      } else {
-        await toolModule.printToolsContext(options);
-      }
-      return true;
-    }
-    const { printLightInstructions } = await loadLightToolHelpModule();
-    printLightInstructions({
-      full: args.options['full'] === true,
-      minimal: args.options['minimal'] === true,
-    });
-    return true;
   }
 
   const { loadCommand } = await loadCommandsModule();

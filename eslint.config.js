@@ -94,21 +94,6 @@ export default tseslint.config(
   },
 
   {
-    files: ['packages/octocode-tools-core/src/shared/**/*.ts', 'packages/octocode-tools-core/tests/shared/**/*.ts'],
-    rules: {
-      '@typescript-eslint/explicit-function-return-type': 'off',
-      'no-console': 'off',
-    },
-  },
-
-  {
-    files: ['packages/octocode-tools-core/src/**/*.ts'],
-    rules: {
-      'max-lines': ['error', { max: 400 }],
-    },
-  },
-
-  {
     files: ['**/tests/**/*.ts', '**/tests/**/*.tsx'],
     languageOptions: {
       globals: {

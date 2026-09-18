@@ -1,0 +1,156 @@
+{
+  "suiteId": "bug-triage-v1",
+  "description": "10 real ambiguous GitHub bugs from popular repositories. Each has 2–3 competing root-cause hypotheses that require source investigation to settle. All qualify as disputed_inference.",
+  "cases": [
+    {
+      "id": "BUG-01",
+      "repo": "facebook/react",
+      "issueNumber": 37637,
+      "title": "Concurrent mode: batched state updates dropped after Suspense boundary resumes",
+      "task": "Diagnose the root cause of state updates being silently dropped when a component inside a Suspense boundary re-renders after a concurrent transition. Propose a minimal targeted fix with source-backed rationale.",
+      "anchorRef": "main",
+      "difficulty": "high",
+      "hypotheses": [
+        "H1: The scheduler flushes the transition work unit before the Suspense boundary commits its dehydrated children, losing the queued state update queue.",
+        "H2: The fiber reconciler resets the work-in-progress alternate during Suspense replay, discarding updates enqueued on the original fiber.",
+        "H3: The batching mechanism in ReactDOM.flushSync clears the batch queue on Suspense throw before updates propagate."
+      ],
+      "disputeReason": "All three paths involve scheduler/reconciler interaction at the Suspense boundary; a surface-level read of the issue description supports any of them."
+    },
+    {
+      "id": "BUG-02",
+      "repo": "facebook/react",
+      "issueNumber": 37619,
+      "title": "use() hook inside Context.Provider causes stale context value on replay",
+      "task": "Diagnose why use(promise) inside a Context.Provider subtree returns the context value from before the suspension, not after replay. Propose a fix with exact source file and function references.",
+      "anchorRef": "main",
+      "difficulty": "high",
+      "hypotheses": [
+        "H1: The context dispatcher is switched to the replay dispatcher before context reads are re-evaluated, reading the stale stack frame.",
+        "H2: The context value is captured by closure in the promise thenable before suspension and not refreshed on resume.",
+        "H3: ReactFiberNewContext.js restores the wrong context cursor after Suspense replay, returning the pre-suspension value."
+      ],
+      "disputeReason": "Context cursor restoration and dispatcher switching happen in close proximity; without reading both paths the blame is genuinely unclear."
+    },
+    {
+      "id": "BUG-03",
+      "repo": "langchain-ai/langchain",
+      "issueNumber": 40592,
+      "title": "StreamingStdOutCallbackHandler receives chunks out of order under async LLM calls",
+      "task": "Diagnose why streaming tokens arrive out-of-order at StreamingStdOutCallbackHandler when multiple async LLM calls run concurrently. Propose a fix and identify the exact callback dispatch path.",
+      "anchorRef": "master",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: CallbackManager dispatches on_llm_new_token via fire-and-forget asyncio tasks without ordering guarantees, so concurrent calls interleave.",
+        "H2: The handler receives a shared mutable queue that is appended to without a lock across concurrent callback invocations.",
+        "H3: The LLM chain's astream method yields tokens through a generator that is not properly awaited, causing out-of-order delivery at the callback layer."
+      ],
+      "disputeReason": "The callback dispatch path in CallbackManager has both sync and async branches; the bug is in which branch is taken and whether ordering is preserved."
+    },
+    {
+      "id": "BUG-04",
+      "repo": "langchain-ai/langchain",
+      "issueNumber": 40590,
+      "title": "ConversationBufferMemory token count drifts when async tools inject mid-conversation",
+      "task": "Diagnose why ConversationBufferMemory reports an incorrect token count when an async tool result is injected into the conversation mid-run. Identify the counting path and propose a fix.",
+      "anchorRef": "master",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: The token counter is updated on save_context but async tool messages bypass save_context and are appended directly to chat_memory.messages, skipping the counter update.",
+        "H2: The token counter reads from a cached _buffer_string that is not invalidated when messages are appended asynchronously.",
+        "H3: get_num_tokens_from_messages double-counts system messages when tool results are present, inflating the reported token count."
+      ],
+      "disputeReason": "The memory module has two code paths for adding messages (save_context vs direct append) and the counter can be stale from either direction."
+    },
+    {
+      "id": "BUG-05",
+      "repo": "vercel/next.js",
+      "issueNumber": 49169,
+      "title": "Parallel routes: @slot renders stale content after soft navigation between sibling pages",
+      "task": "Diagnose why a parallel route @slot retains stale content after a soft navigation that changes the sibling segment. Identify which cache layer holds the stale render and propose a targeted fix.",
+      "anchorRef": "canary",
+      "difficulty": "high",
+      "hypotheses": [
+        "H1: The Router Cache does not invalidate the @slot segment entry when the sibling dynamic segment changes, because the cache key includes only the primary segment path.",
+        "H2: The FlightDataRenderer re-uses the previous slot's RSC payload because the layout component does not re-render when only sibling params change.",
+        "H3: The parallel route tree diff algorithm in the App Router treats unchanged @slot paths as stable and skips their re-fetch on soft navigation."
+      ],
+      "disputeReason": "The Router Cache, RSC payload diffing, and layout re-render boundary are three separate systems; the bug depends on which one misidentifies the slot as unchanged."
+    },
+    {
+      "id": "BUG-06",
+      "repo": "vercel/next.js",
+      "issueNumber": 45508,
+      "title": "Streaming RSC response aborts when error boundary catches during initial render",
+      "task": "Diagnose why a thrown error caught by an error boundary causes the full RSC stream to abort rather than allowing the rest of the page to stream. Trace the error propagation path and propose a fix.",
+      "anchorRef": "canary",
+      "difficulty": "high",
+      "hypotheses": [
+        "H1: The RSC renderer closes the writable stream on any uncaught render error, including errors that React would later recover via an error boundary, before boundary recovery occurs.",
+        "H2: The error boundary's componentDidCatch is not invoked during RSC server rendering, so the error propagates uncaught to the stream controller and aborts it.",
+        "H3: The Fizz renderer flushes the error to the response stream before the reconciler can hand it to the nearest error boundary, racing with boundary recovery."
+      ],
+      "disputeReason": "Error boundary recovery in server-side Fizz rendering is fundamentally different from client-side recovery; which layer intercepts first determines the behavior."
+    },
+    {
+      "id": "BUG-07",
+      "repo": "vitejs/vite",
+      "issueNumber": 14105,
+      "title": "HMR: import.meta.hot.accept callback not triggered after dynamic import re-evaluation",
+      "task": "Diagnose why import.meta.hot.accept is not triggered for a module that is re-imported via a dynamic import() after an HMR update. Identify the module graph traversal path and propose a fix.",
+      "anchorRef": "main",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: The HMR module graph records the accept boundary at the static import edge only; dynamic import() creates a new graph edge that is not linked to the registered acceptor.",
+        "H2: After a dynamic import re-evaluation, the module's exports are replaced in the module map but the HMR runtime's acceptCallbacks map still references the old module instance.",
+        "H3: The dev server invalidation walk stops at the first accepting ancestor in the static graph and never traverses the dynamic import edge that leads to the registered acceptor."
+      ],
+      "disputeReason": "HMR graph traversal handles static and dynamic edges differently; the bug is in which edge type is walked during invalidation propagation."
+    },
+    {
+      "id": "BUG-08",
+      "repo": "axios/axios",
+      "issueNumber": 5869,
+      "title": "Response interceptor error handler swallows rejection when previous interceptor returns modified config",
+      "task": "Diagnose why an error thrown in a response interceptor is silently swallowed when a prior response interceptor returned a modified response object. Trace the interceptor chain and propose a fix.",
+      "anchorRef": "v1.x",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: The interceptor chain builder inserts fulfilled and rejected handlers as alternating promise .then() nodes; a prior interceptor's fulfilled return resets the rejection path so subsequent rejections resolve instead of reject.",
+        "H2: The dispatchRequest adapts the previous interceptor's returned object as a success response, bypassing the error interceptor's rejected branch entirely.",
+        "H3: settle.js resolves the promise when the response status is in the validateStatus range even when the interceptor has thrown, ignoring the throw."
+      ],
+      "disputeReason": "The interceptor promise chain construction in Axios has subtly different behavior depending on whether synchronous interceptors are present; the swallow can happen at chain build or at settlement."
+    },
+    {
+      "id": "BUG-09",
+      "repo": "prisma/prisma",
+      "issueNumber": 20469,
+      "title": "Nested disconnect inside $transaction causes foreign key constraint violation on PostgreSQL",
+      "task": "Diagnose why a prisma.$transaction that includes a nested disconnect on a relation throws a foreign key constraint error on PostgreSQL but succeeds on SQLite. Identify the query order and propose a fix.",
+      "anchorRef": "main",
+      "difficulty": "medium",
+      "hypotheses": [
+        "H1: The query engine serializes nested writes in creation order, placing the disconnect UPDATE before the parent record's UPDATE that would release the FK, violating the constraint before it is satisfied.",
+        "H2: PostgreSQL enforces FK constraints immediately per statement (not deferred), so the disconnect removes the relation before the parent write commits; SQLite defers FK checks to transaction end by default.",
+        "H3: The Prisma transaction wrapper issues the disconnect as a separate statement outside the atomic block when nested writes are involved, making it visible to FK enforcement before the parent transaction commits."
+      ],
+      "disputeReason": "PostgreSQL vs SQLite FK deferral and Prisma's nested-write query ordering are both plausible explanations; only source reading determines which is the actual code path."
+    },
+    {
+      "id": "BUG-10",
+      "repo": "microsoft/TypeScript",
+      "issueNumber": 55261,
+      "title": "Control-flow type narrowing lost after await in async function with try/catch",
+      "task": "Diagnose why TypeScript's control-flow narrowing of a union type is lost after an await expression inside a try block, requiring an unnecessary re-assertion. Identify the CFA node handling and propose a compiler fix.",
+      "anchorRef": "main",
+      "difficulty": "high",
+      "hypotheses": [
+        "H1: The CFA resets all narrowed types at every await point because an await can resolve to a microtask that runs arbitrary code changing the variable's value; the reset is intentionally conservative.",
+        "H2: A bug in flowAnalyzeSlice treats the AwaitExpression node as a branch point that creates a new flow branch without carrying the pre-await narrowing into the post-await flow.",
+        "H3: The try/catch block creates a separate exception flow path that merges with the normal flow after each statement, and await inside try is modeled as a potential throw, widening the type back to the union."
+      ],
+      "disputeReason": "The CFA's handling of await and try/catch flow merging involves two separate mechanisms; the blame depends on which one causes the type widening."
+    }
+  ]
+}
