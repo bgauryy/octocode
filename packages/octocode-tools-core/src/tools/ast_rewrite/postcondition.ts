@@ -1,8 +1,5 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { spawnWithTimeout } from '../../utils/exec/spawn/wrappers.js';
-import { buildArgs, decodeMatches, scanSucceeded } from './astGrep.js';
+import { contextUtils } from '../../utils/contextUtils.js';
+import { buildRuleConfigJson } from './nativeRewrite.js';
 import { rewriteError } from './result.js';
 import type {
   AstRewriteError,
@@ -11,14 +8,11 @@ import type {
   PreparedFile,
 } from './types.js';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
-
 export async function evaluatePostconditions(
   query: AstRewriteQuery,
-  executable: string,
+  _executable: string,
   files: PreparedFile[],
-  deps: AstRewriteRuntimeDeps
+  _deps: AstRewriteRuntimeDeps
 ): Promise<
   | { ok: true; remainingMatches: number }
   | { ok: false; result: AstRewriteError }
@@ -26,63 +20,48 @@ export async function evaluatePostconditions(
   if (!query.postconditions || query.postconditions.length === 0)
     return { ok: true, remainingMatches: 0 };
 
-  const mirror = await mkdtemp(
-    join(tmpdir(), 'octocode-ast-rewrite-postcondition-')
-  );
+  const ruleConfigJson = buildRuleConfigJson(query);
+  let remainingMatches = 0;
   try {
     for (const file of files) {
-      const target = join(mirror, file.path);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, file.after, { mode: file.mode });
+      const content = file.after.toString('utf8');
+      const resultJson = contextUtils.structuralRewriteContent(
+        content,
+        ruleConfigJson
+      );
+      const matches: unknown[] = JSON.parse(resultJson);
+      remainingMatches += matches.length;
     }
-    const execution = await spawnWithTimeout(
-      executable,
-      buildArgs(query, mirror),
-      {
-        cwd: mirror,
-        timeout: deps.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-        maxOutputSize: deps.maxProcessOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
-      }
-    );
-    if (!scanSucceeded(execution)) {
-      return {
-        ok: false,
-        result: rewriteError(
-          'ast.rewrite.postcondition_execution_failed',
-          'The postcondition scan could not be completed; no files were changed.'
-        ),
-      };
-    }
-    const matches = decodeMatches(execution.stdout);
-    if (!matches) {
-      return {
-        ok: false,
-        result: rewriteError(
-          'ast.rewrite.postcondition_output_invalid',
-          'The postcondition scan returned invalid output; no files were changed.'
-        ),
-      };
-    }
-    for (const postcondition of query.postconditions) {
-      if (matches.length !== postcondition.equals) {
-        return {
-          ok: false,
-          result: rewriteError(
-            'ast.rewrite.postcondition_failed',
-            'A staged rewrite postcondition failed; no files were changed.',
-            {
-              details: {
-                kind: postcondition.kind,
-                expected: postcondition.equals,
-                observed: matches.length,
-              },
-            }
-          ),
-        };
-      }
-    }
-    return { ok: true, remainingMatches: matches.length };
-  } finally {
-    await rm(mirror, { recursive: true, force: true });
+  } catch (execError) {
+    return {
+      ok: false,
+      result: rewriteError(
+        'ast.rewrite.postcondition_failed',
+        execError instanceof Error
+          ? execError.message
+          : 'Native postcondition evaluation failed.'
+      ),
+    };
   }
+
+  for (const postcondition of query.postconditions) {
+    if (remainingMatches !== postcondition.equals) {
+      return {
+        ok: false,
+        result: rewriteError(
+          'ast.rewrite.postcondition_failed',
+          'A staged rewrite postcondition failed; no files were changed.',
+          {
+            details: {
+              kind: postcondition.kind,
+              expected: postcondition.equals,
+              observed: remainingMatches,
+            },
+          }
+        ),
+      };
+    }
+  }
+
+  return { ok: true, remainingMatches };
 }

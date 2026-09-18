@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   chmodSync,
   mkdtempSync,
@@ -14,15 +14,35 @@ import { basename, join } from 'node:path';
 import { rename } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { recoverTransactions } from '../../../src/tools/ast_rewrite/transaction.js';
-import { buildToolResultMeta } from '../../../src/utils/response/bulk/response.js';
+
 import {
   runAstRewrite,
   type AstRewriteRuntimeDeps,
 } from '../../../src/tools/ast_rewrite/index.js';
+import {
+  resetContextUtilsNativeLoaderForTesting,
+  setContextUtilsNativeLoaderForTesting,
+} from '../../../src/utils/contextUtils.js';
+
+type NativeModule = typeof import('@octocodeai/octocode-engine');
+
+/**
+ * Install a lightweight native-loader override for the named methods only.
+ * Only the methods listed in `overrides` are accessed during the test;
+ * the real engine is not loaded.
+ */
+function withRewriteMock(
+  overrides: Partial<NativeModule>
+): void {
+  setContextUtilsNativeLoaderForTesting(
+    () => overrides as unknown as NativeModule
+  );
+}
 
 const roots: string[] = [];
 
 afterEach(() => {
+  resetContextUtilsNativeLoaderForTesting();
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -79,6 +99,7 @@ function match(
 
 function query(root: string) {
   return {
+    ruleKind: 'pattern' as const,
     path: root,
     langType: 'ts',
     pattern: 'oldCall($A)',
@@ -88,12 +109,11 @@ function query(root: string) {
 
 async function previewForApply(
   root: string,
-  executable: string,
   overrides: Record<string, unknown> = {}
 ) {
   const preview = await runAstRewrite(
     { ...query(root), ...overrides },
-    { executable }
+    {}
   );
   expect(preview.status).toBeUndefined();
   if (preview.status !== undefined) throw new Error('preview failed');
@@ -106,31 +126,10 @@ async function previewForApply(
 }
 
 describe('runAstRewrite', () => {
-  it('reports a process output cap as a terminal evidence limit without writing', async () => {
-    const { root, source } = fixture();
-    const start = source.indexOf('oldCall(1)');
-    const executable = mockExecutable(root, [
-      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
-    ]);
-    const result = await runAstRewrite(query(root), {
-      executable,
-      maxProcessOutputBytes: 1,
-    });
-    expect(result).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.output_limit',
-      complete: false,
-      isPartial: true,
-      terminalLimit: true,
-    });
-    expect(
-      buildToolResultMeta('astRewrite', query(root), result, 'error')
-        .diagnostics
-    ).toEqual({
-      codes: ['ast.rewrite.output_limit', 'terminalLimitReached'],
-      partial: true,
-    });
-    expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
+  it.skip('reports a process output cap as a terminal evidence limit without writing', () => {
+    // maxProcessOutputBytes was a binary-process output cap.
+    // The native engine streams results directly; there is no subprocess output
+    // to cap. The test is not applicable to the native implementation.
   });
   it('previews stable matches, hashes, bounded patches, and pagination without writing', async () => {
     const { root, source } = fixture();
@@ -150,8 +149,8 @@ describe('runAstRewrite', () => {
     if (result.status !== undefined) return;
     expect(result.mode).toBe('preview');
     expect(result.executable).toMatchObject({
-      path: realpathSync(executable),
-      version: '0.40.1',
+      path: 'native',
+      version: 'embedded',
     });
     expect(result.totalMatches).toBe(2);
     expect(result.affectedFiles).toBe(1);
@@ -232,6 +231,23 @@ describe('runAstRewrite', () => {
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
   });
 
+  it('requires a snapshot token when apply is granted', async () => {
+    const { root, source } = fixture();
+    const result = await runAstRewrite(
+      {
+        ...query(root),
+        apply: true,
+        expectedHashes: { [join(root, 'source.ts')]: digest(source) },
+        // no snapshot provided
+      },
+      { allowApply: true }
+    );
+    expect(result).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.snapshot_required',
+    });
+  });
+
   it('requires every preview hash before apply and leaves all files unchanged', async () => {
     const { root, source } = fixture();
     writeFileSync(join(root, 'other.ts'), 'oldCall(3);\n');
@@ -240,7 +256,7 @@ describe('runAstRewrite', () => {
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
       match('other.ts', 0, 10, 'oldCall(3)', 'newCall(3)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root);
 
     const result = await runAstRewrite(
       {
@@ -269,7 +285,7 @@ describe('runAstRewrite', () => {
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
       match('other.ts', 0, 10, 'oldCall(3)', 'newCall(3)'),
     ]);
-    const preview = await previewForApply(root, executable, { pageSize: 1 });
+    const preview = await previewForApply(root, { pageSize: 1 });
 
     const result = await runAstRewrite(
       {
@@ -288,10 +304,10 @@ describe('runAstRewrite', () => {
     expect(result.pagination).toEqual({
       currentPage: 1,
       totalPages: 1,
-      pageSize: 2,
+      pageSize: 3, // native finds all 3 matches
       hasMore: false,
     });
-    expect(result.matches).toHaveLength(2);
+    expect(result.matches).toHaveLength(3);
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toContain(
       'newCall(1)'
     );
@@ -304,7 +320,7 @@ describe('runAstRewrite', () => {
     const executable = mockExecutable(root, [
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root);
 
     const result = await runAstRewrite(
       {
@@ -323,38 +339,69 @@ describe('runAstRewrite', () => {
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
   });
 
-  it('rejects output paths that escape the real root through a symlink', async () => {
-    const { root } = fixture();
+  it('does not follow symlinks outside the root boundary', async () => {
+    // Native engine uses WalkBuilder without follow_links, so symlinked
+    // directories are never traversed. Files outside root remain untouched.
+    const root = mkdtempSync(join(tmpdir(), 'octocode-ast-rewrite-symtest-'));
+    roots.push(root);
+    writeFileSync(join(root, 'noop.ts'), '// no matches\n');
+
     const outside = mkdtempSync(
       join(tmpdir(), 'octocode-ast-rewrite-outside-')
     );
     roots.push(outside);
     writeFileSync(join(outside, 'escape.ts'), 'oldCall(1);\n');
     symlinkSync(outside, join(root, 'linked'));
-    const executable = mockExecutable(root, [
-      match('linked/escape.ts', 0, 10, 'oldCall(1)', 'newCall(1)'),
-    ]);
 
-    const result = await runAstRewrite(query(root), { executable });
+    const result = await runAstRewrite(query(root), {});
 
-    expect(result).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.path_escape',
-    });
+    // Symlinks are not followed → no matches found → empty
+    expect(result).toMatchObject({ status: 'empty' });
+    // Outside file is never touched
     expect(readFileSync(join(outside, 'escape.ts'), 'utf8')).toBe(
       'oldCall(1);\n'
     );
   });
 
   it('rejects overlapping ast-grep edits', async () => {
+    // The native engine (ast_grep find_all) never produces overlapping matches
+    // for a single rule, but the overlap guard must remain correct. We inject
+    // synthetic overlapping results via the native loader mock.
     const { root, source } = fixture();
+    const filePath = join(root, 'source.ts');
     const start = source.indexOf('oldCall(1)');
-    const executable = mockExecutable(root, [
-      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
-      match('source.ts', start + 3, start + 8, 'Call(', 'invoke'),
-    ]);
 
-    const result = await runAstRewrite(query(root), { executable });
+    withRewriteMock({
+      structuralRewriteFiles: vi.fn().mockResolvedValue(
+        JSON.stringify([
+          {
+            path: filePath,
+            matches: [
+              {
+                byteStart: start,
+                byteEnd: start + 10,
+                range: { start: { line: 0, column: start }, end: { line: 0, column: start + 10 } },
+                text: 'oldCall(1)',
+                replacedText: 'newCall(1)',
+                replacement: 'newCall($A)',
+                captures: { A: { kind: 'single', texts: ['1'] } },
+              },
+              {
+                byteStart: start + 3,
+                byteEnd: start + 8,
+                range: { start: { line: 0, column: start + 3 }, end: { line: 0, column: start + 8 } },
+                text: 'Call(',
+                replacedText: 'invoke',
+                replacement: 'invoke',
+                captures: {},
+              },
+            ],
+          },
+        ])
+      ),
+    });
+
+    const result = await runAstRewrite(query(root), {});
 
     expect(result).toMatchObject({
       status: 'error',
@@ -363,25 +410,11 @@ describe('runAstRewrite', () => {
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
   });
 
-  it('rejects an unavailable or incompatible executable before scanning', async () => {
-    const { root } = fixture();
-    const incompatible = mockExecutable(root, [], '1.0.0');
-
-    const unavailable = await runAstRewrite(query(root), {
-      executable: join(root, 'missing'),
-    });
-    const wrongVersion = await runAstRewrite(query(root), {
-      executable: incompatible,
-    });
-
-    expect(unavailable).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.executable_unavailable',
-    });
-    expect(wrongVersion).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.version_incompatible',
-    });
+  it.skip('rejects an unavailable or incompatible executable before scanning', () => {
+    // These error codes (executable_unavailable, version_incompatible) were
+    // emitted when the tool resolved an external ast-grep binary. The native
+    // engine is always available at a fixed embedded version; this check no
+    // longer applies.
   });
 
   it('rolls back promoted files when a later promotion fails', async () => {
@@ -393,7 +426,7 @@ describe('runAstRewrite', () => {
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
       match('other.ts', 0, 10, 'oldCall(3)', 'newCall(3)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root);
     const deps: AstRewriteRuntimeDeps = {
       executable,
       allowApply: true,
@@ -429,7 +462,7 @@ describe('runAstRewrite', () => {
     const executable = mockExecutable(root, [
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root);
     const externalEdit = 'editorCall(99);\n';
     const result = await runAstRewrite(
       { ...query(root), apply: true, ...preview },
@@ -470,7 +503,7 @@ describe('runAstRewrite', () => {
     const executable = mockExecutable(root, [
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
     ]);
-    const preview = await previewForApply(root, executable, { pageSize: 7 });
+    const preview = await previewForApply(root, { pageSize: 7 });
 
     for (const changed of [
       { rewrite: 'otherCall($A)', pageSize: 7 },
@@ -492,29 +525,13 @@ describe('runAstRewrite', () => {
     const { root, source } = fixture();
     const other = 'oldCall(3);\n';
     writeFileSync(join(root, 'other.ts'), other);
-    const start = source.indexOf('oldCall(1)');
-    const executable = mockExecutable(root, [
-      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
-      match('other.ts', 0, 10, 'oldCall(3)', 'newCall(3)'),
-    ]);
-    const preview = await previewForApply(root, executable);
+    // Native engine finds source.ts (2 matches) + other.ts (1 match) in preview.
+    const preview = await previewForApply(root);
 
-    mockExecutable(root, [
-      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
-    ]);
-    const disappeared = await runAstRewrite(
-      { ...query(root), apply: true, ...preview },
-      { executable, allowApply: true }
-    );
-    expect(disappeared).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.snapshot_changed',
-    });
-
-    mockExecutable(root, [
-      match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
-      match('other.ts', 0, 10, 'oldCall(3)', 'newCall(3)'),
-    ]);
+    // Scenario 1 — extra key: add a file within root that isn't a match target.
+    // Native finds the same 2 files; expectedHashes has 3 keys → mismatch.
+    const extraFile = join(root, 'extra-marker.ts');
+    writeFileSync(extraFile, '// not a match\n');
     const extra = await runAstRewrite(
       {
         ...query(root),
@@ -522,36 +539,42 @@ describe('runAstRewrite', () => {
         ...preview,
         expectedHashes: {
           ...preview.expectedHashes,
-          [executable]: digest(readFileSync(executable)),
+          [extraFile]: digest(readFileSync(extraFile)),
         },
       },
-      { executable, allowApply: true }
+      { allowApply: true }
     );
     expect(extra).toMatchObject({
       status: 'error',
       errorCode: 'ast.rewrite.expected_hash_set_mismatch',
     });
+
+    // Scenario 2 — disappeared: delete other.ts so native only finds source.ts.
+    // The snapshot from preview included other.ts → mismatch.
+    rmSync(join(root, 'other.ts'));
+    const disappeared = await runAstRewrite(
+      { ...query(root), apply: true, ...preview },
+      { allowApply: true }
+    );
+    expect(disappeared).toMatchObject({
+      status: 'error',
+      errorCode: 'ast.rewrite.snapshot_changed',
+    });
+
+    expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
   });
 
   it('reports snapshot drift when a continuation changes to zero matches', async () => {
-    const { root, source } = fixture();
-    const first = source.indexOf('oldCall(1)');
-    const second = source.indexOf('oldCall(2)');
-    const executable = mockExecutable(root, [
-      match('source.ts', first, first + 10, 'oldCall(1)', 'newCall(1)'),
-      match('source.ts', second, second + 10, 'oldCall(2)', 'newCall(2)'),
-    ]);
-    const page = await runAstRewrite(
-      { ...query(root), pageSize: 1 },
-      { executable }
-    );
+    const { root } = fixture();
+    // Page 1: native finds oldCall(1) and oldCall(2); pageSize=1 returns one match.
+    const page = await runAstRewrite({ ...query(root), pageSize: 1 }, {});
     expect(page.status).toBeUndefined();
     if (page.status !== undefined || !page.next) return;
-    mockExecutable(root, []);
 
-    const result = await runAstRewrite(page.next.nextPage.query, {
-      executable,
-    });
+    // Overwrite the file so all patterns disappear before the continuation.
+    writeFileSync(join(root, 'source.ts'), '// no matches left\n');
+
+    const result = await runAstRewrite(page.next.nextPage.query, {});
     expect(result).toMatchObject({
       status: 'error',
       errorCode: 'ast.rewrite.snapshot_changed',
@@ -565,7 +588,7 @@ describe('runAstRewrite', () => {
     const executable = mockExecutable(root, [
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root);
     const externalEdit = `${source}// editor change\n`;
 
     const result = await runAstRewrite(
@@ -596,7 +619,7 @@ describe('runAstRewrite', () => {
     const executable = mockExecutable(root, [
       match('source.ts', start, start + 10, 'oldCall(1)', 'newCall(1)'),
     ]);
-    const preview = await previewForApply(root, executable);
+    const preview = await previewForApply(root);
     let release!: () => void;
     let entered!: () => void;
     const gate = new Promise<void>(resolve => {
@@ -636,8 +659,10 @@ describe('runAstRewrite', () => {
 
     expect(firstResult.status, JSON.stringify(firstResult)).toBeUndefined();
     expect(secondResult.status).toBe('error');
+    // Native engine replaces ALL matches in the file in one atomic apply;
+    // both oldCall(1) and oldCall(2) are rewritten by the first apply.
     expect(readFileSync(sourcePath, 'utf8')).toBe(
-      source.replace('oldCall(1)', 'newCall(1)')
+      source.replaceAll('oldCall', 'newCall')
     );
   });
 
@@ -661,20 +686,16 @@ describe('runAstRewrite', () => {
     expect(readFileSync(join(root, 'source.ts'), 'utf8')).toBe(source);
   });
 
-  it('passes include and exclude globs as argv values without a shell', async () => {
-    const { root } = fixture();
-    const argvLog = join(root, 'argv.json');
-    const executable = join(root, 'logging-ast-grep.mjs');
-    writeFileSync(
-      executable,
-      `#!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
-if (process.argv[2] === '--version') process.stdout.write('ast-grep 0.40.1\\n');
-else if (process.argv[2] === 'run' && process.argv[3] === '--help') process.stdout.write('--pattern --rewrite --lang --json --globs --threads --color');
-else { writeFileSync(${JSON.stringify(argvLog)}, JSON.stringify(process.argv.slice(2))); process.stdout.write('[]'); }
-`
-    );
-    chmodSync(executable, 0o755);
+  it('applies include and exclude glob filters without spawning a shell', async () => {
+    // The native engine applies include/exclude globs inside the Rust walker;
+    // there is no shell involved, so injection attempts are inert.
+    const root = mkdtempSync(join(tmpdir(), 'octocode-ast-rewrite-globs-'));
+    roots.push(root);
+    mkdirSync(join(root, 'src'));
+    mkdirSync(join(root, 'lib'));
+    writeFileSync(join(root, 'src', 'match.ts'), 'oldCall(1);\n');
+    writeFileSync(join(root, 'lib', 'skip.ts'), 'oldCall(2);\n');
+    writeFileSync(join(root, 'src', 'also.test.ts'), 'oldCall(3);\n');
 
     const result = await runAstRewrite(
       {
@@ -682,18 +703,15 @@ else { writeFileSync(${JSON.stringify(argvLog)}, JSON.stringify(process.argv.sli
         include: ['src/**/*.ts', 'literal;touch SHOULD_NOT_EXIST'],
         exclude: ['**/*.test.ts'],
       },
-      { executable }
+      {}
     );
 
-    expect(result.status).toBe('empty');
-    expect(JSON.parse(readFileSync(argvLog, 'utf8'))).toEqual(
-      expect.arrayContaining([
-        '--globs',
-        'src/**/*.ts',
-        'literal;touch SHOULD_NOT_EXIST',
-        '!**/*.test.ts',
-      ])
-    );
+    // Only src/match.ts satisfies the include and is not excluded.
+    expect(result.status, JSON.stringify(result)).toBeUndefined();
+    if (result.status !== undefined) return;
+    expect(result.affectedFiles).toBe(1);
+    expect(result.files[0]).toMatchObject({ path: 'src/match.ts' });
+    // Shell-injection attempt in the include glob had no effect.
     expect(() => readFileSync(join(root, 'SHOULD_NOT_EXIST'))).toThrow();
   });
 });

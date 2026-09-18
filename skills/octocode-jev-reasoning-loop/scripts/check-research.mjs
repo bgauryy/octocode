@@ -8,8 +8,34 @@ const statuses = ['supported', 'contradicted', 'insufficient', 'conflicting'];
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 const sameKeys = (value, keys) => object(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
-const reject = reason => ({ usable: false, advisoryOnly: true, reason, next: 'Do not use this advice. Repair the packet or inspect the original evidence; do not repeat-vote on unchanged context.' });
+const reject = (reason, suggestion) => ({
+  usable: false,
+  advisoryOnly: true,
+  reason,
+  next: suggestion
+    ? 'Do not repeat-vote. Reopen the suggested evidence and report only its scoped observations, or retrieve new evidence for the original inference.'
+    : 'Do not use this advice. Repair the packet or inspect the original evidence; do not repeat-vote on unchanged context.',
+  ...(suggestion ? { suggestion } : {})
+});
 export const hashResearchRequest = request => createHash('sha256').update(JSON.stringify(request)).digest('hex');
+
+const clip = (value, length = 240) => value.length <= length ? value : `${value.slice(0, length - 1)}…`;
+export function narrowClaimToObservedFacts(request, response) {
+  const evidence = Array.isArray(request?.state?.evidence) ? request.state.evidence : [];
+  const basisId = response?.answers?.decisive_basis?.choice;
+  const basis = request?.state?.evidence_bases?.find(item => item.id === basisId);
+  const selected = basis ? evidence.filter(item => basis.evidenceIds.includes(item.id)) : evidence;
+  const scopes = [...new Set(selected.map(item => item.scope).filter(nonempty))];
+  const prefix = scopes.length === 1 ? `Within ${scopes[0]}, ` : 'Within each cited source scope, ';
+  const facts = selected.map(item => `${item.id} records: ${clip(item.content)}`);
+  return {
+    strategy: 'report_observed_facts',
+    claim: `${prefix}${facts.join(' ')}`,
+    evidenceIds: selected.map(item => item.id),
+    excludedInference: request?.state?.claim,
+    requiredNext: 'Reopen these sources. Assert only the recorded observations unless material new evidence supports the excluded inference.'
+  };
+}
 
 // Complements the Rust transport validator; does not verify source truth or freshness.
 export function checkResearch(request, response) {
@@ -36,7 +62,7 @@ export function checkResearch(request, response) {
   const basisId = answers.decisive_basis.choice;
   if (!statuses.includes(status) || ![...basisIds, 'none'].includes(basisId)) return reject('Answer is outside the supplied candidates.');
   const decisive = ['supported', 'contradicted'].includes(status);
-  if (decisive === (basisId === 'none')) return reject('Claim status and decisive basis disagree.');
+  if (decisive === (basisId === 'none')) return reject('Claim status and decisive basis disagree.', narrowClaimToObservedFacts(request, response));
   const next = {
     supported: 'Independently confirm the scoped inference in the original source before citing it.',
     contradicted: 'Inspect the counterevidence and revise the claim only if it holds.',

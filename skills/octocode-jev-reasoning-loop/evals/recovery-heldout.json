@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "frozen": true,
+  "model": "jev-1.13.0",
+  "description": "Synthetic held-out semantic cases frozen before the first live run. They characterize recovery and safety; they do not provide a matched host-only efficacy baseline.",
+  "thresholds": {
+    "wrongLeanRecoveryMinimum": 0.75,
+    "falseRecoveryMaximum": 0.25,
+    "unsupportedClaimMaximum": 0,
+    "maxCallsPerCase": 3
+  },
+  "cases": [
+    {
+      "id": "cache-vs-auth",
+      "kind": "wrong-lean",
+      "scope": "synthetic revision cache-1",
+      "goal": "Identify why warm requests return stale account data.",
+      "initialEvidence": "Warm requests return stale account data while cold requests are fresh; the symptom appeared after cache work.",
+      "truth": "H2",
+      "hypotheses": [
+        { "id": "H1", "statement": "Cache invalidation is stale.", "assumption": "Warm requests read the affected cache.", "predicts": ["Bypassing cache returns fresh data."], "weakenedBy": "Cache bypass remains stale." },
+        { "id": "H2", "statement": "The warm path reuses an expired authorization token.", "assumption": "Warm requests reuse session authorization state.", "predicts": ["Cache bypass remains stale and the token trace differs."], "weakenedBy": "Fresh authorization still returns stale data." }
+      ],
+      "check": {
+        "id": "C1", "action": "Repeat the warm request with cache bypass and trace the authorization token.", "cost": "low",
+        "expectedOutcomes": [
+          { "observation": "Bypass is fresh and authorization is unchanged.", "effect": { "H1": "strengthen", "H2": "weaken" } },
+          { "observation": "Bypass stays stale and reveals an expired reused token.", "effect": { "H1": "weaken", "H2": "strengthen" } }
+        ]
+      },
+      "alternateCheck": "Compare invalidation events with authorization-session traces.",
+      "newEvidence": "Cache bypass remained stale; the warm trace reused an expired token, and refreshing authorization returned fresh data."
+    },
+    {
+      "id": "retry-vs-quota",
+      "kind": "wrong-lean",
+      "scope": "synthetic revision retry-2",
+      "goal": "Explain persistent 503 responses after a retry refactor.",
+      "initialEvidence": "Persistent 503 responses began after retry code changed, and the new client log shows only one visible attempt.",
+      "truth": "H2",
+      "hypotheses": [
+        { "id": "H1", "statement": "The retry scheduler exits after one attempt.", "assumption": "Additional attempts would receive a successful response.", "predicts": ["The old client or forced retries succeed."], "weakenedBy": "Old and forced-retry clients receive the same terminal response." },
+        { "id": "H2", "statement": "The upstream account quota is exhausted.", "assumption": "Every client uses the same exhausted account.", "predicts": ["All clients fail and quota remaining is zero."], "weakenedBy": "A request with available quota still fails identically." }
+      ],
+      "check": {
+        "id": "C1", "action": "Run old and forced-retry clients while recording the upstream quota header.", "cost": "low",
+        "expectedOutcomes": [
+          { "observation": "Old or forced retries succeed with quota available.", "effect": { "H1": "strengthen", "H2": "weaken" } },
+          { "observation": "All clients fail and quota remaining is zero.", "effect": { "H1": "weaken", "H2": "strengthen" } }
+        ]
+      },
+      "alternateCheck": "Trace scheduler attempt counters without changing account state.",
+      "newEvidence": "The old client and forced retries returned the same 503; the signed upstream header reported quota remaining zero."
+    },
+    {
+      "id": "parser-vs-encoding",
+      "kind": "wrong-lean",
+      "scope": "synthetic revision parser-3",
+      "goal": "Explain a parser stack failure after a parser upgrade.",
+      "initialEvidence": "A parser stack failure first appeared immediately after the parser package upgrade.",
+      "truth": "H2",
+      "hypotheses": [
+        { "id": "H1", "statement": "The upgraded parser regressed on this syntax.", "assumption": "The failing bytes represent supported syntax.", "predicts": ["The same logical input fails after byte normalization."], "weakenedBy": "Normalized bytes parse under the same parser." },
+        { "id": "H2", "statement": "The fixture contains an invalid byte-order marker.", "assumption": "Normalization removes the marker without changing syntax.", "predicts": ["Normalized bytes parse under the same parser."], "weakenedBy": "Normalized bytes still fail." }
+      ],
+      "check": {
+        "id": "C1", "action": "Normalize the exact fixture bytes and parse with the same upgraded parser.", "cost": "low",
+        "expectedOutcomes": [
+          { "observation": "Normalized bytes still fail.", "effect": { "H1": "strengthen", "H2": "weaken" } },
+          { "observation": "Normalized bytes parse successfully.", "effect": { "H1": "weaken", "H2": "strengthen" } }
+        ]
+      },
+      "alternateCheck": "Bisect parser versions using the unchanged fixture bytes.",
+      "newEvidence": "Removing the invalid byte-order marker made the exact fixture parse successfully with the same upgraded parser."
+    },
+    {
+      "id": "race-control",
+      "kind": "control",
+      "scope": "synthetic revision race-4",
+      "goal": "Explain a parallel-only shared-counter failure.",
+      "initialEvidence": "The failure occurs only in parallel runs; serial runs pass, and concurrent traces show overlapping counter writes.",
+      "truth": "H1",
+      "hypotheses": [
+        { "id": "H1", "statement": "Unsynchronized counter updates create a race.", "assumption": "The observed overlapping writes target shared state.", "predicts": ["Serializing counter updates removes the failure."], "weakenedBy": "The failure remains with serialized updates." },
+        { "id": "H2", "statement": "A malformed fixture independently causes the failure.", "assumption": "The same malformed fixture is used in serial and parallel runs.", "predicts": ["The failure remains when counter updates are serialized."], "weakenedBy": "The unchanged fixture passes after serialization." }
+      ],
+      "check": {
+        "id": "C1", "action": "Serialize counter updates while keeping the fixture and workload unchanged.", "cost": "low",
+        "expectedOutcomes": [
+          { "observation": "Serialization removes the failure.", "effect": { "H1": "strengthen", "H2": "weaken" } },
+          { "observation": "Serialization does not remove the failure.", "effect": { "H1": "weaken", "H2": "strengthen" } }
+        ]
+      },
+      "alternateCheck": "Validate the fixture independently without changing concurrency.",
+      "newEvidence": "Serializing counter updates removed the failure; the fixture and workload were unchanged."
+    }
+  ]
+}

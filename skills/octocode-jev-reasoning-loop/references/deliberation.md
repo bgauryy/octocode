@@ -17,7 +17,7 @@ Add only fields that clarify the selected route:
 - **PREDICT / FALSIFY / DISCRIMINATE** for an empirical hypothesis check. Before observing the result, state what each hypothesis predicts, what weakens it, and which outcome separates the deck.
 - Omit predictions and falsifiers for classificatory or claim-status judgments when they would be artificial.
 
-Use `assets/decision-brief.schema.json` for the structured summary. Do not record hidden reasoning or a transcript. Prefer piping builder input through stdin. `scripts/build-decision-packet.mjs` validates the brief, rejects a known direct check or inert call, exports only supplied decision-relevant fields, and emits exactly `model + state + questions`.
+Normal use puts any needed fields under `reasoning` in `assets/run-loop-input.schema.json`; the runner derives minimal observations and uncertainty when omitted. Do not record hidden chain-of-thought, private scratch, or a transcript. For low-level debugging only, `assets/decision-brief.schema.json` and `scripts/build-decision-packet.mjs` expose the derived intermediate contract. Both paths reject direct checks and inert calls and emit exactly `model + state + questions`.
 
 ## Stop deliberating and act
 

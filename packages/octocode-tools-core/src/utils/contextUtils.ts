@@ -189,6 +189,25 @@ export const contextUtils = {
     return loadNative().byteSliceContent(content, byteStart, byteEnd);
   },
 
+  /**
+   * In-process structural rewrite for a single file content (sync).
+   * `ruleConfigJson` is a complete ast-grep inline-rule JSON string.
+   * Returns a JSON string of `StructuralRewriteMatch[]`.
+   */
+  structuralRewriteContent(content: string, ruleConfigJson: string): string {
+    return loadNative().structuralRewriteContent(content, ruleConfigJson);
+  },
+
+  /**
+   * In-process structural rewrite over a file tree (async, libuv worker pool).
+   * Returns a JSON string of `Array<{path, matches}>`.
+   */
+  structuralRewriteFiles(
+    options: NativeContextUtils.StructuralRewriteFilesOptions
+  ): Promise<string> {
+    return loadNative().structuralRewriteFiles(options);
+  },
+
   sliceContent(
     content: string,
     charOffset: number,

@@ -44,13 +44,14 @@
   "$defs": {
     "PublicReasoning": {
       "type": "object",
+      "description": "Bounded, auditable decision summary for agentic use. Include conclusions and their basis, never hidden chain-of-thought or private scratch.",
       "required": ["observations", "uncertainty"],
       "properties": {
-        "observations": { "type": "string" },
+        "observations": { "type": "string", "minLength": 1 },
         "inferences": { "type": "array", "items": { "type": "string" } },
         "assumptions": { "type": "array", "items": { "type": "string" } },
         "strongest_counter": { "type": "string" },
-        "uncertainty": { "type": "string" },
+        "uncertainty": { "type": "string", "minLength": 1 },
         "prediction": { "type": "string" },
         "falsifier": { "type": "string" },
         "discriminating_observation": { "type": "string" }

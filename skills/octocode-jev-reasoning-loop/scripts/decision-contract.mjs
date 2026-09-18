@@ -59,6 +59,91 @@ export function routeDecision(input, policy = DEFAULT_POLICY) {
   return { route: result[0], questionTypes: [...result[1]], policyAction: result[2], mayAssert: result[3] };
 }
 
+function compactChecksDiscriminate(checks) {
+  return Array.isArray(checks) && checks.length >= 2 && checks.every(check =>
+    Array.isArray(check?.expectedOutcomes) && check.expectedOutcomes.length >= 2 &&
+    check.expectedOutcomes.some(outcome => new Set(Object.values(outcome?.effect || {})).size > 1)
+  );
+}
+
+function compactRoutingInput(input) {
+  const state = input.state || {};
+  const evidence = Array.isArray(state.evidence) ? state.evidence : [];
+  const base = {
+    willChangeAction: input.willChangeAction,
+    exactLookupAvailable: input.directCheck?.available === true,
+    jevCallsAtCrossroad: input.jevCallsAtCrossroad || 0,
+    ...(Object.hasOwn(input, 'evidenceFresh') ? { evidenceFresh: input.evidenceFresh } : {})
+  };
+  switch (input.route) {
+    case 'hunch_check': return { ...base, weakHunch: true, observationsCount: nonempty(state.basis) ? 1 : 0 };
+    case 'hypothesis_triage': return { ...base, observationsCount: evidence.length, hypothesisCount: state.hypotheses?.length || 0, checksDiscriminate: compactChecksDiscriminate(state.next_checks) };
+    case 'decision_review': return { ...base, actionCost: state.actionCost, difficultToReverse: state.difficultToReverse === true };
+    case 'reflection_delta': return { ...base, newEvidence: isObject(state.newEvidence), previousHypothesisCount: state.hypotheses?.length || 0 };
+    case 'disputed_inference': return { ...base, evidenceCollected: evidence.length > 0, boundedClaim: nonempty(state.claim) };
+    case 'hallucination_gate': return {
+      ...base,
+      aboutToAssert: true,
+      evidenceCount: evidence.length,
+      scopeCompatible: !nonempty(state.claim_scope) || evidence.some(item => item?.scope === state.claim_scope)
+    };
+    default: return base;
+  }
+}
+
+function compactObservations(route, state) {
+  if (route === 'reflection_delta' && isObject(state.newEvidence)) return `New evidence: ${state.newEvidence.id} (${state.newEvidence.source}).`;
+  if (Array.isArray(state.evidence) && state.evidence.length > 0) {
+    return `Anchored evidence: ${state.evidence.map(item => `${item.id} (${item.source})`).join(', ')}.`;
+  }
+  if (route === 'hunch_check') return `Supplied basis: ${state.basis}`;
+  if (route === 'decision_review') return 'The proposal, assumptions, risks, cost, and reversibility are supplied in state.';
+  return 'The route-specific state contains the current bounded observation.';
+}
+
+export function prepareCompactRun(input, policy = DEFAULT_POLICY) {
+  if (!isObject(input)) throw new Error('$ expected an object; received non-object input.');
+  if (!Object.hasOwn(ROUTE_TYPES, input.route)) throw new Error(`$.route expected one of ${Object.keys(ROUTE_TYPES).join(', ')}; received ${JSON.stringify(input.route)}.`);
+  if (typeof input.willChangeAction !== 'boolean') throw new Error(`$.willChangeAction expected boolean; received ${JSON.stringify(input.willChangeAction)}.`);
+  if (!isObject(input.state)) throw new Error(`$.state expected object; received ${JSON.stringify(input.state)}.`);
+  if (input.directCheck !== undefined && (!isObject(input.directCheck) || typeof input.directCheck.available !== 'boolean' || input.directCheck.available && !nonempty(input.directCheck.action))) {
+    throw new Error('$.directCheck expected { available: boolean, action?: nonempty string }; received an invalid value.');
+  }
+  const hasActions = Object.hasOwn(input, 'actions');
+  const hasNetAction = Object.hasOwn(input, 'netAction');
+  if (hasActions !== hasNetAction) throw new Error('$.actions and $.netAction must be supplied together or both omitted.');
+  if (hasActions && (!isObject(input.actions) || !nonempty(input.netAction) || input.netAction.trim().length < 10)) {
+    throw new Error('$.actions expected an object and $.netAction expected at least 10 characters.');
+  }
+  const routing = routeDecision(compactRoutingInput(input), policy);
+  if (routing.route !== input.route) {
+    const status = ['no_jev', 'deterministic'].includes(routing.route) ? 'skipped' : routing.route === 'missing_fact' ? 'needs_evidence' : 'redirected';
+    return {
+      status,
+      routing,
+      nextAction: input.directCheck?.available ? input.directCheck.action : routing.policyAction
+    };
+  }
+  const reasoning = isObject(input.reasoning) ? input.reasoning : {};
+  const brief = {
+    observations: reasoning.observations || compactObservations(input.route, input.state),
+    uncertainty: reasoning.uncertainty || input.state.goal || input.state.mainGoal,
+    direct_check: input.directCheck || { available: false },
+    jev_will_change_action: input.willChangeAction
+  };
+  for (const field of ['inferences', 'assumptions', 'strongest_counter', 'prediction', 'falsifier', 'discriminating_observation']) {
+    if (Object.hasOwn(reasoning, field)) brief[field] = structuredClone(reasoning[field]);
+  }
+  const request = buildDecisionPacket({
+    route: input.route,
+    model: input.model,
+    decisionBrief: brief,
+    state: input.state,
+    jevCallsAtCrossroad: input.jevCallsAtCrossroad
+  }, policy);
+  return { status: 'ready', routing, route: input.route, request };
+}
+
 function buildQuestions(route, state) {
   switch (route) {
     case 'hunch_check':
@@ -114,7 +199,14 @@ function validateBrief(brief, errors) {
 function validateGeneric(request, errors) {
   if (!exactKeys(request, ['model', 'state', 'questions'])) errors.push('Request must contain exactly model, state, and questions.');
   if (!nonempty(request?.model)) errors.push('model must be nonempty.');
-  if (!isObject(request?.state)) errors.push('state must be an object.');
+  if (!isObject(request?.state)) errors.push('state expected an object.');
+  if (isObject(request?.state)) {
+    if (!isObject(request.state.reasoning)) errors.push('state.reasoning expected a bounded reasoning-summary object.');
+    else {
+      if (!nonempty(request.state.reasoning.observations)) errors.push(`state.reasoning.observations expected a nonempty decision-context summary; received ${JSON.stringify(request.state.reasoning.observations)}.`);
+      if (!nonempty(request.state.reasoning.uncertainty)) errors.push(`state.reasoning.uncertainty expected a nonempty uncertainty summary; received ${JSON.stringify(request.state.reasoning.uncertainty)}.`);
+    }
+  }
   if (!isObject(request?.questions) || ownKeys(request.questions).length === 0) errors.push('questions must be a nonempty object.');
   for (const [id, q] of Object.entries(request?.questions || {})) {
     if (!isObject(q) || !['choice', 'noul', 'score'].includes(q.type)) errors.push(`questions.${id}.type is invalid.`);
@@ -132,7 +224,11 @@ function validateEvidence(state, errors) {
     if (!isObject(item) || !nonempty(item.source) || !nonempty(item.scope) || !nonempty(item.content)) errors.push('Every evidence item needs source, scope, and content.');
     if (isObject(item) && !ownKeys(item).every(key => ['id', 'kind', 'source', 'scope', 'content'].includes(key))) errors.push(`Evidence ${item.id || '?'} contains unsupported fields.`);
   }
-  if (nonempty(state.scope) && state.evidence.some(item => item.scope !== state.scope)) errors.push('Evidence scopes must match state.scope.');
+  if (nonempty(state.scope)) {
+    state.evidence.forEach((item, index) => {
+      if (item.scope !== state.scope) errors.push(`state.evidence[${index}].scope expected ${JSON.stringify(state.scope)}; received ${JSON.stringify(item.scope)}.`);
+    });
+  }
   const references = referencedIds(state.reasoning || {}, /\bE\d+\b/g);
   for (const id of references) if (!ids.includes(id)) errors.push(`Reasoning references unknown evidence ID ${id}.`);
 }
@@ -201,8 +297,12 @@ function validateGate(state, questions, errors) {
   const ids = Array.isArray(state.evidence) ? state.evidence.map(item => item.id) : [];
   if (!exactKeys(questions?.evidence_anchor?.criteria, [...ids, 'none'])) errors.push('evidence_anchor criteria must match evidence plus none.');
   if (state.claim_scope) {
-    if (state.evidence.some(item => !nonempty(item.scope))) errors.push('Every grounding item needs scope when claim_scope is set.');
-    if (!state.evidence.some(item => item.scope === state.claim_scope)) errors.push('Claim scope is incompatible with every evidence scope; narrow or block before Jev.');
+    state.evidence.forEach((item, index) => {
+      if (!nonempty(item.scope)) errors.push(`state.evidence[${index}].scope expected a nonempty scope because state.claim_scope is set; received ${JSON.stringify(item.scope)}.`);
+    });
+    if (!state.evidence.some(item => item.scope === state.claim_scope)) {
+      errors.push(`state.claim_scope expected one matching evidence scope; received ${JSON.stringify(state.claim_scope)} versus ${JSON.stringify(state.evidence.map(item => item.scope))}. Narrow or block before Jev.`);
+    }
   }
 }
 
@@ -247,6 +347,78 @@ export function buildDecisionPacket(input, policy = DEFAULT_POLICY) {
   const checked = validateDecisionPacket(input.route, packet, policy);
   if (!checked.valid) throw new Error(checked.errors.join(' '));
   return packet;
+}
+
+function selectedChoice(response, id) {
+  return response?.answers?.[id]?.choice;
+}
+function selectedNoul(response, id) {
+  return response?.answers?.[id]?.noul;
+}
+
+export function buildRunApplication(route, request, response, policy = DEFAULT_POLICY) {
+  const actions = {};
+  let netAction;
+  switch (route) {
+    case 'hunch_check': {
+      const pursue = selectedNoul(response, 'worth_pursuing') >= policy.noul.leanYesMinimum;
+      actions.worth_pursuing = pursue ? 'Frame competing falsifiable hypotheses before another Jev call.' : 'Drop the hunch and continue host evidence retrieval.';
+      netAction = actions.worth_pursuing;
+      break;
+    }
+    case 'hypothesis_triage': {
+      const hypothesis = selectedChoice(response, 'hypothesis');
+      const checkId = selectedChoice(response, 'next_check');
+      const check = request.state.next_checks?.find(item => item.id === checkId);
+      actions.hypothesis = hypothesis === 'none' ? 'Replace the hypothesis deck before testing.' : `Keep ${hypothesis} provisional until a real check observes one frozen branch.`;
+      actions.next_check = check ? `Execute ${check.id}: ${check.action}` : 'Design a new discriminating check before continuing.';
+      netAction = check?.action || actions.next_check;
+      break;
+    }
+    case 'reflection_delta': {
+      const effect = selectedChoice(response, 'effect_on_prior_lead');
+      const lead = selectedChoice(response, 'updated_lead');
+      const reframe = selectedNoul(response, 'reframe_needed') >= policy.noul.leanYesMinimum;
+      actions.effect_on_prior_lead = `Record that new evidence ${effect || 'ambiguously affects'} ${request.state.priorLead}.`;
+      actions.updated_lead = lead === 'none' ? 'Abandon the current lead and replace the deck.' : `Carry ${lead} only as the updated provisional lead.`;
+      actions.reframe_needed = reframe ? 'Replace or expand the hypothesis deck before another check.' : 'Retain the current deck for the next host-owned check.';
+      netAction = reframe ? actions.reframe_needed : actions.updated_lead;
+      break;
+    }
+    case 'decision_review': {
+      const viable = selectedNoul(response, 'proposal_viable') >= policy.noul.leanYesMinimum;
+      const risk = selectedChoice(response, 'primary_risk');
+      const retrieve = selectedNoul(response, 'more_evidence_needed') >= policy.noul.leanYesMinimum;
+      actions.proposal_viable = viable ? 'Keep the proposal provisional behind its stated safeguards.' : 'Stop the proposal and redesign it before execution.';
+      actions.primary_risk = risk === 'none' ? 'Record that no supplied risk was selected.' : `Mitigate supplied risk ${risk} before execution.`;
+      actions.more_evidence_needed = retrieve ? 'Retrieve evidence that resolves the selected risk or assumption.' : 'Proceed only within the supplied evidence and safeguards.';
+      netAction = retrieve ? actions.more_evidence_needed : viable ? actions.primary_risk : actions.proposal_viable;
+      break;
+    }
+    case 'disputed_inference': {
+      const status = selectedChoice(response, 'claim_status');
+      const basis = selectedChoice(response, 'decisive_basis');
+      actions.claim_status = `Treat the bounded claim as ${status || 'undecided'} and keep the judgment advisory.`;
+      actions.decisive_basis = basis === 'none' ? 'Retrieve a decisive evidence basis before asserting the claim.' : `Reopen every source in evidence basis ${basis} before citation.`;
+      netAction = ['supported', 'contradicted'].includes(status) ? actions.decisive_basis : 'Narrow the claim or retrieve evidence before reconsidering it.';
+      break;
+    }
+    case 'hallucination_gate': {
+      const grounded = selectedNoul(response, 'grounded') >= policy.groundedMinimum;
+      const anchor = selectedChoice(response, 'evidence_anchor');
+      actions.grounded = grounded ? 'Keep the assertion bounded to its grounding evidence.' : 'Block the assertion until direct grounding exists.';
+      actions.evidence_anchor = anchor === 'none' ? 'Block the assertion because no anchor was selected.' : `Cite and reopen evidence anchor ${anchor} before assertion.`;
+      if (Object.hasOwn(response?.answers || {}, 'scope_matches')) {
+        const matches = selectedNoul(response, 'scope_matches') >= policy.groundedMinimum;
+        actions.scope_matches = matches ? 'Keep the assertion inside the declared evidence scope.' : 'Narrow the assertion to a compatible evidence scope.';
+      }
+      netAction = grounded && anchor !== 'none' ? actions.evidence_anchor : actions.grounded;
+      break;
+    }
+    default: throw new Error(`Route '${route}' cannot generate an application.`);
+  }
+  for (const id of ownKeys(request.questions)) if (!nonempty(actions[id])) actions[id] = `Inspect ${id} and choose the next host-owned action.`;
+  return { actions, netAction };
 }
 
 function confidenceRead(gap, policy) {

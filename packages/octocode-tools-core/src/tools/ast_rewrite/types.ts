@@ -1,5 +1,23 @@
 import type { AstRewriteQuery as PublicAstRewriteQuery } from '@octocodeai/octocode-core/schema';
 
+/** Shared match shape: produced by the native engine and consumed by prepare. */
+export interface AstGrepJsonMatch {
+  file: string;
+  text: string;
+  replacement: string;
+  range: {
+    byteOffset: { start: number; end: number };
+    start: { line: number; column: number };
+    end: { line: number; column: number };
+  };
+  replacementOffsets?: { start: number; end: number };
+  metaVariables?: {
+    single: Record<string, { text: string }>;
+    multi: Record<string, Array<{ text: string }>>;
+    transformed: Record<string, string>;
+  };
+}
+
 export type AstRewriteQuery = PublicAstRewriteQuery;
 
 export interface AstRewriteCapture {

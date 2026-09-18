@@ -91,7 +91,7 @@ harness = false
 [features]
 default = ["portable-default", "napi-addon"]
 portable-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
-napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build", "embedded-ast-grep-rewrite"]
 napi-test = ["napi-addon", "napi/noop"]
 embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config", "dep:ast-grep-language"]
 tree-sitter-cpp = ["dep:tree-sitter-cpp"]

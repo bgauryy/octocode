@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { TextDecoder } from 'node:util';
-import type { AstGrepJsonMatch } from './astGrep.js';
+import type { AstGrepJsonMatch } from './types.js';
 import { createUnifiedPatch } from './patch.js';
 import { rewriteError as error } from './result.js';
 import type {

@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import {
   applyResponse,
   buildDecisionPacket,
+  buildRunApplication,
+  prepareCompactRun,
   routeDecision,
   validateDecisionPacket
 } from './decision-contract.mjs';
@@ -103,6 +105,64 @@ test('builder skips Jev for direct checks, inert calls, and exhausted crossroads
   const exhausted = triageInput(); exhausted.jevCallsAtCrossroad = policy.maxJevCallsPerCrossroad;
   assert.throws(() => buildDecisionPacket(exhausted, policy), /call limit/i);
   assert.deepEqual(routeDecision({ willChangeAction: true, jevCallsAtCrossroad: 2 }, policy), { route: 'no_jev', questionTypes: [], policyAction: 'continue_host_research', mayAssert: false });
+});
+
+test('compact runner removes DecisionBrief and action-map boilerplate without weakening triage', () => {
+  const legacy = triageInput();
+  const compact = {
+    route: 'hypothesis_triage',
+    model: legacy.model,
+    willChangeAction: true,
+    state: structuredClone(legacy.state)
+  };
+  const prepared = prepareCompactRun(compact, policy);
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.routing.route, 'hypothesis_triage');
+  assert.equal(validateDecisionPacket('hypothesis_triage', prepared.request, policy).valid, true);
+  assert.deepEqual(prepared.request.state.reasoning, {
+    observations: 'Anchored evidence: E1 (test.log:1).',
+    uncertainty: legacy.state.goal
+  });
+  assert.equal(JSON.stringify(prepared.request).includes('decisionBrief'), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(compact)) < Buffer.byteLength(JSON.stringify(legacy)) * 0.8);
+
+  const response = {
+    model: 'jev-1.13.0', answers: {
+      hypothesis: { type: 'choice', choice: 'H1', probabilities: { H1: 0.7, H2: 0.2, none: 0.1 }, confidence: 0.6 },
+      next_check: { type: 'choice', choice: 'C1', probabilities: { C1: 0.8, C2: 0.15, none: 0.05 }, confidence: 0.8 }
+    }
+  };
+  const generated = buildRunApplication('hypothesis_triage', prepared.request, response, policy);
+  assert.match(generated.actions.next_check, /cache bypass/i);
+  assert.equal(generated.netAction, legacy.state.next_checks[0].action);
+  assert.equal(applyResponse(prepared.request, response, generated.actions, generated.netAction, policy).blocked, false);
+});
+
+test('compact runner deterministically skips inert and direct-check calls', () => {
+  const state = structuredClone(triageInput().state);
+  const inert = prepareCompactRun({ route: 'hypothesis_triage', willChangeAction: false, state }, policy);
+  assert.deepEqual({ status: inert.status, route: inert.routing.route }, { status: 'skipped', route: 'no_jev' });
+  const direct = prepareCompactRun({
+    route: 'hypothesis_triage', willChangeAction: true,
+    directCheck: { available: true, action: 'Read the exact bundled SKILL.md.' }, state
+  }, policy);
+  assert.equal(direct.status, 'skipped');
+  assert.equal(direct.routing.route, 'deterministic');
+  assert.match(direct.nextAction, /exact bundled/i);
+  assert.throws(
+    () => prepareCompactRun({ route: 'hypothesis_triage', willChangeAction: true, state, actions: {} }, policy),
+    /\$\.actions and \$\.netAction must be supplied together/
+  );
+});
+
+test('scope diagnostics name the exact path, expected value, and received value', () => {
+  const input = triageInput();
+  input.state.scope = 'revision abc';
+  input.state.evidence[0].scope = 'revision def';
+  assert.throws(
+    () => buildDecisionPacket(input, policy),
+    /state\.evidence\[0\]\.scope expected "revision abc"; received "revision def"/
+  );
 });
 
 test('testable triage requires precommitted predictions, weakening conditions, and branchable checks', () => {

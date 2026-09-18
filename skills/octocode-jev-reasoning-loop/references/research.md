@@ -1,44 +1,46 @@
-# Build, evaluate, verify, and apply
+# Execute and debug the reasoning loop
 
-Load after deterministic routing selects a Jev route. Why: bind structured state to a validated request and turn advice into one concrete provisional action.
+Load when `scripts/run-loop.mjs` reports a packet, transport, claim-consistency, or APPLY failure. Normal use stays on the compact runner.
 
-## Prepare
-Retrieve exact evidence before construction: `localSearch` locates candidates, `localFetch` reopens excerpts, `astSearch` supplies structure, and `lspSearch` confirms symbol identity. External evidence uses pinned GitHub refs or dated URLs. Search snippets are locators, not deciding anchors.
+## Preferred path
 
-Create builder input with `route`, `model`, `decisionBrief`, and route state. Use `assets/decision-brief.schema.json`; prefer stdin so the brief is ephemeral. Keep the generic brief minimal. On `hypothesis_triage`, every testable explanation needs predictions and `weakenedBy`, and every proposed check needs cost plus at least two outcomes whose effects distinguish named hypotheses. Omit prediction/falsifier fields on classificatory and claim-status routes when they add no information.
 ```sh
-node scripts/build-decision-packet.mjs --input - > request.json
+node scripts/run-loop.mjs --input compact.json --dry-run
+node scripts/run-loop.mjs --input compact.json
+```
+
+Use `assets/run-loop-input.schema.json`. The runner routes, derives a minimal DecisionBrief, validates, evaluates, checks claim consistency, and creates provisional APPLY. It exits before the API for inert calls, direct checks, missing facts, scope mismatch, or exhausted crossroads. `--response FILE` replays offline; `--output DIR` selects artifacts.
+
+Every request contains exactly `model`, `state`, and `questions`. `state.reasoning` is a bounded summary with observations and uncertainty—not hidden chain-of-thought. Testable triage also requires predictions, weakening conditions, and branch outcomes.
+
+## Diagnose one layer
+
+```sh
+node scripts/route-decision.mjs --input routing-state.json
+node scripts/build-decision-packet.mjs --input builder-input.json > request.json
 node scripts/validate-decision-packet.mjs --route <route> --input request.json
 node scripts/jev.mjs evaluate --input request.json --dry-run
 ```
-The builder rejects direct checks, inert calls, unknown IDs, missing precommitments on testable hypothesis routes, non-discriminating outcomes, missing `none`, invalid bases, empty grounding evidence, and deterministic scope mismatch. Output is exactly `model`, `state`, and `questions`.
 
-## Evaluate and verify
-For hunch, triage, review, reflection, and gate:
+Errors identify the failing JSON path and expected/received scope where applicable. Repair input; never weaken scope or precommitment gates.
+
+For direct transport diagnosis:
+
 ```sh
-node scripts/jev.mjs evaluate --input request.json --retries 0 --timeout-ms 10000 > response.json
+node scripts/jev.mjs evaluate --input request.json --retries 0 --timeout-ms 10000
 ```
-For disputed claims, pin a versioned model and use the bound guard:
+
+For disputed claims, pin the model and retain request binding:
+
 ```sh
 node scripts/research.mjs --input request.json --retries 0 --timeout-ms 10000 > envelope.json
 node scripts/check-research.mjs --request request.json --response envelope.json
 ```
-Nonzero exit means no usable advice. Check resolved model, answer IDs, complete probabilities, uncertainty, and source scope. Reopen every selected original anchor. A selected hypothesis is worth testing; a selected basis is worth independently verifying. Neither is established fact.
 
-## Apply
-Create `actions.json`, mapping every question ID to a concrete caller-owned action, then run:
-```sh
-node scripts/apply-response.mjs --request request.json --response response.json \
-  --actions actions.json --net-action "Run C1 against src/cache.ts and record both branches"
-```
-Exit 4 means policy blocked action: `none`, a non-check soft tie, ambiguous Noul, low grounding, or scope mismatch. Do not override it with prose. For close next-check probabilities, the record names a cheaper `policy_preference` instead of treating check cost as model truth; cost never changes Jev’s semantic selection. Keep `provisional: true`, selected ID, probability, resolved model, and exact next action.
+Status/basis disagreement exits 4 with `suggestion.strategy=report_observed_facts`. Reopen suggested evidence; report only scoped observations or retrieve new evidence. Never repeat-vote unchanged state.
 
-## Route outcomes
-- Hunch survives → name a competing explanation and triage; otherwise drop it.
-- Triage → freeze the selected check's prediction, then execute one branchable check.
-- Decision review → retrieve or redesign when viability fails, evidence is needed, or a supplied risk blocks.
-- Reflection → compare the precommitment with the real observation, then update, abandon, or replace the deck; never repeat-vote on unchanged evidence.
-- Claim check → inspect every evidence ID in the selected basis; retrieve for insufficient/conflicting.
-- Hallucination gate → block on low grounding or `none`; narrow on scope mismatch; otherwise cite anchor and scope.
+Direct `scripts/apply-response.mjs` debugging requires request, response, actions, and net action. The compact runner removes that map by deriving actions from host-supplied state; provide `actions` plus `netAction` only to override it.
 
-Next: use `references/context.md` for compaction, `references/protocol.md` for wire semantics, and `references/benchmark.md` before claiming outcome improvement.
+Exits: `0` ready/applied; `2` local input/configuration failure; `3` transport failure; `4` response, claim consistency, or policy block. A selected hypothesis or basis is worth checking, never fact.
+
+Next: wire → `references/protocol.md`; config → `references/configuration.md`; efficacy → `references/benchmark.md`.

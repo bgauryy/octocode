@@ -1234,6 +1234,66 @@ export interface StructuralSearchFilesDetailedResult {
   warnings: Array<string>;
 }
 
+// ── Structural rewrite ──────────────────────────────────────────────────────
+
+export interface StructuralRewritePosition {
+  line: number;
+  column: number;
+}
+export interface StructuralRewriteRange {
+  start: StructuralRewritePosition;
+  end: StructuralRewritePosition;
+}
+export interface StructuralRewriteCapture {
+  /** `"single"` | `"multi"` | `"transformed"` */
+  kind: string;
+  texts: Array<string>;
+}
+export interface StructuralRewriteMatch {
+  byteStart: number;
+  byteEnd: number;
+  range: StructuralRewriteRange;
+  /** Original matched text. */
+  text: string;
+  /** The source text that will be replaced. */
+  replacedText: string;
+  /** Replacement text produced by the rule fix. */
+  replacement: string;
+  captures: Record<string, StructuralRewriteCapture>;
+}
+
+/** Options for in-process structural rewrite over a file tree. */
+export interface StructuralRewriteFilesOptions {
+  path: string;
+  /** Complete ast-grep inline-rule config as a JSON string. */
+  ruleConfigJson: string;
+  include?: Array<string>;
+  exclude?: Array<string>;
+  excludeDir?: Array<string>;
+  hidden?: boolean;
+  noIgnore?: boolean;
+  maxDepth?: number;
+  maxFiles?: number;
+  maxFileBytes?: number;
+}
+
+/**
+ * In-process structural rewrite for a single file content (sync).
+ * Returns a JSON string of `StructuralRewriteMatch[]`.
+ */
+export declare function structuralRewriteContent(
+  content: string,
+  ruleConfigJson: string
+): string;
+
+/**
+ * In-process structural rewrite over a file tree (async, libuv worker pool).
+ * Returns a JSON string of `Array<{ path: string; matches: StructuralRewriteMatch[] }>`.
+ */
+export declare function structuralRewriteFiles(
+  options: StructuralRewriteFilesOptions
+): Promise<string>;
+
 /**
  * Convert a human-readable symbol kind string back to the LSP `SymbolKind`
  * numeric code. Unknown strings return `13` (Variable).

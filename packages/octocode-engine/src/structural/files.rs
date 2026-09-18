@@ -1089,3 +1089,74 @@ fn within_depth(root: &Path, file: &Path, max_depth: Option<u32>) -> bool {
                 .is_ok_and(|relative| relative.components().count() <= depth as usize)
     })
 }
+
+// ── Structural rewrite file walker ──────────────────────────────────────────
+
+/// Result for a single file from a structural rewrite file-tree scan.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub struct StructuralRewriteFileResult {
+    pub path: String,
+    pub matches: Vec<super::StructuralRewriteMatch>,
+}
+
+/// Walk a file tree and apply an ast-grep inline-rule rewrite to every
+/// candidate file in parallel. Files that produce no matches or cannot be read
+/// (binary, unreadable, too large) are silently skipped.
+///
+/// The rule config must be a complete ast-grep inline-rule object (language,
+/// rule, fix, etc.) — the same JSON that `astRewrite` used to pass via
+/// `--inline-rules` to the external `ast-grep scan` subprocess.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub fn rewrite_files(
+    options: super::types::StructuralRewriteFilesOptions,
+) -> Result<Vec<StructuralRewriteFileResult>, String> {
+    let root = std::path::PathBuf::from(&options.path);
+    check_root_exists(&root)?;
+
+    let rule_config: serde_json::Value = serde_json::from_str(&options.rule_config_json)
+        .map_err(|e| format!("[structural.rewrite.json] {e}"))?;
+
+    let include = options.include.unwrap_or_default();
+    let exclude = options.exclude.unwrap_or_default();
+    let exclude_dir = options.exclude_dir.unwrap_or_else(default_exclude_dirs);
+    let max_files = options.max_files.map(|n| n as usize).unwrap_or(2_000);
+    let max_file_bytes = u64::from(options.max_file_bytes.unwrap_or(1_000_000));
+
+    let overrides = build_overrides(&root, &include, &exclude)?;
+    let candidate_files = collect_files(
+        &root,
+        overrides,
+        &exclude_dir,
+        max_files.saturating_add(1),
+        false, // supported_only: ast-grep handles language via rule config
+        options.hidden,
+        options.no_ignore,
+        options.max_depth,
+    )?;
+    let candidate_files: Vec<_> = candidate_files.into_iter().take(max_files).collect();
+
+    // Arc so the (immutable) rule config can be shared across rayon threads.
+    let rule_config = std::sync::Arc::new(rule_config);
+
+    let results: Vec<StructuralRewriteFileResult> = candidate_files
+        .par_iter()
+        .filter_map(|path| {
+            let bytes = fs::read(path).ok()?;
+            if bytes.len() as u64 > max_file_bytes {
+                return None;
+            }
+            let content = String::from_utf8(bytes).ok()?;
+            let matches =
+                super::rewrite::rewrite(&content, (*rule_config).clone()).ok()?;
+            if matches.is_empty() {
+                return None;
+            }
+            Some(StructuralRewriteFileResult {
+                path: path.to_string_lossy().into_owned(),
+                matches,
+            })
+        })
+        .collect();
+
+    Ok(results)
+}

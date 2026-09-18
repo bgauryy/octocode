@@ -4,13 +4,15 @@
   "private": true,
   "description": "Bounded Jev judgments inside an evidence-driven host reasoning loop",
   "type": "module",
-  "bin": { "octocode-jev-reasoning-loop": "scripts/jev.mjs" },
+  "bin": { "octocode-jev-reasoning-loop": "scripts/run-loop.mjs" },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test scripts/test.mjs scripts/research.test.mjs scripts/decision.test.mjs && node scripts/verify-reasoning-loop.mjs && node scripts/eval-decision-loop.mjs",
+    "test": "node --test scripts/test.mjs scripts/research.test.mjs scripts/decision.test.mjs scripts/run-loop.test.mjs && node scripts/verify-reasoning-loop.mjs && node scripts/eval-decision-loop.mjs && node scripts/eval-run-loop.mjs && node scripts/eval-recovery-heldout.mjs",
+    "run": "node scripts/run-loop.mjs",
     "jev": "node scripts/jev.mjs",
-    "research": "node scripts/research.mjs"
+    "research": "node scripts/research.mjs",
+    "benchmark:live": "node scripts/eval-recovery-heldout.mjs --live"
   },
   "engines": { "node": ">=20" },
-  "files": ["SKILL.md", "README.md", "PLAN.md", "references", "assets", "evals", "scripts", "bin", "Cargo.toml", "Cargo.lock", "src"]
+  "files": ["SKILL.md", "README.md", "references", "assets", "evals", "scripts", "bin", "Cargo.toml", "Cargo.lock", "src"]
 }

@@ -63,6 +63,8 @@ pub use bindings::signatures::{
     structural_search, structural_search_detailed, structural_search_files,
     structural_search_files_detailed, SIGNATURES_ONLY_HINT,
 };
+#[cfg(all(feature = "napi-addon", feature = "embedded-ast-grep-rewrite"))]
+pub use bindings::signatures::{structural_rewrite_content, structural_rewrite_files};
 #[cfg(feature = "napi-addon")]
 pub use bindings::text::{
     byte_slice_content, byte_to_char_offset, char_to_byte_offset, extract_matching_lines,

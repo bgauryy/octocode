@@ -17,6 +17,10 @@ mod types;
 
 pub use files::{search_files, search_files_detailed, search_files_detailed_filtered};
 #[cfg(feature = "embedded-ast-grep-rewrite")]
+pub use files::{rewrite_files, StructuralRewriteFileResult};
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub use types::StructuralRewriteFilesOptions;
+#[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use rewrite::{
     rewrite as structural_rewrite, StructuralRewriteCapture, StructuralRewriteMatch,
     StructuralRewritePosition, StructuralRewriteRange,

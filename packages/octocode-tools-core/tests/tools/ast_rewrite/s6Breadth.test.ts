@@ -162,21 +162,19 @@ describe('astRewrite S6 breadth', () => {
 
     expect(result.status).toBeUndefined();
     if (result.status !== undefined) return;
+    // Native engine returns captures as structured data; argv.json is not
+    // written since no external binary is spawned.
     expect(result.matches[0]?.captures).toEqual({
       A: { kind: 'single', texts: ['1'] },
     });
-    const argv = JSON.parse(readFileSync(log, 'utf8')) as string[];
-    expect(argv[0]).toBe('scan');
-    expect(argv).toContain('--inline-rules');
-    expect(
-      JSON.parse(argv[argv.indexOf('--inline-rules') + 1] ?? '')
-    ).toMatchObject({ rule: { pattern: 'oldCall($A)' }, fix: 'newCall($A)' });
   });
 
-  it('gates inline and experimental rules on the discovered capability', async () => {
+  it('executes experimental rules with transform and rewriters via the native engine', async () => {
+    // The native engine supports experimental rules natively; all rule kinds
+    // (pattern, rule, experimental) are always available.
     const directory = root();
     writeFileSync(join(directory, 'source.ts'), 'oldCall(1);\n');
-    const binary = executable(directory, [], { inlineRules: false });
+
     const result = await runAstRewrite(
       {
         path: directory,
@@ -197,12 +195,14 @@ describe('astRewrite S6 breadth', () => {
           },
         ],
       },
-      { executable: binary }
+      {}
     );
-    expect(result).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.capability_incompatible',
-    });
+
+    // The native Rust engine processes the experimental rule and rewrites
+    // oldCall(1) using the transform → result should be a success with 1 match.
+    expect(result.status, JSON.stringify(result)).toBeUndefined();
+    if (result.status !== undefined) return;
+    expect(result.affectedFiles).toBe(1);
   });
 
   it('returns a typed terminal limit instead of truncating matches', async () => {
@@ -291,7 +291,10 @@ describe('astRewrite S6 breadth', () => {
         expectedHashes: Object.fromEntries(
           preview.files.map(file => [file.absolutePath, file.beforeHash])
         ),
-        postconditions: [{ kind: 'remainingMatches', equals: 0 }],
+        // With native the apply correctly rewrites oldCall→newCall, leaving 0
+        // remaining matches. Setting equals: 1 forces a postcondition failure,
+        // exercising the rollback path while keeping the working tree unchanged.
+        postconditions: [{ kind: 'remainingMatches', equals: 1 }],
       },
       { executable: binary, allowApply: true }
     );

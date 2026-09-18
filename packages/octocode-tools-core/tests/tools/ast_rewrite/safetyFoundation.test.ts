@@ -1,16 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { runAstRewrite } from '../../../src/tools/ast_rewrite/index.js';
 import {
   acquireRootLock,
@@ -38,141 +35,47 @@ function temporaryRoot(prefix = 'octocode-ast-rewrite-safety-'): string {
   return root;
 }
 
-function sha256(value: string | Buffer): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function match(file: string, text: string, replacement: string) {
-  return {
-    file,
-    text,
-    replacement,
-    language: 'TypeScript',
-    range: {
-      byteOffset: { start: 0, end: Buffer.byteLength(text) },
-      start: { line: 0, column: 0 },
-      end: { line: 0, column: text.length },
-    },
-    replacementOffsets: { start: 0, end: Buffer.byteLength(text) },
-  };
-}
-
-function capableExecutable(
-  root: string,
-  matches: unknown[],
-  options: { help?: string; marker?: string; log?: string } = {}
-): string {
-  const path = join(root, 'mock-ast-grep.mjs');
-  const help =
-    options.help ??
-    '--pattern --rewrite --lang --json --globs --threads --color';
-  writeFileSync(
-    path,
-    `#!/usr/bin/env node
-import { writeFileSync } from 'node:fs';
-if (process.argv[2] === '--version') process.stdout.write('ast-grep 0.45.0\\n');
-else if (process.argv[2] === 'run' && process.argv[3] === '--help') process.stdout.write(${JSON.stringify(help)});
-else {
-  ${options.log ? `writeFileSync(${JSON.stringify(options.log)}, JSON.stringify({ cwd: process.cwd(), home: process.env.HOME, argv: process.argv.slice(2) }));` : ''}
-  process.stdout.write(${JSON.stringify(JSON.stringify(matches))});
-}
-// ${options.marker ?? 'default'}
-`
-  );
-  chmodSync(path, 0o755);
-  return path;
-}
 
 describe('astRewrite safety foundation', () => {
-  it('attests the tested executable bytes and required capability surface', async () => {
+  it('reports native engine receipt instead of binary attestation', async () => {
+    // With the native engine there is no external binary to attest.
+    // The receipt is a fixed constant that identifies the embedded engine.
     const root = temporaryRoot();
-    const source = 'oldCall(1);\n';
-    writeFileSync(join(root, 'source.ts'), source);
-    const executable = capableExecutable(root, [
-      match('source.ts', 'oldCall(1)', 'newCall(1)'),
-    ]);
+    writeFileSync(join(root, 'source.ts'), 'oldCall(1);\n');
 
     const result = await runAstRewrite(
       {
+        ruleKind: 'pattern' as const,
         path: root,
         langType: 'ts',
         pattern: 'oldCall($A)',
         rewrite: 'newCall($A)',
       },
-      { executable }
+      {}
     );
 
     expect(result.status).toBeUndefined();
     if (result.status !== undefined) return;
     expect(result.executable).toMatchObject({
-      version: '0.45.0',
-      sha256: sha256(readFileSync(executable)),
+      path: 'native',
+      version: 'embedded',
+      sha256: '',
       capabilityContract: 1,
-      capabilities: [
-        'color',
-        'globs',
-        'json',
-        'lang',
-        'pattern',
-        'rewrite',
-        'threads',
-      ],
-    });
-    expect(result.executable.capabilityDigest).toMatch(/^[a-f0-9]{64}$/);
-  });
-
-  it('rejects a version-shaped executable missing a required capability', async () => {
-    const root = temporaryRoot();
-    writeFileSync(join(root, 'source.ts'), 'oldCall(1);\n');
-    const executable = capableExecutable(root, [], {
-      help: '--pattern --lang --json --globs --threads --color',
-    });
-
-    const result = await runAstRewrite(
-      {
-        path: root,
-        langType: 'ts',
-        pattern: 'oldCall($A)',
-        rewrite: 'newCall($A)',
-      },
-      { executable }
-    );
-
-    expect(result).toMatchObject({
-      status: 'error',
-      errorCode: 'ast.rewrite.capability_incompatible',
+      capabilityDigest: 'native',
+      capabilities: ['pattern', 'inline-rules', 'experimental'],
     });
   });
 
-  it('runs the scan outside the repository without inheriting HOME or project config', async () => {
-    const root = temporaryRoot();
-    const log = join(root, 'invocation.json');
-    writeFileSync(join(root, 'source.ts'), 'oldCall(1);\n');
-    writeFileSync(
-      join(root, 'sgconfig.yml'),
-      'customLanguages:\n  unsafe:\n    libraryPath: ./untrusted.so\n'
-    );
-    const executable = capableExecutable(root, [], { log });
+  it.skip('rejects a version-shaped executable missing a required capability', () => {
+    // capability_incompatible was emitted when the external ast-grep binary
+    // lacked a required CLI flag. The native engine has a fixed capability set;
+    // this check no longer applies.
+  });
 
-    const result = await runAstRewrite(
-      {
-        path: root,
-        langType: 'ts',
-        pattern: 'oldCall($A)',
-        rewrite: 'newCall($A)',
-      },
-      { executable }
-    );
-
-    expect(result.status).toBe('empty');
-    const invocation = JSON.parse(readFileSync(log, 'utf8')) as {
-      cwd: string;
-      home?: string;
-      argv: string[];
-    };
-    expect(resolve(invocation.cwd)).not.toBe(resolve(root));
-    expect(invocation.home).toBeUndefined();
-    expect(invocation.argv.at(-1)).toBe(realpathSync(root));
+  it.skip('runs the scan outside the repository without inheriting HOME or project config', () => {
+    // Process isolation (ephemeral CWD, no HOME) was required when the scan ran
+    // as a subprocess. The native Rust engine runs in-process with no inherited
+    // environment exposure; this test is not applicable.
   });
 
   it('excludes overlapping canonical roots across independent lock clients', async () => {
@@ -309,9 +212,6 @@ describe('astRewrite safety foundation', () => {
     const root = temporaryRoot();
     const path = join(root, 'source.ts');
     writeFileSync(path, 'oldCall(1);\n');
-    const executable = capableExecutable(root, [
-      match('source.ts', 'oldCall(1)', 'newCall(1)'),
-    ]);
     const interrupted = await applyTransaction(
       [
         {
@@ -334,12 +234,13 @@ describe('astRewrite safety foundation', () => {
 
     const preview = await runAstRewrite(
       {
+        ruleKind: 'pattern' as const,
         path: root,
         langType: 'ts',
         pattern: 'oldCall($A)',
         rewrite: 'newCall($A)',
       },
-      { executable }
+      {}
     );
     expect(preview.status, JSON.stringify(preview)).toBeUndefined();
     expect(readFileSync(path, 'utf8')).toBe('oldCall(1);\n');

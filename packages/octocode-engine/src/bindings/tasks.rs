@@ -256,3 +256,28 @@ impl Task for SemanticBoundaryOffsetsTask {
         Ok(output)
     }
 }
+
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub struct StructuralRewriteFilesTask {
+    pub options: Option<crate::structural::StructuralRewriteFilesOptions>,
+}
+
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+impl Task for StructuralRewriteFilesTask {
+    type Output = String;
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let options = self.options.take().ok_or_else(|| {
+            Error::new(
+                Status::GenericFailure,
+                "structural rewrite files options already consumed",
+            )
+        })?;
+        Ok(crate::portable::structural_rewrite_files(options)?)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}

@@ -258,6 +258,44 @@ pub fn structural_rewrite(
         .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
+/// Convenience wrapper used by the N-API binding: parse rule config from JSON,
+/// run the in-process rewrite, serialize the matches back to a JSON string.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub fn structural_rewrite_content(content: &str, rule_config_json: &str) -> Result<String> {
+    let rule_config: serde_json::Value = serde_json::from_str(rule_config_json)
+        .map_err(|e| Error::new(Status::InvalidArg, format!("[structural.rewrite.json] {e}")))?
+        ;
+    let matches = structural_rewrite(content, rule_config)?;
+    serde_json::to_string(&matches)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("[structural.rewrite.serialize] {e}")))
+}
+
+/// Walk a file tree and apply a structural rewrite in parallel. Returns a JSON
+/// string of `Array<{path: string, matches: StructuralRewriteMatch[]}>` for
+/// files that produced at least one match.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub fn structural_rewrite_files(
+    options: crate::structural::StructuralRewriteFilesOptions,
+) -> Result<String> {
+    let results = std::panic::catch_unwind(|| crate::structural::rewrite_files(options))
+        .unwrap_or_else(|_| Err("structural rewrite files panicked on pathological input".to_owned()))
+        .map_err(|message| Error::new(Status::InvalidArg, message))?;
+    // Serialize Vec<StructuralRewriteFileResult> via serde_json (types have Serialize).
+    let json_ready: Vec<serde_json::Value> = results
+        .into_iter()
+        .map(|r| {
+            let matches: Vec<serde_json::Value> = r
+                .matches
+                .iter()
+                .map(|m| serde_json::to_value(m).unwrap_or(serde_json::Value::Null))
+                .collect();
+            serde_json::json!({ "path": r.path, "matches": matches })
+        })
+        .collect();
+    serde_json::to_string(&json_ready)
+        .map_err(|e| Error::new(Status::GenericFailure, format!("[structural.rewrite.serialize] {e}")))
+}
+
 #[must_use]
 pub fn supported_structural_extensions() -> Vec<String> {
     crate::structural::supported_extensions()

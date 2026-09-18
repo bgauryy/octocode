@@ -1,15 +1,15 @@
-import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { spawnWithTimeout } from '../../utils/exec/spawn/wrappers.js';
+import { lstat, realpath } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { contextUtils } from '../../utils/contextUtils.js';
+import { buildRuleConfigJson } from './nativeRewrite.js';
 import { applyPreparedRewrite } from './apply.js';
-import { resolveAstGrepExecutable } from './executable.js';
-import { buildArgs, decodeMatches, scanSucceeded } from './astGrep.js';
 import { prepareFiles } from './prepare.js';
 import { publicFiles, rewriteError as error } from './result.js';
 import { createRewriteSnapshot } from './snapshot.js';
 import { withAstRewriteSafety } from './safety.js';
 import type {
+  AstGrepJsonMatch,
+  AstRewriteExecutableReceipt,
   AstRewriteQuery,
   AstRewriteResult,
   AstRewriteRuntimeDeps,
@@ -26,8 +26,6 @@ export type {
   AstRewriteSuccess,
 } from './types.js';
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_PATCH_BYTES = 512 * 1024;
 const DEFAULT_MAX_FILES = 2_000;
 const DEFAULT_MAX_MATCHES = 10_000;
@@ -38,33 +36,66 @@ const ISOLATION_RECEIPT = {
   repositoryConfig: 'not-discovered' as const,
 };
 
+/** Synthetic receipt emitted when the Rust engine handles the rewrite in-process. */
+const NATIVE_EXECUTABLE_RECEIPT: AstRewriteExecutableReceipt = {
+  path: 'native',
+  version: 'embedded',
+  sha256: '',
+  capabilityContract: 1,
+  capabilityDigest: 'native',
+  capabilities: ['pattern', 'inline-rules', 'experimental'],
+};
+
+/** Low-level shape returned per file by the Rust engine JSON. */
+type NativeRewriteMatch = {
+  byteStart: number;
+  byteEnd: number;
+  range: {
+    start: { line: number; column: number };
+    end: { line: number; column: number };
+  };
+  text: string;
+  replacedText: string;
+  replacement: string;
+  captures: Record<string, { kind: string; texts: string[] }>;
+};
+type NativeRewriteFileResult = { path: string; matches: NativeRewriteMatch[] };
+
+/** Map a single Rust-engine rewrite match to the shared AstGrepJsonMatch shape. */
+function nativeToAstGrepMatch(
+  file: string,
+  m: NativeRewriteMatch
+): AstGrepJsonMatch {
+  const single: Record<string, { text: string }> = {};
+  const multi: Record<string, Array<{ text: string }>> = {};
+  const transformed: Record<string, string> = {};
+  for (const [name, cap] of Object.entries(m.captures ?? {})) {
+    if (cap.kind === 'single') single[name] = { text: cap.texts[0] ?? '' };
+    else if (cap.kind === 'multi') multi[name] = cap.texts.map(t => ({ text: t }));
+    else if (cap.kind === 'transformed') transformed[name] = cap.texts[0] ?? '';
+  }
+  const hasCaptures = Object.keys(m.captures ?? {}).length > 0;
+  return {
+    file,
+    text: m.text,
+    replacement: m.replacement,
+    range: {
+      byteOffset: { start: m.byteStart, end: m.byteEnd },
+      start: m.range.start,
+      end: m.range.end,
+    },
+    ...(hasCaptures ? { metaVariables: { single, multi, transformed } } : {}),
+  };
+}
+
 async function runAstRewriteUnlocked(
   query: AstRewriteQuery,
   deps: AstRewriteRuntimeDeps = {}
 ): Promise<AstRewriteResult> {
-  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if ((query.page ?? 1) < 1 || (query.pageSize ?? DEFAULT_PAGE_SIZE) < 1) {
     return error(
       'ast.rewrite.pagination_invalid',
       'page and pageSize must be positive integers.'
-    );
-  }
-
-  const resolvedExecutable = await resolveAstGrepExecutable({
-    explicit: deps.executable,
-    timeoutMs,
-  });
-  if (resolvedExecutable.ok === false) {
-    return error(resolvedExecutable.errorCode, resolvedExecutable.error);
-  }
-  if (
-    query.ruleKind !== 'pattern' &&
-    query.ruleKind !== undefined &&
-    !resolvedExecutable.executable.capabilities.includes('inline-rules')
-  ) {
-    return error(
-      'ast.rewrite.capability_incompatible',
-      'This ast-grep executable does not support isolated inline rules.'
     );
   }
 
@@ -86,41 +117,30 @@ async function runAstRewriteUnlocked(
     );
   }
   const boundary = rootInfo.isDirectory() ? realRoot : dirname(realRoot);
-  const isolationDirectory = await mkdtemp(
-    join(tmpdir(), 'octocode-ast-rewrite-run-')
-  );
-  let execution: Awaited<ReturnType<typeof spawnWithTimeout>>;
+
+  // ── Native in-process rewrite (no external ast-grep binary) ─────────────
+  const ruleConfigJson = buildRuleConfigJson(query);
+  let nativeResultJson: string;
   try {
-    execution = await spawnWithTimeout(
-      resolvedExecutable.executable.path,
-      buildArgs(query, realRoot),
-      {
-        cwd: isolationDirectory,
-        timeout: timeoutMs,
-        maxOutputSize: deps.maxProcessOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
-      }
-    );
-  } finally {
-    await rm(isolationDirectory, { recursive: true, force: true });
-  }
-  if (!scanSucceeded(execution)) {
+    nativeResultJson = await contextUtils.structuralRewriteFiles({
+      path: realRoot,
+      ruleConfigJson,
+      include: query.include,
+      exclude: query.exclude,
+      maxFiles: query.maxFiles ?? DEFAULT_MAX_FILES,
+    });
+  } catch (execError) {
     return error(
-      execution.timedOut
-        ? 'ast.rewrite.timeout'
-        : execution.outputLimitExceeded
-          ? 'ast.rewrite.output_limit'
-          : 'ast.rewrite.execution_failed',
-      execution.error?.message || execution.stderr.trim() || 'ast-grep failed.',
-      execution.outputLimitExceeded ? { terminalLimit: true } : {}
+      'ast.rewrite.execution_failed',
+      execError instanceof Error
+        ? execError.message
+        : 'Native structural rewrite failed.'
     );
   }
-  const rawMatches = decodeMatches(execution.stdout);
-  if (!rawMatches) {
-    return error(
-      'ast.rewrite.output_invalid',
-      'ast-grep returned output that does not match its versioned JSON contract.'
-    );
-  }
+  const nativeFiles: NativeRewriteFileResult[] = JSON.parse(nativeResultJson);
+  const rawMatches = nativeFiles.flatMap(({ path: file, matches }) =>
+    matches.map(m => nativeToAstGrepMatch(file, m))
+  );
   const maxMatches = query.maxMatches ?? DEFAULT_MAX_MATCHES;
   if (rawMatches.length > maxMatches) {
     return error(
@@ -135,7 +155,7 @@ async function runAstRewriteUnlocked(
   if (rawMatches.length === 0) {
     const snapshot = createRewriteSnapshot(
       query,
-      resolvedExecutable.executable,
+      NATIVE_EXECUTABLE_RECEIPT,
       realRoot,
       [],
       [],
@@ -170,7 +190,7 @@ async function runAstRewriteUnlocked(
       operation: 'rewrite',
       mode: query.apply ? 'apply' : 'preview',
       root: realRoot,
-      executable: resolvedExecutable.executable,
+      executable: NATIVE_EXECUTABLE_RECEIPT,
       isolation: ISOLATION_RECEIPT,
       totalMatches: 0,
       affectedFiles: 0,
@@ -193,7 +213,7 @@ async function runAstRewriteUnlocked(
 
   const snapshot = createRewriteSnapshot(
     query,
-    resolvedExecutable.executable,
+    NATIVE_EXECUTABLE_RECEIPT,
     realRoot,
     prepared.files,
     prepared.matches.map(match => match.id),
@@ -242,7 +262,7 @@ async function runAstRewriteUnlocked(
       files: prepared.files,
       matches: prepared.matches,
       boundary,
-      executable: resolvedExecutable.executable.path,
+      executable: NATIVE_EXECUTABLE_RECEIPT.path,
       deps,
       maxPatchBytes: deps.maxPatchBytes ?? DEFAULT_MAX_PATCH_BYTES,
     });
@@ -267,7 +287,7 @@ async function runAstRewriteUnlocked(
     mode: query.apply ? 'apply' : 'preview',
     root: realRoot,
     snapshot,
-    executable: resolvedExecutable.executable,
+    executable: NATIVE_EXECUTABLE_RECEIPT,
     isolation: ISOLATION_RECEIPT,
     totalMatches: resultMatches.length,
     affectedFiles: resultFiles.length,

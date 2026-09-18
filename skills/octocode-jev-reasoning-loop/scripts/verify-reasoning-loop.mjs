@@ -66,6 +66,10 @@ for (const [route, name] of Object.entries(schemas)) {
   assert.deepEqual(schema.required, ['model', 'state', 'questions'], `${name}: exact envelope`);
   assert.match(schema.properties.state.description, /VISIBILITY BOUNDARY/);
   assert.equal(JSON.stringify(schema).includes('AgentCOT'), false, `${name}: stale AgentCOT`);
+  const reasoningSchema = schema.$defs.PublicReasoning || schema.$defs.ReasoningSummary;
+  assert.ok(reasoningSchema, `${name}: bounded reasoning summary schema`);
+  assert.deepEqual(reasoningSchema.required, ['observations', 'uncertainty'], `${name}: minimum auditable reasoning context`);
+  assert.match(reasoningSchema.description, /never hidden chain-of-thought|private scratch/i, `${name}: private reasoning boundary`);
   const packet = buildDecisionPacket(inputs[route], DEFAULT_POLICY);
   assert.deepEqual(Object.keys(packet), ['model', 'state', 'questions']);
   assert.equal(validateDecisionPacket(route, packet, DEFAULT_POLICY).valid, true);
@@ -80,9 +84,12 @@ assert.ok(triage.properties.state.properties.next_checks.items.required.includes
 const apply = load('apply-output.schema.json');
 for (const field of ['model_used', 'answers', 'net_action', 'blocked', 'block_reasons']) assert.ok(apply.required.includes(field));
 for (const name of ['AppliedChoice', 'AppliedNoul', 'AppliedScore']) assert.equal(apply.$defs[name].properties.provisional.const, true);
+const runLoopInput = load('run-loop-input.schema.json');
+assert.deepEqual(runLoopInput.required, ['route', 'willChangeAction', 'state']);
+assert.match(runLoopInput.properties.reasoning.description, /never hidden chain-of-thought|private scratch/i);
 assert.equal(DEFAULT_POLICY.softTieGap, 0.15);
 assert.equal(DEFAULT_POLICY.maxJevCallsPerCrossroad, 2);
-console.log('  ✓ decision-brief.schema.json, apply-output.schema.json, default-policy.json');
+console.log('  ✓ decision-brief.schema.json, run-loop-input.schema.json, apply-output.schema.json, default-policy.json');
 
 if (!skipDryrun) {
   console.log('\nPhase 2 — generated packet native dry-runs:');

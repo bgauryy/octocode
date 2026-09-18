@@ -13,6 +13,6 @@ try {
   const result = validateDecisionPacket(options['--route'], readJson(options['--input']), policy);
   print(result, options['--pretty']);
   process.exitCode = result.valid ? 0 : 4;
-} catch {
-  stop('Cannot validate decision packet. Supply --route and valid JSON up to 4 MiB; use --help.');
+} catch (error) {
+  stop(`Cannot validate decision packet: ${error instanceof Error ? error.message : 'invalid input'}. Supply --route and valid JSON up to 4 MiB; use --help.`);
 }

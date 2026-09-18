@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "run-loop-input",
+  "title": "Compact Reasoning Loop Input",
+  "description": "Host-owned route state for scripts/run-loop.mjs. The runner derives DecisionBrief boilerplate, routes deterministically, builds and validates the public packet, and creates provisional APPLY actions.",
+  "type": "object",
+  "required": ["route", "willChangeAction", "state"],
+  "properties": {
+    "route": {
+      "enum": ["hunch_check", "hypothesis_triage", "decision_review", "reflection_delta", "disputed_inference", "hallucination_gate"]
+    },
+    "model": { "type": "string", "minLength": 1, "default": "jev-latest" },
+    "willChangeAction": { "type": "boolean" },
+    "directCheck": {
+      "type": "object",
+      "required": ["available"],
+      "properties": {
+        "available": { "type": "boolean" },
+        "action": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "jevCallsAtCrossroad": { "type": "integer", "minimum": 0 },
+    "evidenceFresh": { "type": "boolean" },
+    "reasoning": {
+      "type": "object",
+      "description": "Optional bounded reasoning summary for agentic context, never hidden chain-of-thought or private scratch. The runner derives observations and uncertainty when omitted. Omit predictions and falsifiers unless meaningful; testable hypotheses keep required precommitments in state.",
+      "properties": {
+        "observations": { "type": "string", "minLength": 1 },
+        "uncertainty": { "type": "string", "minLength": 1 },
+        "inferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "strongest_counter": { "type": "string", "minLength": 1 },
+        "prediction": { "type": "string", "minLength": 1 },
+        "falsifier": { "type": "string", "minLength": 1 },
+        "discriminating_observation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "description": "The route-specific public state validated by the existing route contract.",
+      "minProperties": 1
+    },
+    "actions": {
+      "type": "object",
+      "description": "Optional host overrides keyed by question ID. Omit with netAction to use deterministic actions derived from supplied state."
+    },
+    "netAction": { "type": "string", "minLength": 10 }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["actions"] },
+      "then": { "required": ["netAction"] }
+    },
+    {
+      "if": { "required": ["netAction"] },
+      "then": { "required": ["actions"] }
+    }
+  ],
+  "additionalProperties": false
+}

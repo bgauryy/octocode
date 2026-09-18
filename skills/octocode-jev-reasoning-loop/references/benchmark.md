@@ -1,33 +1,36 @@
-# Research-loop benchmark
+# Reasoning-loop benchmark
 
-Load when claiming the revised workflow improves decisions or calibrating policy thresholds. Why: schema validity does not measure recovery from a wrong initial belief.
+Load before claiming better decisions, lower authoring cost, or calibrated policy. Contract validity and one successful recovery do not prove comparative efficacy.
 
-## Frozen KPI
+## Frozen suites
 
-`evals/kpi-contract.json` owns the goal, primary semantic KPI, deterministic implementation gate, guardrails, and accept rule. Run `node scripts/eval-decision-loop.mjs` for the 15-case routing floor. Those cases test route and policy mechanics, not Jev judgment quality.
+`evals/kpi-contract.json` owns goals and gates.
 
-## Semantic variants
+```sh
+node scripts/eval-decision-loop.mjs
+node scripts/eval-run-loop.mjs
+node scripts/eval-recovery-heldout.mjs
+```
 
-Compare with identical tasks, evidence access, retrieval budget, model pin, and call budget:
+- `decision-cases.json`: 15 deterministic routing/policy regressions.
+- `run-loop-cases.json`: observed legacy boilerplate versus compact runner. It measures author-input bytes, lobby words, command count, packet equivalence, APPLY behavior, and extra API calls.
+- `recovery-heldout.json`: synthetic wrong-lean and confirming controls, frozen before its first live run. The default command validates packets without network access.
 
-| Variant | Capability |
-|---|---|
-| A | Host agent only |
-| B | Previous Jev workflow |
-| C | + minimal DecisionBrief |
-| D | + precommitted predictions and explicit outcomes on testable checks |
-| E | + reflection-delta |
-| F | + decision-review |
-| G | Full workflow |
+Run semantic characterization only with an authorized Jev key and fixed model:
 
-Primary semantic KPI: **Wrong-Lean Recovery Rate** — among tasks where the initial attractive lead is wrong and later evidence contradicts it, the fraction where the host abandons or materially reframes that lead before the final claim. Report final correctness separately: recovery is the decision-discipline mechanism, not a synonym for a lucky answer.
+```sh
+node scripts/eval-recovery-heldout.mjs --live \
+  --output <workspace>/.octocode/octocode-jev-reasoning-loop/benchmark/recovery-heldout-v1
+```
 
-Also record final correctness, false conclusions, unsupported assertions, next-action quality, evidence retrievals, unnecessary calls, Jev calls, tokens, elapsed time, hypothesis-set reframes, and correct deterministic skips. Keep assertion rate and total calls as guardrails.
+The live runner records initial lead, evidence delta, final lead, claim status, **Wrong-Lean Recovery Rate**, false-recovery rate, unsupported-claim rate, calls, and input/output tokens. A wrong lean recovers when contradictory evidence causes abandonment or reframing before claim assertion. A confirming control is a false recovery when the loop abandons a correct lead despite confirming evidence.
 
-## Protocol
+## Decision boundaries
 
-Freeze tasks, gold conclusions, source revisions, request packets, model version, thresholds, budgets, and grader before the run. Use at least the plan’s failure classes; split invention cases from held-out cases. Do not tune on held-out outcomes. Run enough repeated trials to expose variance and preserve raw requests, responses, APPLY records, precommitments, observed deltas, and source anchors under `<output>/octocode-jev-reasoning-loop/benchmark/`.
+Accept the compact runner only when author-input and lobby reductions meet the frozen floor, route packets remain equivalent except for intentionally minimal reasoning summaries, APPLY stays provisional, no extra API call is added, and all regression checks pass.
 
-Accept a workflow change only when held-out Wrong-Lean Recovery Rate improves and false conclusions, unsupported assertions, total tool/token cost, and unnecessary Jev calls stay within frozen guardrails. A coherent typed answer is a leading indicator, not the final outcome. If the host applies correct judgments poorly, fix APPLY or composition rather than crediting the model.
+Treat the live held-out result as **absolute characterization** until a matched host-only baseline uses identical tasks, evidence, model, retrieval budget, and grader. Comparative semantic acceptance still requires Wrong-Lean Recovery Rate improvement without worse false recovery, unsupported claims, correctness, or cost.
 
-Next: this step ends with an ACCEPT/REVERT verdict and preserved run artifacts.
+Do not tune on held-out outcomes. If the sensor population is too small because Jev never takes the attractive wrong lead, mark the run INVALID and rotate new cases between experiments rather than rewriting the frozen run. Preserve request, response, APPLY, and report artifacts under the output directory.
+
+Next: an ACCEPT/REVERT report must distinguish deterministic ergonomics evidence, absolute semantic characterization, and comparative efficacy.

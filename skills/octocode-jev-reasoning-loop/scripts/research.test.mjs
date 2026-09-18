@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { checkResearch } from './check-research.mjs';
+import { checkResearch, narrowClaimToObservedFacts } from './check-research.mjs';
 
 const request = () => ({
   model: 'jev-1.13.0',
@@ -44,6 +44,19 @@ test('accepts a coherent multi-source basis without calling it verified fact', (
     assert.equal(checkResearch(request(), response(status, 'none')).usable, true);
     assert.equal(checkResearch(request(), response(status, 'E1')).usable, false);
   }
+});
+
+test('claim disagreement returns a concrete deterministic observed-facts narrowing', () => {
+  const req = request();
+  const result = checkResearch(req, response('insufficient', 'B1'));
+  assert.equal(result.usable, false);
+  assert.equal(result.reason, 'Claim status and decisive basis disagree.');
+  assert.equal(result.suggestion.strategy, 'report_observed_facts');
+  assert.deepEqual(result.suggestion.evidenceIds, ['E1', 'E2']);
+  assert.match(result.suggestion.claim, /revision abc/);
+  assert.match(result.suggestion.claim, /E1 records/);
+  assert.equal(result.suggestion.excludedInference, req.state.claim);
+  assert.deepEqual(result.suggestion, narrowClaimToObservedFacts(req, response('insufficient', 'B1')));
 });
 test('rejects invented IDs, invalid statuses, model drift and wrong answer types', () => {
   assert.equal(checkResearch(request(), response('supported', 'invented')).usable, false);

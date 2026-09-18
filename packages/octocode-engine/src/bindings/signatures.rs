@@ -157,6 +157,32 @@ pub fn structural_search_files_detailed(
     Ok(crate::portable::structural_search_files_detailed(options)?)
 }
 
+/// In-process structural rewrite for a single file content. `rule_config_json`
+/// is a complete ast-grep inline-rule JSON string (language, rule, fix, etc.).
+/// Returns a JSON string of `StructuralRewriteMatch[]`.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+#[napi(js_name = "structuralRewriteContent")]
+pub fn structural_rewrite_content(
+    content: String,
+    rule_config_json: String,
+) -> Result<String> {
+    Ok(crate::portable::structural_rewrite_content(&content, &rule_config_json)?)
+}
+
+/// In-process structural rewrite over a file tree. Walks files in parallel,
+/// applies the inline rule to each, and returns a JSON string of
+/// `Array<{ path: string; matches: StructuralRewriteMatch[] }>`.
+/// Runs on the libuv worker pool — returns a Promise.
+#[cfg(feature = "embedded-ast-grep-rewrite")]
+#[napi(js_name = "structuralRewriteFiles")]
+pub fn structural_rewrite_files(
+    options: crate::structural::StructuralRewriteFilesOptions,
+) -> AsyncTask<crate::bindings::tasks::StructuralRewriteFilesTask> {
+    AsyncTask::new(crate::bindings::tasks::StructuralRewriteFilesTask {
+        options: Some(options),
+    })
+}
+
 #[napi(js_name = "getSupportedStructuralExtensions")]
 pub fn get_supported_structural_extensions() -> Vec<String> {
     crate::portable::supported_structural_extensions()

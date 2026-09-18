@@ -15,7 +15,7 @@
       "properties": {
         "mainGoal": { "type": "string", "minLength": 1 },
         "goal": { "type": "string", "minLength": 1 },
-        "reasoning": { "type": "object" },
+        "reasoning": { "$ref": "#/$defs/ReasoningSummary" },
         "priorLead": { "type": "string", "pattern": "^H[0-9]+$" },
         "priorProbability": { "type": "number", "minimum": 0, "maximum": 1 },
         "hypotheses": {
@@ -66,6 +66,22 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "ReasoningSummary": {
+      "type": "object",
+      "description": "Bounded, auditable decision summary for agentic use; never hidden chain-of-thought or private scratch.",
+      "required": ["observations", "uncertainty"],
+      "properties": {
+        "observations": { "type": "string", "minLength": 1 },
+        "inferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "assumptions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "strongest_counter": { "type": "string", "minLength": 1 },
+        "uncertainty": { "type": "string", "minLength": 1 },
+        "prediction": { "type": "string", "minLength": 1 },
+        "falsifier": { "type": "string", "minLength": 1 },
+        "discriminating_observation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
     "Choice": {
       "type": "object", "required": ["type", "instructions", "criteria"],
       "properties": { "type": { "const": "choice" }, "instructions": { "type": "string", "minLength": 1 }, "criteria": { "type": "object", "minProperties": 2 } },
