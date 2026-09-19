@@ -66,7 +66,7 @@ pub struct AstArgs {
     /// ast-grep structural pattern (e.g. `fn $NAME($$$) { $$$ }`).
     pub pattern: String,
     /// Language for the AST pattern (required for directories; inferred from file extension).
-    /// Values: rust, typescript, tsx, javascript, python, go, java, kotlin, php, csharp, cpp, c, scala.
+    /// Values: rust, typescript, tsx, javascript, python, go, java, csharp, cpp, c, scala.
     #[arg(long, short = 'l')]
     pub lang: Option<String>,
     #[command(flatten)]
@@ -771,21 +771,16 @@ fn lang_from_path(path: &str) -> Option<&'static str> {
         .to_ascii_lowercase();
     Some(match ext.as_str() {
         "rs" => "rust",
-        "ts" => "typescript",
+        "ts" | "mts" | "cts" => "typescript",
         "tsx" => "tsx",
         "js" | "mjs" | "cjs" | "jsx" => "javascript",
-        "py" => "python",
+        "py" | "pyi" => "python",
         "go" => "go",
         "java" => "java",
-        "kt" | "kts" => "kotlin",
-        "php" => "php",
         "cs" => "csharp",
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" => "cpp",
+        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => "cpp",
         "c" | "h" => "c",
-        "scala" => "scala",
-        "json" => "json",
-        "md" => "markdown",
-        "sh" | "bash" => "bash",
+        "scala" | "sc" | "sbt" => "scala",
         _ => return None,
     })
 }

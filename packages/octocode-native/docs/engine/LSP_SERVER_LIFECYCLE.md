@@ -28,27 +28,16 @@ The built-in routing table includes:
 
 | Files | Command | Override |
 |---|---|---|
-| TypeScript / JavaScript | `tsgo` or `typescript-language-server --stdio` | `OCTOCODE_TS_SERVER_PATH` |
+| TypeScript / JavaScript | `typescript-language-server --stdio` | `OCTOCODE_TS_SERVER_PATH` |
 | Python | `pylsp` | `OCTOCODE_PYTHON_SERVER_PATH` |
-| Shell | `bash-language-server start` | `OCTOCODE_BASH_SERVER_PATH` |
 | Rust | `rust-analyzer` | `OCTOCODE_RUST_SERVER_PATH` |
 | Go | `gopls serve` | `OCTOCODE_GO_SERVER_PATH` |
 | Java | `jdtls` | `OCTOCODE_JAVA_SERVER_PATH` |
 | C / C++ | `clangd` | `OCTOCODE_CLANGD_SERVER_PATH` |
 | C# | `csharp-ls` | `OCTOCODE_CSHARP_SERVER_PATH` |
-| PHP | `intelephense --stdio` | `OCTOCODE_PHP_SERVER_PATH` |
-| JSON | `vscode-json-language-server --stdio` | `OCTOCODE_JSON_SERVER_PATH` |
-| YAML | `yaml-language-server --stdio` | `OCTOCODE_YAML_SERVER_PATH` |
-| HTML | `vscode-html-language-server --stdio` | `OCTOCODE_HTML_SERVER_PATH` |
-| CSS / SCSS / Less | `vscode-css-language-server --stdio` | `OCTOCODE_CSS_SERVER_PATH` |
-| SQL | `sqls` | `OCTOCODE_SQL_SERVER_PATH` |
-| Swift | `sourcekit-lsp` | `OCTOCODE_SWIFT_SERVER_PATH` |
-| Ruby | `ruby-lsp` | `OCTOCODE_RUBY_SERVER_PATH` |
-| Kotlin | `kotlin-language-server` | `OCTOCODE_KOTLIN_SERVER_PATH` |
-| Elixir | `elixir-ls` | `OCTOCODE_ELIXIR_SERVER_PATH` |
-| Scala | `metals` | `OCTOCODE_SCALA_SERVER_PATH` |
+| Scala (`scala`, `sc`, `sbt`) | `metals` | `OCTOCODE_SCALA_SERVER_PATH` |
 
-Known routing does not imply that a server is installed. The engine npm package no longer bundles JavaScript language servers. Install servers in the workspace or toolchain, expose them on `PATH`, set an override, or use native managed provisioning where supported.
+Known routing does not imply that a server is installed. The engine npm package no longer bundles JavaScript language servers. Install servers in the workspace or toolchain, expose them on `PATH`, set an override, or use native managed provisioning where supported. `tsgo` may be selected explicitly through `OCTOCODE_TS_SERVER_PATH`, but it is not automatically preferred before the held-out operation matrix establishes parity.
 
 ## Managed provisioning
 
@@ -72,16 +61,16 @@ A configuration maps file extensions to launch specs:
 ```json
 {
   "languageServers": {
-    ".scala": {
-      "command": "metals",
-      "args": [],
-      "languageId": "scala"
+    ".php": {
+      "command": "intelephense",
+      "args": ["--stdio"],
+      "languageId": "php"
     }
   }
 }
 ```
 
-`command` and `languageId` are required. `args` defaults to an empty array and `initializationOptions` is passed to `initialize`. A custom entry overrides built-in routing for that extension but does not bypass executable validation.
+`command` and `languageId` are required. `args` defaults to an empty array and `initializationOptions` is passed to `initialize`. The example restores an explicit user-owned route for a language with no built-in route; it does not make PHP first-class. A custom entry overrides built-in routing for that extension but does not bypass executable validation.
 
 ## Pool ownership
 

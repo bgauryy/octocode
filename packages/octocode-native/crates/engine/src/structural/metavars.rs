@@ -92,12 +92,8 @@ pub(super) fn ambiguous_function_body_capture(
     .then_some(capture.end_byte())
 }
 
-/// `expando.primary` and `expando.bare_word` differ only for PHP (see
-/// `Expando`'s doc comment) — a metavar substituted at a bare-word position
-/// (a function name) used `bare_word`, everything else used `primary`. Both
-/// must be recognized here: the leading char run is checked against
-/// *either*, and the repeat-count is taken against whichever one it actually
-/// is (never a mix of the two).
+/// Recover a metavariable from the grammar-specific expando prefix inserted
+/// during pattern preprocessing.
 pub(super) fn meta_from_node(node: Node<'_>, source: &str, expando: Expando) -> Option<MetaVar> {
     if node.kind() == "expression_statement" {
         let named = named_children(node);

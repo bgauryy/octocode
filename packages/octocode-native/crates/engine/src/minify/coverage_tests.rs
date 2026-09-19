@@ -98,7 +98,7 @@ fn every_structural_extension_has_an_explicit_minification_route() {
     let extensions = crate::signatures::languages::supported_extensions();
     let mut expected: std::collections::BTreeSet<_> = [
         "ts", "mts", "cts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "go", "rs", "java", "c",
-        "h", "php", "kt", "kts", "html", "htm", "css", "json", "jsonc",
+        "h",
     ]
     .into_iter()
     .collect();

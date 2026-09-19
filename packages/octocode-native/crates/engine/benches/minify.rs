@@ -2,10 +2,9 @@
 //!
 //! `applyContentViewMinification` is the agent-readable minify entry point: for
 //! JS/TS it runs the OXC parse → semantic → codegen pipeline (the expensive
-//! path), and for CSS it runs lightningcss. Both are pure-Rust, CPU-bound, and
-//! called on nearly every file the tools surface, so a regression in the OXC or
-//! lightningcss glue is a real latency hit. We sweep three JS sizes (OXC path)
-//! plus one CSS input (lightningcss path) so the two engines are tracked apart.
+//! path), while CSS uses lightweight comment and whitespace cleanup. Both are
+//! CPU-bound and called on nearly every file the tools surface, so this sweeps
+//! three JS sizes plus two CSS sizes to track their costs independently.
 
 use std::hint::black_box;
 
@@ -47,8 +46,7 @@ fn javascript_source(blocks: usize) -> String {
     out
 }
 
-/// A realistic stylesheet with comments, zero-unit values, and redundant
-/// declarations that lightningcss compresses.
+/// A realistic stylesheet with comments and repeated declarations.
 fn css_source(blocks: usize) -> String {
     let mut out = String::from("/* design tokens */\n:root { --gap: 8px; --fg: #333333; }\n\n");
     for i in 0..blocks {

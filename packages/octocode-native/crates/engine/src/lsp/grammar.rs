@@ -104,9 +104,12 @@ mod tests {
             ("demo.cpp", "cpp", "void target() {}\n"),
             #[cfg(feature = "tree-sitter-c-sharp")]
             ("demo.cs", "csharp", "class Target { void target() {} }\n"),
-            ("demo.json", "json", "{\"target\": true}\n"),
-            ("demo.html", "html", "<div id=\"target\"></div>\n"),
-            ("demo.css", "css", ".target { color: red; }\n"),
+            #[cfg(feature = "tree-sitter-scala")]
+            (
+                "demo.scala",
+                "scala",
+                "object Target { def target(): Unit = {} }\n",
+            ),
         ];
 
         for (file_name, language_id, source) in cases {

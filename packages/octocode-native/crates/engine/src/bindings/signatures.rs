@@ -207,8 +207,8 @@ pub fn inspect_syntax_tree(
 /// top-level semantic blocks begin in `content`.
 ///
 /// Uses registered Tree-sitter body queries; see `getSupportedSignatureExtensions`
-/// for the compiled language set. Unsupported and structural-only languages
-/// return `[]`, as do plain text and files above the 1 MB guard.
+/// for the compiled language set. Unsupported/plain-text inputs and files
+/// above the 1 MB guard return `[]`.
 ///
 /// Char offsets match JavaScript `string.substring()` — pass them directly to
 /// JavaScript string slicing without conversion.
@@ -223,10 +223,8 @@ pub fn get_semantic_boundary_offsets(
     AsyncTask::new(SemanticBoundaryOffsetsTask { content, file_path })
 }
 
-/// Returns all extensions that have signature-outline support. This is exactly
-/// the set of tree-sitter grammars with a function-body query (no regex
-/// heuristics): structural-only grammars (for example HTML/CSS/JSON) are
-/// excluded because they produce no outline.
+/// Returns all first-class extensions. Every canonical grammar has a
+/// function-body query, so structural, signature, and graph capabilities agree.
 #[napi(js_name = "getSupportedSignatureExtensions")]
 pub fn get_supported_signature_extensions() -> Vec<String> {
     crate::portable::supported_signature_extensions()
@@ -240,7 +238,7 @@ mod tests {
     fn supported_signature_extensions_are_tree_sitter_only_and_sorted() {
         let exts = get_supported_signature_extensions();
         // Languages that must have signature extraction (body_query set)
-        for required in ["ts", "py", "rs", "go", "java", "php", "kt"] {
+        for required in ["ts", "py", "rs", "go", "java", "c", "h"] {
             assert!(
                 exts.iter().any(|e| e == required),
                 "missing {required} from signature list"
@@ -262,14 +260,15 @@ mod tests {
                 );
             }
         }
-        // Languages that must NOT have signature extraction (no body_query)
+        // Languages outside the first-class registry must not be advertised.
         for absent in [
-            "vue", "svelte", "md", "markdown", "sql", "html", "scss", "swift", "yaml", "yml", "jl",
-            "ml", "ex", "exs", "tf", "hcl", "tfvars", "proto",
+            "vue", "svelte", "md", "markdown", "sql", "html", "htm", "css", "json", "jsonc", "kt",
+            "kts", "php", "scss", "swift", "yaml", "yml", "jl", "ml", "ex", "exs", "tf", "hcl",
+            "tfvars", "proto",
         ] {
             assert!(
                 !exts.iter().any(|e| e == absent),
-                "{absent} must not have a signature outline (no grammar / structural-only)"
+                "{absent} must not have a first-class signature outline"
             );
         }
         let mut sorted = exts.clone();
@@ -298,12 +297,17 @@ mod tests {
             "every extension must belong to exactly one parser entry"
         );
 
-        let kotlin = capabilities
+        assert!(capabilities
             .iter()
-            .find(|capability| capability.language == "Kotlin")
-            .expect("Kotlin capability");
-        assert_eq!(kotlin.extensions, ["kt", "kts"]);
-        assert!(kotlin.structural_search && kotlin.signature_outline && kotlin.graph_facts);
+            .all(|capability| capability.signature_outline));
+        for removed in ["Kotlin", "PHP", "HTML", "CSS", "JSON"] {
+            assert!(
+                capabilities
+                    .iter()
+                    .all(|capability| capability.language != removed),
+                "{removed} must not be advertised"
+            );
+        }
 
         let tsx = capabilities
             .iter()

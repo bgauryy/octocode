@@ -415,27 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn json_config_key() {
-        let src = "{\n  \"handler\": \"build\"\n}\n";
-        let k = classify_one(src, "json", 2, 3);
-        assert_eq!(k.as_deref(), Some(KIND_CONFIG_KEY));
-    }
-
-    #[test]
-    fn json_values_are_not_misclassified_as_keys() {
-        for (ext, src) in [
-            ("json", r#"{"handler": "build"}"#),
-            ("json", r#"{"handler": {"child": "build"}}"#),
-        ] {
-            let key = src.find("handler").expect("key fixture") as u32;
-            let value = src.find("build").expect("value fixture") as u32;
-            assert_eq!(
-                classify_one(src, ext, 1, key).as_deref(),
-                Some(KIND_CONFIG_KEY)
-            );
-            let value_kind = classify_one(src, ext, 1, value);
-            assert_ne!(value_kind.as_deref(), Some(KIND_CONFIG_KEY), "{src}");
-            assert_eq!(value_kind.as_deref(), Some(KIND_STRING));
-        }
+    fn removed_json_grammar_leaves_lexical_matches_unclassified() {
+        assert_eq!(classify_one(r#"{"handler":"build"}"#, "json", 1, 2), None);
     }
 }

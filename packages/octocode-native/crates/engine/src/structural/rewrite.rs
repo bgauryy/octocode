@@ -8,10 +8,8 @@ use ast_grep_core::{
     matcher::{Pattern, PatternBuilder, PatternError},
     meta_var::MetaVariable,
     replacer::Replacer,
-    tree_sitter::{LanguageExt, StrDoc, TSLanguage, TSRange},
-    Node,
+    tree_sitter::{LanguageExt, StrDoc, TSLanguage},
 };
-use ast_grep_language::Html;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -23,9 +21,7 @@ const MAX_REWRITE_CONTENT_BYTES: usize = 1_000_000;
 const MAX_REWRITE_MATCHES: usize = 100_000;
 
 /// The ast-grep rewrite adapter uses Octocode's canonical grammar registry
-/// instead of `ast-grep-language::SupportLang`. The upstream enum enables its
-/// complete built-in parser set by default, which linked unsupported grammars
-/// and a second Kotlin parser into every release artifact.
+/// rather than a second bundled language inventory.
 #[derive(Clone)]
 struct RewriteLanguage {
     entry: &'static LanguageEntry,
@@ -81,7 +77,7 @@ impl<'de> Deserialize<'de> for RewriteLanguage {
 
 impl Language for RewriteLanguage {
     fn pre_process_pattern<'query>(&self, query: &'query str) -> Cow<'query, str> {
-        self.octocode_language().preprocess_pattern(query)
+        self.octocode_language().preprocess_rewrite_pattern(query)
     }
 
     fn expando_char(&self) -> char {
@@ -106,17 +102,6 @@ impl Language for RewriteLanguage {
 impl LanguageExt for RewriteLanguage {
     fn get_ts_language(&self) -> TSLanguage {
         self.entry.language.clone()
-    }
-
-    fn extract_injections<L: LanguageExt>(
-        &self,
-        root: Node<StrDoc<L>>,
-    ) -> Vec<(String, Vec<TSRange>)> {
-        if self.entry.name == "HTML" {
-            Html.extract_injections(root)
-        } else {
-            Vec::new()
-        }
     }
 }
 
@@ -288,21 +273,101 @@ mod tests {
     }
 
     #[test]
-    fn kotlin_rewrite_uses_the_canonical_parser() {
+    #[cfg(feature = "tree-sitter-scala")]
+    fn scala_rewrite_uses_the_canonical_parser() {
         let found = rewrite(
             "val value = oldCall(foo)\n",
             json!({
                 "id":"octocode-inline-rewrite",
-                "language":"kotlin",
+                "language":"scala",
                 "severity":"warning",
                 "message":"Octocode inline structural rewrite",
                 "rule":{"pattern":"oldCall($A)"},
                 "fix":"newCall($A)"
             }),
         )
-        .expect("Kotlin rewrite");
+        .expect("Scala rewrite");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].replacement, "newCall(foo)");
+    }
+
+    #[test]
+    fn every_first_class_language_family_rewrites_with_its_canonical_parser() {
+        let mut cases = vec![
+            (
+                "javascript",
+                "oldCall(foo);\n",
+                "oldCall($A)",
+                "newCall($A)",
+            ),
+            (
+                "typescript",
+                "oldCall(foo);\n",
+                "oldCall($A)",
+                "newCall($A)",
+            ),
+            ("python", "old_call(foo)\n", "old_call($A)", "new_call($A)"),
+            (
+                "rust",
+                "fn main() { old_call(foo); }\n",
+                "old_call($A)",
+                "new_call($A)",
+            ),
+            (
+                "go",
+                "package main\nfunc main() { oldCall(foo) }\n",
+                "oldCall($A)",
+                "newCall($A)",
+            ),
+            (
+                "java",
+                "class Demo { void run() { oldCall(foo); } }\n",
+                "oldCall($A)",
+                "newCall($A)",
+            ),
+            (
+                "c",
+                "void run() { old_call(foo); }\n",
+                "old_call($A);",
+                "new_call($A);",
+            ),
+        ];
+        #[cfg(feature = "tree-sitter-cpp")]
+        cases.push((
+            "cpp",
+            "void run() { old_call(foo); }\n",
+            "old_call($A);",
+            "new_call($A);",
+        ));
+        #[cfg(feature = "tree-sitter-c-sharp")]
+        cases.push((
+            "csharp",
+            "class Demo { void Run() { oldCall(foo); } }\n",
+            "oldCall($A)",
+            "newCall($A)",
+        ));
+        #[cfg(feature = "tree-sitter-scala")]
+        cases.push((
+            "scala",
+            "object Demo { def run() = oldCall(foo) }\n",
+            "oldCall($A)",
+            "newCall($A)",
+        ));
+
+        for (language, source, pattern, fix) in cases {
+            let found = rewrite(
+                source,
+                json!({
+                    "id":"first-class-language-rewrite",
+                    "language":language,
+                    "rule":{"pattern":pattern},
+                    "fix":fix
+                }),
+            )
+            .unwrap_or_else(|error| panic!("{language}: {error}"));
+            assert_eq!(found.len(), 1, "{language}");
+            assert!(found[0].replacement.starts_with("new"), "{language}");
+        }
     }
 
     #[test]

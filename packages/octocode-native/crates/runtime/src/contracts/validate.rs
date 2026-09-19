@@ -1131,11 +1131,7 @@ fn validate_local_search_queries(input: &Value) -> Result<(), ContractValidation
             ));
         }
         if let Some(pattern) = pattern.and_then(Value::as_str) {
-            let exempt = matches!(
-                query.get("langType").and_then(Value::as_str),
-                Some("php" | "bash" | "sh" | "zsh")
-            );
-            if !exempt && two_dollar_meta.is_match(pattern) {
+            if two_dollar_meta.is_match(pattern) {
                 return Err(issue(
                     "local-search.two-dollar-meta",
                     prefix("pattern"),

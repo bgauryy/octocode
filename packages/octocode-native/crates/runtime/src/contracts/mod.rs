@@ -112,8 +112,8 @@ pub const fn contract_provenance_json() -> &'static str {
 #[cfg(test)]
 mod contract_owner_tests {
     use super::{
-        PrepareOptions, contract_provenance_json, prepare_and_validate, prepare_many_and_validate,
-        validate_output,
+        PrepareOptions, contract_json, contract_provenance_json, prepare_and_validate,
+        prepare_many_and_validate, validate_output,
     };
     use serde_json::json;
 
@@ -210,6 +210,69 @@ mod contract_owner_tests {
                 .as_str()
                 .is_some_and(|revision| revision.len() == 40
                     && revision.chars().all(|ch| ch.is_ascii_hexdigit()))
+        );
+    }
+
+    #[test]
+    fn public_response_and_tree_limits_are_pinned_against_silent_drift() {
+        // `generated_contract_has_clean_matching_provenance` proves the contract
+        // MATCHES core, but the fingerprint moves together with any core regen —
+        // it does not prove the numeric bounds are still the intended values, so a
+        // core change that relaxed a public limit would pass provenance silently.
+        // This pins the two limits that also surface in the live MCP schema so any
+        // change is a visible, reviewed test diff. (Codifies the concern formerly
+        // tracked in the schema-authority drift RFC, on the surviving native
+        // authority — the TS granular server that motivated the RFC is gone.)
+        fn collect(value: &serde_json::Value, response: &mut Vec<u64>, tree_depth: &mut Vec<u64>) {
+            match value {
+                serde_json::Value::Object(map) => {
+                    if let Some(max) = map
+                        .get("responseCharLength")
+                        .and_then(|schema| schema.get("maximum"))
+                        .and_then(serde_json::Value::as_u64)
+                    {
+                        response.push(max);
+                    }
+                    if map.get("description").and_then(serde_json::Value::as_str)
+                        == Some("Tree recursion depth.")
+                        && let Some(max) = map.get("maximum").and_then(serde_json::Value::as_u64)
+                    {
+                        tree_depth.push(max);
+                    }
+                    for child in map.values() {
+                        collect(child, response, tree_depth);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    for child in items {
+                        collect(child, response, tree_depth);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let contract: serde_json::Value =
+            serde_json::from_str(contract_json()).expect("contract JSON");
+        let mut response_maxima = Vec::new();
+        let mut tree_depth_maxima = Vec::new();
+        collect(&contract, &mut response_maxima, &mut tree_depth_maxima);
+
+        assert!(
+            !response_maxima.is_empty(),
+            "expected at least one responseCharLength bound in the contract"
+        );
+        assert!(
+            response_maxima.iter().all(|max| *max == 50_000),
+            "responseCharLength.maximum drifted from 50000: {response_maxima:?}"
+        );
+        assert!(
+            !tree_depth_maxima.is_empty(),
+            "expected the tree-recursion maxDepth bound in the contract"
+        );
+        assert!(
+            tree_depth_maxima.iter().all(|max| *max == 20),
+            "tree recursion maxDepth drifted from 20: {tree_depth_maxima:?}"
         );
     }
 

@@ -663,11 +663,11 @@ no continuation can complete the execution. Zero matches in an incomplete
 result do not establish absence. `maxDepth: 0` includes files directly in the
 root; depth filtering happens before the file-scan cap.
 
-**Supported structural extensions:** `c`, `cc`, `cjs`, `cpp`, `cs`, `css`,
-`cts`, `cxx`, `go`, `h`, `hh`, `hpp`, `htm`, `html`, `hxx`, `java`, `js`,
-`json`, `jsonc`, `jsx`, `kt`, `kts`, `mjs`, `mts`, `php`, `py`, `pyi`, `rs`,
-`sbt`, `sc`, `scala`, `ts`, and `tsx`. Query the compiled engine capability API
-when optional grammar features are disabled.
+**Supported structural extensions:** `c`, `cc`, `cjs`, `cpp`, `cs`, `cts`,
+`cxx`, `go`, `h`, `hh`, `hpp`, `hxx`, `java`, `js`, `jsx`, `mjs`, `mts`, `py`,
+`pyi`, `rs`, `sbt`, `sc`, `scala`, `ts`, and `tsx`. The exact same 25-extension
+set backs signatures and graph facts in the default release build. Query the
+compiled engine capability API when optional grammar features are disabled.
 
 When a code-shaped pattern returns zero matches, native runtime can retry a
 semicolon-normalized form or a relaxed return-type form. CLI and MCP output do
@@ -676,16 +676,15 @@ the requested pattern, effective pattern, and an executable continuation that
 repeats the effective query explicitly. Use an explicit `rule` query when exact
 query equivalence matters.
 
-HTML pattern `<$TAG>` matches parsed start tags, including `script`, `style`,
-and self-closing tags. Tag-shaped text inside raw-text elements is not treated
-as markup. YAML `kind` rules are checked against the selected grammar before
-execution; an unknown node kind returns a typed compile diagnostic instead of a
+YAML `kind` rules are checked against the selected source grammar before
+execution; YAML is the rule-document format, not a supported source grammar.
+An unknown node kind returns a typed compile diagnostic instead of a
 high-confidence zero-match result.
 
-Java call patterns and CSS declaration patterns may omit their trailing
-semicolon. The structural compiler supplies grammar-checked statement context
-for direct patterns and patterns nested anywhere in a YAML rule; already
-complete patterns keep their original parse, match ranges, and captures.
+Java call patterns may omit their trailing semicolon. The structural compiler
+supplies grammar-checked statement context for direct patterns and patterns
+nested anywhere in a YAML rule; complete patterns keep their original parse,
+match ranges, and captures.
 Structural failures retain native public codes such as
 `structural.query.invalid`, `structural.query.compileFailed`,
 `structural.language.unsupported`, and `structural.content.tooLarge`. Content
@@ -1208,8 +1207,10 @@ Every **other** semantic operation — `references`, `definition`, `hover`, `cal
 The TS/JS server resolves in this order:
 
 1. `OCTOCODE_TS_SERVER_PATH` — explicit override (args auto-selected: `--lsp -stdio` if the path is `tsgo`, else `--stdio`).
-2. **`tsgo` on `PATH`** — Microsoft's Go-native server (`tsgo --lsp -stdio`, Node-free, ~10× faster). Opt-in: present-on-PATH only, no flag. References/rename are still maturing upstream.
-3. **`typescript-language-server`** — the bundled zero-config default.
+2. **`typescript-language-server`** — the stable zero-config default.
+
+Octocode does not automatically prefer `tsgo` merely because it is on `PATH`;
+select it explicitly until the held-out operation matrix establishes parity.
 
 For the bundled default, Octocode first honors an executable
 `typescript-language-server` already available on `PATH`. If the command is not
@@ -1227,11 +1228,10 @@ targets with regular expressions.
 
 ### Language servers
 
-TypeScript and JavaScript are bundled through `typescript-language-server` and
-`typescript`; JS/TS also has the server-free document-symbol path above.
-Python, YAML, JSON, HTML, CSS, SCSS, and Less also have packaged server
-resolvers. Rust and C/C++ support managed downloads. The remaining built-in
-routes resolve host or user-provided executables.
+TypeScript and JavaScript use `typescript-language-server`; JS/TS also has the
+server-free document-symbol path above. Built-in routes cover JavaScript,
+TypeScript, Python, Rust, Go, Java, C, C++, C#, and Scala. Rust and C/C++ support
+managed downloads; other routes resolve installed host or user-provided executables.
 
 Common environment overrides:
 
@@ -1244,22 +1244,12 @@ Common environment overrides:
 | `OCTOCODE_JAVA_SERVER_PATH` | Java |
 | `OCTOCODE_CLANGD_SERVER_PATH` | C/C++ |
 | `OCTOCODE_CSHARP_SERVER_PATH` | C# |
-| `OCTOCODE_BASH_SERVER_PATH` | Shell |
-| `OCTOCODE_PHP_SERVER_PATH` | PHP |
-| `OCTOCODE_SQL_SERVER_PATH` | SQL |
-| `OCTOCODE_SWIFT_SERVER_PATH` | Swift |
-| `OCTOCODE_JSON_SERVER_PATH` | JSON |
-| `OCTOCODE_YAML_SERVER_PATH` | YAML |
-| `OCTOCODE_HTML_SERVER_PATH` | HTML |
-| `OCTOCODE_CSS_SERVER_PATH` | CSS/SCSS/Less |
-| `OCTOCODE_RUBY_SERVER_PATH` | Ruby |
-| `OCTOCODE_KOTLIN_SERVER_PATH` | Kotlin |
-| `OCTOCODE_ELIXIR_SERVER_PATH` | Elixir |
+| `OCTOCODE_SCALA_SERVER_PATH` | Scala |
 
 #### Custom / bring-your-own servers
 
-Scala has no built-in server. To support it, or to
-replace a built-in server, register it in a JSON config. Octocode loads the
+To support another extension, or to replace a built-in server, register it in a
+JSON config. Octocode loads the
 configuration in this precedence order:
 
 1. `$OCTOCODE_LSP_CONFIG` (explicit file path)
@@ -1273,7 +1263,7 @@ for that extension:
 ```jsonc
 {
   "languageServers": {
-    ".scala": { "command": "metals", "args": ["stdio"], "languageId": "scala" }
+    ".php": { "command": "intelephense", "args": ["--stdio"], "languageId": "php" }
   }
 }
 ```

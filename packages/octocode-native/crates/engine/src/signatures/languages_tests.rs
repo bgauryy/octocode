@@ -7,7 +7,8 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
     for ext in [
         "sh", "bash", "zsh", "vue", "svelte", "astro", "dart", "less", "ml", "mli", "jl", "r",
         "erl", "hrl", "ex", "exs", "tf", "hcl", "tfvars", "proto", "toml", "lua", "zig", "rb",
-        "rake", "gemspec", "ru", "scss", "sql", "swift", "yaml", "yml",
+        "rake", "gemspec", "ru", "scss", "sql", "swift", "yaml", "yml", "css", "htm", "html",
+        "json", "jsonc", "kt", "kts", "php",
     ] {
         assert!(find_entry(ext).is_none(), ".{ext} must not load a grammar");
         assert!(!supported_extensions().contains(&ext));
@@ -26,6 +27,44 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
             result.diagnostics[0].code,
             "structural.language.unsupported"
         );
+    }
+}
+
+#[test]
+fn default_release_capabilities_are_exactly_the_first_class_extension_set() {
+    if !cfg!(all(
+        feature = "tree-sitter-cpp",
+        feature = "tree-sitter-c-sharp",
+        feature = "tree-sitter-scala"
+    )) {
+        return;
+    }
+    let expected = [
+        "c", "cc", "cjs", "cpp", "cs", "cts", "cxx", "go", "h", "hh", "hpp", "hxx", "java", "js",
+        "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala", "ts", "tsx",
+    ];
+    for (name, mut actual) in [
+        (
+            "structural",
+            supported_extensions()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        ),
+        (
+            "signature",
+            signature_extensions()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        ),
+        (
+            "graph",
+            crate::signatures::graph_facts::graph_fact_extensions(),
+        ),
+    ] {
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "{name} capability drift");
     }
 }
 
@@ -86,12 +125,7 @@ fn fixture(ext: &str) -> &'static str {
         "c" => "int target(int value) {\n  int body_marker = value + 1;\n  return body_marker;\n}\n",
         "cpp" => "class Fixture {\npublic:\n  int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n};\n",
         "cs" => "class Fixture {\n  public int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n}\n",
-        "php" => "<?php\nfunction target($value) {\n  $body_marker = $value + 1;\n  return $body_marker;\n}\n",
-        "kt" => "fun target(value: Int): Int {\n  val body_marker = value + 1\n  return body_marker\n}\n",
-        "html" => "<div id=\"target\"><span>value</span></div>\n",
-        "css" => ".target { color: red; }\n",
         "scala" => "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = value + 1\n    body_marker\n  }\n}\n",
-        "json" => "{\"target\": true}\n",
         _ => panic!("missing grammar fixture for .{ext}"),
     }
 }
@@ -140,42 +174,6 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
         }
     }
     assert_eq!(extensions.len(), supported_extensions().len());
-}
-
-#[test]
-fn php_patterns_accept_existing_opening_tags_and_bare_fragments() {
-    let source = fixture("php");
-    for pattern in [
-        source.to_owned(),
-        format!("  {source}"),
-        source.replacen("<?php", "", 1),
-    ] {
-        let result =
-            crate::structural::search_detailed(source, "fixture.php", "php", Some(&pattern), None);
-        assert_eq!(result.status, "ok", "{pattern}");
-        assert_eq!(result.matches.len(), 1, "{pattern}");
-        assert!(result.matches[0].text.contains("function target"));
-    }
-}
-
-#[test]
-fn php_tagged_patterns_preserve_uppercase_short_echo_and_closing_tags() {
-    for source in [
-        "<?PHP target(1);",
-        "<?= target(1) ?>",
-        "<?php target(1); ?>",
-    ] {
-        let entry = find_entry("php").expect("PHP grammar");
-        let mut parser = Parser::new();
-        parser.set_language(&entry.language).expect("PHP ABI");
-        let tree = parser.parse(source, None).expect("PHP parse");
-        assert!(!tree.root_node().has_error(), "{source}");
-        let result =
-            crate::structural::search_detailed(source, "fixture.php", "php", Some(source), None);
-        assert_eq!(result.status, "ok", "{source}");
-        assert_eq!(result.matches.len(), 1, "{source}");
-        assert!(result.matches[0].text.contains("target(1)"));
-    }
 }
 
 #[test]

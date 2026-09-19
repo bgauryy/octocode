@@ -12,6 +12,7 @@
 //! application-specific predicates are rejected so unsupported filters cannot
 //! silently remove source lines.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -22,27 +23,38 @@ use tree_sitter::{
 
 pub(crate) const AST_EXECUTION_TIMEOUT: Duration = Duration::from_secs(2);
 
+thread_local! {
+    /// Parser scratch space is worker-local: repository scans reuse allocations
+    /// without retaining syntax trees or sharing mutable parser state.
+    static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
+}
+
 pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant) -> Option<Tree> {
     if Instant::now() >= deadline {
         return None;
     }
-    let mut parser = Parser::new();
-    parser.set_language(language).ok()?;
-    let bytes = content.as_bytes();
-    let mut read = |offset: usize, _| &bytes[offset..];
-    let mut progress = |_: &tree_sitter::ParseState| {
-        if Instant::now() >= deadline {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
-    };
-    let tree = parser.parse_with_options(
-        &mut read,
-        None,
-        Some(ParseOptions::new().progress_callback(&mut progress)),
-    )?;
-    (Instant::now() < deadline).then_some(tree)
+    PARSER.with_borrow_mut(|parser| {
+        parser.reset();
+        parser.set_language(language).ok()?;
+        let bytes = content.as_bytes();
+        let mut read = |offset: usize, _| &bytes[offset..];
+        let mut progress = |_: &tree_sitter::ParseState| {
+            if Instant::now() >= deadline {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        };
+        let tree = parser.parse_with_options(
+            &mut read,
+            None,
+            Some(ParseOptions::new().progress_callback(&mut progress)),
+        );
+        // Reset after success and interruption so the next independent file
+        // never inherits cancellation or incremental parse state.
+        parser.reset();
+        tree.filter(|_| Instant::now() < deadline)
+    })
 }
 
 pub struct LangExtractConfig {
@@ -207,6 +219,15 @@ mod tests {
         };
         assert!(
             extract_with_limits("fn f() {\n work();\n}\n", &cfg, Instant::now(), 65_536).is_none()
+        );
+        assert!(
+            parse_before(
+                "fn healthy() {}",
+                &cfg.language,
+                Instant::now() + Duration::from_secs(2)
+            )
+            .is_some(),
+            "an interrupted parse must not poison worker-local parser scratch state"
         );
     }
 

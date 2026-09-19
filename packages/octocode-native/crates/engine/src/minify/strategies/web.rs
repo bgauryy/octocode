@@ -1,9 +1,7 @@
 use crate::minify::comment_remover::remove_comments;
 use crate::minify::strategies::code::minify_js_oxc;
-use crate::signatures::extractor::{parse_before, AST_EXECUTION_TIMEOUT};
 use regex::Regex;
 use std::sync::LazyLock;
-use std::time::Instant;
 
 // ── CSS ──────────────────────────────────────────────────────────────────────
 
@@ -16,35 +14,9 @@ fn minify_css_core(content: &str) -> String {
     s.trim().to_owned()
 }
 
-/// High-quality CSS minification via lightningcss (100× better than regex).
-/// Uses `minify_css_core` on parse or panic error.
-///
-/// Gated on the opt-in `css-quality` feature. With the feature off, lightningcss
-/// is not compiled in and this degrades to the `minify_css_core` regex baseline
-/// — every caller (`minify_html_quality`, `minify_embedded_web`, and
-/// `minify_style_blocks`) transparently gets the fallback.
-#[cfg(feature = "css-quality")]
-pub fn minify_css_quality(content: &str) -> String {
-    std::panic::catch_unwind(|| {
-        use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
-        match StyleSheet::parse(content, ParserOptions::default()) {
-            Ok(ss) => ss
-                .to_css(PrinterOptions {
-                    minify: true,
-                    ..Default::default()
-                })
-                .map(|out| out.code.to_string())
-                .unwrap_or_else(|_| minify_css_core(content)),
-            Err(_) => minify_css_core(content),
-        }
-    })
-    .unwrap_or_else(|_| minify_css_core(content))
-}
-
-/// Fallback when the `css-quality` feature is disabled (lightningcss not built):
-/// the always-available regex baseline. Keeps CSS/SCSS/LESS + embedded `<style>`
-/// minification working — just without parser-grade normalization (e.g. `0px`→`0`).
-#[cfg(not(feature = "css-quality"))]
+/// Lightweight best-effort CSS minification. This intentionally avoids a CSS
+/// parser dependency; malformed or non-shrinking content is handled by the
+/// caller's safe-original fallback.
 pub fn minify_css_quality(content: &str) -> String {
     minify_css_core(content)
 }
@@ -86,6 +58,12 @@ pub fn minify_html_quality(content: &str) -> String {
 static STYLE_BLOCK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?is)(<style\b[^>]*>)(.*?)(</style>)").expect("style block regex must compile")
 });
+static WEB_BLOCK_OR_COMMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?is)(<!--.*?-->)|(<script\b[^>]*>)(.*?)(</script\s*>)|(<style\b[^>]*>)(.*?)(</style\s*>)",
+    )
+    .expect("embedded web block regex must compile")
+});
 static ATTR_TYPE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)\btype\s*=\s*["']([^"']*)["']"#).expect("type attr regex must compile")
 });
@@ -97,66 +75,55 @@ static ATTR_LANG: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// The markup structure (and its line breaks) is preserved so the output stays
 /// readable for an agent. The real byte savings come from minifying the
-/// embedded `<style>` blocks (lightningcss) and `<script>` blocks (oxc, no
-/// mangle — same treatment standalone JS/TS gets in the content view) and from
-/// dropping syntax-identified HTML comments. Markup whitespace is preserved.
-/// A generic comment-strip
-/// barely touches these files because the compressible bytes live inside the
-/// embedded languages, not the markup. Each sub-minifier falls back to the
-/// original block text when it cannot handle the content.
+/// embedded `<style>` blocks (lightweight CSS cleanup) and `<script>` blocks
+/// (OXC, no mangle — the same treatment standalone JS/TS gets) and from
+/// dropping HTML comments outside raw script/style blocks. Markup whitespace is
+/// preserved. This bounded non-recursive scanner does not claim parser-grade
+/// HTML correctness; malformed or unclosed blocks are left unchanged.
 pub fn minify_embedded_web(content: &str, _file_path: &str) -> String {
-    let Some(tree) = parse_html_before(content, Instant::now() + AST_EXECUTION_TIMEOUT) else {
-        return content.to_owned();
-    };
-    if tree.root_node().has_error() {
-        return content.to_owned();
-    }
-    let mut edits = Vec::new();
-    let mut stack = vec![tree.root_node()];
-    while let Some(node) = stack.pop() {
-        match node.kind() {
-            "comment" => edits.push((node.start_byte(), node.end_byte(), String::new())),
-            "script_element" | "style_element" => {
-                let mut cursor = node.walk();
-                let children: Vec<_> = node.named_children(&mut cursor).collect();
-                let open = children.iter().find(|n| n.kind() == "start_tag");
-                let inner = children.iter().find(|n| n.kind() == "raw_text");
-                if let (Some(open), Some(inner)) = (open, inner) {
-                    let tag = &content[open.byte_range()];
-                    let source = &content[inner.byte_range()];
-                    let compacted = if node.kind() == "style_element" {
-                        Some(minify_css_quality(source))
-                    } else if script_is_javascript(tag) {
-                        minify_js_oxc(source, &script_virtual_path(tag), false)
-                    } else {
-                        None
-                    };
-                    if let Some(compacted) = compacted.filter(|s| s.len() < source.len()) {
-                        edits.push((inner.start_byte(), inner.end_byte(), compacted));
-                    }
-                }
-            }
-            _ => {
-                let mut cursor = node.walk();
-                stack.extend(node.named_children(&mut cursor));
-            }
-        }
-    }
-    edits.sort_by_key(|e| e.0);
     let mut output = String::with_capacity(content.len());
     let mut offset = 0;
-    for (start, end, replacement) in edits {
-        output.push_str(&content[offset..start]);
-        output.push_str(&replacement);
-        offset = end;
+    for captures in WEB_BLOCK_OR_COMMENT.captures_iter(content) {
+        let Some(whole) = captures.get(0) else {
+            continue;
+        };
+        output.push_str(&content[offset..whole.start()]);
+        if captures.get(1).is_some() {
+            // Drop an HTML comment outside a raw block.
+        } else if let (Some(open), Some(inner), Some(close)) =
+            (captures.get(2), captures.get(3), captures.get(4))
+        {
+            output.push_str(open.as_str());
+            let source = inner.as_str();
+            let compacted = if script_is_javascript(open.as_str()) {
+                minify_js_oxc(source, &script_virtual_path(open.as_str()), false)
+            } else {
+                None
+            };
+            output.push_str(
+                compacted
+                    .as_deref()
+                    .filter(|candidate| candidate.len() < source.len())
+                    .unwrap_or(source),
+            );
+            output.push_str(close.as_str());
+        } else if let (Some(open), Some(inner), Some(close)) =
+            (captures.get(5), captures.get(6), captures.get(7))
+        {
+            output.push_str(open.as_str());
+            let source = inner.as_str();
+            let compacted = minify_css_quality(source);
+            output.push_str(if compacted.len() < source.len() {
+                &compacted
+            } else {
+                source
+            });
+            output.push_str(close.as_str());
+        }
+        offset = whole.end();
     }
     output.push_str(&content[offset..]);
     output
-}
-
-fn parse_html_before(content: &str, deadline: Instant) -> Option<tree_sitter::Tree> {
-    let language = tree_sitter_html::LANGUAGE.into();
-    parse_before(content, &language, deadline)
 }
 
 fn minify_style_blocks(content: &str) -> String {
@@ -213,12 +180,14 @@ fn script_virtual_path(open_tag: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{minify_html_core, minify_html_quality, parse_html_before};
-    use std::time::Instant;
+    use super::{minify_embedded_web, minify_html_core, minify_html_quality};
 
     #[test]
-    fn html_parser_honors_an_expired_deadline() {
-        assert!(parse_html_before("<html><body>safe</body></html>", Instant::now()).is_none());
+    fn embedded_scanner_does_not_strip_comment_syntax_inside_scripts() {
+        let source = "<script>const marker = '<!-- keep -->';</script><!-- drop -->";
+        let output = minify_embedded_web(source, "fixture.html");
+        assert!(output.contains("<!-- keep -->"));
+        assert!(!output.contains("drop"));
     }
 
     #[test]

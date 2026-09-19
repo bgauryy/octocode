@@ -51,6 +51,12 @@ Availability is resolved natively. GitHub and artifact tools are enabled by defa
 
 `crates/engine` is consumed as a Rust library with default features disabled. It exposes reusable algorithms, not public policy. Its N-API bindings are published at `@octocodeai/octocode-native/engine` but are not an alternate Octocode tool runtime.
 
+## Language capability ownership
+
+`crates/engine/src/signatures/languages.rs` is the sole native grammar inventory. The default release registers ten first-class families and 25 extensions. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from that registry; built-in server routes have exact-set tests against the same product boundary. YAML rule parsing is configuration syntax, not YAML source support.
+
+Generic text search, reads, minification, file recognition, GitHub/history operations, artifact registries, and trusted custom LSP configuration do not consult the grammar allowlist. Syntax graph relations remain candidate evidence; callers use explicit LSP operations for semantic proof.
+
 ## Safety and lifecycle invariants
 
 - Native runtime absence fails closed at every Node interface.

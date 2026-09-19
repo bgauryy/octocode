@@ -4,30 +4,18 @@ use tree_sitter::Language as TSLanguage;
 
 use crate::signatures::languages::LanguageEntry;
 
-/// The stand-in identifier char(s) substituted for a `$`-sigil metavar so the
-/// tree-sitter parser accepts the pattern as syntactically valid source.
-/// PHP function names need a different stand-in from PHP variables.
+/// Stand-in identifier character substituted for a `$`-sigil metavar so the
+/// selected Tree-sitter grammar accepts the pattern as valid source.
 #[derive(Clone, Copy)]
-pub(super) struct Expando {
-    /// Used everywhere a metavar is NOT at a bare-word position (see
-    /// `is_bare_word_position`) — the common case.
-    primary: char,
-    /// Stand-in after PHP's `function` keyword, where `$` is not legal.
-    /// Equal to `primary` for every other language.
-    bare_word: char,
-}
+pub(super) struct Expando(char);
 
 impl Expando {
     fn for_ext(ext: &str) -> Self {
-        let primary = primary_expando_for_ext(ext);
-        let bare_word = if ext == "php" { '_' } else { primary };
-        Self { primary, bare_word }
+        Self(primary_expando_for_ext(ext))
     }
 
-    /// Recognizes a metavar substituted with *either* char — see
-    /// `meta_from_node`'s doc comment for why both must be checked.
     pub(super) fn matches_leading(self, c: char) -> bool {
-        c == self.primary || c == self.bare_word
+        c == self.0
     }
 }
 
@@ -37,13 +25,6 @@ impl Expando {
 pub(super) struct AgLanguage {
     ts: TSLanguage,
     expando: Expando,
-    /// PHP source is a text/HTML host with `<?php ... ?>` islands of real PHP
-    /// code — anything outside those tags parses as opaque `text`, not
-    /// statements. A bare pattern like `$x = 5;` (no `<?php` tag) parsed on
-    /// its own is swallowed whole into one `text` node, which never appears
-    /// as a candidate when walking a real document — every PHP pattern
-    /// silently matched nothing. `true` for `.php` only.
-    php_wrap: bool,
     /// C# has no top-level method/member syntax: a modifier like `public` is
     /// only valid inside a `class`/`struct`/`interface` body, so a bare
     /// pattern like `public int $NAME(...) { ... }` parsed standalone lands
@@ -64,13 +45,8 @@ impl AgLanguage {
         Self {
             ts: entry.language.clone(),
             expando: Expando::for_ext(ext),
-            php_wrap: ext == "php",
             class_wrap: ext == "cs",
-            terminated_fragment_kind: match ext {
-                "java" => Some("method_invocation"),
-                "css" => Some("declaration"),
-                _ => None,
-            },
+            terminated_fragment_kind: (ext == "java").then_some("method_invocation"),
         }
     }
 
@@ -86,17 +62,16 @@ impl AgLanguage {
         self.terminated_fragment_kind
     }
 
+    pub(super) fn preprocess_rewrite_pattern<'query>(
+        &self,
+        query: &'query str,
+    ) -> Cow<'query, str> {
+        pre_process_pattern(self.expando, query)
+    }
+
     pub(super) fn preprocess_pattern<'query>(&self, query: &'query str) -> Cow<'query, str> {
-        let substituted = pre_process_pattern(self.expando, query);
-        if self.php_wrap
-            && !substituted
-                .trim_start()
-                .get(..5)
-                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("<?php"))
-            && !substituted.trim_start().starts_with("<?=")
-        {
-            Cow::Owned(format!("<?php {substituted}"))
-        } else if self.class_wrap {
+        let substituted = self.preprocess_rewrite_pattern(query);
+        if self.class_wrap {
             Cow::Owned(format!("class __OctoWrap {{ {substituted} }}"))
         } else {
             substituted
@@ -104,79 +79,30 @@ impl AgLanguage {
     }
 }
 
-/// The primary stand-in identifier char for `$` metavariables, per language.
-/// Languages where `$` is a legal identifier char (JS/TS/Java/PHP) keep
-/// `$`; the rest get a char the grammar accepts.
+/// Primary stand-in identifier character for `$` metavariables, per language.
+/// Languages where `$` is a legal identifier character keep it; C and C++ use
+/// an astral Unicode letter to avoid collisions; other grammars use `µ`.
 pub(super) fn primary_expando_for_ext(ext: &str) -> char {
     match ext {
-        // PHP variables require the `$` sigil (e.g. `$var`), so `$` is a valid
-        // identifier character in tree-sitter-php. Patterns like `foo($ARG)` must
-        // stay as-is for the PHP parser to accept them as a call with a variable arg.
-        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" | "php" => '$',
+        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" => '$',
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => '\u{10000}',
-        "html" | "htm" => 'z',
-        "css" => '_',
         _ => '\u{00b5}',
     }
 }
 
-/// PHP's `function $NAME(...)` pattern needs a plain function-name identifier.
-fn is_bare_word_position(preceding: &[char]) -> bool {
-    let trimmed_len = preceding
-        .iter()
-        .rposition(|c| !c.is_whitespace())
-        .map_or(0, |i| i + 1);
-    const KEYWORD: &str = "function";
-    if trimmed_len < KEYWORD.len() {
-        return false;
-    }
-    let tail: String = preceding[trimmed_len - KEYWORD.len()..trimmed_len]
-        .iter()
-        .collect();
-    if tail != KEYWORD {
-        return false;
-    }
-    // Whole-word match only — reject a longer identifier that merely ends in
-    // "function" (e.g. a hypothetical `myfunction`).
-    let before_keyword = trimmed_len - KEYWORD.len();
-    before_keyword == 0
-        || !preceding[before_keyword - 1].is_alphanumeric() && preceding[before_keyword - 1] != '_'
-}
-
-/// The sigil to substitute for a run of `dollar_count` consecutive `$`
-/// immediately followed by an identifier-starting char (or already known to
-/// be a `$$$` multi-capture) — `'$'` unchanged if it's not actually a
-/// metavar (a single non-uppercase-leading `$`, e.g. a literal PHP `$var`),
-/// otherwise `expando.bare_word` or `expando.primary` depending on `ret`'s
-/// trailing context. Shared by both the in-loop substitution and the
-/// pattern's trailing `$` run so the two can't drift.
-fn sigil_for(ret: &[char], dollar_count: usize, expando: Expando) -> char {
-    if dollar_count == 0 {
-        return '$';
-    }
-    if expando.bare_word != expando.primary && is_bare_word_position(ret) {
-        expando.bare_word
-    } else {
-        expando.primary
-    }
-}
-
 /// Rewrites the `$` sigil of capturing/anonymous-multiple metavars to the
-/// language's expando char so the tree-sitter parser accepts the pattern.
-/// Literal `$` (e.g. a non-metavar `$` in the source) is preserved. A metavar
-/// at a bare-word position (see `is_bare_word_position`) uses
-/// `expando.bare_word` instead of `expando.primary`.
+/// language's expando character. Literal non-metavariable `$` is preserved.
 fn pre_process_pattern(expando: Expando, query: &str) -> Cow<'_, str> {
-    let mut ret: Vec<char> = Vec::with_capacity(query.len());
+    let mut ret = String::with_capacity(query.len());
     let mut dollar_count = 0;
     for c in query.chars() {
         if c == '$' {
             dollar_count += 1;
             continue;
         }
-        let need_replace = matches!(c, 'A'..='Z' | '_') || dollar_count == 3;
-        let sigil = if need_replace {
-            sigil_for(&ret, dollar_count, expando)
+        let replace = matches!(c, 'A'..='Z' | '_') || dollar_count == 3;
+        let sigil = if replace && dollar_count > 0 {
+            expando.0
         } else {
             '$'
         };
@@ -184,11 +110,7 @@ fn pre_process_pattern(expando: Expando, query: &str) -> Cow<'_, str> {
         dollar_count = 0;
         ret.push(c);
     }
-    let sigil = if dollar_count == 3 {
-        sigil_for(&ret, dollar_count, expando)
-    } else {
-        '$'
-    };
+    let sigil = if dollar_count == 3 { expando.0 } else { '$' };
     ret.extend(std::iter::repeat_n(sigil, dollar_count));
-    Cow::Owned(ret.into_iter().collect())
+    Cow::Owned(ret)
 }

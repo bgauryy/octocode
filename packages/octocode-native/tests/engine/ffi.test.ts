@@ -122,17 +122,35 @@ describe('canonical grammar capabilities', () => {
       addon!.getSupportedStructuralExtensions().sort()
     );
     expect(new Set(extensions).size).toBe(extensions.length);
-    expect(capabilities).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          language: 'Kotlin',
-          languageId: 'kotlin',
-          extensions: ['kt', 'kts'],
-          structuralSearch: true,
-          signatureOutline: true,
-          graphFacts: true,
-        }),
-      ])
+    expect(extensions.sort()).toEqual([
+      'c',
+      'cc',
+      'cjs',
+      'cpp',
+      'cs',
+      'cts',
+      'cxx',
+      'go',
+      'h',
+      'hh',
+      'hpp',
+      'hxx',
+      'java',
+      'js',
+      'jsx',
+      'mjs',
+      'mts',
+      'py',
+      'pyi',
+      'rs',
+      'sbt',
+      'sc',
+      'scala',
+      'ts',
+      'tsx',
+    ]);
+    expect(capabilities.every(capability => capability.signatureOutline)).toBe(
+      true
     );
   });
 });
@@ -671,19 +689,12 @@ describe('getSupportedStructuralExtensions', () => {
     expect(addon!.SUPPORTED_STRUCTURAL_EXTENSIONS).toContain('ts');
   });
 
-  it('exposes the markup/style/config/JVM grammars + extension aliases', () => {
-    const exts = addon!.getSupportedStructuralExtensions();
-    for (const ext of [
-      'html',
-      'css',
-      'scala',
-      'json',
-      'mts',
-      'cts',
-      'pyi',
-    ]) {
-      expect(exts).toContain(ext);
-    }
+  it('returns the exact first-class extension set', () => {
+    expect(addon!.getSupportedStructuralExtensions().sort()).toEqual([
+      'c', 'cc', 'cjs', 'cpp', 'cs', 'cts', 'cxx', 'go', 'h', 'hh', 'hpp',
+      'hxx', 'java', 'js', 'jsx', 'mjs', 'mts', 'py', 'pyi', 'rs', 'sbt',
+      'sc', 'scala', 'ts', 'tsx',
+    ]);
   });
 
   it('omits removed grammars from both exported capability lists', () => {
@@ -703,6 +714,14 @@ describe('getSupportedStructuralExtensions', () => {
       'gemspec',
       'ru',
       'scss',
+      'css',
+      'htm',
+      'html',
+      'json',
+      'jsonc',
+      'kt',
+      'kts',
+      'php',
       'sql',
       'swift',
       'yaml',
@@ -716,38 +735,20 @@ describe('getSupportedStructuralExtensions', () => {
   });
 });
 
-describe('structuralSearch across new languages (napi shape)', () => {
-  it('matches a CSS declaration value and captures the metavar', async () => {
-    const matches = await addon!.structuralSearch(
-      '.btn { color: red; }\n',
-      'a.css',
-      '.btn { color: $C; }',
-      null
-    );
-    expect(matches.length).toBe(1);
-    expect(matches[0].metavars.C).toEqual(['red']);
-  });
-
-  it('matches HTML tag-name metavars (z-expando) over napi', async () => {
-    const matches = await addon!.structuralSearch(
-      '<input>\n',
-      'p.html',
-      '<$TAG>',
-      null
-    );
-    expect(matches.length).toBe(1);
-    expect(matches[0].metavars.TAG).toEqual(['input']);
-  });
-
-  it('runs a JSON kind rule over napi', async () => {
-    const matches = await addon!.structuralSearch(
-      '{"a":1,"b":2}\n',
-      'c.json',
-      null,
-      'rule:\n  kind: pair\n'
-    );
-    expect(matches.length).toBe(2);
-  });
+describe('removed structural languages (napi shape)', () => {
+  it.each(['css', 'html', 'json', 'kt', 'php'])(
+    'rejects .%s without selecting another grammar',
+    async extension => {
+      await expect(
+        addon!.structuralSearch(
+          'target(value);\n',
+          `fixture.${extension}`,
+          'target($X)',
+          null
+        )
+      ).rejects.toThrow(/does not support/);
+    }
+  );
 });
 
 describe('validateRipgrepPattern', () => {
@@ -1007,8 +1008,6 @@ describe('getSupportedSignatureExtensions', () => {
       'rs',
       'go',
       'java',
-      'php',
-      'kt',
       'scala',
     ]) {
       expect(exts, `${required} must be in signature list`).toContain(required);
@@ -1019,6 +1018,13 @@ describe('getSupportedSignatureExtensions', () => {
       'markdown',
       'sql',
       'html',
+      'htm',
+      'css',
+      'json',
+      'jsonc',
+      'kt',
+      'kts',
+      'php',
       'scss',
       'swift',
       'yaml',

@@ -45,9 +45,8 @@ pub const SIGNATURES_ONLY_HINT: &str = concat!(
 /// `extract_signatures_inner` but skips the renderer, so callers can map line
 /// numbers to char offsets without string parsing.
 ///
-/// Returns an empty Vec for files above the 1 MB guard and any language without
-/// a registered signature body query (there is no
-/// regex/heuristic fallback — only real AST parsing produces boundaries).
+/// Returns an empty Vec for files above the 1 MB guard or without a first-class
+/// grammar (there is no regex/heuristic fallback).
 pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usize, String)> {
     if content.len() > crate::minify::minifier::MAX_SIZE {
         return Vec::new();
@@ -58,10 +57,9 @@ pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usiz
     // guard on the sibling `extract_signatures_inner`.
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let ext = get_extension_internal(file_path, true, "txt");
-        // Tree-sitter is the ONLY signature path. Grammars wired for structural
-        // search only (empty body_query: markup, stylesheets, and data) and
-        // languages with no grammar produce no boundaries.
-        let Some(entry) = languages::find_entry(&ext).filter(|e| !e.body_query.is_empty()) else {
+        // Tree-sitter is the only signature path. Languages outside the
+        // canonical first-class registry produce no boundaries.
+        let Some(entry) = languages::find_entry(&ext) else {
             return Vec::new();
         };
         let cfg = LangExtractConfig {
@@ -184,18 +182,7 @@ fn is_nested_member_noise(text: &str, ext: &str) -> bool {
 
     matches!(
         ext,
-        "ts" | "tsx"
-            | "js"
-            | "jsx"
-            | "mjs"
-            | "cjs"
-            | "go"
-            | "rs"
-            | "java"
-            | "cs"
-            | "kt"
-            | "kotlin"
-            | "scala"
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "go" | "rs" | "java" | "cs" | "scala"
     )
 }
 
@@ -257,11 +244,10 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
 }
 
 fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
-    // Tree-sitter is the ONLY signature path — real AST parsing, no regex
-    // heuristics. Grammars wired for structural search only (empty body_query)
-    // and any language without a grammar return
-    // None, and the caller falls back to the standard/none view of the file.
-    let entry = languages::find_entry(ext).filter(|e| !e.body_query.is_empty())?;
+    // Tree-sitter is the only signature path — real AST parsing, no regex
+    // heuristics. Languages outside the canonical registry return None and the
+    // caller falls back to the standard/none view.
+    let entry = languages::find_entry(ext)?;
     let cfg = LangExtractConfig {
         language: entry.language.clone(),
         body_query: entry.body_query,
@@ -429,26 +415,8 @@ mod tests {
     }
 
     #[test]
-    fn structural_only_grammars_never_produce_signature_views() {
-        for entry in languages::all_entries()
-            .iter()
-            .filter(|entry| entry.body_query.is_empty())
-        {
-            for ext in entry.extensions {
-                let path = format!("fixture.{ext}");
-                let content = "function example() {\n  return value;\n}\n";
-                assert!(extract_signatures_inner(content, &path).is_none(), ".{ext}");
-                assert!(
-                    extract_boundary_lines_inner(content, &path).is_empty(),
-                    ".{ext}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn unsupported_or_nonshrinking_outlines_return_none() {
-        // Unsupported/structural-only languages have no outline.
+        // Languages outside the first-class registry have no outline.
         for (content, path) in &[
             ("local x = 1\nfunction f() return x end\n", "a.lua"),
             ("-module(d).\nrev(L) -> L.\n", "a.erl"),
@@ -458,7 +426,7 @@ mod tests {
         ] {
             assert!(
                 extract(content, path).is_none(),
-                "{path}: no grammar or structural-only → must return None (no regex fallback)"
+                "{path}: no first-class grammar → must return None (no regex fallback)"
             );
         }
     }

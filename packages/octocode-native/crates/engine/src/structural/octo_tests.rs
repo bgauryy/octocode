@@ -16,52 +16,6 @@ fn ast_audit_special_pattern_preserves_repeated_capture_equality() {
 }
 
 #[test]
-fn ast_audit_html_open_tag_range_respects_quoted_greater_than() {
-    for source in ["<div title=\"a > b\">text</div>", "<input title='a > b' />"] {
-        let matches = run_pattern(source, "html", "<$TAG>");
-        assert_eq!(matches.len(), 1);
-        let expected_end = source.rfind('>').expect("closing delimiter");
-        let expected = if source.starts_with("<div") {
-            "<div title=\"a > b\">"
-        } else {
-            &source[..=expected_end]
-        };
-        assert_eq!(matches[0].text, expected);
-        assert_eq!(matches[0].end_col as usize, expected.len());
-    }
-}
-
-#[test]
-fn ast_audit_html_tags_cover_script_style_without_matching_raw_text() {
-    let source = r#"<main><script title="a > b">const tpl = "<b>fake</b>";</script><style data-note='a > b'>.x::before{content:"<i>fake</i>"}</style><input /></main>"#;
-    let expected = [
-        "<main>",
-        r#"<script title="a > b">"#,
-        "<style data-note='a > b'>",
-        "<input />",
-    ];
-    for matches in [
-        run_pattern(source, "html", "<$TAG>"),
-        run_rule(source, "html", "pattern: '<$TAG>'"),
-    ] {
-        assert_eq!(
-            matches
-                .iter()
-                .map(|matched| matched.text.as_str())
-                .collect::<Vec<_>>(),
-            expected
-        );
-        for (matched, tag) in matches.iter().zip(["main", "script", "style", "input"]) {
-            assert_eq!(matched.metavars["TAG"], [tag]);
-            assert_eq!(
-                matched.end_col - matched.start_col,
-                matched.text.len() as u32
-            );
-        }
-    }
-}
-
-#[test]
 fn ast_audit_rule_rejects_unknown_kinds_at_every_level() {
     for rule in [
         "kind: not_a_real_node_kind_astro_999",
@@ -140,17 +94,6 @@ fn shared_pattern_context_accepts_bare_java_calls() {
     assert!(run_pattern(source, "java", "absent($VALUE)").is_empty());
     assert_eq!(
         run_pattern(source, "java", "class $NAME { $$$BODY }").len(),
-        1
-    );
-}
-
-#[test]
-fn shared_pattern_context_accepts_bare_css_declarations() {
-    let source = ".demo { color: value; background: other; }";
-    assert_fragment_context("css", source, "color: $VALUE", "color: value;");
-    assert!(run_pattern(source, "css", "width: $VALUE").is_empty());
-    assert_eq!(
-        run_pattern(source, "css", ".demo { color: $VALUE; background: other; }").len(),
         1
     );
 }
@@ -525,69 +468,6 @@ fn multiple_multi_captures_terminate_within_attempt_budget() {
     assert!(
         matches.is_empty(),
         "no `x`/`y` separators exist in the args"
-    );
-}
-
-#[test]
-fn php_pattern_matches_a_real_assignment() {
-    // Before the `<?php` auto-wrap, a bare pattern with no PHP tag parsed as
-    // one opaque `text` node (PHP's grammar treats un-tagged input as host
-    // HTML/text, not code) — `text` never appears as a candidate when
-    // walking a real (tagged) document, so this always matched nothing.
-    let matches = run_pattern("<?php\n$x = 5;\n", "php", "$x = 5;");
-    assert_eq!(
-        matches.len(),
-        1,
-        "PHP matched {} times, expected 1",
-        matches.len()
-    );
-
-    // A call-argument pattern also exercises the wrap since `$ARG` metavars
-    // (PHP keeps `$` as its own expando, for real `$var` patterns) sit in a
-    // valid expression position here, unlike a bare-word position such as a
-    // function name.
-    let call_matches = run_pattern("<?php\nfindMe($a, $b);\n", "php", "findMe($ARG1, $ARG2)");
-    assert_eq!(
-        call_matches.len(),
-        1,
-        "PHP call pattern matched {} times, expected 1",
-        call_matches.len()
-    );
-}
-
-// PHP variables keep `$`, while function names require a plain identifier.
-// Verify both positions after substituting `_` only for function names.
-
-#[test]
-fn php_pattern_matches_a_function_with_bare_word_name_position() {
-    let matches = run_pattern(
-        "<?php\nfunction findMe($a, $b) {\n    return $a + $b;\n}\n",
-        "php",
-        "function $NAME($a, $b) { $$$BODY }",
-    );
-    assert_eq!(
-        matches.len(),
-        1,
-        "PHP matched {} times, expected 1",
-        matches.len()
-    );
-    assert_eq!(
-        matches[0].metavars.get("NAME").map(Vec::as_slice),
-        Some(&["findMe".to_string()][..])
-    );
-    assert_eq!(
-        matches[0].metavars.get("BODY").map(Vec::as_slice),
-        Some(&["return $a + $b;".to_string()][..])
-    );
-
-    // $ARG-position (call argument) metavars are unaffected by the
-    // bare-word-position special case — same expando ($) either way.
-    let call_matches = run_pattern("<?php\nfindMe($a, $b);\n", "php", "findMe($ARG1, $ARG2)");
-    assert_eq!(
-        call_matches.len(),
-        1,
-        "PHP call matched {} times, expected 1",
-        call_matches.len()
     );
 }
 

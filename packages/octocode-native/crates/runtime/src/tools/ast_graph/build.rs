@@ -91,7 +91,7 @@ pub(crate) fn build_graph(
             file: ".".into(),
             line: None,
             code: "unsupported-linking".into(),
-            message: "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors.".into(),
+            message: "Cargo metadata cargo-manifest-missing: No Cargo.toml was found at the scan root or known Rust-file ancestors. Point astSearch at the crate root that contains Cargo.toml (not a nested src/ directory); crate:: imports cannot be resolved otherwise.".into(),
         });
     }
     let cargo_crates = if q.rust_workspace.as_deref() == Some("cargo") && !rust_cargo_unavailable {
@@ -361,6 +361,7 @@ fn link_file(
             &file,
             i.line,
             &i.specifier,
+            &ext,
             &target,
             link == "unsupported" || ext == "rs" && rust_cargo_unavailable,
             security,
@@ -414,6 +415,7 @@ fn link_file(
                 &file,
                 x.line,
                 &spec,
+                &ext,
                 &target,
                 link == "unsupported",
                 security,
@@ -465,7 +467,7 @@ fn link_file(
                 cargo_crates,
                 workspace_packages,
             );
-            record_resolution(b, &file, c.line, &c.callee, &target, false, security);
+            record_resolution(b, &file, c.line, &c.callee, &ext, &target, false, security);
             if let Some(t) = target {
                 add_edge(
                     graph_builder,
@@ -498,7 +500,7 @@ fn link_file(
                     cargo_crates,
                     workspace_packages,
                 );
-                record_resolution(b, &file, c.line, &spec, &target, false, security);
+                record_resolution(b, &file, c.line, &spec, &ext, &target, false, security);
                 if let Some(t) = target {
                     add_edge(
                         graph_builder,
@@ -550,11 +552,28 @@ fn add_edge(
         .add_file_relation(source, target, kind, line)
         .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))
 }
+/// A Rust `use` path that unambiguously targets the current crate, so failing to
+/// resolve it means the intra-crate edge graph is incomplete — never a benign
+/// external dependency. `crate::`/`self::`/`super::` and leading `::` qualify.
+fn rust_internal_specifier(spec: &str) -> bool {
+    if spec.starts_with("::") {
+        return true;
+    }
+    let first = spec
+        .trim_start_matches("::")
+        .split("::")
+        .next()
+        .unwrap_or("");
+    matches!(first, "crate" | "self" | "super")
+}
+
+#[allow(clippy::too_many_arguments)]
 fn record_resolution(
     b: &mut BuiltGraph,
     file: &str,
     line: u32,
     spec: &str,
+    ext: &str,
     target: &Option<String>,
     unsupported: bool,
     security: &ContentSecurity,
@@ -572,7 +591,10 @@ fn record_resolution(
                 &format!("Cannot link import {spec:?} (unsupported)."),
             ),
         })
-    } else if spec.starts_with('.') || spec.starts_with('/') {
+    } else if spec.starts_with('.')
+        || spec.starts_with('/')
+        || (ext == "rs" && rust_internal_specifier(spec))
+    {
         b.imports[2] += 1;
         b.diagnostics.push(Diagnostic {
             file: file.into(),

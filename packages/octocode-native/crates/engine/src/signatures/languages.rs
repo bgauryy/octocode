@@ -18,13 +18,8 @@ pub struct LanguageEntry {
     /// NOT `Copy` in tree-sitter 0.27 — always use `.clone()` at call sites.
     pub language: Language,
     /// Tree-sitter S-expression query whose `@body` captures are the nodes the
-    /// signature extractor drops. An **empty** string is a sentinel meaning
-    /// "this grammar is wired in for *structural search only*" — the signature
-    /// path (`extract_by_ext` / `extract_boundary_lines_inner`) skips the
-    /// tree-sitter route for it and returns no outline (tree-sitter is the only
-    /// signature path; there is no regex/heuristic fallback). Used by
-    /// markup/style grammars (HTML/CSS) that have no function-body
-    /// concept to strip.
+    /// signature extractor drops. Every first-class grammar has a body query;
+    /// structural, signature, and graph capability inventories therefore agree.
     pub body_query: &'static str,
     pub comment_style: &'static str,
 }
@@ -76,16 +71,6 @@ const CS_BODY_QUERY: &str = r#"[
   (accessor_declaration      body: (block) @body)
   (local_function_statement  body: (block) @body)
   (lambda_expression         body: (block) @body)
-]"#;
-
-const PHP_BODY_QUERY: &str = r#"[
-  (function_definition body: (compound_statement) @body)
-  (method_declaration body: (compound_statement) @body)
-]"#;
-
-const KOTLIN_BODY_QUERY: &str = r#"[
-  (function_declaration (function_body) @body)
-  (anonymous_function (function_body) @body)
 ]"#;
 
 /// Scala: strip function/method bodies. Class/object/trait bodies are intentionally NOT
@@ -183,49 +168,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: C_BODY_QUERY,
             comment_style: "c",
         },
-        LanguageEntry {
-            name: "PHP",
-            selector_aliases: &[],
-            // PHP variables require `$` prefix — expando char must be `$` so
-            // patterns like `foo($ARG)` parse as valid PHP. See structural/language.rs.
-            extensions: &["php"],
-            language_id: Some("php"),
-            language: tree_sitter_php::LANGUAGE_PHP.into(),
-            body_query: PHP_BODY_QUERY,
-            comment_style: "c",
-        },
-        LanguageEntry {
-            name: "Kotlin",
-            selector_aliases: &[],
-            extensions: &["kt", "kts"],
-            language_id: Some("kotlin"),
-            language: tree_sitter_kotlin_ng::LANGUAGE.into(),
-            body_query: KOTLIN_BODY_QUERY,
-            comment_style: "c",
-        },
-        // ── Markup / style grammars: structural-search only ──────────────────
-        // These grammars are already linked (the LSP layer uses them). They are
-        // registered here so `structural::search` can resolve them, but they
-        // carry an EMPTY `body_query` so the signature path returns no outline
-        // (markup/styles have no fn body to strip).
-        LanguageEntry {
-            name: "HTML",
-            selector_aliases: &[],
-            extensions: &["html", "htm"],
-            language_id: Some("html"),
-            language: tree_sitter_html::LANGUAGE.into(),
-            body_query: "",
-            comment_style: "html",
-        },
-        LanguageEntry {
-            name: "CSS",
-            selector_aliases: &[],
-            extensions: &["css"],
-            language_id: Some("css"),
-            language: tree_sitter_css::LANGUAGE.into(),
-            body_query: "",
-            comment_style: "c",
-        },
         // Scala: function bodies stripped; class/object/trait bodies kept so
         // member signatures remain visible (mirrors Java/TS behaviour).
         #[cfg(feature = "tree-sitter-scala")]
@@ -236,20 +178,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("scala"),
             language: tree_sitter_scala::LANGUAGE.into(),
             body_query: SCALA_BODY_QUERY,
-            comment_style: "c",
-        },
-        // ── Config grammars: structural-search only ──────────────────────────
-        // Linked for the LSP layer; registered here so structural search can run
-        // shape queries over JSON package manifests and configuration files.
-        // Empty body_query + presence in NO_SYMBOL_EXTS keeps the
-        // signature path returning None (data files have no code signatures).
-        LanguageEntry {
-            name: "JSON",
-            selector_aliases: &[],
-            extensions: &["json", "jsonc"],
-            language_id: Some("json"),
-            language: tree_sitter_json::LANGUAGE.into(),
-            body_query: "",
             comment_style: "c",
         },
     ];
@@ -300,16 +228,10 @@ pub fn supported_extensions() -> Vec<&'static str> {
         .collect()
 }
 
-/// Extensions that produce a signature outline: tree-sitter grammars with a
-/// non-empty `body_query`. Excludes structural-search-only grammars
-/// (HTML/CSS/JSON), which have no function bodies to strip and therefore no
-/// outline.
+/// Extensions that produce a signature outline. Every registry entry is a
+/// first-class language with a non-empty body query.
 pub fn signature_extensions() -> Vec<&'static str> {
-    LANGUAGE_TABLE
-        .iter()
-        .filter(|e| !e.body_query.is_empty())
-        .flat_map(|e| e.extensions.iter().copied())
-        .collect()
+    supported_extensions()
 }
 
 #[cfg(test)]

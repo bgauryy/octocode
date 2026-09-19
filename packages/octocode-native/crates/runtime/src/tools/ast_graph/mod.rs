@@ -274,4 +274,43 @@ mod drift_tests {
         .expect_err("drift requires baseline");
         assert_eq!(missing.code, "invalidGraphQuery");
     }
+
+    #[test]
+    fn cycles_on_unresolvable_rust_crate_imports_degrades_instead_of_a_confident_zero() {
+        // A Rust source tree whose `crate::` imports cannot be resolved (no
+        // Cargo.toml, syntax mode). Before the fix this returned `cycleCount:0`
+        // with no confidence marker — a confident-looking zero on a graph with
+        // zero resolved edges. It must now degrade honestly.
+        let temp = tempfile::TempDir::new().expect("temp");
+        let root = temp.path();
+        std::fs::write(
+            root.join("foo.rs"),
+            "use crate::bar::thing;\npub fn foo() { thing(); }\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("bar.rs"), "pub fn thing() {}\n").unwrap();
+
+        let out = run(
+            json!({"operation":"topology","analysis":"cycles","path":root.to_string_lossy()}),
+            root,
+        )
+        .expect("cycles result");
+
+        // The zero is still reported, but no longer as a confident answer.
+        assert_eq!(out["summary"]["cycleCount"], json!(0));
+        assert_eq!(
+            out["confidence"], "low",
+            "unresolved edges must lower confidence: {out}"
+        );
+        assert_eq!(
+            out["summary"]["importResolution"]["status"], "failed",
+            "zero resolved imports is a failed resolution: {out}"
+        );
+        assert_eq!(out["summary"]["importResolution"]["resolved"], json!(0));
+        let reasons = out["partialReasons"].as_array().expect("partialReasons");
+        assert!(
+            reasons.iter().any(|r| r == "unresolvedImports"),
+            "unresolved crate:: imports must be flagged: {out}"
+        );
+    }
 }

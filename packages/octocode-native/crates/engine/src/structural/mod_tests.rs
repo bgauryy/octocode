@@ -186,7 +186,7 @@ fn captures_multi_metavar_as_list() {
 
 #[test]
 fn document_probe_matches_root_without_ellipsis_panic() {
-    for ext in ["ts", "py", "html", "json"] {
+    for ext in ["ts", "py"] {
         let matches = run_pattern("foo(a)\nbar(b)\n", ext, "$$$");
         assert_eq!(matches.len(), 1, "{ext} should return the document root");
         assert_eq!(matches[0].start_line, 1);
@@ -251,15 +251,6 @@ fn unsupported_extension_errors() {
         Err(e) => assert!(e.contains("does not support")),
         Ok(_) => panic!("expected an unsupported-extension error"),
     }
-}
-
-#[test]
-fn php_pattern_can_start_with_a_variable_capture() {
-    let source = "<?php\n$first = 5;\n$second = 6;\n";
-    let matches = run_pattern(source, "php", "$NAME = $VALUE;");
-    assert_eq!(matches.len(), 2);
-    assert_eq!(matches[0].metavars["NAME"], vec!["$first"]);
-    assert_eq!(matches[1].metavars["NAME"], vec!["$second"]);
 }
 
 #[test]
@@ -607,59 +598,6 @@ fn invalid_pattern_errors() {
 
 // ── markup / style grammars (HTML/CSS) ────────────────────────────────────
 
-#[test]
-fn css_pattern_captures_declaration_value() {
-    // Expando is `_`, so `$C` → `_C`, a valid CSS identifier.
-    let src = ".btn {\n  color: red;\n}\n";
-    let matches = run_pattern(src, "css", ".btn { color: $C; }");
-    assert_eq!(matches.len(), 1);
-    assert_eq!(
-        matches[0].metavars.get("C").map(Vec::as_slice),
-        Some(&["red".to_string()][..])
-    );
-}
-
-#[test]
-fn css_rule_matches_by_kind() {
-    // A `rule` surface needs no expando — match every rule_set.
-    let src = ".a { color: red; }\n.b { color: blue; }\n";
-    let rule = "rule:\n  kind: rule_set\n";
-    let matches = search(src, "css", None, Some(rule)).expect("css rule search");
-    assert_eq!(matches.len(), 2);
-}
-
-#[test]
-fn html_tag_name_metavar_resolves_with_z_expando() {
-    // The reason HTML's expando is `z`, not `µ`: tree-sitter-html's tagName
-    // scanner rejects non-ASCII, so a tag-name metavar only works with `z`.
-    let src = "<input>\n";
-    let matches = run_pattern(src, "html", "<$TAG>");
-    assert_eq!(matches.len(), 1);
-    assert_eq!(
-        matches[0].metavars.get("TAG").map(Vec::as_slice),
-        Some(&["input".to_string()][..])
-    );
-}
-
-#[test]
-fn html_element_pattern_matches_nested_tag() {
-    let src = "<section>\n  <button id=\"go\">Click</button>\n</section>\n";
-    let matches = run_pattern(src, "html", "<button id=\"go\">$$$</button>");
-    assert_eq!(matches.len(), 1);
-    assert_eq!(matches[0].start_line, 2);
-}
-
-#[test]
-fn markup_and_style_extensions_are_supported() {
-    let exts = supported_extensions();
-    for ext in ["html", "htm", "css"] {
-        assert!(
-            exts.iter().any(|e| e == ext),
-            "structural search must support .{ext}"
-        );
-    }
-}
-
 // ── Scala ─────────────────────────────────────────────────────────────────
 
 #[cfg(feature = "tree-sitter-scala")]
@@ -700,15 +638,7 @@ fn scala_extensions_are_supported() {
     }
 }
 
-// ── JSON config grammar + extension aliases ───────────────────────────────
-
-#[test]
-fn json_rule_matches_pairs() {
-    let src = "{\n  \"a\": 1,\n  \"b\": 2\n}\n";
-    let rule = "rule:\n  kind: pair\n";
-    let matches = search(src, "json", None, Some(rule)).expect("json rule search");
-    assert_eq!(matches.len(), 2);
-}
+// ── First-class extension aliases ─────────────────────────────────────────
 
 #[test]
 fn mts_uses_typescript_grammar_and_dollar_expando() {
@@ -723,9 +653,9 @@ fn mts_uses_typescript_grammar_and_dollar_expando() {
 }
 
 #[test]
-fn config_and_alias_extensions_are_supported() {
+fn retained_alias_extensions_are_supported() {
     let exts = supported_extensions();
-    for ext in ["json", "jsonc", "mts", "cts", "pyi"] {
+    for ext in ["mts", "cts", "pyi"] {
         assert!(
             exts.iter().any(|e| e == ext),
             "structural search must support .{ext}"

@@ -1,5 +1,5 @@
-use grep::pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
-use grep::regex::RegexMatcherBuilder;
+use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
+use grep_regex::RegexMatcherBuilder;
 #[cfg(feature = "napi-addon")]
 use napi_derive::napi;
 

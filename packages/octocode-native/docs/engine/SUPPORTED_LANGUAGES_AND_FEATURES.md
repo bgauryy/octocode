@@ -15,28 +15,22 @@ depending on the strategy table.
 
 ## Structural (AST) search — `astSearch operation:"match"`
 
-Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` metavars) and `rule` (YAML, `kind`/`has`/`inside`/`all`/`any`/`not`). A `rule: kind: NODE_KIND` query bypasses pattern-fragment parsing and dispatches directly to the registered grammar. Use it when `pattern` parsing does not represent the intended code shape. Direct and nested rule patterns share the same grammar-checked fragment context: Java calls and CSS declarations may omit a trailing semicolon without changing matches or capture ranges for complete patterns.
+Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` metavars) and `rule` (YAML, `kind`/`has`/`inside`/`all`/`any`/`not`). YAML is the rule-document format; it does not imply YAML source parsing. A `rule: kind: NODE_KIND` query bypasses pattern-fragment parsing and dispatches directly to the registered grammar. Direct and nested rule patterns share the same grammar-checked fragment context.
 
-| Language | Extensions | Pattern evidence | Notes |
-|---|---|---|---|
-| C | `c` `h` | ✅ direct fixture | |
-| C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | ✅ direct fixture | Function patterns with `$$$BODY` repair the narrow C++11 initializer-list ambiguity only when the alternate parse is a `function_definition`; ordinary initializer-list patterns keep their native parse |
-| C# | `cs` | ✅ direct fixture | The matcher parses patterns inside a transparent synthetic wrapper class to provide member context |
-| Go | `go` | ✅ matrix fixture | Representative patterns; not every syntax construct |
-| Java | `java` | ✅ direct and composed-rule fixtures | Bare method-call patterns receive grammar-checked statement context; complete patterns keep their native parse |
-| Kotlin | `kt` `kts` | ✅ matrix fixtures | Representative patterns; not every syntax construct |
-| PHP | `php` | ⚠️ partial | Function and call patterns work. `$$$ARGS` inside a parameter list parses as variable-variable dereference; use a rule or literal parameter names |
-| Python | `py` `pyi` | ✅ direct fixture | |
-| Rust | `rs` | ✅ direct fixture | |
-| Scala | `sc` `sbt` `scala` | ✅ direct fixture | |
-| TypeScript/JavaScript | `ts` `tsx` `mts` `cts` `js` `jsx` `mjs` `cjs` | ✅ direct fixtures | |
-| **Data/markup (structural, no functions):** CSS, HTML, JSON/JSONC | `css` `htm` `html` `json` `jsonc` | ✅ representative fixtures | CSS and HTML have direct pattern fixtures. HTML `<$TAG>` covers ordinary, script, style, and self-closing start tags while excluding tag-shaped raw text. The inventory matrix also exercises representative whole-source patterns for JSON. Unknown YAML-rule node kinds fail at compile time |
+| Language | Extensions | Notes |
+|---|---|---|
+| C | `c` `h` | `.h` defaults to C; explicitly select C++ when project context requires it |
+| C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | Function patterns repair a narrow C++11 initializer-list ambiguity only when the alternate parse is a function definition |
+| C# | `cs` | Member patterns use a transparent synthetic wrapper class for grammar context |
+| Go | `go` | |
+| Java | `java` | Bare method-call patterns receive grammar-checked statement context |
+| Python | `py` `pyi` | |
+| Rust | `rs` | |
+| Scala | `sc` `sbt` `scala` | |
+| JavaScript | `js` `jsx` `mjs` `cjs` | Tree-sitter owns structural matching; OXC owns richer JS analysis |
+| TypeScript | `ts` `tsx` `mts` `cts` | Tree-sitter owns structural matching; OXC owns richer TS analysis |
 
-The default build registers **33 extensions across 16 grammar families**.
-`packages/octocode-native/tests/tools/localGrammarMatrix.test.ts` exercises
-the full extension inventory through public tools. Its cases cover
-representative syntax, views, and continuations; they do not prove every grammar
-construct or minification transformation correct.
+The default release build registers exactly **25 extensions across 10 language families**. Structural, signature, graph-fact, rewrite, and built-in LSP route tests share this boundary. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture.
 
 ## Signature extraction / graph facts — `minify:"symbols"`, `astSearch operation:"topology"`
 
@@ -44,20 +38,11 @@ construct or minification transformation correct.
 
 Cross-file graph linking covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Explicit relative `package.json` imports become bounded metadata leaves. CommonJS links require an unshadowed literal `require`, `module.require`, or `createRequire(import.meta.url)` binding; dynamic, shadowed, reassigned, and otherwise ambiguous loaders remain coverage diagnostics. Python wildcards, ambiguous package attributes, and ambiguous stub layouts remain diagnostics. C/C++ system and macro includes are not linked. Other languages report unsupported cross-file linking rather than producing heuristic edges.
 
-Supported (28 extensions in the default build): every code language in the
-preceding structural table. The registered body queries determine signature
-support; use the capability APIs for builds with optional features turned off.
+Supported: the same exact 25 extensions in the structural table. Every registered grammar has a real body query; use the capability APIs for builds with optional C++, C#, or Scala features turned off.
 
-TOML (`toml`), Lua (`lua`), and Zig (`zig`) have no native analysis, language-specific minifier, or built-in LSP route. Text search and ordinary file reads remain available.
+Kotlin (`kt`/`kts`), PHP (`php`), CSS (`css`), HTML (`html`/`htm`), JSON (`json`/`jsonc`), TOML, Lua, Zig, Ruby, SCSS, SQL, Swift, YAML, Elixir, HCL/Terraform, Protobuf, Shell, Less, OCaml, Julia, R, Erlang, Vue, Svelte, Astro, Dart, and other non-target languages have no native source grammar. Grammar-dependent operations return a typed unsupported result instead of selecting another parser.
 
-The native engine has no Tree-sitter grammar for Ruby (`rb`/`rake`/`gemspec`/`ru`),
-SCSS (`scss`), SQL (`sql`), Swift (`swift`), YAML (`yaml`/`yml`), Elixir
-(`ex`/`exs`), HCL/Terraform (`tf`/`hcl`/`tfvars`), Protobuf (`proto`),
-Bash/Shell (`sh`/`bash`/`zsh`), Less (`less`), OCaml (`ml`/`mli`), Julia
-(`jl`), R (`r`), Erlang (`erl`/`hrl`), Vue, Svelte, Astro, or Dart. Structural
-queries report these extensions as unsupported; text search remains available.
-Minification and external language-server resolution are independent of native
-grammar availability.
+Text search, ordinary reads, GitHub/history operations, artifact lookup, file recognition, generic best-effort minification, and trusted custom LSP routes remain language-agnostic. Packagist/Composer and Maven artifact search are unaffected by removal of PHP and Kotlin source parsing.
 
 ## Minification — file reads and search fragments
 
@@ -70,7 +55,7 @@ a syntax parser. Scala `.scala`, `.sc`, and `.sbt` share one strategy.
 |---|---|---|
 | `none` | Skips minification; extraction, security redaction, and response formatting still apply | Source evidence, comments, type declarations, edits, and literal matches |
 | `standard` | Uses language-dependent processing. JS/TS uses OXC compact code generation without optimization, mangling, or type-declaration removal; other strategies compact JSON, markup, CSS, Markdown, or comments and whitespace | Orientation; use `none` for exact text, comments, and formatting |
-| `symbols` | Extracts an outline for 28 code extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
+| `symbols` | Extracts an outline for the 25 first-class extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
 
 For file reads, `fullContent:true` defaults to `none`. Local line ranges also
 default to `none`; GitHub line ranges and other ordinary reads default to
@@ -86,10 +71,7 @@ before quoting or checking identifier usage.
 
 Native regression coverage exercises all 148 configured extensions in standard
 and full minification, all 15 filename overrides, and embedded script views.
-The public file-read matrix exercises 33 extensions × three modes × two
-`fullContent` settings × two readers, executing character continuations and
-reconstructing each transformed view. This is representative syntax coverage,
-not exhaustive language conformance.
+Public file-read and engine FFI tests exercise retained and removed-language fixtures, transformed views, and continuations. Minification coverage is intentionally broader than the first-class parser set and is representative rather than exhaustive language conformance.
 
 History has a separate contract: PR details accept `none` or `standard` for
 body, comments, reviews, and patches. Diff compaction is language-independent
@@ -103,17 +85,14 @@ does not establish which transformations ran. See the
 
 ## LSP — `lspSearch`
 
-LSP routing is separate from native grammar support. Ruby, SCSS, SQL, Swift,
-YAML, Shell, Less, and Elixir have LSP routes without structural grammars.
-Scala has a structural grammar and
-built-in Metals routes for `.scala` and `.sc`.
+Built-in LSP routing covers the same ten first-class language families and 25 extensions. Scala routes `.scala`, `.sc`, and `.sbt` to Metals. `typescript-language-server --stdio` remains the stable JS/TS default; `tsgo` is available only through an explicit override until parity evidence exists. Python currently defaults to `pylsp`; BasedPyright/Pyright preference requires a separately committed executable and behavior matrix.
 
 | Source | Languages | What happens |
 |---|---|---|
-| **Workspace, ecosystem, or PATH** | All built-in routes, including TypeScript/JavaScript, Python, Bash, data formats, and host toolchains | Resolves an installed known command; the engine npm package does not bundle language servers |
+| **Workspace, ecosystem, or PATH** | The ten built-in language families | Resolves an installed known command; the engine npm package does not bundle language servers |
 | **Managed cache** | Rust (`rust-analyzer`), C/C++ (`clangd`) | Uses assets explicitly installed by `octocode lsp-server install` after HTTPS and SHA-256 verification |
-| **Language-specific override** | All built-in routes | Uses an `OCTOCODE_*_SERVER_PATH` command after executable validation |
-| **Custom configuration** | Other file types or provider overrides | Registers an extension, command, arguments, and language ID; project configuration requires explicit trust |
+| **Language-specific override** | Built-in routes | Uses the matching `OCTOCODE_*_SERVER_PATH` command after executable validation |
+| **Custom configuration** | Any extension, including removed first-class routes | Registers an extension, command, arguments, and language ID; project configuration requires explicit trust |
 
 `documentSymbols`, `definition`, `references`, `callers`, `callees`,
 `callHierarchy`, `hover`, `typeDefinition`, `implementation`,

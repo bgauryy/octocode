@@ -81,6 +81,16 @@ shaping, and CLI behavior. The engine crate owns reusable search, syntax,
 minification, security, graph, and LSP algorithms. They remain separate crates
 and separate addons even though one npm distribution owns their artifacts.
 
+### Language boundary
+
+The default release has ten first-class source languages and exactly 25
+extensions: JavaScript, TypeScript, Rust, Python, C, C++, Java, Scala, Go, and
+C#. Structural search/rewrite, signatures, graph facts, and built-in LSP routes
+share this boundary. Text search, ordinary reads, generic best-effort
+minification, artifact lookup, and trusted custom LSP configuration remain
+language-agnostic. See
+[`docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
+
 ### npm / platform distribution layout
 
 ```

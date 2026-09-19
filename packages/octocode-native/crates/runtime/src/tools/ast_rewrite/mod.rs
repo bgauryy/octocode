@@ -1067,6 +1067,20 @@ fn io_error(error: std::io::Error) -> RewriteError {
     RewriteError::new("ast.rewrite.io", error.to_string())
 }
 
+/// Base directory for astRewrite's cross-process lock and journal state.
+///
+/// Defaults to the shared system temp dir so real, concurrent octocode
+/// processes serialize against the *same* lock and honor each other's journals
+/// — the safety guarantee must not be namespaced away. `OCTOCODE_AST_REWRITE_STATE_DIR`
+/// redirects it for sandboxed/hardened deployments where the system temp dir is
+/// not writable, and lets CI point contending test binaries at private roots
+/// instead of fighting over the one global lock.
+pub(super) fn state_base_dir() -> PathBuf {
+    std::env::var_os("OCTOCODE_AST_REWRITE_STATE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+}
+
 /// Create `path` (and any missing parents) with owner-only `0700` permissions on
 /// unix, then verify the resulting directory is owned by the current uid. The
 /// journal and lock roots live under `std::env::temp_dir()`, a shared,
@@ -1208,10 +1222,18 @@ mod tests {
     }
 
     fn make_temp_dir(prefix: &str) -> Result<PathBuf, RewriteError> {
+        // pid keeps names unique across processes; the atomic counter keeps them
+        // unique within a process even when two threads read the same clock tick.
+        // Before the counter, concurrent fixtures under `cargo test` collided on
+        // `{pid}-{nanos}` and panicked on `create_dir` (AlreadyExists) — the suite
+        // only went green under `--test-threads=1`.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |duration| duration.as_nanos());
-        let path = std::env::temp_dir().join(format!("{prefix}{}-{unique}", std::process::id()));
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("{prefix}{}-{unique}-{seq}", std::process::id()));
         fs::create_dir(&path).map_err(io_error)?;
         Ok(path)
     }

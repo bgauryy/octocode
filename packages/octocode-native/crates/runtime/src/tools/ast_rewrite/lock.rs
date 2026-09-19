@@ -25,7 +25,7 @@ pub(super) struct RootLock {
 
 impl RootLock {
     pub(super) fn acquire(root: &Path) -> Result<Self, RewriteError> {
-        let home = std::env::temp_dir().join("octocode-ast-rewrite-locks-v1");
+        let home = super::state_base_dir().join("octocode-ast-rewrite-locks-v1");
         create_private_dir_all(&home)?;
         let guard = home.join(".guard");
         let deadline = Instant::now() + Duration::from_secs(5);

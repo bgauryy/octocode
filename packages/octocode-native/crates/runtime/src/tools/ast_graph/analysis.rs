@@ -34,7 +34,7 @@ pub(crate) fn analyze(
     base.insert("path".into(), json!(b.display_path));
     base.insert("filesScanned".into(), json!(b.facts.len()));
     base.insert("filesSkipped".into(), json!(b.files_skipped));
-    let (items, summary, extra_warnings, low) = match q.analysis {
+    let (items, mut summary, extra_warnings, mut low) = match q.analysis {
         GraphAnalysis::Dependencies | GraphAnalysis::Dependents => traversal(&b, q)?,
         GraphAnalysis::Path => path_analysis(&b, q)?,
         GraphAnalysis::Cycles => cycles(&b),
@@ -48,6 +48,35 @@ pub(crate) fn analyze(
         }
     };
     warnings.extend(extra_warnings);
+    // Import-resolution health drives whether an edge-derived answer can be
+    // trusted. Compute it before shaping the summary/confidence so an incomplete
+    // import graph never presents as a confident zero (e.g. `cycleCount:0` when
+    // no `crate::` import could be resolved). Only ever escalates to low — it
+    // never downgrades a signal an analysis already marked low.
+    let has_parse = b.diagnostics.iter().any(|d| d.code == "parse-recovery");
+    let has_unresolved = b
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "unresolved-internal");
+    let has_unsupported = b
+        .diagnostics
+        .iter()
+        .any(|d| d.code == "unsupported-linking");
+    if has_unresolved || has_unsupported {
+        low = true;
+        if let Some(obj) = summary.as_object_mut() {
+            let resolved = b.imports[0];
+            obj.insert(
+                "importResolution".into(),
+                json!({
+                    "status": if resolved == 0 { "failed" } else { "partial" },
+                    "resolved": resolved,
+                    "unresolvedInternal": b.imports[2],
+                    "unsupported": b.imports[3],
+                }),
+            );
+        }
+    }
     let (page, pagination, limit_truncated, total) = paginate(items, q);
     base.insert("results".into(), Value::Array(page));
     base.insert("pagination".into(), pagination);
@@ -69,15 +98,6 @@ pub(crate) fn analyze(
     if b.files_skipped > 0 {
         reasons.push("filesSkipped".into());
     }
-    let has_parse = b.diagnostics.iter().any(|d| d.code == "parse-recovery");
-    let has_unresolved = b
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "unresolved-internal");
-    let has_unsupported = b
-        .diagnostics
-        .iter()
-        .any(|d| d.code == "unsupported-linking");
     if has_parse {
         reasons.push("parseRecovery".into())
     }

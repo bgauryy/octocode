@@ -117,9 +117,9 @@ fn tsgo_args() -> Vec<String> {
     vec!["--lsp".to_owned(), "-stdio".to_owned()]
 }
 
-/// Resolve a spec's command + args. JS/TS gets the Track-T backend ladder:
-/// `OCTOCODE_TS_SERVER_PATH` → `tsgo` on PATH → `typescript-language-server`
-/// (zero-config default). Every other language keeps its single spec.
+/// Resolve a spec's command + args. JS/TS keeps
+/// `typescript-language-server` as the stable default. An explicit
+/// `OCTOCODE_TS_SERVER_PATH` may select `tsgo`, whose invocation differs.
 fn resolve_spec_invocation(spec: &ServerSpec, workspace_root: &str) -> (String, Vec<String>) {
     let env_override = spec
         .env_var
@@ -136,11 +136,8 @@ fn resolve_spec_invocation(spec: &ServerSpec, workspace_root: &str) -> (String, 
             };
             return resolve_server_invocation(&command, args, workspace_root);
         }
-        // 2) tsgo on PATH (opt-in, no flag) — preferred when present.
-        if which::which("tsgo").is_ok() {
-            return resolve_server_invocation("tsgo", tsgo_args(), workspace_root);
-        }
-        // 3) Fall through to the typescript-language-server default below.
+        // Automatic tsgo preference is intentionally disabled until the
+        // held-out parity matrix covers all public LSP operations.
     }
 
     let command = env_override.unwrap_or_else(|| spec.command.to_owned());
@@ -226,12 +223,6 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_PYTHON_SERVER_PATH"),
         },
-        ".sh" => ServerSpec {
-            language_id: "shellscript",
-            command: "bash-language-server",
-            args: &["start"],
-            env_var: Some("OCTOCODE_BASH_SERVER_PATH"),
-        },
         ".go" => ServerSpec {
             language_id: "go",
             command: "gopls",
@@ -268,80 +259,7 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_CSHARP_SERVER_PATH"),
         },
-        ".json" | ".jsonc" => ServerSpec {
-            language_id: "json",
-            command: "vscode-json-language-server",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_JSON_SERVER_PATH"),
-        },
-        ".yaml" | ".yml" => ServerSpec {
-            language_id: "yaml",
-            command: "yaml-language-server",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_YAML_SERVER_PATH"),
-        },
-        ".html" | ".htm" => ServerSpec {
-            language_id: "html",
-            command: "vscode-html-language-server",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_HTML_SERVER_PATH"),
-        },
-        ".css" => ServerSpec {
-            language_id: "css",
-            command: "vscode-css-language-server",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
-        },
-        ".scss" => ServerSpec {
-            language_id: "scss",
-            command: "vscode-css-language-server",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
-        },
-        ".less" => ServerSpec {
-            language_id: "less",
-            command: "vscode-css-language-server",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_CSS_SERVER_PATH"),
-        },
-        ".php" => ServerSpec {
-            language_id: "php",
-            command: "intelephense",
-            args: &["--stdio"],
-            env_var: Some("OCTOCODE_PHP_SERVER_PATH"),
-        },
-        ".sql" => ServerSpec {
-            language_id: "sql",
-            command: "sqls",
-            args: &[],
-            env_var: Some("OCTOCODE_SQL_SERVER_PATH"),
-        },
-        ".swift" => ServerSpec {
-            language_id: "swift",
-            command: "sourcekit-lsp",
-            args: &[],
-            env_var: Some("OCTOCODE_SWIFT_SERVER_PATH"),
-        },
-        ".rb" | ".rake" | ".gemspec" | ".ru" => ServerSpec {
-            language_id: "ruby",
-            command: "ruby-lsp",
-            args: &[],
-            env_var: Some("OCTOCODE_RUBY_SERVER_PATH"),
-        },
-        // Resolve-if-installed servers — absent binary means no server.
-        ".kt" | ".kts" => ServerSpec {
-            language_id: "kotlin",
-            command: "kotlin-language-server",
-            args: &[],
-            env_var: Some("OCTOCODE_KOTLIN_SERVER_PATH"),
-        },
-        ".ex" | ".exs" => ServerSpec {
-            language_id: "elixir",
-            command: "elixir-ls",
-            args: &[],
-            env_var: Some("OCTOCODE_ELIXIR_SERVER_PATH"),
-        },
-        ".scala" | ".sc" => ServerSpec {
+        ".scala" | ".sc" | ".sbt" => ServerSpec {
             language_id: "scala",
             command: "metals",
             args: &[],
@@ -636,7 +554,7 @@ mod tests {
 
     #[test]
     fn routes_scala_to_metals_without_spurious_stdio_arguments() {
-        for extension in [".scala", ".sc"] {
+        for extension in [".scala", ".sc", ".sbt"] {
             let spec = super::spec_for_extension(extension).expect("Scala provider");
             assert_eq!(spec.language_id, "scala");
             assert_eq!(spec.command, "metals");
@@ -660,13 +578,8 @@ mod tests {
             ("demo.c", "c"),
             ("demo.cpp", "cpp"),
             ("demo.cs", "csharp"),
-            ("demo.sh", "shellscript"),
-            ("demo.json", "json"),
-            ("demo.yaml", "yaml"),
-            ("demo.html", "html"),
-            ("demo.css", "css"),
-            ("demo.scss", "scss"),
-            ("demo.less", "less"),
+            ("demo.scala", "scala"),
+            ("demo.sbt", "scala"),
         ];
 
         for (file_name, expected) in cases {
@@ -674,6 +587,20 @@ mod tests {
                 detect_language_id(file_name.to_owned()).as_deref(),
                 Some(expected),
                 "{file_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_routes_cover_the_exact_first_class_extension_set() {
+        let expected = [
+            "c", "cc", "cjs", "cpp", "cs", "cts", "cxx", "go", "h", "hh", "hpp", "hxx", "java",
+            "js", "jsx", "mjs", "mts", "py", "pyi", "rs", "sbt", "sc", "scala", "ts", "tsx",
+        ];
+        for extension in expected {
+            assert!(
+                super::spec_for_extension(&format!(".{extension}")).is_some(),
+                "missing built-in route for .{extension}"
             );
         }
     }
@@ -690,29 +617,24 @@ mod tests {
     }
 
     #[test]
-    fn maps_scss_and_less_to_css_language_server_with_specific_language_ids() {
-        let workspace_root = "/workspace".to_owned();
-        let cases = [("demo.scss", "scss"), ("demo.less", "less")];
-
-        for (file_name, expected_language_id) in cases {
-            let Some(config) =
-                default_server_for_file(file_name.to_owned(), workspace_root.clone())
-            else {
-                panic!("missing server config for {file_name}");
-            };
-            assert_eq!(config.command, "vscode-css-language-server");
-            assert_eq!(config.language_id.as_deref(), Some(expected_language_id));
+    fn removed_languages_have_no_builtin_server() {
+        for extension in [
+            "sh", "php", "json", "yaml", "html", "css", "scss", "less", "sql", "swift", "rb", "kt",
+            "ex",
+        ] {
+            assert!(
+                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
+                    .is_none(),
+                ".{extension} must require trusted custom configuration"
+            );
         }
     }
 
     #[test]
-    fn maps_shell_scripts_to_an_externally_resolvable_bash_server() {
-        let config = default_server_for_file("demo.sh".to_owned(), "/workspace".to_owned())
-            .expect("default shell server config");
-
-        assert_eq!(config.command, "bash-language-server");
-        assert_eq!(config.args, Some(vec!["start".to_owned()]));
-        assert_eq!(config.language_id.as_deref(), Some("shellscript"));
+    fn typescript_language_server_remains_the_stable_default() {
+        let spec = super::spec_for_extension(".ts").expect("TypeScript provider");
+        assert_eq!(spec.command, "typescript-language-server");
+        assert_eq!(spec.args, ["--stdio"]);
     }
 
     #[test]
@@ -770,18 +692,18 @@ mod tests {
     }
 
     #[test]
-    fn explicit_discovery_options_use_resolved_config_without_process_env() {
+    fn explicit_discovery_options_support_arbitrary_extensions() {
         let root = temp_test_root("octocode-engine-explicit-lsp-config");
         std::fs::create_dir_all(&root).expect("create temporary root");
         let config_path = root.join("native-lsp.json");
         std::fs::write(
             &config_path,
-            r#"{"languageServers":{".rs":{"command":"custom-rust-server","args":["--stdio"],"languageId":"rust"}}}"#,
+            r#"{"languageServers":{".php":{"command":"custom-php-server","args":["--stdio"],"languageId":"php"}}}"#,
         )
         .expect("write explicit lsp config");
         let root_str = root.to_string_lossy().into_owned();
         let config = default_server_for_file_with_options(
-            "demo.rs".to_owned(),
+            "demo.php".to_owned(),
             root_str,
             &LspDiscoveryOptions {
                 config_path: Some(config_path),
@@ -789,8 +711,8 @@ mod tests {
             },
         )
         .expect("explicit server config");
-        assert_eq!(config.command, "custom-rust-server");
-        assert_eq!(config.language_id.as_deref(), Some("rust"));
+        assert_eq!(config.command, "custom-php-server");
+        assert_eq!(config.language_id.as_deref(), Some("php"));
         let _ = std::fs::remove_dir_all(root);
     }
 

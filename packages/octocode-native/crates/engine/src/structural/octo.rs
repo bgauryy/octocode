@@ -1315,14 +1315,6 @@ fn effective_pattern_root<'a>(mut node: Node<'a>, source: &str) -> Node<'a> {
             node = named[0];
             continue;
         }
-        // PHP's `program` wraps a leading `php_tag` (from the `<?php `
-        // prefix `preprocess_pattern` adds) alongside the real content node
-        // — two named children, so the single-child unwrap above doesn't
-        // apply. Skip the tag and continue unwrapping from the real content.
-        if named.len() == 2 && node.kind() == "program" && named[0].kind() == "php_tag" {
-            node = named[1];
-            continue;
-        }
         // C#'s synthetic wrapper class (see CSHARP_WRAP_MARKER doc above):
         // unwrap `class __OctoWrap { <member> }` down to the single real
         // member, giving it real class-body context (a bare `public int

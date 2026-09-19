@@ -188,9 +188,7 @@ pub(super) fn is_exported_declaration(
         "rs" => text.starts_with("pub ") || text.starts_with("pub("),
         "go" => name.chars().next().is_some_and(|ch| ch.is_uppercase()),
         "py" | "pyi" => parent.is_none() && !name.starts_with('_'),
-        "java" | "kt" | "kts" | "cs" | "php" => {
-            text.starts_with("public ") || text.starts_with("export ")
-        }
+        "java" | "cs" => text.starts_with("public ") || text.starts_with("export "),
         "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "hh" | "hxx" => {
             parent.is_none() && !text.starts_with("static ")
         }

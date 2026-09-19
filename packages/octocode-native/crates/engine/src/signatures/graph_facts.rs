@@ -322,7 +322,7 @@ pub fn graph_fact_capabilities_json() -> String {
                 language: language_label(ext, entry.language_id),
                 language_id: entry.language_id.map(str::to_owned),
                 structural_search: true,
-                signature_outline: !entry.body_query.is_empty(),
+                signature_outline: true,
                 graph_facts: true,
                 fact_families: fact_families_for_extension(ext),
             })
@@ -918,8 +918,7 @@ fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
     match canonical_extension(ext) {
         // JS/TS (oxc lane) already emit import/export facts — advertise them so
         // `getGraphFactCapabilities` matches what `extractGraphFacts` returns.
-        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "php" | "kt"
-        | "scala" => {
+        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "scala" => {
             families.push("imports");
             families.push("exports");
         }

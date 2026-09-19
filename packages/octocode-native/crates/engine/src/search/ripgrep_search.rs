@@ -20,10 +20,10 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::{Error, Result, Status};
-use grep::matcher::Matcher;
-use grep::pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
-use grep::regex::RegexMatcherBuilder;
-use grep::searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
+use grep_matcher::Matcher;
+use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
+use grep_regex::RegexMatcherBuilder;
+use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
 use ignore::overrides::OverrideBuilder;
 use ignore::types::TypesBuilder;
 use ignore::{WalkBuilder, WalkState};

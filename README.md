@@ -419,18 +419,18 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 
 ## Language support
 
-Four code-intelligence axes; three are native to the Rust engine and need no external tooling:
+Octocode has ten first-class source languages: JavaScript, TypeScript, Rust, Python, C, C++, Java, Scala, Go, and C#. Their structural, signature, graph-fact, rewrite, and built-in LSP inventories agree on exactly 25 extensions.
 
 | Axis | What it does | How to use it |
 |------|--------------|---------------|
-| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML `rule`) across 60+ extensions. | `astSearch operation:"match"` · CLI `tools astSearch --scheme` |
-| **Signature outline** | Body-free skeleton with line numbers from real tree-sitter parsing, no heuristics. An anti-growth guard returns the real file when a skeleton is not smaller. | `minify:"symbols"` · CLI `tools localFetch --scheme` |
-| **Content minification** | Comment/whitespace stripping for 70+ languages and config formats; HTML/Vue/Svelte also minify embedded `<style>`/`<script>`. | `minify:"standard"` (default) |
-| **LSP navigation** | definition, references, callers/callees, callHierarchy, hover, typeDefinition, implementation, documentSymbols, through an installed language server; JS/TS also have a native, no-server path. | `lspSearch` · CLI `tools lspSearch --scheme` |
+| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 25 first-class extensions. | `astSearch operation:"match"` · CLI `tools astSearch --scheme` |
+| **Signature outline** | Body-free skeleton with line numbers from the same grammar registry, no heuristics. | `minify:"symbols"` · CLI `tools localFetch --scheme` |
+| **Content minification** | Broader best-effort comment/whitespace processing for code and data formats. A minifier route is not parser support. | `minify:"standard"` (default) |
+| **LSP navigation** | Semantic navigation through installed servers for the ten built-in language families; trusted custom routes can support other extensions. | `lspSearch` · CLI `tools lspSearch --scheme` |
 
-📋 **Full support matrix:** every extension with its exact AST, signature, LSP,
-and minify capability lives in the
-**[Full format support matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#full-format-support-matrix)**.
+Text search, ordinary reads, GitHub/history tools, and artifact lookup remain language-agnostic. YAML ast-grep rule documents do not imply YAML source parsing. Syntax graph facts are candidates; use LSP for semantic proof.
+
+📋 **Full support matrix:** [Supported languages and features](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
 
 ---
 

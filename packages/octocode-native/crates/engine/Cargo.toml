@@ -31,12 +31,11 @@ crate-type = ["cdylib", "rlib"]
 aho-corasick = "1"
 ast-grep-core = { version = "0.45.3", optional = true }
 ast-grep-config = { version = "0.45.3", optional = true }
-ast-grep-language = { version = "0.45.3", default-features = false, features = ["napi-lang"], optional = true }
-crossbeam-epoch = "0.9.20"
-grep = { version = "0.4", features = ["pcre2"] }
+grep-matcher = "0.1.9"
+grep-pcre2 = "0.1.10"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
 ignore = "0.4"
-lightningcss = { version = "1.0.0-alpha.72", default-features = false, optional = true }
-memmap2 = "0.9.11"
 napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"], optional = true }
 napi-derive = { version = "3", optional = true }
 oxc_allocator = "0.150"
@@ -57,14 +56,9 @@ tree-sitter = "0.27"
 tree-sitter-c = "0.24"
 tree-sitter-c-sharp = { version = "0.23", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
-tree-sitter-css = "0.25"
 tree-sitter-go = "0.25"
-tree-sitter-html = "0.23"
 tree-sitter-java = "0.23"
 tree-sitter-javascript = "0.25"
-tree-sitter-json = "0.24"
-tree-sitter-kotlin-ng = "1.1"
-tree-sitter-php = "0.24"
 tree-sitter-python = "0.25"
 tree-sitter-rust = "0.24.2"
 tree-sitter-scala = { version = "0.26", optional = true }
@@ -86,14 +80,13 @@ harness = false
 
 [features]
 default = ["portable-default", "napi-addon"]
-portable-default = ["tree-sitter-large-grammars", "tree-sitter-scala", "css-quality"]
+portable-default = ["tree-sitter-large-grammars", "tree-sitter-scala"]
 napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build", "embedded-ast-grep-rewrite"]
 napi-test = ["napi-addon", "napi/noop"]
-embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config", "dep:ast-grep-language"]
+embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config"]
 tree-sitter-cpp = ["dep:tree-sitter-cpp"]
 tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
 tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
-css-quality = ["dep:lightningcss"]
 tree-sitter-scala = ["dep:tree-sitter-scala"]
 
 [build-dependencies]

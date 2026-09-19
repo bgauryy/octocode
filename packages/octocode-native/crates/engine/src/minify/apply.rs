@@ -33,13 +33,13 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
             return minify_markdown_core(content);
         }
 
-        // P2: CSS / SCSS / LESS content-view: use lightningcss (much better than blank-line collapse)
+        // CSS / SCSS / LESS content view: bounded best-effort comment and whitespace cleanup.
         if matches!(ext.as_str(), "css" | "scss" | "less" | "sass") {
             return minify_css_quality(content);
         }
 
         // HTML / Vue / Svelte content-view: keep the markup readable but minify
-        // the embedded <style> (lightningcss) and <script> (oxc) blocks where
+        // embedded <style> (lightweight) and <script> (OXC) blocks where
         // the compressible bytes actually live. A generic comment-strip barely
         // touches these files (benchmark: ~0% content-view cut).
         if matches!(ext.as_str(), "html" | "htm" | "vue" | "svelte") {
@@ -178,7 +178,7 @@ mod tests {
         assert!(out.contains("useState"));
     }
 
-    // ── CSS content view (lightningcss) ───────────────────────────────────────
+    // ── CSS content view ──────────────────────────────────────────────────────
     #[test]
     fn css_content_view_compresses_and_strips_comments() {
         let src = "h1 { color: red; font-weight: bold; }\np { margin: 0px; padding: 0px; }\n/* comment */\n.foo { display: flex; }";
@@ -205,18 +205,6 @@ mod tests {
         let out = apply_content_view_minification_inner(src, "main.css");
         assert!(out.contains("body") || out.contains("h1"));
         assert!(out.len() <= src.len());
-    }
-
-    #[cfg(feature = "css-quality")]
-    #[test]
-    fn css_content_view_strips_redundant_zero_px() {
-        let src = "div { margin: 0px; padding: 0px 0px; border-width: 0px; }";
-        let out = apply_content_view_minification_inner(src, "base.css");
-        assert!(
-            out.len() < src.len(),
-            "lightningcss must strip 0px: '{out}'"
-        );
-        assert!(!out.contains("0px"), "0px should become 0: '{out}'");
     }
 
     // ── HTML / Vue / Svelte embedded content view ────────────────────────────
