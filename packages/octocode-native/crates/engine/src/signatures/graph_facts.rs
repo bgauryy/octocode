@@ -380,6 +380,12 @@ fn visit_node(
     std::time::Instant::now() < deadline
 }
 
+/// Emits declaration/edge facts for `node`.
+///
+/// Note the intentional coordinate-basis split on every emitted `GraphDeclaration`:
+/// `line` is 1-based (human-facing, computed as `range.start.line + 1`) while
+/// `range`/`selection_range` are 0-based (`LineIndex` coordinates). Consumers must
+/// not mix the two bases — use `range` for zero-based math and `line` for display.
 fn collect_node_facts(
     node: Node<'_>,
     content: &str,

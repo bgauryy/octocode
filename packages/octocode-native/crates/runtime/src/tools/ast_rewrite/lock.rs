@@ -1,5 +1,5 @@
 //! Filesystem-level mutual-exclusion lock for concurrent astRewrite root directories.
-use super::{RewriteError, io_error, sha256};
+use super::{RewriteError, create_private_dir_all, io_error, sha256};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -26,7 +26,7 @@ pub(super) struct RootLock {
 impl RootLock {
     pub(super) fn acquire(root: &Path) -> Result<Self, RewriteError> {
         let home = std::env::temp_dir().join("octocode-ast-rewrite-locks-v1");
-        fs::create_dir_all(&home).map_err(io_error)?;
+        create_private_dir_all(&home)?;
         let guard = home.join(".guard");
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {

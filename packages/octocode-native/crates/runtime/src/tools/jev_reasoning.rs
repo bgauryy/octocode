@@ -320,3 +320,136 @@ pub fn budget(
         max_body_bytes: MAX_BODY_BYTES,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+
+    #[test]
+    fn route_policy_action_maps_every_route_and_falls_back() {
+        assert_eq!(route_policy_action("hunch_check"), "promote_or_drop_hunch");
+        assert_eq!(
+            route_policy_action("hypothesis_triage"),
+            "test_selected_check"
+        );
+        assert_eq!(route_policy_action("reflection_delta"), "update_or_reframe");
+        assert_eq!(
+            route_policy_action("decision_review"),
+            "review_before_action"
+        );
+        assert_eq!(
+            route_policy_action("disputed_inference"),
+            "verify_selected_basis"
+        );
+        assert_eq!(
+            route_policy_action("hallucination_gate"),
+            "gate_then_qualify"
+        );
+        assert_eq!(
+            route_policy_action("anything_else"),
+            "continue_host_research"
+        );
+    }
+
+    #[test]
+    fn deterministic_gate_skips_when_action_will_not_change() {
+        let gate = deterministic_gate(&json!({"route": "hunch_check", "willChangeAction": false}))
+            .expect("gate fires");
+        assert_eq!(gate["gate"], "skipped");
+        assert_eq!(gate["policyAction"], "act_without_jev");
+        assert_eq!(gate["route"], "hunch_check");
+        assert_eq!(gate["provisional"], true);
+    }
+
+    #[test]
+    fn deterministic_gate_prefers_an_available_direct_check() {
+        let gate = deterministic_gate(&json!({
+            "route": "disputed_inference",
+            "willChangeAction": true,
+            "directCheck": {"available": true, "action": "Run the compiler."}
+        }))
+        .expect("gate fires");
+        assert_eq!(gate["gate"], "skipped");
+        assert_eq!(gate["policyAction"], "run_direct_check");
+        assert_eq!(gate["nextAction"], "Run the compiler.");
+    }
+
+    #[test]
+    fn deterministic_gate_avoids_a_repeat_call_at_the_same_crossroad() {
+        let gate = deterministic_gate(&json!({
+            "route": "decision_review",
+            "willChangeAction": true,
+            "jevCallsAtCrossroad": 1
+        }))
+        .expect("gate fires");
+        assert_eq!(gate["gate"], "skipped");
+        assert_eq!(gate["policyAction"], "continue_host_research");
+    }
+
+    #[test]
+    fn deterministic_gate_demands_fresh_evidence() {
+        let gate = deterministic_gate(&json!({
+            "route": "hunch_check",
+            "willChangeAction": true,
+            "evidenceFresh": false
+        }))
+        .expect("gate fires");
+        assert_eq!(gate["gate"], "needsEvidence");
+        assert_eq!(gate["policyAction"], "refresh_evidence");
+    }
+
+    #[test]
+    fn deterministic_gate_lets_a_clear_crossroad_reach_the_provider() {
+        // willChangeAction true, no direct check, first call, fresh evidence => no gate.
+        assert!(
+            deterministic_gate(&json!({
+                "route": "hunch_check",
+                "willChangeAction": true,
+                "jevCallsAtCrossroad": 0,
+                "evidenceFresh": true
+            }))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn endpoint_accepts_an_https_root_and_appends_the_system_one_path() {
+        let url = endpoint("https://api.typesafe.ai").expect("valid root");
+        assert_eq!(url.as_str(), "https://api.typesafe.ai/v1/systemone");
+        // A trailing slash is also a bare root.
+        assert!(endpoint("https://api.typesafe.ai/").is_ok());
+        // HTTP is allowed only on loopback.
+        assert!(endpoint("http://127.0.0.1").is_ok());
+    }
+
+    #[test]
+    fn endpoint_rejects_non_root_or_insecure_bases() {
+        for bad in [
+            "http://api.typesafe.ai",            // http, non-loopback
+            "https://api.typesafe.ai/v1",        // has a path
+            "https://api.typesafe.ai/?x=1",      // has a query
+            "https://api.typesafe.ai/#frag",     // has a fragment
+            "https://user:pass@api.typesafe.ai", // has credentials
+            "not a url",
+        ] {
+            assert!(endpoint(bad).is_err(), "should reject {bad}");
+        }
+    }
+
+    #[test]
+    fn retry_delay_honours_headers_then_falls_back_to_backoff() {
+        let mut ms = HeaderMap::new();
+        ms.insert("retry-after-ms", HeaderValue::from_static("1500"));
+        assert_eq!(retry_delay(&ms, 3), Duration::from_millis(1500));
+
+        let mut secs = HeaderMap::new();
+        secs.insert(RETRY_AFTER, HeaderValue::from_static("2"));
+        assert_eq!(retry_delay(&secs, 3), Duration::from_secs(2));
+
+        // No headers: 500ms * 2^attempt.
+        let empty = HeaderMap::new();
+        assert_eq!(retry_delay(&empty, 0), Duration::from_millis(500));
+        assert_eq!(retry_delay(&empty, 2), Duration::from_millis(2000));
+    }
+}

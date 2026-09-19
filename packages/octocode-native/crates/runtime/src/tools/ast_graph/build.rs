@@ -756,8 +756,20 @@ pub(crate) fn normalize(p: &str) -> String {
 
 fn load_cargo_crates(root: &Path) -> Result<BTreeMap<String, String>, String> {
     const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
-    let mut child = std::process::Command::new("cargo")
-        .args(["metadata", "--format-version", "1", "--offline"])
+    // Resolve cargo from an explicit env-provided path when available rather than
+    // trusting the ambient PATH against an untrusted working directory. `--no-deps`
+    // keeps metadata to the workspace's own crates, cutting work and attack surface.
+    let cargo = std::env::var_os("OCTOCODE_CARGO")
+        .or_else(|| std::env::var_os("CARGO"))
+        .unwrap_or_else(|| std::ffi::OsString::from("cargo"));
+    let mut child = std::process::Command::new(&cargo)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--no-deps",
+            "--offline",
+        ])
         .current_dir(root)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())

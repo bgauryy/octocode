@@ -304,9 +304,9 @@ fn execute(
     } else {
         root.parent().unwrap_or(&root).to_path_buf()
     };
-    let _process_guard = APPLY_LOCK.lock().map_err(|_| {
-        RewriteError::new("ast.rewrite.lock_unavailable", "Rewrite lock is poisoned.")
-    })?;
+    // Recover from a poisoned lock (a prior panic while holding it) instead of
+    // permanently bricking astRewrite for the rest of the process lifetime.
+    let _process_guard = APPLY_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let lock = RootLock::acquire(&boundary)?;
     recover_transactions(&boundary, cancellation)?;
     let executable = embedded_engine_receipt();
@@ -1067,12 +1067,49 @@ fn io_error(error: std::io::Error) -> RewriteError {
     RewriteError::new("ast.rewrite.io", error.to_string())
 }
 
+/// Create `path` (and any missing parents) with owner-only `0700` permissions on
+/// unix, then verify the resulting directory is owned by the current uid. The
+/// journal and lock roots live under `std::env::temp_dir()`, a shared,
+/// world-writable location; this prevents another local user from pre-creating a
+/// predictable directory and racing on its contents or planting journals/locks.
+fn create_private_dir_all(path: &Path) -> Result<(), RewriteError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+            .map_err(io_error)?;
+        let metadata = fs::metadata(path).map_err(io_error)?;
+        let current_uid = unsafe { libc::getuid() };
+        if metadata.uid() != current_uid {
+            return Err(RewriteError::new(
+                "ast.rewrite.io",
+                format!(
+                    "Refusing to use a directory owned by another user: {}",
+                    path.display()
+                ),
+            ));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(path).map_err(io_error)?;
+    }
+    Ok(())
+}
+
 fn create_unified_patch(path: &str, before: &str, after: &str) -> String {
     if before == after {
         return String::new();
     }
-    let old = before.lines().collect::<Vec<_>>();
-    let new = after.lines().collect::<Vec<_>>();
+    // Split preserving line endings so the preview reflects CRLF and missing
+    // final newlines faithfully; `str::lines()` would drop that information and
+    // produce hunk bodies that disagree with the bytes on disk. This is a
+    // display-only preview; the actual apply is a byte splice elsewhere.
+    let old = before.split_inclusive('\n').collect::<Vec<_>>();
+    let new = after.split_inclusive('\n').collect::<Vec<_>>();
     let mut prefix = 0usize;
     while prefix < old.len() && prefix < new.len() && old[prefix] == new[prefix] {
         prefix += 1;
@@ -1092,23 +1129,39 @@ fn create_unified_patch(path: &str, before: &str, after: &str) -> String {
     let removed = &old[prefix..old.len().saturating_sub(suffix)];
     let added = &new[prefix..new.len().saturating_sub(suffix)];
     let trailing = &old[old.len().saturating_sub(suffix)..old_end];
-    let mut lines = vec![
-        format!("--- a/{path}"),
-        format!("+++ b/{path}"),
-        format!(
-            "@@ -{},{} +{},{} @@",
-            context_start + 1,
-            leading.len() + removed.len() + trailing.len(),
-            context_start + 1,
-            leading.len() + added.len() + trailing.len()
-        ),
-    ];
-    lines.extend(leading.iter().map(|line| format!(" {line}")));
-    lines.extend(removed.iter().map(|line| format!("-{line}")));
-    lines.extend(added.iter().map(|line| format!("+{line}")));
-    lines.extend(trailing.iter().map(|line| format!(" {line}")));
-    lines.push(String::new());
-    lines.join("\n")
+    let mut patch = String::new();
+    patch.push_str(&format!("--- a/{path}\n"));
+    patch.push_str(&format!("+++ b/{path}\n"));
+    patch.push_str(&format!(
+        "@@ -{},{} +{},{} @@\n",
+        context_start + 1,
+        leading.len() + removed.len() + trailing.len(),
+        context_start + 1,
+        leading.len() + added.len() + trailing.len()
+    ));
+    let mut push_line = |marker: char, line: &str| {
+        patch.push(marker);
+        patch.push_str(line);
+        if !line.ends_with('\n') {
+            // A line without a trailing newline (final line of a no-EOF-newline
+            // file) still needs to terminate the diff row it lives on.
+            patch.push('\n');
+            patch.push_str("\\ No newline at end of file\n");
+        }
+    };
+    for line in leading {
+        push_line(' ', line);
+    }
+    for line in removed {
+        push_line('-', line);
+    }
+    for line in added {
+        push_line('+', line);
+    }
+    for line in trailing {
+        push_line(' ', line);
+    }
+    patch
 }
 
 #[cfg(test)]
@@ -1120,6 +1173,26 @@ mod tests {
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn unified_patch_preserves_crlf_line_endings() {
+        let patch = create_unified_patch("f.txt", "a\r\nb\r\n", "a\r\nB\r\n");
+        // The CRLF endings from the source must survive into the hunk body.
+        assert!(patch.contains("-b\r\n"), "patch was: {patch:?}");
+        assert!(patch.contains("+B\r\n"), "patch was: {patch:?}");
+        assert!(patch.starts_with("--- a/f.txt\n+++ b/f.txt\n@@ "));
+    }
+
+    #[test]
+    fn unified_patch_marks_missing_final_newline() {
+        // A file whose final line lacks a trailing newline must be flagged
+        // rather than silently presented as newline-terminated.
+        let patch = create_unified_patch("f.txt", "a\nb", "a\nB");
+        assert!(
+            patch.contains("\\ No newline at end of file\n"),
+            "patch was: {patch:?}"
+        );
+    }
 
     struct Active;
     impl CancellationCheck for Active {

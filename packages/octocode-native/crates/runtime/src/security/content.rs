@@ -123,12 +123,10 @@ impl ContentSecurity {
                 continue;
             }
             output.push_str(&native[cursor..start]);
-            for (index, character) in native[start..end].chars().enumerate() {
-                if index % 2 == 0 {
-                    output.push('*');
-                } else {
-                    output.push(character);
-                }
+            // Fully mask the matched span so no portion of the secret survives;
+            // the previous even-index scheme leaked ~50% of the span.
+            for _ in native[start..end].chars() {
+                output.push('*');
             }
             cursor = end;
         }
@@ -226,6 +224,16 @@ impl ContentSecurity {
                                 );
                                 array.push(Value::Object(result.sanitized_params));
                             }
+                            // Nested arrays would otherwise be cloned verbatim,
+                            // leaving `{"x":[["ghp_…"]]}` unscanned. Recurse so
+                            // string leaves at any array depth are sanitized.
+                            Value::Array(inner) => {
+                                array.push(Value::Array(self.sanitize_nested_array(
+                                    inner,
+                                    depth + 1,
+                                    &mut has_secrets,
+                                )));
+                            }
                             _ => array.push(item.clone()),
                         }
                     }
@@ -253,6 +261,40 @@ impl ContentSecurity {
             has_secrets,
             warnings,
         }
+    }
+
+    /// Recursively sanitize the string leaves of a (possibly deeply) nested
+    /// array so no credential survives at any array depth. Objects delegate to
+    /// [`validate_object`]; scalars are passed through unchanged. Depth is
+    /// bounded by `MAX_DEPTH` to match the object walk and cap recursion.
+    fn sanitize_nested_array(
+        &self,
+        values: &[Value],
+        depth: usize,
+        has_secrets: &mut bool,
+    ) -> Vec<Value> {
+        if depth > MAX_DEPTH {
+            return values.to_vec();
+        }
+        values
+            .iter()
+            .map(|item| match item {
+                Value::String(text) => {
+                    let result = self.sanitize_text(text, None);
+                    *has_secrets |= result.has_secrets;
+                    Value::String(result.content)
+                }
+                Value::Object(nested) => {
+                    let result = self.validate_object(nested, depth + 1);
+                    *has_secrets |= result.has_secrets;
+                    Value::Object(result.sanitized_params)
+                }
+                Value::Array(inner) => {
+                    Value::Array(self.sanitize_nested_array(inner, depth + 1, has_secrets))
+                }
+                _ => item.clone(),
+            })
+            .collect()
     }
 }
 
@@ -331,6 +373,22 @@ mod tests {
             assert_eq!(actual.warnings, expected.warnings);
         }
     }
+    #[test]
+    fn nested_array_string_leaves_are_sanitized() {
+        let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let token = format!("ghp_{}", "a".repeat(37));
+        let result = policy.validate_input_parameters(&serde_json::json!({
+            "x": [[token]]
+        }));
+        assert!(result.has_secrets, "nested-array secret must be detected");
+        assert!(
+            !serde_json::to_string(&result.sanitized_params)
+                .expect("serializable sanitized map")
+                .contains("ghp_"),
+            "token leaked from a nested array"
+        );
+    }
+
     #[test]
     fn parameters_reject_dangerous_keys_and_keep_safe_partial_data() {
         let policy = ContentSecurity::new(Arc::new(SecurityRegistry::default()));

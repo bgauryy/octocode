@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 mod manifest;
-use manifest::{ArchiveKind, ManifestAsset, ManifestServer, manifest, manifest_server};
+use manifest::{ArchiveKind, ManifestAsset, manifest, manifest_server};
 
 /// Auto-install policy, mirroring `OCTOCODE_LSP_AUTO_INSTALL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +165,7 @@ fn marker_path(bin_path: &Path) -> PathBuf {
 }
 
 /// Decode the downloaded asset into the final executable bytes.
-pub fn extract_binary(asset: &ManifestAsset, raw: &[u8]) -> Result<Vec<u8>, String> {
+fn extract_binary(asset: &ManifestAsset, raw: &[u8]) -> Result<Vec<u8>, String> {
     match asset.archive {
         ArchiveKind::None => Ok(raw.to_vec()),
         ArchiveKind::Gz => {

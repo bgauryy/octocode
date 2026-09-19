@@ -30,6 +30,22 @@ const MAX_SNIPPET_SOURCE_BYTES: u64 = 1_000_000;
 /// unconditional-kill behavior, never worse.
 const GRACEFUL_EXIT_TIMEOUT_MS: u64 = 2_000;
 
+/// Minimal, secret-free environment variables forwarded to spawned language
+/// servers after `env_clear()`. Deliberately excludes everything octocode-
+/// specific or credential-bearing (OCTOCODE_*, GITHUB_TOKEN, AWS_*, …). PATH is
+/// required to resolve/launch servers; HOME (and its Windows equivalents) lets
+/// servers find their per-user caches/toolchains (e.g. rust-analyzer → ~/.cargo).
+/// Any additional environment must be requested explicitly via the server config.
+const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "SYSTEMROOT",
+    "SystemRoot",
+];
+
 /// Give a spawned child process a bounded window to exit on its own (e.g.
 /// after an LSP `exit` notification) before escalating to a hard kill.
 /// Returns `true` if the process exited within `timeout_duration` without
@@ -180,6 +196,17 @@ impl NativeLspClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // Never leak octocode's own environment (OCTOCODE_JEV_KEY, GITHUB_TOKEN,
+        // etc.) into a spawned language server. Start from an empty environment and
+        // re-add only a minimal, secret-free allowlist plus any explicitly
+        // configured server env. PATH must be preserved so built-in servers
+        // (e.g. a `node`/`rust-analyzer` resolved via PATH) still launch.
+        command.env_clear();
+        for &key in LSP_SERVER_ENV_ALLOWLIST {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
         if let Some(env) = &self.inner.config.env {
             for (key, value) in env {
                 command.env(key, value);
@@ -727,7 +754,13 @@ impl Drop for NativeLspClientInner {
             task.abort();
         }
         if let Some(mut child) = self.child.get_mut().take() {
+            // Signal the child to die, then opportunistically reap it so a killed
+            // server does not linger as a zombie. `try_wait` collects the exit
+            // status if it has already terminated; if it has not yet, `kill_on_drop`
+            // on the spawn command remains the backstop when `child` is dropped
+            // here (it registers the pid with tokio's orphan reaper).
             let _ = child.start_kill();
+            let _ = child.try_wait();
         }
         if let Ok(mut capabilities) = self.capabilities.lock() {
             *capabilities = None;

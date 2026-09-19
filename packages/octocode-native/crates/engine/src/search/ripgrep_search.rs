@@ -61,6 +61,26 @@ const MAX_ONLY_MATCHING_PER_LINE: u32 = 1000;
 /// PCRE2 matcher we build (search + pattern validation).
 pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 
+/// Wall-clock ceiling for a whole PCRE2 (`-P`) search. PCRE2's JIT-stack cap
+/// bounds a single catastrophic backtrack's *memory*, but nothing bounds its
+/// *time*: a pathological `-P` pattern can spin for a long time inside a single
+/// `find_at`/`search_path` call that cannot be interrupted from the sink. We
+/// bound PCRE2 searches two ways, both keyed off this deadline:
+///   1. Cooperatively — the collect walk and the match sink poll the deadline
+///      between files and between matched lines, so an accumulation of moderately
+///      expensive matches stops promptly while keeping partial results.
+///   2. Hard — the whole PCRE2 search runs on a worker thread that the driver
+///      abandons after `PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE`. An
+///      abandoned worker keeps running until its current (uninterruptible) match
+///      returns, then exits when it sends into the dropped channel; it is never
+///      joined. Only PCRE2 needs this — the default Rust-regex engine is linear
+///      and cannot catastrophically backtrack.
+pub(crate) const PCRE2_SEARCH_DEADLINE: Duration = Duration::from_secs(5);
+
+/// Extra time the driver waits past the cooperative deadline before abandoning a
+/// stuck PCRE2 worker (see [`PCRE2_SEARCH_DEADLINE`]).
+pub(crate) const PCRE2_DEADLINE_GRACE: Duration = Duration::from_secs(2);
+
 fn to_napi_err<E: std::fmt::Display>(e: E) -> Error {
     Error::new(Status::GenericFailure, e.to_string())
 }
@@ -208,12 +228,26 @@ struct CollectSink<'a, M: Matcher> {
     om_matches: Vec<RipgrepMatch>,
     /// A retained span limit must never be reported as an exhaustive search.
     span_cap_reached: bool,
+    /// Wall-clock ceiling for this file's search (see [`PCRE2_SEARCH_DEADLINE`]).
+    /// `None` disables cooperative cancellation (linear engines don't need it).
+    deadline: Option<Instant>,
+    /// Set when `deadline` was hit and the search was stopped early.
+    deadline_hit: bool,
 }
 
 impl<M: Matcher> Sink for CollectSink<'_, M> {
     type Error = std::io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> std::io::Result<bool> {
+        // Cooperative deadline: stop searching this file *before* doing more
+        // per-line work. Returning Ok(false) ends the search cleanly and keeps
+        // whatever partial matches were already collected.
+        if let Some(deadline) = self.deadline {
+            if Instant::now() >= deadline {
+                self.deadline_hit = true;
+                return Ok(false);
+            }
+        }
         let line_number = mat.line_number().unwrap_or(0) as u32;
         let bytes = mat.bytes();
         let mut count: u32 = 0;
@@ -414,6 +448,7 @@ fn collect<M: Matcher + Sync>(
     matcher: &M,
     mode: Mode,
     path_filter: Arc<dyn RipgrepPathFilter>,
+    deadline: Option<Instant>,
 ) -> Result<CollectResult> {
     let started = Instant::now();
     let only_matching = opts.only_matching.unwrap_or(false);
@@ -431,6 +466,7 @@ fn collect<M: Matcher + Sync>(
     let bytes_searched = Arc::new(AtomicU64::new(0));
     let capped = Arc::new(AtomicBool::new(false));
     let span_capped = Arc::new(AtomicBool::new(false));
+    let timed_out = Arc::new(AtomicBool::new(false));
     let error_count = Arc::new(AtomicU32::new(0));
     let first_error = Arc::new(Mutex::new(None));
     let max_collected_files = opts
@@ -445,11 +481,20 @@ fn collect<M: Matcher + Sync>(
         let bytes_searched = Arc::clone(&bytes_searched);
         let capped = Arc::clone(&capped);
         let span_capped = Arc::clone(&span_capped);
+        let timed_out = Arc::clone(&timed_out);
         let error_count = Arc::clone(&error_count);
         let first_error = Arc::clone(&first_error);
         let mut searcher = build_searcher(opts, context_lines);
 
         Box::new(move |dent| {
+            // Cooperative deadline between files: abandon the rest of the walk
+            // once the wall-clock ceiling is reached, reporting partial coverage.
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    timed_out.store(true, Ordering::Relaxed);
+                    return WalkState::Quit;
+                }
+            }
             let dent = match dent {
                 Ok(d) => d,
                 Err(error) => {
@@ -481,6 +526,8 @@ fn collect<M: Matcher + Sync>(
                     match_window,
                     om_matches: Vec::new(),
                     span_cap_reached: false,
+                    deadline,
+                    deadline_hit: false,
                 };
                 // Keep successful files, but report incomplete coverage when
                 // traversal or matching fails. A skipped file proves no absence.
@@ -494,6 +541,9 @@ fn collect<M: Matcher + Sync>(
                 }
                 if sink.span_cap_reached {
                     span_capped.store(true, Ordering::Relaxed);
+                }
+                if sink.deadline_hit {
+                    timed_out.store(true, Ordering::Relaxed);
                 }
                 (
                     sink.submatches,
@@ -541,6 +591,9 @@ fn collect<M: Matcher + Sync>(
     }
     if span_capped.load(Ordering::Relaxed) {
         cap_reasons.push("maxOnlyMatchingPerLine");
+    }
+    if timed_out.load(Ordering::Relaxed) {
+        cap_reasons.push("pcre2Deadline");
     }
     let was_capped = !cap_reasons.is_empty();
     let first_error = first_error.lock().map_err(to_napi_err)?.take();
@@ -743,8 +796,35 @@ pub(crate) fn search_filtered(
             .jit_if_available(true)
             .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
         let matcher = b.build(&opts.pattern).map_err(to_napi_err)?;
-        let collected = collect(&opts, &matcher, mode, path_filter)?;
-        Ok(build_result(&opts, mode, collected))
+        // Bound the PCRE2 search by wall clock (see PCRE2_SEARCH_DEADLINE). The
+        // search runs on a worker thread with a cooperative deadline; if a single
+        // uninterruptible match blows past the hard grace period, the driver
+        // abandons the worker and returns a partial, timeout-flagged result
+        // rather than blocking the caller indefinitely.
+        let deadline = Instant::now() + PCRE2_SEARCH_DEADLINE;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let opts_worker = opts.clone();
+        let filter_worker = Arc::clone(&path_filter);
+        std::thread::Builder::new()
+            .name("pcre2-search".into())
+            .spawn(move || {
+                let _ = tx.send(collect(
+                    &opts_worker,
+                    &matcher,
+                    mode,
+                    filter_worker,
+                    Some(deadline),
+                ));
+            })
+            .map_err(to_napi_err)?;
+        match rx.recv_timeout(PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE) {
+            Ok(collected) => Ok(build_result(&opts, mode, collected?)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(pcre2_timeout_result()),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(Error::new(
+                Status::GenericFailure,
+                "PCRE2 search worker terminated unexpectedly",
+            )),
+        }
     } else {
         let mut b = RegexMatcherBuilder::new();
         b.case_insensitive(case_insensitive)
@@ -758,8 +838,35 @@ pub(crate) fn search_filtered(
             opts.pattern.clone()
         };
         let matcher = b.build(&pattern).map_err(to_napi_err)?;
-        let collected = collect(&opts, &matcher, mode, path_filter)?;
+        // The Rust regex engine is linear-time and cannot catastrophically
+        // backtrack, so it needs no wall-clock deadline.
+        let collected = collect(&opts, &matcher, mode, path_filter, None)?;
         Ok(build_result(&opts, mode, collected))
+    }
+}
+
+/// Result returned when a PCRE2 search is abandoned after exceeding its hard
+/// wall-clock ceiling (see [`PCRE2_SEARCH_DEADLINE`]). Reports zero results but
+/// flags the search as capped/incomplete so callers never treat an abandoned
+/// search as an exhaustive (absence-proving) one.
+fn pcre2_timeout_result() -> RipgrepParseResult {
+    RipgrepParseResult {
+        files: Vec::new(),
+        stats: RipgrepStats {
+            match_count: Some(0),
+            matched_lines: Some(0),
+            files_matched: Some(0),
+            files_searched: Some(0),
+            bytes_searched: None,
+            search_time: None,
+            capped: Some(true),
+            cap_reason: Some("pcre2Deadline".into()),
+            error_count: Some(0),
+            first_error: Some(format!(
+                "PCRE2 search exceeded its {}s wall-clock limit and was abandoned; results are incomplete. Narrow the pattern or scope, or use regex:\"literal\"/the default engine.",
+                (PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE).as_secs()
+            )),
+        },
     }
 }
 

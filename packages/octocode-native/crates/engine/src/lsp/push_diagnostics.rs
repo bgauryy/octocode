@@ -97,12 +97,14 @@ impl PushDiagnosticsStore {
     pub(super) fn report(&self, uri: &str, min_version: Option<i64>) -> Option<Value> {
         let state = self.state.lock().ok()?;
         let record = state.records.get(uri)?;
-        if let (Some(min_version), Some(version)) = (
-            min_version,
-            record.params.get("version").and_then(Value::as_i64),
-        ) {
-            if version < min_version {
-                return None;
+        if let Some(min_version) = min_version {
+            // A caller that asked for a minimum version wants diagnostics it can
+            // prove correspond to the synced document. A record whose version is
+            // older — OR entirely absent — cannot make that guarantee, so it does
+            // not satisfy the request and must not be returned as if it did.
+            match record.params.get("version").and_then(Value::as_i64) {
+                Some(version) if version >= min_version => {}
+                _ => return None,
             }
         }
         Some(json!({

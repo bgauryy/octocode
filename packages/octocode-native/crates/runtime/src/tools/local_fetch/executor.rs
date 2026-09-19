@@ -5,6 +5,36 @@ use super::validation::{is_binary, validate_request};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
+
+/// Hard ceiling on source bytes read into memory for ANY localFetch path.
+/// Plain, matchString, and line-range reads all slurp the whole source file
+/// before extraction, so without this cap a single pathologically large file
+/// would be read (and secret-scanned) entirely into memory. This is a
+/// memory-safety bound distinct from — and larger than — the 100KB full-content
+/// *return* cap below: files under this ceiling still page normally via
+/// next.continue; files over it are refused outright with `fileTooLarge`.
+const MAX_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Build the shared `fileTooLarge` result for a source that exceeds
+/// [`MAX_SOURCE_BYTES`]. Terminal: there is no bounded continuation past the
+/// hard ceiling.
+fn source_too_large(path: &str, len: u64) -> LocalFetchResult {
+    let mut result = LocalFetchResult::error(
+        path.to_owned(),
+        "fileTooLarge",
+        format!(
+            "File too large: {}KB (hard limit: {}KB). This source exceeds the maximum size localFetch will read into memory. Use astSearch or localSearch to locate the relevant symbol, then read a bounded startLine/endLine range of a smaller source.",
+            len / 1024,
+            MAX_SOURCE_BYTES / 1024
+        ),
+    );
+    result.resolved_path = Some(path.to_owned());
+    result.source_bytes = Some(len as usize);
+    result.is_partial = Some(true);
+    result.terminal_limit = Some(true);
+    result.partial_reasons = vec![PartialReason::FullContentSourceSizeLimit];
+    result
+}
 pub fn execute_local_fetch(
     q: &LocalFetchRequest,
     paths: &impl PathAccess,
@@ -58,6 +88,12 @@ pub fn execute_local_fetch_with_regex(
             return LocalFetchResult::error(q.path.clone(), "fileAccessFailed", e.to_string());
         }
     };
+    // Enforce the hard source-size ceiling on every read path (default,
+    // matchString, and line-range) before opening the file, so an oversized
+    // source is never read into memory.
+    if meta.len() > MAX_SOURCE_BYTES {
+        return source_too_large(&q.path, meta.len());
+    }
     let mut sample = [0_u8; 8192];
     let sample_len = match fs::File::open(&path).and_then(|mut file| file.read(&mut sample)) {
         Ok(length) => length,
@@ -98,7 +134,17 @@ pub fn execute_local_fetch_with_regex(
         result.next = Some(bounded_continuation(q));
         return result;
     }
-    let bytes = match fs::read(&path) {
+    // Read at most the cap (+1 sentinel byte). Re-check the length in case the
+    // file grew past the ceiling between the stat above and this read (TOCTOU).
+    let bytes = match fs::File::open(&path).and_then(|file| {
+        let mut buf = Vec::new();
+        file.take(MAX_SOURCE_BYTES + 1)
+            .read_to_end(&mut buf)
+            .map(|_| buf)
+    }) {
+        Ok(b) if b.len() as u64 > MAX_SOURCE_BYTES => {
+            return source_too_large(&q.path, b.len() as u64);
+        }
         Ok(b) => b,
         Err(e) => return LocalFetchResult::error(q.path.clone(), "fileReadFailed", e.to_string()),
     };
@@ -401,5 +447,105 @@ mod timestamp_tests {
             system_time_iso(UNIX_EPOCH + Duration::from_millis(1_600_000_000_443)),
             Some("2020-09-13T12:26:40.443Z".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod source_size_tests {
+    use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Paths(PathBuf);
+    impl PathAccess for Paths {
+        fn validate_read(&self, p: &Path) -> Result<ValidatedRead, PathFailure> {
+            let joined = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                self.0.join(p)
+            };
+            joined
+                .canonicalize()
+                .map(|canonical| ValidatedRead {
+                    canonical,
+                    display: joined.to_string_lossy().into_owned(),
+                })
+                .map_err(|error| PathFailure {
+                    code: "fileAccessFailed".into(),
+                    message: error.to_string(),
+                    safe_path: None,
+                    resource_missing: false,
+                })
+        }
+    }
+
+    struct Safe;
+    impl ContentScan for Safe {
+        fn sanitize(
+            &self,
+            text: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (String, String)> {
+            Ok((text.to_owned(), vec![]))
+        }
+    }
+
+    static TEMP_ID: AtomicUsize = AtomicUsize::new(0);
+    fn temp_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "local-fetch-size-{}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos(),
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn oversized_plain_read_returns_file_too_large() {
+        let dir = temp_dir();
+        let path = dir.join("huge.txt");
+        // Sparse file just past the hard ceiling — the size guard fires before
+        // any bytes are read, so this stays cheap.
+        let file = fs::File::create(&path).expect("create file");
+        file.set_len(MAX_SOURCE_BYTES + 1).expect("grow file");
+        drop(file);
+
+        let req = LocalFetchRequest {
+            path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
+
+        assert_eq!(result.status, "error");
+        assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
+        assert_eq!(result.source_bytes, Some((MAX_SOURCE_BYTES + 1) as usize));
+        assert_eq!(result.terminal_limit, Some(true));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn at_limit_plain_read_is_allowed() {
+        let dir = temp_dir();
+        let path = dir.join("ok.txt");
+        fs::write(&path, "hello\nworld\n").expect("write file");
+
+        let req = LocalFetchRequest {
+            path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let result = execute_local_fetch(&req, &Paths(dir.clone()), &Safe, &NeverCancel);
+
+        assert_eq!(result.status, "success");
+        assert_eq!(result.error_code, None);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

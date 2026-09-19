@@ -336,6 +336,20 @@ pub fn execute_local_search(
         error_count: parsed.stats.error_count.filter(|n| *n > 0),
         first_error: parsed.stats.first_error,
     };
+    // A PCRE2 search that blew past its wall-clock deadline is reported by the
+    // engine as capped with cap_reason "pcre2Deadline" (see ripgrep_search.rs).
+    // Surface it explicitly so callers know the results are a timeout-truncated
+    // partial, not an exhaustive search.
+    let mut warnings = vec![];
+    if stats
+        .cap_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("pcre2Deadline"))
+    {
+        warnings.push(
+            "The PCRE2 (regex:\"pcre2\") search hit its wall-clock deadline and was stopped; results are partial. Narrow the pattern/scope, or use regex:\"literal\" or the default engine.".into(),
+        );
+    }
     let has_more = page < total_pages;
     let (status, terminal_limit) = classify_search(
         empty,
@@ -376,7 +390,7 @@ pub fn execute_local_search(
         },
         next,
         terminal_limit,
-        warnings: vec![],
+        warnings,
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
     })

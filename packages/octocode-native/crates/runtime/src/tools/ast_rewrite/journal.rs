@@ -1,7 +1,7 @@
 //! Transaction journal: write-ahead log, commit, and crash-recovery for applied rewrites.
 use super::{
-    JOURNAL_PREFIX, Journal, JournalFile, PreparedFile, RewriteError, cancelled, io_error, sha256,
-    transaction_id,
+    JOURNAL_PREFIX, Journal, JournalFile, PreparedFile, RewriteError, cancelled,
+    create_private_dir_all, io_error, sha256, transaction_id,
 };
 use crate::tools::local_fetch::CancellationCheck;
 use serde_json::{Value, json};
@@ -52,7 +52,7 @@ pub(super) fn commit_transaction(
 ) -> Result<Value, RewriteError> {
     let id = transaction_id(boundary, files);
     let journal_dir = journal_directory(boundary);
-    fs::create_dir_all(&journal_dir).map_err(io_error)?;
+    create_private_dir_all(&journal_dir)?;
     let journal_path = journal_dir.join(format!("{JOURNAL_PREFIX}{id}.json"));
     let mut journal = Journal {
         version: 1,

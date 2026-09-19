@@ -18,6 +18,7 @@ pub const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
     ".bitcoin",
     ".ethereum",
     ".electrum",
+    ".gnupg",
 ];
 
 pub const DISCOVERY_IGNORED_FOLDER_NAMES: &[&str] = &[
@@ -247,6 +248,10 @@ pub fn is_sensitive_path(path: &Path) -> bool {
         .any(|part| SENSITIVE_DIRECTORY_NAMES.contains(&part))
         || is_sensitive_file(&aliases)
         || aliases.contains("/.config/gcloud/")
+        || aliases.contains("/.config/gh/")
+        || aliases.ends_with("/.config/gh")
+        || aliases.contains("/.config/hub/")
+        || aliases.ends_with("/.config/hub")
         || aliases.contains("/.mozilla/firefox/")
         || aliases.contains("/Library/Keychains/")
 }
@@ -294,5 +299,20 @@ mod tests {
         assert!(should_ignore_discovery_file("src/private-key.pem"));
         assert!(is_sensitive_path(Path::new("/tmp/work/.aws/credentials")));
         assert!(!is_sensitive_path(Path::new("/tmp/work/src/lib.rs")));
+    }
+
+    #[test]
+    fn access_list_covers_gh_and_gpg_credentials() {
+        assert!(is_sensitive_path(Path::new(
+            "/home/user/.config/gh/hosts.yml"
+        )));
+        assert!(is_sensitive_path(Path::new("/home/user/.config/gh")));
+        assert!(is_sensitive_path(Path::new("/home/user/.config/hub")));
+        assert!(is_sensitive_path(Path::new(
+            "/home/user/.gnupg/private-keys-v1.d/anything"
+        )));
+        assert!(is_sensitive_path(Path::new(
+            "/home/user/.docker/config.json"
+        )));
     }
 }

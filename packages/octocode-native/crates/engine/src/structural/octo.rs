@@ -252,7 +252,7 @@ pub(super) fn parse_tree_with_deadline(
             ExecutionError::limit("structural.parse.failed", "parse", err.to_string())
         })?;
         let bytes = content.as_bytes();
-        let mut read = |offset: usize, _| &bytes[offset..];
+        let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
         let mut progress = |_: &tree_sitter::ParseState| {
             if Instant::now() >= deadline {
                 ControlFlow::Break(())

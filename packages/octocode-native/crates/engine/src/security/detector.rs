@@ -218,15 +218,28 @@ fn next_chunk_start(s: &str, effective_end: usize) -> usize {
     find_char_boundary(s, effective_end.saturating_sub(CHUNK_OVERLAP))
 }
 
-/// Returns `true` if pattern at `idx` should be applied for the given file path.
+/// Returns `true` if pattern at `idx` should be applied for the given file path
+/// and content.
 ///
 /// - No `file_context` on the pattern       → always apply.
-/// - Has `file_context`, no `file_path`     → skip (cannot verify context).
-/// - Has `file_context`, `file_path` given  → apply only when path matches.
-fn should_apply(idx: usize, file_path: Option<&str>) -> bool {
+/// - Has `file_context`, `file_path` given  → apply only when the path matches.
+/// - Has `file_context`, no `file_path`     → the global output net (tool
+///   results, error/metadata strings) has no path, so fall back to matching the
+///   file-context anchor against the CONTENT itself. This re-enables
+///   content-keyword patterns (e.g. `.env|config|settings|secrets`, `wandb`,
+///   `mollie`, `postmark`) whose context lives in the surrounding text, while
+///   UUID/SHA-shaped generics (e.g. `azureSubscriptionId`) still fire only when
+///   that keyword context is present — a bare UUID/SHA never triggers them, so
+///   the global net does not reintroduce mass false positives. Strict
+///   filename-glob anchors (e.g. `\.ya?ml$`, `docker-compose\.ya?ml$`) do not
+///   match arbitrary content, so those remain effectively path-gated.
+fn should_apply(idx: usize, file_path: Option<&str>, content: &str) -> bool {
     match &FILE_CONTEXT_REGEXES[idx] {
         None => true,
-        Some(re) => file_path.is_some_and(|p| re.is_match(p)),
+        Some(re) => match file_path {
+            Some(path) => re.is_match(path),
+            None => re.is_match(content),
+        },
     }
 }
 
@@ -252,7 +265,7 @@ pub(crate) fn detect_single(content: &str, file_path: Option<&str>) -> DetectRes
     let mut secrets_detected = Vec::with_capacity(matched_indices.len());
 
     for idx in matched_indices {
-        if !should_apply(idx, file_path) {
+        if !should_apply(idx, file_path, content) {
             continue;
         }
         let pattern = &PATTERNS[idx];
@@ -297,7 +310,7 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
     let mut secrets_detected = Vec::with_capacity(candidate_indices.len());
 
     for idx in candidate_indices {
-        if !should_apply(idx, file_path) {
+        if !should_apply(idx, file_path, content) {
             continue;
         }
 
@@ -360,8 +373,9 @@ pub(crate) fn detect_chunked(content: &str, file_path: Option<&str>) -> DetectRe
     }
 }
 
-/// Mask secrets in place: every even-indexed character of a matched secret is
-/// replaced with `*`, preserving partial readability.
+/// Mask secrets in place: every character of a matched secret is replaced with
+/// `*` so no portion of the credential survives (the previous even-index-only
+/// scheme leaked ~50% of the span, enough to reconstruct short tokens).
 ///
 /// File-context patterns are always skipped — `mask_text` has no `file_path`
 /// parameter, mirroring the TS `maskSensitiveData` behaviour.
@@ -419,12 +433,11 @@ pub fn mask_text(text: String) -> String {
 
     for (start, end) in &non_overlapping {
         result.push_str(&text[pos..*start]);
-        for (i, ch) in text[*start..*end].chars().enumerate() {
-            if i % 2 == 0 {
-                result.push('*');
-            } else {
-                result.push(ch);
-            }
+        // Fully mask the matched span: one `*` per character so nothing of the
+        // secret is recoverable. `*` is one byte, so ASCII spans preserve their
+        // byte length (the `maskSensitiveData` invariant callers rely on).
+        for _ in text[*start..*end].chars() {
+            result.push('*');
         }
         pos = *end;
     }
@@ -491,6 +504,40 @@ mod tests {
         assert!(result_with_yaml.has_secrets_or(&result_no_path));
         // With .ts path → file-context pattern should NOT fire
         assert_eq!(result_with_ts.sanitized, result_no_path.sanitized);
+    }
+
+    #[test]
+    fn content_net_redacts_file_context_secret_without_path() {
+        // The global output net (tool results, error/metadata strings) has no
+        // file path. A `kind: Secret` data block whose surrounding text carries
+        // a `.yaml` reference matches the `\.ya?ml$` anchor against the CONTENT,
+        // so it is redacted even though `file_path` is None.
+        let yaml =
+            "kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n# source: manifest.yaml";
+        let result = detect_single(yaml, None);
+        assert!(
+            result.sanitized.contains("[REDACTED-"),
+            "k8s Secret data block must be redacted via the content net with path None: {}",
+            result.sanitized
+        );
+        assert!(
+            result
+                .secrets_detected
+                .contains(&"kubernetesSecrets".to_string()),
+            "expected kubernetesSecrets, got: {:?}",
+            result.secrets_detected
+        );
+    }
+
+    #[test]
+    fn content_net_does_not_redact_bare_uuid_without_keyword_context() {
+        // A bare UUID with no `.env|config|settings|secrets` keyword context in
+        // the content must NOT be redacted by the keyword-gated generics (e.g.
+        // azureSubscriptionId) — the content net keeps those FP-prone patterns
+        // gated so ordinary UUIDs/SHAs pass through untouched.
+        let bare = "requestId = 550e8400-e29b-41d4-a716-446655440000";
+        let result = detect_single(bare, None);
+        assert_eq!(result.sanitized, bare, "bare UUID must not be redacted");
     }
 
     #[test]
@@ -692,24 +739,24 @@ mod tests {
     }
 
     #[test]
-    fn mask_text_masks_even_indexed_chars_of_matched_secret() {
+    fn mask_text_fully_masks_matched_secret() {
         let output = mask_text(FAKE_GH_TOKEN.to_string());
-        // Must differ from input and preserve byte length.
+        // Must differ from input and preserve byte length (ASCII '*' == 1 byte).
         assert_ne!(output, FAKE_GH_TOKEN);
         assert_eq!(
             output.len(),
             FAKE_GH_TOKEN.len(),
             "masking must not change byte length"
         );
-        // Even-indexed chars (0, 2, 4, ...) in the matched region become '*';
-        // odd-indexed chars are kept verbatim.
-        let mut chars = output.chars();
-        assert_eq!(chars.next(), Some('*')); // 'g' → '*'
-        assert_eq!(chars.next(), Some('h')); // 'h' preserved
-        assert_eq!(chars.next(), Some('*')); // 'p' → '*'
-        assert_eq!(chars.next(), Some('_')); // '_' preserved
-        assert_eq!(chars.next(), Some('*')); // first 'a' → '*'
-        assert_eq!(chars.next(), Some('a')); // second 'a' preserved
+        // The entire matched span is masked — no character of the secret leaks.
+        assert!(
+            output.chars().all(|c| c == '*'),
+            "every character of the matched secret must be masked: {output}"
+        );
+        assert!(
+            !output.contains("ghp_"),
+            "no portion of the token prefix may survive: {output}"
+        );
     }
 
     #[test]

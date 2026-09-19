@@ -296,14 +296,13 @@ pub async fn execute(
                 .symbol_name
                 .clone()
                 .ok_or_else(|| "workspaceSymbol requires symbolName".to_owned())?;
-            items_payload(
-                &query,
-                "symbols",
-                client
-                    .workspace_symbol(name)
-                    .await
-                    .map_err(|error| error.to_string())?,
-            )
+            let symbols = client
+                .workspace_symbol(name)
+                .await
+                .map_err(|error| error.to_string())?;
+            // workspace/symbol URIs are server-controlled and span the whole
+            // project; drop any that fall outside the read policy before emitting.
+            items_payload(&query, "symbols", filter_authorized_items(symbols, paths))
         }
         "diagnostic" => {
             let diagnostics = if client.has_capability("diagnosticProvider".to_owned()) {
@@ -321,9 +320,9 @@ pub async fn execute(
             items_payload(&query, "diagnostics", diagnostics)
         }
         "callers" | "callees" | "callHierarchy" => {
-            hierarchy(&client, &query, &path, line, character).await?
+            hierarchy(&client, &query, paths, &path, line, character).await?
         }
-        "supertypes" | "subtypes" => types(&client, &query, &path, line, character).await?,
+        "supertypes" | "subtypes" => types(&client, &query, paths, &path, line, character).await?,
         other => empty(
             &query,
             "unsupportedOperation",
@@ -665,6 +664,7 @@ fn rust_fingerprint(context: &Value) -> String {
 async fn hierarchy(
     client: &NativeLspClient,
     query: &LspSearchQuery,
+    paths: &PathPolicy,
     path: &str,
     line: u32,
     character: u32,
@@ -685,7 +685,7 @@ async fn hierarchy(
             outgoing.extend(walk_calls(client, item.clone(), false, depth).await);
         }
     }
-    let items = match query.operation.as_str() {
+    let mut items = match query.operation.as_str() {
         "callers" => incoming,
         "callees" => outgoing,
         _ => {
@@ -694,6 +694,9 @@ async fn hierarchy(
             both
         }
     };
+    // Call targets carry server-controlled `from`/`to` URIs; drop any that fall
+    // outside the read policy before emitting them.
+    items.retain(|item| item_uri_is_authorized(item, paths));
     Ok(items_payload(query, query.operation.as_str(), json!(items)))
 }
 
@@ -735,6 +738,7 @@ async fn walk_calls(
 async fn types(
     client: &NativeLspClient,
     query: &LspSearchQuery,
+    paths: &PathPolicy,
     path: &str,
     line: u32,
     character: u32,
@@ -754,6 +758,9 @@ async fn types(
         .unwrap_or_else(|_| Value::Array(vec![]));
         items.extend(as_array(&next));
     }
+    // Type-hierarchy items carry a server-controlled `uri`; drop any that fall
+    // outside the read policy before emitting them.
+    items.retain(|item| item_uri_is_authorized(item, paths));
     Ok(items_payload(query, query.operation.as_str(), json!(items)))
 }
 
@@ -879,6 +886,48 @@ fn location_path_is_authorized(location: &Value, paths: &PathPolicy) -> bool {
         .and_then(Value::as_str)
         .and_then(|uri| decode_uri_path(uri).ok())
         .is_some_and(|path| paths.validate_read(path).is_ok())
+}
+
+/// Authorization gate for server-controlled items that embed a file URI in a
+/// nested field — `WorkspaceSymbol`/`SymbolInformation` (`location.uri`),
+/// call-hierarchy calls (`from.uri`/`to.uri`), and type-hierarchy items (`uri`).
+/// A malicious/compromised server could point these at files the caller never
+/// authorized; drop any item whose embedded URI fails the read policy so these
+/// payloads carry the same guarantee `locations()` already gives.
+fn item_uri_is_authorized(item: &Value, paths: &PathPolicy) -> bool {
+    const URI_POINTERS: [&str; 5] = [
+        "/uri",
+        "/location/uri",
+        "/from/uri",
+        "/to/uri",
+        "/targetUri",
+    ];
+    for pointer in URI_POINTERS {
+        if let Some(uri) = item.pointer(pointer).and_then(Value::as_str) {
+            let authorized = decode_uri_path(uri)
+                .ok()
+                .is_some_and(|path| paths.validate_read(path).is_ok());
+            if !authorized {
+                return false;
+            }
+        }
+    }
+    // An item with no embedded location carries no file path to leak; keep it.
+    true
+}
+
+/// Drop array entries whose embedded URI is not authorized. Non-array values
+/// (e.g. `null`) pass through unchanged for the downstream `as_array` handling.
+fn filter_authorized_items(value: Value, paths: &PathPolicy) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .filter(|item| item_uri_is_authorized(item, paths))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 fn apply_context_lines(location: &mut Value, context_lines: u32, paths: &PathPolicy) {
@@ -1659,5 +1708,38 @@ mod tests {
         assert_eq!(down["status"], "error");
         assert_eq!(down["errorCode"], "lsp.serverUnavailable");
         assert_eq!(down["next"]["readFile"]["tool"], "localFetch");
+    }
+
+    #[test]
+    fn server_controlled_item_uris_are_authorized_before_emission() {
+        use crate::policy::path::{PathPolicy, PathPolicyConfig};
+        // A policy with no configured roots authorizes no real path, so any
+        // server-supplied file URI must be rejected.
+        let paths = PathPolicy::new(PathPolicyConfig::default()).expect("path policy");
+
+        let workspace_symbol =
+            serde_json::json!({ "name": "Foo", "location": { "uri": "file:///etc/passwd" } });
+        assert!(!super::item_uri_is_authorized(&workspace_symbol, &paths));
+
+        let call = serde_json::json!({ "from": { "uri": "file:///etc/hosts" } });
+        assert!(!super::item_uri_is_authorized(&call, &paths));
+
+        let type_item = serde_json::json!({ "name": "Base", "uri": "file:///etc/group" });
+        assert!(!super::item_uri_is_authorized(&type_item, &paths));
+
+        // An item that embeds no file URI carries no path to leak and is kept.
+        let no_uri = serde_json::json!({ "name": "Local" });
+        assert!(super::item_uri_is_authorized(&no_uri, &paths));
+
+        // filter_authorized_items removes only the unauthorized entries and leaves
+        // non-array values untouched for downstream `as_array` handling.
+        let filtered =
+            super::filter_authorized_items(serde_json::json!([workspace_symbol, no_uri]), &paths);
+        assert_eq!(filtered.as_array().map(Vec::len), Some(1));
+        assert_eq!(filtered[0]["name"], "Local");
+        assert_eq!(
+            super::filter_authorized_items(serde_json::Value::Null, &paths),
+            serde_json::Value::Null
+        );
     }
 }

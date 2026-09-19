@@ -158,8 +158,21 @@ impl PathPolicy {
                 false,
             );
         }
+        // Target does not exist yet. Walk up to the nearest existing ancestor,
+        // recording the not-yet-created lexical tail. Canonicalize that ancestor
+        // so any symlink in the parent chain is resolved *now* (TOCTOU), verify
+        // the resolved parent still lives inside the allowed roots, then re-join
+        // the tail so the returned path carries no unresolved symlink component.
         let mut ancestor = absolute.as_path();
+        let mut tail: Vec<std::ffi::OsString> = Vec::new();
         while !ancestor.exists() {
+            let name = ancestor.file_name().ok_or_else(|| {
+                PolicyError::new(
+                    PolicyErrorCode::NotFound,
+                    format!("Path does not exist: {}", self.redact(input)),
+                )
+            })?;
+            tail.push(name.to_os_string());
             ancestor = ancestor.parent().ok_or_else(|| {
                 PolicyError::new(
                     PolicyErrorCode::NotFound,
@@ -180,7 +193,25 @@ impl PathPolicy {
             )
             .with_path(self.redact(&absolute)));
         }
-        if self.ignored(&absolute) || self.ignored(&real_ancestor) {
+        let mut resolved = real_ancestor.clone();
+        for name in tail.into_iter().rev() {
+            resolved.push(name);
+        }
+        // Guard against the resolved target re-entering an allowed root only via
+        // the symlinked parent: the canonicalized destination must itself remain
+        // inside the roots.
+        if !self.allowed(&resolved) {
+            return Err(PolicyError::new(
+                PolicyErrorCode::OutsideAllowedRoots,
+                format!(
+                    "Path '{}' is outside allowed directories{}",
+                    self.redact(&absolute),
+                    self.describe_roots()
+                ),
+            )
+            .with_path(self.redact(&absolute)));
+        }
+        if self.ignored(&absolute) || self.ignored(&real_ancestor) || self.ignored(&resolved) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
                 format!(
@@ -191,8 +222,8 @@ impl PathPolicy {
             .with_path(self.redact(input)));
         }
         Ok(ValidatedPath {
-            canonical: absolute.clone(),
-            display: self.redact(&absolute),
+            canonical: resolved.clone(),
+            display: self.redact(&resolved),
         })
     }
 
@@ -325,17 +356,29 @@ impl PathPolicy {
 
     fn describe_roots(&self) -> String {
         if self.roots.is_empty() {
-            String::new()
-        } else {
-            format!(
+            return String::new();
+        }
+        // Debug builds may surface the full filesystem layout to aid diagnosis.
+        if cfg!(debug_assertions) {
+            return format!(
                 " (allowed: {})",
                 self.roots
                     .iter()
-                    .map(|root| root.to_string_lossy())
+                    .map(|root| root.to_string_lossy().into_owned())
                     .collect::<Vec<_>>()
                     .join(", ")
-            )
+            );
         }
+        // Release builds must not leak absolute filesystem paths in user-facing
+        // errors; show only redacted/abbreviated roots.
+        format!(
+            " (allowed: {})",
+            self.roots
+                .iter()
+                .map(|root| self.redact(root))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 
     fn io_error(&self, error: std::io::Error, input: &Path) -> PolicyError {
@@ -520,6 +563,48 @@ mod tests {
         );
         std::fs::remove_dir_all(root).expect("path policy test setup should succeed");
         std::fs::remove_dir_all(outside).expect("path policy test setup should succeed");
+    }
+
+    #[test]
+    fn home_is_not_allowed_unless_opted_in() {
+        let workspace = fixture();
+        let home = fixture();
+        let outside = home.join("notes.txt");
+        std::fs::write(&outside, "x").expect("path policy test setup should succeed");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.clone()),
+            home_dir: Some(home.clone()),
+            include_home: false,
+            ..Default::default()
+        })
+        .expect("path policy test setup should succeed");
+        assert!(
+            !policy
+                .allowed_roots()
+                .iter()
+                .any(|root| home == *root || home.starts_with(root)),
+            "home must not be a default allowed root"
+        );
+        assert_eq!(
+            policy
+                .validate_read(&outside)
+                .expect_err("home read must be denied by default")
+                .code,
+            PolicyErrorCode::OutsideAllowedRoots
+        );
+        let opted = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace.clone()),
+            home_dir: Some(home.clone()),
+            include_home: true,
+            ..Default::default()
+        })
+        .expect("path policy test setup should succeed");
+        assert!(
+            opted.validate_read(&outside).is_ok(),
+            "explicit include_home must grant home access"
+        );
+        std::fs::remove_dir_all(workspace).expect("path policy test setup should succeed");
+        std::fs::remove_dir_all(home).expect("path policy test setup should succeed");
     }
 
     #[test]

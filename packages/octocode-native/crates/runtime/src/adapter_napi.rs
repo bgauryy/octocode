@@ -24,6 +24,23 @@ pub struct NativeRuntime {
     runtime: Arc<ToolRuntime>,
 }
 
+/// Run the secret sanitizer over an error string. Error envelopes cross the
+/// N-API boundary raw, so a secret echoed by a remote server (or embedded in a
+/// provider payload) would otherwise leak. Sanitizing is a no-op unless a real
+/// secret matches; a sanitizer panic fails closed to a redaction placeholder.
+fn scrub_error_text(text: &str) -> String {
+    octocode_engine::portable::sanitize_content(text, None)
+        .map(|result| result.content)
+        .unwrap_or_else(|_| "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned())
+}
+
+/// Sanitize every string leaf of an error payload in place.
+fn scrub_error_payload(payload: &mut Value) {
+    let _ = crate::security::sanitize_json(payload, &mut |text: &str| {
+        Ok::<_, std::convert::Infallible>(scrub_error_text(text))
+    });
+}
+
 fn boundary_error(error: RuntimeError) -> napi::Error {
     let status = match error.code.as_str() {
         "invalidInput" | "securityValidationFailed" | "invalidCursor" | "staleCursor" => {
@@ -32,11 +49,17 @@ fn boundary_error(error: RuntimeError) -> napi::Error {
         "cancelled" => napi::Status::Cancelled,
         _ => napi::Status::GenericFailure,
     };
+    let message = scrub_error_text(&error.message);
+    let payload = error.payload.map(|payload| {
+        let mut payload = *payload;
+        scrub_error_payload(&mut payload);
+        payload
+    });
     let reason = serde_json::to_string(&serde_json::json!({
         "kind": "octocode.nativeError",
         "code": error.code,
-        "message": error.message,
-        "payload": error.payload,
+        "message": message,
+        "payload": payload,
     }))
     .unwrap_or_else(|_| {
         "{\"kind\":\"octocode.nativeError\",\"code\":\"serializationFailed\",\"message\":\"Failed to serialize native error\"}".into()
@@ -169,5 +192,33 @@ impl NativeRuntime {
 impl Drop for NativeRuntime {
     fn drop(&mut self) {
         self.runtime.begin_close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_message_secrets_are_redacted() {
+        let token = format!("ghp_{}", "a".repeat(37));
+        let scrubbed = scrub_error_text(&format!("upstream rejected token {token}"));
+        assert!(
+            !scrubbed.contains("ghp_"),
+            "token leaked in error message: {scrubbed}"
+        );
+        assert!(scrubbed.contains("[REDACTED-"));
+    }
+
+    #[test]
+    fn error_payload_secrets_are_redacted() {
+        let token = format!("ghp_{}", "a".repeat(37));
+        let mut payload = json!({"detail": format!("token={token}"), "nested": [{"note": token}]});
+        scrub_error_payload(&mut payload);
+        let serialized = serde_json::to_string(&payload).expect("serialize payload");
+        assert!(
+            !serialized.contains("ghp_"),
+            "token leaked in error payload: {serialized}"
+        );
     }
 }

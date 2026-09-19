@@ -5,7 +5,8 @@ use super::{
     ArtifactType, ResolvedNpmRegistry,
 };
 use serde_json::Value;
-use url::Url;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use url::{Host, Url};
 
 pub(crate) async fn npm(
     query: &ArtifactQuery,
@@ -37,6 +38,17 @@ fn validate_registry(
             "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
         ));
     }
+    // SSRF guard: refuse to fetch from loopback, link-local, or private
+    // (RFC-1918/ULA/CGNAT) hosts. The `base` is what actually gets fetched and
+    // reflects the caller-supplied `registry` (a mismatch is rejected below),
+    // so blocking it here covers the request target. Public registries such as
+    // registry.npmjs.org resolve to public addresses and are unaffected.
+    if is_blocked_host(base.host()) {
+        return Err(ArtifactError::new(
+            "invalid_query",
+            "Invalid npm registry URL: loopback, link-local, and private hosts are not allowed.",
+        ));
+    }
     if let Some(requested) = query.registry.as_deref() {
         let requested = Url::parse(requested).map_err(|_| {
             ArtifactError::new(
@@ -56,6 +68,67 @@ fn validate_registry(
 
 fn trim_registry(url: &Url) -> String {
     url.as_str().trim_end_matches('/').to_owned()
+}
+
+/// True when the registry host targets a private/loopback/link-local address
+/// and must not be fetched (SSRF protection). IP literals are checked directly;
+/// domains are checked for localhost and, best-effort, resolved so a name that
+/// points at a private address is also blocked. Unresolvable names are allowed
+/// (the actual request will fail on its own).
+fn is_blocked_host(host: Option<Host<&str>>) -> bool {
+    match host {
+        Some(Host::Ipv4(ip)) => is_blocked_v4(&ip),
+        Some(Host::Ipv6(ip)) => is_blocked_v6(&ip),
+        Some(Host::Domain(name)) => is_blocked_domain(name),
+        None => true,
+    }
+}
+
+fn is_blocked_domain(name: &str) -> bool {
+    let host = name.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    match (host.as_str(), 443u16).to_socket_addrs() {
+        Ok(addrs) => {
+            let mut resolved = addrs.peekable();
+            // Only block on a positive resolution to a private address; an
+            // empty or failed lookup falls through to the real request.
+            resolved.peek().is_some() && resolved.all(|addr| is_blocked_ip(&addr.ip()))
+        }
+        Err(_) => false,
+    }
+}
+
+fn is_blocked_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_blocked_v4(v4),
+        IpAddr::V6(v6) => is_blocked_v6(v6),
+    }
+}
+
+fn is_blocked_v4(ip: &Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        // CGNAT / shared address space 100.64.0.0/10
+        || (octets[0] == 100 && (octets[1] & 0xc0) == 64)
+}
+
+fn is_blocked_v6(ip: &Ipv6Addr) -> bool {
+    let segments = ip.segments();
+    ip.is_loopback()
+        || ip.is_unspecified()
+        // link-local fe80::/10
+        || (segments[0] & 0xffc0) == 0xfe80
+        // unique local (ULA) fc00::/7
+        || (segments[0] & 0xfe00) == 0xfc00
+        // IPv4-mapped/compatible addresses embedding a blocked v4
+        || matches!(ip.to_ipv4_mapped(), Some(v4) if is_blocked_v4(&v4))
+        || matches!(ip.to_ipv4(), Some(v4) if is_blocked_v4(&v4))
 }
 
 pub(crate) fn split_npm_coordinate(package_name: &str) -> (&str, Option<&str>) {
@@ -91,7 +164,12 @@ async fn exact(
         encode_component(name)
     };
     let spec = version.unwrap_or("latest");
-    let request_url = registry_url(&registry.base, &format!("{encoded}/{spec}"))?;
+    // Percent-encode the version/spec as its own path segment so ranges or
+    // tags (e.g. "^1.0.0") cannot alter the request path.
+    let request_url = registry_url(
+        &registry.base,
+        &format!("{encoded}/{}", encode_component(spec)),
+    )?;
     let response = client
         .json(
             ArtifactType::Npm,
@@ -291,6 +369,52 @@ pub(crate) fn normalize_repository(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::normalize_repository;
+    use super::{
+        ArtifactQuery, ArtifactType, ResolvedNpmRegistry, is_blocked_v4, is_blocked_v6,
+        validate_registry,
+    };
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    use url::Url;
+
+    fn npm_registry(url: &str) -> ResolvedNpmRegistry {
+        ResolvedNpmRegistry {
+            base: Url::parse(url).expect("valid url"),
+            authorization: None,
+            cache_identity: "test".into(),
+        }
+    }
+
+    fn npm_query(registry: Option<&str>) -> ArtifactQuery {
+        ArtifactQuery {
+            artifact_type: ArtifactType::Npm,
+            package_name: Some("left-pad".into()),
+            keywords: None,
+            page_size: None,
+            cursor: None,
+            registry: registry.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn rejects_link_local_metadata_registry() {
+        let registry = npm_registry("http://169.254.169.254");
+        let query = npm_query(Some("http://169.254.169.254"));
+        let err = validate_registry(&query, &registry).expect_err("must reject link-local host");
+        assert_eq!(err.code, "invalid_query");
+    }
+
+    #[test]
+    fn blocks_private_and_loopback_addresses() {
+        assert!(is_blocked_v4(&Ipv4Addr::new(127, 0, 0, 1)));
+        assert!(is_blocked_v4(&Ipv4Addr::new(10, 0, 0, 5)));
+        assert!(is_blocked_v4(&Ipv4Addr::new(192, 168, 1, 1)));
+        assert!(is_blocked_v4(&Ipv4Addr::new(169, 254, 169, 254)));
+        assert!(is_blocked_v4(&Ipv4Addr::new(100, 64, 0, 1)));
+        assert!(!is_blocked_v4(&Ipv4Addr::new(104, 16, 0, 1)));
+        assert!(is_blocked_v6(&Ipv6Addr::LOCALHOST));
+        assert!(is_blocked_v6(&Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)));
+        assert!(is_blocked_v6(&Ipv6Addr::new(0xfc00, 0, 0, 0, 0, 0, 0, 1)));
+    }
 
     #[test]
     fn repository_shapes_are_canonical() {

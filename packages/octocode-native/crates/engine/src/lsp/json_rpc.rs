@@ -11,6 +11,17 @@ use tokio::time::{Duration, Instant};
 
 type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
 const MAX_JSON_RPC_CONTENT_LENGTH: usize = 64 * 1024 * 1024;
+/// Upper bound on a single header line (e.g. `Content-Length: <n>`). A well-formed
+/// LSP header line is a few dozen bytes; anything approaching this cap is a server
+/// streaming an unterminated line to exhaust memory via `read_line`.
+const MAX_HEADER_LINE_BYTES: u64 = 8 * 1024;
+/// Upper bound on the whole header block (all lines up to the blank separator).
+/// Bounds the aggregate even when each individual line stays under the per-line cap.
+const MAX_HEADER_BLOCK_BYTES: usize = 64 * 1024;
+/// Cap on concurrently-active `$/progress` begin tokens. A conformant server has a
+/// handful of in-flight progress streams; beyond this a server is either buggy or
+/// hostile, so extra begins are ignored rather than growing the set without bound.
+const MAX_ACTIVE_PROGRESS_TOKENS: usize = 512;
 pub(super) const MAX_PUSH_DIAGNOSTIC_DOCUMENTS: usize = 256;
 pub(super) const MAX_PUSH_DIAGNOSTICS_PER_DOCUMENT: usize = 2_000;
 pub(super) const MAX_PUSH_DIAGNOSTIC_BYTES_PER_DOCUMENT: usize = 256 * 1024;
@@ -136,6 +147,13 @@ impl ProgressTracker {
 
     pub async fn on_begin(&self, token: String) {
         let mut active = self.active.lock().await;
+        // Cap the active set so a server emitting an unbounded stream of distinct
+        // `begin` tokens (never matched by `end`) cannot grow memory or wedge
+        // `wait_until_idle` forever. Re-inserting an already-tracked token is fine;
+        // only genuinely new tokens beyond the cap are dropped.
+        if !active.contains(&token) && active.len() >= MAX_ACTIVE_PROGRESS_TOKENS {
+            return;
+        }
         active.insert(token);
         self.ever_active.store(true, Ordering::Release);
         let _ = self.count_tx.send(active.len());
@@ -433,6 +451,11 @@ async fn read_loop<R, W>(
             continue;
         }
         if content_length > MAX_JSON_RPC_CONTENT_LENGTH {
+            // An oversized frame is unrecoverable: we cannot resync the stream to
+            // the next frame boundary. Mark the connection dead BEFORE returning
+            // so `is_alive()` reports it, otherwise the pool keeps handing out a
+            // client whose read loop has already exited (30s hangs + leaked child).
+            failed.store(true, Ordering::Release);
             fail_all_pending(
                 &pending,
                 &format!(
@@ -603,11 +626,32 @@ where
     R: AsyncRead + Unpin,
 {
     let mut content_length = None;
+    let mut header_bytes = 0usize;
     loop {
         let mut line = String::new();
-        let bytes = reader.read_line(&mut line).await?;
+        // Bound the per-line read so an unterminated header line cannot grow the
+        // String without limit. `take` caps how many bytes `read_line` will pull.
+        let bytes = (&mut *reader)
+            .take(MAX_HEADER_LINE_BYTES)
+            .read_line(&mut line)
+            .await?;
         if bytes == 0 {
             return Ok(HeaderOutcome::Eof);
+        }
+        // A line that consumed the entire per-line budget without a terminating
+        // newline is oversized/unbounded; refuse the connection cleanly.
+        if bytes as u64 == MAX_HEADER_LINE_BYTES && !line.ends_with('\n') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "LSP header line exceeded maximum size",
+            ));
+        }
+        header_bytes = header_bytes.saturating_add(bytes);
+        if header_bytes > MAX_HEADER_BLOCK_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "LSP header block exceeded maximum size",
+            ));
         }
         let trimmed = line.trim_end_matches(['\r', '\n']);
         if trimmed.is_empty() {
@@ -888,6 +932,26 @@ mod tests {
                 .report("file:///workspace/a.ts", Some(2))
                 .expect("matching version")["items"][0]["message"],
             "stale"
+        );
+    }
+
+    #[test]
+    fn push_diagnostics_rejects_a_versionless_report_when_min_requested() {
+        // When the server omits `version`, a min_version request cannot be proven
+        // satisfied, so the (possibly stale) record must NOT be returned. Without a
+        // min_version the same record is still readable.
+        let store = PushDiagnosticsStore::new();
+        store.record(&json!({
+            "uri": "file:///workspace/a.ts",
+            "diagnostics": [{ "message": "no-version" }]
+        }));
+
+        assert!(store.report("file:///workspace/a.ts", Some(3)).is_none());
+        assert_eq!(
+            store
+                .report("file:///workspace/a.ts", None)
+                .expect("versionless report readable without a min")["items"][0]["message"],
+            "no-version"
         );
     }
 
@@ -1240,6 +1304,96 @@ mod tests {
             let error = result.expect_err("oversized frame should fail the request");
             assert!(error.reason.contains("maximum JSON-RPC frame size"));
             assert!(pending.lock().await.is_empty());
+        });
+    }
+
+    #[test]
+    fn oversized_frame_marks_connection_dead() {
+        // An oversized Content-Length must fail pending requests AND flip the
+        // shared `failed` flag so is_alive() reports the dead connection; a
+        // silent early return would leave the pool reusing a crashed client.
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
+            let (tx, rx) = oneshot::channel();
+            pending.lock().await.insert(1, tx);
+            let failed = Arc::new(AtomicBool::new(false));
+
+            let (mut server, client_reader) = duplex(1024);
+            server
+                .write_all(
+                    format!(
+                        "Content-Length: {}\r\n\r\n",
+                        MAX_JSON_RPC_CONTENT_LENGTH + 1
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("write oversized header");
+            drop(server);
+
+            read_loop(
+                client_reader,
+                Arc::clone(&pending),
+                Arc::new(Mutex::new(sink())),
+                ClientRequestContext {
+                    configuration: Value::Null,
+                    workspace_folders: Value::Null,
+                },
+                ProgressTracker::new(),
+                Arc::clone(&failed),
+                PushDiagnosticsStore::new(),
+                Arc::new(PartialResultStore::default()),
+            )
+            .await;
+
+            assert!(
+                failed.load(Ordering::Acquire),
+                "oversized frame must mark the connection failed (is_alive()==false)"
+            );
+            let result = rx.await.expect("pending response should be completed");
+            assert!(result.is_err(), "pending request must be failed");
+        });
+    }
+
+    #[test]
+    fn read_headers_rejects_an_unbounded_header_line() {
+        // A single header line that never terminates must be refused instead of
+        // buffered without bound (OOM). We stream more than the per-line cap of
+        // non-newline bytes and assert a clean error, not unbounded growth.
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let (mut server, client_reader) = duplex(64 * 1024);
+            let writer = tokio::spawn(async move {
+                let chunk = vec![b'A'; 16 * 1024];
+                // More than MAX_HEADER_LINE_BYTES with no newline in sight.
+                let _ = server.write_all(&chunk).await;
+                let _ = server.flush().await;
+                // Keep the stream open so the reader hits the cap, not EOF.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                drop(server);
+            });
+            let mut reader = BufReader::new(client_reader);
+            let outcome = read_headers(&mut reader).await;
+            assert!(
+                outcome.is_err(),
+                "an unterminated oversized header line must error"
+            );
+            let _ = writer.await;
+        });
+    }
+
+    #[test]
+    fn progress_tracker_caps_active_begin_tokens() {
+        // A server that emits an unbounded stream of distinct begin tokens must
+        // not grow the active set without limit.
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        runtime.block_on(async {
+            let tracker = ProgressTracker::new();
+            for index in 0..(MAX_ACTIVE_PROGRESS_TOKENS + 50) {
+                tracker.on_begin(format!("token-{index}")).await;
+            }
+            assert_eq!(*tracker.count_rx.borrow(), MAX_ACTIVE_PROGRESS_TOKENS);
         });
     }
 

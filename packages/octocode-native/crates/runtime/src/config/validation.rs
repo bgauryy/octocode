@@ -205,10 +205,11 @@ pub fn validate_config(config: &Value) -> ValidationResult {
     let pag = output.and_then(|o| object(o.get("pagination"), "output.pagination", &mut e));
     if let Some(o) = output {
         if let Some(v) = o.get("format") {
-            match v.as_str() {
-                Some("yaml" | "json") | None if v.is_null() => {}
-                Some(_) => e.push("output.format: Must be one of: yaml, json".into()),
-                None => e.push("output.format: Must be a string".into()),
+            match v {
+                Value::Null => {}
+                Value::String(s) if s == "yaml" || s == "json" => {}
+                Value::String(_) => e.push("output.format: Must be one of: yaml, json".into()),
+                _ => e.push("output.format: Must be a string".into()),
             }
         }
     }
@@ -269,5 +270,54 @@ fn validate_storage(o: Option<&serde_json::Map<String, Value>>, prefix: &str, e:
                 "{prefix}.mode: Must be \"persistent\" or \"memory\""
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_config;
+    use serde_json::json;
+
+    #[test]
+    fn output_format_yaml_validates_clean() {
+        let result = validate_config(&json!({"output": {"format": "yaml"}}));
+        assert!(result.valid, "unexpected errors: {:?}", result.errors);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn output_format_json_validates_clean() {
+        let result = validate_config(&json!({"output": {"format": "json"}}));
+        assert!(result.valid, "unexpected errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn output_format_null_validates_clean() {
+        let result = validate_config(&json!({"output": {"format": null}}));
+        assert!(result.valid, "unexpected errors: {:?}", result.errors);
+    }
+
+    #[test]
+    fn output_format_invalid_string_errors() {
+        let result = validate_config(&json!({"output": {"format": "xml"}}));
+        assert!(!result.valid);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e == "output.format: Must be one of: yaml, json")
+        );
+    }
+
+    #[test]
+    fn output_format_non_string_errors() {
+        let result = validate_config(&json!({"output": {"format": 42}}));
+        assert!(!result.valid);
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e == "output.format: Must be a string")
+        );
     }
 }

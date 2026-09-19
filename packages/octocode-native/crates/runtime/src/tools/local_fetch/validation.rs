@@ -40,9 +40,19 @@ pub fn validate_request(q: &LocalFetchRequest) -> Result<(), String> {
 }
 pub fn is_binary(bytes: &[u8]) -> bool {
     let sample = &bytes[..bytes.len().min(8192)];
-    if sample.contains(&0) || std::str::from_utf8(sample).is_err() {
+    if sample.contains(&0) {
         return true;
     }
+    // A multibyte UTF-8 code point may straddle the 8192-byte sample boundary.
+    // Trim to the last complete code point before judging: a truncated *trailing*
+    // sequence (Utf8Error::error_len() == None) is inconclusive, not binary,
+    // whereas an invalid byte *within* the sample (error_len() == Some(_)) is a
+    // genuine non-text signal.
+    let sample = match std::str::from_utf8(sample) {
+        Ok(text) => text.as_bytes(),
+        Err(error) if error.error_len().is_some() => return true,
+        Err(error) => &sample[..error.valid_up_to()],
+    };
     let mut stripped = 0usize;
     let mut controls = 0usize;
     let mut i = 0;
@@ -62,4 +72,38 @@ pub fn is_binary(bytes: &[u8]) -> bool {
         i += 1
     }
     stripped > 0 && (controls as f64 / stripped as f64) > 0.05
+}
+
+#[cfg(test)]
+mod is_binary_tests {
+    use super::is_binary;
+
+    #[test]
+    fn multibyte_char_straddling_sample_boundary_is_not_binary() {
+        // Place a 4-byte emoji so the 8192-byte sniff boundary splits it: 8190
+        // ASCII bytes + "😀" (F0 9F 98 80) means the sample ends after F0 9F,
+        // an incomplete trailing sequence. This must be treated as text.
+        let mut data = vec![b'a'; 8190];
+        data.extend_from_slice("😀".as_bytes());
+        data.extend(std::iter::repeat(b'b').take(256));
+        assert_eq!(data.len(), 8190 + 4 + 256);
+        assert!(!is_binary(&data));
+    }
+
+    #[test]
+    fn invalid_byte_within_sample_is_binary() {
+        let mut data = vec![b'a'; 100];
+        data[50] = 0xff; // genuine invalid UTF-8 byte, not a truncation
+        assert!(is_binary(&data));
+    }
+
+    #[test]
+    fn null_byte_is_binary() {
+        assert!(is_binary(b"abc\0def"));
+    }
+
+    #[test]
+    fn plain_ascii_is_not_binary() {
+        assert!(!is_binary(b"fn main() {}\n"));
+    }
 }

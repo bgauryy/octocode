@@ -146,10 +146,19 @@ impl ToolRuntime {
         let mut additional_roots: Vec<PathBuf> =
             local.allowed_paths.iter().map(PathBuf::from).collect();
         additional_roots.push(octocode_home.clone());
+        // Default sandbox: the configured workspace, or the process cwd when
+        // unconfigured — never all of $HOME. octocode_home stays an additional
+        // root for cache. Broad $HOME access is opt-in only, via an explicit
+        // workspaceRoot or an allowedPaths entry.
+        let workspace_root = local
+            .workspace_root
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| input.cwd.clone());
         let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: local.workspace_root.as_ref().map(PathBuf::from),
+            workspace_root: Some(workspace_root),
             additional_roots,
-            include_home: true,
+            include_home: false,
             home_dir: Some(input.os_home.clone()),
         })
         .map_err(|error| RuntimeError::new("policy", error.message))?;

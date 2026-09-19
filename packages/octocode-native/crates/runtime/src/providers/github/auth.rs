@@ -324,6 +324,20 @@ fn map_store_error(error: keyring_core::Error) -> ProviderError {
     ProviderError::new(kind, "secure credential store operation failed")
 }
 
+/// Derive the credential host that a configured GitHub API URL authenticates
+/// against, mirroring `GitHubEndpoint::credential_host` (api.github.com maps to
+/// github.com). Returns `None` when the URL cannot be parsed or has no host, in
+/// which case the env token is not attached.
+fn configured_credential_host(api_url: &str) -> Option<String> {
+    let url = url::Url::parse(api_url).ok()?;
+    let host = url.host_str()?;
+    Some(if host.eq_ignore_ascii_case("api.github.com") {
+        "github.com".to_owned()
+    } else {
+        host.to_ascii_lowercase()
+    })
+}
+
 fn normalize_host(host: &str) -> String {
     let lower = host.trim().to_ascii_lowercase();
     lower
@@ -397,10 +411,19 @@ impl<S: CredentialSourceProvider + Send + Sync + 'static> ConfigCredentialResolv
                     )));
                 }
                 if let Some(token) = self.config.token.as_ref() {
-                    return Ok(Some(ResolvedCredential::new(
-                        token.token(),
-                        CredentialSource::Environment,
-                    )));
+                    // The env token is scoped to the configured GitHub host.
+                    // Attaching it to a request for any other host would leak
+                    // the credential off-host, so only honor it when the
+                    // request host matches the configured github.com/GHE host;
+                    // otherwise fall through to host-scoped secure storage.
+                    if configured_credential_host(&self.config.resolved.github.api_url).is_some_and(
+                        |configured| configured.eq_ignore_ascii_case(request.host.trim()),
+                    ) {
+                        return Ok(Some(ResolvedCredential::new(
+                            token.token(),
+                            CredentialSource::Environment,
+                        )));
+                    }
                 }
                 Ok(self
                     .secure_storage
@@ -450,8 +473,21 @@ impl CredentialResolver for StaticCredentialResolver {
 
 #[cfg(test)]
 mod tests {
-    use super::token_from_stored_blob;
+    use super::{configured_credential_host, token_from_stored_blob};
     use secrecy::ExposeSecret;
+
+    #[test]
+    fn configured_credential_host_maps_api_github_to_github_com() {
+        assert_eq!(
+            configured_credential_host("https://api.github.com").as_deref(),
+            Some("github.com")
+        );
+        assert_eq!(
+            configured_credential_host("https://ghe.example.com/api/v3").as_deref(),
+            Some("ghe.example.com")
+        );
+        assert_eq!(configured_credential_host("not a url"), None);
+    }
 
     #[test]
     fn json_blob_yields_inner_token_and_raw_blob_is_unchanged() {

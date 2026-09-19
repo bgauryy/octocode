@@ -54,6 +54,12 @@ fn env<'a>(e: &'a BTreeMap<String, String>, k: &str) -> Option<&'a str> {
 fn clamp(n: f64, min: f64, max: f64) -> f64 {
     n.max(min).min(max)
 }
+/// An env-supplied GitHub API URL must be https so the credential is never
+/// attached over plaintext http (which could exfiltrate the token). http://
+/// values are ignored and resolution falls back to the config file/default.
+fn is_https_api_url(s: &str) -> bool {
+    matches!(url::Url::parse(s), Ok(u) if u.scheme() == "https")
+}
 pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> ResolvedConfig {
     let github = object(file, "github");
     let local = object(file, "local");
@@ -84,6 +90,7 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
             api_url: env(e, "GITHUB_API_URL")
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
+                .filter(|s| is_https_api_url(s))
                 .map(str::to_owned)
                 .or_else(|| str_field(github, "apiUrl"))
                 .unwrap_or_else(|| "https://api.github.com".into()),
@@ -318,5 +325,41 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
         config_path: output.config_path.clone(),
         diagnostics: output.diagnostics.clone(),
         revision: output.revision,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_https_api_url, resolve_sections};
+    use std::collections::BTreeMap;
+
+    fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn is_https_api_url_only_accepts_https() {
+        assert!(is_https_api_url("https://ghe.internal/api/v3"));
+        assert!(!is_https_api_url("http://evil.example/api/v3"));
+        assert!(!is_https_api_url("ftp://evil.example"));
+        assert!(!is_https_api_url("not a url"));
+    }
+
+    #[test]
+    fn http_env_api_url_falls_back_to_default() {
+        let resolved = resolve_sections(None, &env(&[("GITHUB_API_URL", "http://evil.example")]));
+        assert_eq!(resolved.github.api_url, "https://api.github.com");
+    }
+
+    #[test]
+    fn https_env_api_url_is_honored() {
+        let resolved = resolve_sections(
+            None,
+            &env(&[("GITHUB_API_URL", "https://ghe.internal/api/v3")]),
+        );
+        assert_eq!(resolved.github.api_url, "https://ghe.internal/api/v3");
     }
 }

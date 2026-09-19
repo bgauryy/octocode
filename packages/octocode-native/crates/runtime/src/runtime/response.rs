@@ -910,8 +910,18 @@ mod tests {
         );
     }
 
+    fn sanitize_context() -> crate::runtime::ExecutionContext {
+        crate::runtime::ExecutionContext {
+            cancellation: tokio_util::sync::CancellationToken::new(),
+            deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
+            output_bytes: 16_000,
+        }
+    }
+
     #[test]
-    fn sanitizer_preserves_next_query_and_location() {
+    fn sanitizer_preserves_non_secret_next_query_and_location() {
+        // A benign, non-secret-shaped string passes through unchanged — the
+        // continuation stays executable and the location is untouched.
         let mut value = json!({
             "content": "token ghp_secretvalue12",
             "next": {
@@ -923,11 +933,7 @@ mod tests {
             },
             "location": {"localPath": "/tmp/ghp_secretvalue12/repo"}
         });
-        let context = crate::runtime::ExecutionContext {
-            cancellation: tokio_util::sync::CancellationToken::new(),
-            deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
-            output_bytes: 16_000,
-        };
+        let context = sanitize_context();
         let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
             crate::security::SecurityRegistry::default(),
         ));
@@ -940,5 +946,46 @@ mod tests {
             value.pointer("/location/localPath"),
             Some(&json!("/tmp/ghp_secretvalue12/repo"))
         );
+        // The executable tool identifier survives verbatim.
+        assert_eq!(
+            value.pointer("/next/continue/query/offset"),
+            Some(&json!(2))
+        );
+    }
+
+    #[test]
+    fn sanitizer_redacts_real_secret_in_next_query_and_location() {
+        // A real GitHub token embedded in a continuation query or a location
+        // leaf is now redacted — better to break the continuation than to leak.
+        let token = format!("ghp_{}", "a".repeat(37));
+        let mut value = json!({
+            "next": {
+                "continue": {
+                    "tool": "localFetch",
+                    "query": {"path": format!("/repo/{token}.rs")}
+                }
+            },
+            "location": {"localPath": format!("/tmp/{token}/repo")}
+        });
+        let context = sanitize_context();
+        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
+            crate::security::SecurityRegistry::default(),
+        ));
+        sanitize_fields(&mut value, &security, &context).expect("sanitize");
+        // Tool preserved so the call is still routable.
+        assert_eq!(
+            value.pointer("/next/continue/tool"),
+            Some(&json!("localFetch"))
+        );
+        let query_path = value
+            .pointer("/next/continue/query/path")
+            .and_then(Value::as_str)
+            .expect("query path");
+        assert!(!query_path.contains("ghp_"), "token leaked in query path");
+        let local_path = value
+            .pointer("/location/localPath")
+            .and_then(Value::as_str)
+            .expect("localPath");
+        assert!(!local_path.contains("ghp_"), "token leaked in location");
     }
 }
