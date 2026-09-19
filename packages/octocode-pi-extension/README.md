@@ -94,6 +94,8 @@ Set `OCTOCODE_HOME` to change the Octocode home directory. Set `OCTOCODE_STORAGE
 
 Native workspace capabilities live in `.agents/`: `mcp.json`, `models.json`, `skills/`, `hooks/`, and optional `AGENTS.md`. Global Octocode sources use the corresponding paths under `OCTOCODE_HOME`. Pi resources remain available, including `PI_CODING_AGENT_DIR` and explicit skill paths. Claude, Codex, and Cursor MCP/skill definitions appear as disabled candidates until their exact source revision is reviewed and linked. [Capability sources](docs/CAPABILITIES.md) documents precedence, trust, imports, models, and command hooks.
 
+MCP servers use stdio or Streamable HTTP. Startup gets one bounded retry by default; set `startupRetries` from 0–5 and `retryDelayMs` from 0–10000 on a server definition to tune it. Retry waits honor cancellation. `MCPTool action:"status"` actively pings running servers and reports healthy, unhealthy, and disconnected states. Legacy SSE is intentionally not enabled without a reviewed active server that requires it.
+
 See the repository [configuration guide](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) for every supported key and [docs/SETTINGS.md](docs/SETTINGS.md) for Pi's control center, persistence, and security behavior.
 
 ## Slash command entries (5)

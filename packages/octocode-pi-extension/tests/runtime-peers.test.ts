@@ -6,6 +6,23 @@ import { test } from 'vitest';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 
+const HOST_PROVIDED_PACKAGES = [
+  '@earendil-works/pi-coding-agent',
+  '@earendil-works/pi-tui',
+  'typebox',
+] as const;
+
+test('host-provided Pi packages remain unbundled wildcard peers', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  for (const packageName of HOST_PROVIDED_PACKAGES) {
+    assert.equal(manifest.dependencies?.[packageName], undefined, `${packageName} must not install a private runtime copy`);
+    assert.equal(manifest.peerDependencies?.[packageName], '*', `${packageName} must resolve from the Pi host`);
+  }
+});
+
 test('startup imports cannot depend on an optional peer', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
   const optional = new Set(Object.entries(manifest.peerDependenciesMeta ?? {})

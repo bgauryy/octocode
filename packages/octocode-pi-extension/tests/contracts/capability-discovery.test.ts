@@ -84,9 +84,9 @@ it.each(['pending-review', 'unavailable', 'disabled', 'untrusted'] as const)('re
 it('parses full TOML and preserves timeout, filter, environment and disabled import identity', () => {
   const { home, cwd } = fixture();
   const file = path.join(cwd, '.codex', 'config.toml');
-  write(file, `[mcp_servers."docs.api"]\ncommand = "docs" # comment\nargs = [\n  "--stdio",\n  "hello\\nworld",\n]\nenv = { TOKEN = "\u0024{env:DOCS_TOKEN}" }\nstartup_timeout_sec = 30\ntool_timeout_sec = 180\nenabled_tools = ["search"]\ndisabled_tools = ["delete"]\ncustom_feature = true\n`);
+  write(file, `[mcp_servers."docs.api"]\ncommand = "docs" # comment\nargs = [\n  "--stdio",\n  "hello\\nworld",\n]\nenv = { TOKEN = "\u0024{env:DOCS_TOKEN}" }\nstartup_timeout_sec = 30\ntool_timeout_sec = 180\nstartupRetries = 2\nretryDelayMs = 250\nenabled_tools = ["search"]\ndisabled_tools = ["delete"]\ncustom_feature = true\n`);
   const result = discoverMcpSystem(cwd, { homeDir: home });
-  expect(result.definitions[0]).toMatchObject({ sourceId: expect.stringMatching(/^sha256:/), revision: expect.stringMatching(/^sha256:/), config: { disabled: true, command: 'docs', args: ['--stdio', 'hello\nworld'], envRefs: { TOKEN: 'DOCS_TOKEN' }, startupTimeoutMs: 30000, timeoutMs: 180000, enabledTools: ['search'], disabledTools: ['delete'] } });
+  expect(result.definitions[0]).toMatchObject({ sourceId: expect.stringMatching(/^sha256:/), revision: expect.stringMatching(/^sha256:/), config: { disabled: true, command: 'docs', args: ['--stdio', 'hello\nworld'], envRefs: { TOKEN: 'DOCS_TOKEN' }, startupTimeoutMs: 30000, timeoutMs: 180000, startupRetries: 2, retryDelayMs: 250, enabledTools: ['search'], disabledTools: ['delete'] } });
   expect(result.definitions[0]?.diagnostics).toContainEqual(expect.objectContaining({ field: 'custom_feature', code: 'unsupported-field' }));
 });
 

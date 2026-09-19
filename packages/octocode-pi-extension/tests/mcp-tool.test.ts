@@ -1917,6 +1917,10 @@ test("describe and call reuse the same live schema discovery", async () => {
     }, undefined, fixture.ctx)).isError ?? false, false);
     assert.equal(fs.readFileSync(fixture.listMarker, "utf8").trim().split("\n").length, 1,
       "describe should establish the live schema used by the following call");
+    const status = await handleMcpAction({ action: "status" }, undefined, fixture.ctx);
+    const details = status.details as { health?: Array<{ name: string; status: string; latencyMs?: number }> };
+    assert.match((status.content[0] as { text: string }).text, /octocode: healthy.*ping/i);
+    assert.equal(details.health?.find(row => row.name === "octocode")?.status, "healthy");
   } finally {
     stopAllMcpServers();
     fixture.cleanup();

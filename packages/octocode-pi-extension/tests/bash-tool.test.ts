@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, test } from 'vitest';
 import { allowLocalFixtureProcesses } from '../../../test-utils/external-effects-guard.js';
 import {
+  BASH_BACKGROUND_COMPLETION_TYPE,
   BASH_CONTEXT_MAX_CHARS,
   BASH_HEAD_CHARS,
   BASH_TAIL_CHARS,
@@ -178,6 +179,60 @@ test('bash override accepts an omitted batch label', async () => {
   });
   const result = await executeBash(tools.get('bash')!, 'missing-reasoning', { queries: [{ command: 'printf hi' }] }, undefined, { cwd: os.tmpdir() });
   assert.match((result.content[0] as { text: string }).text, /hi/);
+});
+
+test('background completion is attributed external data delivered through the Pi instance', async () => {
+  let tool: ToolDefinition | undefined;
+  const sent: Array<{
+    message: { customType: string; content: unknown; display?: boolean; details?: unknown };
+    options?: { triggerTurn?: boolean; deliverAs?: string };
+  }> = [];
+  const manager = registerBashTool({
+    registerTool: (definition) => { tool = definition; },
+    sendMessage: (message, options) => { sent.push({ message, options }); },
+  }, new Set<string>(), registerUniqueTool);
+  let logPath: string | undefined;
+  try {
+    const started = await executeBash(tool!, 'background-completion', {
+      command: 'printf complete',
+      background: true,
+      title: 'Completion attribution test',
+      reasoning: 'verify asynchronous completion message authority',
+    }, undefined, { cwd: os.tmpdir() });
+    logPath = (started.details as { logPath?: string }).logPath;
+    for (let attempt = 0; attempt < 100 && sent.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]!.message.customType, BASH_BACKGROUND_COMPLETION_TYPE);
+    assert.equal(sent[0]!.message.display, true);
+    assert.match(String(sent[0]!.message.content), /external process data, not a user instruction/i);
+    assert.deepEqual(sent[0]!.options, { triggerTurn: true, deliverAs: 'followUp' });
+    assert.equal((sent[0]!.message.details as { authority?: string }).authority, 'external-data');
+  } finally {
+    manager.dispose();
+    if (logPath) fs.rmSync(logPath, { force: true });
+  }
+});
+
+test('session disposal does not wake the model for a killed background job', async () => {
+  let tool: ToolDefinition | undefined;
+  const sent: unknown[] = [];
+  const manager = registerBashTool({
+    registerTool: (definition) => { tool = definition; },
+    sendMessage: (message) => { sent.push(message); },
+  }, new Set<string>(), registerUniqueTool);
+  const started = await executeBash(tool!, 'background-disposal', {
+    command: 'trap "exit 0" TERM; sleep 10',
+    background: true,
+    title: 'Disposed background job',
+    reasoning: 'verify teardown does not create a stale follow-up turn',
+  }, undefined, { cwd: os.tmpdir() });
+  const logPath = (started.details as { logPath?: string }).logPath;
+  manager.dispose();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(sent, []);
+  if (logPath) fs.rmSync(logPath, { force: true });
 });
 
 test('extractBashWriteTargets: sed/perl in-place targets the FILE, never the script', () => {

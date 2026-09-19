@@ -1,6 +1,6 @@
 # @octocodeai/pi-extension — Architecture
 
-This document describes the Octocode Pi Extension (`packages/octocode-pi-extension`): system prompt assembly, tool registration, skill discovery, session data layout, plan lifecycle, and the HTML/Markdown plan surface. Source contracts remain authoritative. Capability, prompt, worker, and discovery sections checked 2026-09-10.
+This document describes the Octocode Pi Extension (`packages/octocode-pi-extension`): system prompt assembly, tool registration, skill discovery, session data layout, plan lifecycle, and the HTML/Markdown plan surface. Source contracts remain authoritative. Capability, prompt, worker, and discovery sections checked 2026-09-18.
 
 ---
 
@@ -11,10 +11,10 @@ This document describes the Octocode Pi Extension (`packages/octocode-pi-extensi
 | Main-agent policy | [`src/contracts/prompts`](src/contracts/prompts) owns the canonical coder kernel; [`src/prompts/system-prompt.ts`](src/prompts/system-prompt.ts) adds Pi host facts and canonical Awareness guidance |
 | Awareness host bindings | [`src/tools/awareness-cli-context.ts`](src/tools/awareness-cli-context.ts): native-facade prompt context; foreign tool sets can receive a bound CLI fallback. [`src/tools/awareness-context.ts`](src/tools/awareness-context.ts) owns native database/workspace/identity bindings |
 | Runtime physiology | [`src/adapters/pi-physiology.ts`](src/adapters/pi-physiology.ts): headless native measurements and session fences; [`src/adapters/pi-physiology-regulation.ts`](src/adapters/pi-physiology-regulation.ts): bounded projection of canonical Awareness advice |
-| Context assembly and lifecycle | [`src/index.ts`](src/index.ts) composes the host; [`src/tools/session-prompt-context.ts`](src/tools/session-prompt-context.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) own prompt context |
+| Context assembly and lifecycle | [`src/index.ts`](src/index.ts) composes the host and preserves hook order; [`src/tools/prompt-preflight.ts`](src/tools/prompt-preflight.ts) owns the two-stage `before_agent_start` preparation/`agent_start` cancellation boundary; [`src/tools/session-prompt-context.ts`](src/tools/session-prompt-context.ts) and [`src/tools/context-segments.ts`](src/tools/context-segments.ts) own attributed prompt context and budgets |
 | Awareness mutation integration | [`src/adapters/pi-awareness-mutation.ts`](src/adapters/pi-awareness-mutation.ts) owns mutation presence, registry updates, and host-gate adaptation |
 | Internal error logging | [`src/internal-error-log.ts`](src/internal-error-log.ts) owns private paths, redaction, formatting, and best-effort append behavior |
-| Direct tool names | [`src/constants.ts`](src/constants.ts); registration in `registerSupportToolPhase` |
+| Direct tool names and Pi builtin policy | [`src/constants.ts`](src/constants.ts) declares the public inventory; [`src/tools/tool-registration.ts`](src/tools/tool-registration.ts) owns the effective palette, static registration order, and builtin filtering |
 | Query execution and partial receipts | [`src/tools/query-envelope.ts`](src/tools/query-envelope.ts) owns ordering, preflight, concurrency, and cancellation. Schema conversion preserves the owning validator's constraints. [`src/tools/query-batch-error.ts`](src/tools/query-batch-error.ts) preserves complete evidence from successful and failed rows, including a first-item failure. Operation-specific validation stays with each tool. |
 | Host tool failure adaptation | [`src/tools/tool-result-error.ts`](src/tools/tool-result-error.ts) converts internal error results into Pi's thrown-error channel without clipping content. Images are serialized as JSON in that text-only channel. Success result shapes remain unchanged. |
 | File mutations | [`docs/FILE_MUTATIONS.md`](docs/FILE_MUTATIONS.md) defines the dedicated `@octocodeai/octocode-extension-rust` boundary: native snapshots, mutations, sync and diff; TypeScript owns text semantics, path policy, batches and receipts. |
@@ -48,26 +48,32 @@ Bundled artifact: `dist/system/SYSTEM_PROMPT.md`.
 
 ### 2.2 Versioned capability projection and live turn context
 
-Before every main-agent or worker turn, `preparePromptCapabilities` resolves the
+Before every main-agent or worker turn, the controller in `prompt-preflight.ts`
+refreshes declarative adapters, then `preparePromptCapabilities` resolves the
 capabilities allowed by that process and publishes a validated snapshot with
 `schemaVersion: 1` and a content revision. `assembleSessionPromptContext` attributes
 and bounds the segments. The hook replaces only its prior owned projection,
 preserving the host's current prompt. Unchanged content remains byte-stable;
-changed capabilities appear on the next turn without a new session.
+changed capabilities appear on the next turn without a new session. If preparation
+fails, the controller leaves the scope armed and its `agent_start` guard aborts the
+provider run rather than sending an incomplete prompt.
 
 The reported context status is `ready` when this projection is assembled; it is
 not a provider cache-hit receipt. Estimates count the active direct tools and
 prompt/turn overhead, separately from Pi's retained conversation measurements.
 MCP discovery revalidates configuration before publishing, and coalesces changes
 behind in-flight discovery. Skill execution receives raw Pi metadata, never a
-previously resolved inventory that could introduce a second source identity.
+previously resolved inventory that could introduce a second source identity. A
+skill body becomes a restore-only current source only after a successful `skill`
+load; merely appearing in the available-skill inventory does not register its body
+or consume one of the bounded current-source slots.
 
 | Segment key | Content | Budget |
 |---|---|---|
 | `octocode-product-policy` | Bundled `SYSTEM_PROMPT.md` | 12k tokens |
 | `awareness-cli-runtime` | Native Awareness routing and current host bindings; CLI fallback only for tool sets without the native facade | 1k tokens |
 | `mcp-tool-contracts` | Enabled server/tool routing metadata in `<mcp_catalog_index>`; `MCPTool action:"describe"` loads one exact schema and activates a Pi proxy when the host admits its dynamic name | 6k tokens; the initial index is also bounded to 18k characters and larger catalogs expose an executable continuation |
-| `runtime-tool-contracts` | `<runtime_capabilities>` and current `capability_revision` | 500 tokens |
+| `runtime-tool-contracts` | `<runtime_capabilities>`; the mutable `capability_revision` is a separate per-turn context segment (96-token budget), preserving the cacheable system prefix | 500 tokens |
 | `dynamic-tool-contracts` | Dynamic skill addendum (excludes installed skill names already in catalog) | 6k tokens |
 | `available-skills` | `<available_skills>` — discovered skill list | 5k tokens |
 | `session-artifact-contract` | Session memory and audit paths | 500 tokens |
@@ -84,6 +90,8 @@ model's valid declared context window. Missing model metadata retains the 80k
 fallback. Overflow fails preparation without clipping content. Estimates use
 `ceil(UTF-16 characters / 4)`; they are not tokenizer counts or provider usage.
 Pi owns retained conversation, output allocation, and automatic compaction.
+Octocode never treats an inactive local plan as evidence that a threshold crossing
+can be cancelled; completed turns may still belong to a continuing session.
 
 Workers receive only segments supported by their grant of native tools, exact
 skill IDs, and MCP server/tool pairs. Their role prompt remains caller-owned;
@@ -172,7 +180,7 @@ OVERRIDDEN_BUILTIN_TOOL_NAMES = ['bash']
 
 ### 3.2 Direct Pi tools (15 including the `bash` override)
 
-Registered in `registerSupportToolPhase` in [`src/index.ts`](src/index.ts):
+Registered in `registerSupportTools` in [`src/tools/tool-registration.ts`](src/tools/tool-registration.ts). The composition root keeps lifecycle order, while this module is the single static-tool and builtin-policy boundary:
 
 [`registerUniqueTool`](src/tools/octocode-tools.ts) preserves tool-owned schemas and input preparation, adapts failures, and prefixes prompt guidelines with the owning tool name because Pi combines those guidelines into a flat section.
 
@@ -208,7 +216,9 @@ completed commands with oversized output do not auto-replay mutations. See [the 
 ### 3.3 MCP research tools (catalog-driven via MCPTool → octocode-mcp server)
 
 The built-in catalog contains thirteen tools, including credential-gated `jevReasoning` and `jevScout`. They are served through `MCPTool`; omitted `server` defaults to the built-in
-`octocode` server for research, resource, and prompt actions. Their schemas are
+`octocode` server for research, resource, and prompt actions. Stdio and Streamable HTTP connections receive one bounded startup retry by default; `startupRetries` (0–5) and `retryDelayMs` (0–10000) can override that policy per server. Retry waits honor request cancellation, and targeted server stops abort their pending starts. `MCPTool action:"status"` pings live connections, reports healthy/unhealthy/disconnected rows, and evicts failed connections so their next use reconnects. Legacy SSE remains unsupported because no reviewed active source requires it; URL servers use Streamable HTTP.
+
+Their schemas are
 discovered through the gateway instead of registered individually in Pi's direct
 tool palette. Measure the live contracts before estimating context savings.
 

@@ -1,5 +1,8 @@
 import { SYSTEM_PROMPT_MARKER, MANAGED_BLOCK_START, MANAGED_BLOCK_END } from './constants.js';
-import type { PromptMode } from './contracts/protocols.js';
+import {
+  DEFAULT_OCTOCODE_PROMPT_MODE,
+  type PromptMode,
+} from './contracts/protocols.js';
 
 export function renderSystemPromptAddendum(octocodePrompt: string): string {
   return `${SYSTEM_PROMPT_MARKER}\n${octocodePrompt.trim()}\n${SYSTEM_PROMPT_MARKER}`;
@@ -35,13 +38,13 @@ export function mergeManagedAppendSystem(
 
 /**
  * Resolve the harness prompt mode.
- * Precedence: explicit option > OCTOCODE_PROMPT_MODE env > 'append'.
+ * Precedence: explicit option > OCTOCODE_PROMPT_MODE env > shared default.
  */
 export function resolvePromptMode(option?: string): PromptMode {
   if (option === 'append' || option === 'octocode-first') return option;
   const envMode = process.env['OCTOCODE_PROMPT_MODE'];
-  if (envMode === 'octocode-first') return 'octocode-first';
-  return 'append';
+  if (envMode === 'append' || envMode === 'octocode-first') return envMode;
+  return DEFAULT_OCTOCODE_PROMPT_MODE;
 }
 
 /**

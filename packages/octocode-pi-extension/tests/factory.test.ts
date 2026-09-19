@@ -5,6 +5,7 @@ import octocodeDefault, { createOctocodePiExtension } from '../src/index.js';
 import * as runtimeEntrypoint from '../src/index.js';
 import * as testingEntrypoint from './helpers/production-pi.js';
 import { resolvePromptMode, composeSystemPrompt } from '../src/prompt.js';
+import { DEFAULT_OCTOCODE_PROMPT_MODE } from '../src/contracts/protocols.js';
 
 test('default export preserves the single-arg Pi contract (default(pi))', () => {
   assert.equal(typeof octocodeDefault, 'function');
@@ -41,7 +42,7 @@ test('resolvePromptMode: explicit option wins, then env, then append default', (
   const previous = process.env['OCTOCODE_PROMPT_MODE'];
   try {
     delete process.env['OCTOCODE_PROMPT_MODE'];
-    assert.equal(resolvePromptMode(), 'append');
+    assert.equal(resolvePromptMode(), DEFAULT_OCTOCODE_PROMPT_MODE);
     assert.equal(resolvePromptMode('octocode-first'), 'octocode-first');
     assert.equal(resolvePromptMode('append'), 'append');
 

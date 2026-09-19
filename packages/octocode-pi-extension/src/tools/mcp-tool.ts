@@ -79,6 +79,7 @@ import { stringify } from "./mcp/sanitize.js";
 import type {
   McpAction,
   McpConnection,
+  McpConnectionHealth,
   ListedMcpServer,
   ValidatedMcpTool,
   McpDiscoveryServer,
@@ -1034,12 +1035,28 @@ function formatConfig(config: McpLoadedConfig, cwd = process.cwd()): string {
   return lines.join("\n");
 }
 
-function formatMcpServerStatus(config: McpLoadedConfig): string {
-  const running = connectionManager.connectedNames();
+type McpServerHealthRow = McpConnectionHealth | {
+  name: string;
+  status: 'disconnected';
+};
+
+function buildMcpServerHealth(config: McpLoadedConfig, probed: McpConnectionHealth[]): McpServerHealthRow[] {
+  const byName = new Map(probed.map(row => [row.name, row]));
+  return [...config.servers.keys()].sort().map(name => byName.get(name) ?? { name, status: 'disconnected' });
+}
+
+function formatMcpServerStatus(config: McpLoadedConfig, health: McpServerHealthRow[]): string {
+  const running = health.filter(row => row.status === 'healthy').map(row => row.name);
+  const healthLines = health.map(row => {
+    if (row.status === 'disconnected') return `- ${row.name}: disconnected`;
+    if (row.status === 'unhealthy') return `- ${row.name}: unhealthy${row.error ? ` (${row.error})` : ''}`;
+    return `- ${row.name}: healthy${row.latencyMs === undefined ? '' : ` (${row.latencyMs}ms ping)`}`;
+  });
   return [
     "Octocode MCP status",
     `configured: ${config.servers.size === 0 ? "none" : [...config.servers.keys()].join(", ")}`,
     `running: ${running.length === 0 ? "none" : running.join(", ")}`,
+    healthLines.length > 0 ? `health:\n${healthLines.join('\n')}` : undefined,
     config.warnings.length
       ? `warnings:\n- ${config.warnings.join("\n- ")}`
       : undefined,
@@ -1237,12 +1254,18 @@ export async function handleMcpAction(
       sources: loaded.sources,
       warnings: loaded.warnings,
     });
-  if (action === "status")
-    return result(formatMcpServerStatus(loaded), {
-      running: connectionManager.connectedNames(),
+  if (action === "status") {
+    const health = buildMcpServerHealth(
+      loaded,
+      await connectionManager.probeConnected(signal),
+    );
+    return result(formatMcpServerStatus(loaded, health), {
+      running: health.filter(row => row.status === 'healthy').map(row => row.name),
+      health,
       warnings: loaded.warnings,
       schema: getMcpSchemaMetrics(ctx),
     });
+  }
   if (action === "stop") {
     const stopped = serverName
       ? await stopConnection(serverName)

@@ -9,11 +9,13 @@ import { extensionWorkspaceRoot } from '../src/extension-paths.js';
 import { discoverMcpSystem } from '../src/tools/mcp/discovery.js';
 import {
   buildServerHeaders,
+  configSignature,
   globalMcpConfigPaths,
   loadMcpConfig,
   projectMcpPath,
   projectMcpConfigPaths,
   reviewMcpSource,
+  upsertServerInFile,
 } from '../src/tools/mcp/config.js';
 import type { PiContext } from '../src/types.js';
 
@@ -77,6 +79,39 @@ test('HTTP MCP servers accept URL and headers without a command', async () => {
   const loaded = await loadMcpConfig({ cwd, isProjectTrusted: () => true } as unknown as PiContext, { homeDir, octocodeHome });
   assert.equal(loaded.servers.get('remote')?.transport, 'http');
   assert.equal(loaded.servers.get('remote')?.url, 'https://mcp.example.test/api');
+});
+
+test('startup retry policy is bounded, persisted, and part of connection identity', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-mcp-retry-cwd-'));
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'octo-mcp-retry-home-'));
+  const octocodeHome = path.join(homeDir, '.octocode-custom');
+  const configPath = projectMcpPath(cwd, octocodeHome);
+  const parsed = upsertServerInFile(configPath, 'retrying', {
+    command: 'retrying-server',
+    startupRetries: 2,
+    retryDelayMs: 25,
+  });
+  assert.equal(parsed.startupRetries, 2);
+  assert.equal(parsed.retryDelayMs, 25);
+
+  const loaded = await loadMcpConfig(
+    { cwd, isProjectTrusted: () => true } as unknown as PiContext,
+    { homeDir, octocodeHome },
+  );
+  assert.equal(loaded.servers.get('retrying')?.startupRetries, 2);
+  assert.equal(loaded.servers.get('retrying')?.retryDelayMs, 25);
+  assert.notEqual(
+    configSignature({ command: 'retrying-server', startupRetries: 1, retryDelayMs: 25 }),
+    configSignature({ command: 'retrying-server', startupRetries: 2, retryDelayMs: 25 }),
+  );
+  assert.throws(
+    () => upsertServerInFile(configPath, 'too-many-retries', { command: 'x', startupRetries: 6 }),
+    /startupRetries.*between 0 and 5/i,
+  );
+  assert.throws(
+    () => upsertServerInFile(configPath, 'slow-retry', { command: 'x', retryDelayMs: 10_001 }),
+    /retryDelayMs.*between 0 and 10000/i,
+  );
 });
 
 test('HTTP bearer credentials are resolved from an environment reference only at connection time', () => {

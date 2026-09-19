@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { workspaceAgentRoot } from './paths.js';
 import { capabilityDefinitionRevision, capabilitySourcePaths, stableCapabilitySourceId, type CapabilityPathOptions } from './capability-sources.js';
+import { validateMcpRetryPolicy } from './mcp-connection-policy.js';
 
 export interface DiscoveredMcpServerConfig {
   transport?: 'stdio' | 'http';
@@ -21,6 +22,8 @@ export interface DiscoveredMcpServerConfig {
   instructions?: string;
   timeoutMs?: number;
   startupTimeoutMs?: number;
+  startupRetries?: number;
+  retryDelayMs?: number;
   enabledTools?: string[];
   disabledTools?: string[];
   sourceDisabled?: boolean;
@@ -120,7 +123,7 @@ function splitReferences(value: unknown): { values?: Record<string, string>; ref
 
 export function normalizeDiscoveredMcpServer(raw: JsonRecord): { config: Omit<DiscoveredMcpServerConfig, 'disabled' | 'discovered'>; diagnostics: McpDiscoveryDiagnostic[] } {
   const diagnostics: McpDiscoveryDiagnostic[] = [];
-  const known = new Set(['transport', 'type', 'command', 'args', 'env', 'envRefs', 'env_vars', 'cwd', 'url', 'httpUrl', 'serverUrl', 'headers', 'http_headers', 'headerRefs', 'env_http_headers', 'bearer_token_env_var', 'bearerTokenEnvVar', 'auth', 'oauth', 'description', 'instructions', 'timeoutMs', 'timeout', 'tool_timeout_sec', 'startup_timeout_sec', 'startup_timeout_ms', 'startupTimeoutMs', 'enabled_tools', 'disabled_tools', 'enabledTools', 'disabledTools', 'disabled', 'enabled']);
+  const known = new Set(['transport', 'type', 'command', 'args', 'env', 'envRefs', 'env_vars', 'cwd', 'url', 'httpUrl', 'serverUrl', 'headers', 'http_headers', 'headerRefs', 'env_http_headers', 'bearer_token_env_var', 'bearerTokenEnvVar', 'auth', 'oauth', 'description', 'instructions', 'timeoutMs', 'timeout', 'tool_timeout_sec', 'startup_timeout_sec', 'startup_timeout_ms', 'startupTimeoutMs', 'startupRetries', 'retryDelayMs', 'enabled_tools', 'disabled_tools', 'enabledTools', 'disabledTools', 'disabled', 'enabled']);
   for (const field of Object.keys(raw)) {
     if (!known.has(field)) diagnostics.push({ code: 'unsupported-field', field, message: `Vendor field ${field} is retained for review but is not supported by this host` });
   }
@@ -144,6 +147,8 @@ export function normalizeDiscoveredMcpServer(raw: JsonRecord): { config: Omit<Di
   }
   const timeout = raw['timeoutMs'] ?? raw['timeout'] ?? (typeof raw['tool_timeout_sec'] === 'number' ? raw['tool_timeout_sec'] * 1000 : undefined);
   const startupTimeout = raw['startupTimeoutMs'] ?? raw['startup_timeout_ms'] ?? (typeof raw['startup_timeout_sec'] === 'number' ? raw['startup_timeout_sec'] * 1000 : undefined);
+  const startupRetries = raw['startupRetries'];
+  const retryDelayMs = raw['retryDelayMs'];
   const env = splitReferences(raw['env']);
   const headers = splitReferences(raw['headers'] ?? raw['http_headers']);
   const explicitHeaderRefs = stringRecord(raw['headerRefs'] ?? raw['env_http_headers']);
@@ -170,6 +175,9 @@ export function normalizeDiscoveredMcpServer(raw: JsonRecord): { config: Omit<Di
   for (const [field, value] of [['timeoutMs', timeout], ['startupTimeoutMs', startupTimeout]] as const) {
     if (value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)) diagnostics.push({ code: 'invalid-field', field, message: `${field} must be a positive integer` });
   }
+  for (const message of validateMcpRetryPolicy({ startupRetries, retryDelayMs })) {
+    diagnostics.push({ code: 'invalid-field', field: message.startsWith('startupRetries') ? 'startupRetries' : 'retryDelayMs', message });
+  }
   const bearer = raw['bearerTokenEnvVar'] ?? raw['bearer_token_env_var'];
   if (bearer !== undefined && (typeof bearer !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(bearer))) diagnostics.push({ code: 'invalid-field', field: 'bearerTokenEnvVar', message: 'Bearer token reference must name an environment variable' });
   return { config: {
@@ -188,6 +196,8 @@ export function normalizeDiscoveredMcpServer(raw: JsonRecord): { config: Omit<Di
     ...(typeof raw['instructions'] === 'string' ? { instructions: raw['instructions'] } : {}),
     ...(typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0 ? { timeoutMs: timeout } : {}),
     ...(typeof startupTimeout === 'number' && Number.isFinite(startupTimeout) && startupTimeout > 0 ? { startupTimeoutMs: startupTimeout } : {}),
+    ...(typeof startupRetries === 'number' ? { startupRetries } : {}),
+    ...(typeof retryDelayMs === 'number' ? { retryDelayMs } : {}),
     ...(stringArray(raw['enabledTools'] ?? raw['enabled_tools']) ? { enabledTools: stringArray(raw['enabledTools'] ?? raw['enabled_tools']) } : {}),
     ...(stringArray(raw['disabledTools'] ?? raw['disabled_tools']) ? { disabledTools: stringArray(raw['disabledTools'] ?? raw['disabled_tools']) } : {}),
     ...(raw['disabled'] === true || raw['enabled'] === false ? { sourceDisabled: true } : {}),

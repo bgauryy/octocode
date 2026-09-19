@@ -1,7 +1,6 @@
 import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PiContext } from '../src/types.js';
-import { mergeCompactionRehydrationCaptures } from '../src/tools/compaction-hooks.js';
 import {
   captureCurrentContextSources,
   clearCurrentContextSources,
@@ -82,7 +81,7 @@ describe('production current-context source registry', () => {
     expect(capture).toMatchObject({ unavailable: ['missing'], overBudget: ['large'], segments: [], contents: {} });
   });
 
-  it('keeps fixed identities authoritative when merging capture and restore sources', () => {
+  it('keeps fixed identities authoritative when merging current restore sources', () => {
     registerCurrentContextSource(ctx, {
       version: 1, id: 'fixed', kind: 'tool-result', origin: 'tool:dynamic', authority: 'external-data',
       scope: 'turn', visibility: 'transcript', rehydrate: 'always', readCurrent: () => 'dynamic bytes',
@@ -94,10 +93,6 @@ describe('production current-context source registry', () => {
     expect(mergeCurrentContextSources(ctx, [{ segment: fixedSegment, content: 'fixed bytes' }])).toEqual([
       { segment: fixedSegment, content: 'fixed bytes' },
     ]);
-    expect(mergeCompactionRehydrationCaptures(
-      { segments: [fixedSegment], contents: { fixed: 'fixed bytes' } },
-      captureCurrentContextSources(ctx),
-    )).toEqual({ segments: [fixedSegment], contents: { fixed: 'fixed bytes' } });
   });
 
   it('keeps restore-only skill/tool owners out of capture but available to current validation', () => {

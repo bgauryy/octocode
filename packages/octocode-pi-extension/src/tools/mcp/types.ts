@@ -22,6 +22,15 @@ export type McpAction =
   | "add"
   | "remove";
 
+export interface McpConnectionHealth {
+  name: string;
+  status: 'healthy' | 'unhealthy';
+  checkedAt: number;
+  startedAt: number;
+  latencyMs?: number;
+  error?: string;
+}
+
 export interface McpConnection {
   name: string;
   config: McpServerConfig;
@@ -31,6 +40,7 @@ export interface McpConnection {
   transport: Transport;
   stderr: string[];
   startedAt: number;
+  health: McpConnectionHealth;
   oauth?: McpOAuthFlow;
 }
 

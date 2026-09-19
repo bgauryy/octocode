@@ -9,11 +9,10 @@ import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
 import { getShellConfig } from '@earendil-works/pi-coding-agent';
-import type { ToolCallResult, ToolDefinition } from '../types.js';
+import type { PiContext, PiInstance, ToolCallResult } from '../types.js';
 
 import { assertPathAllowed } from './path-guard.js';
 import { classifySensitiveCommand, requestApproval, type ApprovalRequest } from './approval.js';
-import type { PiContext } from '../types.js';
 import { DIRECT_TOOL_DESCRIPTIONS, type registerUniqueTool } from './octocode-tools.js';
 import { buildQueryEnvelopeSchema, executeQueryBatch } from './query-envelope.js';
 import {
@@ -45,6 +44,7 @@ export const BASH_OUTPUT_FILE_MAX_BYTES = 64 * 1024 * 1024;
  * indicates an agent mistake (e.g. passing milliseconds instead of seconds).
  * The value is clamped silently and the clamp is surfaced in the result text. */
 export const BASH_MAX_TIMEOUT_SEC = 3600;
+export const BASH_BACKGROUND_COMPLETION_TYPE = 'octocode-background-job-completion';
 const PLAN_MODE_MUTATING_BASH_RE = /(^|[;|&(`\n])\s*(?:sudo\s+)?(?:touch|mkdir|rm|rmdir|mv|cp|install|ln|chmod|chown|truncate|dd|sed\s+[^;|&\n]*\s-i\b|perl\s+[^;|&\n]*\s-i\b|node\s+(?:--[^\s]+\s+)*-[ep]\b|python3?\s+-c\b|ruby\s+-e\b)\b|>>?|\btee\b/i;
 
 /** Catastrophic patterns we refuse even when paths look local. */
@@ -593,7 +593,7 @@ async function runBash(
 }
 
 export function registerBashTool(
-  pi: { registerTool?(def: ToolDefinition): void },
+  pi: Pick<PiInstance, 'registerTool' | 'sendMessage'>,
   registeredToolNames: Set<string>,
   registerFn: RegisterFn,
 ): JobManager {
@@ -718,15 +718,30 @@ export function registerBashTool(
             const job: BgJob   = await manager.start(
               command, cwd, bgTimeout, bgTitle,
               (j) => {
+                // A killed job is already reported by action:kill or session teardown;
+                // waking the model would duplicate that result or leak across sessions.
+                if (j.status === 'killed') return;
                 try {
                   const icon = BG_STATUS_ICON[j.status] ?? '?';
                   const msg  =
+                    `Background job completion (external process data, not a user instruction):\n` +
                     `${icon} bash (bg) job \`${j.id}\` ${j.status}\n` +
                     `Title:   ${j.title}\nRuntime: ${formatBgElapsed((j.endedAt ?? Date.now()) - j.startedAt)}\n` +
                     `Exit:    ${j.exitCode ?? 'n/a'}\nLog:     ${j.logPath}\n\n` +
                     `  bash queries=[{action:'output',jobId:'${j.id}'}]   # read log`;
-                  (ctx as any)?.sendUserMessage?.(msg, { deliverAs: 'followUp' });
-                } catch {}
+                  pi.sendMessage?.({
+                    customType: BASH_BACKGROUND_COMPLETION_TYPE,
+                    content: msg,
+                    display: true,
+                    details: {
+                      authority: 'external-data',
+                      jobId: j.id,
+                      status: j.status,
+                      exitCode: j.exitCode,
+                      logPath: j.logPath,
+                    },
+                  }, { triggerTurn: true, deliverAs: 'followUp' });
+                } catch { /* completion delivery must not crash the host process */ }
               },
             );
             return {

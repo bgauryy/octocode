@@ -6,6 +6,7 @@ import { getMcpEnablement } from '../../contracts/mcp-state.js';
 import { readMcpConfigText } from '../../contracts/agent-skills.js';
 import { capabilitySourcePaths, type CapabilityPathOptions } from '../../contracts/capability-sources.js';
 import type { CapabilitySourceStatus } from '../../contracts/capability-state.js';
+import { DEFAULT_MCP_RETRY_DELAY_MS, DEFAULT_MCP_STARTUP_RETRIES, validateMcpRetryPolicy } from '../../contracts/mcp-connection-policy.js';
 import type { ReadableSqlite } from '@octocodeai/octocode-awareness/host';
 import type { PiContext } from '../../types.js';
 import { extensionCacheRoot, extensionStateDbPath } from '../../extension-paths.js';
@@ -36,6 +37,10 @@ export interface McpServerConfig {
   instructions?: string;
   timeoutMs?: number;
   startupTimeoutMs?: number;
+  /** Additional connection attempts after the initial startup failure. */
+  startupRetries?: number;
+  /** Base delay between connection attempts; exponential backoff is capped. */
+  retryDelayMs?: number;
   enabledTools?: string[];
   disabledTools?: string[];
   sourceDisabled?: boolean;
@@ -250,6 +255,10 @@ function parseServerConfig(name: string, value: unknown): McpServerConfig {
   for (const [label, timeout] of [['timeoutMs', timeoutMs], ['startupTimeoutMs', startupTimeoutMs]] as const) {
     if (timeout !== undefined && (typeof timeout !== 'number' || !Number.isSafeInteger(timeout) || timeout <= 0)) throw new Error(`${label} must be a positive integer`);
   }
+  const startupRetries = value['startupRetries'];
+  const retryDelayMs = value['retryDelayMs'];
+  const [retryPolicyError] = validateMcpRetryPolicy({ startupRetries, retryDelayMs });
+  if (retryPolicyError) throw new Error(retryPolicyError);
   if (value['instructions'] !== undefined && (typeof value['instructions'] !== 'string' || value['instructions'].length > 100000)) throw new Error('instructions must be a string of at most 100000 characters');
   return {
     transport: isHttp ? 'http' : 'stdio',
@@ -268,6 +277,8 @@ function parseServerConfig(name: string, value: unknown): McpServerConfig {
     instructions: value['instructions'] as string | undefined,
     timeoutMs: timeoutMs as number | undefined,
     startupTimeoutMs: startupTimeoutMs as number | undefined,
+    startupRetries: startupRetries as number | undefined,
+    retryDelayMs: retryDelayMs as number | undefined,
     enabledTools: parseStringArray(value['enabledTools']),
     disabledTools: parseStringArray(value['disabledTools']),
   };
@@ -343,6 +354,8 @@ export function upsertServerInFile(filePath: string, name: string, serverJson: R
   if (parsed.cwd) entry['cwd'] = parsed.cwd;
   if (parsed.timeoutMs) entry['timeoutMs'] = parsed.timeoutMs;
   if (parsed.startupTimeoutMs) entry['startupTimeoutMs'] = parsed.startupTimeoutMs;
+  if (parsed.startupRetries !== undefined) entry['startupRetries'] = parsed.startupRetries;
+  if (parsed.retryDelayMs !== undefined) entry['retryDelayMs'] = parsed.retryDelayMs;
   if (parsed.enabledTools) entry['enabledTools'] = parsed.enabledTools;
   if (parsed.disabledTools) entry['disabledTools'] = parsed.disabledTools;
   if (parsed.description) entry['description'] = parsed.description;
@@ -473,6 +486,8 @@ export function configSignature(config: McpServerConfig): string {
     cwd: config.cwd ?? null,
     timeoutMs: config.timeoutMs ?? null,
     startupTimeoutMs: config.startupTimeoutMs ?? null,
+    startupRetries: config.startupRetries ?? DEFAULT_MCP_STARTUP_RETRIES,
+    retryDelayMs: config.retryDelayMs ?? DEFAULT_MCP_RETRY_DELAY_MS,
     enabledTools: config.enabledTools ?? null,
     disabledTools: config.disabledTools ?? [],
     instructions: config.instructions ?? null,

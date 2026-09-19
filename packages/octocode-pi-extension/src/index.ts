@@ -1,15 +1,13 @@
 import type {PromptMode} from './contracts/protocols.js';
 import fs from 'node:fs';
 import { propagateOctocodeEnv, getOctocodeHome, isPersistentStorageEnabledForExtension as isPersistentStorageEnabled } from "@octocodeai/config";
-import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { openPersistentAwareness } from './tools/storage-policy.js';
 import { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
 export { getInternalErrorLogPath, logInternalError } from './internal-error-log.js';
 export type { InternalErrorLogOptions } from './internal-error-log.js';
-import { DISABLED_BUILTIN_TOOL_NAMES, OVERRIDDEN_BUILTIN_TOOL_NAMES, OCTOCODE_SUPPORT_TOOL_NAMES } from './constants.js';
+import { DISABLED_BUILTIN_TOOL_NAMES, OVERRIDDEN_BUILTIN_TOOL_NAMES } from './constants.js';
 import { checkForCoreUpdate } from './core-update-check.js';
 import { readOwnVersion } from './package-metadata.js';
-import { ensureAdaptiveThinkingCompatibility } from './model-compat.js';
 import {
   getAssetPaths,
   readTextIfExists,
@@ -33,18 +31,12 @@ try {
 // the session was launched from a Claude Code / Cursor terminal whose host
 // env vars are inherited. Respect an explicit override.
 process.env.OCTOCODE_AGENT_HOST ||= 'octo';
-import { resolvePromptMode, composeSystemPrompt, renderSystemPromptAddendum, stripProjectContext, stripPiSkillsSection, adaptPiResearchGuidance } from './prompt.js';
-import { projectPiSystemPromptCapabilities } from './prompts/system-prompt.js';
-import { assembleSessionPromptContext } from './tools/session-prompt-context.js';
-import { registerSkillTool } from './tools/skill-tool.js';
-import { discoverSkills, discoverSkillStates, type DiscoveredSkill } from './tools/skill-discovery.js';
+import { resolvePromptMode } from './prompt.js';
+import { discoverSkills, discoverSkillStates } from './tools/skill-discovery.js';
 import { writeDiscoveryFile } from './tools/discovery-file.js';
 import { estimateTokens } from './utils.js';
-import { getDirectToolContractStats, registerUniqueTool } from './tools/octocode-tools.js';
-import {
-  resetCompactionCheckpointDedupe,
-  setCompactionRehydrationSegmentsProvider,
-} from './tools/compaction-hooks.js';
+import { getDirectToolContractStats } from './tools/octocode-tools.js';
+import { resetCompactionCheckpointDedupe } from './tools/compaction-hooks.js';
 import { collectPublicCommands, EXTENSION_COMMANDS } from './commands.js';
 import { bindExecutionJournal, emitExecution, restoreExecutionJournal } from './tools/execution-runtime.js';
 import { cleanupSpawnedAgentsForShutdown } from './tools/agents/process.js';
@@ -54,54 +46,33 @@ import {
   refreshAgentLedgerUi,
   setAgentLedgerMetricsRefreshForUi,
 } from './tools/agents/rendering.js';
-import { registerWebTool } from './tools/web-tool.js';
-import { registerChromeDebugTool } from './tools/chrome-debug-tool.js';
-import { registerUnifiedAgentTool } from './tools/agents/tool.js';
-import { registerCallTool } from './tools/call-tool.js';
-import { registerFileTool } from './tools/file-tool.js';
-import { registerReadMediaTool } from './tools/read-media-tool.js';
-import { registerRunFfmpegTool } from './tools/run-ffmpeg-tool.js';
-import { registerMediaTool } from './tools/create-media-tool.js';
-import { renderRuntimeCapabilitiesAddendum } from './tools/image-render.js';
-import { registerBashTool } from './tools/bash-tool.js';
 import type { JobManager } from './tools/bash-bg-tool.js';
 import {
-  INITIAL_CONTEXT_TOKEN_BUDGET,
-  providerContextTokenBudget,
-  assembleContextSegments,
-  assertContextTokenBudget,
-  estimateContextTokens,
-} from './tools/context-segments.js';
+  activeSupportToolNames,
+  disableBuiltinTools,
+  registerSupportTools,
+} from './tools/tool-registration.js';
+export { disableBuiltinTools } from './tools/tool-registration.js';
 import {
   clearCurrentContextSources,
-  mergeCurrentContextSources,
   readSessionToolResult,
   registerCurrentContextSource,
   sessionToolResultOrigin,
 } from './tools/context-source-registry.js';
 import { applyStartupPermissionLevel, resetApprovalStore } from './tools/approval.js';
 import {
-  getCachedMcpCatalogAddendum,
-  getCachedMcpCounts,
   mcpCatalogReady,
-  registerMcpTool,
   startMcpConfigWatcher,
   stopAllMcpServers,
   stopMcpConfigWatchers,
   waitForMcpShutdown,
   warmMcpCatalog,
 } from './tools/mcp-tool.js';
-import { initializeCapabilityAdapters, refreshCapabilityAdapters, getCapabilityAdapters, disposeCapabilityAdapters } from './adapters/pi-capability-adapters.js';
+import { initializeCapabilityAdapters, getCapabilityAdapters, disposeCapabilityAdapters } from './adapters/pi-capability-adapters.js';
 import { PI_DECLARATIVE_HOOK_EVENTS } from './adapters/pi-hook-runtime.js';
 import { clearSessionCapabilities } from './tools/capability-session.js';
-import { preparePromptCapabilities, renderAgentsProtocolInstructions } from './tools/prompt-capabilities.js';
 import { disposeWorkerCapabilityRuntime, refreshCurrentWorkerCapabilities, assertCurrentWorkerNativeTool } from './tools/worker-capabilities.js';
 import { openMcpManager, closeConfiguration } from './tools/mcp/html.js';
-import { getDynamicCapabilitiesAddendum } from './tools/dynamic-catalog.js';
-import { renderAvailableSkillsAddendum } from './tools/skill-catalog.js';
-import { registerPlanTool } from './tools/planning/plan-registration.js';
-import { registerLocalServerTool } from './tools/local-server-tool.js';
-import { registerAskUserTool } from './tools/ask-user-tool.js';
 import {
   registerInteractionBrokerAdapter,
   type InteractionBrokerAdapterRegistry,
@@ -112,9 +83,7 @@ import {
   clearInMemoryInteractionState,
   configureInteractionBrokerRoute,
 } from './tools/interaction-broker.js';
-import { renderAwarenessCliContext } from './tools/awareness-cli-context.js';
-import { registerAwarenessTool } from './tools/awareness-tool.js';
-import { AWARENESS_PI_HOST_PROMPT, claimNativeHookOwner } from '@octocodeai/octocode-awareness/host';
+import { claimNativeHookOwner } from '@octocodeai/octocode-awareness/host';
 import { getAwarenessAgentId } from './tools/awareness-shared.js';
 import { registerRuntimeUiPhase } from './tools/runtime-ui-registration.js';
 import {
@@ -122,12 +91,10 @@ import {
   adoptPlanFromBranch,
   getPlan,
   getPlanReviewState,
-  bumpPlanTurn,
   releasePlanScope,
   setPlanEntryAppender,
   PLAN_ENTRY_TYPE,
 } from './tools/planning/plan-store.js';
-import { getCurrentPlanReadModel, renderPlanContext } from './tools/plan-read-model.js';
 import {
   refreshAwarenessPanel,
   suppressAwarenessPanel,
@@ -151,7 +118,6 @@ import { createSessionArtifactContext } from './tools/session-artifacts.js';
 import { freshSessionScopedState } from './session-scoped-state.js';
 import {
   initializeSessionMemory,
-  projectSessionMemoryUpdate,
   renderSessionArtifactPaths,
   SESSION_MEMORY_MAX_BYTES,
 } from './tools/session-memory.js';
@@ -165,13 +131,7 @@ import {
 import { cleanupEphemeralToolOutputs } from './tools/ephemeral-tool-output.js';
 import { readSessionUserRequestContext, USER_REQUEST_CONTEXT_MAX_CHARS } from './tools/user-request-context.js';
 import { cleanupImplicitImageArtifacts } from './tools/create-image-tool.js';
-import {
-  consumeValidatedRehydration,
-  hasPendingRehydration,
-  runAndRecordRehydration,
-  REHYDRATION_RECEIPT_ENTRY_TYPE,
-} from './tools/rehydration-orchestrator.js';
-import type { CurrentRehydrationSource } from './tools/context-source-contracts.js';
+import { runAndRecordRehydration } from './tools/rehydration-orchestrator.js';
 import { restoreDialOnStartup } from './tools/effort-dial.js';
 import { runtimeStoreFor, setManagedActivity, setManagedStatus } from './tools/runtime-renderer.js';
 import { SessionRuntime } from './session-runtime.js';
@@ -187,20 +147,19 @@ import {
   resolvePiHostVersion,
 } from './adapters/pi-host-compatibility.js';
 import { createPiCanonicalRegistryComposition } from './adapters/pi-registry-adapters.js';
-import { collectPiRetainedContentDigests } from './adapters/pi-retained-context.js';
 import { pickProvider } from './web.js';
 import { createHookComposer, type HookMiddleware } from './hook-composer.js';
 import { registerPiPhysiology } from './adapters/pi-physiology.js';
 import { createPiAwarenessObservationSink } from './adapters/pi-awareness-observation.js';
 import { createPiHistoryAdapter } from './adapters/pi-history-adapter.js';
-import { createPiPhysiologyAdvisory } from './adapters/pi-physiology-regulation.js';
 import {
   awarenessMutationGate,
   runAwarenessMutationGate,
   updateAwarenessRegistry,
 } from './adapters/pi-awareness-mutation.js';
 export { readPiPhysiology } from './adapters/pi-physiology.js';
-import type {BeforeAgentStartEvent, PiInstance, PiContext, OctocodePiExtensionOptions, SessionShutdownEvent, ThinkingLevelEvent, SkillInfo, NotifyFn} from './types.js';
+import { createPromptPreflightController } from './tools/prompt-preflight.js';
+import type {PiInstance, PiContext, OctocodePiExtensionOptions, SessionShutdownEvent, ThinkingLevelEvent, NotifyFn} from './types.js';
 
 function notify(ctx: PiContext | undefined, message: string, level = 'info'): void {
   if (level === 'error') {
@@ -214,14 +173,6 @@ function notify(ctx: PiContext | undefined, message: string, level = 'info'): vo
 
   const log = level === 'error' ? console.error : level === 'warning' ? console.warn : console.info;
   log(`[octocode:${level}] ${message}`);
-}
-
-function activeSupportToolNames(): readonly string[] {
-  return OCTOCODE_SUPPORT_TOOL_NAMES.filter((name) => {
-    if (name === 'chromeDebug' && process.env['OCTOCODE_CHROME_DEBUG'] === '0') return false;
-    if (isSubagentProcess() && (name === 'agent' || name === 'callTool')) return false;
-    return true;
-  });
 }
 
 function formatOctocodeToolStatus(): string {
@@ -299,77 +250,12 @@ export function listExtensionHarness(baseDir?: string): ExtensionHarness {
   };
 }
 
-// ─── Built-in tool disable ────────────────────────────────────────────────────
-
-/**
- * Remove Pi builtins that Octocode replaces with MCP research or `file`
- * (`read`/`edit`/`write`/`grep`/`find`/`ls`). Idempotent. Call after tool
- * registration and again on `session_start` so later `setActiveTools` resets
- * cannot silently re-enable the weak builtins.
- */
-export function disableBuiltinTools(pi: PiInstance): boolean {
-  if (!pi.getActiveTools || !pi.setActiveTools) return false;
-  try {
-    const activeTools = pi.getActiveTools();
-    if (!Array.isArray(activeTools)) return false;
-    const disabled = new Set<string>(DISABLED_BUILTIN_TOOL_NAMES);
-    const nextTools = activeTools.filter((toolName) => !disabled.has(toolName));
-    if (nextTools.length === activeTools.length) return false;
-    pi.setActiveTools(nextTools);
-    return true;
-  } catch (error) {
-    // Swallow all errors from getActiveTools/setActiveTools — the Pi API shape can
-    // change across versions and races during initialization must never prevent the
-    // extension from loading. Log unexpected errors for diagnostics but never rethrow.
-    const msg = String((error as Error)?.message ?? error);
-    if (!msg.includes('Extension runtime not initialized')) {
-      console.warn('[octocode-pi-extension] disableBuiltinTools non-critical error:', msg);
-    }
-    return false;
-  }
-}
-
 function existingDirectory(filePath: string): string | null {
   return fs.existsSync(filePath) ? filePath : null;
 }
 
 // ─── Pi wiring ────────────────────────────────────────────────────────────────
 
-
-interface SupportToolRegistrationArgs {
-  pi: PiInstance;
-  registeredToolNames: Set<string>;
-  notify: NotifyFn;
-  getPiSkills: () => SkillInfo[] | undefined;
-}
-
-function registerSupportToolPhase({ pi, registeredToolNames, notify, getPiSkills }: SupportToolRegistrationArgs): JobManager {
-  registerFileTool(pi, registeredToolNames, registerUniqueTool);
-  const bashBgManager = registerBashTool(pi, registeredToolNames, registerUniqueTool);
-  registerReadMediaTool(pi, registeredToolNames, registerUniqueTool);
-  registerMediaTool(pi, registeredToolNames, registerUniqueTool);
-  registerRunFfmpegTool(pi, registeredToolNames, registerUniqueTool);
-
-  registerWebTool(pi, registeredToolNames, registerUniqueTool);
-
-  if (process.env['OCTOCODE_CHROME_DEBUG'] !== '0') {
-    registerChromeDebugTool(pi, registeredToolNames, registerUniqueTool, notify);
-  }
-
-  registerUnifiedAgentTool(pi, registeredToolNames, registerUniqueTool);
-  registerCallTool(pi, registeredToolNames, registerUniqueTool);
-
-  // Octocode-owned skill loading replaces Pi's read-based flow. The public
-  // skill facade dispatches load/list and dynamic lifecycle queries.
-  registerSkillTool(pi, registeredToolNames, registerUniqueTool, getPiSkills);
-
-  registerPlanTool(pi, registeredToolNames, registerUniqueTool);
-  registerLocalServerTool(pi, registeredToolNames, registerUniqueTool);
-  registerAskUserTool(pi, registeredToolNames, registerUniqueTool);
-  registerAwarenessTool(pi, registeredToolNames, registerUniqueTool);
-  registerMcpTool(pi, registeredToolNames, registerUniqueTool);
-  return bashBgManager;
-}
 
 interface TurnMetricsRegistrationArgs {
   pi: PiInstance;
@@ -420,7 +306,6 @@ async function wireOctocodePiExtension(
   // One active session per extension instance. `session` is replaced wholesale on
   // session_start; see SessionScopedState for what that boundary guarantees.
   let session = freshSessionScopedState();
-  const pendingPromptPreparations = new WeakMap<object, Set<string>>();
   // Live footer ticker: while a turn is active, re-render the footer every second
   // so `active`/`session` durations advance. Awareness refreshes asynchronously
   // behind its own throttle; git is refreshed on boundaries. Runs on the shared ui-ticker
@@ -439,22 +324,6 @@ async function wireOctocodePiExtension(
   const toolStartTimes = new Map<string, number>();
   const toolInputs = new Map<string, unknown>();
   let providerRequestStartedAt: number | undefined;
-  const registerSkillContext = (ctx: PiContext, skill: DiscoveredSkill): void => {
-    const name = skill.name.trim().toLowerCase();
-    registerCurrentContextSource(ctx, {
-      version: 1,
-      id: `selected-skill:${name}`,
-      kind: 'skill',
-      origin: `skill-file:${name}`,
-      authority: 'project',
-      scope: 'task',
-      visibility: 'inspectable',
-      rehydrate: 'on-trigger',
-      capture: false,
-      tokenBudget: 30_000,
-      readCurrent: () => readTextIfExists(skill.path),
-    });
-  };
   // Agent inbox handle: assigned during tool registration, referenced by the
   // session_shutdown hook — its suppress flag must flip BEFORE
   // cleanupSpawnedAgentsForShutdown() kills workers, or the teardown burst of
@@ -526,14 +395,17 @@ async function wireOctocodePiExtension(
     const physiology = registerPiPhysiology({
       on(event, handler) { hooks.on(event, 'octocode-physiology', handler as HookMiddleware); },
     }, { onObservation: physiologyObservationSink });
-    const physiologyAdvisory = createPiPhysiologyAdvisory();
+    const promptPreflight = createPromptPreflightController({
+      pi,
+      promptMode,
+      notify,
+      getSession: () => session,
+      getFallbackTools: () => [...activeSupportToolNames()],
+      readPhysiology: ctx => physiology.read(ctx),
+    });
     const localHistory = createPiHistoryAdapter({ onError: error => logInternalError('local-history', error) });
 
-    hooks.on('agent_start', 'octocode-prompt-preflight', async (_event, ctx: PiContext | undefined) => {
-      // before_agent_start has no active abort signal and Pi catches its errors.
-      // agent_start has a live run signal, before any provider request is sent.
-      if (pendingPromptPreparations.get(session)?.has(activePlanScope(ctx))) ctx?.abort?.();
-    });
+    hooks.on('agent_start', 'octocode-prompt-preflight', promptPreflight.guardAgentStart);
 
     hooks.on('resources_discover', 'bundled-skills', async () => {
       if (isSubagentProcess()) return {};
@@ -1039,7 +911,7 @@ async function wireOctocodePiExtension(
           const requested = queries.find((query) => query['type'] === 'load' || query['action'] === 'load')?.['name'];
           if (typeof requested === 'string') {
             const skill = session.latestAvailableSkills?.find((candidate) => candidate.name.toLowerCase() === requested.trim().toLowerCase());
-            if (skill) registerSkillContext(ctx, skill);
+            if (skill) promptPreflight.registerSelectedSkillContext(ctx, skill);
           }
         }
         return;
@@ -1069,276 +941,14 @@ async function wireOctocodePiExtension(
       }, ctx);
     });
 
-    // Warn-once guards: the strip regexes depend on Pi's exact wording/tags, so a
-    // Pi upgrade could make them silently no-op. If a strip is requested but the
-    // target markers are still present afterwards, surface it once instead of
-    // shipping a double catalog / leaked context in silence.
-    let warnedContextDrift = false;
-    let warnedSkillsDrift = false;
-    hooks.on('before_agent_start', 'octocode-system-prompt', async (event: BeforeAgentStartEvent, ctx: PiContext | undefined) => {
-      const promptSession = session;
-      const promptScope = activePlanScope(ctx);
-      const pendingPromptScopes = pendingPromptPreparations.get(promptSession) ?? new Set<string>();
-      pendingPromptPreparations.set(promptSession, pendingPromptScopes);
-      pendingPromptScopes.add(promptScope);
-      refreshCapabilityAdapters(ctx);
-      // Custom Anthropic-compatible providers do not inherit Pi's built-in model
-      // compatibility metadata. Normalize known adaptive models before Pi builds
-      // the provider request, while preserving an explicit provider override.
-      ensureAdaptiveThinkingCompatibility(ctx?.model);
-
-      // Suppress AGENTS.md / CLAUDE.md when --no-context flag is set. Pi builds
-      // the prompt BEFORE this hook fires and systemPromptOptions is
-      // inspection-only, so the block must be stripped from the assembled
-      // prompt text. (octocode-agent sessions also pass --no-context-files to
-      // pi, which prevents the block at the source for that path.)
-      const noContext = Boolean(pi.getFlag?.('no-context'));
-      let piPrompt = event.systemPrompt;
-      if (session.managedPromptAddendum) piPrompt = piPrompt.replace(session.managedPromptAddendum, '').trim();
-      if (noContext) {
-        piPrompt = stripProjectContext(piPrompt);
-        if (!warnedContextDrift && piPrompt.includes('<project_context>')) {
-          warnedContextDrift = true;
-          console.warn('[octocode-pi-extension] --no-context set but <project_context> remains after strip — Pi prompt format may have changed; update stripProjectContext.');
-        }
-      }
-
-      const worker = isSubagentProcess();
-      const activeTools = await preparePromptCapabilities({ pi, ctx, session, worker, piSkills: event.systemPromptOptions?.skills, fallbackTools: [...activeSupportToolNames()], notify });
-      const hasCapability = (name: string): boolean => activeTools.has(name);
-      if (hasCapability('MCPTool')) piPrompt = adaptPiResearchGuidance(piPrompt);
-      piPrompt = stripPiSkillsSection(piPrompt);
-      if (!warnedSkillsDrift && piPrompt.includes('The following skills provide specialized instructions')) {
-        warnedSkillsDrift = true;
-        console.warn('[octocode-pi-extension] Pi skill guidance remains after host adaptation; check the supported Pi prompt format.');
-      }
-      if (ctx) session.latestAvailableSkills?.forEach(skill => registerSkillContext(ctx, skill));
-      const collectPromptContext = (policy: string) => assembleSessionPromptContext({
-        'agents-protocol': renderAgentsProtocolInstructions(ctx, event.systemPromptOptions?.contextFiles, worker || noContext, {
-          get: () => session.agentsProtocolCache,
-          set: (entry) => { session.agentsProtocolCache = entry; },
-        }),
-        'octocode-product-policy': projectPiSystemPromptCapabilities(policy, { mcpTool: hasCapability('MCPTool'), skill: hasCapability('skill') }),
-        'mcp-tool-contracts': hasCapability('MCPTool') ? getCachedMcpCatalogAddendum(ctx) : '',
-        // capability_revision is intentionally excluded from the system prompt.
-        // It changes every time MCP tools or skills change (it is a SHA-256 of
-        // the full capability snapshot) and embedding it here would mutate the
-        // frozen system prompt bytes on every such turn, busting the provider's
-        // 82 k-token prefix cache.  The revision is delivered instead through
-        // the per-turn contextMessage below so the model always has the current
-        // value without polluting the cacheable prefix.
-        'runtime-tool-contracts': renderRuntimeCapabilitiesAddendum(ctx),
-        'dynamic-tool-contracts': worker ? '' : getDynamicCapabilitiesAddendum(session.latestAvailableSkills?.map(skill => skill.name), { tools: hasCapability('callTool'), skills: hasCapability('skill') }),
-        'available-skills': hasCapability('skill') ? renderAvailableSkillsAddendum(session.latestAvailableSkills) : '',
-        'session-artifact-contract': session.sessionArtifactPathsContext,
-        'awareness-cli-runtime': !hasCapability('awareness') && hasCapability('bash')
-          ? renderAwarenessCliContext(ctx)
-          : '',
-      });
-
-      if (worker) session.cachedSystemPromptText = (!hasCapability('awareness') && !hasCapability('bash')) || piPrompt.includes(AWARENESS_PI_HOST_PROMPT) ? '' : AWARENESS_PI_HOST_PROMPT;
-
-      if (!worker) refreshAwarenessPanel(ctx);
-
-      // Compute the canonical model-facing plan projection once. Plans are mutable
-      // task state, so they are delivered through attributed turn context and are
-      // never embedded in the frozen system prompt.
-      const planScope = activePlanScope(ctx);
-      if (!worker) bumpPlanTurn(planScope);
-      // catches lifecycle, RFC revision, decisions, dependencies, acceptance,
-      // verification, and Awareness mapping changes—not only status/id changes.
-      const planContext = worker ? '' : renderPlanContext(getCurrentPlanReadModel(ctx, planScope));
-      const currentSessionMemory = session.sessionArtifactContext
-        ? readSessionMemoryForContext(ctx, session.sessionArtifactContext) ?? ''
-        : '';
-      const currentCapabilityRevision = session.capabilityRevision
-        ? `<capability_revision>${session.capabilityRevision}</capability_revision>`
-        : '';
-      const recoveryPending = Boolean(ctx && hasPendingRehydration(ctx));
-      const currentUserRequests = ctx && recoveryPending ? readSessionUserRequestContext(ctx) ?? '' : '';
-      const retainedDigests = ctx && recoveryPending
-        ? collectPiRetainedContentDigests(ctx, { knownSegmentContents: { 'active-plan': planContext, 'capability-revision': currentCapabilityRevision, 'session-memory': currentSessionMemory, 'user-request-history': currentUserRequests } })
-        : new Set<string>();
-      const planSig = planContext;
-      const planChanged = planSig !== session.deliveredPlanSignature;
-      const planAlreadyRetained = recoveryPending && retainedDigests.has(contentDigest(planContext));
-      const planNeedsRecovery = recoveryPending && planContext.length > 0 && !planAlreadyRetained;
-      const planDeliveryContent = !planAlreadyRetained && (planChanged || planNeedsRecovery)
-        ? planContext || (session.deliveredPlanSignature === undefined ? '' : 'Plan cleared; no active task breakdown remains.')
-        : '';
-      const livePlanContents: Record<string, string> = { 'active-plan': planContext };
-      const livePlanAssembly = assembleContextSegments([
-        { id: 'active-plan', content: planContext, kind: 'plan', origin: 'plan-domain', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: 15_000 },
-      ]);
-      const sessionMemoryUpdate = projectSessionMemoryUpdate(
-        currentSessionMemory,
-        session.deliveredSessionMemorySignature,
-      );
-      const sessionMemoryContent = sessionMemoryUpdate.content;
-      const userRequestContent = currentUserRequests && !retainedDigests.has(contentDigest(currentUserRequests)) ? currentUserRequests : '';
-
-      const currentSourcesFrom = (manifest: ReturnType<typeof assembleContextSegments>['manifest'], contents: Record<string, string>): CurrentRehydrationSource[] =>
-        manifest.map((segment) => ({ segment, content: contents[segment.id] ?? '' }));
-      let frozenRehydration: ReturnType<typeof consumeValidatedRehydration>;
-      if (ctx && recoveryPending) {
-        const currentAssembly = collectPromptContext(session.cachedSystemPromptText ?? '');
-        const currentContents = currentAssembly.contents;
-        for (const content of [planDeliveryContent, sessionMemoryContent, userRequestContent].filter(Boolean)) retainedDigests.add(contentDigest(content));
-        frozenRehydration = consumeValidatedRehydration(
-          ctx,
-          mergeCurrentContextSources(ctx, [
-            ...currentSourcesFrom(currentAssembly.manifest, currentContents),
-            ...currentSourcesFrom(livePlanAssembly.manifest, livePlanContents),
-          ], { totalTokenBudget: INITIAL_CONTEXT_TOKEN_BUDGET }),
-          {
-            allowProjection: true,
-            deferConsumption: true,
-            retainedContentDigests: retainedDigests,
-          },
-        );
-      }
-
-      // Combine all per-turn context signals into one message (only one message
-      // per turn is supported by BeforeAgentStartEventResult). The plan appears
-      // only when first delivered, changed, or cleared.
-      //
-      // capability_revision is delivered here (not in the frozen system prompt)
-      // so the provider's prefix cache survives turns where only the capability
-      // snapshot changes. Pi persists injected messages in session context, so
-      // steady-state turns do not duplicate the tag. Recovery re-delivers it only
-      // when compaction no longer retains the current revision.
-      const capabilityChanged = session.capabilityRevision !== session.deliveredCapabilityRevision;
-      const capabilityAlreadyRetained = recoveryPending
-        && currentCapabilityRevision.length > 0
-        && retainedDigests.has(contentDigest(currentCapabilityRevision));
-      const capabilityRevisionContent = currentCapabilityRevision
-        && !capabilityAlreadyRetained
-        && (capabilityChanged || recoveryPending)
-        ? currentCapabilityRevision
-        : '';
-      const physiologyDelivery = physiologyAdvisory(ctx ? physiology.read(ctx) : undefined);
-      const contextAssembly = assembleContextSegments([
-        { id: 'capability-revision', content: capabilityRevisionContent, kind: 'tool-result', origin: 'pi-runtime-state', authority: 'external-data', scope: 'session', visibility: 'inspectable', rehydrate: 'never', tokenBudget: 96 },
-        { id: 'user-request-history', content: userRequestContent, kind: 'user-request', origin: 'session-user:history', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: Math.ceil(USER_REQUEST_CONTEXT_MAX_CHARS / 4) },
-        { id: 'runtime-physiology', content: physiologyDelivery.content, kind: 'tool-result', origin: 'pi-runtime-observation', authority: 'external-data', scope: 'turn', visibility: 'inspectable', rehydrate: 'never', tokenBudget: 128 },
-        { id: 'active-plan', content: planDeliveryContent, kind: 'plan', origin: 'plan-domain', authority: 'user', scope: 'task', visibility: 'transcript', rehydrate: 'always', tokenBudget: 15_000 },
-        { id: 'session-memory', content: sessionMemoryContent, kind: 'memory-lead', origin: 'session-memory', authority: 'external-data', scope: 'session', visibility: 'inspectable', rehydrate: 'always', tokenBudget: Math.ceil(SESSION_MEMORY_MAX_BYTES / 4) },
-      ]);
-      const contextMessage =
-        contextAssembly.manifest.length > 0 || frozenRehydration?.content
-          ? { customType: 'octocode-context-update', content: [contextAssembly.content, frozenRehydration?.content].filter(Boolean).join('\n\n'), display: false, details: { version: 1, estimates: contextAssembly.estimates, segments: [...contextAssembly.manifest, ...(frozenRehydration?.segments ?? [])], ...(frozenRehydration ? { rehydration: frozenRehydration.receipt } : {}) } }
-          : undefined;
-      if (contextMessage) {
-        contextMessage.details.estimates = {
-          ...contextAssembly.estimates,
-          total: estimateContextTokens(contextMessage.content),
-        };
-        for (const kind of Object.keys(frozenRehydration?.tokensByKind ?? {}) as Array<keyof typeof contextAssembly.estimates.byKind>) {
-          const byKind = contextMessage.details.estimates.byKind;
-          byKind[kind] = (byKind[kind] ?? 0) + (frozenRehydration?.tokensByKind[kind] ?? 0);
-        }
-      }
-
-      if (session.cachedSystemPromptText === null) {
-        session.cachedSystemPromptText = readTextIfExists(getAssetPaths().systemPrompt);
-      }
-      const promptAssembly = collectPromptContext(session.cachedSystemPromptText);
-      const initialContents = promptAssembly.contents;
-      const mcpCatalog = initialContents['mcp-tool-contracts'];
-      const runtimeCapabilities = initialContents['runtime-tool-contracts'];
-      const dynamicCatalog = initialContents['dynamic-tool-contracts'];
-      const availableSkills = initialContents['available-skills'];
-      const prompt = promptAssembly.content;
-      // Frozen system segments survive Pi compaction and are reloaded from their
-      // owners on session start. Copying them into the recovery ledger only
-      // duplicates prompt bytes on disk; none is eligible for reprojection.
-      setCompactionRehydrationSegmentsProvider(() => ({ segments: [], contents: {} }));
-      // Stable product policy is cached; capabilities are resolved at each turn.
-      // The same effective revision yields the same prompt bytes.
-      const resolvedPrompt = prompt.trim().length === 0
-        ? piPrompt
-        : composeSystemPrompt({
-          piSystemPrompt: piPrompt,
-          octocodePrompt: prompt,
-          promptMode,
-        });
-      // Snapshot the complete initial provider context. Direct tool contracts
-      // are sent beside the system prompt, so count their descriptions + JSON
-      // schemas separately and expose the combined initial subtotal.
-      const mcpCounts = getCachedMcpCounts(ctx);
-      const directToolStats = getDirectToolContractStats(activeTools);
-      const turnContextChars = contextMessage?.content.length ?? 0;
-      const dynamicChars = runtimeCapabilities.length + dynamicCatalog.length + availableSkills.length + turnContextChars;
-      const providerSubtotalChars = resolvedPrompt.length + directToolStats.totalChars + turnContextChars;
-      const estimatedProviderTokens = assertContextTokenBudget(
-        'initial provider context',
-        providerSubtotalChars,
-        providerContextTokenBudget(ctx?.model?.contextWindow),
-      );
-      runtimeStoreFor(ctx)?.getState().setContext({
-        status: 'ready',
-        mode: 'routing',
-        systemPromptChars: resolvedPrompt.length,
-        mcpChars: mcpCatalog.length,
-        dynamicChars,
-        directToolChars: directToolStats.totalChars,
-        providerSubtotalChars,
-        estimatedTokens: estimatedProviderTokens,
-        contextAwarenessEstimates: promptAssembly.estimates,
-        mcpServers: mcpCounts.servers,
-        mcpTools: mcpCounts.tools,
-        skills: session.latestAvailableSkills?.length ?? 0,
-      });
-      void writeDiscoveryFile(ctx, {
-        skills: (session.latestAvailableSkills ?? []).map(skill => ({ ...skill, enabled: true })),
-        nativeTools: [...activeTools],
-        overhead: {
-          sysChars: piPrompt.length + (session.cachedSystemPromptText?.length ?? 0),
-          mcpChars: mcpCatalog.length,
-          dynamicChars,
-          totalChars: resolvedPrompt.length + turnContextChars,
-          contextAwarenessEstimates: promptAssembly.estimates,
-          directToolChars: directToolStats.totalChars,
-          mcpServers: mcpCounts.servers,
-          mcpTools: mcpCounts.tools,
-          skills: session.latestAvailableSkills?.length ?? 0,
-          status: 'ready',
-          mode: 'routing',
-        },
-      });
-      session.frozenSystemPrompt = resolvedPrompt;
-      session.managedPromptAddendum = renderSystemPromptAddendum(prompt);
-      session.deliveredPlanSignature = planSig;
-      session.deliveredSessionMemorySignature = sessionMemoryUpdate.signature;
-      session.deliveredCapabilityRevision = session.capabilityRevision;
-      if (frozenRehydration) {
-        pi.appendEntry?.(REHYDRATION_RECEIPT_ENTRY_TYPE, frozenRehydration.receipt);
-        frozenRehydration.commit();
-      }
-      physiologyDelivery.commit();
-      pendingPromptScopes.delete(promptScope);
-      // Short-circuit when our assembled bytes already match what Pi holds.
-      // With capability_revision removed from the frozen system prompt, the bytes
-      // stabilise after turn 1 and this fires on every steady-state turn, telling
-      // Pi «keep your current prompt» without forcing a new provider request with
-      // different bytes.  The !stripped guard is intentionally absent: in turns
-      // 2+ stripped is always true (we stripped our own managed addendum to
-      // recompose), but if the recomposed result equals event.systemPrompt the
-      // bytes are identical and no update is needed.
-      if (resolvedPrompt === event.systemPrompt) {
-        return contextMessage ? { message: contextMessage } : undefined;
-      }
-      return contextMessage
-        ? { systemPrompt: resolvedPrompt, message: contextMessage }
-        : { systemPrompt: resolvedPrompt };
-    });
+    hooks.on('before_agent_start', 'octocode-system-prompt', promptPreflight.prepare);
     for (const event of PI_DECLARATIVE_HOOK_EVENTS) {
       if (event !== 'session_shutdown') hooks.on(event, 'octocode-declarative-hooks', (payload: unknown, ctx: PiContext | undefined) => getCapabilityAdapters(ctx)?.hooks.dispatch(event, payload, ctx));
     }
   }
 
   if (pi.registerTool) {
-    bashBgManager = registerSupportToolPhase({
+    bashBgManager = registerSupportTools({
       pi,
       registeredToolNames,
       notify,

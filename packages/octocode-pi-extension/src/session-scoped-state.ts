@@ -22,8 +22,6 @@ export interface SessionScopedState {
    * update (for example after a skill update) takes effect on the next session.
    */
   cachedSystemPromptText: string | null;
-  /** Last composed provider prompt, replaced when effective capabilities change. */
-  frozenSystemPrompt: string | undefined;
   /** Exact previously owned block, used to replace our projection on host echo. */
   managedPromptAddendum: string | undefined;
   capabilityRevision: string | undefined;
@@ -62,7 +60,6 @@ export interface SessionScopedState {
 export function freshSessionScopedState(): SessionScopedState {
   return {
     cachedSystemPromptText: null,
-    frozenSystemPrompt: undefined,
     managedPromptAddendum: undefined,
     capabilityRevision: undefined,
     deliveredCapabilityRevision: undefined,

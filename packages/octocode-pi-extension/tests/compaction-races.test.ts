@@ -163,6 +163,23 @@ test('only public Pi compaction hooks are registered', () => {
   assert.equal(harness.handlerCount('session_compact_failed'), 0);
 });
 
+test('ordinary threshold compaction remains owned by Pi without a local plan', async () => {
+  const harness = makeHarness();
+  const { ctx } = makeCtx();
+  Object.assign(ctx, { cwd: testHome });
+  const results = await harness.fire('session_before_compact', {
+    reason: 'threshold',
+    willRetry: false,
+    preparation: {
+      isSplitTurn: false,
+      turnPrefixMessages: [],
+      firstKeptEntryId: 'kept-entry',
+      tokensBefore: 90,
+    },
+  }, ctx);
+  assert.deepEqual(results, [undefined]);
+});
+
 test('successful compaction preserves a newer host tool selection', async () => {
   const harness = makeHarness();
   const { ctx } = makeCtx();

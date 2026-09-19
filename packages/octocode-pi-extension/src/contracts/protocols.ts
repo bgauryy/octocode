@@ -1,7 +1,7 @@
 /** Prompt composition order shared by every Octocode host adapter. */
 export const PROMPT_MODES = ['append', 'octocode-first'] as const;
 export type PromptMode = (typeof PROMPT_MODES)[number];
-export const DEFAULT_OCTOCODE_PROMPT_MODE: PromptMode = 'octocode-first';
+export const DEFAULT_OCTOCODE_PROMPT_MODE: PromptMode = 'append';
 
 /** Stable identifiers for sensitive-action approval classes. */
 export const APPROVAL_CLASSES = [

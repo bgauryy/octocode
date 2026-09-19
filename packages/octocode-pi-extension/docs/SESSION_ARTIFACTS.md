@@ -184,8 +184,9 @@ text.
 
 ### Compaction and smart-resume flow
 
-1. Pi's native auto-compaction runs after tool results and before the next
-   assistant response when its configured reserve threshold is crossed. Configure
+1. Pi's native auto-compaction runs after a completed response or before prompt
+   submission when its configured reserve threshold is crossed. Octocode does
+   not cancel that proactive threshold path based on local plan presence. Configure
    `compaction.reserveTokens` to 20% of the active model context window for an
    80% policy. Pi selects the history boundary and summarizes it. On an
    overflow split turn only, Octocode can supply a bounded deterministic fallback
@@ -193,9 +194,8 @@ text.
    Pi's split-turn marker.
 2. After a successful `session_compact`, Octocode clears stale file-read state,
    writes the checkpoint, stages a digest-bound rehydration ledger, and shows one
-   `context compacted — checkpoint ready` card.
-   A failed compaction releases the threshold request guard without writing a
-   success checkpoint, so a later settled boundary can retry safely.
+   `context compacted — checkpoint ready` card. A failed compaction writes no
+   success checkpoint; Pi retains ownership of failure reporting and later retries.
 3. If `willRetry` is true, Pi retries the interrupted agent turn. Octocode does
    not start a competing continuation. Manual and threshold compactions likewise
    do not create an extra turn.
@@ -203,9 +203,11 @@ text.
    context owners. It restores only matching, unexpired, explicitly eligible
    segments from
    their current owners; saved bodies never override newer plan or doc state. The
-   aggregate projection is capped at 8,000 estimated tokens. Generic tool results,
-   prior user requests, and selected skill bodies are not automatically replayed.
-   The ledger expires after 24 hours.
+   aggregate projection is capped at 8,000 estimated tokens. Bounded current user
+   request history and session memory can be reprojected when their digests still
+   match and Pi did not retain them. Generic tool results and selected skill bodies
+   are validation-only restore sources and are not automatically replayed. The
+   ledger expires after 24 hours.
 5. The prompt resumes only authorized unfinished work. A complete request, an
    approval gate, or a user wait state remains stopped.
 

@@ -4,7 +4,7 @@ import { getCurrentPlanReadModel, renderPlanContext } from './plan-read-model.js
 import { emitCompactionCheckpoint, type CompactionCheckpointDetails } from './custom-messages.js';
 import { writeCompactionArtifact } from './compaction-artifacts.js';
 import { clearAllReadStates } from './file-state.js';
-import { contentDigest, type ContextSegmentV1 } from '@octocodeai/octocode-awareness/host';
+import { contentDigest } from '@octocodeai/octocode-awareness/host';
 import { createSessionArtifactContext, writeRehydrationLedger } from './session-artifacts.js';
 import { listPendingInteractionIds, listPendingInteractions } from './interaction-broker.js';
 import { clearPendingRehydration, runAndRecordRehydration } from './rehydration-orchestrator.js';
@@ -13,31 +13,6 @@ import { redactCompactionText } from './compaction-redaction.js';
 import { openPersistentAwareness } from './storage-policy.js';
 import { appendSessionAuditEntry } from './session-audit.js';
 import { renderUserRequestContext } from './user-request-context.js';
-
-export interface CompactionRehydrationCapture {
-  segments: ContextSegmentV1[];
-  contents: Record<string, string>;
-}
-
-let rehydrationSegmentsProvider: ((ctx: PiContext) => CompactionRehydrationCapture) | undefined;
-export function setCompactionRehydrationSegmentsProvider(provider?: (ctx: PiContext) => CompactionRehydrationCapture): void {
-  rehydrationSegmentsProvider = provider;
-}
-
-export function mergeCompactionRehydrationCaptures(
-  fixed: CompactionRehydrationCapture,
-  dynamic: CompactionRehydrationCapture,
-): CompactionRehydrationCapture {
-  const segments = new Map(fixed.segments.map((segment) => [segment.id, segment]));
-  const contents = { ...fixed.contents };
-  for (const segment of dynamic.segments) {
-    if (segments.has(segment.id)) continue;
-    segments.set(segment.id, segment);
-    const content = dynamic.contents[segment.id];
-    if (content !== undefined) contents[segment.id] = content;
-  }
-  return { segments: [...segments.values()], contents };
-}
 
 const SPLIT_TURN_COMPACTION_HEADER = '**Turn Context (split turn):**';
 const CUSTOM_COMPACTION_SUMMARY_LIMIT = 12_000;
@@ -331,19 +306,10 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
       if (!preparation) return;
       const turnPrefixMessages = asArray(preparation.turnPrefixMessages);
       const isSplitTurn = preparation.isSplitTurn === true || turnPrefixMessages.length > 0;
-      if (!isSplitTurn) {
-        // Threshold compaction after a completed turn with no active plan and no
-        // pending decisions adds no recovery value — work is done. Cancel it to
-        // avoid redundant LLM summarization. Manual and overflow are always honoured.
-        if (event.reason === 'threshold' && !event.willRetry) {
-          const scope = activePlanScope(ctx);
-          const hasActivePlan = getPlan(scope).length > 0;
-          let hasPendingDecisions = false;
-          try { hasPendingDecisions = listPendingInteractions(ctx).length > 0; } catch { /* best-effort */ }
-          if (!hasActivePlan && !hasPendingDecisions) return { cancel: true };
-        }
-        return;
-      }
+      // Pi owns proactive threshold compaction for the whole session. A completed
+      // turn is not evidence that the session is complete, so plan presence must
+      // never suppress Pi's configured context-limit crossing.
+      if (!isSplitTurn) return;
       // The deterministic checkpoint is an EMERGENCY path only: on overflow the
       // provider summarization call can itself overflow/fail, so a fast local
       // checkpoint beats losing the compaction entirely. Manual and threshold
@@ -421,9 +387,7 @@ export function registerCompactionHooks(pi: PiInstance, notify: NotifyFn): void 
           const planScope = activePlanScope(ctx);
           const review = getPlanReviewState(planScope);
           const planContent = renderPlanContext(getCurrentPlanReadModel(ctx, planScope));
-          const fixedCapture = rehydrationSegmentsProvider?.(ctx) ?? { segments: [], contents: {} };
-          const registeredCapture = captureCurrentContextSources(ctx);
-          const capture = mergeCompactionRehydrationCaptures(fixedCapture, registeredCapture);
+          const capture = captureCurrentContextSources(ctx);
           const segmentMap = new Map(capture.segments.map((segment) => [segment.id, segment]));
           segmentMap.set('active-plan', {
             version: 1,

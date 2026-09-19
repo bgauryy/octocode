@@ -2663,7 +2663,9 @@ __metadata:
     zod: "npm:^4.6.2"
     zustand: "npm:^5.0.15"
   peerDependencies:
-    "@earendil-works/pi-coding-agent": ^0.85.1
+    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-tui": "*"
+    typebox: "*"
   languageName: unknown
   linkType: soft
 
