@@ -32,7 +32,6 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Acceptance criteria for public tool quality | [Tool quality and agent workflow acceptance](MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md) |
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
-| Close the remaining native-consolidation release gates (includes absorbed first-class-language and perf-plan records) | [Native consolidation release closure](NATIVE_CONSOLIDATION_RELEASE_LEFTOVERS.md) |
 
 ## Package guides
 
