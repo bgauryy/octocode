@@ -564,6 +564,13 @@ fn validate_jev_scout_queries(input: &Value) -> Result<(), ContractValidationErr
             }
         }
         if let Some(dimensions) = query.get("dimensions").and_then(Value::as_array) {
+            if query.get("taxonomy").is_some() {
+                return Err(issue(
+                    "jevScout.taxonomy",
+                    vec!["queries".into(), index.to_string(), "taxonomy".into()],
+                    "Use taxonomy or dimensions, not both.".to_string(),
+                ));
+            }
             let primaries = dimensions
                 .iter()
                 .filter(|d| d.get("role").and_then(Value::as_str) == Some("primary"))

@@ -16,7 +16,7 @@ Use the primitive matching the answer:
 - `noul` for whether one condition holds;
 - `choice` for one member of a supplied unordered set.
 
-Jev returns typed probabilities, not a summary or explanation. Code owns weights, thresholds, routing, and display. A profile is always provisional and never citable evidence; reopen the reported source anchor before explaining or asserting code behavior.
+Jev returns provisional typed judgments, not citable evidence. Code owns thresholds, AND/OR composition and routing; uncertainty or an error is not a false condition. Before asserting behavior, inspect decisive original source if not already inspected and current. A completed profile does not require another read or reasoning gate by itself.
 
 ## Run
 

@@ -155,7 +155,7 @@ function buildQuestions(route, state) {
   switch (route) {
     case 'hunch_check':
       return {
-        worth_pursuing: question('noul', 'Based solely on `state.basis`, is `state.hunch` a useful lead worth turning into competing falsifiable hypotheses?', { true: 'The hunch is a useful lead to test.', false: 'The supplied basis does not justify pursuing the hunch.' })
+        worth_pursuing: question('noul', 'Does state.basis justify investigating state.hunch?', { true: 'The hunch is a useful lead to test.', false: 'The supplied basis does not justify pursuing the hunch.' })
       };
     case 'hypothesis_triage':
       return {

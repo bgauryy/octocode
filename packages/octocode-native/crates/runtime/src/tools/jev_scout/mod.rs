@@ -850,6 +850,36 @@ pub async fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_preset_shorthand_matches_explicit_dimension() {
+        let mut query = json!({
+            "claim": "fixes a parser crash",
+            "taxonomy": "relevance",
+            "source": {"items": [
+                {"id": "fix", "content": "Fix the parser crash."},
+                {"id": "other", "content": "Update styles."}
+            ]}
+        });
+        let shorthand = parse_and_locate(&query, "jev-test").unwrap();
+        query.as_object_mut().unwrap().remove("taxonomy");
+        query["dimensions"] = json!([{"key": "main", "role": "primary", "taxonomy": "relevance"}]);
+        let explicit = parse_and_locate(&query, "jev-test").unwrap();
+        assert_eq!(
+            build_request(
+                &shorthand.claim,
+                &shorthand.model,
+                &shorthand.located,
+                &shorthand.dims
+            ),
+            build_request(
+                &explicit.claim,
+                &explicit.model,
+                &explicit.located,
+                &explicit.dims
+            )
+        );
+    }
     use std::io::Write;
     use std::process::Command;
 

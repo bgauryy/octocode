@@ -6,11 +6,11 @@ Load when many candidate files or rows might hold a capability and reading them 
 
 ## Gate — when NOT to scout
 
-Read directly when you must read the file regardless (you are about to edit it), when a lexical or exact check settles it, or when candidates number under ~4 or you expect to read nearly all. Scouting helps when the cost of avoided reads exceeds request and orchestration overhead; a candidate-count threshold alone does not establish that.
+Read directly when you must read the file regardless, a lexical or exact check settles it, or you expect to read nearly all candidates. Scout when the avoided reads justify the request and orchestration overhead.
 
 ## Taxonomy, items, dimensions
 
-Default levels `none → mentions → imports → implements` make the classic trap (naming or importing without defining) an explicit answer; supply custom ordered levels for other spectra. Criteria and instructions are structured JSON — pass exclusions as fields (`distinguish: "importing is NOT implementing"`). `items: [{id, content, source?}]` replaces `candidates`+`anchors` for pre-fetched rows (unique IDs; `itemSpanBudget` 200–8000, default 3000). `dimensions: [{key, role, claim, levels}]` (1–4, ≤24 questions) sends several courts over the same shared state; exactly one `primary` drives the action, a `veto` court may only demote read → `gray_read`, `info` reports. Combine vectors in deterministic host code, never another model.
+For native `jevScout`, use `source.local` for file candidates or `source.items` for fetched rows. Set `taxonomy: "relevance"` for history rows; omission uses `implements` (`none → mentions → imports → implements`). One preset needs no `dimensions` array. Use `dimensions` for custom or multiple judgments, without a top-level `taxonomy`: exactly one `primary` drives the action, `veto` may only demote read → `gray_read`, and `info` reports. Order custom levels lowest to highest; the final level triggers read. The skill runner's input shape is listed below.
 
 ## Read policy
 
@@ -22,4 +22,4 @@ Budget truncation is explicit: a rejected excerpt with omitted characters or spa
 
 ## Run
 
-`node scripts/scout.mjs --input scout.json [--dry-run]`. Input: local `{claim, anchors[], candidates[2..12], root?, levels?, window?, spanBudget?}` or `{claim, items[2..12], itemSpanBudget?, levels?}`; either may add `dimensions`. Output per candidate: `action`, `level`, `score`, `probabilities`, `coverage`, `truncated`, `anchors`, `provisional: true`. Confidence is distribution concentration, never correctness — treat a soft distribution as `gray_read`, not a weak yes. One scout per candidate set; a second pass needs a changed locate, not a repeat vote. Feed files you then read into `contentRef` evidence and the normal GATE.
+`node scripts/scout.mjs --input scout.json [--dry-run]`. Input: local `{claim, anchors[], candidates[2..12], root?, taxonomy?, levels?, window?, spanBudget?}` or `{claim, items[2..12], itemSpanBudget?, taxonomy?, levels?}`; either may add `dimensions`. Output per candidate: `action`, `level`, `score`, `probabilities`, `coverage`, `truncated`, `anchors`, `provisional: true`. Apply the read policy above; confidence is distribution concentration, not correctness. A second pass needs changed evidence, not a repeat vote. Reopen selected sources before using them in a claim or reasoning judgment.

@@ -2585,27 +2585,7 @@
             "Policy"
           ]
         }
-      },
-      "dimensions": [
-        {
-          "key": "relevance",
-          "role": "primary",
-          "levels": [
-            {
-              "level": "owns",
-              "meaning": "This file implements the capability."
-            },
-            {
-              "level": "related",
-              "meaning": "This file references the capability."
-            },
-            {
-              "level": "unrelated",
-              "meaning": "This file is unrelated to the claim."
-            }
-          ]
-        }
-      ]
+      }
     },
     "accepted": true,
     "normalized": {
@@ -2630,26 +2610,6 @@
               "spanBudget": 3000
             }
           },
-          "dimensions": [
-            {
-              "key": "relevance",
-              "role": "primary",
-              "levels": [
-                {
-                  "level": "owns",
-                  "meaning": "This file implements the capability."
-                },
-                {
-                  "level": "related",
-                  "meaning": "This file references the capability."
-                },
-                {
-                  "level": "unrelated",
-                  "meaning": "This file is unrelated to the claim."
-                }
-              ]
-            }
-          ],
           "itemSpanBudget": 3000
         }
       ]
@@ -2661,6 +2621,7 @@
     "input": {
       "reasoning": "Use jevScout for the pre-fetched item scout example.",
       "claim": "fixes the redirect policy regression",
+      "taxonomy": "relevance",
       "source": {
         "items": [
           {
@@ -2698,6 +2659,7 @@
               }
             ]
           },
+          "taxonomy": "relevance",
           "itemSpanBudget": 3000
         }
       ]

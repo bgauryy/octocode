@@ -30,7 +30,7 @@ $OCTO tools <name> --scheme --json --compact    # schema before calling
 
 **Skills are first-class.** They're wired to the same tools and should be your default entry point for research, architecture, and eval flows.
 
-**Dogfood the reasoning loop.** Fire on observed state — 4+ unread candidates from a search, fetched content with 2+ pending yes/no questions, competing explanations with a falsifier, a claim about to be asserted, or a high-cost plan about to execute — load and follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md) (its deterministic trigger table names the runner per condition). Do not replace a deterministic lookup or test with judgment.
+**Dogfood Jev where it changes the next action.** Follow [`skills/octocode-jev-reasoning-loop/SKILL.md`](skills/octocode-jev-reasoning-loop/SKILL.md): scout to avoid expensive candidate reads; batch independent semantic conditions over shared evidence; use reasoning for an unresolved hypothesis, inference, or consequential plan. Candidate/question counts and upcoming assertions alone do not trigger calls. Use exact lookups/tests directly, reuse already inspected current evidence, and do not automatically chain scout → conditions → reasoning.
 
 ### Reflect and critique after every tool/skill use
 

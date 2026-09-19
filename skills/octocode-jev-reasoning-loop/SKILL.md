@@ -1,66 +1,54 @@
 ---
 name: octocode-jev-reasoning-loop
-description: "Use when source candidates need semantic triage, several questions share the same context, or a bounded hypothesis, plan, or evidence claim needs a second judgment. Jev returns typed probabilities; the host owns research and action. Skip exact lookups, tests, and judgments that cannot change the next step."
+description: "Use when semantic triage can avoid expensive reads, independent conditions share evidence, or an unresolved hypothesis, inference, or consequential plan needs judgment. Skip exact checks, unchanged votes, and calls that cannot change the next action."
 ---
 # Octocode Jev reasoning loop
 
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise use the simplest entry point below.
+routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise use the entry point below.
 
-Flow: `FRAME → SELECT CONTEXT → ASK → APPLY POLICY → VERIFY`
+Jev returns typed probabilities over supplied evidence, not explanations or new facts. The host owns evidence, policy and action.
 
-Save generated inputs, requests/responses, decisions, reports, and logs under `<output>/octocode-jev-reasoning-loop/`; scratch under `<output>/tmp/octocode-jev-reasoning-loop/`. Resolve `<output>` using the workspace/home `.octocode/` rule above, and point explicit runner output paths there. Keep run artifacts out of the installed skill folder. Chat-only results stay in chat; requested source edits keep their paths.
+## Choose one useful call
 
-Jev evaluates supplied context and typed questions. It returns probabilities, not explanations or new evidence. Use it where semantic judgment helps; use Octocode search, AST, LSP, exact reads, and tests for facts and verification.
-
-## Choose the useful call
-
-| Need | Entry point | Host action |
+| Unresolved work | Route | Next step |
 |---|---|---|
-| Prioritize expensive candidate reads | `jevScout` when available; otherwise `scripts/code-scout.mjs` or `scripts/scout.mjs` | Read accepted and uncertain (`gray_read`) candidates; widen retrieval when excerpts are incomplete. |
-| Triage fetched PR or issue rows | `scripts/pr-triage.mjs` | Fetch the original item before drawing a conclusion. |
-| Ask independent questions about files or fetched text | `scripts/ask-file.mjs --questions` for Noul; `--aspects` for typed questions | Supply scope with `--context`; retain unsupported/insufficient alternatives when a binary question would assume a feature exists. |
-| Score dimensions or choose from explicit alternatives | `scripts/profile.mjs` with `assets/profile-input.schema.json` | Combine judgments in code and retain uncertainty. |
-| Review a hypothesis, consequential plan, or bounded claim | `scripts/run-loop.mjs` with `assets/run-loop-input.schema.json` | Follow the provisional result with a source check, test, or revision. |
+| Mostly irrelevant candidates would require expensive reads | `jevScout`; standalone `scripts/code-scout.mjs` / `scripts/scout.mjs`; fetched history rows `scripts/pr-triage.mjs` | Inspect read and gray_read candidates; widen incomplete excerpts. |
+| Independent semantic conditions over selected shared evidence | `scripts/ask-file.mjs --questions` or `--aspects`; structured input `scripts/profile.mjs` | Batch questions once; apply caller thresholds and AND/OR in code. Conditions use the profile path, not a separate native tool. |
+| An unresolved alternative, inference, or consequential plan | `scripts/run-loop.mjs` | One bounded review, then its discriminating check or revision. The runner builds, validates and applies internally. |
 
-Scouting pays when it avoids substantial reads. Skip it for a known target or files you must read anyway. Batch questions only when their answers matter and deterministic checks do not settle them.
+Use exact reads, AST/LSP or tests when they settle the question. Skip scouting when every candidate must be read. Counts alone do not trigger calls. Do not chain scout → conditions → reasoning automatically, or add a final gate after evidence already settles the action.
 
-## Frame and supply context
+## Evidence and questions
 
-State the decision, relevant facts with source anchors, and what a different answer would change. Each question must be self-contained: IDs are not instructions, and questions in one request cannot see each other's answers. Batch independent questions over shared state; a dependent question needs new state or an explicit speculative premise.
+- Supply the decision, scope, anchored evidence and counterevidence; omit conversation history and private scratch reasoning.
+- Questions are self-contained: IDs carry no instructions and answers are independent. Batch identical selected state. Dependent questions need new state or an explicit premise.
+- Noul is P(yes); Choice selects unordered alternatives; Score uses ordered levels. Confidence is distribution concentration, not correctness. Thresholds are question/primitive-specific.
+- Name the function and input. Instead of presupposing support with “does it preserve contentRef labels?”, use one Choice: preserves/replaces/unsupported/insufficient.
+- Hypotheses need alternatives and a distinguishing check; classification does not. Execute an available cheap deciding test directly.
+- Before asserting source behavior, inspect decisive original evidence if not already inspected and current. Reread for changed or incomplete evidence, not merely because Jev ran.
+- Never prove absence from a skip, force uncertainty into a boolean, repeat unchanged votes, or treat Jev as authorization. Errors are not false conditions.
 
-Use `noul` for P(yes), `choice` for competing options, and `score` for ordered rubric levels. Include an unknown/no-match outcome where needed. Supply decisive context and counterevidence, not the full conversation. Share concise observations and assumptions, never private scratch reasoning.
+## Run
 
-Name the function, input shape, and boundary that matter. “Does it preserve labels when resolving contentRef?” assumes contentRef is supported. Ask about acceptance first, or use one Choice with preserves/replaces/unsupported/insufficient outcomes. Keep counting, comparisons, cost tie-breaking, and dependent branches in code. Noul probabilities, Choice probabilities, and distribution confidence are different signals; do not transfer thresholds between them.
+Use absolute skill paths from the workspace. When setting credentials, follow `references/configuration.md`. Keep inputs, responses, decisions and logs under `<output>/octocode-jev-reasoning-loop/`; scratch under `<output>/tmp/octocode-jev-reasoning-loop/`. Explicit runner outputs belong there; requested source edits retain their paths.
 
-For hypotheses, supply alternatives and a distinguishing check. Source classification does not need an artificial hypothesis deck or falsifier. If a lookup, test, or already-clear action settles the question, take that step.
+For independent source questions:
+`node <skill-dir>/scripts/ask-file.mjs --files src/retry.ts --questions "Does it retry failed requests? || Does it implement backoff?" --model jev-1.13.0`
 
-## Run and verify
+For a scoped typed profile, use `--aspects aspects.json --context "Public input accepted by parseInput"`; structured input is `assets/profile-input.schema.json`. For reasoning, use `scripts/run-loop.mjs --input compact.json` with `assets/run-loop-input.schema.json`. Dry-run unfamiliar input shapes; do not add a dry-run before every valid invocation.
 
-From the workspace, use the runner's absolute skill path. Setup and explicit `.env` loading are in `references/configuration.md`.
-
-```sh
-node <skill-dir>/scripts/ask-file.mjs --files "src/retry.ts" --questions "Does it retry failed requests? || Does it implement backoff?"
-node <skill-dir>/scripts/ask-file.mjs --files "src/input.ts" --aspects aspects.json --context "Judge the public input accepted by parseInput." --model jev-1.13.0
-node <skill-dir>/scripts/run-loop.mjs --input compact.json --dry-run
-node <skill-dir>/scripts/run-loop.mjs --input compact.json
-```
-
-Treat distributions as provisional judgments. Do not turn a close probability into certainty, infer absence from a skipped excerpt, or repeat a call to obtain approval. Retrieve missing evidence or narrow the question honestly. Reopen original sources before asserting behavior; Jev never replaces code evidence or grants permission to act.
-
-Selected `contentRef` evidence now fails before the API call if it exceeds its character budget. Choose a complete deciding span or raise the limit up to 4000; do not remove counterevidence to get a passing judgment. Pin a model for comparisons and retain the emitted model, usage, anchors, coverage, and request/response artifacts.
+Keep deciding spans complete. `contentRef` fails above its character budget (default 1200, maximum 4000); narrow to a complete span or raise the bound. Pin models for comparisons and retain model, usage, anchors, coverage and artifacts.
 
 ## Depth routes
 
-- Candidate retrieval, taxonomies, and read policy → `references/scout.md`.
-- When defining reusable source questions → `references/profile.md`.
-- When choosing reasoning routes and state → `references/routing.md`.
-- When checking API primitives or limits → `references/protocol.md`; for primary sources → `references/references.md`.
-- When bounding context or comparing sources → `references/context.md`; for composed workflows → `references/patterns.md`.
-- When configuring credentials or network settings → `references/configuration.md`.
-- When diagnosing runner failures → `references/research.md`.
-- When measuring workflow benefit → `references/benchmark.md`.
+- Candidate extraction and read policy → `references/scout.md`.
+- Conditions, typed profiles and applicability → `references/profile.md`.
+- Reasoning route and state → `references/routing.md`; packet debugging → `references/research.md`.
+- Evidence selection → `references/context.md`; composed applications → `references/patterns.md`.
+- API primitives/limits → `references/protocol.md`; primary sources → `references/references.md`.
+- Workflow benefit and guardrails → `references/benchmark.md`.
 
-After runtime changes, run `npm test` and the `octocode-skills` reviewer. Build and standalone packaging are documented in `README.md`.
+After runtime changes, run `npm test` and the `octocode-skills` reviewer. Build and standalone packaging: `README.md`.

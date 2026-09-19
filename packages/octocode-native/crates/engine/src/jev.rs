@@ -102,7 +102,7 @@ fn build_questions(route: &str, state: &Value) -> Result<Value, JevError> {
         "hunch_check" => json!({
             "worth_pursuing": question(
                 "noul",
-                "Based solely on state.basis, is state.hunch a useful lead worth turning into competing falsifiable hypotheses?",
+                "Does state.basis justify investigating state.hunch?",
                 json!({
                     "true": "The hunch is a useful lead to test.",
                     "false": "The supplied basis does not justify pursuing the hunch."
