@@ -15,7 +15,7 @@ depending on the strategy table.
 
 ## Structural (AST) search — `astSearch operation:"match"`
 
-Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` metavars) and `rule` (YAML, `kind`/`has`/`inside`/`all`/`any`/`not`). A `rule: kind: NODE_KIND` query bypasses pattern-fragment parsing and dispatches directly to the registered grammar. Use it when `pattern` parsing does not represent the intended code shape. Direct and nested rule patterns share the same grammar-checked fragment context: Java calls and CSS/SCSS declarations may omit a trailing semicolon without changing matches or capture ranges for complete patterns.
+Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` metavars) and `rule` (YAML, `kind`/`has`/`inside`/`all`/`any`/`not`). A `rule: kind: NODE_KIND` query bypasses pattern-fragment parsing and dispatches directly to the registered grammar. Use it when `pattern` parsing does not represent the intended code shape. Direct and nested rule patterns share the same grammar-checked fragment context: Java calls and CSS declarations may omit a trailing semicolon without changing matches or capture ranges for complete patterns.
 
 | Language | Extensions | Pattern evidence | Notes |
 |---|---|---|---|
@@ -27,14 +27,12 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | Kotlin | `kt` `kts` | ✅ matrix fixtures | Representative patterns; not every syntax construct |
 | PHP | `php` | ⚠️ partial | Function and call patterns work. `$$$ARGS` inside a parameter list parses as variable-variable dereference; use a rule or literal parameter names |
 | Python | `py` `pyi` | ✅ direct fixture | |
-| Ruby | `rb` `gemspec` `rake` `ru` | ✅ matrix fixtures | Representative patterns; not every syntax construct |
 | Rust | `rs` | ✅ direct fixture | |
 | Scala | `sc` `sbt` `scala` | ✅ direct fixture | |
-| Swift | `swift` | ✅ matrix fixture | Representative patterns; not every syntax construct |
 | TypeScript/JavaScript | `ts` `tsx` `mts` `cts` `js` `jsx` `mjs` `cjs` | ✅ direct fixtures | |
-| **Data/markup (structural, no functions):** CSS/SCSS, HTML, JSON/JSONC, SQL, YAML | `css` `scss` `htm` `html` `json` `jsonc` `sql` `yaml` `yml` | ✅ representative fixtures | CSS, SCSS, HTML, and SQL have direct pattern fixtures. HTML `<$TAG>` covers ordinary, script, style, and self-closing start tags while excluding tag-shaped raw text. The inventory matrix also exercises representative whole-source patterns for JSON and YAML. Unknown YAML-rule node kinds fail at compile time |
+| **Data/markup (structural, no functions):** CSS, HTML, JSON/JSONC | `css` `htm` `html` `json` `jsonc` | ✅ representative fixtures | CSS and HTML have direct pattern fixtures. HTML `<$TAG>` covers ordinary, script, style, and self-closing start tags while excluding tag-shaped raw text. The inventory matrix also exercises representative whole-source patterns for JSON. Unknown YAML-rule node kinds fail at compile time |
 
-The default build registers **42 extensions across 21 grammar families**.
+The default build registers **33 extensions across 16 grammar families**.
 `packages/octocode-native/tests/tools/localGrammarMatrix.test.ts` exercises
 the full extension inventory through public tools. Its cases cover
 representative syntax, views, and continuations; they do not prove every grammar
@@ -46,18 +44,20 @@ construct or minification transformation correct.
 
 Cross-file graph linking covers JavaScript/TypeScript ESM and binding-safe CommonJS, Rust modules, bounded Python absolute and relative imports, and quoted relative C/C++ includes. Explicit relative `package.json` imports become bounded metadata leaves. CommonJS links require an unshadowed literal `require`, `module.require`, or `createRequire(import.meta.url)` binding; dynamic, shadowed, reassigned, and otherwise ambiguous loaders remain coverage diagnostics. Python wildcards, ambiguous package attributes, and ambiguous stub layouts remain diagnostics. C/C++ system and macro includes are not linked. Other languages report unsupported cross-file linking rather than producing heuristic edges.
 
-Supported (33 extensions in the default build): every code language in the
+Supported (28 extensions in the default build): every code language in the
 preceding structural table. The registered body queries determine signature
 support; use the capability APIs for builds with optional features turned off.
 
 TOML (`toml`), Lua (`lua`), and Zig (`zig`) have no native analysis, language-specific minifier, or built-in LSP route. Text search and ordinary file reads remain available.
 
-The native engine has no Tree-sitter grammar for Elixir (`ex`/`exs`),
-HCL/Terraform (`tf`/`hcl`/`tfvars`), Protobuf (`proto`), Bash/Shell
-(`sh`/`bash`/`zsh`), Less (`less`), OCaml (`ml`/`mli`), Julia (`jl`), R (`r`),
-Erlang (`erl`/`hrl`), Vue, Svelte, Astro, or Dart. Structural queries report
-these extensions as unsupported; text search remains available. External
-language-server resolution is independent of native grammar availability.
+The native engine has no Tree-sitter grammar for Ruby (`rb`/`rake`/`gemspec`/`ru`),
+SCSS (`scss`), SQL (`sql`), Swift (`swift`), YAML (`yaml`/`yml`), Elixir
+(`ex`/`exs`), HCL/Terraform (`tf`/`hcl`/`tfvars`), Protobuf (`proto`),
+Bash/Shell (`sh`/`bash`/`zsh`), Less (`less`), OCaml (`ml`/`mli`), Julia
+(`jl`), R (`r`), Erlang (`erl`/`hrl`), Vue, Svelte, Astro, or Dart. Structural
+queries report these extensions as unsupported; text search remains available.
+Minification and external language-server resolution are independent of native
+grammar availability.
 
 ## Minification — file reads and search fragments
 
@@ -70,7 +70,7 @@ a syntax parser. Scala `.scala`, `.sc`, and `.sbt` share one strategy.
 |---|---|---|
 | `none` | Skips minification; extraction, security redaction, and response formatting still apply | Source evidence, comments, type declarations, edits, and literal matches |
 | `standard` | Uses language-dependent processing. JS/TS uses OXC compact code generation without optimization, mangling, or type-declaration removal; other strategies compact JSON, markup, CSS, Markdown, or comments and whitespace | Orientation; use `none` for exact text, comments, and formatting |
-| `symbols` | Extracts an outline for 33 code extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
+| `symbols` | Extracts an outline for 28 code extensions; Markdown has a heading fallback. Unsupported or unavailable outlines fall back to `standard` | Declaration locations and source-line anchors; follow with an exact read for bodies |
 
 For file reads, `fullContent:true` defaults to `none`. Local line ranges also
 default to `none`; GitHub line ranges and other ordinary reads default to
@@ -86,7 +86,7 @@ before quoting or checking identifier usage.
 
 Native regression coverage exercises all 148 configured extensions in standard
 and full minification, all 15 filename overrides, and embedded script views.
-The public file-read matrix exercises 42 extensions × three modes × two
+The public file-read matrix exercises 33 extensions × three modes × two
 `fullContent` settings × two readers, executing character continuations and
 reconstructing each transformed view. This is representative syntax coverage,
 not exhaustive language conformance.
@@ -103,8 +103,9 @@ does not establish which transformations ran. See the
 
 ## LSP — `lspSearch`
 
-LSP routing is separate from native grammar support. Shell, Less, and Elixir
-have LSP routes without structural grammars. Scala has a structural grammar and
+LSP routing is separate from native grammar support. Ruby, SCSS, SQL, Swift,
+YAML, Shell, Less, and Elixir have LSP routes without structural grammars.
+Scala has a structural grammar and
 built-in Metals routes for `.scala` and `.sc`.
 
 | Source | Languages | What happens |
@@ -172,7 +173,7 @@ yarn workspace @octocodeai/octocode-native test:node
 
 | Feature | Values |
 |---|---|
-| `regex` | `smart` (default) · `fixed` (literal) · `perl` (lookaround/backreferences) |
+| `regex` | `rust` (default) · `literal` · `pcre2` (lookaround/backreferences) |
 | `caseMode` | `smart` · `sensitive` · `insensitive` |
 | `wholeWord`, `invertMatch` | boolean |
 | `multiline` | `off` · `on` · `dotall` (`.` spans newlines) |

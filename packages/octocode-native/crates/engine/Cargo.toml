@@ -31,7 +31,7 @@ crate-type = ["cdylib", "rlib"]
 aho-corasick = "1"
 ast-grep-core = { version = "0.45.3", optional = true }
 ast-grep-config = { version = "0.45.3", optional = true }
-ast-grep-language = { version = "0.45.3", optional = true }
+ast-grep-language = { version = "0.45.3", default-features = false, features = ["napi-lang"], optional = true }
 crossbeam-epoch = "0.9.20"
 grep = { version = "0.4", features = ["pcre2"] }
 ignore = "0.4"
@@ -66,14 +66,9 @@ tree-sitter-json = "0.24"
 tree-sitter-kotlin-ng = "1.1"
 tree-sitter-php = "0.24"
 tree-sitter-python = "0.25"
-tree-sitter-ruby = "0.23"
 tree-sitter-rust = "0.24.2"
 tree-sitter-scala = { version = "0.26", optional = true }
-tree-sitter-scss = "1"
-tree-sitter-sequel = { version = "0.3", optional = true }
-tree-sitter-swift = { version = "0.7", optional = true }
 tree-sitter-typescript = "0.23"
-tree-sitter-yaml = "0.7"
 url = "2"
 which = "8"
 
@@ -91,16 +86,15 @@ harness = false
 
 [features]
 default = ["portable-default", "napi-addon"]
-portable-default = ["tree-sitter-large-grammars", "tree-sitter-extended", "css-quality"]
+portable-default = ["tree-sitter-large-grammars", "tree-sitter-scala", "css-quality"]
 napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build", "embedded-ast-grep-rewrite"]
 napi-test = ["napi-addon", "napi/noop"]
 embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config", "dep:ast-grep-language"]
 tree-sitter-cpp = ["dep:tree-sitter-cpp"]
 tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
-tree-sitter-swift = ["dep:tree-sitter-swift"]
-tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp", "tree-sitter-swift"]
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
 css-quality = ["dep:lightningcss"]
-tree-sitter-extended = ["dep:tree-sitter-sequel", "dep:tree-sitter-scala"]
+tree-sitter-scala = ["dep:tree-sitter-scala"]
 
 [build-dependencies]
 napi-build = { version = "2", optional = true }

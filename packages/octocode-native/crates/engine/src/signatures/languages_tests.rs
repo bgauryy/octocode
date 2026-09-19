@@ -6,7 +6,8 @@ use tree_sitter::{Parser, Query};
 fn excluded_grammars_report_unsupported_across_native_capabilities() {
     for ext in [
         "sh", "bash", "zsh", "vue", "svelte", "astro", "dart", "less", "ml", "mli", "jl", "r",
-        "erl", "hrl", "ex", "exs", "tf", "hcl", "tfvars", "proto", "toml", "lua", "zig",
+        "erl", "hrl", "ex", "exs", "tf", "hcl", "tfvars", "proto", "toml", "lua", "zig", "rb",
+        "rake", "gemspec", "ru", "scss", "sql", "swift", "yaml", "yml",
     ] {
         assert!(find_entry(ext).is_none(), ".{ext} must not load a grammar");
         assert!(!supported_extensions().contains(&ext));
@@ -85,17 +86,12 @@ fn fixture(ext: &str) -> &'static str {
         "c" => "int target(int value) {\n  int body_marker = value + 1;\n  return body_marker;\n}\n",
         "cpp" => "class Fixture {\npublic:\n  int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n};\n",
         "cs" => "class Fixture {\n  public int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n}\n",
-        "rb" => "def target(value)\n  body_marker = value + 1\n  body_marker\nend\n",
         "php" => "<?php\nfunction target($value) {\n  $body_marker = $value + 1;\n  return $body_marker;\n}\n",
         "kt" => "fun target(value: Int): Int {\n  val body_marker = value + 1\n  return body_marker\n}\n",
-        "sql" => "SELECT target FROM users WHERE active = true;\n",
         "html" => "<div id=\"target\"><span>value</span></div>\n",
         "css" => ".target { color: red; }\n",
-        "scss" => "$color: red;\n.target { color: $color; }\n",
         "scala" => "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = value + 1\n    body_marker\n  }\n}\n",
         "json" => "{\"target\": true}\n",
-        "yaml" => "target: true\n",
-        "swift" => "func target(value: Int) -> Int {\n  let body_marker = value + 1\n  return body_marker\n}\n",
         _ => panic!("missing grammar fixture for .{ext}"),
     }
 }

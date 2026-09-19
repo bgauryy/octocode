@@ -141,7 +141,7 @@ fn extract_with_limits(
 
                 // Detect brace-style vs indent-style body.
                 // Brace-style: the body node's FIRST BYTE is `{` (JS/TS/Go/Rust/C/Java etc.)
-                // Indent-style: first byte is NOT `{` (Python block, Ruby body_statement, etc.)
+                // Indent-style: first byte is NOT `{` (for example, a Python block).
                 let body_first_byte = content.as_bytes().get(node.start_byte()).copied();
                 let brace_style = body_first_byte == Some(b'{');
 

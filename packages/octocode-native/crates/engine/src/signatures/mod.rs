@@ -169,7 +169,7 @@ fn is_nested_member_noise(text: &str, ext: &str) -> bool {
     if matches!(ext, "html" | "htm" | "vue" | "svelte") {
         return false;
     }
-    if matches!(ext, "css" | "scss" | "less") {
+    if matches!(ext, "css" | "less") {
         return !trimmed.starts_with('@');
     }
     if ext == "scala" {
@@ -461,16 +461,6 @@ mod tests {
                 "{path}: no grammar or structural-only → must return None (no regex fallback)"
             );
         }
-    }
-
-    #[test]
-    fn ruby_extracts_method_signatures() {
-        let src =
-            "def greet\n  puts 'hi'\nend\n\ndef farewell(name)\n  puts \"bye #{name}\"\nend\n";
-        let s = extract(src, "a.rb").expect("ruby must extract");
-        assert!(s.contains("def greet"), "method sig preserved");
-        assert!(s.contains("def farewell"), "method sig preserved");
-        assert!(!s.contains("puts"), "body dropped");
     }
 
     #[test]

@@ -556,7 +556,9 @@ async fn artifact_search_lookup_goes_through_execute() {
         .await;
 
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[]);
+    // The mock registry binds to loopback; opt into the SSRF escape hatch so the
+    // happy-path wiring is exercised (default-block is covered by npm.rs unit tests).
+    let runtime = workspace.runtime(&[("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_string())]);
     let outcome = call(
         &runtime,
         "artifactSearch",

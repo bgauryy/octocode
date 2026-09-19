@@ -1815,8 +1815,11 @@ mod tests {
             .expect("GitHub history test data should be valid");
         assert_eq!(value["title"], "[MASKED]");
         assert_eq!(value["nested"][0]["body"], "a [MASKED] value");
+        // The executable `tool` identifier survives verbatim, but the query
+        // leaves are now scanned (walk.rs F3): redaction fires only on a real
+        // secret, so a legitimate path is untouched while a secret is masked.
         assert_eq!(value["next"]["tool"], "secret-tool");
-        assert_eq!(value["next"]["query"]["path"], "secret.rs");
+        assert_eq!(value["next"]["query"]["path"], "[MASKED].rs");
     }
 
     #[test]

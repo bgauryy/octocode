@@ -46,7 +46,6 @@ fn directory_patterns_and_composed_rules_share_fragment_context() {
             "target($X)",
         ),
         ("css", ".demo { color: value; }", "color: $VALUE"),
-        ("scss", ".demo { color: value; }", "color: $VALUE"),
     ] {
         if languages::find_entry(ext).is_none() {
             continue;
@@ -606,7 +605,7 @@ fn invalid_pattern_errors() {
     assert!(search("x", "ts", Some("   "), None).is_err());
 }
 
-// ── markup / style grammars (HTML/CSS/SCSS/LESS) ──────────────────────────
+// ── markup / style grammars (HTML/CSS) ────────────────────────────────────
 
 #[test]
 fn css_pattern_captures_declaration_value() {
@@ -627,23 +626,6 @@ fn css_rule_matches_by_kind() {
     let rule = "rule:\n  kind: rule_set\n";
     let matches = search(src, "css", None, Some(rule)).expect("css rule search");
     assert_eq!(matches.len(), 2);
-}
-
-#[test]
-fn scss_pattern_matches_and_keeps_literal_lowercase_var() {
-    // Lowercase `$base` is a literal SCSS variable (NOT replaced — only
-    // `$UPPER`/`$$$` become metavars), so it must match verbatim while `$C`
-    // captures the property value.
-    let src = ".card {\n  color: $base;\n}\n";
-    let matches = run_pattern(src, "scss", ".card { color: $base; }");
-    assert_eq!(matches.len(), 1, "literal $base preserved as a real var");
-
-    let captured = run_pattern(src, "scss", ".card { color: $C; }");
-    assert_eq!(captured.len(), 1);
-    assert_eq!(
-        captured[0].metavars.get("C").map(Vec::as_slice),
-        Some(&["$base".to_string()][..])
-    );
 }
 
 #[test]
@@ -670,7 +652,7 @@ fn html_element_pattern_matches_nested_tag() {
 #[test]
 fn markup_and_style_extensions_are_supported() {
     let exts = supported_extensions();
-    for ext in ["html", "htm", "css", "scss"] {
+    for ext in ["html", "htm", "css"] {
         assert!(
             exts.iter().any(|e| e == ext),
             "structural search must support .{ext}"
@@ -680,7 +662,7 @@ fn markup_and_style_extensions_are_supported() {
 
 // ── Scala ─────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "tree-sitter-extended")]
+#[cfg(feature = "tree-sitter-scala")]
 #[test]
 fn scala_pattern_captures_call_argument() {
     // Expando is µ, so `$X` → `µX`, a valid Scala identifier.
@@ -693,7 +675,7 @@ fn scala_pattern_captures_call_argument() {
     );
 }
 
-#[cfg(feature = "tree-sitter-extended")]
+#[cfg(feature = "tree-sitter-scala")]
 #[test]
 fn scala_comment_and_string_immunity() {
     // KPI #1: a `println(evil)` in a comment and in a string must NOT match.
@@ -706,7 +688,7 @@ fn scala_comment_and_string_immunity() {
     );
 }
 
-#[cfg(feature = "tree-sitter-extended")]
+#[cfg(feature = "tree-sitter-scala")]
 #[test]
 fn scala_extensions_are_supported() {
     let exts = supported_extensions();
@@ -718,21 +700,13 @@ fn scala_extensions_are_supported() {
     }
 }
 
-// ── config grammars (JSON / YAML) + extension aliases ──────────────
+// ── JSON config grammar + extension aliases ───────────────────────────────
 
 #[test]
 fn json_rule_matches_pairs() {
     let src = "{\n  \"a\": 1,\n  \"b\": 2\n}\n";
     let rule = "rule:\n  kind: pair\n";
     let matches = search(src, "json", None, Some(rule)).expect("json rule search");
-    assert_eq!(matches.len(), 2);
-}
-
-#[test]
-fn yaml_rule_matches_block_mapping_pairs() {
-    let src = "a: 1\nb: 2\n";
-    let rule = "rule:\n  kind: block_mapping_pair\n";
-    let matches = search(src, "yaml", None, Some(rule)).expect("yaml rule search");
     assert_eq!(matches.len(), 2);
 }
 
@@ -751,7 +725,7 @@ fn mts_uses_typescript_grammar_and_dollar_expando() {
 #[test]
 fn config_and_alias_extensions_are_supported() {
     let exts = supported_extensions();
-    for ext in ["json", "jsonc", "yaml", "yml", "mts", "cts", "pyi"] {
+    for ext in ["json", "jsonc", "mts", "cts", "pyi"] {
         assert!(
             exts.iter().any(|e| e == ext),
             "structural search must support .{ext}"

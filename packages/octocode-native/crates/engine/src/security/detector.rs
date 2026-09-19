@@ -512,8 +512,7 @@ mod tests {
         // file path. A `kind: Secret` data block whose surrounding text carries
         // a `.yaml` reference matches the `\.ya?ml$` anchor against the CONTENT,
         // so it is redacted even though `file_path` is None.
-        let yaml =
-            "kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n# source: manifest.yaml";
+        let yaml = "kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n# source: manifest.yaml";
         let result = detect_single(yaml, None);
         assert!(
             result.sanitized.contains("[REDACTED-"),

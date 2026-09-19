@@ -68,7 +68,7 @@ impl AgLanguage {
             class_wrap: ext == "cs",
             terminated_fragment_kind: match ext {
                 "java" => Some("method_invocation"),
-                "css" | "scss" => Some("declaration"),
+                "css" => Some("declaration"),
                 _ => None,
             },
         }
@@ -107,7 +107,7 @@ impl AgLanguage {
 /// The primary stand-in identifier char for `$` metavariables, per language.
 /// Languages where `$` is a legal identifier char (JS/TS/Java/PHP) keep
 /// `$`; the rest get a char the grammar accepts.
-fn primary_expando_for_ext(ext: &str) -> char {
+pub(super) fn primary_expando_for_ext(ext: &str) -> char {
     match ext {
         // PHP variables require the `$` sigil (e.g. `$var`), so `$` is a valid
         // identifier character in tree-sitter-php. Patterns like `foo($ARG)` must
@@ -115,9 +115,7 @@ fn primary_expando_for_ext(ext: &str) -> char {
         "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" | "php" => '$',
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => '\u{10000}',
         "html" | "htm" => 'z',
-        "css" | "scss" => '_',
-        // This SQL grammar rejects the default non-ASCII placeholder.
-        "sql" => '_',
+        "css" => '_',
         _ => '\u{00b5}',
     }
 }

@@ -55,10 +55,15 @@ fn clamp(n: f64, min: f64, max: f64) -> f64 {
     n.max(min).min(max)
 }
 /// An env-supplied GitHub API URL must be https so the credential is never
-/// attached over plaintext http (which could exfiltrate the token). http://
-/// values are ignored and resolution falls back to the config file/default.
-fn is_https_api_url(s: &str) -> bool {
-    matches!(url::Url::parse(s), Ok(u) if u.scheme() == "https")
+/// Validate the scheme of an env-provided `GITHUB_API_URL`, matching the
+/// config-file validator (`validation.rs`): only `http`/`https` are accepted.
+/// This closes the gap where the env path previously skipped scheme validation
+/// (e.g. `file://`/`ftp://` were accepted); a malformed or non-http(s) value is
+/// ignored and resolution falls back to the config file/default. `http` stays
+/// permitted for loopback/GHE dev parity — `GITHUB_API_URL` is in
+/// `PROTECTED_KEYS`, so an untrusted `.env` cannot set it in the first place.
+fn is_valid_api_url_scheme(s: &str) -> bool {
+    matches!(url::Url::parse(s), Ok(u) if matches!(u.scheme(), "http" | "https"))
 }
 pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> ResolvedConfig {
     let github = object(file, "github");
@@ -90,7 +95,7 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
             api_url: env(e, "GITHUB_API_URL")
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .filter(|s| is_https_api_url(s))
+                .filter(|s| is_valid_api_url_scheme(s))
                 .map(str::to_owned)
                 .or_else(|| str_field(github, "apiUrl"))
                 .unwrap_or_else(|| "https://api.github.com".into()),
@@ -140,6 +145,9 @@ pub fn resolve_sections(file: Option<&Value>, e: &BTreeMap<String, String>) -> R
                 0.,
                 10.,
             ),
+            allow_private_registry: parse_boolean_env(env(e, "OCTOCODE_ALLOW_PRIVATE_REGISTRY"))
+                .or_else(|| bool_field(network, "allowPrivateRegistry"))
+                .unwrap_or(false),
         },
         lsp: LspConfig {
             config_path: env(e, "OCTOCODE_LSP_CONFIG")
@@ -330,7 +338,7 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
 
 #[cfg(test)]
 mod tests {
-    use super::{is_https_api_url, resolve_sections};
+    use super::{is_valid_api_url_scheme, resolve_sections};
     use std::collections::BTreeMap;
 
     fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -341,16 +349,17 @@ mod tests {
     }
 
     #[test]
-    fn is_https_api_url_only_accepts_https() {
-        assert!(is_https_api_url("https://ghe.internal/api/v3"));
-        assert!(!is_https_api_url("http://evil.example/api/v3"));
-        assert!(!is_https_api_url("ftp://evil.example"));
-        assert!(!is_https_api_url("not a url"));
+    fn is_valid_api_url_scheme_accepts_http_and_https_only() {
+        assert!(is_valid_api_url_scheme("https://ghe.internal/api/v3"));
+        assert!(is_valid_api_url_scheme("http://127.0.0.1:8080/api/v3"));
+        assert!(!is_valid_api_url_scheme("ftp://evil.example"));
+        assert!(!is_valid_api_url_scheme("file:///etc/passwd"));
+        assert!(!is_valid_api_url_scheme("not a url"));
     }
 
     #[test]
-    fn http_env_api_url_falls_back_to_default() {
-        let resolved = resolve_sections(None, &env(&[("GITHUB_API_URL", "http://evil.example")]));
+    fn non_http_env_api_url_falls_back_to_default() {
+        let resolved = resolve_sections(None, &env(&[("GITHUB_API_URL", "ftp://evil.example")]));
         assert_eq!(resolved.github.api_url, "https://api.github.com");
     }
 

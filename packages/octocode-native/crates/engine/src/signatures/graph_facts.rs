@@ -918,8 +918,8 @@ fn fact_families_for_extension(ext: &str) -> Vec<&'static str> {
     match canonical_extension(ext) {
         // JS/TS (oxc lane) already emit import/export facts — advertise them so
         // `getGraphFactCapabilities` matches what `extractGraphFacts` returns.
-        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "rb" | "php" | "kt"
-        | "swift" | "scala" => {
+        "ts" | "tsx" | "js" | "rs" | "py" | "go" | "java" | "c" | "cpp" | "php" | "kt"
+        | "scala" => {
             families.push("imports");
             families.push("exports");
         }

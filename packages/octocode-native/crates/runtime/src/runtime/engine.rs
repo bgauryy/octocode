@@ -545,6 +545,7 @@ impl ToolRuntime {
         let home = self.inspect_config().home;
         let handle = tokio::runtime::Handle::current();
         let allow_ast_rewrite_apply = self.config.resolved.local.enable_ast_rewrite_apply;
+        let allow_private_registry = self.config.resolved.network.allow_private_registry;
         let lsp_pool = self.lsp_pool.clone();
         let lsp_execution_config = crate::tools::lsp_search::LspExecutionConfig {
             config_path: self.config.resolved.lsp.config_path.clone(),
@@ -671,6 +672,7 @@ impl ToolRuntime {
                                 query,
                                 context.deadline,
                                 context.cancellation.clone(),
+                                allow_private_registry,
                             )
                             .await
                             {

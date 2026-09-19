@@ -85,7 +85,7 @@ mod is_binary_tests {
         // an incomplete trailing sequence. This must be treated as text.
         let mut data = vec![b'a'; 8190];
         data.extend_from_slice("😀".as_bytes());
-        data.extend(std::iter::repeat(b'b').take(256));
+        data.extend(std::iter::repeat_n(b'b', 256));
         assert_eq!(data.len(), 8190 + 4 + 256);
         assert!(!is_binary(&data));
     }

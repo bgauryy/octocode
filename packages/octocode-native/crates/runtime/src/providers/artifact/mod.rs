@@ -22,6 +22,8 @@ pub struct ArtifactProviderContext<'a> {
     pub http: &'a dyn ArtifactHttp,
     pub budget: &'a RequestBudget,
     pub npm_registry: Option<&'a ResolvedNpmRegistry>,
+    /// Opt-in escape hatch for the npm registry SSRF guard (see NetworkConfig).
+    pub allow_private_registry: bool,
 }
 
 pub async fn execute_artifact(
@@ -47,7 +49,14 @@ pub async fn execute_artifact(
                 cache_identity: "npmjs".into(),
             };
             let registry = context.npm_registry.unwrap_or(&default_registry);
-            npm::npm(query, &state, registry, &client).await
+            npm::npm(
+                query,
+                &state,
+                registry,
+                &client,
+                context.allow_private_registry,
+            )
+            .await
         }
         ArtifactType::PyPi => registries::pypi(query, &client).await,
         ArtifactType::Crates => registries::crates(query, &state, &client).await,

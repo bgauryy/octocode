@@ -140,6 +140,11 @@ pub struct NetworkConfig {
     pub timeout: f64,
     #[serde(rename = "maxRetries")]
     pub max_retries: f64,
+    /// Opt-in escape hatch for the artifactSearch SSRF guard. When false
+    /// (default) a caller-supplied `registry` on a loopback/link-local/private
+    /// host is refused; enterprises with internal registries set it to true.
+    #[serde(rename = "allowPrivateRegistry", default)]
+    pub allow_private_registry: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LspConfig {

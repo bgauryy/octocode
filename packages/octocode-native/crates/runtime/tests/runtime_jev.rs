@@ -153,6 +153,9 @@ async fn jev_request_is_typed_and_response_is_provisional() {
         ("OCTOCODE_JEV_KEY", "secret".to_owned()),
         ("OCTOCODE_JEV_MODEL", "jev-1.13.0".to_owned()),
         ("OCTOCODE_JEV_BASE_URL", server.uri()),
+        // TLS/client startup can exceed the harness's 5 s minimum timeout under
+        // full-suite contention; keep this transport-contract test deterministic.
+        ("REQUEST_TIMEOUT", "30000".to_owned()),
     ]);
     let outcome = call(&runtime, "jevReasoning", query)
         .await

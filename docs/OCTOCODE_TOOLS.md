@@ -664,11 +664,10 @@ result do not establish absence. `maxDepth: 0` includes files directly in the
 root; depth filtering happens before the file-scan cap.
 
 **Supported structural extensions:** `c`, `cc`, `cjs`, `cpp`, `cs`, `css`,
-`cts`, `cxx`, `gemspec`, `go`, `h`, `hh`, `hpp`, `htm`, `html`, `hxx`,
-`java`, `js`, `json`, `jsonc`, `jsx`, `kt`, `kts`, `lua`, `mjs`, `mts`,
-`php`, `py`, `pyi`, `rake`, `rb`, `rs`, `ru`, `sbt`, `sc`, `scala`, `scss`,
-`sql`, `swift`, `toml`, `ts`, `tsx`, `yaml`, `yml`, and `zig`. Query the
-compiled engine capability API when optional grammar features are disabled.
+`cts`, `cxx`, `go`, `h`, `hh`, `hpp`, `htm`, `html`, `hxx`, `java`, `js`,
+`json`, `jsonc`, `jsx`, `kt`, `kts`, `mjs`, `mts`, `php`, `py`, `pyi`, `rs`,
+`sbt`, `sc`, `scala`, `ts`, and `tsx`. Query the compiled engine capability API
+when optional grammar features are disabled.
 
 When a code-shaped pattern returns zero matches, native runtime can retry a
 semicolon-normalized form or a relaxed return-type form. CLI and MCP output do
@@ -683,7 +682,7 @@ as markup. YAML `kind` rules are checked against the selected grammar before
 execution; an unknown node kind returns a typed compile diagnostic instead of a
 high-confidence zero-match result.
 
-Java call patterns and CSS/SCSS declaration patterns may omit their trailing
+Java call patterns and CSS declaration patterns may omit their trailing
 semicolon. The structural compiler supplies grammar-checked statement context
 for direct patterns and patterns nested anywhere in a YAML rule; already
 complete patterns keep their original parse, match ranges, and captures.

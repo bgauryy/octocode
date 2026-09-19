@@ -113,8 +113,10 @@ pub fn sanitize_content(content: &str, file_path: Option<&str>) -> Result<Saniti
 pub fn mask_sensitive_data(text: String) -> String {
     // Fail closed like `sanitize_content`: if masking panics on pathological
     // input, redact wholesale rather than returning the raw (unmasked) text.
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::security::mask_text(text)))
-        .unwrap_or_else(|_| "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned())
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::security::mask_text(text)
+    }))
+    .unwrap_or_else(|_| "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned())
 }
 
 #[must_use]

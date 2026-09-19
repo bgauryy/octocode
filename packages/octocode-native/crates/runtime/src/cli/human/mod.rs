@@ -66,7 +66,7 @@ pub struct AstArgs {
     /// ast-grep structural pattern (e.g. `fn $NAME($$$) { $$$ }`).
     pub pattern: String,
     /// Language for the AST pattern (required for directories; inferred from file extension).
-    /// Values: rust, typescript, tsx, javascript, python, go, java, kotlin, ruby, php, csharp, cpp, c, swift, scala.
+    /// Values: rust, typescript, tsx, javascript, python, go, java, kotlin, php, csharp, cpp, c, scala.
     #[arg(long, short = 'l')]
     pub lang: Option<String>,
     #[command(flatten)]
@@ -778,15 +778,12 @@ fn lang_from_path(path: &str) -> Option<&'static str> {
         "go" => "go",
         "java" => "java",
         "kt" | "kts" => "kotlin",
-        "rb" => "ruby",
         "php" => "php",
         "cs" => "csharp",
         "cpp" | "cc" | "cxx" | "hpp" | "hh" => "cpp",
         "c" | "h" => "c",
-        "swift" => "swift",
         "scala" => "scala",
         "json" => "json",
-        "yml" | "yaml" => "yaml",
         "md" => "markdown",
         "sh" | "bash" => "bash",
         _ => return None,

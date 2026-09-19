@@ -69,7 +69,6 @@ mod tests {
                 &["cpp", "cc", "cxx", "hpp", "hh", "hxx"][..],
             ),
             (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
-            (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
         ] {
             for ext in extensions {
                 assert_eq!(
@@ -106,10 +105,8 @@ mod tests {
             #[cfg(feature = "tree-sitter-c-sharp")]
             ("demo.cs", "csharp", "class Target { void target() {} }\n"),
             ("demo.json", "json", "{\"target\": true}\n"),
-            ("demo.yaml", "yaml", "target: true\n"),
             ("demo.html", "html", "<div id=\"target\"></div>\n"),
             ("demo.css", "css", ".target { color: red; }\n"),
-            ("demo.scss", "scss", ".target { color: red; }\n"),
         ];
 
         for (file_name, language_id, source) in cases {

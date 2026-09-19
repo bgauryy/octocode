@@ -23,7 +23,7 @@ pub struct LanguageEntry {
     /// path (`extract_by_ext` / `extract_boundary_lines_inner`) skips the
     /// tree-sitter route for it and returns no outline (tree-sitter is the only
     /// signature path; there is no regex/heuristic fallback). Used by
-    /// markup/style grammars (HTML/CSS/SCSS) that have no function-body
+    /// markup/style grammars (HTML/CSS) that have no function-body
     /// concept to strip.
     pub body_query: &'static str,
     pub comment_style: &'static str,
@@ -78,11 +78,6 @@ const CS_BODY_QUERY: &str = r#"[
   (lambda_expression         body: (block) @body)
 ]"#;
 
-const RUBY_BODY_QUERY: &str = r#"[
-  (method body: (body_statement) @body)
-  (singleton_method body: (body_statement) @body)
-]"#;
-
 const PHP_BODY_QUERY: &str = r#"[
   (function_definition body: (compound_statement) @body)
   (method_declaration body: (compound_statement) @body)
@@ -93,15 +88,10 @@ const KOTLIN_BODY_QUERY: &str = r#"[
   (anonymous_function (function_body) @body)
 ]"#;
 
-#[cfg(feature = "tree-sitter-swift")]
-const SWIFT_BODY_QUERY: &str = r#"
-  (function_declaration body: (function_body) @body)
-"#;
-
 /// Scala: strip function/method bodies. Class/object/trait bodies are intentionally NOT
 /// dropped so method signatures inside them remain visible (mirrors Java/TS behaviour).
 /// `body:` is a named field in both node types.
-#[cfg(feature = "tree-sitter-extended")]
+#[cfg(feature = "tree-sitter-scala")]
 const SCALA_BODY_QUERY: &str = r#"[
   (function_definition body: (block) @body)
 ]"#;
@@ -194,15 +184,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             comment_style: "c",
         },
         LanguageEntry {
-            name: "Ruby",
-            selector_aliases: &[],
-            extensions: &["rb", "rake", "gemspec", "ru"],
-            language_id: Some("ruby"),
-            language: tree_sitter_ruby::LANGUAGE.into(),
-            body_query: RUBY_BODY_QUERY,
-            comment_style: "hash",
-        },
-        LanguageEntry {
             name: "PHP",
             selector_aliases: &[],
             // PHP variables require `$` prefix — expando char must be `$` so
@@ -220,16 +201,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language_id: Some("kotlin"),
             language: tree_sitter_kotlin_ng::LANGUAGE.into(),
             body_query: KOTLIN_BODY_QUERY,
-            comment_style: "c",
-        },
-        #[cfg(feature = "tree-sitter-extended")]
-        LanguageEntry {
-            name: "SQL",
-            selector_aliases: &[],
-            extensions: &["sql"],
-            language_id: Some("sql"),
-            language: tree_sitter_sequel::LANGUAGE.into(),
-            body_query: "", // data-query language — no function bodies
             comment_style: "c",
         },
         // ── Markup / style grammars: structural-search only ──────────────────
@@ -255,33 +226,22 @@ fn init_language_table() -> Vec<LanguageEntry> {
             body_query: "",
             comment_style: "c",
         },
-        LanguageEntry {
-            name: "SCSS",
-            selector_aliases: &[],
-            extensions: &["scss"],
-            language_id: Some("scss"),
-            language: tree_sitter_scss::language(),
-            body_query: "",
-            comment_style: "c",
-        },
         // Scala: function bodies stripped; class/object/trait bodies kept so
         // member signatures remain visible (mirrors Java/TS behaviour).
-        // No LSP server configured — `language_id: None` keeps it absent from
-        // the LSP grammar map until a standard scala-ls binary path is established.
-        #[cfg(feature = "tree-sitter-extended")]
+        #[cfg(feature = "tree-sitter-scala")]
         LanguageEntry {
             name: "Scala",
             selector_aliases: &[],
             extensions: &["scala", "sc", "sbt"],
-            language_id: None,
+            language_id: Some("scala"),
             language: tree_sitter_scala::LANGUAGE.into(),
             body_query: SCALA_BODY_QUERY,
             comment_style: "c",
         },
         // ── Config grammars: structural-search only ──────────────────────────
         // Linked for the LSP layer; registered here so structural search can run
-        // shape queries over package manifests, CI workflows, k8s/compose YAML,
-        // etc. Empty body_query + their presence in NO_SYMBOL_EXTS keeps the
+        // shape queries over JSON package manifests and configuration files.
+        // Empty body_query + presence in NO_SYMBOL_EXTS keeps the
         // signature path returning None (data files have no code signatures).
         LanguageEntry {
             name: "JSON",
@@ -291,15 +251,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
             language: tree_sitter_json::LANGUAGE.into(),
             body_query: "",
             comment_style: "c",
-        },
-        LanguageEntry {
-            name: "YAML",
-            selector_aliases: &[],
-            extensions: &["yaml", "yml"],
-            language_id: Some("yaml"),
-            language: tree_sitter_yaml::LANGUAGE.into(),
-            body_query: "",
-            comment_style: "hash",
         },
     ];
 
@@ -328,17 +279,6 @@ fn init_language_table() -> Vec<LanguageEntry> {
         comment_style: "c",
     });
 
-    #[cfg(feature = "tree-sitter-swift")]
-    entries.push(LanguageEntry {
-        name: "Swift",
-        selector_aliases: &[],
-        extensions: &["swift"],
-        language_id: Some("swift"),
-        language: tree_sitter_swift::LANGUAGE.into(),
-        body_query: SWIFT_BODY_QUERY,
-        comment_style: "c",
-    });
-
     entries
 }
 
@@ -362,8 +302,8 @@ pub fn supported_extensions() -> Vec<&'static str> {
 
 /// Extensions that produce a signature outline: tree-sitter grammars with a
 /// non-empty `body_query`. Excludes structural-search-only grammars
-/// (HTML/CSS/SCSS/JSON/YAML), which have no function bodies to
-/// strip and therefore no outline.
+/// (HTML/CSS/JSON), which have no function bodies to strip and therefore no
+/// outline.
 pub fn signature_extensions() -> Vec<&'static str> {
     LANGUAGE_TABLE
         .iter()

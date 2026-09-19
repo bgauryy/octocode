@@ -322,14 +322,13 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             args: &[],
             env_var: Some("OCTOCODE_SWIFT_SERVER_PATH"),
         },
-        // Resolve-if-installed servers for grammars we already ship — additive:
-        // absent binary ⇒ same graceful "no server" behavior as before.
         ".rb" | ".rake" | ".gemspec" | ".ru" => ServerSpec {
             language_id: "ruby",
             command: "ruby-lsp",
             args: &[],
             env_var: Some("OCTOCODE_RUBY_SERVER_PATH"),
         },
+        // Resolve-if-installed servers — absent binary means no server.
         ".kt" | ".kts" => ServerSpec {
             language_id: "kotlin",
             command: "kotlin-language-server",

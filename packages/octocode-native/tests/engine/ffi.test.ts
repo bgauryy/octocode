@@ -132,11 +132,6 @@ describe('canonical grammar capabilities', () => {
           signatureOutline: true,
           graphFacts: true,
         }),
-        expect.objectContaining({
-          language: 'Ruby',
-          languageId: 'ruby',
-          extensions: ['rb', 'rake', 'gemspec', 'ru'],
-        }),
       ])
     );
   });
@@ -681,10 +676,8 @@ describe('getSupportedStructuralExtensions', () => {
     for (const ext of [
       'html',
       'css',
-      'scss',
       'scala',
       'json',
-      'yaml',
       'mts',
       'cts',
       'pyi',
@@ -705,6 +698,15 @@ describe('getSupportedStructuralExtensions', () => {
       'r',
       'erl',
       'hrl',
+      'rb',
+      'rake',
+      'gemspec',
+      'ru',
+      'scss',
+      'sql',
+      'swift',
+      'yaml',
+      'yml',
     ]) {
       expect(addon!.getSupportedStructuralExtensions()).not.toContain(ext);
       expect(addon!.getSupportedSignatureExtensions()).not.toContain(ext);
@@ -1005,10 +1007,8 @@ describe('getSupportedSignatureExtensions', () => {
       'rs',
       'go',
       'java',
-      'rb',
       'php',
       'kt',
-      'swift',
       'scala',
     ]) {
       expect(exts, `${required} must be in signature list`).toContain(required);
@@ -1019,6 +1019,11 @@ describe('getSupportedSignatureExtensions', () => {
       'markdown',
       'sql',
       'html',
+      'scss',
+      'swift',
+      'yaml',
+      'yml',
+      'rb',
       'jl',
       'ml',
       'ex',

@@ -377,7 +377,7 @@ export declare function getSupportedJsTsExtensions(): Array<string>
 /**
  * Returns all extensions that have signature-outline support. This is exactly
  * the set of tree-sitter grammars with a function-body query (no regex
- * heuristics): structural-only grammars (for example HTML/CSS/JSON/YAML) are
+ * heuristics): structural-only grammars (for example HTML/CSS/JSON) are
  * excluded because they produce no outline.
  */
 export declare function getSupportedSignatureExtensions(): Array<string>

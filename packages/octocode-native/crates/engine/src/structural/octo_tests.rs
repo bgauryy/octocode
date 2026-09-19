@@ -3,11 +3,11 @@ use crate::signatures::languages;
 
 #[test]
 fn ast_audit_special_pattern_preserves_repeated_capture_equality() {
-    let source = "left: right\nsame: same\n";
-    let direct = run_pattern(source, "yml", "$X: $X");
-    let rule = run_rule(source, "yml", "pattern: \"$X: $X\"");
+    let source = "pair(left, right);\npair(same, same);\n";
+    let direct = run_pattern(source, "ts", "pair($X, $X)");
+    let rule = run_rule(source, "ts", "pattern: 'pair($X, $X)'");
     assert_eq!(direct.len(), 1);
-    assert_eq!(direct[0].text, "same: same");
+    assert_eq!(direct[0].text, "pair(same, same)");
     assert_eq!(direct[0].metavars, rule[0].metavars);
     let direct_range = &direct[0].metavar_ranges["X"][0];
     let rule_range = &rule[0].metavar_ranges["X"][0];
@@ -155,23 +155,6 @@ fn shared_pattern_context_accepts_bare_css_declarations() {
     );
 }
 
-#[cfg(feature = "tree-sitter-extended")]
-#[test]
-fn shared_pattern_context_accepts_bare_scss_declarations() {
-    let source = "$theme: blue; .demo { color: value; background: $theme; }";
-    assert_fragment_context("scss", source, "color: $VALUE", "color: value;");
-    assert!(run_pattern(source, "scss", "width: $VALUE").is_empty());
-    assert_eq!(
-        run_pattern(
-            source,
-            "scss",
-            ".demo { color: $VALUE; background: $theme; }"
-        )
-        .len(),
-        1
-    );
-}
-
 #[test]
 fn point_column_uses_utf16_code_units_not_code_points() {
     // "🌍" is one Unicode scalar value but TWO UTF-16 code units (surrogate
@@ -210,37 +193,6 @@ fn run_rule(src: &str, ext: &str, rule: &str) -> Vec<StructuralMatch> {
         .into_iter()
         .map(|m| m.matched)
         .collect()
-}
-
-#[cfg(feature = "tree-sitter-extended")]
-#[test]
-fn expression_patterns_match_inside_sql_documents() {
-    let cases = [(
-        "sql",
-        "SELECT target FROM users;\n",
-        "SELECT $COL FROM users",
-        "COL",
-        "target",
-    )];
-    let mut failures = Vec::new();
-    for (ext, source, pattern, capture, expected) in cases {
-        let language = lang(ext);
-        let pattern_source = language.preprocess_pattern(pattern);
-        let pattern_tree = parse_tree(&language.tree_sitter_language(), &pattern_source).unwrap();
-        let source_tree = parse_tree(&language.tree_sitter_language(), source).unwrap();
-        let matches = run_pattern(source, ext, pattern);
-        if matches.len() != 1
-            || matches[0].metavars.get(capture) != Some(&vec![expected.to_owned()])
-        {
-            failures.push(format!(
-                ".{ext}: {} matches\npattern: {}\nsource: {}",
-                matches.len(),
-                pattern_tree.root_node().to_sexp(),
-                source_tree.root_node().to_sexp()
-            ));
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
 #[test]

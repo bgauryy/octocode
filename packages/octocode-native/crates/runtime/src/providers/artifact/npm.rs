@@ -13,8 +13,9 @@ pub(crate) async fn npm(
     state: &ArtifactProviderState,
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
+    allow_private_registry: bool,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    validate_registry(query, registry)?;
+    validate_registry(query, registry, allow_private_registry)?;
     if let Some(name) = query.package_name.as_deref() {
         exact(name, registry, client).await
     } else {
@@ -25,6 +26,7 @@ pub(crate) async fn npm(
 fn validate_registry(
     query: &ArtifactQuery,
     registry: &ResolvedNpmRegistry,
+    allow_private_registry: bool,
 ) -> Result<(), ArtifactError> {
     let base = &registry.base;
     if !matches!(base.scheme(), "http" | "https")
@@ -43,10 +45,11 @@ fn validate_registry(
     // reflects the caller-supplied `registry` (a mismatch is rejected below),
     // so blocking it here covers the request target. Public registries such as
     // registry.npmjs.org resolve to public addresses and are unaffected.
-    if is_blocked_host(base.host()) {
+    if !allow_private_registry && is_blocked_host(base.host()) {
         return Err(ArtifactError::new(
             "invalid_query",
-            "Invalid npm registry URL: loopback, link-local, and private hosts are not allowed.",
+            "Invalid npm registry URL: loopback, link-local, and private hosts are not allowed \
+             (set network.allowPrivateRegistry / OCTOCODE_ALLOW_PRIVATE_REGISTRY to permit).",
         ));
     }
     if let Some(requested) = query.registry.as_deref() {
@@ -399,7 +402,10 @@ mod tests {
     fn rejects_link_local_metadata_registry() {
         let registry = npm_registry("http://169.254.169.254");
         let query = npm_query(Some("http://169.254.169.254"));
-        let err = validate_registry(&query, &registry).expect_err("must reject link-local host");
+        let err =
+            validate_registry(&query, &registry, false).expect_err("must reject link-local host");
+        // The opt-in escape hatch permits the same host.
+        assert!(validate_registry(&query, &registry, true).is_ok());
         assert_eq!(err.code, "invalid_query");
     }
 

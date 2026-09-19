@@ -98,22 +98,20 @@ fn every_structural_extension_has_an_explicit_minification_route() {
     let extensions = crate::signatures::languages::supported_extensions();
     let mut expected: std::collections::BTreeSet<_> = [
         "ts", "mts", "cts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyi", "go", "rs", "java", "c",
-        "h", "rb", "rake", "gemspec", "ru", "php", "kt", "kts", "html", "htm", "css", "scss",
-        "json", "jsonc", "yaml", "yml",
+        "h", "php", "kt", "kts", "html", "htm", "css", "json", "jsonc",
     ]
     .into_iter()
     .collect();
     for (enabled, optional) in [
         (
-            cfg!(feature = "tree-sitter-extended"),
-            &["sql", "scala", "sc", "sbt"][..],
+            cfg!(feature = "tree-sitter-scala"),
+            &["scala", "sc", "sbt"][..],
         ),
         (
             cfg!(feature = "tree-sitter-cpp"),
             &["cpp", "hpp", "cc", "cxx", "hh", "hxx"][..],
         ),
         (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
-        (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
     ] {
         if enabled {
             expected.extend(optional.iter().copied());

@@ -13,6 +13,7 @@ pub async fn execute(
     query: &Value,
     deadline: Instant,
     cancellation: CancellationToken,
+    allow_private_registry: bool,
 ) -> Result<Value, ArtifactError> {
     let mut query = query.clone();
     if let Some(object) = query.as_object_mut() {
@@ -50,6 +51,7 @@ pub async fn execute(
             http: &http,
             budget: &budget,
             npm_registry: requested_registry.as_ref(),
+            allow_private_registry,
         },
     )
     .await?;

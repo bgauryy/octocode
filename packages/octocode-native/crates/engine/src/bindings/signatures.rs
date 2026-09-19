@@ -225,7 +225,7 @@ pub fn get_semantic_boundary_offsets(
 
 /// Returns all extensions that have signature-outline support. This is exactly
 /// the set of tree-sitter grammars with a function-body query (no regex
-/// heuristics): structural-only grammars (for example HTML/CSS/JSON/YAML) are
+/// heuristics): structural-only grammars (for example HTML/CSS/JSON) are
 /// excluded because they produce no outline.
 #[napi(js_name = "getSupportedSignatureExtensions")]
 pub fn get_supported_signature_extensions() -> Vec<String> {
@@ -240,7 +240,7 @@ mod tests {
     fn supported_signature_extensions_are_tree_sitter_only_and_sorted() {
         let exts = get_supported_signature_extensions();
         // Languages that must have signature extraction (body_query set)
-        for required in ["ts", "py", "rs", "go", "java", "rb", "php", "kt"] {
+        for required in ["ts", "py", "rs", "go", "java", "php", "kt"] {
             assert!(
                 exts.iter().any(|e| e == required),
                 "missing {required} from signature list"
@@ -249,9 +249,8 @@ mod tests {
         for (enabled, optional) in [
             (cfg!(feature = "tree-sitter-cpp"), &["cpp", "hpp"][..]),
             (cfg!(feature = "tree-sitter-c-sharp"), &["cs"][..]),
-            (cfg!(feature = "tree-sitter-swift"), &["swift"][..]),
             (
-                cfg!(feature = "tree-sitter-extended"),
+                cfg!(feature = "tree-sitter-scala"),
                 &["scala", "sc", "sbt"][..],
             ),
         ] {
@@ -265,8 +264,8 @@ mod tests {
         }
         // Languages that must NOT have signature extraction (no body_query)
         for absent in [
-            "vue", "svelte", "md", "markdown", "sql", "html", "jl", "ml", "ex", "exs", "tf", "hcl",
-            "tfvars", "proto",
+            "vue", "svelte", "md", "markdown", "sql", "html", "scss", "swift", "yaml", "yml", "jl",
+            "ml", "ex", "exs", "tf", "hcl", "tfvars", "proto",
         ] {
             assert!(
                 !exts.iter().any(|e| e == absent),
@@ -305,12 +304,6 @@ mod tests {
             .expect("Kotlin capability");
         assert_eq!(kotlin.extensions, ["kt", "kts"]);
         assert!(kotlin.structural_search && kotlin.signature_outline && kotlin.graph_facts);
-
-        let ruby = capabilities
-            .iter()
-            .find(|capability| capability.language == "Ruby")
-            .expect("Ruby capability");
-        assert_eq!(ruby.extensions, ["rb", "rake", "gemspec", "ru"]);
 
         let tsx = capabilities
             .iter()

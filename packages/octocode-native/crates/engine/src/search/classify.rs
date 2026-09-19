@@ -140,7 +140,7 @@ fn classify_file_matches_before(
 
 /// Map a tree-sitter node (plus a few ancestors) to a stable kind label.
 fn classify_node(node: Node, src: &str) -> &'static str {
-    // 0. Config keys first: in JSON/YAML the key is itself a string node, so
+    // 0. Config keys first: in JSON the key is itself a string node, so
     //    this must win over the string-lexical check below.
     {
         let mut cur = Some(node);
@@ -237,7 +237,7 @@ fn is_heading_kind(k: &str) -> bool {
     k.contains("heading") || k == "atx_heading" || k == "setext_heading"
 }
 
-/// JSON/YAML object key: the node is (or sits under) a pair/mapping key.
+/// JSON object key: the node is (or sits under) a pair key.
 fn is_config_key(node: Node, _src: &str) -> bool {
     if let Some(parent) = node.parent() {
         let pk = parent.kind();
@@ -422,13 +422,10 @@ mod tests {
     }
 
     #[test]
-    fn config_values_are_not_misclassified_as_keys() {
+    fn json_values_are_not_misclassified_as_keys() {
         for (ext, src) in [
             ("json", r#"{"handler": "build"}"#),
             ("json", r#"{"handler": {"child": "build"}}"#),
-            ("yaml", "handler: build\n"),
-            ("yaml", "handler: \"build\"\n"),
-            ("yaml", "{handler: build}\n"),
         ] {
             let key = src.find("handler").expect("key fixture") as u32;
             let value = src.find("build").expect("value fixture") as u32;
@@ -438,9 +435,7 @@ mod tests {
             );
             let value_kind = classify_one(src, ext, 1, value);
             assert_ne!(value_kind.as_deref(), Some(KIND_CONFIG_KEY), "{src}");
-            if ext == "json" {
-                assert_eq!(value_kind.as_deref(), Some(KIND_STRING));
-            }
+            assert_eq!(value_kind.as_deref(), Some(KIND_STRING));
         }
     }
 }
