@@ -469,9 +469,13 @@ impl ToolRuntime {
             ));
         }
         // Cursor shortcut: { cursor: "<token>" } resumes any previous page.
-        // Decoded queries skip prepare_and_validate (already validated; null
-        // placeholders like artifactSearch registry would fail re-validation).
-        // Scope is computed before decoding; for cursor inputs the tool is
+        // Decoded queries skip prepare_and_validate (already validated when the
+        // token was minted; null placeholders like artifactSearch registry would
+        // fail re-validation). Skipping is safe only because the token is
+        // HMAC-authenticated under a per-process key (see cursor.rs), so a caller
+        // cannot forge a query that bypasses contract validation; the security
+        // input gate (validate_input_parameters) still runs on the decoded query
+        // below. Scope is computed before decoding; for cursor inputs the tool is
         // unknown until decoded, so we derive scope from the original tool arg.
         let scope = self.cursor_scope_for(&tool)?;
         let (tool, input, from_cursor) = match input

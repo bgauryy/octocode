@@ -57,6 +57,33 @@ const triageInput = () => ({
   }
 });
 
+test('cost preference updates the applied action and cannot override a near-tied none', () => {
+  const input = triageInput();
+  input.state.next_checks[0].cost = 'high';
+  input.state.next_checks[1].cost = 'low';
+  const request = buildDecisionPacket(input, policy);
+  const response = { model: 'jev-1.13.0', answers: {
+    hypothesis: { type: 'choice', choice: 'H1', probabilities: { H1: .9, H2: .08, none: .02 } },
+    next_check: { type: 'choice', choice: 'C1', probabilities: { C1: .49, C2: .48, none: .03 } }
+  } };
+  const generated = buildRunApplication('hypothesis_triage', request, response, policy);
+  const applied = applyResponse(request, response, generated.actions, generated.netAction, policy);
+  assert.equal(applied.blocked, false);
+  assert.match(applied.net_action, /C2: Compare warm and cold/);
+  assert.equal(applied.answers[1].next_action, applied.net_action);
+  response.answers.next_check.probabilities = { C1: .35, C2: .33, none: .32 };
+  assert.equal(applyResponse(request, response, generated.actions, generated.netAction, policy).blocked, true);
+});
+
+test('no supplied material risk is valid, while ambiguous risk remains unresolved', () => {
+  const request = { state: {}, questions: { primary_risk: { type: 'choice', criteria: { R1: 'Risk', none: 'No supplied material risk' } } } };
+  const response = { model: 'jev-1.13.0', answers: { primary_risk: { type: 'choice', choice: 'none', probabilities: { R1: .01, none: .99 } } } };
+  const actions = { primary_risk: 'Retain the supplied safeguards.' };
+  assert.equal(applyResponse(request, response, actions, actions.primary_risk).blocked, false);
+  response.answers.primary_risk.probabilities = { R1: .49, none: .51 };
+  assert.equal(applyResponse(request, response, actions, actions.primary_risk).blocked, true);
+});
+
 test('all planned routing fixtures are executable and frozen', () => {
   assert.equal(fixtures.length, 15);
   for (const fixture of fixtures) assert.deepEqual(routeDecision(fixture.input, policy), fixture.expected, fixture.id);

@@ -11,7 +11,7 @@
 //       lines?:   "S" | "S-E"   // 1-based inclusive line span
 //       regex?:   string        // first matching line anchors a window
 //       window?:  [before,after] // lines around a regex hit (default [3,8])
-//       maxChars?: number        // clamp, 1..4000 (Jev content cap); default 1200
+//       maxChars?: number        // 1..4000 (Jev content cap); default 1200
 //     }
 //   Resolution fills `content` (bounded, redacted) and, when absent, `source`
 //   ("path:LS-LE"). Supplying both content and contentRef is rejected.
@@ -20,7 +20,7 @@
 // (reusing the localFetch read path); here it is JS so the shipped skill runner
 // realizes and measures the saving today.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 const CONTENT_CAP = 4000; // Jev EvidenceSchema.content max
@@ -53,7 +53,11 @@ export function boundedRoot(rootDir, allowedRoots, path) {
   if (!roots.some(root => within(root, abs))) {
     throw new Error(`contentRef.path escapes the allowed sandbox: ${JSON.stringify(path)}.`);
   }
-  return abs;
+  const real = realpathSync(abs);
+  if (!roots.some(root => within(realpathSync(root), real))) {
+    throw new Error(`contentRef.path escapes the allowed sandbox through a symlink: ${JSON.stringify(path)}.`);
+  }
+  return real;
 }
 
 function clampMax(maxChars) {
@@ -93,12 +97,13 @@ export function resolveRef(ref, rootDir, allowedRoots) {
   }
 
   const max = clampMax(ref.maxChars);
-  let content = redact(lines.slice(startLine - 1, endLine).join('\n'));
-  let truncated = false;
-  if (content.length > max) { content = content.slice(0, max); truncated = true; }
+  const content = redact(lines.slice(startLine - 1, endLine).join('\n'));
+  if (content.length > max) {
+    throw new Error(`contentRef ${ref.path}:L${startLine}-L${endLine} exceeds maxChars (${content.length} > ${max}); select a complete smaller span or raise maxChars up to ${CONTENT_CAP}. No evidence was sent.`);
+  }
   if (content.trim().length === 0) throw new Error(`contentRef resolved to empty content at ${ref.path}:${startLine}-${endLine}.`);
-  const source = `${ref.path}:L${startLine}-L${endLine}${truncated ? ' (truncated)' : ''}`;
-  return { content, source, meta: { startLine, endLine, truncated, fileChars: raw.length, injectedChars: content.length } };
+  const source = `${ref.path}:L${startLine}-L${endLine}`;
+  return { content, source, meta: { startLine, endLine, truncated: false, fileChars: raw.length, injectedChars: content.length } };
 }
 
 function resolveEvidenceItem(item, rootDir, allowedRoots, stats) {

@@ -55,10 +55,11 @@ pub(crate) fn apply_pre_spawn_cap(command: &mut Command, cap_bytes: u64) {
 #[cfg(any(not(unix), target_os = "macos"))]
 pub(crate) fn apply_pre_spawn_cap(_command: &mut Command, _cap_bytes: u64) {}
 
-/// Windows: post-spawn Job Object holding the memory limit. The handle must
-/// outlive the child — `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` doubles as a
-/// teardown backstop, so dropping the guard after the child is reaped is the
-/// correct order. On Unix the guard is a unit type.
+/// Windows: post-spawn Job Object that always enforces
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (whole-tree teardown) and additionally
+/// holds the memory limit when one is configured. The handle must outlive the
+/// child, so dropping the guard after the child is reaped is the correct order.
+/// On Unix the guard is a unit type (tree teardown is via the process group).
 #[cfg(not(windows))]
 #[derive(Debug)]
 pub(crate) struct MemoryCapGuard;
@@ -89,9 +90,6 @@ impl MemoryCapGuard {
             JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         };
 
-        let Some(cap_bytes) = cap_bytes else {
-            return Ok(Self(None));
-        };
         let Some(raw) = child.raw_handle() else {
             // The child already exited; nothing to contain.
             return Ok(Self(None));
@@ -100,11 +98,16 @@ impl MemoryCapGuard {
             Error::new(
                 Status::GenericFailure,
                 format!(
-                    "Failed to {what} for the language server memory cap: {}",
+                    "Failed to {what} for the language server process guard: {}",
                     std::io::Error::last_os_error()
                 ),
             )
         };
+        // Always create a kill-on-close Job Object so the entire server tree is
+        // torn down when the guard drops — even when no memory cap is configured
+        // (`max_memory_mb == 0`). Decoupling tree-kill from the memory cap keeps
+        // "no cap" from silently also meaning "no tree teardown". The memory
+        // limit is layered on only when a cap is present.
         // SAFETY: null security/name creates an unnamed job owned by the returned handle.
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if job.is_null() {
@@ -112,9 +115,11 @@ impl MemoryCapGuard {
         }
         // SAFETY: the Windows structure is plain data and zero is its documented baseline.
         let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { zeroed() };
-        info.BasicLimitInformation.LimitFlags =
-            JOB_OBJECT_LIMIT_JOB_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        info.JobMemoryLimit = usize::try_from(cap_bytes).unwrap_or(usize::MAX);
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if let Some(cap_bytes) = cap_bytes {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            info.JobMemoryLimit = usize::try_from(cap_bytes).unwrap_or(usize::MAX);
+        }
         // SAFETY: job is valid and info matches this information class.
         let configured = unsafe {
             SetInformationJobObject(

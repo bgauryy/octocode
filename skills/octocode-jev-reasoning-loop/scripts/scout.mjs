@@ -18,12 +18,13 @@
 // output is provisional — never citable evidence. Assert nothing from a scout
 // verdict without reopening the anchors (see references/scout.md).
 //
-// POLICY v2 — FROZEN 2026-09-18 after the pilot eval
+// POLICY v2 thresholds; budget truncation defers rejected excerpts to gray_read.
+// Original thresholds were frozen after the pilot eval
 // (.octocode/octocode-eval-benchmark/jevpeek-scout/): do not tune thresholds or
 // taxonomy against a suite this policy is being evaluated on.
 //   no anchor matches            -> skip   (lexical parity with a search prefilter)
 //   argmax == top level          -> read   (reads are cheap and reversible)
-//   P(top level) <= 0.25         -> skip   (the anchored spans were judged and rejected)
+//   P(top level) <= 0.25         -> skip only for complete selected excerpts   (the anchored spans were judged and rejected)
 //   otherwise                    -> gray_read (fail-open: the host reads it)
 //
 // Input JSON: {
@@ -84,15 +85,16 @@ export function locateSpans(file, anchors, { rootDir, allowedRoots, window = WIN
   }
   const spans = [];
   let judged = 0;
+  let truncated = false;
   for (const [s, e] of mergeRanges(hits)) {
-    if (spans.length >= MAX_SPANS || judged >= spanBudget) break;
+    if (spans.length >= MAX_SPANS || judged >= spanBudget) { truncated = true; break; }
     let content = redact(lines.slice(s - 1, e).join('\n'));
-    if (content.length > spanBudget - judged) content = content.slice(0, spanBudget - judged);
+    if (content.length > spanBudget - judged) { truncated = true; content = content.slice(0, spanBudget - judged); }
     if (!content.trim()) continue;
     judged += content.length;
     spans.push({ source: `${file}:L${s}-L${e}`, content });
   }
-  return { spans, coverage: raw.length ? Number((judged / raw.length).toFixed(3)) : 0, fileChars: raw.length };
+  return { spans, truncated, coverage: raw.length ? Number((judged / raw.length).toFixed(3)) : 0, fileChars: raw.length };
 }
 
 const questionId = (candidateIndex, dim, single) =>
@@ -174,7 +176,9 @@ export function applyPolicy(answer, loc, levels) {
   const pTop = probs[String(top)] ?? 0;
   const argmax = Object.entries(probs).reduce((m, [i, p]) => p > m[1] ? [Number(i), p] : m, [0, -1])[0];
   if (argmax === top) return { action: 'read', reason: 'argmax_top' };
-  if (pTop <= T_SKIP) return { action: 'skip', reason: 'judged_and_rejected' };
+  if (pTop <= T_SKIP) return loc.truncated
+    ? { action: 'gray_read', reason: 'incomplete_excerpt' }
+    : { action: 'skip', reason: 'judged_and_rejected' };
   return { action: 'gray_read', reason: 'fail_open' };
 }
 
@@ -190,6 +194,7 @@ function locateItems(items, spanBudget = SPAN_BUDGET) {
     located[item.id] = {
       spans: [{ source: item.source || item.id, content }],
       coverage: Number((content.length / item.content.length).toFixed(3)),
+      truncated: item.content.length > spanBudget,
       fileChars: item.content.length
     };
   }
@@ -226,7 +231,7 @@ export function runScout(input, options = {}) {
   }
   const request = buildScoutRequest(input, located);
   if (options.dryRun) {
-    return { status: 'dry-run', request, candidates: Object.fromEntries(Object.entries(located).map(([f, l]) => [f, { spans: l.spans.map(s => s.source), coverage: l.coverage }])) };
+    return { status: 'dry-run', request, candidates: Object.fromEntries(Object.entries(located).map(([f, l]) => [f, { spans: l.spans.map(s => s.source), coverage: l.coverage, truncated: l.truncated }])) };
   }
   const dir = options.output ? resolve(options.output) : join(process.cwd(), '.octocode', 'octocode-jev-reasoning-loop', `scout-${process.pid}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -258,7 +263,7 @@ export function runScout(input, options = {}) {
       const a = answerFor(dim);
       dimensions[dim.key] = {
         role: dim.role,
-        level: loc.spans.length ? dim.levels[Math.round(a.score ?? 0)]?.level : null,
+        level: loc.spans.length ? dim.levels[Object.entries(a.probabilities || {}).reduce((best, [index, p]) => p > best[1] ? [Number(index), p] : best, [0, -1])[0]]?.level : null,
         score: a.score ?? null, probabilities: a.probabilities ?? null
       };
       if (dim.role === 'veto' && action === 'read' && loc.spans.length) {
@@ -273,13 +278,14 @@ export function runScout(input, options = {}) {
       level: dimensions[primary.key].level,
       score: dimensions[primary.key].score, probabilities: dimensions[primary.key].probabilities,
       ...(dims.length > 1 ? { dimensions } : {}),
-      coverage: loc.coverage, anchors: loc.spans.map(s => s.source),
+      coverage: loc.coverage, truncated: loc.truncated, anchors: loc.spans.map(s => s.source),
       provisional: true
     };
   }
   return {
     status: 'scouted', claim: input.claim, model: response.model, results,
     reads: Object.keys(located).filter(f => results[f].action === 'read'),
+    requiredReads: Object.keys(located).filter(f => results[f].action !== 'skip'),
     metrics: {
       jev: response.usage,
       candidate_bytes_kept_off_host: bytesOffHost,

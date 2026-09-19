@@ -16,7 +16,7 @@ fn bump(entry: &mut Map<String, Value>, key: &str, by: u64) {
         return;
     }
     let current = entry.get(key).and_then(Value::as_u64).unwrap_or(0);
-    entry.insert(key.to_owned(), Value::from(current + by));
+    entry.insert(key.to_owned(), Value::from(current.saturating_add(by)));
 }
 
 /// Record one jevReasoning per-query payload into `<home>/stats.json`.

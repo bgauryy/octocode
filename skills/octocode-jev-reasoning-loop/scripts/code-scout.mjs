@@ -30,7 +30,7 @@ import { runScout } from './scout.mjs';
 
 const options = parseFlags(
   process.argv.slice(2),
-  ['--question', '--anchors', '--candidates', '--search', '--path', '--limit', '--root'],
+  ['--question', '--anchors', '--candidates', '--search', '--path', '--limit', '--root', '--model', '--output'],
   ['--pretty', '--no-docs-veto', '--dry-run'],
 );
 if (!options['--question']) stop('--question is required.', 2);
@@ -88,7 +88,7 @@ if (!options['--no-docs-veto']) {
 
 let out;
 try {
-  out = runScout({ claim: options['--question'], root, candidates, anchors, dimensions }, { dryRun: options['--dry-run'] });
+  out = runScout({ claim: options['--question'], root, candidates, anchors, dimensions, model: options['--model'] }, { dryRun: options['--dry-run'], output: options['--output'] });
 } catch (error) {
   stop(`Scout failed: ${error.message.split('\n')[0]}`, error.exitCode ?? 3);
 }
@@ -99,7 +99,7 @@ if (options['--dry-run']) {
 }
 
 const ranked = Object.entries(out.results)
-  .map(([file, result]) => ({ file, action: result.action, level: result.level, score: result.score, reason: result.reason }))
+  .map(([file, result]) => ({ file, action: result.action, level: result.level, score: result.score, reason: result.reason, probabilities: result.probabilities, coverage: result.coverage, truncated: result.truncated, anchors: result.anchors }))
   .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 const byAction = action => ranked.filter(row => row.action === action).map(row => row.file);
 
@@ -110,8 +110,11 @@ print({
   read: byAction('read'),
   gray_read: byAction('gray_read'),
   skip: byAction('skip'),
+  required_reads: ranked.filter(row => row.action !== 'skip').map(row => row.file),
+  model: out.model,
+  artifacts: out.artifacts,
   ranked,
-  summary: `read ${byAction('read').length} of ${ranked.length}; ${byAction('skip').length} skipped with bytes off host${searchTruncated ? ` (search truncated to first ${limit})` : ''}`,
+  summary: `read ${ranked.filter(row => row.action !== 'skip').length} of ${ranked.length}; ${byAction('skip').length} skipped with bytes off host${searchTruncated ? ` (search truncated to first ${limit})` : ''}`,
   jev_usage: out.metrics?.jev,
   provisional: true,
 }, options['--pretty']);

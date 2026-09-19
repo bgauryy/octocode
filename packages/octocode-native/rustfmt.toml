@@ -1,0 +1,31 @@
+# rustfmt configuration for octocode-native.
+# Run: yarn fmt:rust
+# Check: yarn fmt:rust:check
+
+edition = "2021"
+
+# ── Line width ──────────────────────────────────────────────────────────────────────
+max_width = 100
+comment_width = 100
+wrap_comments = true
+
+# ── Imports ───────────────────────────────────────────────────────────────────────────
+imports_granularity = "Crate"   # merge all `use foo::*` into one tree
+group_imports = "StdExternalCrate"  # std → external → crate
+
+# ── Style ────────────────────────────────────────────────────────────────────────────
+tab_spaces = 4
+use_field_init_shorthand = true   # Foo { x } instead of Foo { x: x }
+use_try_shorthand = true          # ? instead of try!()
+format_strings = false            # don’t reflow string literals
+format_macro_matchers = true
+format_macro_bodies = true
+
+# ── Functions / closures ───────────────────────────────────────────────────────────
+fn_args_layout = "Tall"           # each arg on its own line when they don’t fit
+closure_block_indent_threshold = 4
+
+# ── Trailing commas / semicolons ──────────────────────────────────────────────────
+trailing_comma = "Vertical"       # trailing comma in multi-line, not single-line
+trailing_semicolon = true
+match_arm_blocks = true

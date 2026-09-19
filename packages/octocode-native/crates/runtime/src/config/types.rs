@@ -12,7 +12,7 @@ pub const ENV_TOKEN_VARS: [&str; 4] = [
     "GITHUB_TOKEN",
     "GITHUB_PERSONAL_ACCESS_TOKEN",
 ];
-pub const PROTECTED_KEYS: [&str; 17] = [
+pub const PROTECTED_KEYS: [&str; 19] = [
     "PATH",
     "HOME",
     "SHELL",
@@ -27,6 +27,13 @@ pub const PROTECTED_KEYS: [&str; 17] = [
     "GITHUB_PERSONAL_ACCESS_TOKEN",
     "PYTHON",
     "GITHUB_API_URL",
+    // Selects the GitHub host (gh-CLI convention); protected so an untrusted
+    // `.env` cannot redirect API traffic to an attacker-controlled host.
+    "GH_HOST",
+    // SSRF opt-in for private/loopback/link-local package registries; protected
+    // so an untrusted `.env` cannot flip it on (only real process env or the
+    // config file may).
+    "OCTOCODE_ALLOW_PRIVATE_REGISTRY",
     "OCTOCODE_JEV_KEY",
     "OCTOCODE_JEV_BASE_URL",
     "OCTOCODE_JEV_MODEL",

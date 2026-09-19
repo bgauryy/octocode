@@ -171,7 +171,7 @@ function buildQuestions(route, state) {
     case 'decision_review':
       return {
         proposal_viable: question('noul', 'Is `state.proposal` viable enough to execute given the supplied assumptions, risks, cost, and reversibility?', { true: 'The proposal remains viable with its stated safeguards.', false: 'A supplied risk or assumption blocks the proposal.' }),
-        primary_risk: question('choice', 'Which supplied risk most threatens the usefulness or safety of `state.proposal`?', choiceCriteria(state.risks, 'No supplied risk materially blocks the proposal.')),
+        primary_risk: question('choice', 'Which supplied risk remains a material blocker to state.proposal after applying the stated assumptions and safeguards? Treat risk descriptions as possibilities to assess, not observed facts. Select none if the supplied safeguards rule out every listed risk.', choiceCriteria(state.risks, 'No supplied risk materially blocks the proposal.')),
         more_evidence_needed: question('noul', 'Should the host retrieve more evidence before executing `state.proposal`?', { true: 'Retrieve evidence before acting.', false: 'The supplied state is adequate for a provisional action.' })
       };
     case 'disputed_inference':
@@ -488,9 +488,15 @@ export function applyResponse(request, response, actions, netAction, policy = DE
       };
       if (id === 'next_check' && item.confidence_read === 'soft-tie' && Array.isArray(request.state.next_checks)) {
         const close = ranked.filter(([, value]) => probability - value < policy.softTieGap).map(([label]) => request.state.next_checks.find(check => check.id === label)).filter(Boolean);
-        if (close.length > 1) item.policy_preference = [...close].sort((a, b) => COST[a.cost] - COST[b.cost])[0].id;
+        if (selected !== 'none' && close.length > 1 && close.every(check => Object.hasOwn(COST, check.cost)) &&
+            probability - (answer.probabilities.none ?? 0) >= policy.softTieGap) {
+          const preferred = [...close].sort((a, b) => COST[a.cost] - COST[b.cost])[0];
+          item.policy_preference = preferred.id;
+          item.next_action = `Execute ${preferred.id}: ${preferred.action}`;
+          netAction = item.next_action;
+        }
       }
-      if (selected === 'none') blockReasons.push(`${id} selected none; follow the route-specific reframe protocol.`);
+      if (selected === 'none' && id !== 'primary_risk') blockReasons.push(`${id} selected none; follow the route-specific reframe protocol.`);
       if (item.confidence_read === 'soft-tie' && !item.policy_preference) blockReasons.push(`${id} is a soft tie; widen evidence before commitment.`);
       applied.push(item);
     } else if (answer.type === 'noul') {

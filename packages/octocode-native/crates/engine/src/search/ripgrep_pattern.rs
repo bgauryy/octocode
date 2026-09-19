@@ -1,3 +1,4 @@
+#[cfg(feature = "pcre2")]
 use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep_regex::RegexMatcherBuilder;
 #[cfg(feature = "napi-addon")]
@@ -28,6 +29,7 @@ pub fn validate(
         };
     }
 
+    #[cfg(feature = "pcre2")]
     if perl_regex {
         let mut builder = Pcre2MatcherBuilder::new();
         builder
@@ -46,6 +48,18 @@ pub fn validate(
                 valid: false,
                 error: Some(err.to_string()),
             },
+        };
+    }
+
+    #[cfg(not(feature = "pcre2"))]
+    if perl_regex {
+        return RipgrepPatternValidationResult {
+            valid: false,
+            error: Some(
+                "PCRE2 regex engine is not available in this build; \
+                 use the default `rust` engine instead."
+                    .to_owned(),
+            ),
         };
     }
 
@@ -78,12 +92,14 @@ mod tests {
         assert!(result.valid);
     }
 
+    #[cfg(feature = "pcre2")]
     #[test]
     fn validate_compiles_valid_perl_regex() {
         let result = validate("(?<=foo)bar", false, true);
         assert!(result.valid);
     }
 
+    #[cfg(feature = "pcre2")]
     #[test]
     fn validate_rejects_invalid_perl_regex() {
         let result = validate("(?<=", false, true);

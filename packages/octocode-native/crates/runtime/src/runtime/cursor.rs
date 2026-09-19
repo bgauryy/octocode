@@ -1,31 +1,81 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_TOKEN_BYTES: usize = 64 * 1024;
 const TOKEN_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
+type HmacSha256 = Hmac<Sha256>;
+
+/// Per-process, random cursor-signing key. Tokens are authenticated with
+/// HMAC-SHA256 under this key so a caller cannot forge a cursor payload (a bare
+/// SHA-256 checksum only detects accidental corruption — any caller can recompute
+/// it). The key never leaves the process and is regenerated each start, so a
+/// token minted by one process is not honored by another; that is intentional —
+/// pagination cursors are session-scoped and a client simply re-runs the query.
+fn cursor_signing_key() -> &'static [u8; 32] {
+    static KEY: OnceLock<[u8; 32]> = OnceLock::new();
+    KEY.get_or_init(|| {
+        let mut key = [0_u8; 32];
+        if getrandom::fill(&mut key).is_ok() {
+            return key;
+        }
+        // OS CSPRNG unavailable (extremely rare). Derive a process-local,
+        // non-persistent fallback from std's OS-seeded RandomState so signing
+        // still functions without panicking. Tokens remain unforgeable across
+        // processes; within a process the key is stable.
+        use std::hash::{BuildHasher, Hasher};
+        let state = std::collections::hash_map::RandomState::new();
+        for (index, slot) in key.iter_mut().enumerate() {
+            let mut hasher = state.build_hasher();
+            hasher.write_usize(index);
+            hasher.write_u32(std::process::id());
+            *slot = (hasher.finish() & 0xff) as u8;
+        }
+        key
+    })
+}
+
+/// HMAC-SHA256 tag (hex) of `bytes` under the per-process signing key.
+fn sign_payload(bytes: &[u8]) -> Result<String, CursorError> {
+    let mut mac =
+        HmacSha256::new_from_slice(cursor_signing_key()).map_err(|_| CursorError::Invalid)?;
+    mac.update(bytes);
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Constant-time verification of a hex-encoded HMAC tag against `bytes`.
+fn verify_payload(bytes: &[u8], tag_hex: &str) -> bool {
+    let Ok(tag) = hex::decode(tag_hex) else {
+        return false;
+    };
+    let Ok(mut mac) = HmacSha256::new_from_slice(cursor_signing_key()) else {
+        return false;
+    };
+    mac.update(bytes);
+    mac.verify_slice(&tag).is_ok()
+}
+
 // ── Shared encode / decode primitives ─────────────────────────────────────
 
-/// Serialize `cursor` to a base64url payload with a SHA-256 checksum suffix.
+/// Serialize `cursor` to a base64url payload with an authenticated HMAC suffix.
 fn encode_to_token<T: Serialize>(cursor: &T) -> Result<String, CursorError> {
     let bytes = serde_json::to_vec(cursor).map_err(|_| CursorError::Invalid)?;
     if bytes.len() > MAX_TOKEN_BYTES {
         return Err(CursorError::Invalid);
     }
-    Ok(format!(
-        "{}.{}",
-        URL_SAFE_NO_PAD.encode(&bytes),
-        hex::encode(Sha256::digest(&bytes))
-    ))
+    let tag = sign_payload(&bytes)?;
+    Ok(format!("{}.{}", URL_SAFE_NO_PAD.encode(&bytes), tag))
 }
 
-/// Verify checksum and return the raw JSON bytes; does NOT deserialize.
+/// Verify the HMAC tag and return the raw JSON bytes; does NOT deserialize.
 fn decode_raw(token: &str) -> Result<Vec<u8>, CursorError> {
     if token.len() > MAX_TOKEN_BYTES * 2 {
         return Err(CursorError::Invalid);
@@ -34,7 +84,7 @@ fn decode_raw(token: &str) -> Result<Vec<u8>, CursorError> {
     let bytes = URL_SAFE_NO_PAD
         .decode(encoded)
         .map_err(|_| CursorError::Invalid)?;
-    if checksum != hex::encode(Sha256::digest(&bytes)) {
+    if !verify_payload(&bytes, checksum) {
         return Err(CursorError::Invalid);
     }
     Ok(bytes)

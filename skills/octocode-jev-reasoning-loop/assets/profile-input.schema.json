@@ -56,6 +56,12 @@
        "lines": {
         "type": "string",
         "pattern": "^[1-9]\\d*(?:-[1-9]\\d*)?$"
+       },
+       "maxChars": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 48000,
+        "description": "Per-source override of the top-level maxChars."
        }
       }
      },
@@ -81,18 +87,16 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 1000
+       },
+       "maxChars": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 48000,
+        "description": "Per-source override of the top-level maxChars."
        }
       }
      }
-    ],
-    "properties": {
-     "maxChars": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 48000,
-      "description": "Per-source override of the top-level maxChars."
-     }
-    }
+    ]
    }
   },
   "aspects": {
@@ -178,6 +182,12 @@
      }
     ]
    }
+  },
+  "context": {
+   "type": "string",
+   "minLength": 1,
+   "maxLength": 4000,
+   "description": "Shared task scope and relevant facts; each aspect must still state its own condition."
   }
  }
 }

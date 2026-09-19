@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { buildProfileRequests, runProfile } from './profile.mjs';
 
 const aspects = [
@@ -86,6 +88,32 @@ test('runProfile dry-run exposes one request per input without contacting Jev', 
   assert.equal(result.requests.length, 1);
   assert.equal(result.requests[0].id, 'one');
   assert.equal(result.requests[0].request.questions.cohesion.type, 'score');
+});
+
+test('profile validates and redacts shared scope without changing independent questions', () => {
+  const input = { inputs: [{ id: 'one', content: 'source' }], aspects, context: 'Check parseInput token=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123' };
+  const [built] = buildProfileRequests(input);
+  assert.match(built.request.state.context, /Check parseInput token=«redacted-token»/);
+  assert.deepEqual(built.request.questions.role.criteria, aspects[2].criteria);
+  assert.throws(() => buildProfileRequests({ ...input, context: 'x'.repeat(4001) }), /context must/);
+});
+
+test('compact CLI accepts typed aspects, model, scope and exact line ranges', async () => {
+  const root = await fixture({ 'input.ts': 'header\nexport function parseInput() {}\nfooter', 'aspects.json': JSON.stringify(aspects) });
+  try {
+    const script = fileURLToPath(new URL('./ask-file.mjs', import.meta.url));
+    const args = [script, '--root', root, '--files', 'input.ts', '--aspects', join(root, 'aspects.json'), '--context', 'Judge parseInput', '--model', 'jev-1.13.0', '--lines', '2', '--dry-run'];
+    const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const [request] = JSON.parse(result.stdout).requests;
+    assert.equal(request.model, 'jev-1.13.0');
+    assert.equal(request.context, 'Judge parseInput');
+    assert.equal(request.source.anchor, 'input.ts:L2-L2');
+    assert.equal(request.questions.role.type, 'choice');
+    const invalid = spawnSync(process.execPath, [...args, '--max-chars', '200garbage'], { encoding: 'utf8' });
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /maxChars must be an integer/);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('runProfile evaluates independent inputs concurrently and validates every typed aspect', async () => {

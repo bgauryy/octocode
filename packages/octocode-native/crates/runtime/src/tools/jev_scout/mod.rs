@@ -1,10 +1,9 @@
 //! jevScout — batched, typed Jev judgment over reader-produced anchored spans
 //! that ranks which candidate files or pre-fetched rows the host should READ.
 //!
-//! This is a FAITHFUL native port of the validated JS reference implementation at
-//! `skills/octocode-jev-reasoning-loop/scripts/scout.mjs`. Policy v2 is FROZEN
-//! (2026-09-18): thresholds, the relationship taxonomy, and the deterministic
-//! veto combiner are copied verbatim and must not be tuned here.
+//! Shares taxonomy, thresholds, and veto semantics with the skill scout runner.
+//! Budget-truncated rejections remain uncertain reads. Provider answers must
+//! satisfy the same typed response validator used by the reasoning tool.
 //!
 //! A scout PRIORITIZES reads. Every verdict is `provisional` and anchored; it
 //! never authorizes an irreversible action and is never citable evidence.
@@ -37,6 +36,11 @@ use text::{default_levels, is_object, redact, round3, truncate_utf16, utf16_len}
 const WINDOW: u64 = 6;
 const SPAN_BUDGET: u64 = 3000;
 const MAX_SPANS: usize = 12;
+/// Upper bound on anchor patterns per scout call. Anchors run against every line
+/// of every candidate file, so an unbounded count is a work-amplification vector.
+const MAX_ANCHORS: usize = 64;
+/// Upper bound on a single anchor's source length (bytes).
+const MAX_ANCHOR_BYTES: usize = 4_096;
 const T_SKIP: f64 = 0.25;
 const DISTINGUISH: &str =
     "importing or calling a capability defined elsewhere is NOT implementing it";
@@ -60,6 +64,7 @@ struct Span {
 struct Located {
     spans: Vec<Span>,
     coverage: f64,
+    truncated: bool,
     /// Full-source length (UTF-16 units), mirroring scout.mjs `fileChars`. Kept
     /// for the S3 session-stats bytes-off-host accounting; not part of the output
     /// contract, so unread in this step.
@@ -118,20 +123,31 @@ fn locate_spans(
 
     let mut compiled = Vec::with_capacity(anchors.len());
     for anchor in anchors {
-        let regex = regress::Regex::with_flags(anchor, "i").map_err(|error| {
-            err(
-                "invalidJevRequest",
-                format!("scout anchor {anchor:?} is not a valid regular expression: {error}."),
-                "Provide ECMAScript-compatible anchor patterns.",
-            )
-        })?;
+        // Compile anchors with the linear-time `regex` engine (a finite automaton
+        // with no catastrophic backtracking) rather than the backtracking
+        // `regress` engine. Scout runs every anchor against every line of
+        // untrusted candidate files, so a pattern such as `(a+)+$` must not be
+        // able to pin a CPU core (ReDoS). Patterns that require ECMA-only
+        // backtracking features (lookahead, backreferences) fail to compile here
+        // and are rejected rather than executed unbounded.
+        let regex = regex::RegexBuilder::new(anchor)
+            .case_insensitive(true)
+            .size_limit(1 << 20)
+            .build()
+            .map_err(|error| {
+                err(
+                    "invalidJevRequest",
+                    format!("scout anchor {anchor:?} is not a valid regular expression: {error}."),
+                    "Provide a linear (non-backtracking) ECMAScript-compatible anchor pattern.",
+                )
+            })?;
         compiled.push(regex);
     }
 
     let mut hits: Vec<(u64, u64)> = Vec::new();
     for regex in &compiled {
         for (index, line) in lines.iter().enumerate() {
-            if regex.find(line).is_some() {
+            if regex.is_match(line) {
                 let center = index as u64 + 1;
                 let start = center.saturating_sub(window).max(1);
                 let end = (center + window).min(line_count);
@@ -142,14 +158,17 @@ fn locate_spans(
 
     let mut spans: Vec<Span> = Vec::new();
     let mut judged: u64 = 0;
+    let mut truncated = false;
     for (start, end) in merge_ranges(hits) {
         if spans.len() >= MAX_SPANS || judged >= span_budget {
+            truncated = true;
             break;
         }
         let slice = &lines[(start as usize - 1)..(end as usize)];
         let mut content = redact(&slice.join("\n"));
         let remaining = span_budget - judged;
         if utf16_len(&content) as u64 > remaining {
+            truncated = true;
             content = truncate_utf16(&content, remaining as usize);
         }
         if content.trim().is_empty() {
@@ -171,6 +190,7 @@ fn locate_spans(
     Ok(Located {
         spans,
         coverage,
+        truncated,
         file_chars,
     })
 }
@@ -231,6 +251,7 @@ fn locate_items(
                 }],
                 coverage,
                 file_chars: full_chars,
+                truncated: full_chars > span_budget as usize,
             },
         ));
     }
@@ -471,9 +492,8 @@ fn level_label(dim: &Dim, answer: &Value, has_spans: bool) -> Value {
     if !has_spans {
         return Value::Null;
     }
-    let score = answer.get("score").and_then(Value::as_f64).unwrap_or(0.0);
-    let index = score.round();
-    if index >= 0.0 && (index as usize) < dim.levels.len() {
+    let index = probs_of(answer).map(argmax_index).unwrap_or(-1);
+    if index >= 0 && (index as usize) < dim.levels.len() {
         dim.levels[index as usize]
             .get("level")
             .cloned()
@@ -484,45 +504,14 @@ fn level_label(dim: &Dim, answer: &Value, has_spans: bool) -> Value {
 }
 
 // ---------------------------------------------------------------------------
-// Response validation: light + local (score answers, not the reasoning schema).
+// Shared typed provider-response validation, including Score distributions.
 // ---------------------------------------------------------------------------
 
-fn validate_answers(response: &Value, expected: &[String]) -> Result<(), JevProviderError> {
-    let Some(answers) = response.get("answers").and_then(Value::as_object) else {
-        return Err(err(
-            "invalidJevResponse",
-            "Jev scout response is missing the answers object.",
-            "Keep downstream reads unblocked and inspect provider compatibility.",
-        ));
-    };
-    for id in expected {
-        let Some(answer) = answers.get(id) else {
-            return Err(err(
-                "invalidJevResponse",
-                format!("Jev scout response is missing an answer for {id:?}."),
-                "Keep downstream reads unblocked and inspect provider compatibility.",
-            ));
-        };
-        if answer.get("score").and_then(Value::as_f64).is_none() {
-            return Err(err(
-                "invalidJevResponse",
-                format!("Jev scout answer {id:?} has no numeric score."),
-                "Keep downstream reads unblocked and inspect provider compatibility.",
-            ));
-        }
-        if answer
-            .get("probabilities")
-            .and_then(Value::as_object)
-            .is_none()
-        {
-            return Err(err(
-                "invalidJevResponse",
-                format!("Jev scout answer {id:?} has no probabilities object."),
-                "Keep downstream reads unblocked and inspect provider compatibility.",
-            ));
-        }
-    }
-    Ok(())
+fn validate_answers(response: &Value, request: &Value) -> Result<(), JevProviderError> {
+    octocode_engine::jev::validate_response(request, response).map_err(|error| err(
+        "invalidJevResponse", error.message,
+        "No scout verdicts are available; read the candidates or inspect provider compatibility.",
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -644,6 +633,23 @@ fn parse_and_locate(query: &Value, default_model: &str) -> Result<Parsed, JevPro
                 "Provide anchor patterns as strings.",
             ));
         }
+        if anchor_list.len() > MAX_ANCHORS {
+            return Err(err(
+                "invalidJevRequest",
+                format!("scout allows at most {MAX_ANCHORS} anchors."),
+                "Reduce the number of anchor patterns.",
+            ));
+        }
+        if let Some(oversized) = anchor_list
+            .iter()
+            .find(|anchor| anchor.len() > MAX_ANCHOR_BYTES)
+        {
+            return Err(err(
+                "invalidJevRequest",
+                format!("scout anchor {oversized:?} exceeds {MAX_ANCHOR_BYTES} bytes."),
+                "Shorten the anchor pattern.",
+            ));
+        }
         let window = local
             .get("window")
             .and_then(Value::as_u64)
@@ -715,6 +721,7 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
 
     let mut results = Map::new();
     let mut reads: Vec<Value> = Vec::new();
+    let mut required_reads: Vec<Value> = Vec::new();
     for (candidate_index, (file, loc)) in parsed.located.iter().enumerate() {
         let has_spans = !loc.spans.is_empty();
         let answer_for = |dim: &Dim| -> Value {
@@ -733,6 +740,10 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
             apply_policy(&primary_answer, has_spans, primary_dim.levels.len());
         let mut action: &str = initial_action;
         let mut reason: String = initial_reason.to_owned();
+        if action == "skip" && loc.truncated {
+            action = "gray_read";
+            reason = "incomplete_excerpt".to_owned();
+        }
 
         let mut dimensions = Map::new();
         for dim in &parsed.dims {
@@ -780,6 +791,7 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
             row.insert("dimensions".to_owned(), Value::Object(dimensions));
         }
         row.insert("coverage".to_owned(), json!(loc.coverage));
+        row.insert("truncated".to_owned(), json!(loc.truncated));
         row.insert(
             "anchors".to_owned(),
             Value::Array(
@@ -794,6 +806,9 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
         if action == "read" {
             reads.push(Value::String(file.clone()));
         }
+        if action != "skip" {
+            required_reads.push(Value::String(file.clone()));
+        }
         results.insert(file.clone(), Value::Object(row));
     }
 
@@ -803,6 +818,7 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
         "model": response.get("model").cloned().unwrap_or(Value::Null),
         "results": Value::Object(results),
         "reads": Value::Array(reads),
+        "requiredReads": Value::Array(required_reads),
         "usage": response.get("usage").cloned().unwrap_or(Value::Null),
     })
 }
@@ -826,13 +842,8 @@ pub async fn execute(
     }
     let parsed = parse_and_locate(query, default_model)?;
     let request = build_request(&parsed.claim, &parsed.model, &parsed.located, &parsed.dims);
-    let expected: Vec<String> = request
-        .get("questions")
-        .and_then(Value::as_object)
-        .map(|questions| questions.keys().cloned().collect())
-        .unwrap_or_default();
     let response = post(&request, &key, endpoint(base_url)?, &budget, retries).await?;
-    validate_answers(&response, &expected)?;
+    validate_answers(&response, &request)?;
     Ok(build_results(&parsed, &response))
 }
 
@@ -853,6 +864,44 @@ mod tests {
             probs.insert(index.to_string(), json!(prob));
         }
         json!({ "score": score, "probabilities": Value::Object(probs) })
+    }
+
+    #[test]
+    fn truncated_rejections_remain_required_reads_and_labels_use_the_mode() {
+        let parsed = parse_and_locate(
+            &json!({
+                "claim": "implements parsing", "itemSpanBudget": 200,
+                "source": { "items": [
+                    { "id": "cut", "content": "x".repeat(400) },
+                    { "id": "whole", "content": "complete excerpt" }
+                ] }
+            }),
+            "jev-test",
+        )
+        .unwrap();
+        let output = build_results(
+            &parsed,
+            &json!({ "answers": {
+                "candidate_0": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0),
+                "candidate_1": score_answer(&[(0, 0.49), (1, 0.0), (2, 0.0), (3, 0.51)], 1.53)
+            }}),
+        );
+        assert_eq!(output["results"]["cut"]["action"], "gray_read");
+        assert_eq!(output["results"]["cut"]["truncated"], true);
+        assert_eq!(output["results"]["whole"]["level"], "implements");
+        assert_eq!(output["requiredReads"], json!(["cut", "whole"]));
+    }
+
+    #[test]
+    fn malformed_probability_values_cannot_produce_skip_verdicts() {
+        let response = json!({"answers": {"a": score_answer(&[(0, 2.0), (1, -1.0)], 0.0)}});
+        assert!(
+            validate_answers(
+                &response,
+                &json!({"questions":{"a":{"type":"score","criteria":["low","high"]}}})
+            )
+            .is_err()
+        );
     }
 
     // ---- locate / merge / anchors / coverage ------------------------------
@@ -949,6 +998,7 @@ mod tests {
                     }],
                     coverage: 0.5,
                     file_chars: 8,
+                    truncated: false,
                 },
             ),
             (
@@ -957,6 +1007,7 @@ mod tests {
                     spans: vec![],
                     coverage: 0.0,
                     file_chars: 9,
+                    truncated: false,
                 },
             ),
         ];
@@ -1009,6 +1060,7 @@ mod tests {
                     }],
                     coverage: 1.0,
                     file_chars: 16,
+                    truncated: false,
                 },
             ),
             (
@@ -1020,6 +1072,7 @@ mod tests {
                     }],
                     coverage: 1.0,
                     file_chars: 11,
+                    truncated: false,
                 },
             ),
         ];
@@ -1060,6 +1113,7 @@ mod tests {
                     }],
                     coverage: 1.0,
                     file_chars: 3,
+                    truncated: false,
                 },
             ),
             (
@@ -1071,6 +1125,7 @@ mod tests {
                     }],
                     coverage: 1.0,
                     file_chars: 3,
+                    truncated: false,
                 },
             ),
         ];
@@ -1152,6 +1207,7 @@ mod tests {
                     }],
                     coverage: 1.0,
                     file_chars: 7,
+                    truncated: false,
                 },
             )],
         };
@@ -1359,16 +1415,35 @@ mod tests {
 
     #[test]
     fn validate_answers_rejects_missing_and_malformed() {
-        let expected = vec!["a".to_owned(), "b".to_owned()];
-        let missing = json!({ "answers": { "a": score_answer(&[(0, 1.0)], 0.0) } });
-        assert!(validate_answers(&missing, &expected).is_err());
-        let no_score = json!({ "answers": { "a": { "probabilities": {"0": 1.0} }, "b": score_answer(&[(0, 1.0)], 0.0) } });
-        assert!(validate_answers(&no_score, &expected).is_err());
-        let no_probs =
-            json!({ "answers": { "a": { "score": 1.0 }, "b": score_answer(&[(0, 1.0)], 0.0) } });
-        assert!(validate_answers(&no_probs, &expected).is_err());
-        let ok = json!({ "answers": { "a": score_answer(&[(0, 1.0)], 0.0), "b": score_answer(&[(0, 1.0)], 0.0) } });
-        assert!(validate_answers(&ok, &expected).is_ok());
+        let request = json!({"questions":{"a":{"type":"score","criteria":["low","high"]}}});
+        let good = json!({"model":"jev-test","usage":{"input_tokens":1,"output_tokens":1},"answers":{
+            "a":{"type":"score","score":1.0,"probabilities":{"0":0.0,"1":1.0},"confidence":1.0,"legend":{"0":"low","1":"high"}}
+        }});
+        assert!(validate_answers(&good, &request).is_ok());
+        for pointer in [
+            "/model",
+            "/answers/a/type",
+            "/answers/a/score",
+            "/answers/a/probabilities",
+            "/answers/a/confidence",
+            "/answers/a/legend",
+        ] {
+            let mut malformed = good.clone();
+            *malformed.pointer_mut(pointer).unwrap() = Value::Null;
+            assert!(validate_answers(&malformed, &request).is_err(), "{pointer}");
+        }
+        for probabilities in [
+            json!({"0":2.0,"1":-1.0}),
+            json!({"0":0.1,"1":0.1}),
+            json!({"0":0.0,"2":1.0}),
+        ] {
+            let mut malformed = good.clone();
+            malformed["answers"]["a"]["probabilities"] = probabilities;
+            assert!(validate_answers(&malformed, &request).is_err());
+        }
+        let mut extra = good.clone();
+        extra["answers"]["extra"] = extra["answers"]["a"].clone();
+        assert!(validate_answers(&extra, &request).is_err());
     }
 
     // -------------------------------------------------------------------

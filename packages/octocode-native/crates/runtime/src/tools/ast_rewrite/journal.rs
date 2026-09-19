@@ -41,7 +41,10 @@ fn sync_path(path: &Path) -> Result<(), RewriteError> {
 
 pub(super) fn journal_directory(boundary: &Path) -> PathBuf {
     super::state_base_dir()
-        .join("octocode-ast-rewrite-transactions-v1")
+        .join(format!(
+            "octocode-ast-rewrite-transactions-v1-{}",
+            super::state_dir_uid_suffix()
+        ))
         .join(sha256(boundary.to_string_lossy().as_bytes()))
 }
 

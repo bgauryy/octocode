@@ -515,7 +515,10 @@ pub async fn login(
                     true,
                 );
             }
-            eprintln!("Authenticated as {} on {}", stored.username, stored.hostname);
+            eprintln!(
+                "Authenticated as {} on {}",
+                stored.username, stored.hostname
+            );
             0
         }
         Err(error) => {

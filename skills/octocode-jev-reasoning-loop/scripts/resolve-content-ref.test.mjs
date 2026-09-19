@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveEvidenceRefs, resolveRef } from './resolve-content-ref.mjs';
@@ -31,13 +31,27 @@ test('resolves a regex window', async () => {
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test('truncates to maxChars and marks source', async () => {
+test('rejects an oversized selected span even with a manual source label', async () => {
   const dir = await fixtureDir({ 'a.txt': SAMPLE });
   try {
-    const { content, source } = resolveRef({ path: 'a.txt', lines: '1-5', maxChars: 5 }, dir);
-    assert.equal(content.length, 5);
-    assert.match(source, /truncated/);
+    assert.throws(() => resolveEvidenceRefs({ state: { evidence: [{
+      id: 'E1', source: 'manual', contentRef: { path: 'a.txt', lines: '1-5', maxChars: 5 }
+    }] } }, { rootDir: dir }), /exceeds maxChars.*No evidence was sent/);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('rejects symlinks outside the allowed root and accepts links within it', async () => {
+  const inside = await fixtureDir({ 'a.txt': SAMPLE });
+  const outside = await fixtureDir({ 'secret.txt': 'private' });
+  try {
+    await symlink(join(outside, 'secret.txt'), join(inside, 'escape'));
+    await symlink(join(inside, 'a.txt'), join(inside, 'local'));
+    assert.throws(() => resolveRef({ path: 'escape', lines: '1' }, inside), /sandbox through a symlink/);
+    assert.equal(resolveRef({ path: 'local', lines: '1' }, inside).content, 'line one');
+  } finally {
+    await rm(inside, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });
 
 test('redacts obvious secrets', async () => {

@@ -9,6 +9,22 @@ use crate::types::{
     RipgrepSearchOptions, SliceContentOptions, SliceContentResult, YamlConversionConfig,
 };
 
+/// Contain a panic from a fallible engine entry point at the transport-neutral
+/// boundary. napi (v3) wraps neither synchronous `#[napi]` calls nor
+/// `AsyncTask::compute` in `catch_unwind`, so an unguarded panic here (deep in a
+/// parser or filesystem walk on pathological input) would unwind across the FFI
+/// boundary and abort the host process. Converting it to an `Err` keeps the
+/// failure catchable. Inner implementations that already guard are unaffected —
+/// a nested `catch_unwind` is harmless.
+fn guard_panic<T>(what: &str, call: impl FnOnce() -> Result<T>) -> Result<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)).unwrap_or_else(|_| {
+        Err(Error::new(
+            Status::GenericFailure,
+            format!("{what} failed on pathological input"),
+        ))
+    })
+}
+
 #[must_use]
 pub fn minify_content(content: &str, file_path: &str) -> MinifyResult {
     crate::minify::minifier::minify_content_result_inner(content, file_path)
@@ -24,8 +40,10 @@ pub fn apply_content_view_minification(content: &str, file_path: &str) -> String
 }
 
 pub fn query_file_system(options: FileSystemQueryOptions) -> Result<FileSystemQueryResult> {
-    crate::search::fs_query::query_file_system_inner(options)
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    guard_panic("filesystem query", || {
+        crate::search::fs_query::query_file_system_inner(options)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    })
 }
 
 /// Apply caller policy before inspecting or counting each descendant. Denied
@@ -34,36 +52,46 @@ pub fn query_file_system_filtered(
     options: FileSystemQueryOptions,
     allow_path: &dyn Fn(&std::path::Path) -> std::result::Result<bool, String>,
 ) -> Result<FileSystemQueryResult> {
-    crate::search::fs_query::query_file_system_filtered_inner(options, allow_path)
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    guard_panic("filesystem query", || {
+        crate::search::fs_query::query_file_system_filtered_inner(options, allow_path)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    })
 }
 
 pub fn scan_graph_facts(options: GraphFactsScanOptions) -> Result<GraphFactsScanResult> {
-    crate::graph::scan_graph_facts(options)
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    guard_panic("graph-facts scan", || {
+        crate::graph::scan_graph_facts(options)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    })
 }
 
 pub fn scan_graph_facts_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
 ) -> Result<GraphFactsScanResult> {
-    crate::graph::scan_graph_facts_filtered(options, allow_path)
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    guard_panic("graph-facts scan", || {
+        crate::graph::scan_graph_facts_filtered(options, allow_path)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    })
 }
 
 pub fn scan_typed_graph_facts(
     options: GraphFactsScanOptions,
 ) -> Result<crate::graph::GraphFactsTypedScanResult> {
-    crate::graph::scan_graph_facts_typed(options)
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    guard_panic("graph-facts scan", || {
+        crate::graph::scan_graph_facts_typed(options)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    })
 }
 
 pub fn scan_typed_graph_facts_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&std::path::Path) -> std::result::Result<bool, String> + Sync),
 ) -> Result<crate::graph::GraphFactsTypedScanResult> {
-    crate::graph::scan_graph_facts_typed_filtered(options, allow_path)
-        .map_err(|message| Error::new(Status::InvalidArg, message))
+    guard_panic("graph-facts scan", || {
+        crate::graph::scan_graph_facts_typed_filtered(options, allow_path)
+            .map_err(|message| Error::new(Status::InvalidArg, message))
+    })
 }
 
 #[must_use]
@@ -75,7 +103,9 @@ pub fn parse_ripgrep_json(
 }
 
 pub fn search_ripgrep(options: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
-    crate::search::ripgrep_search::search(options)
+    guard_panic("ripgrep search", || {
+        crate::search::ripgrep_search::search(options)
+    })
 }
 
 pub use crate::search::ripgrep_search::RipgrepPathFilter;
@@ -84,7 +114,9 @@ pub fn search_ripgrep_filtered(
     options: RipgrepSearchOptions,
     path_filter: std::sync::Arc<dyn RipgrepPathFilter>,
 ) -> Result<RipgrepParseResult> {
-    crate::search::ripgrep_search::search_filtered(options, path_filter)
+    guard_panic("ripgrep search", || {
+        crate::search::ripgrep_search::search_filtered(options, path_filter)
+    })
 }
 
 pub use crate::search::ripgrep_pattern::RipgrepPatternValidationResult;

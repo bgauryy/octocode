@@ -1124,6 +1124,26 @@ pub(super) fn state_base_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
+/// Per-user suffix for the shared lock/journal directory names under the
+/// world-writable temp root. Namespacing by uid keeps two legitimate users from
+/// colliding on one predictable directory — without it, whichever user creates
+/// `octocode-ast-rewrite-*-v1` first owns it and every other user's astRewrite
+/// then fails the ownership check in `create_private_dir_all` (a fail-closed
+/// denial of service). On non-unix a fixed label is used.
+pub(super) fn state_dir_uid_suffix() -> String {
+    #[cfg(unix)]
+    {
+        // SAFETY: getuid() takes no arguments, has no preconditions, cannot fail,
+        // and only reads the caller's real user id.
+        let uid = unsafe { libc::getuid() };
+        format!("uid-{uid}")
+    }
+    #[cfg(not(unix))]
+    {
+        "shared".to_owned()
+    }
+}
+
 /// Create `path` (and any missing parents) with owner-only `0700` permissions on
 /// unix, then verify the resulting directory is owned by the current uid. The
 /// journal and lock roots live under `std::env::temp_dir()`, a shared,
@@ -1139,6 +1159,8 @@ fn create_private_dir_all(path: &Path) -> Result<(), RewriteError> {
             .create(path)
             .map_err(io_error)?;
         let metadata = fs::metadata(path).map_err(io_error)?;
+        // SAFETY: getuid() takes no arguments, has no preconditions, cannot fail,
+        // and only reads the caller's real user id.
         let current_uid = unsafe { libc::getuid() };
         if metadata.uid() != current_uid {
             return Err(RewriteError::new(

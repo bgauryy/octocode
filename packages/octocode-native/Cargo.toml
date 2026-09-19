@@ -3,6 +3,7 @@ members = ["crates/engine", "crates/runtime"]
 default-members = ["crates/runtime"]
 resolver = "2"
 
+
 [profile.release]
 lto = true
 codegen-units = 1
@@ -14,3 +15,61 @@ opt-level = 3
 
 [profile.test.package."regex-automata"]
 opt-level = 3
+
+# ── Heavy dep clusters: optimise for dev-loop runtime without slowing own-crate rebuilds ──
+# Own code stays at opt-level=0 for fast incremental recompile; only dependency
+# code is bumped. This mirrors the regex-automata pattern already applied above.
+
+[profile.dev.package."tree-sitter"]
+opt-level = 3
+[profile.dev.package."tree-sitter-javascript"]
+opt-level = 3
+[profile.dev.package."tree-sitter-typescript"]
+opt-level = 3
+[profile.dev.package."tree-sitter-rust"]
+opt-level = 3
+[profile.dev.package."tree-sitter-python"]
+opt-level = 3
+[profile.dev.package."tree-sitter-go"]
+opt-level = 3
+[profile.dev.package."tree-sitter-java"]
+opt-level = 3
+[profile.dev.package."tree-sitter-c"]
+opt-level = 3
+[profile.dev.package."oxc_parser"]
+opt-level = 2
+[profile.dev.package."oxc_semantic"]
+opt-level = 2
+[profile.dev.package."oxc_minifier"]
+opt-level = 2
+[profile.dev.package."oxc_codegen"]
+opt-level = 2
+[profile.dev.package."ast-grep-core"]
+opt-level = 2
+
+[profile.test.package."tree-sitter"]
+opt-level = 3
+[profile.test.package."tree-sitter-javascript"]
+opt-level = 3
+[profile.test.package."tree-sitter-typescript"]
+opt-level = 3
+[profile.test.package."tree-sitter-rust"]
+opt-level = 3
+[profile.test.package."tree-sitter-python"]
+opt-level = 3
+[profile.test.package."tree-sitter-go"]
+opt-level = 3
+[profile.test.package."tree-sitter-java"]
+opt-level = 3
+[profile.test.package."tree-sitter-c"]
+opt-level = 3
+[profile.test.package."oxc_parser"]
+opt-level = 2
+[profile.test.package."oxc_semantic"]
+opt-level = 2
+[profile.test.package."oxc_minifier"]
+opt-level = 2
+[profile.test.package."oxc_codegen"]
+opt-level = 2
+[profile.test.package."ast-grep-core"]
+opt-level = 2

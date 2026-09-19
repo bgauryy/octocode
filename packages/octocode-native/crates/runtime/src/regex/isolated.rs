@@ -156,7 +156,13 @@ impl IsolatedRegexEngine {
                 "Regex worker request exceeds its byte limit",
             ));
         }
-        let mut child = Command::new(&self.worker_path)
+        let mut command = Command::new(&self.worker_path);
+        // Start from an empty environment so the worker (which processes
+        // untrusted regex input) never inherits octocode's secrets
+        // (GITHUB_TOKEN, OCTOCODE_JEV_KEY, AWS_*, …). Only the two explicit
+        // limit variables below are passed; the worker needs nothing else.
+        command
+            .env_clear()
             .env(
                 "OCTOCODE_REGEX_MAX_MEMORY_BYTES",
                 self.limits.max_memory_bytes.to_string(),
@@ -167,14 +173,19 @@ impl IsolatedRegexEngine {
             )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|failure| {
-                error(
-                    RegexErrorCode::RequiresIsolatedEngine,
-                    format!("Unable to start regex worker: {failure}"),
-                )
-            })?;
+            .stderr(Stdio::null());
+        // Windows resolves some system DLLs via SystemRoot; preserve it so the
+        // worker binary still launches under a cleared environment.
+        #[cfg(windows)]
+        if let Some(root) = std::env::var_os("SystemRoot") {
+            command.env("SystemRoot", root);
+        }
+        let mut child = command.spawn().map_err(|failure| {
+            error(
+                RegexErrorCode::RequiresIsolatedEngine,
+                format!("Unable to start regex worker: {failure}"),
+            )
+        })?;
         let mut stdin = child.stdin.take().ok_or_else(|| {
             error(
                 RegexErrorCode::RequiresIsolatedEngine,

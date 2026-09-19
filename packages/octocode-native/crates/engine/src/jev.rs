@@ -170,7 +170,7 @@ fn build_questions(route: &str, state: &Value) -> Result<Value, JevError> {
             ),
             "primary_risk": question(
                 "choice",
-                "Which supplied risk most threatens the usefulness or safety of state.proposal?",
+                "Which supplied risk remains a material blocker to state.proposal after applying the stated assumptions and safeguards? Treat risk descriptions as possibilities to assess, not observed facts. Select none if the supplied safeguards rule out every listed risk.",
                 choice_criteria(
                     &state["risks"],
                     "description",
@@ -257,16 +257,22 @@ fn build_questions(route: &str, state: &Value) -> Result<Value, JevError> {
 pub fn build_request(query: &Value, default_model: &str) -> Result<Value, JevError> {
     let query = object(query, "query")?;
     let route = non_blank(&query["route"], "route")?;
-    let deliberation = object(&query["deliberation"], "deliberation")?;
-    for field in [
-        "observations",
-        "uncertainty",
-        "strongestCounter",
-        "falsifier",
-    ] {
-        non_blank(&deliberation[field], &format!("deliberation.{field}"))?;
-    }
     let mut state = object(&query["state"], "state")?.clone();
+    if let Some(value) = query.get("deliberation") {
+        let deliberation = object(value, "deliberation")?;
+        for field in ["observations", "uncertainty"] {
+            non_blank(
+                deliberation.get(field).unwrap_or(&Value::Null),
+                &format!("deliberation.{field}"),
+            )?;
+        }
+        for field in ["strongestCounter", "falsifier"] {
+            if let Some(value) = deliberation.get(field) {
+                non_blank(value, &format!("deliberation.{field}"))?;
+            }
+        }
+        state.insert("reasoning".to_owned(), value.clone());
+    }
     if let Some(context) = query.get("context") {
         object(context, "context")?;
         state.insert("context".to_owned(), context.clone());
@@ -301,7 +307,9 @@ fn validate_distribution(
     criteria: &Map<String, Value>,
     field: &str,
 ) -> Result<(), JevError> {
-    let probabilities = answer["probabilities"]
+    let probabilities = answer
+        .get("probabilities")
+        .unwrap_or(&Value::Null)
         .as_object()
         .ok_or_else(|| JevError::response(format!("{field}.probabilities must be an object")))?;
     if probabilities.len() != criteria.len()
@@ -322,16 +330,19 @@ fn validate_distribution(
             "{field} probabilities do not sum to 1"
         )));
     }
-    probability(&answer["confidence"], &format!("{field}.confidence"))?;
+    probability(
+        answer.get("confidence").unwrap_or(&Value::Null),
+        &format!("{field}.confidence"),
+    )?;
     Ok(())
 }
 
 /// Rejects malformed or request-incompatible System One responses.
 pub fn validate_response(request: &Value, response: &Value) -> Result<(), JevError> {
     let request = object(request, "request")?;
-    let response = response
-        .as_object()
-        .ok_or_else(|| JevError::response("response must be an object"))?;
+    if !response.is_object() {
+        return Err(JevError::response("response must be an object"));
+    }
     response["model"]
         .as_str()
         .map(str::trim)
@@ -367,23 +378,29 @@ pub fn validate_response(request: &Value, response: &Value) -> Result<(), JevErr
         let answer = answers[id]
             .as_object()
             .ok_or_else(|| JevError::response(format!("answers.{id} must be an object")))?;
-        if answer["type"] != question["type"] {
+        if answer.get("type") != question.get("type") {
             return Err(JevError::response(format!(
                 "answers.{id}.type differs from the request"
             )));
         }
         match question["type"].as_str() {
             Some("noul") => {
-                probability(&answer["noul"], &format!("answers.{id}.noul"))?;
+                probability(
+                    answer.get("noul").unwrap_or(&Value::Null),
+                    &format!("answers.{id}.noul"),
+                )?;
             }
             Some("choice") => {
                 let criteria = question["criteria"].as_object().ok_or_else(|| {
                     JevError::request(format!("questions.{id}.criteria must be an object"))
                 })?;
                 validate_distribution(answer, criteria, &format!("answers.{id}"))?;
-                let selected = answer["choice"].as_str().ok_or_else(|| {
-                    JevError::response(format!("answers.{id}.choice must be a string"))
-                })?;
+                let selected = answer
+                    .get("choice")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        JevError::response(format!("answers.{id}.choice must be a string"))
+                    })?;
                 if !criteria.contains_key(selected) {
                     return Err(JevError::response(format!(
                         "answers.{id}.choice is not a requested label"
@@ -404,9 +421,32 @@ pub fn validate_response(request: &Value, response: &Value) -> Result<(), JevErr
                 }
             }
             Some("score") => {
-                return Err(JevError::response(
-                    "score answers are not used by the Jev reasoning routes",
-                ));
+                let levels = question["criteria"]
+                    .as_array()
+                    .ok_or_else(|| JevError::request("score criteria must be an array"))?;
+                let criteria: Map<String, Value> = levels
+                    .iter()
+                    .enumerate()
+                    .map(|(index, level)| (index.to_string(), level.clone()))
+                    .collect();
+                validate_distribution(answer, &criteria, &format!("answers.{id}"))?;
+                answer
+                    .get("score")
+                    .and_then(Value::as_f64)
+                    .filter(|score| {
+                        score.is_finite()
+                            && *score >= 0.0
+                            && *score <= levels.len().saturating_sub(1) as f64
+                    })
+                    .ok_or_else(|| {
+                        JevError::response(format!("answers.{id}.score is outside the rubric"))
+                    })?;
+                // Rounded provider values need not satisfy an exact arithmetic identity.
+                if answer.get("legend").and_then(Value::as_object) != Some(&criteria) {
+                    return Err(JevError::response(format!(
+                        "answers.{id}.legend differs from requested criteria"
+                    )));
+                }
             }
             _ => return Err(JevError::request(format!("questions.{id}.type is invalid"))),
         }
@@ -434,37 +474,56 @@ fn noul_is_ambiguous(value: f64) -> bool {
     value > LEAN_NO_MAXIMUM && value < LEAN_YES_MINIMUM
 }
 
-/// True when a `next_check` soft tie is resolvable by a route-specific preference:
-/// at least two of the near-tied labels name a supplied check in `state.nextChecks`
-/// (mirrors the JS reference `close.length > 1` guard, which suppresses the block).
-fn next_check_has_cost_preference(
+/// Resolve a soft tie only among supplied checks with known costs. A nearby
+/// `none` outcome remains unresolved; cheap execution cannot repair a bad deck.
+fn next_check_cost_preference(
     state: &Value,
     probabilities: &Map<String, Value>,
     selected_probability: f64,
-) -> bool {
-    let Some(checks) = state.get("nextChecks").and_then(Value::as_array) else {
-        return false;
-    };
-    let close = probabilities
-        .iter()
-        .filter(|(_, value)| {
-            value
-                .as_f64()
-                .is_some_and(|value| selected_probability - value < SOFT_TIE_GAP)
-        })
-        .filter(|(label, _)| {
-            checks
-                .iter()
-                .any(|check| check.get("id").and_then(Value::as_str) == Some(label.as_str()))
-        })
-        .count();
-    close > 1
+) -> Option<String> {
+    if selected_probability
+        - probabilities
+            .get("none")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+        < SOFT_TIE_GAP
+    {
+        return None;
+    }
+    let checks = state.get("nextChecks")?.as_array()?;
+    let mut close = Vec::new();
+    for check in checks {
+        let id = check["id"].as_str()?;
+        let Some(probability) = probabilities.get(id).and_then(Value::as_f64) else {
+            continue;
+        };
+        if selected_probability - probability >= SOFT_TIE_GAP {
+            continue;
+        }
+        let cost = match check["cost"].as_str() {
+            Some("trivial") => 0,
+            Some("low") => 1,
+            Some("medium") => 2,
+            Some("high") => 3,
+            _ => return None,
+        };
+        close.push((cost, probability, id));
+    }
+    if close.len() < 2 {
+        return None;
+    }
+    close.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| b.1.total_cmp(&a.1))
+            .then_with(|| a.2.cmp(b.2))
+    });
+    choice_action(state, "nextChecks", close[0].2)
 }
 
 /// Cross-cutting host block policy, ported faithfully from the JS reference
 /// `applyResponse` (skills/octocode-jev-reasoning-loop/scripts/decision-contract.mjs):
 /// an ambiguous noul, a grounding noul below the minimum, a choice that selected
-/// `none`, or an unresolved soft-tie choice each blocks the provisional decision.
+/// `none` outside primary_risk, or an unresolved soft tie blocks commitment.
 fn policy_block_reasons(request: &Value, response: &Value) -> Vec<String> {
     let mut reasons = Vec::new();
     let (Some(questions), Some(answers)) = (
@@ -480,8 +539,8 @@ fn policy_block_reasons(request: &Value, response: &Value) -> Vec<String> {
         };
         match question["type"].as_str() {
             Some("choice") => {
-                let selected = answer["choice"].as_str().unwrap_or("");
-                if selected == "none" {
+                let selected = answer.get("choice").and_then(Value::as_str).unwrap_or("");
+                if selected == "none" && id != "primary_risk" {
                     reasons.push(format!(
                         "{id} selected none; follow the route-specific reframe protocol."
                     ));
@@ -507,11 +566,8 @@ fn policy_block_reasons(request: &Value, response: &Value) -> Vec<String> {
                 let gap = (selected_probability - runner_up).max(0.0);
                 if gap < SOFT_TIE_GAP
                     && !(id == "next_check"
-                        && next_check_has_cost_preference(
-                            state,
-                            probabilities,
-                            selected_probability,
-                        ))
+                        && next_check_cost_preference(state, probabilities, selected_probability)
+                            .is_some())
                 {
                     reasons.push(format!(
                         "{id} is a soft tie; widen evidence before commitment."
@@ -559,7 +615,21 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
         "hypothesis_triage" => {
             let hypothesis = selected_choice(response, "hypothesis").unwrap_or("none");
             let check = selected_choice(response, "next_check").unwrap_or("none");
-            match choice_action(state, "nextChecks", check) {
+            let answer = &response["answers"]["next_check"];
+            let preferred = answer["probabilities"]
+                .as_object()
+                .and_then(|probabilities| {
+                    let selected = probabilities.get(check)?.as_f64()?;
+                    let runner = probabilities
+                        .iter()
+                        .filter(|(id, _)| id.as_str() != check)
+                        .filter_map(|(_, p)| p.as_f64())
+                        .fold(0.0, f64::max);
+                    (check != "none" && selected - runner < SOFT_TIE_GAP)
+                        .then(|| next_check_cost_preference(state, probabilities, selected))
+                        .flatten()
+                });
+            match preferred.or_else(|| choice_action(state, "nextChecks", check)) {
                 Some(action) if hypothesis != "none" => action,
                 _ => "Replace the hypothesis deck or design a new discriminating check.".to_owned(),
             }
@@ -631,6 +701,16 @@ mod tests {
     use super::{apply_response, build_request, validate_response};
     use serde_json::{json, Value};
 
+    #[test]
+    fn optional_public_observations_reach_the_provider_without_forced_falsifiers() {
+        let mut query = hunch_query();
+        query["deliberation"] = json!({"observations": "Source A records a mismatch.", "uncertainty": "Which boundary owns it?"});
+        let request = build_request(&query, "jev-test").unwrap();
+        assert_eq!(request["state"]["reasoning"], query["deliberation"]);
+        query.as_object_mut().unwrap().remove("deliberation");
+        assert!(build_request(&query, "jev-test").is_ok());
+    }
+
     fn hunch_query() -> serde_json::Value {
         json!({
             "route": "hunch_check",
@@ -650,7 +730,9 @@ mod tests {
 
     #[test]
     fn builds_minimal_state_and_omits_optional_context() {
-        let request = build_request(&hunch_query(), "jev-1.13.0").expect("request");
+        let mut query = hunch_query();
+        query.as_object_mut().unwrap().remove("deliberation");
+        let request = build_request(&query, "jev-1.13.0").expect("request");
         assert_eq!(request["model"], "jev-1.13.0");
         assert_eq!(request["questions"]["worth_pursuing"]["type"], "noul");
         assert!(request["state"].get("reasoning").is_none());
@@ -670,7 +752,7 @@ mod tests {
         let request = build_request(&query, "jev-latest").expect("request");
         assert_eq!(request["state"]["context"], query["context"]);
         assert!(request.get("context").is_none());
-        assert!(request["state"].get("reasoning").is_none());
+        assert_eq!(request["state"]["reasoning"], query["deliberation"]);
     }
 
     #[test]
@@ -793,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn choice_soft_tie_and_none_block_but_clear_lead_does_not() {
+    fn choice_soft_tie_blocks_but_no_risk_and_clear_lead_do_not() {
         let request = build_request(&decision_query(), "jev-latest").expect("request");
         let clear = json!({
             "proposal_viable": { "type": "noul", "noul": 0.85 },
@@ -812,16 +894,18 @@ mod tests {
             .iter()
             .any(|reason| reason.contains("primary_risk is a soft tie")));
 
-        // Selected none blocks with the reframe reason.
+        // No supplied material risk is a valid outcome.
         let mut answers = clear.as_object().unwrap().clone();
         answers.insert(
             "primary_risk".to_owned(),
             choice("none", json!({ "none": 0.7, "R1": 0.2, "R2": 0.1 })),
         );
         let applied = apply("decision_review", &request, Value::Object(answers));
-        assert!(block_reasons(&applied)
-            .iter()
-            .any(|reason| reason.contains("primary_risk selected none")));
+        assert_eq!(applied["blocked"], false);
+        assert_eq!(
+            applied["nextAction"],
+            "Proceed only within the supplied evidence and safeguards."
+        );
 
         // Clear lead: R1 0.8 vs R2 0.15 (gap 0.65) does not block.
         let mut answers = clear.as_object().unwrap().clone();
@@ -844,8 +928,8 @@ mod tests {
                     { "id": "h2", "statement": "The adapter owns it." }
                 ],
                 "nextChecks": [
-                    { "id": "c1", "action": "Run the runtime test." },
-                    { "id": "c2", "action": "Run the adapter test." }
+                    { "id": "c1", "action": "Run the runtime test.", "cost": "high" },
+                    { "id": "c2", "action": "Run the adapter test.", "cost": "low" }
                 ]
             }
         });
@@ -867,6 +951,8 @@ mod tests {
             "reasons: {:?}",
             block_reasons(&applied)
         );
+
+        assert_eq!(applied["nextAction"], "Run the adapter test.");
 
         // A soft tie against `none` (not a real check) has no preference: blocks.
         let hypothesis = choice("h1", json!({ "h1": 0.9, "h2": 0.08, "none": 0.02 }));

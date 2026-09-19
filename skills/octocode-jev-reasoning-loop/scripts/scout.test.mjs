@@ -62,6 +62,18 @@ test('applyPolicy implements frozen v2 exactly', () => {
   assert.equal(applyPolicy({ score: 2.4, probabilities: { 0: 0, 1: 0, 2: 0.55, 3: 0.45 } }, loc, DEFAULTS).action, 'gray_read');
 });
 
+test('budget-truncated rejections remain gray reads and cannot establish absence', async () => {
+  const d = await dir({ 'a.txt': 'anchor ' + 'x'.repeat(300) });
+  try {
+    const loc = locateSpans('a.txt', ['anchor'], { rootDir: d, spanBudget: 200 });
+    assert.equal(loc.truncated, true);
+    assert.deepEqual(applyPolicy({ probabilities: { 0: 1, 1: 0, 2: 0, 3: 0 } }, loc, DEFAULTS), { action: 'gray_read', reason: 'incomplete_excerpt' });
+    const whole = locateSpans('a.txt', ['anchor'], { rootDir: d, spanBudget: 400 });
+    assert.equal(whole.truncated, false);
+    assert.equal(applyPolicy({ probabilities: { 0: 1, 1: 0, 2: 0, 3: 0 } }, whole, DEFAULTS).action, 'skip');
+  } finally { await rm(d, { recursive: true, force: true }); }
+});
+
 test('items mode: pre-fetched rows judged without locate, bounded and redacted', () => {
   const dry = runScout({
     claim: 'which PR addresses flaky retry tests',

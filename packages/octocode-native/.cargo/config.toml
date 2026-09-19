@@ -1,0 +1,34 @@
+# Development build acceleration for octocode-native.
+#
+# Uncomment each section after installing the required tool:
+#
+#   sccache  : cargo install sccache   OR  brew install sccache
+#   lld (macOS): brew install llvm
+#   mold (Linux): apt install mold
+#
+# These are opt-in: nothing here is active until you install + uncomment.
+
+# [build]
+# rustc-wrapper = "sccache"   # cross-branch compile cache; 60-80% CI speedup
+
+# ── macOS: lld from LLVM (brew install llvm) ──────────────────────────────────
+# lld is significantly faster than Apple ld for incremental + linking-heavy builds.
+
+# [target.aarch64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
+
+# [target.x86_64-apple-darwin]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/llvm/bin/ld64.lld"]
+
+# ── Linux CI: mold (apt install mold) ──────────────────────────────────────
+# mold is 5–10× faster than GNU BFD at linking large Rust binaries.
+
+# [target.x86_64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# [target.aarch64-unknown-linux-gnu]
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]

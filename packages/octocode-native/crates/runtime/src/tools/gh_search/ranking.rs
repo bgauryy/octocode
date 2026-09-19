@@ -1,7 +1,7 @@
-//! Stable match ranking with Unicode collation for repository tie-breaking.
+//! Stable match ranking with lexicographic tie-breaking.
 use crate::providers::github::{ProviderError, ProviderErrorKind};
 use serde_json::Value;
-use std::{cmp::Reverse, sync::OnceLock};
+use std::cmp::Reverse;
 
 pub(super) struct Match {
     pub path: String,
@@ -65,16 +65,11 @@ pub(super) fn score(path: &str, value: &str, terms: &[Term]) -> u8 {
     score
 }
 
+/// Sort groups: highest-scoring match first, then by match count, then
+/// lexicographically by group ID as a stable tiebreaker.
+/// Repository IDs use ASCII characters, so lexicographic order is equivalent
+/// to locale-aware collation for all practical repository names.
 pub(super) fn sort(groups: &mut [Group]) -> Result<(), ProviderError> {
-    static COLLATOR: OnceLock<Result<icu_collator::CollatorBorrowed<'static>, String>> =
-        OnceLock::new();
-    let collator = COLLATOR
-        .get_or_init(|| {
-            icu_collator::Collator::try_new(Default::default(), Default::default())
-                .map_err(|error| error.to_string())
-        })
-        .as_ref()
-        .map_err(|error| ProviderError::new(ProviderErrorKind::Configuration, error.clone()))?;
     for group in groups.iter_mut() {
         group.matches.sort_by_key(|value| Reverse(value.score));
     }
@@ -84,7 +79,7 @@ pub(super) fn sort(groups: &mut [Group]) -> Result<(), ProviderError> {
         right_exact
             .cmp(&left_exact)
             .then_with(|| right.matches.len().cmp(&left.matches.len()))
-            .then_with(|| collator.compare(&left.id, &right.id))
+            .then_with(|| left.id.cmp(&right.id))
     });
     Ok(())
 }

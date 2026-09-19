@@ -20,18 +20,34 @@ Jev returns typed probabilities, not a summary or explanation. Code owns weights
 
 ## Run
 
+For a compact invocation, use `scripts/ask-file.mjs --files a.ts --aspects aspects.json --context "Public input accepted by parseInput" --model jev-1.13.0`. The aspects file is the same array used by `profile.mjs`; no second question format exists. `--questions "q1 || q2"` remains the Noul shortcut. `--lines S-E` selects that range in each local file; `--output DIR` chooses the artifact directory. Output retains the typed answer, full distribution where available, resolved model, usage, anchors, and artifacts.
+
+An aspect should state one literal condition and identify its scope. If a question presupposes a feature, provide explicit alternatives instead of forcing a yes/no answer:
+
+```json
+[
+  {
+    "key": "labelBehavior",
+    "type": "choice",
+    "instructions": "For the public input accepted by parseInput, how is an explicit source label handled on contentRef evidence? Judge acceptance of that input shape first.",
+    "criteria": {
+      "preserves": "Accepts contentRef evidence and retains its source label.",
+      "replaces": "Accepts contentRef evidence but replaces its source label.",
+      "unsupported": "Does not accept contentRef evidence.",
+      "insufficient": "The supplied code does not show enough input handling to decide."
+    }
+  }
+]
+```
+
+The optional profile `context` field supplies up to 4000 characters of shared scope and relevant facts. Questions still cannot see other answers. A dependent question requires a later request, or an explicit premise whose result code consumes only when that premise holds. Model confidence describes the distribution, not whether the source interpretation is correct.
+
 Build input from `assets/profile-input.schema.json`, then:
 
 ```sh
 node scripts/profile.mjs --input profile.json --dry-run
 node scripts/profile.mjs --input profile.json
 node --test scripts/profile.test.mjs
-```
-
-Example:
-
-```json
-{ "goal": "Build a reusable semantic profile of the selected source units.", "root": ".", "inputs": [ { "id": "runtime", "path": "src/runtime.ts" }, { "id": "adapter", "content": "export const run = core.run", "source": "generated excerpt" } ], "aspects": [ { "key": "responsibilityCohesion", "type": "score", "instructions": "How cohesive are this source unit's responsibilities?", "criteria": [ "Unrelated responsibilities", "Several related responsibilities", "One coherent responsibility" ] }, { "key": "ownsBehavior", "type": "noul", "instructions": "Does this source unit directly own runtime behavior?", "criteria": { "true": "Directly implements behavior", "false": "Only describes, imports, or delegates behavior" } } ] }
 ```
 
 `candidate bytes stay off host context` means only that the host model need not read them first. Redacted content is still sent to the configured external Jev service. Do not profile source that policy forbids disclosing.

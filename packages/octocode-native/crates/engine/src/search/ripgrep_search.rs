@@ -21,6 +21,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::error::{Error, Result, Status};
 use grep_matcher::Matcher;
+#[cfg(feature = "pcre2")]
 use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
@@ -52,6 +53,7 @@ const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
 /// submatch count is still reported in stats.
 const MAX_ONLY_MATCHING_PER_LINE: u32 = 1000;
 
+#[cfg(feature = "pcre2")]
 /// Cap on PCRE2's JIT stack (1 MiB). A user `-P` pattern with catastrophic
 /// backtracking (`(a+)+$`-class) exhausts this cap and fails fast per file
 /// instead of spinning against the JIT's default 32 KB stack growth. Residual
@@ -61,6 +63,7 @@ const MAX_ONLY_MATCHING_PER_LINE: u32 = 1000;
 /// PCRE2 matcher we build (search + pattern validation).
 pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 
+#[cfg(feature = "pcre2")]
 /// Wall-clock ceiling for a whole PCRE2 (`-P`) search. PCRE2's JIT-stack cap
 /// bounds a single catastrophic backtrack's *memory*, but nothing bounds its
 /// *time*: a pathological `-P` pattern can spin for a long time inside a single
@@ -77,6 +80,7 @@ pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 ///      and cannot catastrophically backtrack.
 pub(crate) const PCRE2_SEARCH_DEADLINE: Duration = Duration::from_secs(5);
 
+#[cfg(feature = "pcre2")]
 /// Extra time the driver waits past the cooperative deadline before abandoning a
 /// stuck PCRE2 worker (see [`PCRE2_SEARCH_DEADLINE`]).
 pub(crate) const PCRE2_DEADLINE_GRACE: Duration = Duration::from_secs(2);
@@ -806,6 +810,8 @@ pub(crate) fn search_filtered(
     let fixed_string = opts.fixed_string.unwrap_or(false);
     let perl_regex = !fixed_string && opts.perl_regex.unwrap_or(false);
 
+    // ── PCRE2 path (only compiled with the `pcre2` feature) ──────────────────────────────
+    #[cfg(feature = "pcre2")]
     if perl_regex {
         let mut b = Pcre2MatcherBuilder::new();
         b.caseless(case_insensitive)
@@ -840,34 +846,46 @@ pub(crate) fn search_filtered(
                 ));
             })
             .map_err(to_napi_err)?;
-        match rx.recv_timeout(PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE) {
+        return match rx.recv_timeout(PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE) {
             Ok(collected) => Ok(build_result(&opts, mode, collected?)),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(pcre2_timeout_result()),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(Error::new(
                 Status::GenericFailure,
                 "PCRE2 search worker terminated unexpectedly",
             )),
-        }
-    } else {
-        let mut b = RegexMatcherBuilder::new();
-        b.case_insensitive(case_insensitive)
-            .case_smart(smart_case)
-            .word(whole_word)
-            .multi_line(multiline)
-            .dot_matches_new_line(dotall);
-        let pattern = if fixed_string {
-            regex::escape(&opts.pattern)
-        } else {
-            opts.pattern.clone()
         };
-        let matcher = b.build(&pattern).map_err(to_napi_err)?;
-        // The Rust regex engine is linear-time and cannot catastrophically
-        // backtrack, so it needs no wall-clock deadline.
-        let collected = collect(&opts, &matcher, mode, path_filter, None)?;
-        Ok(build_result(&opts, mode, collected))
     }
+
+    // ── Error when PCRE2 is not compiled in ──────────────────────────────────────────
+    #[cfg(not(feature = "pcre2"))]
+    if perl_regex {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "PCRE2 (`perl_regex` / `-P`) search is not available in this build; \
+             use regex:\"rust\" (the default engine) instead.",
+        ));
+    }
+
+    // ── Default Rust-regex path (always compiled) ───────────────────────────────────
+    let mut b = RegexMatcherBuilder::new();
+    b.case_insensitive(case_insensitive)
+        .case_smart(smart_case)
+        .word(whole_word)
+        .multi_line(multiline)
+        .dot_matches_new_line(dotall);
+    let pattern = if fixed_string {
+        regex::escape(&opts.pattern)
+    } else {
+        opts.pattern.clone()
+    };
+    let matcher = b.build(&pattern).map_err(to_napi_err)?;
+    // The Rust regex engine is linear-time and cannot catastrophically
+    // backtrack, so it needs no wall-clock deadline.
+    let collected = collect(&opts, &matcher, mode, path_filter, None)?;
+    Ok(build_result(&opts, mode, collected))
 }
 
+#[cfg(feature = "pcre2")]
 /// Result returned when a PCRE2 search is abandoned after exceeding its hard
 /// wall-clock ceiling (see [`PCRE2_SEARCH_DEADLINE`]). Reports zero results but
 /// flags the search as capped/incomplete so callers never treat an abandoned

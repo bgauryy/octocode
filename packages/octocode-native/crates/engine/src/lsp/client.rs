@@ -55,11 +55,43 @@ async fn wait_for_graceful_exit(child: &mut Child, timeout_duration: Duration) -
     match timeout(timeout_duration, child.wait()).await {
         Ok(_) => true,
         Err(_) => {
+            group_kill(child);
             let _ = child.kill().await;
             false
         }
     }
 }
+
+/// Put the spawned language server in its own process group so the whole tree
+/// (e.g. rust-analyzer's `proc-macro-srv`, `cargo`/build scripts) can be killed
+/// as a unit. Without this a hard kill signals only the direct child and leaks
+/// its grandchildren to init. On Windows the Job Object attached right after
+/// spawn (`MemoryCapGuard`) serves the same tree-teardown role.
+#[cfg(unix)]
+fn configure_lsp_process_group(command: &mut tokio::process::Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_lsp_process_group(_command: &mut tokio::process::Command) {}
+
+/// Best-effort SIGKILL of the child's entire process group before reaping the
+/// leader, so grandchildren die with it. No-op on non-Unix, where the Job
+/// Object handles tree teardown when the guard is dropped.
+#[cfg(unix)]
+fn group_kill(child: &Child) {
+    if let Some(pid) = child.id() {
+        // SAFETY: the child is spawned as its own process-group leader (see
+        // `configure_lsp_process_group`), so the negative pid targets exactly
+        // that group. `kill` with an invalid/dead group is a harmless no-op.
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn group_kill(_child: &Child) {}
 
 async fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
     if executable_has_node_shebang(validated_command).await? {
@@ -200,6 +232,7 @@ impl NativeLspClient {
         let mut command_args = self.inner.config.args.clone().unwrap_or_default();
         let command_program = lsp_spawn_program(&validated_command, &mut command_args).await?;
         let mut command = tokio::process::Command::new(&command_program);
+        configure_lsp_process_group(&mut command);
         command
             .args(command_args)
             .current_dir(&self.inner.config.workspace_root)
@@ -794,6 +827,7 @@ impl Drop for NativeLspClientInner {
             // status if it has already terminated; if it has not yet, `kill_on_drop`
             // on the spawn command remains the backstop when `child` is dropped
             // here (it registers the pid with tokio's orphan reaper).
+            group_kill(&child);
             let _ = child.start_kill();
             let _ = child.try_wait();
         }
@@ -1181,6 +1215,7 @@ fn truncate_stderr_line(line: String) -> String {
 }
 
 async fn cleanup_failed_start(child: &mut Child, stderr_task: Option<JoinHandle<()>>) {
+    group_kill(child);
     let _ = child.kill().await;
     if let Some(task) = stderr_task {
         task.abort();

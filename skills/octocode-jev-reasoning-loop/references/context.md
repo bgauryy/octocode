@@ -6,7 +6,7 @@ Load when a question needs several sources or a packet needs trimming. Why: prob
 
 Include the decision and scope, decisive excerpts, counterevidence, definitions, and material unknowns. Preserve source anchors, negations, guard branches, units, and timestamps. Summaries can explain background but must not replace observations that could refute the host's belief.
 
-Distinguish what an excerpt shows from what the entire file or repository does. Inspect content-reference bounds: truncation may omit the implementation. Record omissions that could change the answer and widen the read before treating a negative judgment as absence.
+Distinguish what an excerpt shows from what the entire file or repository does. `contentRef` resolves a complete selected span or fails before calling Jev: default 1200 characters, maximum 4000. Select a complete smaller span, split independent evidence items, or raise the limit; preserve the deciding branches. Scout excerpts can still be incomplete: inspect coverage and widen retrieval before treating a negative judgment as absence.
 
 Ground multi-part claims separately when their evidence differs. If a conclusion depends on a relationship between sources, include the relevant parts together. Independent per-file scores do not establish a cross-file relationship.
 

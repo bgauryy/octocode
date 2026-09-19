@@ -224,8 +224,7 @@ mod contract_owner_tests {
         use sha2::{Digest, Sha256};
         let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
         assert_eq!(
-            digest,
-            "d3e6cc3a4f5b6d5d3f4fa53d4c2cfdbb2d4bd91b94439dd676f04963bec641ea",
+            digest, "a564890f41742d0384e9fd79f41482e0a3a6191b3791134727302d199aef2739",
             "generated contract body changed without regeneration from core"
         );
     }
@@ -423,27 +422,32 @@ mod contract_owner_tests {
         };
         let buggy = validate_output(
             "astSearch",
-            &data(json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
-                "lineHint":1,"includeDeclaration":false,"groupByFile":true})),
+            &data(
+                json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
+                "lineHint":1,"includeDeclaration":false,"groupByFile":true}),
+            ),
         )
         .expect_err("missing lspSearch defaulted fields must be rejected");
         assert!(
-            buggy.issues.iter().any(|issue| issue
-                .path
+            buggy
+                .issues
                 .iter()
-                .any(|part| part == "verifyReferences")),
+                .any(|issue| issue.path.iter().any(|part| part == "verifyReferences")),
             "expected a verifyReferences continuation issue, got {buggy:?}"
         );
         if let Err(fixed) = validate_output(
             "astSearch",
-            &data(json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
+            &data(
+                json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
                 "lineHint":1,"includeDeclaration":false,"groupByFile":true,
-                "orderHint":0,"page":1,"format":"structured","debug":false})),
+                "orderHint":0,"page":1,"format":"structured","debug":false}),
+            ),
         ) {
             assert!(
-                !fixed.issues.iter().any(|issue| issue.path.iter().any(|part| {
-                    part == "verifyReferences" || part == "query"
-                })),
+                !fixed.issues.iter().any(|issue| issue
+                    .path
+                    .iter()
+                    .any(|part| { part == "verifyReferences" || part == "query" })),
                 "stamped verifyReferences query must not trip continuation errors: {fixed:?}"
             );
         }
@@ -505,15 +509,23 @@ mod contract_owner_tests {
         )
         .expect_err("missing pageSize must be rejected");
         assert!(
-            buggy.issues.iter().any(|issue| issue.path.iter().any(|p| p == "nextPage")),
+            buggy
+                .issues
+                .iter()
+                .any(|issue| issue.path.iter().any(|p| p == "nextPage")),
             "expected a nextPage continuation issue, got {buggy:?}"
         );
         if let Err(fixed) = validate_output(
             "ghSearchHistory",
-            &data(json!({"operation":"pullRequests","owner":"o","repo":"r","page":2,"pageSize":30})),
+            &data(
+                json!({"operation":"pullRequests","owner":"o","repo":"r","page":2,"pageSize":30}),
+            ),
         ) {
             assert!(
-                !fixed.issues.iter().any(|issue| issue.path.iter().any(|p| p == "pageSize")),
+                !fixed
+                    .issues
+                    .iter()
+                    .any(|issue| issue.path.iter().any(|p| p == "pageSize")),
                 "stamped nextPage query must not trip pageSize errors: {fixed:?}"
             );
         }
@@ -536,15 +548,23 @@ mod contract_owner_tests {
         )
         .expect_err("null page must be rejected");
         assert!(
-            buggy.issues.iter().any(|issue| issue.path.iter().any(|p| p == "nextPage")),
+            buggy
+                .issues
+                .iter()
+                .any(|issue| issue.path.iter().any(|p| p == "nextPage")),
             "expected a nextPage continuation issue, got {buggy:?}"
         );
         if let Err(fixed) = validate_output(
             "ghGetHistoryItem",
-            &data(json!({"operation":"compare","owner":"o","repo":"r","base":"a","head":"b","page":1,"filePage":1,"pageSize":30})),
+            &data(
+                json!({"operation":"compare","owner":"o","repo":"r","base":"a","head":"b","page":1,"filePage":1,"pageSize":30}),
+            ),
         ) {
             assert!(
-                !fixed.issues.iter().any(|issue| issue.path.iter().any(|p| p == "page")),
+                !fixed
+                    .issues
+                    .iter()
+                    .any(|issue| issue.path.iter().any(|p| p == "page")),
                 "compare nextPage query must keep page: {fixed:?}"
             );
         }

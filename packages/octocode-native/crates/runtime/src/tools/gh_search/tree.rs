@@ -906,7 +906,7 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         .join(owner)
         .join(repo)
         .join(branch);
-    std::fs::create_dir_all(&root).map_err(|error| {
+    tokio::fs::create_dir_all(&root).await.map_err(|error| {
         ProviderError::new(
             ProviderErrorKind::Validation,
             format!("failed to create materialize directory: {error}"),
@@ -953,19 +953,21 @@ async fn materialize_tree<R: CredentialResolver, C: crate::providers::github::Co
         }
         let dest = root.join(&entry.path);
         if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
+            tokio::fs::create_dir_all(parent).await.map_err(|error| {
                 ProviderError::new(
                     ProviderErrorKind::Validation,
                     format!("failed to create materialize path: {error}"),
                 )
             })?;
         }
-        std::fs::write(&dest, &acquired.bytes).map_err(|error| {
-            ProviderError::new(
-                ProviderErrorKind::Validation,
-                format!("failed to write materialized file: {error}"),
-            )
-        })?;
+        tokio::fs::write(&dest, &acquired.bytes)
+            .await
+            .map_err(|error| {
+                ProviderError::new(
+                    ProviderErrorKind::Validation,
+                    format!("failed to write materialized file: {error}"),
+                )
+            })?;
         total_bytes += acquired.bytes.len();
         written += 1;
     }
