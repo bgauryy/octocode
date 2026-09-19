@@ -15,10 +15,10 @@ const {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  realpathSync,
   writeFileSync,
 } = require('fs');
 const { join } = require('path');
-const { tmpdir } = require('os');
 const { spawnSync } = require('child_process');
 const { getPlatformSuffix } = require('../bin/platform.cjs');
 
@@ -132,7 +132,9 @@ if (
   fail('binary does not embed the current lspSearch contract');
 }
 
-const fixture = mkdtempSync(join(tmpdir(), 'octocode-native-smoke-'));
+const fixture = realpathSync(
+  mkdtempSync(join(cwd, '.octocode-native-smoke-'))
+);
 try {
   const home = join(fixture, 'home');
   mkdirSync(home);
@@ -158,6 +160,7 @@ try {
         path: fixture,
         searchText: 'packaged_binary_needle',
         regex: 'literal',
+        reasoning: 'Verify the staged native CLI can search a retained-language fixture',
       }),
       '--json',
       '--compact',
@@ -172,7 +175,11 @@ try {
     [
       'tools',
       'astSearch',
-      JSON.stringify({ operation: 'files', path: fixture }),
+      JSON.stringify({
+        operation: 'files',
+        path: fixture,
+        reasoning: 'Verify the staged native CLI can list mixed-language fixture files',
+      }),
       '--json',
       '--compact',
     ],
@@ -186,7 +193,12 @@ try {
     [
       'tools',
       'lspSearch',
-      JSON.stringify({ operation: 'documentSymbols', uri: notes }),
+      JSON.stringify({
+        operation: 'documentSymbols',
+        uri: notes,
+        workspaceRoot: fixture,
+        reasoning: 'Verify unavailable semantic routing remains a typed staged-CLI error',
+      }),
       '--json',
       '--compact',
     ],

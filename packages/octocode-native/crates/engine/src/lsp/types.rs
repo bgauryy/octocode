@@ -14,6 +14,11 @@ pub struct JsLanguageServerConfig {
     pub initialization_options: Option<Value>,
     /// Extra environment variables to inject into the language server process.
     pub env: Option<HashMap<String, String>>,
+    /// OS-level memory cap for the spawned server process, in MiB. `None`
+    /// applies a generous 4 GiB default; `Some(0)` disables the cap for
+    /// servers that legitimately need more (huge monorepo indexes). Internal
+    /// buffer bounds do not protect the host from a runaway child — this does.
+    pub max_memory_mb: Option<u32>,
 }
 
 #[cfg_attr(feature = "napi-addon", napi(object))]

@@ -96,6 +96,7 @@ fn config_from_spec(spec: ServerSpec, workspace_root: String) -> JsLanguageServe
         language_id: Some(spec.language_id.to_owned()),
         initialization_options: None,
         env: None,
+        max_memory_mb: None,
     }
 }
 
@@ -299,6 +300,7 @@ fn user_server_for_extension(
             language_id: Some(server.language_id.clone()),
             initialization_options: server.initialization_options.clone(),
             env: None,
+            max_memory_mb: None,
         });
     }
     None

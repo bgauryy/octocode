@@ -66,12 +66,22 @@ tree-sitter-typescript = "0.23"
 url = "2"
 which = "8"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects"] }
+
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 proptest = "1"
 
 [[bench]]
 name = "structural"
+harness = false
+
+[[bench]]
+name = "search"
 harness = false
 
 [[bench]]

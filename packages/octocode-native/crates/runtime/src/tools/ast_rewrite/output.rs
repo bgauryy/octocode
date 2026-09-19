@@ -74,6 +74,9 @@ pub(super) fn continuation_query(query: &AstRewriteQuery, canonical_root: &Path)
         "ruleKind".to_owned(),
         json!(query.rule_kind.as_deref().unwrap_or("pattern")),
     );
+    if query.allow_syntax_regression {
+        value.insert("allowSyntaxRegression".to_owned(), json!(true));
+    }
     for (key, item) in [
         ("pattern", query.pattern.as_ref().map(|value| json!(value))),
         ("rewrite", query.rewrite.as_ref().map(|value| json!(value))),

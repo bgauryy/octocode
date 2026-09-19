@@ -37,7 +37,7 @@ pub(crate) fn parse_before(content: &str, language: &Language, deadline: Instant
         parser.reset();
         parser.set_language(language).ok()?;
         let bytes = content.as_bytes();
-        let mut read = |offset: usize, _| &bytes[offset..];
+        let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
         let mut progress = |_: &tree_sitter::ParseState| {
             if Instant::now() >= deadline {
                 ControlFlow::Break(())

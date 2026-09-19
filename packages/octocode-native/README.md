@@ -89,7 +89,8 @@ C#. Structural search/rewrite, signatures, graph facts, and built-in LSP routes
 share this boundary. Text search, ordinary reads, generic best-effort
 minification, artifact lookup, and trusted custom LSP configuration remain
 language-agnostic. See
-[`docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md).
+[`docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). The direct Rust dependency necessity and footprint receipt is in
+[`docs/engine/DEPENDENCY_AUDIT.md`](docs/engine/DEPENDENCY_AUDIT.md).
 
 ### npm / platform distribution layout
 

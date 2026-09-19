@@ -159,7 +159,7 @@ The research layer connects **local code** and **external code** on GitHub and p
 - **Scales to monorepos.** Spot a pattern in one repository, follow the PR that introduced it, then trace it across other repositories and your own files, without leaving the chat. Clone any repository and study it locally.
 - **Smart GitHub flow.** Parallel bulk queries across code, PRs, commits, issues, and repositories, all with the same search-broad, read-narrow, trace-semantically discipline.
 - **Works without GitHub.** Clone any repository and point the local tools (search, AST, LSP, content) at it, same evidence-first flow.
-- **Reads shape, not noise.** On-the-fly minify/skeletonize across 70+ languages: a 100 KB file in a few hundred tokens, not walls of boilerplate.
+- **Reads shape, not noise.** On-the-fly best-effort minification across broad code/data formats, plus grammar-backed outlines for the 25 first-class extensions: a large file becomes focused evidence instead of walls of boilerplate.
 - **Fast, self-contained.** Search, parsing, navigation, and redaction run in one prebuilt **Rust engine**: quick on a laptop or a mega-repo, nothing extra to install.
 - **Safe by default.** Every byte to the model is scanned and secrets redacted first (see [Security](#security)).
 
@@ -409,7 +409,7 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 - **Content sanitized at the source.** Local reads (`localFetch`, ripgrep, structural search, binary, file discovery, structure) and external fetches (GitHub code/files, npm) are scanned as they are read, not only at the boundary.
 - **Path safety.** Relative inputs resolve from `WORKSPACE_ROOT` / config / `cwd`, then local reads are bounded to the engine's allowed roots (home by default, plus `ALLOWED_PATHS` and Octocode-registered roots). Symlinks are resolved and the real target is **re-validated**, so a link cannot escape into a blocked location.
 - **Sensitive files blocked by default.** Reads of known secret-bearing files and folders return a redacted error instead of contents: keys/certs, `.env*`, `.npmrc`/`.netrc`, cloud/infra credentials (`.aws/`, `.kube/`, `*.tfstate`), `.git/`, browser logins, OS keychains, and wallets. Full list in [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).
-- **Command safety.** Normal local search runs in-process inside `octocode-engine`. External helpers are fixed per lane, command/argument allowlisted, and run through `spawn` with argument arrays: no shell strings, no injection.
+- **Command safety.** Normal local search runs in-process inside the native engine crate. External helpers are fixed per lane, command/argument allowlisted, and run through `spawn` with argument arrays: no shell strings, no injection.
 - **Schema validation** runs before any tool executes; untrusted input size and shape are bounded.
 - **Credentials.** GitHub auth through environment tokens, the operating-system credential store, or the `gh` CLI; tokens are never logged.
 
@@ -509,7 +509,7 @@ graph LR
 client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize + YAML-serialize + paginate (Rust) → result + next-step hints
 ```
 
-**One Rust execution path** owns provider calls, secret detection, sanitization, path and command validation, minification (70+ languages), signature extraction, structural AST search and rewrite, ripgrep parsing, diff filtering, serialization, and LSP. The native package ships prebuilt CLI and N-API artifacts for darwin (arm64/x64), linux (arm64/x64, gnu and musl), and win32-x64; no Rust toolchain is needed at runtime.
+**One Rust execution path** owns provider calls, secret detection, sanitization, path and command validation, best-effort minification across broad formats, signature extraction for first-class grammars, structural AST search and rewrite, ripgrep parsing, diff filtering, serialization, and LSP. The native package ships prebuilt CLI and N-API artifacts for darwin (arm64/x64), linux (arm64/x64, gnu and musl), and win32-x64; no Rust toolchain is needed at runtime.
 
 ### Packages
 

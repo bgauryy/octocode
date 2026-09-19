@@ -269,6 +269,7 @@ fn graph_server_receipt_is_stable_without_exposing_session_handles() {
         language_id: Some("rust".to_owned()),
         initialization_options: Some(json!({"cargo":{"features":"all"}})),
         env: None,
+        max_memory_mb: None,
     });
     let first = client.graph_server_receipt();
     let second = client.graph_server_receipt();

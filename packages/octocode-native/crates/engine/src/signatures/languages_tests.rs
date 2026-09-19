@@ -115,17 +115,17 @@ fn modern_language_constructs_parse_without_errors() {
 // leaving a newly advertised language untested.
 fn fixture(ext: &str) -> &'static str {
     match ext {
-        "ts" => "export function target(value: number): number {\n  const body_marker = value + 1;\n  return body_marker;\n}\n",
-        "tsx" => "export function target(value: number) {\n  const body_marker = value + 1;\n  return <div>{body_marker}</div>;\n}\n",
-        "js" => "export function target(value) {\n  const body_marker = value + 1;\n  return body_marker;\n}\n",
-        "py" => "def target(value):\n    body_marker = value + 1\n    return body_marker\n",
-        "go" => "package fixture\nfunc target(value int) int {\n  body_marker := value + 1\n  return body_marker\n}\n",
-        "rs" => "fn target(value: i32) -> i32 {\n  let body_marker = value + 1;\n  body_marker\n}\n",
-        "java" => "class Fixture {\n  int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n}\n",
-        "c" => "int target(int value) {\n  int body_marker = value + 1;\n  return body_marker;\n}\n",
-        "cpp" => "class Fixture {\npublic:\n  int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n};\n",
-        "cs" => "class Fixture {\n  public int target(int value) {\n    int body_marker = value + 1;\n    return body_marker;\n  }\n}\n",
-        "scala" => "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = value + 1\n    body_marker\n  }\n}\n",
+        "ts" => "export function target(value: number): number {\n  const body_marker = helper(value);\n  return body_marker;\n}\n",
+        "tsx" => "export function target(value: number) {\n  const body_marker = helper(value);\n  return <div>{body_marker}</div>;\n}\n",
+        "js" => "export function target(value) {\n  const body_marker = helper(value);\n  return body_marker;\n}\n",
+        "py" => "def target(value):\n    body_marker = helper(value)\n    return body_marker\n",
+        "go" => "package fixture\nfunc target(value int) int {\n  body_marker := helper(value)\n  return body_marker\n}\n",
+        "rs" => "fn target(value: i32) -> i32 {\n  let body_marker = helper(value);\n  body_marker\n}\n",
+        "java" => "class Fixture {\n  int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n}\n",
+        "c" => "int target(int value) {\n  int body_marker = helper(value);\n  return body_marker;\n}\n",
+        "cpp" => "class Fixture {\npublic:\n  int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n};\n",
+        "cs" => "class Fixture {\n  public int target(int value) {\n    int body_marker = helper(value);\n    return body_marker;\n  }\n}\n",
+        "scala" => "object Fixture {\n  def target(value: Int): Int = {\n    val body_marker = helper(value)\n    body_marker\n  }\n}\n",
         _ => panic!("missing grammar fixture for .{ext}"),
     }
 }
@@ -155,6 +155,27 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                 .unwrap_or_else(|error| panic!(".{ext}: {error}"));
             assert_eq!(matches.len(), 1, ".{ext}: exact root match");
             assert_eq!(matches[0].text.trim_end(), source.trim_end(), ".{ext}");
+
+            let graph_json =
+                crate::signatures::extract_graph_facts_inner(source, &format!("fixture.{ext}"))
+                    .unwrap_or_else(|| panic!(".{ext}: advertised graph extraction unavailable"));
+            let graph: serde_json::Value = serde_json::from_str(&graph_json)
+                .unwrap_or_else(|error| panic!(".{ext}: invalid graph JSON: {error}"));
+            assert!(
+                graph["declarations"]
+                    .as_array()
+                    .is_some_and(|declarations| declarations
+                        .iter()
+                        .any(|declaration| declaration["name"] == "target")),
+                ".{ext}: target declaration missing from graph facts: {graph_json}"
+            );
+            assert!(
+                graph["calls"]
+                    .as_array()
+                    .is_some_and(|calls| !calls.is_empty()),
+                ".{ext}: helper call missing from graph facts: {graph_json}"
+            );
+
             if let Some(language_id) = entry.language_id {
                 let file = format!("fixture.{ext}");
                 let grammar = crate::lsp::grammar::grammar_for_file(&file)

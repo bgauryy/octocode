@@ -1642,6 +1642,7 @@ mod tests {
             language_id: Some("rust".into()),
             initialization_options: None,
             env: None,
+            max_memory_mb: None,
         };
         let client = octocode_engine::lsp::client::NativeLspClient::new(config.clone());
         let receipt = super::resolved_server_receipt(&config, &client);

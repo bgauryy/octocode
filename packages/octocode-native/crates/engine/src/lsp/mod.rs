@@ -6,6 +6,7 @@ pub mod json_rpc;
 pub mod pool;
 mod push_diagnostics;
 pub mod resolver;
+mod spawn_limits;
 pub mod symbol_kind;
 pub mod types;
 pub mod uri;

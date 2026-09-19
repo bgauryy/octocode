@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
+use std::time::Instant;
 
 use ast_grep_config::{GlobalRules, RuleConfig, SerializableRuleConfig};
 use ast_grep_core::{
@@ -13,11 +14,13 @@ use ast_grep_core::{
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
 use crate::signatures::languages::{all_entries, LanguageEntry};
 
 use super::language::{primary_expando_for_ext, AgLanguage};
+use super::octo::parse_tree_with_deadline;
 
-const MAX_REWRITE_CONTENT_BYTES: usize = 1_000_000;
+pub const MAX_REWRITE_CONTENT_BYTES: usize = 1_000_000;
 const MAX_REWRITE_MATCHES: usize = 100_000;
 
 /// The ast-grep rewrite adapter uses Octocode's canonical grammar registry
@@ -187,11 +190,16 @@ pub fn rewrite(content: &str, rule_config: Value) -> Result<Vec<StructuralRewrit
                             },
                         );
                     } else if let Some(bytes) = env.get_transformed(&name) {
+                        let text = std::str::from_utf8(bytes).map_err(|_| {
+                            format!(
+                                "[structural.rewrite.range] transformed capture {name} is not valid UTF-8"
+                            )
+                        })?;
                         captures.insert(
                             name,
                             StructuralRewriteCapture {
                                 kind: "transformed".to_owned(),
-                                texts: vec![String::from_utf8_lossy(bytes).into_owned()],
+                                texts: vec![text.to_owned()],
                             },
                         );
                     }
@@ -238,11 +246,45 @@ pub fn rewrite(content: &str, rule_config: Value) -> Result<Vec<StructuralRewrit
                     "[structural.rewrite.range] replacement range is not valid UTF-8".to_owned()
                 })?
                 .to_owned(),
-            replacement: String::from_utf8_lossy(&replacement).into_owned(),
+            replacement: String::from_utf8(replacement).map_err(|_| {
+                "[structural.rewrite.range] generated replacement is not valid UTF-8".to_owned()
+            })?,
             captures,
         });
     }
     Ok(output)
+}
+
+/// Count tree-sitter ERROR and MISSING nodes in `content` parsed as
+/// `language_selector`. Rewrite staging compares the count before and after
+/// splicing so a template that produces broken syntax is rejected instead of
+/// committed; a boolean `has_error()` cannot distinguish pre-existing damage
+/// from net-new damage.
+pub fn count_syntax_errors(content: &str, language_selector: &str) -> Result<u32, String> {
+    if content.len() > MAX_REWRITE_CONTENT_BYTES {
+        return Err(format!(
+            "[structural.content.tooLarge] structural rewrite content exceeds {MAX_REWRITE_CONTENT_BYTES} byte limit"
+        ));
+    }
+    let language = RewriteLanguage::from_selector(language_selector).ok_or_else(|| {
+        format!("[structural.rewrite.invalid] {language_selector} is not supported")
+    })?;
+    let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
+    let tree = parse_tree_with_deadline(&language.entry.language, content, deadline)
+        .map_err(|error| format!("[{}] {}", error.code, error.message))?;
+    let mut count = 0u32;
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if node.is_error() || node.is_missing() {
+            count = count.saturating_add(1);
+        }
+        for index in (0..node.child_count()).rev() {
+            if let Some(child) = node.child(index) {
+                stack.push(child);
+            }
+        }
+    }
+    Ok(count)
 }
 
 #[cfg(test)]
@@ -368,6 +410,19 @@ mod tests {
             assert_eq!(found.len(), 1, "{language}");
             assert!(found[0].replacement.starts_with("new"), "{language}");
         }
+    }
+
+    #[test]
+    fn syntax_error_count_distinguishes_broken_from_clean_source() {
+        assert_eq!(
+            count_syntax_errors("const value = call(foo);\n", "typescript").expect("clean"),
+            0
+        );
+        assert!(
+            count_syntax_errors("const value = call(foo;\n", "typescript").expect("broken") > 0
+        );
+        let error = count_syntax_errors("x", "ruby").expect_err("unsupported selector");
+        assert!(error.contains("ruby is not supported"), "{error}");
     }
 
     #[test]

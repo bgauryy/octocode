@@ -21,8 +21,9 @@ pub use files::{rewrite_files, StructuralRewriteFileResult};
 pub use files::{search_files, search_files_detailed, search_files_detailed_filtered};
 #[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use rewrite::{
-    rewrite as structural_rewrite, StructuralRewriteCapture, StructuralRewriteMatch,
-    StructuralRewritePosition, StructuralRewriteRange,
+    count_syntax_errors, rewrite as structural_rewrite, StructuralRewriteCapture,
+    StructuralRewriteMatch, StructuralRewritePosition, StructuralRewriteRange,
+    MAX_REWRITE_CONTENT_BYTES,
 };
 pub use syntax_tree::{
     inspect as inspect_syntax_tree, SyntaxTreeInspectOptions, SyntaxTreeInspectResult,

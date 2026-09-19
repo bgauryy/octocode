@@ -2089,6 +2089,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "napi",
  "napi-build",
  "napi-derive",
@@ -2120,6 +2121,7 @@ dependencies = [
  "tree-sitter-typescript",
  "url",
  "which",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

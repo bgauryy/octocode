@@ -117,6 +117,10 @@ pub(crate) struct BuiltGraph {
     pub code_graph: octocode_engine::graph::CodeGraphSnapshot,
     pub files_skipped: u32,
     pub truncated: bool,
+    /// Total file-graph edges accepted so far; `add_edge` stops collecting at
+    /// the edge cap and flips `edges_capped` + `truncated` once.
+    pub edge_count: u32,
+    pub edges_capped: bool,
     pub languages: Vec<(String, u32, String)>,
     pub imports: [u32; 4],
     pub diagnostics: Vec<Diagnostic>,

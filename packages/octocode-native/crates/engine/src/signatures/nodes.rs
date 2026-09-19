@@ -149,6 +149,7 @@ pub(super) fn is_call_node(kind: &str) -> bool {
         "call_expression"
             | "call"
             | "method_invocation"
+            | "invocation_expression"
             | "function_call_expression"
             | "member_call_expression"
             | "macro_invocation"

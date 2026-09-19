@@ -85,6 +85,10 @@ A configuration maps file extensions to launch specs:
 
 Long-lived MCP sessions can reuse warm servers. A one-shot native CLI process cannot share its pool with a later process.
 
+## Resource containment
+
+Language-server frames, writes, notifications, stderr, cancellation, and process teardown are bounded. Spawned servers default to a 4 GiB child-memory cap, configurable through `maxMemoryMb` (`0` disables it). Linux and other supported Unix targets apply `RLIMIT_AS` before `exec`; Windows retains a Job Object with `JOB_OBJECT_LIMIT_JOB_MEMORY` and kill-on-close behavior. macOS deliberately does not apply `RLIMIT_AS`: Darwin processes inherit virtual mappings that commonly exceed the configured cap before `exec`, so lowering the limit in `pre_exec` fails every server spawn with `EINVAL`. Process lifecycle and internal bounds still apply on macOS, but an enforceable per-child memory cap remains a platform limitation.
+
 ## Readiness and diagnostics
 
 The JSON-RPC transport bounds frames, writes, notifications, stderr retention, and cancellation. Timed-out requests emit `$/cancelRequest` when possible.

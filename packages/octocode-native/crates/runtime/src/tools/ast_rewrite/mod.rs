@@ -109,6 +109,11 @@ pub struct AstRewriteQuery {
     pub selected_match_ids: Option<Vec<String>>,
     #[serde(default)]
     pub postconditions: Option<Vec<RemainingMatches>>,
+    /// Escape hatch for intentionally staging syntactically-broken output
+    /// (e.g. rewriting fragments a later pass completes). Off by default so a
+    /// template that breaks syntax is rejected before any file is changed.
+    #[serde(default)]
+    pub allow_syntax_regression: bool,
     #[serde(default = "default_max_files")]
     pub max_files: usize,
     #[serde(default = "default_max_matches")]
@@ -346,12 +351,7 @@ fn execute(
         .flat_map(|file| file.matches.iter().cloned())
         .collect::<Vec<_>>();
     let (result_files, result_matches) = if query.apply {
-        select(
-            &prepared,
-            &all_matches,
-            query.selected_match_ids.as_deref(),
-            options.max_patch_bytes,
-        )?
+        select(&query, &prepared, &all_matches, options.max_patch_bytes)?
     } else {
         (prepared.clone(), all_matches)
     };
@@ -648,6 +648,7 @@ fn prepare(
                 "A generated replacement is not valid UTF-8.",
             )
         })?;
+        check_syntax_regression(query, &relative, content, after_text)?;
         let patch = create_unified_patch(&relative, content, after_text);
         total_patch_bytes = total_patch_bytes.saturating_add(patch.len());
         if total_patch_bytes > context.options.max_patch_bytes {
@@ -779,6 +780,45 @@ fn prepare_matches(
     Ok(matches)
 }
 
+/// Reject staged output that parses worse than its source. Byte-splicing
+/// cleanly does not mean the result is valid code; comparing ERROR/MISSING
+/// node counts keeps rewrites of already-broken files possible while blocking
+/// templates that introduce new damage.
+fn check_syntax_regression(
+    query: &AstRewriteQuery,
+    path: &str,
+    before: &str,
+    after: &str,
+) -> Result<(), RewriteError> {
+    if query.allow_syntax_regression {
+        return Ok(());
+    }
+    // Replacements can grow a near-limit file past the engine's parse bound;
+    // an unverifiable-but-legal rewrite must stage rather than hard-fail.
+    if after.len() > octocode_engine::structural::MAX_REWRITE_CONTENT_BYTES {
+        return Ok(());
+    }
+    let count = |content: &str| {
+        octocode_engine::structural::count_syntax_errors(content, &query.lang_type)
+            .map_err(engine_error)
+    };
+    let before_errors = count(before)?;
+    let after_errors = count(after)?;
+    if after_errors > before_errors {
+        return Err(RewriteError::new(
+            "ast.rewrite.broken_syntax",
+            "The staged rewrite introduces new syntax errors; no files were changed. \
+             Fix the rewrite template, or set allowSyntaxRegression=true to override.",
+        )
+        .detail(json!({
+            "path": path,
+            "beforeErrorNodes": before_errors,
+            "afterErrorNodes": after_errors,
+        })));
+    }
+    Ok(())
+}
+
 fn apply_edits(before: &[u8], matches: &[PreparedMatch]) -> Result<Vec<u8>, RewriteError> {
     let mut after = Vec::with_capacity(before.len());
     let mut offset = 0usize;
@@ -802,12 +842,12 @@ fn apply_edits(before: &[u8], matches: &[PreparedMatch]) -> Result<Vec<u8>, Rewr
 }
 
 fn select(
+    query: &AstRewriteQuery,
     files: &[PreparedFile],
     matches: &[PreparedMatch],
-    selected: Option<&[String]>,
     max_patch_bytes: usize,
 ) -> Result<(Vec<PreparedFile>, Vec<PreparedMatch>), RewriteError> {
-    let Some(selected) = selected else {
+    let Some(selected) = query.selected_match_ids.as_deref() else {
         return Ok((files.to_vec(), matches.to_vec()));
     };
     let selected = selected.iter().cloned().collect::<BTreeSet<_>>();
@@ -843,6 +883,9 @@ fn select(
         let after_text = std::str::from_utf8(&after).map_err(|_| {
             RewriteError::new("ast.rewrite.source_mismatch", "Invalid UTF-8 replacement.")
         })?;
+        // A subset of individually-clean edits can still break syntax (e.g.
+        // dropping one of a paired open/close rewrite), so re-check here.
+        check_syntax_regression(query, &file.path, before_text, after_text)?;
         let patch = create_unified_patch(&file.path, before_text, after_text);
         total_patch_bytes = total_patch_bytes.saturating_add(patch.len());
         if total_patch_bytes > max_patch_bytes {
@@ -1259,6 +1302,34 @@ mod tests {
             "path":root,"langType":"typescript","ruleKind":"pattern",
             "pattern":"oldCall($A)","rewrite":"newCall($A)","pageSize":1
         })
+    }
+
+    #[test]
+    fn syntax_breaking_template_is_rejected_before_any_commit() {
+        let (root, policy, security) = fixture();
+        let mut broken = query(&root);
+        // Unbalanced replacement: splices cleanly but no longer parses.
+        broken["rewrite"] = json!("newCall($A");
+        let result = execute_ast_rewrite_with_options(
+            broken.clone(),
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        assert_eq!(result["errorCode"], "ast.rewrite.broken_syntax", "{result}");
+
+        // The escape hatch stages the same rewrite on request.
+        broken["allowSyntaxRegression"] = json!(true);
+        let allowed = execute_ast_rewrite_with_options(
+            broken,
+            &policy,
+            &security,
+            &Active,
+            &Default::default(),
+        );
+        assert_eq!(allowed["mode"], "preview", "{allowed}");
+        assert_eq!(allowed["totalMatches"], 2);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use crate::error::{Error, Result, Status};
 use crate::lsp::json_rpc::{ClientRequestContext, JsonRpcConnection, ProgressTracker};
+use crate::lsp::spawn_limits;
 use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
 #[cfg(feature = "napi-addon")]
@@ -60,8 +61,8 @@ async fn wait_for_graceful_exit(child: &mut Child, timeout_duration: Duration) -
     }
 }
 
-fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
-    if executable_has_node_shebang(validated_command)? {
+async fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
+    if executable_has_node_shebang(validated_command).await? {
         args.insert(0, validated_command.to_owned());
         return std::env::current_exe()
             .map(|path| path.to_string_lossy().into_owned())
@@ -75,20 +76,24 @@ fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<
     Ok(validated_command.to_owned())
 }
 
-fn executable_has_node_shebang(path: &str) -> Result<bool> {
-    let mut file = std::fs::File::open(path).map_err(|err| {
+/// Async so the one-file inspection cannot stall an executor thread inside
+/// `start()` (the only caller) on slow filesystems.
+async fn executable_has_node_shebang(path: &str) -> Result<bool> {
+    let mut file = tokio::fs::File::open(path).await.map_err(|err| {
         Error::new(
             Status::GenericFailure,
             format!("Failed to inspect language server executable {path}: {err}"),
         )
     })?;
     let mut buf = [0_u8; 128];
-    let read = std::io::Read::read(&mut file, &mut buf).map_err(|err| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to inspect language server executable {path}: {err}"),
-        )
-    })?;
+    let read = tokio::io::AsyncReadExt::read(&mut file, &mut buf)
+        .await
+        .map_err(|err| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to inspect language server executable {path}: {err}"),
+            )
+        })?;
     let first_line = std::str::from_utf8(&buf[..read])
         .ok()
         .and_then(|text| text.lines().next())
@@ -128,6 +133,11 @@ struct NativeLspClientInner {
     /// LSP `didOpen` (once) → `didChange` (incrementing version) → `didClose`
     /// protocol so servers never see a second `didOpen` for the same document.
     open_docs: StdMutex<HashMap<String, i32>>,
+    /// Windows: owns the Job Object enforcing the server's memory cap; must
+    /// outlive the child and be released only after the child is reaped
+    /// (closing a kill-on-close job hard-kills the tree). Unit on Unix, where
+    /// the cap is applied via `pre_exec` before spawn.
+    memory_cap_guard: StdMutex<Option<spawn_limits::MemoryCapGuard>>,
 }
 
 /// Portable name for the stateful JSON-RPC transport. The historical native
@@ -152,6 +162,7 @@ impl NativeLspClient {
                 progress: ProgressTracker::new(),
                 active_requests: AtomicUsize::new(0),
                 open_docs: StdMutex::new(HashMap::new()),
+                memory_cap_guard: StdMutex::new(None),
             }),
         }
     }
@@ -187,7 +198,7 @@ impl NativeLspClient {
         let validated_command =
             crate::lsp::validation::validate_lsp_server_path(self.inner.config.command.clone())?;
         let mut command_args = self.inner.config.args.clone().unwrap_or_default();
-        let command_program = lsp_spawn_program(&validated_command, &mut command_args)?;
+        let command_program = lsp_spawn_program(&validated_command, &mut command_args).await?;
         let mut command = tokio::process::Command::new(&command_program);
         command
             .args(command_args)
@@ -196,6 +207,15 @@ impl NativeLspClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // OS-level memory cap: internal buffer bounds do not stop a runaway
+        // server from OOMing the host. Supported Unix targets cap the address
+        // space before exec; Windows attaches a Job Object right after spawn.
+        // Darwin deliberately skips RLIMIT_AS because inherited virtual
+        // mappings make lowering it in pre_exec fail every spawn with EINVAL.
+        let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
+        if let Some(cap_bytes) = memory_cap {
+            spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
+        }
         // Never leak octocode's own environment (OCTOCODE_JEV_KEY, GITHUB_TOKEN,
         // etc.) into a spawned language server. Start from an empty environment and
         // re-add only a minimal, secret-free allowlist plus any explicitly
@@ -219,6 +239,13 @@ impl NativeLspClient {
                 format!("Failed to start language server: {err}"),
             )
         })?;
+        let memory_cap_guard = match spawn_limits::MemoryCapGuard::attach(&child, memory_cap) {
+            Ok(guard) => guard,
+            Err(error) => {
+                cleanup_failed_start(&mut child, None).await;
+                return Err(error);
+            }
+        };
         let stderr_task = child
             .stderr
             .take()
@@ -297,6 +324,9 @@ impl NativeLspClient {
 
         *self.inner.connection.lock().await = Some(connection);
         *self.inner.stderr_task.lock().await = stderr_task;
+        if let Ok(mut guard) = self.inner.memory_cap_guard.lock() {
+            *guard = Some(memory_cap_guard);
+        }
         *child_guard = Some(child);
         Ok(())
     }
@@ -311,6 +341,11 @@ impl NativeLspClient {
         if let Some(mut child) = self.inner.child.lock().await.take() {
             wait_for_graceful_exit(&mut child, Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS))
                 .await;
+        }
+        // Release the memory-cap Job Object only after the child is reaped;
+        // closing it earlier would hard-kill a gracefully-exiting server.
+        if let Ok(mut guard) = self.inner.memory_cap_guard.lock() {
+            *guard = None;
         }
         if let Some(task) = self.inner.stderr_task.lock().await.take() {
             task.abort();

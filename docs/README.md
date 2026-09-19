@@ -33,6 +33,7 @@ Use this page to find the document that owns each topic. The root [README](../RE
 | Repository-wide contributor rules and package map | [AGENTS.md](../AGENTS.md) |
 | Development and release scripts | [Scripts reference](../scripts/README.md) |
 | Close the remaining native-consolidation release gates | [Native consolidation release closure](NATIVE_CONSOLIDATION_RELEASE_LEFTOVERS.md) |
+| Consolidate first-class language, parser, LSP, graph, and local-search support | [First-class language stack implementation](FIRST_CLASS_LANGUAGE_STACK_IMPLEMENTATION.md) |
 
 ## Package guides
 

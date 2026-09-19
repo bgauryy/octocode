@@ -16,7 +16,7 @@ The implementation is in `src/graph/model.rs`. Native graph-fact extraction cros
 
 ## Ingestion flow
 
-1. AST extraction produces typed declarations, imports, exports, calls, modules, ranges, and source diagnostics.
+1. AST extraction produces typed declarations, imports, exports, calls, modules, ranges, and source diagnostics for the canonical ten-language, 25-extension grammar registry.
 2. `CodeGraphBuilder::ingest_facts` adds syntax nodes and evidence.
 3. The native linker adds resolved file relations without replacing extraction evidence.
 4. A semantic orchestrator can add LSP relations only when its generation matches the source snapshot.

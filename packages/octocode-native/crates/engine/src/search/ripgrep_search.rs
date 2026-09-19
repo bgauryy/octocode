@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 use std::time::{Duration, Instant, SystemTime};
@@ -415,22 +415,40 @@ fn build_searcher(opts: &RipgrepSearchOptions, context_lines: u32) -> Searcher {
     sb.build()
 }
 
-fn checked_push(
-    recs: &Mutex<Vec<FileRec>>,
-    rec: FileRec,
-    max_collected_files: Option<usize>,
-    capped: &AtomicBool,
-) -> bool {
-    match recs.lock() {
-        Ok(mut guard) => {
-            if max_collected_files.is_some_and(|max| guard.len() >= max) {
+/// Per-worker collection buffer. Workers push lock-free into their own `Vec`
+/// and merge into the shared sink once, on drop, after `build_parallel().run()`
+/// finishes — instead of taking a global mutex for every matched file. The
+/// `max_collected_files` cap stays exact: each push first reserves a slot in
+/// the shared counter, so at most `max` records exist across all workers.
+struct WorkerRecs {
+    local: Vec<FileRec>,
+    sink: Arc<Mutex<Vec<FileRec>>>,
+}
+
+impl WorkerRecs {
+    fn push(
+        &mut self,
+        rec: FileRec,
+        max_collected_files: Option<usize>,
+        collected: &AtomicUsize,
+        capped: &AtomicBool,
+    ) -> bool {
+        if let Some(max) = max_collected_files {
+            if collected.fetch_add(1, Ordering::Relaxed) >= max {
                 capped.store(true, Ordering::Relaxed);
                 return false;
             }
-            guard.push(rec);
-            true
         }
-        Err(_) => false,
+        self.local.push(rec);
+        true
+    }
+}
+
+impl Drop for WorkerRecs {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.sink.lock() {
+            guard.append(&mut self.local);
+        }
     }
 }
 
@@ -462,6 +480,7 @@ fn collect<M: Matcher + Sync>(
     let keep_unmatched = mode == Mode::FilesWithoutMatch;
 
     let recs = Arc::new(Mutex::new(Vec::<FileRec>::new()));
+    let collected_count = Arc::new(AtomicUsize::new(0));
     let files_searched = Arc::new(AtomicU32::new(0));
     let bytes_searched = Arc::new(AtomicU64::new(0));
     let capped = Arc::new(AtomicBool::new(false));
@@ -476,7 +495,11 @@ fn collect<M: Matcher + Sync>(
 
     build_walk_builder(opts)?.build_parallel().run(|| {
         let path_filter = Arc::clone(&path_filter);
-        let recs = Arc::clone(&recs);
+        let mut worker_recs = WorkerRecs {
+            local: Vec::new(),
+            sink: Arc::clone(&recs),
+        };
+        let collected_count = Arc::clone(&collected_count);
         let files_searched = Arc::clone(&files_searched);
         let bytes_searched = Arc::clone(&bytes_searched);
         let capped = Arc::clone(&capped);
@@ -572,7 +595,7 @@ fn collect<M: Matcher + Sync>(
                 sort_time: capture_sort_time(opts, &dent),
             };
 
-            if checked_push(&recs, rec, max_collected_files, &capped) {
+            if worker_recs.push(rec, max_collected_files, &collected_count, &capped) {
                 WalkState::Continue
             } else {
                 WalkState::Quit

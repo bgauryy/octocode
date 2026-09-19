@@ -8,8 +8,16 @@ use serde_json::{json, Map, Value};
 use std::fmt::{Display, Formatter};
 
 const PROBABILITY_TOLERANCE: f64 = 0.02;
-const LEAN_YES_MINIMUM: f64 = 0.55;
-const GROUNDED_MINIMUM: f64 = 0.70;
+// Noul decision bands, aligned with the JS reference host policy
+// (skills/octocode-jev-reasoning-loop/assets/default-policy.json). A noul in the
+// open ambiguous band (LEAN_NO_MAXIMUM, LEAN_YES_MINIMUM) is neither a lean-yes nor
+// a lean-no, so it blocks for more evidence instead of forcing a decision.
+const LEAN_YES_MINIMUM: f64 = 0.60;
+const LEAN_NO_MAXIMUM: f64 = 0.40;
+const GROUNDED_MINIMUM: f64 = 0.50;
+// A selected-minus-runner-up choice gap below SOFT_TIE_GAP is a soft tie: it blocks
+// for more evidence unless a route-specific preference resolves it.
+const SOFT_TIE_GAP: f64 = 0.15;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JevError {
@@ -422,11 +430,113 @@ fn choice_action(state: &Value, field: &str, id: &str) -> Option<String> {
     })
 }
 
-/// Converts a valid judgment into an explicit provisional host action.
+fn noul_is_ambiguous(value: f64) -> bool {
+    value > LEAN_NO_MAXIMUM && value < LEAN_YES_MINIMUM
+}
+
+/// True when a `next_check` soft tie is resolvable by a route-specific preference:
+/// at least two of the near-tied labels name a supplied check in `state.nextChecks`
+/// (mirrors the JS reference `close.length > 1` guard, which suppresses the block).
+fn next_check_has_cost_preference(state: &Value, probabilities: &Map<String, Value>, selected_probability: f64) -> bool {
+    let Some(checks) = state.get("nextChecks").and_then(Value::as_array) else {
+        return false;
+    };
+    let close = probabilities
+        .iter()
+        .filter(|(_, value)| {
+            value
+                .as_f64()
+                .is_some_and(|value| selected_probability - value < SOFT_TIE_GAP)
+        })
+        .filter(|(label, _)| {
+            checks
+                .iter()
+                .any(|check| check.get("id").and_then(Value::as_str) == Some(label.as_str()))
+        })
+        .count();
+    close > 1
+}
+
+/// Cross-cutting host block policy, ported faithfully from the JS reference
+/// `applyResponse` (skills/octocode-jev-reasoning-loop/scripts/decision-contract.mjs):
+/// an ambiguous noul, a grounding noul below the minimum, a choice that selected
+/// `none`, or an unresolved soft-tie choice each blocks the provisional decision.
+fn policy_block_reasons(request: &Value, response: &Value) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let (Some(questions), Some(answers)) = (
+        request["questions"].as_object(),
+        response["answers"].as_object(),
+    ) else {
+        return reasons;
+    };
+    let state = &request["state"];
+    for (id, question) in questions {
+        let Some(answer) = answers.get(id) else {
+            continue;
+        };
+        match question["type"].as_str() {
+            Some("choice") => {
+                let selected = answer["choice"].as_str().unwrap_or("");
+                if selected == "none" {
+                    reasons.push(format!(
+                        "{id} selected none; follow the route-specific reframe protocol."
+                    ));
+                    continue;
+                }
+                let Some(probabilities) = answer["probabilities"].as_object() else {
+                    continue;
+                };
+                let selected_probability = probabilities
+                    .get(selected)
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0);
+                let runner_up = probabilities
+                    .iter()
+                    .filter(|(label, _)| label.as_str() != selected)
+                    .filter_map(|(_, value)| value.as_f64())
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let runner_up = if runner_up.is_finite() {
+                    runner_up
+                } else {
+                    selected_probability
+                };
+                let gap = (selected_probability - runner_up).max(0.0);
+                if gap < SOFT_TIE_GAP
+                    && !(id == "next_check"
+                        && next_check_has_cost_preference(state, probabilities, selected_probability))
+                {
+                    reasons.push(format!(
+                        "{id} is a soft tie; widen evidence before commitment."
+                    ));
+                }
+            }
+            Some("noul") => {
+                let value = answer["noul"].as_f64().unwrap_or(0.0);
+                if noul_is_ambiguous(value) {
+                    reasons.push(format!(
+                        "{id} is ambiguous; retrieve evidence instead of forcing a decision."
+                    ));
+                }
+                if id == "grounded" && value < GROUNDED_MINIMUM {
+                    reasons.push(format!("grounded is below policy minimum {GROUNDED_MINIMUM}."));
+                }
+                if id == "scope_matches" && value < GROUNDED_MINIMUM {
+                    reasons
+                        .push("scope_matches is below policy minimum; narrow the claim.".to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+    reasons
+}
+
+/// Converts a valid judgment into an explicit provisional host action. The
+/// `nextAction` is route-specific; `blocked`/`blockReasons` come from the shared
+/// [`policy_block_reasons`] pass so native decisions match the JS reference runner.
 pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<Value, JevError> {
     validate_response(request, response)?;
     let state = &request["state"];
-    let mut block_reasons = Vec::new();
     let next_action = match route {
         "hunch_check" => {
             if selected_noul(response, "worth_pursuing").unwrap_or(0.0) >= LEAN_YES_MINIMUM {
@@ -438,15 +548,9 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
         "hypothesis_triage" => {
             let hypothesis = selected_choice(response, "hypothesis").unwrap_or("none");
             let check = selected_choice(response, "next_check").unwrap_or("none");
-            if hypothesis == "none" {
-                block_reasons.push("No supplied hypothesis was selected.".to_owned());
-            }
             match choice_action(state, "nextChecks", check) {
                 Some(action) if hypothesis != "none" => action,
-                _ => {
-                    block_reasons.push("No supplied discriminating check was selected.".to_owned());
-                    "Replace the hypothesis deck or design a new discriminating check.".to_owned()
-                }
+                _ => "Replace the hypothesis deck or design a new discriminating check.".to_owned(),
             }
         }
         "reflection_delta" => {
@@ -455,7 +559,6 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
             } else {
                 match selected_choice(response, "updated_lead") {
                     Some("none") | None => {
-                        block_reasons.push("No updated hypothesis lead was selected.".to_owned());
                         "Abandon the current lead and replace the hypothesis deck.".to_owned()
                     }
                     Some(lead) => format!("Carry {lead} only as the updated provisional lead."),
@@ -470,7 +573,6 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
             if retrieve {
                 "Retrieve evidence that resolves the selected risk or assumption.".to_owned()
             } else if !viable {
-                block_reasons.push("The proposal was not judged viable.".to_owned());
                 "Stop the proposal and redesign it before execution.".to_owned()
             } else {
                 match selected_choice(response, "primary_risk") {
@@ -487,9 +589,6 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
             if matches!(status, "supported" | "contradicted") && basis != "none" {
                 format!("Reopen every source in evidence basis {basis} before citation.")
             } else {
-                block_reasons.push(format!(
-                    "The bounded claim is {status} or lacks a decisive supplied basis."
-                ));
                 "Narrow the claim or retrieve evidence before reconsidering it.".to_owned()
             }
         }
@@ -501,15 +600,12 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
             if grounded && scope_matches && anchor != "none" {
                 format!("Reopen and cite evidence anchor {anchor} before assertion.")
             } else {
-                block_reasons.push(
-                    "The claim is not directly grounded within the declared evidence scope."
-                        .to_owned(),
-                );
                 "Block or narrow the assertion until direct grounding exists.".to_owned()
             }
         }
         _ => return Err(JevError::request(format!("unsupported Jev route: {route}"))),
     };
+    let block_reasons = policy_block_reasons(request, response);
     Ok(json!({
         "answers": response["answers"],
         "blocked": !block_reasons.is_empty(),
@@ -522,7 +618,7 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
 #[cfg(test)]
 mod tests {
     use super::{apply_response, build_request, validate_response};
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     fn hunch_query() -> serde_json::Value {
         json!({
@@ -594,5 +690,220 @@ mod tests {
             "usage": { "input_tokens": 10, "output_tokens": 2 }
         });
         assert!(validate_response(&request, &response).is_err());
+    }
+
+    // ---- host block policy parity with the JS reference runner ----------------
+
+    fn delib() -> serde_json::Value {
+        json!({
+            "observations": "One anchored observation supports the lead.",
+            "uncertainty": "Whether to expand the lead.",
+            "strongestCounter": "Another explanation may own the behavior.",
+            "falsifier": "A focused test would separate the explanations."
+        })
+    }
+
+    fn choice(selected: &str, probabilities: serde_json::Value) -> serde_json::Value {
+        json!({ "type": "choice", "choice": selected, "probabilities": probabilities, "confidence": 0.8 })
+    }
+
+    fn apply(route: &str, request: &Value, answers: serde_json::Value) -> Value {
+        let response = json!({
+            "model": "jev-1.13.0",
+            "answers": answers,
+            "usage": { "input_tokens": 10, "output_tokens": 2 }
+        });
+        apply_response(route, request, &response).expect("apply")
+    }
+
+    fn block_reasons(applied: &Value) -> Vec<String> {
+        applied["blockReasons"]
+            .as_array()
+            .expect("blockReasons array")
+            .iter()
+            .map(|value| value.as_str().expect("reason string").to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn ambiguous_noul_blocks_for_more_evidence() {
+        // An ambiguous hunch (0.5, inside the (0.4,0.6) band) must block, where a
+        // clear yes (0.8) did not — the JS reference behavior the native port lacked.
+        let request = build_request(&hunch_query(), "jev-latest").expect("request");
+        let applied = apply(
+            "hunch_check",
+            &request,
+            json!({ "worth_pursuing": { "type": "noul", "noul": 0.5 } }),
+        );
+        assert_eq!(applied["blocked"], true);
+        assert!(block_reasons(&applied)[0].contains("worth_pursuing is ambiguous"));
+
+        let clear = apply(
+            "hunch_check",
+            &request,
+            json!({ "worth_pursuing": { "type": "noul", "noul": 0.8 } }),
+        );
+        assert_eq!(clear["blocked"], false);
+    }
+
+    fn decision_query() -> serde_json::Value {
+        json!({
+            "route": "decision_review",
+            "deliberation": delib(),
+            "state": {
+                "proposal": "Ship the parity change.",
+                "assumptions": ["The JS policy is the calibrated source of truth."],
+                "risks": [
+                    { "id": "R1", "description": "A missed additive gap." },
+                    { "id": "R2", "description": "A regression risk." }
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn decision_review_ambiguous_evidence_need_blocks() {
+        // The exact dogfood case: proposal viable (0.8) but more_evidence_needed
+        // ambiguous (0.48) — the native tool now blocks, matching the JS runner.
+        let request = build_request(&decision_query(), "jev-latest").expect("request");
+        let applied = apply(
+            "decision_review",
+            &request,
+            json!({
+                "proposal_viable": { "type": "noul", "noul": 0.8 },
+                "primary_risk": choice("R1", json!({ "R1": 0.7, "R2": 0.2, "none": 0.1 })),
+                "more_evidence_needed": { "type": "noul", "noul": 0.48 }
+            }),
+        );
+        assert_eq!(applied["blocked"], true);
+        assert!(block_reasons(&applied)
+            .iter()
+            .any(|reason| reason.contains("more_evidence_needed is ambiguous")));
+    }
+
+    #[test]
+    fn choice_soft_tie_and_none_block_but_clear_lead_does_not() {
+        let request = build_request(&decision_query(), "jev-latest").expect("request");
+        let clear = json!({
+            "proposal_viable": { "type": "noul", "noul": 0.85 },
+            "more_evidence_needed": { "type": "noul", "noul": 0.1 }
+        });
+
+        // Soft tie: R1 0.5 vs R2 0.44 (gap 0.06 < 0.15) blocks.
+        let mut answers = clear.as_object().unwrap().clone();
+        answers.insert(
+            "primary_risk".to_owned(),
+            choice("R1", json!({ "R1": 0.5, "R2": 0.44, "none": 0.06 })),
+        );
+        let applied = apply("decision_review", &request, Value::Object(answers));
+        assert_eq!(applied["blocked"], true);
+        assert!(block_reasons(&applied)
+            .iter()
+            .any(|reason| reason.contains("primary_risk is a soft tie")));
+
+        // Selected none blocks with the reframe reason.
+        let mut answers = clear.as_object().unwrap().clone();
+        answers.insert(
+            "primary_risk".to_owned(),
+            choice("none", json!({ "none": 0.7, "R1": 0.2, "R2": 0.1 })),
+        );
+        let applied = apply("decision_review", &request, Value::Object(answers));
+        assert!(block_reasons(&applied)
+            .iter()
+            .any(|reason| reason.contains("primary_risk selected none")));
+
+        // Clear lead: R1 0.8 vs R2 0.15 (gap 0.65) does not block.
+        let mut answers = clear.as_object().unwrap().clone();
+        answers.insert(
+            "primary_risk".to_owned(),
+            choice("R1", json!({ "R1": 0.8, "R2": 0.15, "none": 0.05 })),
+        );
+        let applied = apply("decision_review", &request, Value::Object(answers));
+        assert_eq!(applied["blocked"], false);
+    }
+
+    #[test]
+    fn next_check_soft_tie_resolves_by_preference_but_blocks_against_none() {
+        let base = json!({
+            "route": "hypothesis_triage",
+            "deliberation": delib(),
+            "state": {
+                "hypotheses": [
+                    { "id": "h1", "statement": "The runtime owns it." },
+                    { "id": "h2", "statement": "The adapter owns it." }
+                ],
+                "nextChecks": [
+                    { "id": "c1", "action": "Run the runtime test." },
+                    { "id": "c2", "action": "Run the adapter test." }
+                ]
+            }
+        });
+        let request = build_request(&base, "jev-latest").expect("request");
+        let hypothesis = choice("h1", json!({ "h1": 0.9, "h2": 0.08, "none": 0.02 }));
+
+        // Two near-tied real checks (c1 0.5, c2 0.45) resolve by preference: no block.
+        let applied = apply(
+            "hypothesis_triage",
+            &request,
+            json!({
+                "hypothesis": hypothesis,
+                "next_check": choice("c1", json!({ "c1": 0.5, "c2": 0.45, "none": 0.05 }))
+            }),
+        );
+        assert_eq!(applied["blocked"], false, "reasons: {:?}", block_reasons(&applied));
+
+        // A soft tie against `none` (not a real check) has no preference: blocks.
+        let hypothesis = choice("h1", json!({ "h1": 0.9, "h2": 0.08, "none": 0.02 }));
+        let applied = apply(
+            "hypothesis_triage",
+            &request,
+            json!({
+                "hypothesis": hypothesis,
+                "next_check": choice("c1", json!({ "c1": 0.5, "c2": 0.04, "none": 0.46 }))
+            }),
+        );
+        assert!(block_reasons(&applied)
+            .iter()
+            .any(|reason| reason.contains("next_check is a soft tie")));
+    }
+
+    #[test]
+    fn grounded_below_relaxed_minimum_blocks_and_point_five_gate_passes() {
+        let base = json!({
+            "route": "hallucination_gate",
+            "deliberation": delib(),
+            "state": {
+                "claim": "The function validates input.",
+                "evidence": [
+                    { "id": "e1", "content": "if (!valid) throw" },
+                    { "id": "e2", "content": "unrelated log line" }
+                ]
+            }
+        });
+        let request = build_request(&base, "jev-latest").expect("request");
+
+        // grounded 0.3 (< 0.5) blocks with the below-minimum reason.
+        let applied = apply(
+            "hallucination_gate",
+            &request,
+            json!({
+                "grounded": { "type": "noul", "noul": 0.3 },
+                "evidence_anchor": choice("e1", json!({ "e1": 0.8, "e2": 0.1, "none": 0.1 }))
+            }),
+        );
+        assert!(block_reasons(&applied)
+            .iter()
+            .any(|reason| reason.contains("grounded is below policy minimum 0.5")));
+
+        // grounded 0.9 with a clear anchor passes the relaxed gate.
+        let applied = apply(
+            "hallucination_gate",
+            &request,
+            json!({
+                "grounded": { "type": "noul", "noul": 0.9 },
+                "evidence_anchor": choice("e1", json!({ "e1": 0.85, "e2": 0.1, "none": 0.05 }))
+            }),
+        );
+        assert_eq!(applied["blocked"], false);
     }
 }

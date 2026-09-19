@@ -567,6 +567,8 @@ export interface JsLanguageServerConfig {
   initializationOptions?: any;
   /** Extra environment variables to inject into the language server process. */
   env?: Record<string, string>;
+  /** Child memory cap in MiB. Omit for the 4 GiB default; 0 disables it. Enforced by RLIMIT_AS on supported Unix targets and a Job Object on Windows; macOS cannot safely lower RLIMIT_AS after fork. */
+  maxMemoryMb?: number;
 }
 
 /**

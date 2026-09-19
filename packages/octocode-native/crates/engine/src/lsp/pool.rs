@@ -504,6 +504,7 @@ pub fn canonical_lsp_key(config: &JsLanguageServerConfig) -> Result<String> {
         "env": env,
         "languageId": config.language_id,
         "initializationOptions": initialization_options,
+        "maxMemoryMb": config.max_memory_mb,
     }))
     .map_err(|error| {
         Error::new(
@@ -849,11 +850,13 @@ mod tests {
             language_id: Some("rust".into()),
             initialization_options: Some(serde_json::json!({"z": 1, "nested": {"b": 2, "a": 1}})),
             env: Some(env_a),
+            max_memory_mb: None,
         };
         let second = JsLanguageServerConfig {
             workspace_root: root.join("workspace").to_string_lossy().into_owned(),
             initialization_options: Some(serde_json::json!({"nested": {"a": 1, "b": 2}, "z": 1})),
             env: Some(env_b),
+            max_memory_mb: None,
             ..first.clone()
         };
         assert_eq!(
@@ -865,6 +868,13 @@ mod tests {
         assert_ne!(
             canonical_lsp_key(&first).expect("key"),
             canonical_lsp_key(&changed).expect("changed key")
+        );
+        let mut capped = first.clone();
+        capped.max_memory_mb = Some(1_024);
+        assert_ne!(
+            canonical_lsp_key(&first).expect("key"),
+            canonical_lsp_key(&capped).expect("capped key"),
+            "the memory cap is effective config; differently-capped servers must not share a pool entry"
         );
     }
 }

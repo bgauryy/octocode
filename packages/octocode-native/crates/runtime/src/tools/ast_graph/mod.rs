@@ -17,12 +17,28 @@ pub fn execute_topology(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> AstGraphResult {
-    validate_query(query)?;
-    if query.analysis == GraphAnalysis::Drift {
-        return analysis::drift(query, paths, security, cancel);
-    }
-    let built = build::build_graph(query, paths, security, cancel)?;
-    analysis::analyze(built, query, security, cancel)
+    // The builder and graph algorithms uphold map-index invariants with
+    // `expect()`; a corrupt or adversarial input tripping one must surface as
+    // a structured tool error, not tear down the host process.
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        validate_query(query)?;
+        if query.analysis == GraphAnalysis::Drift {
+            return analysis::drift(query, paths, security, cancel);
+        }
+        let built = build::build_graph(query, paths, security, cancel)?;
+        analysis::analyze(built, query, security, cancel)
+    }))
+    .unwrap_or_else(|panic| {
+        let detail = panic
+            .downcast_ref::<&str>()
+            .map(|message| (*message).to_owned())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "graph analysis panicked".to_owned());
+        Err(AstGraphError::new(
+            "ast.graph.internal",
+            format!("Graph analysis failed internally: {detail}"),
+        ))
+    })
 }
 
 fn validate_query(query: &AstGraphQuery) -> Result<(), AstGraphError> {

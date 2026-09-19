@@ -8,27 +8,101 @@ pub struct Node {
     pub dynamic_only: BTreeSet<String>,
 }
 
+/// Borrowed index view over the string-keyed file graph. The traversal
+/// algorithms below run on `u32` ids and `Vec` state instead of cloning path
+/// strings into `BTreeMap` bookkeeping on every visit; strings reappear only
+/// at the output boundary. Ids `0..key_count` are the graph keys in sorted
+/// order; ids beyond that are edge-only (dangling) targets, and successor
+/// lists preserve each node's sorted edge iteration order so outputs match
+/// the string-keyed implementation byte for byte.
+struct Indexed<'g> {
+    names: Vec<&'g str>,
+    ids: BTreeMap<&'g str, u32>,
+    key_count: usize,
+    successors: Vec<Vec<Successor<'g>>>,
+}
+
+struct Successor<'g> {
+    id: u32,
+    kinds: &'g BTreeSet<String>,
+    dynamic_only: bool,
+}
+
+impl<'g> Indexed<'g> {
+    fn build(graph: &'g BTreeMap<String, Node>) -> Self {
+        let mut ids = BTreeMap::new();
+        let mut names = Vec::with_capacity(graph.len());
+        for key in graph.keys() {
+            ids.insert(key.as_str(), names.len() as u32);
+            names.push(key.as_str());
+        }
+        let key_count = names.len();
+        for node in graph.values() {
+            for target in node.edges.keys() {
+                if !ids.contains_key(target.as_str()) {
+                    ids.insert(target.as_str(), names.len() as u32);
+                    names.push(target.as_str());
+                }
+            }
+        }
+        let mut successors: Vec<Vec<Successor<'g>>> =
+            std::iter::repeat_with(Vec::new).take(names.len()).collect();
+        for (from, node) in graph {
+            let from_id = ids[from.as_str()] as usize;
+            successors[from_id] = node
+                .edges
+                .iter()
+                .map(|(to, kinds)| Successor {
+                    id: ids[to.as_str()],
+                    kinds,
+                    dynamic_only: node.dynamic_only.contains(to),
+                })
+                .collect();
+        }
+        Self {
+            names,
+            ids,
+            key_count,
+            successors,
+        }
+    }
+
+    fn name(&self, id: u32) -> &'g str {
+        self.names[id as usize]
+    }
+}
+
 pub fn reachable(
     graph: &BTreeMap<String, Node>,
     roots: &[String],
     static_only: bool,
 ) -> BTreeSet<String> {
-    let mut seen = BTreeSet::new();
-    let mut stack = roots.to_vec();
-    seen.extend(roots.iter().cloned());
-    while let Some(file) = stack.pop() {
-        if let Some(node) = graph.get(&file) {
-            for target in node.edges.keys() {
-                if static_only && node.dynamic_only.contains(target) {
-                    continue;
-                }
-                if seen.insert(target.clone()) {
-                    stack.push(target.clone());
-                }
+    let indexed = Indexed::build(graph);
+    let mut seen = vec![false; indexed.names.len()];
+    let mut out = BTreeSet::new();
+    let mut stack = Vec::new();
+    for root in roots {
+        out.insert(root.clone());
+        if let Some(&id) = indexed.ids.get(root.as_str()) {
+            if !seen[id as usize] {
+                seen[id as usize] = true;
+                stack.push(id);
             }
         }
     }
-    seen
+    while let Some(id) = stack.pop() {
+        for successor in &indexed.successors[id as usize] {
+            if static_only && successor.dynamic_only {
+                continue;
+            }
+            if !seen[successor.id as usize] {
+                seen[successor.id as usize] = true;
+                out.insert(indexed.name(successor.id).to_owned());
+                stack.push(successor.id);
+            }
+        }
+    }
+    out
 }
 
 pub fn reverse(graph: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
@@ -48,20 +122,24 @@ pub fn reverse(graph: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
 }
 
 pub fn traverse(graph: &BTreeMap<String, Node>, source: &str, depth: u32) -> Vec<Value> {
-    let mut seen = BTreeSet::from([source.to_owned()]);
-    let mut queue = VecDeque::from([(source.to_owned(), 0u32)]);
+    let indexed = Indexed::build(graph);
+    let Some(&source_id) = indexed.ids.get(source) else {
+        return Vec::new();
+    };
+    let mut seen = vec![false; indexed.names.len()];
+    seen[source_id as usize] = true;
+    let mut queue = VecDeque::from([(source_id, 0u32)]);
     let mut out = Vec::new();
-    while let Some((file, distance)) = queue.pop_front() {
+    while let Some((id, distance)) = queue.pop_front() {
         if distance >= depth {
             continue;
         }
-        if let Some(node) = graph.get(&file) {
-            for (target, kinds) in &node.edges {
-                if seen.insert(target.clone()) {
-                    let d = distance + 1;
-                    queue.push_back((target.clone(), d));
-                    out.push(json!({"file":target,"distance":d,"via":file,"edgeKinds":kinds,"confidence":"syntactic"}));
-                }
+        for successor in &indexed.successors[id as usize] {
+            if !seen[successor.id as usize] {
+                seen[successor.id as usize] = true;
+                let d = distance + 1;
+                queue.push_back((successor.id, d));
+                out.push(json!({"file":indexed.name(successor.id),"distance":d,"via":indexed.name(id),"edgeKinds":successor.kinds,"confidence":"syntactic"}));
             }
         }
     }
@@ -69,31 +147,55 @@ pub fn traverse(graph: &BTreeMap<String, Node>, source: &str, depth: u32) -> Vec
 }
 
 pub fn shortest_path(graph: &BTreeMap<String, Node>, source: &str, target: &str) -> Value {
-    let mut seen = BTreeSet::from([source.to_owned()]);
-    let mut previous = BTreeMap::new();
-    let mut queue = VecDeque::from([source.to_owned()]);
-    while let Some(file) = queue.pop_front() {
-        if file == target {
+    let not_found = || json!({"found":false,"files":[],"edges":[]});
+    if source == target {
+        return json!({"found":true,"files":[source],"edges":[],"length":1,"complete":true,"confidence":"syntactic"});
+    }
+    let indexed = Indexed::build(graph);
+    let Some(&source_id) = indexed.ids.get(source) else {
+        return not_found();
+    };
+    let Some(&target_id) = indexed.ids.get(target) else {
+        return not_found();
+    };
+    const UNSET: u32 = u32::MAX;
+    let mut seen = vec![false; indexed.names.len()];
+    let mut previous = vec![UNSET; indexed.names.len()];
+    seen[source_id as usize] = true;
+    let mut queue = VecDeque::from([source_id]);
+    while let Some(id) = queue.pop_front() {
+        if id == target_id {
             break;
         }
-        if let Some(node) = graph.get(&file) {
-            for next in node.edges.keys() {
-                if seen.insert(next.clone()) {
-                    previous.insert(next.clone(), file.clone());
-                    queue.push_back(next.clone());
-                }
+        for successor in &indexed.successors[id as usize] {
+            if !seen[successor.id as usize] {
+                seen[successor.id as usize] = true;
+                previous[successor.id as usize] = id;
+                queue.push_back(successor.id);
             }
         }
     }
-    if !seen.contains(target) {
-        return json!({"found":false,"files":[],"edges":[]});
+    if !seen[target_id as usize] {
+        return not_found();
     }
-    let mut files = vec![target.to_owned()];
-    while files[0] != source {
-        let p = previous[&files[0]].clone();
-        files.insert(0, p);
+    let mut path = vec![target_id];
+    while path[0] != source_id {
+        path.insert(0, previous[path[0] as usize]);
     }
-    let edges=files.windows(2).map(|p|json!({"from":p[0],"to":p[1],"edgeKinds":graph[&p[0]].edges[&p[1]],"confidence":"syntactic"})).collect::<Vec<_>>();
+    let files = path
+        .iter()
+        .map(|id| indexed.name(*id).to_owned())
+        .collect::<Vec<_>>();
+    let edges = path
+        .windows(2)
+        .map(|pair| {
+            let kinds = indexed.successors[pair[0] as usize]
+                .iter()
+                .find(|successor| successor.id == pair[1])
+                .map(|successor| successor.kinds);
+            json!({"from":indexed.name(pair[0]),"to":indexed.name(pair[1]),"edgeKinds":kinds,"confidence":"syntactic"})
+        })
+        .collect::<Vec<_>>();
     json!({"found":true,"files":files,"edges":edges,"length":files.len(),"complete":true,"confidence":"syntactic"})
 }
 
@@ -111,74 +213,87 @@ fn scc_inner(
     sort_members: bool,
 ) -> Vec<Vec<String>> {
     struct Frame {
-        node: String,
-        successors: Vec<String>,
+        node: u32,
         offset: usize,
     }
-    let mut index = 0;
-    let mut indices = BTreeMap::new();
-    let mut low = BTreeMap::new();
-    let mut stack = Vec::new();
-    let mut on = BTreeSet::new();
-    let mut out = Vec::new();
-    for root in graph.keys() {
-        if indices.contains_key(root) {
+    const UNVISITED: u32 = u32::MAX;
+    let indexed = Indexed::build(graph);
+    let node_count = indexed.names.len();
+    let mut index = 0_u32;
+    let mut indices = vec![UNVISITED; node_count];
+    let mut low = vec![0_u32; node_count];
+    let mut stack: Vec<u32> = Vec::new();
+    let mut on = vec![false; node_count];
+    let mut out: Vec<Vec<u32>> = Vec::new();
+    // Graph keys hold ids 0..key_count in sorted order, matching the original
+    // root iteration over `graph.keys()`.
+    for root in 0..indexed.key_count as u32 {
+        if indices[root as usize] != UNVISITED {
             continue;
         }
-        indices.insert(root.clone(), index);
-        low.insert(root.clone(), index);
+        indices[root as usize] = index;
+        low[root as usize] = index;
         index += 1;
-        stack.push(root.clone());
-        on.insert(root.clone());
+        stack.push(root);
+        on[root as usize] = true;
         let mut frames = vec![Frame {
-            node: root.clone(),
-            successors: graph[root].edges.keys().cloned().collect(),
+            node: root,
             offset: 0,
         }];
         while let Some(frame) = frames.last_mut() {
-            if let Some(successor) = frame.successors.get(frame.offset).cloned() {
+            if let Some(successor) = indexed.successors[frame.node as usize]
+                .get(frame.offset)
+                .map(|successor| successor.id)
+            {
                 frame.offset += 1;
-                if !indices.contains_key(&successor) {
-                    indices.insert(successor.clone(), index);
-                    low.insert(successor.clone(), index);
+                if indices[successor as usize] == UNVISITED {
+                    indices[successor as usize] = index;
+                    low[successor as usize] = index;
                     index += 1;
-                    stack.push(successor.clone());
-                    on.insert(successor.clone());
+                    stack.push(successor);
+                    on[successor as usize] = true;
                     frames.push(Frame {
-                        node: successor.clone(),
-                        successors: graph
-                            .get(&successor)
-                            .map(|node| node.edges.keys().cloned().collect())
-                            .unwrap_or_default(),
+                        node: successor,
                         offset: 0,
                     });
-                } else if on.contains(&successor) {
-                    let node = frame.node.clone();
-                    low.insert(node.clone(), low[&node].min(indices[&successor]));
+                } else if on[successor as usize] {
+                    let node = frame.node as usize;
+                    low[node] = low[node].min(indices[successor as usize]);
                 }
                 continue;
             }
-            let completed = frames.pop().expect("frame exists").node;
+            let completed = frames.pop().expect("frame exists").node as usize;
             if let Some(parent) = frames.last() {
-                low.insert(parent.node.clone(), low[&parent.node].min(low[&completed]));
+                let parent = parent.node as usize;
+                low[parent] = low[parent].min(low[completed]);
             }
-            if low[&completed] == indices[&completed] {
+            if low[completed] == indices[completed] {
                 let mut component = Vec::new();
                 loop {
                     let member = stack.pop().expect("Tarjan stack contains component");
-                    on.remove(&member);
-                    component.push(member.clone());
-                    if member == completed {
+                    on[member as usize] = false;
+                    component.push(member);
+                    if member as usize == completed {
                         break;
                     }
-                }
-                if sort_members {
-                    component.sort();
                 }
                 out.push(component);
             }
         }
     }
+    let mut out = out
+        .into_iter()
+        .map(|component| {
+            let mut component = component
+                .into_iter()
+                .map(|id| indexed.name(id).to_owned())
+                .collect::<Vec<_>>();
+            if sort_members {
+                component.sort();
+            }
+            component
+        })
+        .collect::<Vec<_>>();
     if sort_members {
         out.sort_by(|a, b| a[0].cmp(&b[0]));
     }
@@ -285,81 +400,84 @@ pub fn transitive_edges(edges: &BTreeMap<usize, BTreeSet<usize>>) -> BTreeSet<(u
 
 pub fn cycle_witness(graph: &BTreeMap<String, Node>, members: &BTreeSet<String>) -> Vec<Value> {
     struct Frame {
-        node: String,
-        successors: Vec<String>,
+        node: u32,
         offset: usize,
     }
-
-    let successors = |node: &str| {
-        graph
-            .get(node)
-            .map(|value| {
-                value
-                    .edges
-                    .keys()
-                    .filter(|target| members.contains(*target))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
+    const UNSET: u32 = u32::MAX;
+    let indexed = Indexed::build(graph);
+    let mut member_mask = vec![false; indexed.names.len()];
+    for member in members {
+        if let Some(&id) = indexed.ids.get(member.as_str()) {
+            member_mask[id as usize] = true;
+        }
+    }
+    // 0 = unvisited, 1 = on the DFS path, 2 = finished.
+    let mut state = vec![0_u8; indexed.names.len()];
+    let mut parent = vec![UNSET; indexed.names.len()];
+    let next_member = |node: u32, offset: &mut usize| {
+        while let Some(successor) = indexed.successors[node as usize].get(*offset) {
+            *offset += 1;
+            if member_mask[successor.id as usize] {
+                return Some(successor.id);
+            }
+        }
+        None
     };
-    let mut state = BTreeMap::new();
-    let mut parent = BTreeMap::new();
-    for root in members {
-        if !graph.contains_key(root) || state.contains_key(root) {
+    for root_name in members {
+        let Some(&root) = indexed.ids.get(root_name.as_str()) else {
+            continue;
+        };
+        if (root as usize) >= indexed.key_count || state[root as usize] != 0 {
             continue;
         }
-        state.insert(root.clone(), 1_u8);
+        state[root as usize] = 1;
         let mut frames = vec![Frame {
-            node: root.clone(),
-            successors: successors(root),
+            node: root,
             offset: 0,
         }];
         while let Some(frame) = frames.last_mut() {
-            let successor = frame.successors.get(frame.offset).cloned();
-            frame.offset += 1;
-            let Some(successor) = successor else {
-                state.insert(frame.node.clone(), 2);
+            let Some(successor) = next_member(frame.node, &mut frame.offset) else {
+                state[frame.node as usize] = 2;
                 frames.pop();
                 continue;
             };
-            match state.get(&successor).copied() {
-                None => {
-                    parent.insert(successor.clone(), frame.node.clone());
-                    state.insert(successor.clone(), 1);
+            match state[successor as usize] {
+                0 => {
+                    parent[successor as usize] = frame.node;
+                    state[successor as usize] = 1;
                     frames.push(Frame {
-                        node: successor.clone(),
-                        successors: successors(&successor),
+                        node: successor,
                         offset: 0,
                     });
                 }
-                Some(1) => {
-                    let cycle_end = frame.node.clone();
-                    let mut nodes = vec![cycle_end.clone()];
-                    while nodes.last().is_some_and(|node| node != &successor) {
-                        let Some(last) = nodes.last() else {
+                1 => {
+                    let cycle_end = frame.node;
+                    let mut nodes = vec![cycle_end];
+                    while nodes.last().is_some_and(|node| *node != successor) {
+                        let Some(&last) = nodes.last() else {
                             return Vec::new();
                         };
-                        let Some(previous) = parent.get(last) else {
+                        let previous = parent[last as usize];
+                        if previous == UNSET {
                             return Vec::new();
-                        };
-                        nodes.push(previous.clone());
+                        }
+                        nodes.push(previous);
                     }
                     nodes.reverse();
                     let mut witness = nodes
                         .windows(2)
-                        .map(|pair| (pair[0].clone(), pair[1].clone()))
+                        .map(|pair| (pair[0], pair[1]))
                         .collect::<Vec<_>>();
                     witness.push((cycle_end, successor));
                     return witness
                         .into_iter()
                         .map(|(from, to)| {
-                            let edge_kinds = graph
-                                .get(&from)
-                                .and_then(|node| node.edges.get(&to))
-                                .cloned()
+                            let edge_kinds = indexed.successors[from as usize]
+                                .iter()
+                                .find(|successor| successor.id == to)
+                                .map(|successor| successor.kinds.clone())
                                 .unwrap_or_else(|| BTreeSet::from(["static-import".to_owned()]));
-                            json!({"from":from,"to":to,"edgeKinds":edge_kinds})
+                            json!({"from":indexed.name(from),"to":indexed.name(to),"edgeKinds":edge_kinds})
                         })
                         .collect();
                 }

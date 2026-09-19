@@ -518,6 +518,12 @@ The tool applies its deterministic action-change, direct-check, evidence-freshne
 |---------|------------------|---------|
 | `OCTOCODE_LSP_CONFIG` | `lsp.configPath` | unset |
 
+Built-in routes cover JavaScript, TypeScript, Python, Rust, Go, Java, C, C++,
+C#, and Scala. `OCTOCODE_LSP_CONFIG` may map any other extension to a trusted
+custom command and language ID; custom routing does not make that language a
+first-class native grammar. Project-local `.octocode/lsp-servers.json` is read
+only when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`.
+
 #### Home directory
 
 | Env var | Default | Notes |

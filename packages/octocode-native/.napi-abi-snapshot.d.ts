@@ -348,8 +348,8 @@ export declare function getLanguageServerForFile(filePath: string, workspaceRoot
  * top-level semantic blocks begin in `content`.
  *
  * Uses registered Tree-sitter body queries; see `getSupportedSignatureExtensions`
- * for the compiled language set. Unsupported and structural-only languages
- * return `[]`, as do plain text and files above the 1 MB guard.
+ * for the compiled language set. Unsupported/plain-text inputs and files
+ * above the 1 MB guard return `[]`.
  *
  * Char offsets match JavaScript `string.substring()` — pass them directly to
  * JavaScript string slicing without conversion.
@@ -375,10 +375,8 @@ export declare function getSupportedGraphFactExtensions(): Array<string>
 export declare function getSupportedJsTsExtensions(): Array<string>
 
 /**
- * Returns all extensions that have signature-outline support. This is exactly
- * the set of tree-sitter grammars with a function-body query (no regex
- * heuristics): structural-only grammars (for example HTML/CSS/JSON) are
- * excluded because they produce no outline.
+ * Returns all first-class extensions. Every canonical grammar has a
+ * function-body query, so structural, signature, and graph capabilities agree.
  */
 export declare function getSupportedSignatureExtensions(): Array<string>
 
@@ -585,6 +583,13 @@ export interface JsLanguageServerConfig {
   initializationOptions?: any
   /** Extra environment variables to inject into the language server process. */
   env?: Record<string, string>
+  /**
+   * OS-level memory cap for the spawned server process, in MiB. `None`
+   * applies a generous 4 GiB default; `Some(0)` disables the cap for
+   * servers that legitimately need more (huge monorepo indexes). Internal
+   * buffer bounds do not protect the host from a runaway child — this does.
+   */
+  maxMemoryMb?: number
 }
 
 /**

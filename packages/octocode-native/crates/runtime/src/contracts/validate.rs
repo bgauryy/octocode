@@ -1130,14 +1130,14 @@ fn validate_local_search_queries(input: &Value) -> Result<(), ContractValidation
                 "unique is not valid in structural mode",
             ));
         }
-        if let Some(pattern) = pattern.and_then(Value::as_str) {
-            if two_dollar_meta.is_match(pattern) {
-                return Err(issue(
-                    "local-search.two-dollar-meta",
-                    prefix("pattern"),
-                    "two-dollar metavariables match nothing",
-                ));
-            }
+        if let Some(pattern) = pattern.and_then(Value::as_str)
+            && two_dollar_meta.is_match(pattern)
+        {
+            return Err(issue(
+                "local-search.two-dollar-meta",
+                prefix("pattern"),
+                "two-dollar metavariables match nothing",
+            ));
         }
     }
     Ok(())

@@ -368,6 +368,7 @@ fn link_file(
         );
         if let Some(t) = &target {
             add_edge(
+                b,
                 graph_builder,
                 &file,
                 &mut node,
@@ -429,12 +430,13 @@ fn link_file(
                     } else {
                         "star-reexport"
                     };
-                    add_edge(graph_builder, &file, &mut node, &t, kind, x.line)?;
+                    add_edge(b, graph_builder, &file, &mut node, &t, kind, x.line)?;
                     b.star_reexporters.entry(t).or_default().push(file.clone());
                 }
             } else {
                 if let Some(t) = &target {
                     add_edge(
+                        b,
                         graph_builder,
                         &file,
                         &mut node,
@@ -470,6 +472,7 @@ fn link_file(
             record_resolution(b, &file, c.line, &c.callee, &ext, &target, false, security);
             if let Some(t) = target {
                 add_edge(
+                    b,
                     graph_builder,
                     &file,
                     &mut node,
@@ -503,6 +506,7 @@ fn link_file(
                 record_resolution(b, &file, c.line, &spec, &ext, &target, false, security);
                 if let Some(t) = target {
                     add_edge(
+                        b,
                         graph_builder,
                         &file,
                         &mut node,
@@ -536,7 +540,14 @@ fn link_file(
     Ok(())
 }
 
+/// Upper bound on file-graph edges. File count is already capped by the scan
+/// (`max_files` ≤ 50k), but per-file import counts are attacker-sized; without
+/// an edge cap a pathological tree can exhaust memory in the edge maps and the
+/// evidence graph. Hitting the cap degrades to a truncated (diagnosed) graph.
+const MAX_GRAPH_EDGES: u32 = 2_000_000;
+
 fn add_edge(
+    b: &mut BuiltGraph,
     graph_builder: &mut octocode_engine::graph::CodeGraphBuilder,
     source: &str,
     node: &mut Node,
@@ -544,6 +555,22 @@ fn add_edge(
     kind: &str,
     line: u32,
 ) -> Result<(), AstGraphError> {
+    if b.edge_count >= MAX_GRAPH_EDGES {
+        if !b.edges_capped {
+            b.edges_capped = true;
+            b.truncated = true;
+            b.diagnostics.push(Diagnostic {
+                file: ".".into(),
+                line: None,
+                code: "graph-edge-cap".into(),
+                message: format!(
+                    "Edge collection stopped at the {MAX_GRAPH_EDGES}-edge cap; topology results are partial. Narrow the scan root or excludeDir."
+                ),
+            });
+        }
+        return Ok(());
+    }
+    b.edge_count += 1;
     node.edges
         .entry(target.into())
         .or_default()
@@ -723,11 +750,32 @@ fn resolve_rust(
         .into_iter()
         .find(|x| known.contains(x))
         .or_else(|| {
-            let name = spec.trim_end_matches(';').split("::").last()?;
-            let stem = join(dirname(importer), name);
-            [format!("{stem}.rs"), join(&stem, "mod.rs")]
-                .into_iter()
-                .find(|x| known.contains(x))
+            // Uniform-path fallback: a bare `use foo::…` can name a module the
+            // importer itself declares (`mod foo;`), whose file lives in the
+            // importer's child-module directory. Only look there — matching
+            // the last path segment anywhere in the tree fabricates edges
+            // between unrelated same-named modules.
+            let first = trimmed.split("::").next().unwrap_or("");
+            if matches!(first, "crate" | "self" | "super" | "") {
+                return None;
+            }
+            let child_dir = if importer.ends_with("/mod.rs")
+                || importer.ends_with("/lib.rs")
+                || importer.ends_with("/main.rs")
+            {
+                dirname(importer).to_owned()
+            } else {
+                importer.strip_suffix(".rs").unwrap_or(importer).to_owned()
+            };
+            let segments = trimmed.split("::").collect::<Vec<_>>();
+            // Trailing segments may be items rather than modules; take the
+            // longest module-path prefix that maps to a real file.
+            (1..=segments.len()).rev().find_map(|len| {
+                let stem = join(&child_dir, &segments[..len].join("/"));
+                [format!("{stem}.rs"), join(&stem, "mod.rs")]
+                    .into_iter()
+                    .find(|path| known.contains(path))
+            })
         })
 }
 fn resolve_python(
@@ -1009,6 +1057,32 @@ fn export_target(package: &serde_json::Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rust_uniform_path_fallback_only_links_the_importers_child_modules() {
+        let known = ["src/a.rs", "src/thing.rs", "src/b.rs", "src/b/child.rs"]
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect::<std::collections::BTreeSet<_>>();
+        let crates = std::collections::BTreeMap::new();
+        // A same-named file elsewhere in the tree must not become an edge for a
+        // path that is not one of the importer's own child modules.
+        assert_eq!(
+            super::resolve_rust("unrelated::thing;", "src/a.rs", &known, &crates),
+            None
+        );
+        // A module the importer declares (`mod child;`) lives in its child
+        // directory and resolves.
+        assert_eq!(
+            super::resolve_rust("child::item;", "src/b.rs", &known, &crates),
+            Some("src/b/child.rs".to_owned())
+        );
+        // Root-style importers (lib.rs/main.rs/mod.rs) keep sibling resolution.
+        assert_eq!(
+            super::resolve_rust("thing::item;", "src/lib.rs", &known, &crates),
+            Some("src/thing.rs".to_owned())
+        );
+    }
+
     #[test]
     fn cargo_metadata_stdout_is_drained_while_the_child_runs() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
