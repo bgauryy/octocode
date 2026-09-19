@@ -27,7 +27,7 @@ pub fn byte_slice_content(content: String, byte_start: u32, byte_end: u32) -> St
 
 /// Paginate `content` by char offset + length, with optional line-boundary
 /// snapping. Replaces both the char-mode conversion block in `applyPagination`
-/// and the dead-code `sliceByCharRespectLines` (0 callers confirmed by LSP).
+/// and the `sliceByCharRespectLines` helper.
 #[napi(js_name = "sliceContent")]
 pub fn slice_content(
     content: String,

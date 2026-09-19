@@ -203,6 +203,25 @@ test('compact runner deterministically skips inert and direct-check calls', () =
   );
 });
 
+test('generated grounding actions permit reuse of complete current original evidence', () => {
+  for (const [route, question, choice] of [
+    ['disputed_inference', 'decisive_basis', 'B1'],
+    ['hallucination_gate', 'evidence_anchor', 'E1']
+  ]) {
+    const request = { questions: { [question]: {} }, state: {} };
+    const response = { answers: {
+      [question]: { type: 'choice', choice },
+      claim_status: { type: 'choice', choice: 'supported' },
+      grounded: { type: 'noul', noul: 0.95 }
+    } };
+    const generated = buildRunApplication(route, request, response, policy);
+    assert.match(generated.actions[question], /original source/);
+    assert.match(generated.actions[question], /unless already inspected, complete and current/);
+    assert.match(generated.actions[question], new RegExp(choice));
+    assert.equal(generated.netAction, generated.actions[question]);
+  }
+});
+
 test('scope diagnostics name the exact path, expected value, and received value', () => {
   const input = triageInput();
   input.state.scope = 'revision abc';
@@ -211,6 +230,17 @@ test('scope diagnostics name the exact path, expected value, and received value'
     () => buildDecisionPacket(input, policy),
     /state\.evidence\[0\]\.scope expected "revision abc"; received "revision def"/
   );
+});
+
+test('default compact admission matches native one-judgment limit at a crossroad', () => {
+  const input = { route: 'hunch_check', model: 'jev-1.13.0', willChangeAction: true,
+    state: { goal: 'Choose a lead.', hunch: 'The changed boundary explains the symptom.', basis: 'Only calls crossing that boundary fail.' } };
+  assert.equal(prepareCompactRun({ ...input, jevCallsAtCrossroad: 0 }).status, 'ready');
+  const repeated = prepareCompactRun({ ...input, jevCallsAtCrossroad: 1 });
+  assert.equal(repeated.status, 'skipped');
+  assert.equal(repeated.routing.policyAction, 'continue_host_research');
+  assert.equal(prepareCompactRun({ ...input, jevCallsAtCrossroad: 0,
+    state: { ...input.state, basis: 'A new trace excludes the original boundary.' } }).status, 'ready');
 });
 
 test('testable triage requires precommitted predictions, weakening conditions, and branchable checks', () => {

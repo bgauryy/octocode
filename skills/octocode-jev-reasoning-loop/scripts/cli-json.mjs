@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 
 const LIMIT = 4 * 1024 * 1024;
-export function parseFlags(argv, valueFlags, booleanFlags = []) {
+export function parseFlags(argv, valueFlags, booleanFlags = [], repeatableFlags = []) {
   const result = {};
   for (let index = 0; index < argv.length; index++) {
     const key = argv[index];
@@ -10,8 +10,10 @@ export function parseFlags(argv, valueFlags, booleanFlags = []) {
       result[key] = true;
       continue;
     }
-    if (!valueFlags.includes(key) || Object.hasOwn(result, key) || !argv[index + 1] || argv[index + 1].startsWith('--')) throw new Error(`Invalid option ${key}.`);
-    result[key] = argv[++index];
+    if (!valueFlags.includes(key) || (Object.hasOwn(result, key) && !repeatableFlags.includes(key)) || !argv[index + 1] || argv[index + 1].startsWith('--')) throw new Error(`Invalid option ${key}.`);
+    const value = argv[++index];
+    if (repeatableFlags.includes(key)) (result[key] ??= []).push(value);
+    else result[key] = value;
   }
   return result;
 }

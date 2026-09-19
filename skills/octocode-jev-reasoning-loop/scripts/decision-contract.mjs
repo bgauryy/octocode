@@ -413,7 +413,7 @@ export function buildRunApplication(route, request, response, policy = DEFAULT_P
       const status = selectedChoice(response, 'claim_status');
       const basis = selectedChoice(response, 'decisive_basis');
       actions.claim_status = `Treat the bounded claim as ${status || 'undecided'} and keep the judgment advisory.`;
-      actions.decisive_basis = basis === 'none' ? 'Retrieve a decisive evidence basis before asserting the claim.' : `Reopen every source in evidence basis ${basis} before citation.`;
+      actions.decisive_basis = basis === 'none' ? 'Retrieve a decisive evidence basis before asserting the claim.' : `Inspect original sources in evidence basis ${basis} before citation unless already inspected, complete and current.`;
       netAction = ['supported', 'contradicted'].includes(status) ? actions.decisive_basis : 'Narrow the claim or retrieve evidence before reconsidering it.';
       break;
     }
@@ -421,7 +421,7 @@ export function buildRunApplication(route, request, response, policy = DEFAULT_P
       const grounded = selectedNoul(response, 'grounded') >= policy.groundedMinimum;
       const anchor = selectedChoice(response, 'evidence_anchor');
       actions.grounded = grounded ? 'Keep the assertion bounded to its grounding evidence.' : 'Block the assertion until direct grounding exists.';
-      actions.evidence_anchor = anchor === 'none' ? 'Block the assertion because no anchor was selected.' : `Cite and reopen evidence anchor ${anchor} before assertion.`;
+      actions.evidence_anchor = anchor === 'none' ? 'Block the assertion because no anchor was selected.' : `Cite evidence anchor ${anchor}; inspect its original source unless already inspected, complete and current.`;
       if (Object.hasOwn(response?.answers || {}, 'scope_matches')) {
         const matches = selectedNoul(response, 'scope_matches') >= policy.groundedMinimum;
         actions.scope_matches = matches ? 'Keep the assertion inside the declared evidence scope.' : 'Narrow the assertion to a compatible evidence scope.';

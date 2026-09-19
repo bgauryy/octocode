@@ -512,6 +512,9 @@ fn collect<M: Matcher + Sync>(
         let error_count = Arc::clone(&error_count);
         let first_error = Arc::clone(&first_error);
         let mut searcher = build_searcher(opts, context_lines);
+        // `mode`/`only_matching` are invariant for the whole search; compute the
+        // per-match work classification once per worker instead of per file.
+        let work = match_work(mode, only_matching);
 
         Box::new(move |dent| {
             // Cooperative deadline between files: abandon the rest of the walk
@@ -549,7 +552,7 @@ fn collect<M: Matcher + Sync>(
                     entry: &mut entry,
                     submatches: 0,
                     matched_lines: 0,
-                    work: match_work(mode, only_matching),
+                    work,
                     match_window,
                     om_matches: Vec::new(),
                     span_cap_reached: false,

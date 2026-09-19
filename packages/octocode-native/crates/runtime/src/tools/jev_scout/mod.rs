@@ -2,7 +2,7 @@
 //! that ranks which candidate files or pre-fetched rows the host should READ.
 //!
 //! Shares taxonomy, thresholds, and veto semantics with the skill scout runner.
-//! Budget-truncated rejections remain uncertain reads. Provider answers must
+//! Budget-truncated rejections and unexamined files remain uncertain reads. Provider answers must
 //! satisfy the same typed response validator used by the reasoning tool.
 //!
 //! A scout PRIORITIZES reads. Every verdict is `provisional` and anchored; it
@@ -26,6 +26,7 @@ use crate::providers::RequestBudget;
 use crate::tools::jev_reasoning::{JevProviderError, endpoint, post};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 mod sandbox;
@@ -462,14 +463,14 @@ fn probs_of(answer: &Value) -> Option<&Map<String, Value>> {
     answer.get("probabilities").and_then(Value::as_object)
 }
 
-/// FROZEN policy v2 (see module docs). Top level = last taxonomy entry.
+/// Read policy (see module docs). Top level = last taxonomy entry.
 fn apply_policy(
     answer: &Value,
     has_spans: bool,
     levels_len: usize,
 ) -> (&'static str, &'static str) {
     if !has_spans {
-        return ("skip", "no_evidence");
+        return ("gray_read", "no_evidence");
     }
     let top = levels_len.saturating_sub(1) as i64;
     let empty = Map::new();
@@ -524,6 +525,7 @@ struct Parsed {
     located: Vec<(String, Located)>,
     dims: Vec<Dim>,
     model: String,
+    include_evidence: bool,
 }
 
 fn parse_and_locate(query: &Value, default_model: &str) -> Result<Parsed, JevProviderError> {
@@ -702,6 +704,7 @@ fn parse_and_locate(query: &Value, default_model: &str) -> Result<Parsed, JevPro
         located,
         dims,
         model,
+        include_evidence: query.get("includeEvidence").and_then(Value::as_bool) == Some(true),
     })
 }
 
@@ -802,6 +805,23 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
             ),
         );
         row.insert("provisional".to_owned(), Value::Bool(true));
+        if parsed.include_evidence && action != "skip" {
+            row.insert(
+                "evidence".to_owned(),
+                Value::Array(
+                    loc.spans
+                        .iter()
+                        .map(|span| {
+                            json!({
+                                "source": span.source,
+                                "content": span.content,
+                                "contentHash": hex::encode(Sha256::digest(span.content.as_bytes())),
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
 
         if action == "read" {
             reads.push(Value::String(file.clone()));
@@ -824,7 +844,7 @@ fn build_results(parsed: &Parsed, response: &Value) -> Value {
 }
 
 /// Symmetric to `jev_reasoning::execute`: locate → one batched Score request →
-/// frozen policy v2. Reuses `jev_reasoning::{post, endpoint}` for HTTP.
+/// read policy. Reuses `jev_reasoning::{post, endpoint}` for HTTP.
 pub async fn execute(
     query: &Value,
     key: SecretString,
@@ -894,6 +914,164 @@ mod tests {
             probs.insert(index.to_string(), json!(prob));
         }
         json!({ "score": score, "probabilities": Value::Object(probs) })
+    }
+
+    #[test]
+    fn evidence_local_spans_preserve_redacted_content_sources_and_hashes() {
+        use sha2::{Digest, Sha256};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let secret = format!("ghp_{}", "a".repeat(37));
+        write_file(
+            dir.path(),
+            "read.txt",
+            format!("irrelevant\nanchor token={secret}\ngap\nanchor café\nend").as_bytes(),
+        );
+        write_file(dir.path(), "skip.txt", b"anchor unrelated");
+        write_file(dir.path(), "gray.txt", b"no matching evidence");
+        let parsed = parse_and_locate(
+            &json!({
+                "claim": "implements anchors", "includeEvidence": true,
+                "source": {"local": {
+                    "root": dir.path(), "candidates": ["read.txt", "skip.txt", "gray.txt"],
+                    "anchors": ["anchor"], "window": 0
+                }}
+            }),
+            "jev-test",
+        )
+        .expect("locate actual files");
+        let output = build_results(
+            &parsed,
+            &json!({"answers": {
+                "candidate_0": score_answer(&[(0, 0.0), (1, 0.0), (2, 0.0), (3, 1.0)], 3.0),
+                "candidate_1": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0),
+                "candidate_2": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0)
+            }}),
+        );
+        let row = &output["results"]["read.txt"];
+        assert_eq!(row["action"], "read");
+        assert_eq!(row["anchors"], json!(["read.txt:L2-L2", "read.txt:L4-L4"]));
+        let evidence = row["evidence"].as_array().expect("included evidence");
+        assert_eq!(evidence.len(), 2);
+        assert!(
+            evidence[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("REDACTED")
+        );
+        assert!(!output.to_string().contains(&secret));
+        assert_eq!(evidence[1]["content"], "anchor café");
+        for (returned, located) in evidence.iter().zip(&parsed.located[0].1.spans) {
+            assert_eq!(returned["source"], located.source);
+            assert_eq!(returned["content"], located.content);
+            assert_eq!(
+                returned["contentHash"],
+                hex::encode(Sha256::digest(located.content.as_bytes()))
+            );
+        }
+        assert_eq!(output["results"]["skip.txt"]["action"], "skip");
+        assert!(output["results"]["skip.txt"].get("evidence").is_none());
+        assert_eq!(output["results"]["gray.txt"]["action"], "gray_read");
+        assert_eq!(output["results"]["gray.txt"]["evidence"], json!([]));
+        assert_eq!(output["requiredReads"], json!(["read.txt", "gray.txt"]));
+    }
+
+    #[test]
+    fn evidence_items_preserve_truncated_rejections_and_return_only_selected_rows() {
+        use sha2::{Digest, Sha256};
+
+        let parsed = parse_and_locate(
+            &json!({"claim": "implements parsing", "includeEvidence": true, "itemSpanBudget": 200,
+            "source": {"items": [
+                {"id": "cut", "content": "x".repeat(400), "source": "repo#1"},
+                {"id": "read", "content": "parser implementation", "source": "repo#2"},
+                {"id": "skip", "content": "unrelated complete text", "source": "repo#3"}
+            ]}}),
+            "jev-test",
+        )
+        .unwrap();
+        let output = build_results(
+            &parsed,
+            &json!({"answers": {
+                "candidate_0": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0),
+                "candidate_1": score_answer(&[(0, 0.0), (1, 0.0), (2, 0.0), (3, 1.0)], 3.0),
+                "candidate_2": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0)
+            }}),
+        );
+        let cut = &output["results"]["cut"];
+        assert_eq!(cut["action"], "gray_read");
+        assert_eq!(cut["reason"], "incomplete_excerpt");
+        assert_eq!(cut["truncated"], true);
+        assert_eq!(cut["coverage"], 0.5);
+        assert_eq!(
+            cut["evidence"],
+            json!([{
+                "source": "repo#1", "content": "x".repeat(200),
+                "contentHash": hex::encode(Sha256::digest("x".repeat(200).as_bytes()))
+            }])
+        );
+        assert_eq!(
+            output["results"]["read"]["evidence"][0]["content"],
+            "parser implementation"
+        );
+        assert!(output["results"]["skip"].get("evidence").is_none());
+        assert_eq!(output["requiredReads"], json!(["cut", "read"]));
+    }
+
+    #[test]
+    fn evidence_option_preserves_default_output_and_judgment_policy() {
+        let mut query = json!({"claim": "owns configuration", "source": {"items": [
+            {"id": "read", "content": "owns configuration"},
+            {"id": "skip", "content": "unrelated"}
+        ]}});
+        let response = json!({"model": "jev-test", "usage": {"input_tokens": 1, "output_tokens": 1}, "answers": {
+            "candidate_0": score_answer(&[(0, 0.0), (1, 0.0), (2, 0.0), (3, 1.0)], 3.0),
+            "candidate_1": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0)
+        }});
+        let default = build_results(&parse_and_locate(&query, "jev-test").unwrap(), &response);
+        assert!(default["results"]["read"].get("evidence").is_none());
+        assert_eq!(default["results"]["read"].as_object().unwrap().len(), 9);
+        query["includeEvidence"] = json!(false);
+        assert_eq!(
+            build_results(&parse_and_locate(&query, "jev-test").unwrap(), &response),
+            default
+        );
+        query["includeEvidence"] = json!(true);
+        let mut included = build_results(&parse_and_locate(&query, "jev-test").unwrap(), &response);
+        assert!(
+            included["results"]["read"]
+                .as_object_mut()
+                .unwrap()
+                .remove("evidence")
+                .is_some()
+        );
+        assert_eq!(included, default);
+    }
+
+    #[test]
+    fn unsampled_candidates_remain_required_reads_even_when_model_rejects() {
+        let mut parsed = parse_and_locate(
+            &json!({"claim": "owns configuration", "source": {"items": [
+                {"id": "unexamined", "content": "source not selected by anchors"},
+                {"id": "examined", "content": "unrelated source"}
+            ]}}),
+            "jev-test",
+        )
+        .unwrap();
+        parsed.located[0].1.spans.clear();
+        parsed.located[0].1.coverage = 0.0;
+        let output = build_results(
+            &parsed,
+            &json!({"answers": {
+                "candidate_0": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0),
+                "candidate_1": score_answer(&[(0, 1.0), (1, 0.0), (2, 0.0), (3, 0.0)], 0.0)
+            }}),
+        );
+        assert_eq!(output["results"]["unexamined"]["action"], "gray_read");
+        assert_eq!(output["results"]["unexamined"]["reason"], "no_evidence");
+        assert_eq!(output["results"]["unexamined"]["level"], Value::Null);
+        assert_eq!(output["results"]["examined"]["action"], "skip");
+        assert_eq!(output["requiredReads"], json!(["unexamined"]));
     }
 
     #[test]
@@ -1166,12 +1344,15 @@ mod tests {
         assert!(questions.contains_key("candidate_1"));
     }
 
-    // ---- policy v2 table --------------------------------------------------
+    // ---- read policy table -----------------------------------------------
 
     #[test]
-    fn policy_v2_table() {
-        // no evidence -> skip
-        assert_eq!(apply_policy(&json!({}), false, 4), ("skip", "no_evidence"));
+    fn read_policy_table() {
+        // no source evidence -> uncertain read
+        assert_eq!(
+            apply_policy(&json!({}), false, 4),
+            ("gray_read", "no_evidence")
+        );
         // argmax top -> read
         assert_eq!(
             apply_policy(
@@ -1227,6 +1408,7 @@ mod tests {
         let parsed = Parsed {
             claim: claim.to_owned(),
             model: "jev-latest".to_owned(),
+            include_evidence: false,
             dims,
             located: vec![(
                 "a".to_owned(),

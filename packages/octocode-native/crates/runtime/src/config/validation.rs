@@ -193,9 +193,19 @@ pub fn validate_config(config: &Value) -> ValidationResult {
     let net = object(root.get("network"), "network", &mut e);
     if let Some(o) = net {
         number(o.get("timeout"), "network.timeout", 5000., 300000., &mut e);
-        number(o.get("maxRetries"), "network.maxRetries", 0., 10., &mut e)
+        number(o.get("maxRetries"), "network.maxRetries", 0., 10., &mut e);
+        boolean(
+            o.get("allowPrivateRegistry"),
+            "network.allowPrivateRegistry",
+            &mut e,
+        )
     }
-    warn_unknown(net, "network", &["timeout", "maxRetries"], &mut w);
+    warn_unknown(
+        net,
+        "network",
+        &["timeout", "maxRetries", "allowPrivateRegistry"],
+        &mut w,
+    );
     let lsp = object(root.get("lsp"), "lsp", &mut e);
     if let Some(o) = lsp {
         string(o.get("configPath"), "lsp.configPath", &mut e)
@@ -237,6 +247,25 @@ pub fn validate_config(config: &Value) -> ValidationResult {
     warn_unknown(ext_storage, "extension.storage", &["mode"], &mut w);
     warn_unknown(output, "output", &["format", "pagination"], &mut w);
     warn_unknown(pag, "output.pagination", &["defaultCharLength"], &mut w);
+    // `.octocoderc` is read only from `octocode_home` (never a cloned project),
+    // so — like `github.apiUrl` — the Jev credential/endpoint may live here as
+    // a fallback for the protected `OCTOCODE_JEV_*` env vars. Values themselves
+    // are never inspected below beyond a type check, so nothing here can echo
+    // the key back into a diagnostic message.
+    let jev = object(root.get("jev"), "jev", &mut e);
+    if let Some(o) = jev {
+        string(o.get("key"), "jev.key", &mut e);
+        string(o.get("baseUrl"), "jev.baseUrl", &mut e);
+        string(o.get("model"), "jev.model", &mut e);
+        if let Some(s) = o.get("baseUrl").and_then(Value::as_str) {
+            match url::Url::parse(s) {
+                Ok(u) if matches!(u.scheme(), "http" | "https") => {}
+                Ok(_) => e.push("jev.baseUrl: Only http/https URLs allowed".into()),
+                Err(_) => e.push("jev.baseUrl: Invalid URL format".into()),
+            }
+        }
+    }
+    warn_unknown(jev, "jev", &["key", "baseUrl", "model"], &mut w);
     warn_unknown(
         Some(root),
         "",
@@ -251,6 +280,7 @@ pub fn validate_config(config: &Value) -> ValidationResult {
             "output",
             "storage",
             "extension",
+            "jev",
         ],
         &mut w,
     );

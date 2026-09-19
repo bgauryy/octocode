@@ -117,14 +117,19 @@ pub(super) enum Command {
         /// Raw JSON query object. Alias for the positional JSON form, matching the Node CLI.
         #[arg(long = "queries", value_name = "JSON", conflicts_with = "queries")]
         queries_flag: Option<String>,
-        /// Read the JSON query from a file instead of the command line. Spares
-        /// agents shell-quoted inline packets (measured 33k extra agent tokens
-        /// over nine hand-authored packets, A/B 2026-09-19).
+        /// Read the JSON query from a file to avoid shell-quoting large packets.
         #[arg(long = "input", value_name = "FILE", conflicts_with_all = ["queries", "queries_flag"])]
         input: Option<std::path::PathBuf>,
         /// Print the complete contract for the given tool instead of executing it.
         #[arg(long)]
         scheme: bool,
+        /// Schema view: full contract (default), or the self-contained query schema.
+        #[arg(long, value_enum, requires_all = ["scheme", "tool"])]
+        scheme_view: Option<super::schema::SchemeView>,
+        /// Select one union branch by a const field, e.g. route=source_questions.
+        /// Requires --scheme --scheme-view query and a tool name.
+        #[arg(long, value_name = "FIELD=VALUE", requires_all = ["scheme", "scheme_view", "tool"])]
+        scheme_select: Option<String>,
         /// Emit structured JSON output.
         #[arg(long)]
         json: bool,

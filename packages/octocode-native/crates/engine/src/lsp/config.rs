@@ -482,7 +482,7 @@ fn find_node_module_file_from(start: &Path, package_relative_path: &str) -> Opti
     None
 }
 
-fn current_node_command() -> Option<String> {
+pub(super) fn current_node_command() -> Option<String> {
     std::env::current_exe()
         .ok()
         .filter(|path| is_executable_path(path) && is_node_executable(path))

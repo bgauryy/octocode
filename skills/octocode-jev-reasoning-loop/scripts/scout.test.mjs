@@ -49,11 +49,11 @@ test('buildScoutRequest: one shared state, one score question per candidate, str
   assert.equal(req.state.candidates['b.mjs'], 'no anchor matches in this file');
 });
 
-test('applyPolicy implements frozen v2 exactly', () => {
+test('applyPolicy preserves thresholds while requiring reads for unsampled candidates', () => {
   const loc = { spans: [{ source: 's' }] };
   const noLoc = { spans: [] };
-  // no evidence -> skip
-  assert.equal(applyPolicy({}, noLoc, DEFAULTS).action, 'skip');
+  // An anchor miss is not a model rejection of the file.
+  assert.deepEqual(applyPolicy({}, noLoc, DEFAULTS), { action: 'gray_read', reason: 'no_evidence' });
   // argmax top -> read
   assert.equal(applyPolicy({ score: 3, probabilities: { 0: 0, 1: 0, 2: 0.1, 3: 0.9 } }, loc, DEFAULTS).action, 'read');
   // P(top) <= 0.25 -> skip

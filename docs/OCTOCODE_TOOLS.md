@@ -124,7 +124,7 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `astRewrite` | Internal/local | Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery. Apply is separately opt-in; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
-| `jevReasoning` | External | Sends one bounded, caller-specified reasoning fork to TypeSafe Jev and returns a provisional typed judgment. It does not supply facts, invent alternatives, execute checks, or turn its result into evidence. |
+| `jevReasoning` | Hybrid | Reads bounded source paths for independent claims, or judges a caller-supplied reasoning fork. Returns provisional typed probabilities; it does not execute checks or establish source facts. |
 | `jevScout` | Hybrid | Reads bounded, redacted local spans or accepts pre-fetched rows, then asks TypeSafe Jev to rank which candidates to read. Returned actions and probabilities are provisional, not evidence. |
 
 Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jevReasoning` and `jevScout` require a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register either tool.
@@ -1346,10 +1346,11 @@ Workspace-symbol search:
 
 ## Jev reasoning reference
 
-Use `jevReasoning` only at an evidence-driven reasoning crossroad that a deterministic lookup or test cannot settle cheaply. The caller must provide the alternatives, source-anchored observations, and a bounded public deliberation summary. Jev calibrates that supplied fork; its output remains provisional and is never a fact or evidence source.
+Use `jevReasoning route:source_questions` before substantial source reading: pass absolute `sources` paths and independent bounded `questions` claims. Octocode reads and redacts all sources into one shared request; the host need not build an evidence packet. Judgments choose the next deciding read or test. Other routes review supplied evidence and alternatives. Prefer a cheap deterministic check when it settles the question. All judgments remain provisional.
 
 | Route | Use |
 | --- | --- |
+| `source_questions` | Judge independent claims against source paths read by the runtime: supported, contradicted, insufficient or conflicting. |
 | `hunch_check` | Decide whether one weak lead merits further hypothesis work. |
 | `hypothesis_triage` | Rank two to five supplied hypotheses and candidate discriminating checks. |
 | `reflection_delta` | Reconsider a prior lead after one material new observation. |
@@ -1361,12 +1362,12 @@ Every query includes `willChangeAction`, `directCheck`, `evidenceFresh`, `jevCal
 
 Optional query `context` keeps supplemental material separate from the required route `state`. Use `context.cot` only for a compact, shareable decision trace, `context.thinking` for a shareable summary of current beliefs or considerations, and `context.context` or additional JSON fields for relevant task, conversation, memory, tool, or agent facts. Never provide raw private chain-of-thought. Omit `context` when the bounded route state is sufficient. Octocode nests supplied context under `state.context` in the documented provider request; it does not inject the mandatory host `deliberation`.
 
-The shared envelope accepts one to five independent queries. Each row is a separate fork and receives its own judgment; batching does not create a multi-step Jev conversation. Successful provider rows include `provisional: true`, the typed judgment, a `policyAction`, and a host-owned `nextAction`. Octocode can recommend that action but does not execute it.
+The shared envelope accepts one to five independent queries. Each row is a separate fork and receives its own judgment; batching does not create a multi-step Jev conversation. Successful provider rows include `provisional: true`, typed answers and provider usage. Source questions add source paths, ranges and hashes without returning bodies. Evidence-based routes also return a `policyAction` and host-owned `nextAction`; Octocode does not execute it.
 
 Set `OCTOCODE_JEV_KEY` through a protected resolved environment source to expose the tool. `OCTOCODE_JEV_MODEL` and `OCTOCODE_JEV_BASE_URL` optionally override the default model and trusted API root. Inspect the complete bounded route schema before constructing a call:
 
 ```bash
-npx octocode jevReasoning --scheme
+npx -y octocode tools jevReasoning --scheme --scheme-view query --scheme-select route=source_questions --json
 ```
 
 Invoke the direct CLI command with the same bulk JSON object accepted by MCP:
@@ -1379,7 +1380,7 @@ npx octocode jevReasoning '<json>'
 
 Use `jevScout` to prioritize a selective fan-out of candidate files or pre-fetched rows before reading them into the host context. Each query supplies one claim and exactly one source: two to twelve root-relative local files with regex anchors, or two to twelve bounded items with stable IDs. Local reads remain inside the resolved sandbox and are redacted before provider access.
 
-Omit `dimensions` to use the default relevance taxonomy. A custom taxonomy can define one to four dimensions, exactly one `primary`, plus optional `veto` and `info` dimensions. Candidate count multiplied by dimension count cannot exceed 24 judgments per query. Results return source anchors, coverage, taxonomy levels, probabilities, and a provisional `read`, `gray_read`, or `skip` action. Reopen the returned anchors with an exact reader before citing or asserting anything.
+Omit `dimensions` and `taxonomy` to use the default `implements` taxonomy; use `taxonomy:"relevance"` to locate evidence relevant to a question. A custom taxonomy can define one to four dimensions, exactly one `primary`, plus optional `veto` and `info` dimensions. Candidate count multiplied by dimension count cannot exceed 24 judgments per query. Results return source anchors, coverage, taxonomy levels, probabilities, and a provisional `read`, `gray_read`, or `skip` action. With `includeEvidence:true`, inspect the returned original `read`/`gray_read` excerpts before citing or asserting anything; fetch missing or incomplete deciding spans.
 
 `jevScout` uses the same `OCTOCODE_JEV_KEY`, `OCTOCODE_JEV_MODEL`, and `OCTOCODE_JEV_BASE_URL` settings as `jevReasoning`. Inspect its current schema before constructing a call:
 

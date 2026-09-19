@@ -95,15 +95,22 @@ fn group_kill(_child: &Child) {}
 
 async fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> Result<String> {
     if executable_has_node_shebang(validated_command).await? {
-        args.insert(0, validated_command.to_owned());
-        return std::env::current_exe()
-            .map(|path| path.to_string_lossy().into_owned())
+        let node = tokio::task::spawn_blocking(super::config::current_node_command)
+            .await
             .map_err(|err| {
                 Error::new(
                     Status::GenericFailure,
-                    format!("Failed to resolve current Node executable: {err}"),
+                    format!("Failed to resolve Node executable: {err}"),
                 )
-            });
+            })?
+            .ok_or_else(|| {
+                Error::new(
+                    Status::GenericFailure,
+                    "Node executable is required to start this language server",
+                )
+            })?;
+        args.insert(0, validated_command.to_owned());
+        return Ok(node);
     }
     Ok(validated_command.to_owned())
 }

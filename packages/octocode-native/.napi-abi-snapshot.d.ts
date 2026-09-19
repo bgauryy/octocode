@@ -906,7 +906,7 @@ export declare const SIGNATURES_ONLY_HINT: string
 /**
  * Paginate `content` by char offset + length, with optional line-boundary
  * snapping. Replaces both the char-mode conversion block in `applyPagination`
- * and the dead-code `sliceByCharRespectLines` (0 callers confirmed by LSP).
+ * and the `sliceByCharRespectLines` helper.
  */
 export declare function sliceContent(content: string, charOffset: number, charLength: number, options?: SliceContentOptions | undefined | null): SliceContentResult
 

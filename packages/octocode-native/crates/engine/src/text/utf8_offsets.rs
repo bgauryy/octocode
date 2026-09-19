@@ -73,8 +73,7 @@ fn utf16_len(s: &str) -> usize {
 /// When `snap_to_line_boundary` is true the slice always starts at the
 /// beginning of the containing line and ends at the end of the last complete
 /// line within the window — equivalent to the TypeScript `sliceByCharRespectLines`
-/// (dead code, 0 callers confirmed by LSP) merged with the char-mode path of
-/// `applyPagination`.
+/// merged with the char-mode path of `applyPagination`.
 pub(crate) fn slice_content_inner(
     content: &str,
     char_offset: usize,

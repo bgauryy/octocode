@@ -1,6 +1,6 @@
 # Research routing
 
-Load when choosing a reasoning route and its input state. Why: hypothesis selection, belief updating, claim assessment, and assertion grounding ask different questions.
+Load when choosing an evidence-based reasoning route and its input state. Native `source_questions` instead takes paths and independent claims before host body reads; use the SKILL.md example without a packet. The table below describes the standalone/evidence routes. Why: hypothesis selection, belief updating, claim assessment, and assertion grounding ask different questions.
 
 | Route | Use when | Schema | Result |
 |---|---|---|---|
@@ -15,7 +15,7 @@ Choose the judgment object before the grammar: a migration, architecture, rollou
 
 Do not route exact facts, arithmetic, permissions, dates, versions, empty-evidence assertions, stale evidence, or already-obvious checks to Jev. Do not add a Jev question merely because the primitive can express it: if the answer cannot change the next action, skip it. Run `scripts/route-decision.mjs` first when the boundary is uncertain.
 
-A route can advance only on state change: hunch → named alternatives; triage → frozen prediction then executed observation; reflection → updated, abandoned, or reframed state; claim-check → independently reopened basis; gate → scoped output. One call per crossroad is normal; one follow-up is allowed only after material new evidence. `assets/default-policy.json` sets the hard maximum.
+A route can advance only on state change: hunch → named alternatives; triage → frozen prediction then executed observation; reflection → updated, abandoned, or reframed state; claim-check → verified original basis; gate → scoped output. Reuse an already inspected, complete and current basis; retrieve it when changed, incomplete or unseen. The current policy permits one judgment per crossroad. Materially changed state or a new decision can create a new crossroad only when another judgment would change the next action; do not reset the counter to repeat an unchanged vote. `assets/default-policy.json` sets the hard maximum.
 
 The runner checks direct lookups, missing or stale evidence, incompatible scope, and exhausted call budgets before inference. It builds, validates and applies the response internally; do not add separate host calls for those phases. The action contract is `assets/apply-output.schema.json`. `assets/default-policy.json` owns thresholds and limits, which are local policy rather than Jev guarantees.
 

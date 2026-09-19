@@ -24,7 +24,9 @@ The browser composition pattern was inspected at [`browser-use/jev-ultrafast@452
 
 The Rust client uses `ureq 3.4.2` with Rustls, `serde_json`, and `httpdate`. The vendored `scripts/octocode-config.mjs` is an injected standalone build artifact from `@octocodeai/config`; skill code imports it relatively.
 
-## Current contract family
+## Standalone contract family
+Native `jevReasoning route:source_questions` is defined by the live Octocode schema and reads paths internally; it needs no standalone packet.
+
 Private input: `decision-brief.schema.json`. Public routes: hunch, hypothesis-triage, decision-review, reflection-delta, claim-check, and hallucination-gate. Application and policy: `apply-output.schema.json` and `default-policy.json`. `scripts/verify-reasoning-loop.mjs` validates their invariants and native dry-runs all six public routes without API calls.
 
 Next: when implementing packets return to `references/protocol.md`; when measuring benefit use `references/benchmark.md`.

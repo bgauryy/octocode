@@ -1,6 +1,6 @@
 ---
 name: octocode-jev-reasoning-loop
-description: "Use when semantic triage can avoid expensive reads, independent conditions share evidence, or an unresolved hypothesis, inference, or consequential plan needs judgment. Skip exact checks, unchanged votes, and calls that cannot change the next action."
+description: "Use when costly source reading can be offloaded before it enters agent context: pass Jev paths and bounded claims to choose the next check, or scout candidates to avoid irrelevant reads. Also review unresolved hypotheses or consequential plans. Use when avoided reading or deliberation repays the call; skip cheap exact checks."
 ---
 # Octocode Jev reasoning loop
 
@@ -9,46 +9,40 @@ related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise use the entry point below.
 
-Jev returns typed probabilities over supplied evidence, not explanations or new facts. The host owns evidence, policy and action.
+Pass **where to read and what to judge**, before reading candidate bodies yourself. Octocode retrieves bounded, redacted source for Jev. The host chooses the next check and verifies the result. Confidence is not correctness.
 
-## Choose one useful call
+Flow: `LOCATE PATHS → CHOOSE A USEFUL JUDGMENT → CHECK DECIDING EVIDENCE → ACT`.
 
-| Unresolved work | Route | Next step |
-|---|---|---|
-| Mostly irrelevant candidates would require expensive reads | `jevScout`; standalone `scripts/code-scout.mjs` / `scripts/scout.mjs`; fetched history rows `scripts/pr-triage.mjs` | Inspect read and gray_read candidates; widen incomplete excerpts. |
-| Independent semantic conditions over selected shared evidence | `scripts/ask-file.mjs --questions` or `--aspects`; structured input `scripts/profile.mjs` | Batch questions once; apply caller thresholds and AND/OR in code. Conditions use the profile path, not a separate native tool. |
-| An unresolved alternative, inference, or consequential plan | `scripts/run-loop.mjs` | One bounded review, then its discriminating check or revision. The runner builds, validates and applies internally. |
+## Source paths, then judgments
 
-Use exact reads, AST/LSP or tests when they settle the question. Skip scouting when every candidate must be read. Counts alone do not trigger calls. Do not chain scout → conditions → reasoning automatically, or add a final gate after evidence already settles the action.
+Discover paths with Octocode search, symbols or known locations. When semantic inspection would require substantial reading, use native `jevReasoning` with `route: "source_questions"`. Supply paths and independent affirmative claims; the runtime reads all sources into one shared state. No host-written evidence packet is needed.
 
-## Evidence and questions
+Inspect only this route's schema: `octocode tools jevReasoning --scheme --scheme-view query --scheme-select route=source_questions --json --compact`.
 
-- Supply the decision, scope, anchored evidence and counterevidence; omit conversation history and private scratch reasoning.
-- Questions are self-contained: IDs carry no instructions and answers are independent. Batch identical selected state. Dependent questions need new state or an explicit premise.
-- Noul is P(yes); Choice selects unordered alternatives; Score uses ordered levels. Confidence is distribution concentration, not correctness. Thresholds are question/primitive-specific.
-- Name the function and input. Instead of presupposing support with “does it preserve contentRef labels?”, use one Choice: preserves/replaces/unsupported/insufficient.
-- Hypotheses need alternatives and a distinguishing check; classification does not. Execute an available cheap deciding test directly.
-- Before asserting source behavior, inspect decisive original evidence if not already inspected and current. Reread for changed or incomplete evidence, not merely because Jev ran.
-- Never prove absence from a skip, force uncertainty into a boolean, repeat unchanged votes, or treat Jev as authorization. Errors are not false conditions.
+```json
+{"queries":[{"reasoning":"Choose the next cancellation regression to test","route":"source_questions","sources":[{"path":"/absolute/src/request.ts"},{"path":"/absolute/src/cache.ts"}],"questions":{"lateWrite":"A request cancelled after dispatch can still write its result to the shared cache."}}]}
+```
 
-## Run
+Use observed paths. Optional line ranges narrow large files; optional `context` supplies the symptom or scope, not asserted proof. Claims share the sources but cannot depend on another answer. IDs carry no instructions. Invalid or oversized selections fail explicitly; narrow paths/ranges using the returned error.
 
-Use absolute skill paths from the workspace. When setting credentials, follow `references/configuration.md`. Keep inputs, responses, decisions and logs under `<output>/octocode-jev-reasoning-loop/`; scratch under `<output>/tmp/octocode-jev-reasoning-loop/`. Explicit runner outputs belong there; requested source edits retain their paths.
+Answers distinguish **supported, contradicted, insufficient and conflicting**, with probabilities and source fingerprints, without returning bodies. Use the judgment to choose a test or exact read. Inspect deciding evidence before source assertions or patches; tests can settle behavior directly. Uncertainty is not false. Never repeat unchanged votes or automatically chain routes.
 
-For independent source questions:
-`node <skill-dir>/scripts/ask-file.mjs --files src/retry.ts --questions "Does it retry failed requests? || Does it implement backoff?" --model jev-1.13.0`
+## When another route saves more
 
-For a scoped typed profile, use `--aspects aspects.json --context "Public input accepted by parseInput"`; structured input is `assets/profile-input.schema.json`. For reasoning, use `scripts/run-loop.mjs --input compact.json` with `assets/run-loop-input.schema.json`. Dry-run unfamiliar input shapes; do not add a dry-run before every valid invocation.
+- Many candidate files, only some worth reading → `jevScout`, `taxonomy: "relevance"`, `includeEvidence: true`. Supply the question as `claim` and paths in `source.local`. Inspect returned `read` and `gray_read` excerpts; widen missing or truncated spans. A skip never proves absence. The default taxonomy asks which files implement a capability. Details: `references/scout.md`.
+- Evidence already inspected, but a consequential choice remains unresolved → the other `jevReasoning` routes; load `references/routing.md`. Reuse current evidence and counterevidence. Do not repackage already-read bodies to claim reading savings.
+- Standalone typed aspects per file → `references/profile.md`; native source questions instead combine files.
 
-Keep deciding spans complete. `contentRef` fails above its character budget (default 1200, maximum 4000); narrow to a complete span or raise the bound. Pin models for comparisons and retain model, usage, anchors, coverage and artifacts.
+A known anchor, exact lookup, cheap discriminating test or file you must read anyway usually warrants a direct check. Count preparation, schema reads, calls and follow-up reads when deciding whether Jev saved work. Judgments never grant authorization.
 
-## Depth routes
+Use the same protocol for local code and pinned upstream checkouts; preserve repository/ref and source anchors. Already-read GitHub text offers no initial reading savings.
 
-- Candidate extraction and read policy → `references/scout.md`.
-- Conditions, typed profiles and applicability → `references/profile.md`.
-- Reasoning route and state → `references/routing.md`; packet debugging → `references/research.md`.
-- Evidence selection → `references/context.md`; composed applications → `references/patterns.md`.
-- API primitives/limits → `references/protocol.md`; primary sources → `references/references.md`.
-- Workflow benefit and guardrails → `references/benchmark.md`.
+## Execution and artifacts
 
-After runtime changes, run `npm test` and the `octocode-skills` reviewer. Build and standalone packaging: `README.md`.
+Keep inputs, responses, decisions and logs under `<output>/octocode-jev-reasoning-loop/`; scratch under `<output>/tmp/octocode-jev-reasoning-loop/`. Source edits retain their requested paths. Credentials → `references/configuration.md`.
+
+Run `octocode tools jevReasoning --input .octocode/octocode-jev-reasoning-loop/request.json --json --compact`; `--input` takes a file, while inline JSON is positional. Full `--scheme` includes output contracts. Pin comparison models; measure host usage separately from provider usage.
+
+Load details only as needed: evidence selection → `references/context.md`; packet debugging → `references/research.md`; primitives/limits → `references/protocol.md`; primary sources → `references/references.md`; measurement → `references/benchmark.md`. Standalone setup and packaging → `README.md`.
+
+After runtime changes, run `npm test` and the `octocode-skills` reviewer.

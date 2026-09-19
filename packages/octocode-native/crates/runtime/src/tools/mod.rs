@@ -10,6 +10,7 @@ pub mod gh_search_history;
 pub mod id;
 pub mod jev_reasoning;
 pub mod jev_scout;
+pub mod jev_source_questions;
 pub mod local_fetch;
 pub mod local_search;
 pub mod lsp_search;

@@ -198,6 +198,29 @@ pub fn resolve_env_token(e: &BTreeMap<String, String>) -> Option<PrivateTokenSel
     }
     None
 }
+/// `OCTOCODE_JEV_KEY`/`_BASE_URL`/`_MODEL` are `PROTECTED_KEYS`: an untrusted
+/// project `.env` can never set them. But the trusted `.octocoderc` `jev`
+/// section (same trust tier as `github.apiUrl`, read only from `octocode_home`,
+/// never a cloned project) may — mirroring the env-then-file fallback every
+/// other setting uses. Real env still wins; this only fills a gap. Written
+/// into `effective` (not `ResolvedConfig`) so the key can never round-trip
+/// through `get_config_value`/`config get` and leak in a printed dump.
+fn apply_jev_file_fallback(file: Option<&Value>, effective: &mut BTreeMap<String, String>) {
+    let jev = object(file, "jev");
+    for (env_key, file_key) in [
+        ("OCTOCODE_JEV_KEY", "key"),
+        ("OCTOCODE_JEV_BASE_URL", "baseUrl"),
+        ("OCTOCODE_JEV_MODEL", "model"),
+    ] {
+        let has_env_value = effective.get(env_key).is_some_and(|v| !v.trim().is_empty());
+        if has_env_value {
+            continue;
+        }
+        if let Some(v) = str_field(jev, file_key).filter(|s| !s.trim().is_empty()) {
+            effective.insert(env_key.to_owned(), v);
+        }
+    }
+}
 pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
     let gt = match &input.global_env {
         FileInput::Read { text, .. } => Some(text.as_str()),
@@ -258,6 +281,7 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         "absent" if has_env => ConfigSource::Env,
         _ => ConfigSource::Defaults,
     };
+    apply_jev_file_fallback(file.as_ref(), &mut effective);
     let resolved = resolve_sections(file.as_ref(), &effective);
     let token = resolve_env_token(&effective);
     let config_path = (state != "absent").then(|| load.path.clone());

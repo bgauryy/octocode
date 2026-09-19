@@ -88,7 +88,7 @@ const runLoopInput = load('run-loop-input.schema.json');
 assert.deepEqual(runLoopInput.required, ['route', 'willChangeAction', 'state']);
 assert.match(runLoopInput.properties.reasoning.description, /never hidden chain-of-thought|private scratch/i);
 assert.equal(DEFAULT_POLICY.softTieGap, 0.15);
-assert.equal(DEFAULT_POLICY.maxJevCallsPerCrossroad, 2);
+assert.equal(DEFAULT_POLICY.maxJevCallsPerCrossroad, 1);
 console.log('  ✓ decision-brief.schema.json, run-loop-input.schema.json, apply-output.schema.json, default-policy.json');
 
 if (!skipDryrun) {

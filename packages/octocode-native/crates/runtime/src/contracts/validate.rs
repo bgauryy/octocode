@@ -1475,6 +1475,63 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
+    fn source_questions_defaults_follow_the_selected_route_without_broadening_admission() {
+        let source = json!({
+            "route": "source_questions",
+            "reasoning": "Check native source-question admission.",
+            "sources": [{"path": "/tmp/source-questions.rs"}],
+            "questions": {"supports": "The supplied source supports this claim."}
+        });
+        let admitted = validate("jevReasoning", json!({"queries": [source.clone()]}))
+            .expect("valid source-question envelope");
+        let query = &admitted["queries"][0];
+        assert_eq!(query["debug"], false);
+        assert_eq!(query["maxChars"], 24000);
+        assert!(query.get("evidenceFresh").is_none());
+        assert!(query.get("jevCallsAtCrossroad").is_none());
+        let prepared = prepare_and_validate(
+            "jevReasoning",
+            source.clone(),
+            PrepareOptions {
+                source_label: "fixture",
+            },
+        )
+        .expect("complete native preparation and validation");
+        assert_eq!(prepared["maxChars"], 24000);
+        assert!(prepared.get("evidenceFresh").is_none());
+        for field in ["evidenceFresh", "jevCallsAtCrossroad", "unknown"] {
+            let mut invalid = source.clone();
+            invalid[field] = json!(true);
+            assert!(validate("jevReasoning", json!({"queries": [invalid]})).is_err());
+        }
+        let mut empty_questions = source;
+        empty_questions["questions"] = json!({});
+        assert!(validate("jevReasoning", json!({"queries": [empty_questions]})).is_err());
+    }
+
+    #[test]
+    fn legacy_jev_route_defaults_and_explicit_values_are_preserved() {
+        let legacy = json!({
+            "route": "hallucination_gate", "reasoning": "Check legacy default admission.",
+            "willChangeAction": true, "directCheck": {"available": false},
+            "state": {"goal": "Assess a claim.", "claim": "The source supports this claim.",
+                "evidence": [{"id": "E1", "source": "fixture.rs:L1", "scope": "fixture", "content": "Observed source text."}]}
+        });
+        let admitted = validate("jevReasoning", json!({"queries": [legacy.clone()]}))
+            .expect("legacy route remains valid");
+        assert_eq!(admitted["queries"][0]["debug"], false);
+        assert_eq!(admitted["queries"][0]["evidenceFresh"], true);
+        assert_eq!(admitted["queries"][0]["jevCallsAtCrossroad"], 0);
+        let mut explicit = legacy;
+        explicit["evidenceFresh"] = json!(false);
+        explicit["jevCallsAtCrossroad"] = json!(1);
+        let admitted = validate("jevReasoning", json!({"queries": [explicit]}))
+            .expect("explicit legacy values remain valid");
+        assert_eq!(admitted["queries"][0]["evidenceFresh"], false);
+        assert_eq!(admitted["queries"][0]["jevCallsAtCrossroad"], 1);
+    }
+
+    #[test]
     fn validates_local_fetch_and_applies_schema_defaults() {
         let output = validate(
             "localFetch",

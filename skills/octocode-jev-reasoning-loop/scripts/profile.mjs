@@ -5,8 +5,8 @@
 // and redacted outside the host model context, and oversized inputs fail rather
 // than being silently summarized. Each source becomes one Jev state. All aspects
 // for that source are sent as independent questions in ONE request; requests for
-// separate sources run concurrently. Jev judgments are provisional and never
-// replace reopening source text as evidence.
+// separate sources run concurrently. Judgments are provisional; inspect deciding
+// source text unless it is already inspected, complete and current.
 
 import { readFileSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { spawn } from 'node:child_process';

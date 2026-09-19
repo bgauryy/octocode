@@ -2,6 +2,38 @@ use super::*;
 use std::path::PathBuf;
 
 #[test]
+fn node_shebang_launch_uses_node_instead_of_native_host() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let script = temp_file("octocode-engine-node-shebang");
+        std::fs::write(
+            &script,
+            "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)))\n",
+        )
+        .unwrap();
+        let mut args = vec!["--stdio".to_owned(), "argument with spaces".to_owned()];
+        let program = lsp_spawn_program(&script.to_string_lossy(), &mut args)
+            .await
+            .unwrap();
+        let output = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::process::Command::new(program)
+                .args(args)
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        std::fs::remove_file(script).unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            r#"["--stdio","argument with spaces"]"#
+        );
+    });
+}
+
+#[test]
 fn location_links_select_the_symbol_and_preserve_definition_context() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let file_path = temp_file("octocode-engine-location-link");

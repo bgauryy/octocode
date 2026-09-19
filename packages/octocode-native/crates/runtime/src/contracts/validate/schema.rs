@@ -133,6 +133,9 @@ fn validate_object(
     })?;
     let properties = schema.get("properties").and_then(Value::as_object);
     let mut issues = Vec::new();
+    if let Err(error) = check_size(schema, object.len(), path) {
+        issues.extend(error.issues);
+    }
     if let Some(name_schema) = schema.get("propertyNames") {
         for key in object.keys() {
             let mut name = Value::String(key.clone());
@@ -346,10 +349,12 @@ fn check_size(
     let minimum = schema
         .get("minLength")
         .or_else(|| schema.get("minItems"))
+        .or_else(|| schema.get("minProperties"))
         .and_then(Value::as_u64);
     let maximum = schema
         .get("maxLength")
         .or_else(|| schema.get("maxItems"))
+        .or_else(|| schema.get("maxProperties"))
         .and_then(Value::as_u64);
     if minimum.is_some_and(|bound| length < bound as usize)
         || maximum.is_some_and(|bound| length > bound as usize)
@@ -361,4 +366,31 @@ fn check_size(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_schema;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn bounded_records_enforce_property_counts_and_values() {
+        let schema = json!({"type":"object", "minProperties":1, "maxProperties":24,
+            "propertyNames":{"type":"string", "pattern":"^[a-z][a-zA-Z0-9_]{0,39}$"},
+            "additionalProperties":{"type":"string", "minLength":1, "maxLength":800}});
+        for count in [0, 1, 24, 25] {
+            let mut value: Value = (0..count)
+                .map(|index| (format!("claim{index}"), json!("A bounded claim.")))
+                .collect::<serde_json::Map<_, _>>()
+                .into();
+            let result = validate_schema(&schema, &schema, &mut value, &mut vec![]);
+            assert_eq!(result.is_ok(), (1..=24).contains(&count));
+            if let Err(error) = result {
+                assert!(error.issues.iter().any(|issue| issue.rule_id == "schema.size"));
+            }
+        }
+        for mut value in [json!({"Bad id":"claim"}), json!({"claim":""}), json!({"claim":1})] {
+            assert!(validate_schema(&schema, &schema, &mut value, &mut vec![]).is_err());
+        }
+    }
 }

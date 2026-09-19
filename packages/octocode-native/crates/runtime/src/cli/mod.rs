@@ -3,6 +3,7 @@ mod human;
 mod lsp_provision;
 mod mcp_install;
 mod mcp_sync;
+mod schema;
 mod search;
 use clap::Parser;
 use commands::Command;
@@ -236,6 +237,20 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                 let scheme = rest
                     .iter()
                     .any(|argument| matches!(argument.as_str(), "--scheme" | "--schema"));
+                let scheme_view = match schema::direct_scheme_view(rest, scheme) {
+                    Ok(view) => view,
+                    Err(error) => {
+                        emit_error(&error, json_errors);
+                        return 2;
+                    }
+                };
+                let scheme_select = match schema::direct_scheme_select(rest, scheme, scheme_view) {
+                    Ok(selection) => selection,
+                    Err(error) => {
+                        emit_error(&error, json_errors);
+                        return 2;
+                    }
+                };
                 if scheme {
                     return match runtime.catalog() {
                         Ok(catalog) => {
@@ -248,7 +263,17 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                                 eprintln!("Unknown tool: {tool}");
                                 2
                             } else {
-                                write_json(&value, !pretty)
+                                match schema::project_selected(
+                                    value,
+                                    scheme_view,
+                                    scheme_select.as_deref(),
+                                ) {
+                                    Ok(value) => write_json(&value, !pretty),
+                                    Err(error) => {
+                                        emit_error(&error, json_errors);
+                                        2
+                                    }
+                                }
                             }
                         }
                         Err(error) => {
@@ -372,6 +397,8 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             queries_flag,
             input,
             scheme,
+            scheme_view,
+            scheme_select,
             json,
             compact,
         } => {
@@ -453,7 +480,17 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                             eprintln!("Unknown tool: {}", name.unwrap_or("(none)"));
                             2
                         } else {
-                            write_json(&value, compact)
+                            match schema::project_selected(
+                                value,
+                                scheme_view.unwrap_or_default(),
+                                scheme_select.as_deref(),
+                            ) {
+                                Ok(value) => write_json(&value, compact),
+                                Err(error) => {
+                                    emit_error(&error, json_errors);
+                                    2
+                                }
+                            }
                         }
                     }
                     Err(error) => {

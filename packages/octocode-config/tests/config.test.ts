@@ -120,9 +120,47 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
+  it('covers the host/registry redirect guards (mirrors native)', () => {
+    // GH_HOST could redirect API traffic (token exfiltration);
+    // OCTOCODE_ALLOW_PRIVATE_REGISTRY is the SSRF opt-in. An untrusted `.env`
+    // must not be able to set either — matching the Rust runtime.
+    for (const k of ['GH_HOST', 'OCTOCODE_ALLOW_PRIVATE_REGISTRY']) {
+      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
+    }
+  });
+
   it('does not protect tool API keys (they go in .env)', () => {
     expect(PROTECTED_KEYS.has('TAVILY_API_KEY')).toBe(false);
     expect(PROTECTED_KEYS.has('SERPER_API_KEY')).toBe(false);
+  });
+
+  // Parity with the native runtime's canonical set
+  // (crates/runtime/src/config/types.rs `PROTECTED_KEYS`). The two lists must
+  // stay identical so a `.env` cannot bypass a protection on one side only;
+  // update both together when adding a key.
+  it('equals the native (Rust) PROTECTED_KEYS set exactly', () => {
+    const CANONICAL = [
+      'PATH',
+      'HOME',
+      'SHELL',
+      'USER',
+      'LOGNAME',
+      'PWD',
+      'TMPDIR',
+      'NODE_OPTIONS',
+      'OCTOCODE_TOKEN',
+      'GH_TOKEN',
+      'GITHUB_TOKEN',
+      'GITHUB_PERSONAL_ACCESS_TOKEN',
+      'PYTHON',
+      'GITHUB_API_URL',
+      'GH_HOST',
+      'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+      'OCTOCODE_JEV_KEY',
+      'OCTOCODE_JEV_BASE_URL',
+      'OCTOCODE_JEV_MODEL',
+    ];
+    expect([...PROTECTED_KEYS].sort()).toEqual([...CANONICAL].sort());
   });
 });
 

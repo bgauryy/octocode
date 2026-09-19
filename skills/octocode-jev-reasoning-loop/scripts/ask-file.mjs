@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Compact source questions: Noul via --questions, or explicit typed aspects
 // via --aspects JSON. One request per source; all questions are independent.
-// Reopen source anchors before treating any judgment as evidence.
+// Verify source before asserting behavior; reuse already inspected current evidence.
 
 import { parseFlags, print, readJson, stop } from './cli-json.mjs';
 import { runProfile } from './profile.mjs';

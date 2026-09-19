@@ -125,3 +125,32 @@ test('resolves state.newEvidence for reflection_delta', async () => {
     assert.equal(out.state.newEvidence.content, 'line four');
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+// Synthetic controls cover the shared provider payload ingress, not only redact().
+test('AWS IDs and URL credentials are removed from outgoing evidence payloads', async () => {
+  const { buildProfileRequests } = await import('./profile.mjs');
+  const { runScout } = await import('./scout.mjs');
+  const secrets = ["AKIAABCDEFGHIJKLMNOP", "https://demo:fakepassword@example.invalid/path", "ASIA1234567890ABCDEF", "ABIAABCDEFGHIJKLMNOP", "ACCA0123456789ABCDEF", "postgres://alice:synthetic@db.invalid/test", "HTTP://user:pass%40word@host.invalid:8080/path"];
+  const benign = ["https://example.invalid/docs", "alice@example.invalid", "AKIA123456789012345", "AKIA12345678901234567", "https://example.invalid/path:note@tail"];
+  const body = [...secrets, ...benign].join('\n');
+  const dir = await fixtureDir({ 'source.txt': body, 'other.txt': 'Benign control' });
+  try {
+    const aspects = [{ key: 'config', type: 'noul', instructions: 'Does this show configuration?' }];
+    const profile = buildProfileRequests({ root: dir, inputs: [
+      { id: 'local', path: 'source.txt' }, { id: 'inline', content: body }
+    ], aspects });
+    const localScout = runScout({ root: dir, claim: 'configuration', anchors: ['.'], candidates: ['source.txt', 'other.txt'] }, { dryRun: true });
+    const itemScout = runScout({ claim: 'configuration', items: [{ id: 'source', content: body }, { id: 'other', content: 'Benign control' }] }, { dryRun: true });
+    const refs = resolveEvidenceRefs({ state: { evidence: [{ id: 'E1', contentRef: { path: 'source.txt', lines: `1-${body.split('\n').length}`, maxChars: 4000 } }] } }, { rootDir: dir });
+    const payloads = [
+      ...profile.map(row => row.request.state.source.content),
+      localScout.request.state.candidates['source.txt'][0].content,
+      itemScout.request.state.candidates.source[0].content,
+      refs.input.state.evidence[0].content
+    ];
+    for (const payload of payloads) {
+      for (const secret of secrets) assert.equal(payload.includes(secret), false, 'synthetic credential must not reach provider state');
+      for (const control of benign) assert.ok(payload.includes(control), `benign control remains: ${control}`);
+    }
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

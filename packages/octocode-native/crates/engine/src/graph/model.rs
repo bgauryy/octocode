@@ -802,7 +802,10 @@ impl CodeGraphBuilder {
         file: Option<String>,
         range: Option<GraphRange>,
     ) -> Result<(), String> {
-        let evidence_key = serde_json::to_vec(&(&from, &to, &kind, source.clone(), &file, &range))
+        // Borrow every tuple element (serde serializes `&T` identically to `T`),
+        // so the evidence digest is byte-identical while avoiding a full
+        // `EvidenceSource` clone per edge — `source` is moved into `Evidence` below.
+        let evidence_key = serde_json::to_vec(&(&from, &to, &kind, &source, &file, &range))
             .map_err(|error| error.to_string())?;
         let evidence_id = EvidenceId(content_digest(&evidence_key));
         self.graph

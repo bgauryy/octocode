@@ -127,6 +127,12 @@ export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
   // GitHub API URL — resolved from shell/MCP env or .octocoderc (github.apiUrl),
   // never from .env, so an untrusted project cannot redirect API traffic.
   'GITHUB_API_URL',
+  // Selects the GitHub host (gh-CLI convention); protected so an untrusted `.env`
+  // cannot redirect API traffic to an attacker-controlled host.
+  'GH_HOST',
+  // SSRF opt-in for private/loopback/link-local package registries; protected so
+  // an untrusted `.env` cannot flip it on.
+  'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
   // Jev provider credentials/config — env-only everywhere, mirroring the native
   // runtime's PROTECTED_KEYS. Must never be sourced from a .env file.
   'OCTOCODE_JEV_KEY',

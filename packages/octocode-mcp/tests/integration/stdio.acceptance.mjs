@@ -182,6 +182,21 @@ try {
       `serialized MCP catalog is ${receipt.catalogBytes} bytes`
     )
   );
+  await check('source_questions admits path requests and rejects oversized evidence before provider access', async () => {
+    const source = path.join(fixture, 'source-questions-cap.ts');
+    await writeFile(source, 'export const bounded = true;\n');
+    const response = await invoke('jevReasoning', { queries: [{
+      reasoning: 'Verify source-path admission without a paid provider request.',
+      route: 'source_questions',
+      sources: [{ path: source }],
+      questions: { bounded: 'The source exports bounded as true.' },
+      maxChars: 1,
+    }] });
+    const row = response.structuredContent?.results?.[0];
+    assert.equal(row?.status, 'error');
+    assert.equal(row?.data?.errorCode, 'sourceTooLarge');
+    assert.equal(row?.data?.usage, undefined);
+  });
   await check('CLI and MCP input schema parity for every tool', () => {
     for (const tool of list.tools) {
       const cli = JSON.parse(
@@ -708,7 +723,7 @@ try {
     });
   }
   if (values['cli-mcp-parity']) {
-    await check('same-query CLI and real MCP structured result parity', async () => {
+    await check('deterministic same-query CLI and real MCP structured result parity', async () => {
       const parity = [];
       receipt.cliMcpParity = parity;
       const cacheVolatileTools = new Set([
@@ -716,6 +731,16 @@ try {
       ]);
       const liveOnlyTools = new Set([...cacheVolatileTools, 'ghCloneRepo']);
       for (const name of expectedTools) {
+        if (name === 'jevReasoning' || name === 'jevScout') {
+          parity.push({
+            name,
+            status: 'not-applicable',
+            comparison: 'exact-structured-results',
+            executionVerified: false,
+            reason: 'Independent probabilistic Jev responses need not be identical. Successful live schema and semantic checks are required separately; this receipt does not verify execution.',
+          });
+          continue;
+        }
         const sample = cliMcpParitySamples.get(name);
         const selected = sample?.selected ?? receipt.calls.find(call =>
           call.name === name
@@ -788,7 +813,12 @@ try {
           cloneVerification,
         });
       }
-      const failures = parity.filter(row => row.status !== 'not-run' && !row.passesContract);
+      receipt.cliMcpParitySummary = {
+        compared: parity.filter(row => row.passesContract !== undefined).length,
+        notApplicable: parity.filter(row => row.status === 'not-applicable').map(row => row.name),
+        notRun: parity.filter(row => row.status === 'not-run').map(row => row.name),
+      };
+      const failures = parity.filter(row => !['not-run', 'not-applicable'].includes(row.status) && !row.passesContract);
       assert.deepEqual(failures.map(row => ({ name: row.name, baseEqual: row.baseEqual, differingFields: row.differingFields })), []);
     });
   }

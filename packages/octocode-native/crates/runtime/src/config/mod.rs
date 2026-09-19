@@ -315,6 +315,32 @@ mod tests {
         assert_eq!(view.config_keys, vec!["local", "storage"])
     }
     #[test]
+    fn jev_key_falls_back_to_config_file_without_leaking() {
+        let file = "{\"jev\":{\"key\":\"jev-secret-from-file\",\"baseUrl\":\"https://jev.example.com\",\"model\":\"custom-model\"}}";
+        let out = resolve_config(&input(BTreeMap::new(), Some(file)));
+        assert_eq!(
+            out.env_value("OCTOCODE_JEV_KEY"),
+            Some("jev-secret-from-file")
+        );
+        assert_eq!(
+            out.env_value("OCTOCODE_JEV_BASE_URL"),
+            Some("https://jev.example.com")
+        );
+        assert_eq!(out.env_value("OCTOCODE_JEV_MODEL"), Some("custom-model"));
+        // Never lands in ResolvedConfig, so `config get jev.key` can't echo it back.
+        assert_eq!(get_config_value(&out.resolved, "jev.key"), None);
+        assert!(!format!("{out:?}").contains("jev-secret-from-file"));
+        // Real env still wins over the file fallback.
+        let env = BTreeMap::from([("OCTOCODE_JEV_KEY".into(), "jev-secret-from-env".into())]);
+        let mixed = resolve_config(&input(env, Some(file)));
+        assert_eq!(
+            mixed.env_value("OCTOCODE_JEV_KEY"),
+            Some("jev-secret-from-env")
+        );
+        // `jev` is a recognized section, not an "unknown configuration key".
+        assert!(validate_config(&json!({"jev": {"key": "x"}})).valid);
+    }
+    #[test]
     fn unreadable_config_is_invalid_with_a_stable_diagnostic() {
         let mut i = input(BTreeMap::new(), None);
         i.config_file = FileInput::Unreadable {

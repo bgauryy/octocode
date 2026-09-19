@@ -4,7 +4,7 @@
   "softTieGap": 0.15,
   "clearLeadGap": 0.4,
   "groundedMinimum": 0.5,
-  "maxJevCallsPerCrossroad": 2,
+  "maxJevCallsPerCrossroad": 1,
   "highCostReviewRequired": true,
   "noul": {
     "strongYesMinimum": 0.8,

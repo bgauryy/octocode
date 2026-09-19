@@ -378,6 +378,16 @@ code ~/.octocode/.octocoderc
     // "memory" prevents persistent runtime cache, materialization, session,
     // stats, and Pi SQLite writes. Existing files are not deleted.
     "mode": "persistent"
+  },
+
+  // ── Jev reasoning (optional) ─────────────────────────────────────────────
+  // Fallback for the protected OCTOCODE_JEV_* env vars. Only read from this
+  // file — never from a project .env — and only when the matching env var is
+  // unset.
+  "jev": {
+    "key": null,
+    "baseUrl": null,
+    "model": null
   }
 }
 ```
@@ -497,13 +507,13 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 
 #### Jev reasoning
 
-| Env var | Default | Notes |
-|---------|---------|-------|
-| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`. Env-only (a protected key): set it in your shell or MCP `env` block — it is never read from `.env` or `.octocoderc`. |
-| `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional model override. A query-level `model` takes precedence. |
-| `OCTOCODE_JEV_BASE_URL` | `https://api.typesafe.ai` | Optional trusted API root. Octocode sends the key to this origin, rejects redirects, and requires HTTPS except for loopback development servers. |
+| Env var | `.octocoderc` key | Default | Notes |
+|---------|------------------|---------|-------|
+| `OCTOCODE_JEV_KEY` | `jev.key` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`. A protected key: never read from a project `.env`. Set it in your shell, MCP `env` block, or `jev.key` in `.octocoderc` (env wins if both are set). |
+| `OCTOCODE_JEV_MODEL` | `jev.model` | `jev-latest` | Optional model override. A query-level `model` takes precedence. |
+| `OCTOCODE_JEV_BASE_URL` | `jev.baseUrl` | `https://api.typesafe.ai` | Optional trusted API root. Octocode sends the key to this origin, rejects redirects, and requires HTTPS except for loopback development servers. |
 
-The tool applies its deterministic action-change, direct-check, evidence-freshness, and one-call gates before provider access. Removing or blanking the resolved key removes `jevReasoning` from MCP registration.
+Evidence-based reasoning routes apply deterministic action-change, direct-check, evidence-freshness, and one-call gates before provider access. The `source_questions` route instead validates and reads bounded source paths under the local access policy, then judges independent claims together. Removing or blanking the resolved key removes Jev tools from MCP registration.
 
 #### Output
 
@@ -597,9 +607,9 @@ Octocode **always ignores** these keys when loading `~/.octocode/.env` or a proj
 | `NODE_OPTIONS` | Node.js runtime flags — a security risk if `.env` could override them |
 | `PYTHON` | Python interpreter path |
 | `GITHUB_API_URL` | GitHub API root — set it in your shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project cannot redirect API traffic |
-| `OCTOCODE_JEV_KEY` | Jev provider credential — env-only; must be explicit |
-| `OCTOCODE_JEV_BASE_URL` | Jev API root — env-only; controls where the key is sent |
-| `OCTOCODE_JEV_MODEL` | Jev model override — env-only for parity with the key and base URL |
+| `OCTOCODE_JEV_KEY` | Jev provider credential — set it in your shell or `.octocoderc` (`jev.key`), never `.env` |
+| `OCTOCODE_JEV_BASE_URL` | Jev API root — set it in your shell or `.octocoderc` (`jev.baseUrl`), never `.env`; controls where the key is sent |
+| `OCTOCODE_JEV_MODEL` | Jev model override — set it in your shell or `.octocoderc` (`jev.model`), never `.env` |
 
 ---
 

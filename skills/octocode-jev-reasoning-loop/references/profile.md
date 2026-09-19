@@ -8,7 +8,7 @@ Load when the host has already selected one or more source units and needs reusa
 
 `scripts/profile.mjs` accepts 1–8 inputs. Each input supplies exactly one root-relative local `path` (optionally an exact `lines` range) or inline `content`. Local reading and redaction happen in the runner. Oversized content fails explicitly instead of being silently summarized; select a line range or deliberately raise `maxChars`.
 
-All aspects for one source are sent together in one Jev request because they share state and Jev evaluates questions independently. Separate sources run concurrently. Do not make one request per aspect: that retransmits the same content. When a judgment inherently compares files, compose those files into one bounded inline source so the relationship remains in one state.
+All aspects for one source are sent together in one Jev request because they share state and Jev evaluates questions independently. Separate sources run concurrently. Do not make one request per aspect: that retransmits the same content. For bounded claims comparing files, prefer native `jevReasoning route:source_questions`: pass paths and claims, and the runtime combines sources without host packing. Standalone inline composition is useful only when that state already exists.
 
 Use the primitive matching the answer:
 

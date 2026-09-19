@@ -122,6 +122,12 @@ pub struct SearchMatch {
     pub value: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_chars: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub returned_chars: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

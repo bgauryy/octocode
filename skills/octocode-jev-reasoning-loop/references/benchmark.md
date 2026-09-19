@@ -20,4 +20,8 @@ Freeze representative tasks, labels, model version, retrieval budget, and gradin
 
 Measure final correctness, relevant-source recall and false skips, unsupported claims, elapsed time, and both host-model and Jev token usage. Calibrate each question/primitive on its own cases; do not transfer thresholds between unrelated tasks or tune on held-out results. A model, prompt, or policy change requires fresh confirmation.
 
+Count preparation and all follow-up reads, including `gray_read`, retries and errors. Keep cached/uncached host usage and Jev usage separate; smaller provider prompts alone do not establish less total work. Include known-target controls where avoiding Jev is the correct behavior. Allow both arms equally efficient deterministic retrieval.
+
+Runner `content_ref.input_bytes_avoided` compares the same canonical compact input with references versus resolved inline evidence, using UTF-8 bytes; it may be negative. It is a packet representation measure, not saved host tokens or avoided full-file reads. CLI shorthand derives that compact input; measure its actual arguments separately. Measure real agent tokens from host usage receipts, and retain elapsed time and answer quality at the whole-task boundary.
+
 Keep historical answers, run logs, grading manifests, and one-off migration benchmarks in the workspace evaluation artifacts. They are not operating instructions or runtime fixtures.

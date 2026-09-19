@@ -1,4 +1,6 @@
-# Jev benchmark — usage and measured results
+# Jev benchmark — historical experiments
+
+These experiments use different protocols and meters and do not establish current whole-task savings. Later five-bug and six-task host-metered evaluations did not show total-token savings. The current source-path protocol is under evaluation; keep host and provider usage separate and verify patch quality before claiming an efficiency win.
 
 Audience: users deciding when to reach for the Jev tools, and developers
 extending or re-running the benchmark. Jev is a typed probabilistic judgment
@@ -11,15 +13,15 @@ and its output is never citable evidence.
 
 | Tool | Use when | Never for |
 |---|---|---|
-| `jevReasoning` | A semantic fork that no lookup, test, or exact read can settle: plan viability, disputed claim, hypothesis triage, assertion gating | Anything a grep or direct read decides |
-| `jevScout` | 4–12 candidates (files or pre-fetched rows) where only ranking decides which one deserves the expensive read | A single known target; questions with no fan-out |
+| `jevReasoning` | Source-path claims that can avoid substantial host reading, or unresolved evidence-based choices | Cheap exact checks; unchanged votes |
+| `jevScout` | Filtering candidate files can avoid expensive irrelevant reads | A known cheap target; using skip to prove absence |
 
 Both require `OCTOCODE_JEV_KEY` and return provider-billed `usage` per call. A
 `blocked` or `needs_evidence` outcome is a correct result: retrieve what it
 names instead of reframing the packet. Scout verdicts are provisional — reopen
 the returned anchors before asserting anything, and never report absence from a
 skip. The `octocode-jev-reasoning-loop` skill owns the full doctrine
-(THINK → GATE → CALL) and the reference runners.
+(LOCATE PATHS → JUDGE → VERIFY → ACT) and the reference runners.
 
 ## Agent WITH vs WITHOUT Jev — the head-to-head (2026-09-19)
 

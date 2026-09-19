@@ -621,6 +621,11 @@ impl ToolRuntime {
                                     context.cancellation.clone(),
                                 ),
                                 jev_retries,
+                                crate::tools::jev_source_questions::SourceAccess {
+                                    paths: &paths,
+                                    security: &security,
+                                    local_enabled: config.resolved.local.enabled,
+                                },
                             )
                             .await
                             {

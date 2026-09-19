@@ -283,6 +283,10 @@ pub fn execute_local_search(
         &parsed.files,
         snapshot.as_deref(),
     );
+    // Keep full values for identity, unique grouping and counts. The engine's
+    // match-only path emits exact spans, so apply the public display bound here.
+    let match_only_limit = (view == ResultView::MatchOnly)
+        .then_some(query.match_content_length.unwrap_or(500) as usize);
     let files = parsed
         .files
         .into_iter()
@@ -296,12 +300,7 @@ pub fn execute_local_search(
                 .iter()
                 .skip(ms)
                 .take(matches_per as usize)
-                .map(|m| SearchMatch {
-                    line: m.line,
-                    column: m.column,
-                    value: m.value.clone(),
-                    count: m.count,
-                })
+                .map(|m| project_match(m, match_only_limit))
                 .collect::<Vec<_>>();
             SearchFile {
                 path: f.path,
@@ -341,6 +340,15 @@ pub fn execute_local_search(
     // Surface it explicitly so callers know the results are a timeout-truncated
     // partial, not an exhaustive search.
     let mut warnings = vec![];
+    if files.iter().any(|file| {
+        file.matches
+            .as_ref()
+            .is_some_and(|matches| matches.iter().any(|matched| matched.truncated))
+    }) {
+        warnings.push(
+            "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source.".into(),
+        );
+    }
     if stats
         .cap_reason
         .as_deref()
@@ -394,6 +402,31 @@ pub fn execute_local_search(
         source_snapshot: Some(result_identity),
         source_root: output_root.to_path_buf(),
     })
+}
+
+fn project_match(
+    matched: &octocode_engine::types::RipgrepMatch,
+    max_chars: Option<usize>,
+) -> SearchMatch {
+    let cut = max_chars.and_then(|limit| {
+        matched
+            .value
+            .char_indices()
+            .nth(limit)
+            .map(|(byte, _)| (byte, limit))
+    });
+    SearchMatch {
+        line: matched.line,
+        column: matched.column,
+        value: cut.map_or_else(
+            || matched.value.clone(),
+            |(byte, _)| matched.value[..byte].into(),
+        ),
+        count: matched.count,
+        truncated: cut.is_some(),
+        original_chars: cut.map(|_| matched.value.chars().count()),
+        returned_chars: cut.map(|(_, chars)| chars),
+    }
 }
 
 struct PolicyFilter(PathPolicy);

@@ -115,7 +115,7 @@ pub(crate) fn endpoint(base_url: &str) -> Result<Url, JevProviderError> {
     })
 }
 
-fn check_budget(budget: &RequestBudget) -> Result<(), JevProviderError> {
+pub(super) fn check_budget(budget: &RequestBudget) -> Result<(), JevProviderError> {
     if budget.cancellation.is_cancelled() {
         return Err(JevProviderError::new(
             "cancelled",
@@ -262,7 +262,20 @@ pub async fn execute(
     default_model: &str,
     budget: RequestBudget,
     retries: u32,
+    sources: super::jev_source_questions::SourceAccess<'_>,
 ) -> Result<Value, JevProviderError> {
+    if query["route"] == "source_questions" {
+        return super::jev_source_questions::execute(
+            query,
+            key,
+            base_url,
+            default_model,
+            budget,
+            retries,
+            sources,
+        )
+        .await;
+    }
     if let Some(result) = deterministic_gate(query) {
         return Ok(result);
     }
@@ -325,6 +338,73 @@ pub fn budget(
 mod tests {
     use super::*;
     use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
+
+    #[tokio::test]
+    async fn source_questions_read_both_files_in_one_provider_call() {
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+        let dir = tempfile::tempdir().unwrap();
+        let first = dir.path().join("request.rs");
+        let second = dir.path().join("cache.rs");
+        std::fs::write(&first, "if cancelled { return; }\ncache.write(result);").unwrap();
+        std::fs::write(&second, "fn write(result: Result) { save(result); }").unwrap();
+        let server = MockServer::start().await;
+        let paths = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(dir.path().to_owned()),
+            ..Default::default()
+        })
+        .unwrap();
+        let security = crate::security::ContentSecurity::new(std::sync::Arc::new(
+            crate::security::SecurityRegistry::default(),
+        ));
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "model": "jev-test", "usage": {"input_tokens": 10, "output_tokens": 1},
+                "answers": {"guarded": {"type": "choice", "choice": "insufficient", "confidence": 1.0,
+                    "probabilities": {"supported": 0.0, "contradicted": 0.0, "insufficient": 1.0, "conflicting": 0.0}}}
+            })))
+            .expect(1)
+            .mount(&server).await;
+        let result = execute(
+            &json!({"route": "source_questions", "sources": [{"path": first}, {"path": second}],
+                "questions": {"guarded": "Cancellation prevents late cache writes."}}),
+            SecretString::from("test-key".to_owned()),
+            &server.uri(),
+            "jev-test",
+            budget(
+                Instant::now() + Duration::from_secs(30),
+                tokio_util::sync::CancellationToken::new(),
+            ),
+            0,
+            super::super::jev_source_questions::SourceAccess {
+                paths: &paths,
+                security: &security,
+                local_enabled: true,
+            },
+        )
+        .await
+        .expect("source references must be assembled before the provider call");
+        assert_eq!(result["answers"]["guarded"]["choice"], "insufficient");
+        assert!(result.get("nextAction").is_none());
+        assert!(result.get("applied").is_none());
+        assert_eq!(result["sources"].as_array().unwrap().len(), 2);
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(body["state"]["sources"].as_array().unwrap().len(), 2);
+        assert!(
+            body["state"]["sources"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("cancelled")
+        );
+        assert!(
+            body["state"]["sources"][1]["content"]
+                .as_str()
+                .unwrap()
+                .contains("save(result)")
+        );
+        assert!(!result.to_string().contains("save(result)"));
+    }
 
     #[test]
     fn route_policy_action_maps_every_route_and_falls_back() {

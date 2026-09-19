@@ -1949,6 +1949,48 @@
     "id": "jevReasoning.curated-1",
     "tool": "jevReasoning",
     "input": {
+      "reasoning": "Choose a deciding read or test without reading all source bodies.",
+      "route": "source_questions",
+      "sources": [
+        {
+          "path": "/workspace/src/request.ts"
+        },
+        {
+          "path": "/workspace/src/cache.ts"
+        }
+      ],
+      "questions": {
+        "lateWrite": "A request cancelled after dispatch can still write to the shared cache."
+      }
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "goal": "Execute jevReasoning via fixture",
+          "reasoning": "Choose a deciding read or test without reading all source bodies.",
+          "debug": false,
+          "route": "source_questions",
+          "sources": [
+            {
+              "path": "/workspace/src/request.ts"
+            },
+            {
+              "path": "/workspace/src/cache.ts"
+            }
+          ],
+          "questions": {
+            "lateWrite": "A request cancelled after dispatch can still write to the shared cache."
+          },
+          "maxChars": 24000
+        }
+      ]
+    }
+  },
+  {
+    "id": "jevReasoning.curated-2",
+    "tool": "jevReasoning",
+    "input": {
       "reasoning": "Use jevReasoning for the weak hunch check example.",
       "willChangeAction": true,
       "directCheck": {
@@ -2011,7 +2053,7 @@
     }
   },
   {
-    "id": "jevReasoning.curated-2",
+    "id": "jevReasoning.curated-3",
     "tool": "jevReasoning",
     "input": {
       "reasoning": "Use jevReasoning for the hypothesis triage example.",
@@ -2202,7 +2244,7 @@
     }
   },
   {
-    "id": "jevReasoning.curated-3",
+    "id": "jevReasoning.curated-4",
     "tool": "jevReasoning",
     "input": {
       "reasoning": "Use jevReasoning for the reflection after new evidence example.",
@@ -2345,7 +2387,7 @@
     }
   },
   {
-    "id": "jevReasoning.curated-4",
+    "id": "jevReasoning.curated-5",
     "tool": "jevReasoning",
     "input": {
       "reasoning": "Use jevReasoning for the high-cost decision review example.",
@@ -2416,7 +2458,7 @@
     }
   },
   {
-    "id": "jevReasoning.curated-5",
+    "id": "jevReasoning.curated-6",
     "tool": "jevReasoning",
     "input": {
       "reasoning": "Use jevReasoning for the disputed inference example.",
@@ -2501,7 +2543,7 @@
     }
   },
   {
-    "id": "jevReasoning.curated-6",
+    "id": "jevReasoning.curated-7",
     "tool": "jevReasoning",
     "input": {
       "reasoning": "Use jevReasoning for the pre-assertion grounding gate example.",

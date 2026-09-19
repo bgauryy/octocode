@@ -229,12 +229,20 @@ fn build_continuation(
     page: &ResponsePagination,
 ) -> Option<ResponseContinuation> {
     let next_offset = page.next_char_offset.filter(|_| page.has_more)?;
-    let mut clean = query.as_object().cloned().unwrap_or_default();
-    clean.remove("goal");
-    // Emit as { queries: [q] } so continuation tokens round-trip through
-    // the backward-compatible single-element path in prepare().
+    let mut queries = query
+        .get("queries")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| vec![query.clone()]);
+    for query in &mut queries {
+        if let Some(object) = query.as_object_mut() {
+            object.remove("goal");
+        }
+    }
+    // The runtime passes a flat query for one row and an envelope for a batch.
+    // Keep the rows flat so the continuation can be submitted unchanged.
     let mut continuation = Map::new();
-    continuation.insert("queries".into(), Value::Array(vec![Value::Object(clean)]));
+    continuation.insert("queries".into(), Value::Array(queries));
     if let Some(length) = request.response_char_length {
         continuation.insert("responseCharLength".into(), json!(length));
     }
@@ -410,6 +418,60 @@ mod tests {
                 .expect("snapshot")
                 .starts_with("response-v1:")
         );
+    }
+
+    #[test]
+    fn bulk_continuations_preserve_queries_and_pass_output_contract() {
+        let pager = ResponsePager::new(ResponsePagerConfig::default());
+        let queries = json!([
+            {"path":"/repo/a.ts", "reasoning":"read first", "debug":true, "fullContent":true},
+            {"path":"/repo/b.ts", "reasoning":"read second", "debug":false, "startLine":2, "endLine":5}
+        ]);
+        for options in [
+            options(8),
+            ResponsePageOptions {
+                response_char_length: Some(8),
+                response_char_offset: Some(8),
+                response_snapshot: Some("response-v1:stale".into()),
+                render_text: None,
+            },
+        ] {
+            let restarting = options.response_char_offset.is_some();
+            let result = pager
+                .prepare(
+                    ResponseInput {
+                        tool: "localFetch".into(),
+                        query: json!({"queries":queries}),
+                        structured: json!({"results":[]}),
+                        rendered_text: Some("line1\nline2\nline3".into()),
+                        is_error: false,
+                        options,
+                    },
+                    &AtomicBool::new(false),
+                )
+                .expect("page");
+            crate::contracts::validate_output("localFetch", &result.structured_content)
+                .expect("continuation must satisfy the public output contract");
+            let next = &result.structured_content["responsePagination"]["next"]["query"];
+            assert_eq!(next["queries"], queries);
+            let prepared = crate::contracts::prepare_many_and_validate(
+                "localFetch",
+                next.clone(),
+                crate::contracts::PrepareOptions::default(),
+            )
+            .expect("continuation must be accepted as a new tool call");
+            assert_eq!(prepared.len(), 2);
+            for (prepared, original) in prepared.iter().zip(queries.as_array().expect("queries")) {
+                for (field, value) in original.as_object().expect("query") {
+                    assert_eq!(&prepared[field], value);
+                }
+            }
+            assert_eq!(next["responseCharLength"], 8);
+            assert_eq!(next["responseSnapshot"].is_null(), restarting);
+            if restarting {
+                assert_eq!(next["responseCharOffset"], 0);
+            }
+        }
     }
 
     #[test]

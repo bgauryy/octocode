@@ -693,26 +693,30 @@ fn matching_prefilter_paths(
         Prefilter::Union(anchors) => anchors.as_slice(),
     };
     let mut matching = HashSet::new();
+    // An empty anchor matches every file (the previous `contains_bytes`
+    // returned true for an empty needle); short-circuit those instead of
+    // feeding an empty pattern to Aho-Corasick. Otherwise build one automaton
+    // for all anchors and scan each file in a single linear pass, replacing the
+    // former per-anchor O(n·m) `windows` scan.
+    let automaton = if anchors.iter().any(|anchor| anchor.is_empty()) {
+        None
+    } else {
+        Some(aho_corasick::AhoCorasick::new(anchors).map_err(|error| error.to_string())?)
+    };
     for path in candidates {
         if !allow_path(path)? {
             continue;
         }
         let Ok(bytes) = fs::read(path) else { continue };
-        if anchors
-            .iter()
-            .any(|anchor| contains_bytes(&bytes, anchor.as_bytes()))
-        {
+        let hit = match &automaton {
+            None => true,
+            Some(automaton) => automaton.is_match(&bytes),
+        };
+        if hit {
             matching.insert(path.to_string_lossy().into_owned());
         }
     }
     Ok(Some(matching))
-}
-
-fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
-    needle.is_empty()
-        || haystack
-            .windows(needle.len())
-            .any(|candidate| candidate == needle)
 }
 
 /// Scope fields shared between both anchor-prefilter helpers — include/exclude

@@ -8,6 +8,8 @@ Include the decision and scope, decisive excerpts, counterevidence, definitions,
 
 Distinguish what an excerpt shows from what the entire file or repository does. `contentRef` resolves a complete selected span or fails before calling Jev: default 1200 characters, maximum 4000. Select a complete smaller span, split independent evidence items, or raise the limit; preserve the deciding branches. Scout excerpts can still be incomplete: inspect coverage and widen retrieval before treating a negative judgment as absence.
 
+The standalone claim shortcut accepts `--claim`, `--scope`, and repeatable `--evidence path:S-E`; it constructs `contentRef` items without copying source text. Use explicit compact JSON for richer routes. Native `jevReasoning` currently accepts inline evidence; do not pass skill-only reference fields to its public schema.
+
 Ground multi-part claims separately when their evidence differs. If a conclusion depends on a relationship between sources, include the relevant parts together. Independent per-file scores do not establish a cross-file relationship.
 
 ## Bound the request

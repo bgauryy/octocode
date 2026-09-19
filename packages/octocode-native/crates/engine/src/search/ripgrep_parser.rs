@@ -180,20 +180,26 @@ pub(crate) fn assemble_file(
         .raw_matches
         .iter()
         .map(|m| {
-            let mut joined = String::new();
-            for i in (1..=context_lines).rev() {
-                if let Some(ctx) = entry.contexts.get(&m.line_number.saturating_sub(i)) {
-                    push_joined_line(&mut joined, ctx);
+            // Fast path for the common `context_lines == 0` case: the joined
+            // buffer would just be a copy of `line_text`, so truncate it
+            // directly and avoid one intermediate allocation per match.
+            let value = if context_lines == 0 {
+                truncate_unicode(&m.line_text, max_snippet)
+            } else {
+                let mut joined = String::new();
+                for i in (1..=context_lines).rev() {
+                    if let Some(ctx) = entry.contexts.get(&m.line_number.saturating_sub(i)) {
+                        push_joined_line(&mut joined, ctx);
+                    }
                 }
-            }
-            push_joined_line(&mut joined, &m.line_text);
-            for i in 1..=context_lines {
-                if let Some(ctx) = entry.contexts.get(&m.line_number.saturating_add(i)) {
-                    push_joined_line(&mut joined, ctx);
+                push_joined_line(&mut joined, &m.line_text);
+                for i in 1..=context_lines {
+                    if let Some(ctx) = entry.contexts.get(&m.line_number.saturating_add(i)) {
+                        push_joined_line(&mut joined, ctx);
+                    }
                 }
-            }
-
-            let value = truncate_unicode(&joined, max_snippet);
+                truncate_unicode(&joined, max_snippet)
+            };
 
             RipgrepMatch {
                 line: m.line_number,

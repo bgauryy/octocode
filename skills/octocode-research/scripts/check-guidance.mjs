@@ -51,9 +51,8 @@ const cases = [
     required: [/authorization[^\n]*(?:persists|carry|already)/i, /checkpoint[^\n]*(?:budget|time)|budget[^\n]*checkpoint/i],
     forbidden: [/Ask before public\/broad contracts/, /third unrelated search space/] },
   { name: 'conditional Jev crossroad is executable and evidence-bound', file: 'SKILL.md',
-    // Observed-state trigger is contractual: self-judged gating measured zero Jev calls (jev-terra grade.json).
-    required: [/MODEL[^\n]*JEV\?[^\n]*SEARCH\/READ/, /JEV\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i, /observed state[^\n]*load `octocode-jev-reasoning-loop`/i, /4\+ unread candidates/, /single compact runner/i, /reflection_delta/, /never repeat-vote unchanged state/i, /Jev cannot supply a missing fact/],
-    forbidden: [/optional `octocode-jev-reasoning-loop`/] },
+    required: [/MODEL[^\n]*JEV\?[^\n]*SEARCH\/READ/, /JEV\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i, /avoided work or a changed next action/, /local files and pinned upstream checkouts/, /discover paths before reading bodies/, /includeEvidence:true/, /widen only insufficient (?:evidence|spans)/, /jevReasoning route:source_questions/, /cheap deciding checks directly/, /never automatically chain/, /probabilities, not missing facts/],
+    forbidden: [/4\+ unread candidates/, /2\+ pending yes\/no/, /context --compact/] },
   { name: 'primary sources and untrusted content', file: 'references/workflow-external.md',
     required: [/primary[^\n]*(?:documentation|docs)/i, /untrusted[^\n]*(?:instructions|data)/i] },
   { name: 'one owner for adaptive routing', file: 'references/workflows.md',

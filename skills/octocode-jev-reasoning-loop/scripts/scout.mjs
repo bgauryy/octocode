@@ -3,7 +3,7 @@
 //
 // STATUS: reference implementation and skills-only fallback. The production
 // path is the native `jevScout` tool (octocode-core contract + crates/runtime
-// tools/jev_scout.rs — see .octocode/rfc/jev-scout-production/). This file is
+// tools/jev_scout/mod.rs). This file is
 // the parity source of truth: the native port must reproduce its verdicts
 // row-for-row on the frozen suites before any interface exposure.
 //
@@ -15,14 +15,15 @@
 // enter the host's context; every verdict returns its span anchors and coverage.
 //
 // A scout PRIORITIZES reads. It never authorizes an irreversible action and its
-// output is provisional — never citable evidence. Assert nothing from a scout
-// verdict without reopening the anchors (see references/scout.md).
+// output is provisional — never citable evidence. Inspect decisive original
+// evidence unless already inspected, complete and current (see references/scout.md).
 //
-// POLICY v2 thresholds; budget truncation defers rejected excerpts to gray_read.
+// Read policy: unchanged score thresholds; incomplete or unexamined candidates
+// remain gray_read so retrieval misses cannot become semantic rejections.
 // Original thresholds were frozen after the pilot eval
 // (.octocode/octocode-eval-benchmark/jevpeek-scout/): do not tune thresholds or
 // taxonomy against a suite this policy is being evaluated on.
-//   no anchor matches            -> skip   (lexical parity with a search prefilter)
+//   no anchor matches            -> gray_read (no source evidence was judged)
 //   argmax == top level          -> read   (reads are cheap and reversible)
 //   P(top level) <= 0.25         -> skip only for complete selected excerpts   (the anchored spans were judged and rejected)
 //   otherwise                    -> gray_read (fail-open: the host reads it)
@@ -168,9 +169,9 @@ export function buildScoutRequest(input, located) {
   return { model: input.model || 'jev-latest', state, questions };
 }
 
-// FROZEN policy v2 mapping (see header). Top level = last taxonomy entry.
+// Read policy (see header). Top level = last taxonomy entry.
 export function applyPolicy(answer, loc, levels) {
-  if (!loc.spans.length) return { action: 'skip', reason: 'no_evidence' };
+  if (!loc.spans.length) return { action: 'gray_read', reason: 'no_evidence' };
   const top = levels.length - 1;
   const probs = answer.probabilities || {};
   const pTop = probs[String(top)] ?? 0;
@@ -249,7 +250,7 @@ export function runScout(input, options = {}) {
   const dims = normalizeDimensions(input);
   const primary = dims.find(d => d.role === 'primary');
   const results = {};
-  let bytesOffHost = 0;
+  let candidateSourceChars = 0;
   for (const [candidateIndex, file] of Object.keys(located).entries()) {
     const loc = located[file];
     const answerFor = dim => response.answers[questionId(candidateIndex, dim, dims.length === 1)] || {};
@@ -272,7 +273,7 @@ export function runScout(input, options = {}) {
         if (argmax === 0) { action = 'gray_read'; reason = `vetoed_by_${dim.key}`; }
       }
     }
-    bytesOffHost += loc.fileChars;
+    candidateSourceChars += loc.fileChars;
     results[file] = {
       action, reason,
       level: dimensions[primary.key].level,
@@ -288,8 +289,8 @@ export function runScout(input, options = {}) {
     requiredReads: Object.keys(located).filter(f => results[f].action !== 'skip'),
     metrics: {
       jev: response.usage,
-      candidate_bytes_kept_off_host: bytesOffHost,
-      approx_host_tokens_saved_if_skips_hold: Math.ceil(Object.keys(located).filter(f => results[f].action === 'skip').reduce((s, f) => s + located[f].fileChars, 0) / 4)
+      candidate_source_chars: candidateSourceChars,
+      skipped_source_chars: Object.keys(located).filter(f => results[f].action === 'skip').reduce((s, f) => s + located[f].fileChars, 0)
     },
     artifacts: { request: reqPath, response: join(dir, 'scout-response.json') }
   };
@@ -297,7 +298,7 @@ export function runScout(input, options = {}) {
 
 function main(argv) {
   if (argv.some(a => ['--help', '-h'].includes(a))) {
-    console.log('Usage: node scripts/scout.mjs --input scout.json [--dry-run] [--pretty] [--output DIR]\nBatched Jev scout: one call ranks which candidate files to read. Verdicts are provisional; reopen anchors before asserting.');
+    console.log('Usage: node scripts/scout.mjs --input scout.json [--dry-run] [--pretty] [--output DIR]\nBatched Jev scout: one call ranks which candidate files to read. Verdicts are provisional; inspect decisive original evidence unless already inspected, complete and current.');
     return;
   }
   const options = parseFlags(argv, ['--input', '--output'], ['--dry-run', '--pretty']);

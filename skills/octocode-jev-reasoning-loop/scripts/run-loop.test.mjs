@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -93,3 +93,55 @@ test('runner help presents the compact single-entry workflow', () => {
   assert.match(result.stdout, /One entry point/);
   assert.match(result.stdout, /replaces DecisionBrief and action-map/);
 });
+
+test('claim CLI builds the same evidence packet without authored IDs or copied source', () => withTemp(dir => {
+  writeFileSync(join(dir, 'café.txt'), 'Observed café behavior.\nCounterevidence remains bounded.');
+  const response = join(dir, 'recorded.json');
+  writeFileSync(response, JSON.stringify({ model: 'jev-1.13.0', answers: {
+    grounded: { type: 'noul', noul: 0.95 },
+    evidence_anchor: { type: 'choice', choice: 'E1', probabilities: { E1: 0.95, E2: 0.04, none: 0.01 }, confidence: 0.9 },
+    scope_matches: { type: 'noul', noul: 0.95 }
+  }, usage: { input_tokens: 100, output_tokens: 20 } }));
+  const output = join(dir, 'short');
+  const result = spawnSync(process.execPath, [new URL('./run-loop.mjs', import.meta.url).pathname,
+    '--claim', 'The café behavior is supported.', '--scope', 'fixture',
+    '--evidence', 'café.txt:1', '--evidence', 'café.txt:2', '--model', 'jev-1.13.0',
+    '--response', response, '--output', output], { cwd: dir, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const explicit = runLoop({ route: 'hallucination_gate', model: 'jev-1.13.0', willChangeAction: true,
+    state: { goal: 'Decide whether to state or qualify the supplied claim.', claim: 'The café behavior is supported.', claim_scope: 'fixture',
+      evidence: [1, 2].map((line, index) => ({ id: `E${index + 1}`, scope: 'fixture', contentRef: { path: 'café.txt', lines: String(line) } })) }
+  }, { rootDir: dir, response, output: join(dir, 'explicit') });
+  assert.deepEqual(JSON.parse(readFileSync(join(output, 'request.json'))), JSON.parse(readFileSync(explicit.summary.artifacts.request)));
+  assert.equal(JSON.parse(result.stdout).metrics.api_calls, 0);
+}));
+
+test('reference savings compare equivalent UTF-8 packets and preserve negative savings', () => withTemp(dir => {
+  writeFileSync(join(dir, 'large.txt'), 'é\n' + 'Unselected tail'.repeat(1000));
+  const input = triageInput();
+  input.state.evidence = [{ id: 'E1', scope: 'revision abc', contentRef: { path: 'large.txt', lines: '1' } }];
+  const response = join(dir, 'response.json');
+  writeFileSync(response, JSON.stringify(triageResponse));
+  const { summary } = runLoop(input, { rootDir: dir, response, output: join(dir, 'run') });
+  const inline = structuredClone(input);
+  inline.state.evidence = [{ id: 'E1', scope: 'revision abc', content: 'é', source: 'large.txt:L1-L1' }];
+  const metrics = summary.metrics.content_ref;
+  assert.equal(metrics.reference_input_bytes, Buffer.byteLength(JSON.stringify(input)));
+  assert.equal(metrics.inline_equivalent_input_bytes, Buffer.byteLength(JSON.stringify(inline)));
+  assert.equal(metrics.input_bytes_avoided, Buffer.byteLength(JSON.stringify(inline)) - Buffer.byteLength(JSON.stringify(input)));
+  assert.ok(metrics.input_bytes_avoided < 0);
+  assert.equal(Object.hasOwn(metrics, 'host_bytes_saved'), false);
+}));
+
+test('claim CLI rejects conflicting input, missing scope, and escaping evidence before evaluation', () => withTemp(dir => {
+  const script = new URL('./run-loop.mjs', import.meta.url).pathname;
+  for (const [args, error] of [
+    [['--input', 'never-read.json', '--claim', 'Some claim.'], /cannot combine/],
+    [['--claim', 'Some claim.', '--evidence', 'source.txt:1'], /scope/],
+    [['--claim', 'Some claim.', '--scope', 'fixture', '--evidence', '../outside.txt:1'], /sandbox/]
+  ]) {
+    const result = spawnSync(process.execPath, [script, ...args], { cwd: dir, encoding: 'utf8' });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, error);
+  }
+}));

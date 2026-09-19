@@ -16,9 +16,8 @@
 //   Resolution fills `content` (bounded, redacted) and, when absent, `source`
 //   ("path:LS-LE"). Supplying both content and contentRef is rejected.
 //
-// This mirrors what the native runtime SHOULD do at engine/src/jev.rs:261
-// (reusing the localFetch read path); here it is JS so the shipped skill runner
-// realizes and measures the saving today.
+// This is the standalone skill's input adapter; the native public reasoning
+// tool currently accepts inline evidence. Neither path treats a pointer as proof.
 
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -28,10 +27,14 @@ const DEFAULT_MAX = 1200;
 
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-// Stand-in for the native `secrets` primitive; conservative, never widening scope.
+// Limited standalone redactor, not full native secrets parity. AWS access-key
+// IDs and credential URLs mirror engine/security/patterns.rs; other native
+// secret families and contextual detectors remain outside this fallback.
 // Exported so sibling evidence paths (scout.mjs) share one redaction, not a fork.
 export function redact(text) {
   return text
+    .replace(/\b(?:AKIA|ABIA|ACCA|ASIA)[A-Z0-9]{16}\b/g, '«redacted-token»')
+    .replace(/\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{3,20}:[^\\/\s:@]{3,20}@[^\s'"]+\b/g, '«redacted-url»')
     .replace(/\b(sk|gh[pousr]|xox[baprs]|apikey)[-_][A-Za-z0-9]{16,}\b/gi, '«redacted-token»')
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '«redacted-key»');
 }

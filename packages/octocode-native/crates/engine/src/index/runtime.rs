@@ -547,13 +547,24 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<SymbolRecord> {
     else {
         return Vec::new();
     };
+    // Build the per-line byte offsets once. `position_to_byte` is called twice
+    // per declaration and previously rescanned the file prefix from byte 0 on
+    // every call (O(file_len) each); the table makes each lookup O(1).
+    let lines: Vec<&str> = content.split_inclusive('\n').collect();
+    let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+    let mut offset = 0usize;
+    for line in &lines {
+        line_starts.push(offset);
+        offset += line.len();
+    }
     extraction
         .facts
         .declarations
         .into_iter()
         .filter_map(|declaration| {
-            let start = position_to_byte(content, &declaration.selection_range.start)?;
-            let end = position_to_byte(content, &declaration.selection_range.end)?.max(start);
+            let start = position_to_byte(&lines, &line_starts, &declaration.selection_range.start)?;
+            let end = position_to_byte(&lines, &line_starts, &declaration.selection_range.end)?
+                .max(start);
             Some(SymbolRecord {
                 name: declaration.name,
                 kind: declaration.kind,
@@ -564,14 +575,14 @@ fn extract_symbols(content: &str, file_path: &str) -> Vec<SymbolRecord> {
         .collect()
 }
 
-fn position_to_byte(content: &str, position: &crate::graph::GraphPosition) -> Option<usize> {
+fn position_to_byte(
+    lines: &[&str],
+    line_starts: &[usize],
+    position: &crate::graph::GraphPosition,
+) -> Option<usize> {
     let line = usize::try_from(position.line).ok()?;
     let character = usize::try_from(position.character).ok()?;
-    let line_text = content.split_inclusive('\n').nth(line)?;
-    let line_start = content
-        .split_inclusive('\n')
-        .take(line)
-        .map(str::len)
-        .sum::<usize>();
+    let line_text = lines.get(line)?;
+    let line_start = *line_starts.get(line)?;
     Some(line_start + crate::text::utf8_offsets::char_to_byte_offset_inner(line_text, character))
 }

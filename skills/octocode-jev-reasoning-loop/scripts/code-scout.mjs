@@ -1,10 +1,7 @@
 #!/usr/bin/env node
-// code-scout.mjs — productized code-file scout. Turns "candidate code files + a
-// capability question" into "read only the real implementer(s)", keeping every
-// rejected file's bytes off host-model context. A docs/prose `is_code` veto
-// demotes read -> gray_read so a document that quotes the code is not mistaken
-// for the implementation (the exact docs-vs-code trap: validated on octocode's
-// own source, where references/scout.md near-tied `implements` at P=0.48).
+// code-scout.mjs — rank candidate files before expensive full reads.
+// The docs/prose veto demotes read to gray_read when quoted code could be
+// mistaken for an implementation. Both read and gray_read remain required.
 //
 //   Explicit candidates:
 //   node scripts/code-scout.mjs \
@@ -19,8 +16,9 @@
 // --search runs `git grep -lIE <pattern>` from --root to collect candidate files,
 // then scouts them; --search doubles as the anchor set when --anchors is omitted.
 // If neither --anchors nor --search is given, searchable tokens (len >= 4) from
-// the question are used as anchors. Verdicts are provisional: reopen anchors
-// before asserting, and never report absence from a skip alone. One batched Jev
+// the question are used as anchors. Verdicts are provisional: inspect decisive
+// original evidence unless already inspected, complete and current, and never
+// report absence from a skip alone. One batched Jev
 // call covers up to 12 files.
 
 import { execFileSync } from 'node:child_process';

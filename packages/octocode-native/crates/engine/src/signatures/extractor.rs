@@ -67,10 +67,8 @@ pub struct LangExtractConfig {
 /// `&'static str` fixed in `languages.rs`) and safe to share across threads
 /// once built. Queries can be shared concurrently; parsing requires mutable
 /// parser access, so `structural/octo.rs` keeps a parser per worker thread.
-/// Caches one compiled `Query` per
-/// `(language, body_query)` pair instead of recompiling on every `extract()`
-/// call — previously once per file scanned, mirroring the reuse pattern
-/// `structural/files.rs` already uses for its matcher compilation.
+/// Caches one compiled `Query` per `(language, body_query)` pair instead of
+/// recompiling on every `extract()` call.
 type QueryCacheKey = (Language, &'static str);
 type QueryCacheMap = HashMap<QueryCacheKey, Arc<Query>>;
 

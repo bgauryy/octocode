@@ -21,6 +21,96 @@ mod tests {
     };
 
     #[test]
+    fn match_only_caps_display_after_unique_grouping_and_preserves_continuations() {
+        let root = tempfile::tempdir().expect("fixture directory");
+        let prefix = format!("needle{}", "界".repeat(4096));
+        fs::write(
+            root.path().join("giant.txt"),
+            format!("{prefix}END\n{prefix}END\n{prefix}OTHER\n"),
+        )
+        .expect("fixture");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let security = ContentSecurity::new(Arc::new(SecurityRegistry::default()));
+        let request = LocalSearchRequest {
+            path: root.path().to_string_lossy().into_owned(),
+            search_text: "needle.*".into(),
+            result_view: Some(ResultView::MatchOnly),
+            match_content_length: Some(30),
+            max_matches_per_file: Some(1),
+            unique: Some(UniqueMode::Count),
+            ..Default::default()
+        };
+        let first =
+            execute_local_search(&request, &policy, &security, &NeverCancel).expect("first page");
+        let body = serde_json::to_value(&first).expect("serialize");
+        let matched = &body["files"][0]["matches"][0];
+        assert_eq!(
+            matched["value"].as_str().expect("value").chars().count(),
+            30
+        );
+        assert_eq!(matched["truncated"], true);
+        assert_eq!(matched["originalChars"], 4105);
+        assert_eq!(matched["returnedChars"], 30);
+        assert_eq!(matched["count"], 2);
+        assert_eq!(body["stats"]["totalOccurrences"], 3);
+        assert_eq!(body["stats"]["matchedLines"], 3);
+        assert_eq!(body["stats"]["capped"], false);
+        assert_eq!(body["files"][0]["totalMatchRows"], 2);
+        assert!(
+            first
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("matchContentLength"))
+        );
+        let next = &body["next"]["nextMatchPage"]["query"];
+        assert_eq!(next["matchContentLength"], 30);
+        assert_eq!(next["unique"], "count");
+        assert_eq!(next["matchPage"], 2);
+        let continued = LocalSearchRequest {
+            match_page: Some(2),
+            snapshot: first.source_snapshot,
+            ..request
+        };
+        let second = execute_local_search(&continued, &policy, &security, &NeverCancel)
+            .expect("second page");
+        let body = serde_json::to_value(second).expect("serialize");
+        let matched = &body["files"][0]["matches"][0];
+        assert_eq!(matched["originalChars"], 4107);
+        assert_eq!(matched["returnedChars"], 30);
+        assert_eq!(matched["count"], 1);
+        assert_eq!(body["files"][0]["totalMatchRows"], 2);
+        assert_eq!(body["files"][0]["pagination"]["hasMore"], false);
+        assert!(body.get("next").is_none());
+
+        for (limit, expected_chars) in [(None, 500), (Some(1), 1), (Some(4105), 4105)] {
+            let bounded = LocalSearchRequest {
+                match_page: Some(1),
+                snapshot: None,
+                match_content_length: limit,
+                ..continued.clone()
+            };
+            let result = execute_local_search(&bounded, &policy, &security, &NeverCancel)
+                .expect("default, minimal and exact-boundary caps");
+            let body = serde_json::to_value(result).expect("serialize");
+            let matched = &body["files"][0]["matches"][0];
+            assert_eq!(
+                matched["value"].as_str().expect("value").chars().count(),
+                expected_chars
+            );
+            assert_eq!(matched.get("truncated").is_some(), expected_chars < 4105);
+            assert_eq!(
+                matched.get("originalChars").is_some(),
+                expected_chars < 4105
+            );
+            assert_eq!(matched["count"], 2);
+        }
+    }
+
+    #[test]
     fn excludes_sensitive_binary_and_symlink_descendants_before_projection() {
         let root = std::env::temp_dir().join(format!(
             "local-search-security-{}",
