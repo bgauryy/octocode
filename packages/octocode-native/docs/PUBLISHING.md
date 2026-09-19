@@ -57,7 +57,7 @@ yarn workspace @octocodeai/octocode-native platforms:check
 
 `build:<platform>` produces and stages all four artifacts. Darwin staging replaces linker-generated ad-hoc addon signatures with fresh ad-hoc signatures. When the target matches the host, staging loads both addons in subprocesses immediately. `platforms:check` verifies all 24 files and also loads both host-platform addons.
 
-Cross-target presence is not runtime proof. CI must run each `build:<platform>` command on the matching runner, as configured by `.github/workflows/rust-tools-core.yml`, so `npm/verify-binary.cjs` can execute the package’s addons and binaries.
+Cross-target presence is not runtime proof. CI runs each `build:<platform>` command on the matching runner, as configured by `.github/workflows/rust-tools-core.yml`, so `npm/verify-binary.cjs` can execute the package’s addons and binaries. Its downstream `packages` job then assembles the six uploaded platform directories, restores executable modes lost by artifact transport, runs the 24-file `platforms:check` gate, and uploads the verified release-package set.
 
 ## Version contract
 

@@ -123,6 +123,26 @@ test('question IDs cannot collide when candidate IDs normalize alike', () => {
   }, { dryRun: true }), /unique/);
 });
 
+test('taxonomy presets replace inline levels, top-level and per-dimension', () => {
+  const dry = runScout({
+    claim: 'which PR addresses X', taxonomy: 'relevance',
+    items: [{ id: 'a', content: 'one' }, { id: 'b', content: 'two' }]
+  }, { dryRun: true });
+  const crit = dry.request.questions.candidate_0.criteria;
+  assert.equal(crit[3].level, 'addresses'); // HISTORY_LEVELS top
+  const mixed = runScout({
+    claim: 'x',
+    dimensions: [
+      { key: 'rel', role: 'primary', taxonomy: 'relevance' },
+      { key: 'impl', role: 'info', taxonomy: 'implements' }
+    ],
+    items: [{ id: 'a', content: 'one' }, { id: 'b', content: 'two' }]
+  }, { dryRun: true });
+  assert.equal(mixed.request.questions.candidate_0__rel.criteria[3].level, 'addresses');
+  assert.equal(mixed.request.questions.candidate_0__impl.criteria[3].level, 'implements');
+  assert.throws(() => runScout({ claim: 'x', taxonomy: 'nope', items: [{ id: 'a', content: 'b' }, { id: 'c', content: 'd' }] }, { dryRun: true }), /taxonomy must be one of/);
+});
+
 test('runScout validates input and supports dry-run without any Jev call', async () => {
   const d = await dir({ 'a.mjs': 'const h = createHash("sha256")', 'b.mjs': 'export const x = 1' });
   try {

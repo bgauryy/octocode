@@ -257,9 +257,27 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
                         }
                     };
                 }
-                let json_arg = rest
+                // --input <file> reads the query from disk, sparing agents the
+                // shell-quoted inline JSON that measurably inflates their
+                // context (A/B 2026-09-19: 33k extra agent tokens over nine
+                // hand-authored packets).
+                let file_input = rest
                     .iter()
-                    .find(|s| s.starts_with('{') || s.starts_with('['));
+                    .position(|s| s == "--input")
+                    .and_then(|at| rest.get(at + 1))
+                    .map(|path| std::fs::read_to_string(path).map_err(|e| (path.clone(), e)));
+                let owned_json: Option<String> = match file_input {
+                    Some(Ok(contents)) => Some(contents),
+                    Some(Err((path, error))) => {
+                        emit_error(&format!("Cannot read --input {path}: {error}"), json_errors);
+                        return 2;
+                    }
+                    None => None,
+                };
+                let json_arg = owned_json.as_ref().or_else(|| {
+                    rest.iter()
+                        .find(|s| s.starts_with('{') || s.starts_with('['))
+                });
                 return match json_arg {
                     Some(json_str) => match serde_json::from_str::<Value>(json_str) {
                         Ok(input) => {
@@ -352,11 +370,28 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             tool,
             queries,
             queries_flag,
+            input,
             scheme,
             json,
             compact,
         } => {
-            let query = queries_flag.as_deref().or(queries.as_deref());
+            let file_query = match input {
+                Some(path) => match std::fs::read_to_string(&path) {
+                    Ok(contents) => Some(contents),
+                    Err(error) => {
+                        emit_error(
+                            &format!("Cannot read --input {}: {error}", path.display()),
+                            json_errors,
+                        );
+                        return 2;
+                    }
+                },
+                None => None,
+            };
+            let query = file_query
+                .as_deref()
+                .or(queries_flag.as_deref())
+                .or(queries.as_deref());
             match (tool.as_deref(), scheme, query) {
                 // `tools` or `tools --json` — human-readable catalog
                 (None, false, None) => match runtime.catalog() {
@@ -885,6 +920,7 @@ pub(super) async fn execute(
                     emit_error(&format!("{}: {}", error.code, error.message), true);
                 } else {
                     eprintln!("{}: {}", error.code, error.message);
+                    print_error_details(&error);
                     if error.code == "timeout" {
                         eprintln!(
                             "Hint: retry -- the first call initialises the language server (~60 s cold start)."
@@ -894,6 +930,24 @@ pub(super) async fn execute(
                 return if error.code == "invalidInput" { 2 } else { 5 };
             }
         }
+    }
+}
+
+/// Surface the per-issue diagnostics carried in an invalidInput payload
+/// (`format_input_error` output) on stderr; previously the CLI printed only
+/// the one-line summary and discarded every path/message/hint detail.
+fn print_error_details(error: &octocode_native::runtime::RuntimeError) {
+    let Some(payload) = error.payload.as_deref() else {
+        return;
+    };
+    for detail in payload
+        .get("details")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        eprintln!("  - {detail}");
     }
 }
 
@@ -976,6 +1030,7 @@ async fn execute_search(runtime: &ToolRuntime, args: search::SearchArgs, json_er
                 }
                 Err(error) => {
                     eprintln!("{}: {}", error.code, error.message);
+                    print_error_details(&error);
                     return if error.code == "invalidInput" { 2 } else { 5 };
                 }
             }

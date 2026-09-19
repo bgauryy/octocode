@@ -16,7 +16,7 @@ Run `context` once per session or tool-version change to discover enabled tools 
 
 Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also accepts a single query or array. A host gateway may add its own outer envelope; follow its schema. Omit optional fields until the task needs them. On validation failure, correct the named field or selector using the live schema before retrying.
 
-## 12 public tools
+## 13 public tools
 
 | Evidence question | Tool |
 |---|---|
@@ -27,8 +27,9 @@ Pass arguments as an object. Direct MCP uses `{ "queries": [query] }`; CLI also 
 | Local text / syntax or topology / structural rewrite / exact content / symbol identity | `localSearch` / `astSearch` / `astRewrite` / `localFetch` / `lspSearch` |
 | Package metadata or capability discovery | `artifactSearch` |
 | Provisional typed judgment at an unresolved evidence fork | `jevReasoning` when a nonblank `OCTOCODE_JEV_KEY` is resolved |
+| Rank bounded candidate spans before reading a selective fan-out | `jevScout` when a nonblank `OCTOCODE_JEV_KEY` is resolved |
 
-The default catalog contains 10 tools. The full discovery catalog also includes opt-in `ghCloneRepo` and credential-gated `jevReasoning`. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
+The default catalog contains 10 tools. The full discovery catalog also includes opt-in `ghCloneRepo` and credential-gated `jevReasoning` and `jevScout`. Local access, clone, storage, credentials, and tool filters determine availability. Check the live catalog before using a follow-up. Check auth only when needed. If the current interface is unavailable, state the fallback and its coverage; do not present an unsupported call as an empty result.
 
 ## Output and recovery
 - CLI default is YAML; `--compact` gives structured data; `--json` gives the full MCP-style envelope. MCP returns text plus structured data. Inspect per-row status: error is failure, empty is scoped absence, and exit 0 alone does not establish success for every row.

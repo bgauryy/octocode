@@ -42,6 +42,10 @@ const TOOL_PAGINATION_CONTRACT: Record<
     controls: [],
     exemption: 'bounded typed-judgment operation',
   },
+  jevScout: {
+    controls: [],
+    exemption: 'bounded candidate-ranking operation',
+  },
 };
 
 const TOTAL_CAP_TOOLS = new Set(['astSearch']);

@@ -2,6 +2,7 @@ mod deep_stack;
 pub mod extractor;
 pub mod graph_facts;
 pub mod js_oxc;
+mod nodes;
 
 pub(crate) use deep_stack::run_on_deep_stack;
 mod js_oxc_calls;

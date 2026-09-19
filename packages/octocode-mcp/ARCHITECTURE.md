@@ -22,11 +22,11 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
-The public catalog is `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo`, `artifactSearch`, `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch`, and the credential-gated `jevReasoning` tool.
+The public catalog is `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo`, `artifactSearch`, `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch`, and the credential-gated `jevReasoning` and `jevScout` tools.
 
 `createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
-adapter omits tools with `available: false`; `jevReasoning` is therefore
-registered only when the native runtime resolves a nonblank
+adapter omits tools with `available: false`; `jevReasoning` and `jevScout` are
+therefore registered only when the native runtime resolves a nonblank
 `OCTOCODE_JEV_KEY`. For every available tool, it:
 
 1. looks up the matching core-owned Standard Schema definition;

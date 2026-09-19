@@ -3,6 +3,7 @@
 const { copyFileSync } = require('fs');
 const { join } = require('path');
 const { getPlatformSuffix } = require('../bin/platform.cjs');
+const { adHocSignDarwinAddon, verifyAddonLoads } = require('./native-addon-utils.cjs');
 
 const profile = process.argv[2] ?? 'debug';
 const suffix = getPlatformSuffix();
@@ -16,5 +17,8 @@ const library =
       ? 'liboctocode_native.dylib'
       : 'liboctocode_native.so';
 const destination = `octocode-native.${suffix}.node`;
-copyFileSync(join(root, 'target', profile, library), join(root, destination));
-console.log(`copied ${library} -> ${destination}`);
+const destinationPath = join(root, destination);
+copyFileSync(join(root, 'target', profile, library), destinationPath);
+adHocSignDarwinAddon(destinationPath, suffix);
+verifyAddonLoads(destinationPath);
+console.log(`copied and verified ${library} -> ${destination}`);

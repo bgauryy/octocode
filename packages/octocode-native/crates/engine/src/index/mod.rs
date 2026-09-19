@@ -2,6 +2,7 @@ mod digest;
 mod runtime;
 mod search;
 mod store;
+mod traversal;
 mod types;
 
 pub use digest::sha256 as content_digest;

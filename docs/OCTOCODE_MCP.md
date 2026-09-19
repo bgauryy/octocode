@@ -57,17 +57,17 @@ At startup, Octocode reads configuration from environment variables and `<octoco
 
 ## Tool catalog
 
-The full discovery catalog contains 12 tools. With the default settings and no
+The full discovery catalog contains 13 tools. With the default settings and no
 Jev key, the MCP server registers 10: `ghCloneRepo` is opt-in and requires
-`ENABLE_CLONE=true` plus persistent storage, while `jevReasoning` is registered
-only when the resolved `OCTOCODE_JEV_KEY` is nonblank.
+`ENABLE_CLONE=true` plus persistent storage, while `jevReasoning` and `jevScout`
+are registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank.
 
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite`, `lspSearch` |
 | Package | `artifactSearch` |
-| Reasoning | `jevReasoning` |
+| Reasoning | `jevReasoning`, `jevScout` |
 
 `astRewrite` is preview-first. File mutation is separately opt-in with
 `ENABLE_AST_REWRITE_APPLY=true` and requires the complete set of preview hashes.
@@ -79,9 +79,8 @@ To read the live CLI catalog, run `octocode tools --json`.
 other operations and removed compatibility names cannot be re-enabled.
 
 Every tool accepts bulk input through `queries`, with up to 5 items per call. MCP
-publishes executable input schemas, descriptions, and availability metadata; it
-does not publish a protocol `outputSchema`. Runtime results still use the shared
-structured bulk envelope with per-query success, empty, and error states, plus
+publishes executable input and output schemas, descriptions, and availability
+metadata. Runtime results use the shared structured bulk envelope with per-query success, empty, and error states, plus
 typed evidence and pagination data when more content is available. For the
 complete response and continuation rules, see the [Octocode tools reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md).
 
@@ -106,8 +105,8 @@ The following table lists the settings that matter most for MCP:
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Tool response format: `yaml` or `json`. |
 | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `20000` | Default response size budget (1 000 – 50 000). |
 | `OCTOCODE_LSP_CONFIG` | unset | Path to a custom `lsp-servers.json`. |
-| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value registers `jevReasoning`; keep it in the environment or a protected secret source. |
-| `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional model override for `jevReasoning`. |
+| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value registers `jevReasoning` and `jevScout`; keep it in the environment or a protected secret source. |
+| `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional model override for `jevReasoning` and `jevScout`. |
 | `OCTOCODE_JEV_BASE_URL` | `https://api.typesafe.ai` | Optional trusted Jev API root. |
 
 For full details, see the [Octocode configuration and authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) reference.

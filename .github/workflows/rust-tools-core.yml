@@ -95,3 +95,34 @@ jobs:
           name: octocode-native-${{ matrix.target }}
           path: packages/octocode-native/npm/${{ matrix.target }}
           if-no-files-found: error
+
+  packages:
+    name: Validate all six release packages
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: octocode-native-*
+          path: native-artifacts
+      - name: Assemble release packages
+        shell: bash
+        run: |
+          for platform in darwin-arm64 darwin-x64 linux-arm64-gnu linux-x64-gnu linux-x64-musl win32-x64-msvc; do
+            cp -a "native-artifacts/octocode-native-$platform/." "packages/octocode-native/npm/$platform/"
+          done
+          chmod +x \
+            packages/octocode-native/npm/darwin-*/octocode* \
+            packages/octocode-native/npm/linux-*/octocode*
+      - name: Verify all 24 platform artifacts
+        run: node packages/octocode-native/scripts/check-platform-binaries.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: octocode-native-release-packages
+          path: packages/octocode-native/npm
+          if-no-files-found: error

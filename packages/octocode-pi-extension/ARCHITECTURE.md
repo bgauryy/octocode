@@ -207,7 +207,7 @@ completed commands with oversized output do not auto-replay mutations. See [the 
 
 ### 3.3 MCP research tools (catalog-driven via MCPTool → octocode-mcp server)
 
-The built-in catalog currently contains twelve tools, including credential-gated `jevReasoning`. They are served through `MCPTool`; omitted `server` defaults to the built-in
+The built-in catalog contains thirteen tools, including credential-gated `jevReasoning` and `jevScout`. They are served through `MCPTool`; omitted `server` defaults to the built-in
 `octocode` server for research, resource, and prompt actions. Their schemas are
 discovered through the gateway instead of registered individually in Pi's direct
 tool palette. Measure the live contracts before estimating context savings.

@@ -37,3 +37,11 @@ Avoid sending the full conversation, unrelated source files, tool catalogs or th
 If the material still does not fit, partition by proposition or evidence dependency, not arbitrary byte chunks. Check independent premises separately; the host verifies and combines them. For a final cross-packet comparison, include all deciding anchors together. If those cannot fit, retain host reasoning or report unresolved scope rather than asking Jev to decide from lossy summaries.
 
 Questions in one call are independent. A dependent question needs a later call with the verified premise and original evidence in state. Do not promote an earlier model answer into fact, omit its uncertainty, or accumulate a recursive history of opinions. Continue with `references/research.md` for the bounded dispute protocol.
+
+## Bound the claim to its coverage
+
+Grounding measures the honesty of the frame, not only the facts: identical evidence scored 0.48 under a composite "all audited" claim and 0.87 once the claim enumerated its ten verified items plus an explicit not-verified list (dogfood, 2026-09-19). Bound every claim to what the evidence covers, name what it does not, and ground multi-part assertions per item — a composite claim diffuses its anchors and blocks even when each part is solid. The mirror cuts both ways: a flattering packet can buy an unearned score, so the deliberation discipline (falsifier, strongest counter, anchors) carries as much weight as the model.
+
+## Blocked is a result, not a failure
+
+A `blocked` or `needs_evidence` outcome is the judgment working: retrieve exactly what it names; never reframe the packet to force approval. When `more_evidence_needed` stays high (0.6–0.85) across successive reviews of the same decision, the missing evidence is an independent eval — build and run it instead of composing another packet (dogfood: this signal preceded every suite that later settled the decision).

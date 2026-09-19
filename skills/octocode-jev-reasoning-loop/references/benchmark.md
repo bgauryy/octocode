@@ -34,3 +34,6 @@ Treat the live held-out result as **absolute characterization** until a matched 
 Do not tune on held-out outcomes. If the sensor population is too small because Jev never takes the attractive wrong lead, mark the run INVALID and rotate new cases between experiments rather than rewriting the frozen run. Preserve request, response, APPLY, and report artifacts under the output directory.
 
 Next: an ACCEPT/REVERT report must distinguish deterministic ergonomics evidence, absolute semantic characterization, and comparative efficacy.
+
+
+Report agent-model tokens and Jev-provider tokens as separate meters; conflating them once misattributed a 48% interface overhead to the judgment itself (A/B 2026-09-19, docs/JEV_BENCHMARK.md).

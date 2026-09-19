@@ -361,9 +361,10 @@ fn dim_from_value(value: &Value, claim: &str) -> Dim {
         .unwrap_or(claim)
         .to_owned();
     let levels = value
-        .get("levels")
-        .and_then(Value::as_array)
-        .cloned()
+        .get("taxonomy")
+        .and_then(Value::as_str)
+        .and_then(preset_levels)
+        .or_else(|| value.get("levels").and_then(Value::as_array).cloned())
         .unwrap_or_else(default_levels);
     Dim {
         key,
@@ -373,13 +374,29 @@ fn dim_from_value(value: &Value, claim: &str) -> Dim {
     }
 }
 
+/// Named taxonomy presets — byte-identical to scout.mjs `TAXONOMIES` so the
+/// same packet resolves identically on both implementations.
+fn preset_levels(name: &str) -> Option<Vec<Value>> {
+    match name {
+        "implements" => Some(default_levels()),
+        "relevance" => Some(vec![
+            json!({ "level": "unrelated", "meaning": "does not concern the question" }),
+            json!({ "level": "adjacent", "meaning": "touches the same area without bearing on the question" }),
+            json!({ "level": "related", "meaning": "bears on the question but does not settle or address it" }),
+            json!({ "level": "addresses", "meaning": "directly addresses the question; open this one" }),
+        ]),
+        _ => None,
+    }
+}
+
 fn normalize_dimensions(query: &Value, claim: &str) -> Result<Vec<Dim>, JevProviderError> {
     let Some(raw) = query.get("dimensions").and_then(Value::as_array) else {
         // Absent (or non-array) → single default primary dimension.
         let levels = query
-            .get("levels")
-            .and_then(Value::as_array)
-            .cloned()
+            .get("taxonomy")
+            .and_then(Value::as_str)
+            .and_then(preset_levels)
+            .or_else(|| query.get("levels").and_then(Value::as_array).cloned())
             .unwrap_or_else(default_levels);
         return Ok(vec![Dim {
             key: "main".to_owned(),

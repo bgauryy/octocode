@@ -16,7 +16,7 @@ npx octocode tools <toolName> --scheme --json --compact
 | Packages | `artifactSearch` |
 | Local | `localSearch`, `localFetch`, `astSearch`, `astRewrite` |
 | LSP | `lspSearch` |
-| Reasoning | `jevReasoning` |
+| Reasoning | `jevReasoning`, `jevScout` |
 
 ## Contents
 
@@ -27,6 +27,7 @@ npx octocode tools <toolName> --scheme --json --compact
 - [Local code tools reference](#local-code-tools-reference)
 - [LSP tools reference](#lsp-tools-reference)
 - [Jev reasoning reference](#jev-reasoning-reference)
+- [Jev Scout reference](#jev-scout-reference)
 - [Clone and local tools workflow](#clone-and-local-tools-workflow)
 - [Tool verification playbook](#tool-verification-playbook)
 - [MCP tool quality and agent workflow](https://github.com/bgauryy/octocode/blob/main/docs/MCP_TOOL_QUALITY_AND_AGENT_WORKFLOW.md)
@@ -124,8 +125,9 @@ Keep continuation tokens scoped to their surface: operation-level `snapshot` val
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `jevReasoning` | External | Sends one bounded, caller-specified reasoning fork to TypeSafe Jev and returns a provisional typed judgment. It does not supply facts, invent alternatives, execute checks, or turn its result into evidence. |
+| `jevScout` | Hybrid | Reads bounded, redacted local spans or accepts pre-fetched rows, then asks TypeSafe Jev to rank which candidates to read. Returned actions and probabilities are provisional, not evidence. |
 
-Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jevReasoning` requires a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register the tool.
+Remote GitHub tools require provider runtime and credentials. `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools require `ENABLE_LOCAL`; clone/materialization additionally requires `ENABLE_CLONE` and persistent storage. LSP availability also depends on a compatible server for the file language. `jevReasoning` and `jevScout` require a nonblank resolved `OCTOCODE_JEV_KEY`; without one, MCP does not register either tool.
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -1382,6 +1384,18 @@ Invoke the direct CLI command with the same bulk JSON object accepted by MCP:
 
 ```bash
 npx octocode jevReasoning '<json>'
+```
+
+## Jev Scout reference
+
+Use `jevScout` to prioritize a selective fan-out of candidate files or pre-fetched rows before reading them into the host context. Each query supplies one claim and exactly one source: two to twelve root-relative local files with regex anchors, or two to twelve bounded items with stable IDs. Local reads remain inside the resolved sandbox and are redacted before provider access.
+
+Omit `dimensions` to use the default relevance taxonomy. A custom taxonomy can define one to four dimensions, exactly one `primary`, plus optional `veto` and `info` dimensions. Candidate count multiplied by dimension count cannot exceed 24 judgments per query. Results return source anchors, coverage, taxonomy levels, probabilities, and a provisional `read`, `gray_read`, or `skip` action. Reopen the returned anchors with an exact reader before citing or asserting anything.
+
+`jevScout` uses the same `OCTOCODE_JEV_KEY`, `OCTOCODE_JEV_MODEL`, and `OCTOCODE_JEV_BASE_URL` settings as `jevReasoning`. Inspect its current schema before constructing a call:
+
+```bash
+npx octocode jevScout --scheme
 ```
 
 ---

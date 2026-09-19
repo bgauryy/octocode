@@ -20,6 +20,8 @@ use lock::RootLock;
 use output::{
     continuation_query, executable_value, isolation_receipt, portable_relative, success_value,
 };
+mod raw;
+use raw::{RawByteRange, RawCapture, RawMatch, RawMetaVariables, RawPosition, RawRange};
 
 const DEFAULT_MAX_FILES: usize = 2_000;
 const DEFAULT_MAX_MATCHES: usize = 10_000;
@@ -42,55 +44,6 @@ impl Default for AstRewriteRuntimeOptions {
             max_patch_bytes: DEFAULT_MAX_PATCH_BYTES,
         }
     }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RawPosition {
-    line: u32,
-    column: u32,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RawByteRange {
-    start: usize,
-    end: usize,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RawRange {
-    byte_offset: RawByteRange,
-    start: RawPosition,
-    end: RawPosition,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct RawCapture {
-    text: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-struct RawMetaVariables {
-    #[serde(default)]
-    single: BTreeMap<String, RawCapture>,
-    #[serde(default)]
-    multi: BTreeMap<String, Vec<RawCapture>>,
-    #[serde(default)]
-    transformed: BTreeMap<String, String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RawMatch {
-    file: String,
-    text: String,
-    replacement: String,
-    range: RawRange,
-    replacement_offsets: Option<RawByteRange>,
-    #[serde(default)]
-    meta_variables: RawMetaVariables,
 }
 
 #[derive(Clone, Debug)]

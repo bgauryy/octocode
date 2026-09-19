@@ -6,14 +6,15 @@ use octocode_engine::lsp::config::{LspDiscoveryOptions, default_server_for_file_
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::resolver::resolve_position;
 use octocode_engine::lsp::types::{JsFuzzyPosition, JsLanguageServerConfig};
-use octocode_engine::lsp::uri::{
-    path_to_uri as engine_path_to_uri, uri_to_path as engine_uri_to_path,
-};
+use octocode_engine::lsp::uri::path_to_uri as engine_path_to_uri;
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
+
+mod render;
+use render::{as_array, decode_uri_path, flatten_document_symbol, paginate, uri_to_path};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -1296,87 +1297,6 @@ fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
     })
 }
 
-fn flatten_document_symbol(value: &Value, output: &mut Vec<Value>, container_name: Option<&str>) {
-    let Some(symbol) = value.as_object() else {
-        return;
-    };
-    let kind = symbol_kind_name(symbol.get("kind"));
-    let range = symbol
-        .get("range")
-        .or_else(|| symbol.get("location")?.get("range"));
-    if let (Some(name), Some(range)) = (symbol.get("name").and_then(Value::as_str), range) {
-        let mut compact = json!({
-            "name": name,
-            "kind": kind,
-            "line": range.pointer("/start/line").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "character": range.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
-            "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "childCount": symbol.get("children").and_then(Value::as_array).map_or(0, Vec::len)
-        });
-        if let Some(container_name) = container_name {
-            compact["containerName"] = json!(container_name);
-        }
-        output.push(compact);
-    }
-    let structural = matches!(
-        kind.as_str(),
-        "file"
-            | "module"
-            | "namespace"
-            | "package"
-            | "class"
-            | "enum"
-            | "interface"
-            | "markdownHeading"
-            | "struct"
-    );
-    if structural && let Some(children) = symbol.get("children").and_then(Value::as_array) {
-        let parent = symbol
-            .get("name")
-            .and_then(Value::as_str)
-            .or(container_name);
-        for child in children {
-            flatten_document_symbol(child, output, parent);
-        }
-    }
-}
-
-fn symbol_kind_name(kind: Option<&Value>) -> String {
-    if let Some(kind) = kind.and_then(Value::as_str) {
-        return kind.to_owned();
-    }
-    match kind.and_then(Value::as_u64) {
-        Some(1) => "file",
-        Some(2) => "module",
-        Some(3) => "namespace",
-        Some(4) => "package",
-        Some(5) => "class",
-        Some(6) => "method",
-        Some(7) => "property",
-        Some(8) => "field",
-        Some(9) => "constructor",
-        Some(10) => "enum",
-        Some(11) => "interface",
-        Some(12) => "function",
-        Some(13) => "variable",
-        Some(14) => "constant",
-        Some(15) => "string",
-        Some(16) => "number",
-        Some(17) => "boolean",
-        Some(18) => "array",
-        Some(19) => "object",
-        Some(20) => "key",
-        Some(21) => "null",
-        Some(22) => "enumMember",
-        Some(23) => "struct",
-        Some(24) => "event",
-        Some(25) => "operator",
-        Some(26) => "typeParameter",
-        _ => "unknown",
-    }
-    .to_owned()
-}
-
 fn recovery_next(query: &LspSearchQuery) -> Value {
     let path = query
         .uri
@@ -1427,52 +1347,6 @@ fn empty(query: &LspSearchQuery, category: &str, reason: &str, server_available:
             "Use localSearch for text or astSearch operation:\"match\" for syntax, then localFetch for surrounding code."
         ]
     })
-}
-
-fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value>, Value) {
-    let page_size = page_size.max(1);
-    let total = items.len() as u32;
-    let total_pages = total.div_ceil(page_size).max(1);
-    let current = page.clamp(1, total_pages);
-    let start = ((current - 1) * page_size) as usize;
-    let page_items = items
-        .iter()
-        .skip(start)
-        .take(page_size as usize)
-        .cloned()
-        .collect::<Vec<_>>();
-    let has_more = current < total_pages;
-    let mut pagination = json!({
-        "currentPage": current,
-        "totalPages": total_pages,
-        "totalResults": total,
-        "hasMore": has_more,
-        "pageSize": page_size
-    });
-    if has_more {
-        pagination["nextPage"] = json!(current + 1);
-    }
-    (page_items, pagination)
-}
-
-fn as_array(value: &Value) -> Vec<Value> {
-    match value {
-        Value::Array(values) => values.clone(),
-        Value::Null => vec![],
-        other => vec![other.clone()],
-    }
-}
-
-fn decode_uri_path(uri: &str) -> Result<String, String> {
-    if uri.starts_with("file:") {
-        engine_uri_to_path(uri).map_err(|error| error.to_string())
-    } else {
-        Ok(uri.to_owned())
-    }
-}
-
-fn uri_to_path(uri: &str) -> String {
-    decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned())
 }
 
 #[cfg(test)]

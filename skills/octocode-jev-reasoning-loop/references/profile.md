@@ -23,42 +23,13 @@ Jev returns typed probabilities, not a summary or explanation. Code owns weights
 Build input from `assets/profile-input.schema.json`, then:
 
 ```sh
-node scripts/profile.mjs --input profile.json --dry-run
-node scripts/profile.mjs --input profile.json
+node scripts/profile.mjs --input profile.json --dry-run node scripts/profile.mjs --input profile.json node --test scripts/profile.test.mjs  # deterministic safety, typing, batching, and concurrency checks
 ```
 
 Example:
 
 ```json
-{
-  "goal": "Build a reusable semantic profile of the selected source units.",
-  "root": ".",
-  "inputs": [
-    { "id": "runtime", "path": "src/runtime.ts" },
-    { "id": "adapter", "content": "export const run = core.run", "source": "generated excerpt" }
-  ],
-  "aspects": [
-    {
-      "key": "responsibilityCohesion",
-      "type": "score",
-      "instructions": "How cohesive are this source unit's responsibilities?",
-      "criteria": [
-        "Unrelated responsibilities",
-        "Several related responsibilities",
-        "One coherent responsibility"
-      ]
-    },
-    {
-      "key": "ownsBehavior",
-      "type": "noul",
-      "instructions": "Does this source unit directly own runtime behavior?",
-      "criteria": {
-        "true": "Directly implements behavior",
-        "false": "Only describes, imports, or delegates behavior"
-      }
-    }
-  ]
-}
+{ "goal": "Build a reusable semantic profile of the selected source units.", "root": ".", "inputs": [ { "id": "runtime", "path": "src/runtime.ts" }, { "id": "adapter", "content": "export const run = core.run", "source": "generated excerpt" } ], "aspects": [ { "key": "responsibilityCohesion", "type": "score", "instructions": "How cohesive are this source unit's responsibilities?", "criteria": [ "Unrelated responsibilities", "Several related responsibilities", "One coherent responsibility" ] }, { "key": "ownsBehavior", "type": "noul", "instructions": "Does this source unit directly own runtime behavior?", "criteria": { "true": "Directly implements behavior", "false": "Only describes, imports, or delegates behavior" } } ] }
 ```
 
 `candidate bytes stay off host context` means only that the host model need not read them first. Redacted content is still sent to the configured external Jev service. Do not profile source that policy forbids disclosing.

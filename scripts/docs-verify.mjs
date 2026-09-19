@@ -19,7 +19,11 @@ const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DISCOVERY_DEFINITIONS.map(
 );
 const DISCOVERABLE_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
-  if (name === STATIC_TOOL_NAMES.JEV_REASONING) return false;
+  if (
+    name === STATIC_TOOL_NAMES.JEV_REASONING ||
+    name === STATIC_TOOL_NAMES.JEV_SCOUT
+  )
+    return false;
   return name === 'ghCloneRepo' ? DEFAULT_CONFIG.local.enableClone : true;
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;

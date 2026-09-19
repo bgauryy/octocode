@@ -8,6 +8,7 @@
 
 mod files;
 mod language;
+mod metavars;
 mod octo;
 mod query;
 #[cfg(feature = "embedded-ast-grep-rewrite")]

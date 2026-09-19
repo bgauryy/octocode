@@ -1,5 +1,6 @@
 //! Canonical union branch selection, matching validation/unionIssues.ts.
-use super::{ContractValidationError, ValidationIssue, issue, validate_schema};
+use super::schema::validate_schema;
+use super::{ContractValidationError, ValidationIssue, issue};
 use serde_json::Value;
 
 const SELECTORS: &[&str] = &[

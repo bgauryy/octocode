@@ -1,4 +1,4 @@
-# Octocode Jev Reasoning Loop
+# Octocode Jev reasoning loop
 
 A host-owned decision loop around TypeSafe Jev. The host supplies alternatives, gathers facts, executes checks, and owns conclusions. Jev only returns typed judgments over bounded choices.
 
@@ -10,7 +10,7 @@ HOST REASONING → BOUNDED ALTERNATIVES → JEV JUDGMENT → PRECOMMIT
 
 ## Run
 
-Install with `npx -y octocode skill install octocode-jev-reasoning-loop`. Put `OCTOCODE_JEV_KEY=...` in `<HOME>/.octocode/.env`; `references/configuration.md` documents precedence and trusted project environments.
+Install with `npx -y octocode skill install octocode-jev-reasoning-loop`. Put `OCTOCODE_JEV_KEY=...` in `<home>/.octocode/.env`; `references/configuration.md` documents precedence and trusted project environments.
 
 Create a compact input using `assets/run-loop-input.schema.json`:
 

@@ -108,12 +108,34 @@ const questionId = (candidateIndex, dim, single) =>
 //   veto    — may only DEMOTE a read to gray_read when its argmax is its
 //             bottom level (forces MORE reading; can never create a skip)
 //   info    — reported, never affects the action
+// Named taxonomy presets: agents reference a preset instead of retyping the
+// same ordered levels in every packet (measured: ~306 chars per packet).
+export const TAXONOMIES = {
+  implements: DEFAULT_LEVELS,
+  relevance: HISTORY_LEVELS
+};
+
+function resolveLevels(spec, fallback) {
+  if (typeof spec === 'string') {
+    const preset = TAXONOMIES[spec];
+    if (!preset) throw new Error(`scout taxonomy must be one of: ${Object.keys(TAXONOMIES).join(', ')}.`);
+    return preset;
+  }
+  return spec || fallback;
+}
+
 function normalizeDimensions(input) {
+  const baseLevels = resolveLevels(input.taxonomy ?? input.levels, DEFAULT_LEVELS);
   if (!Array.isArray(input.dimensions)) {
-    return [{ key: 'main', role: 'primary', claim: input.claim, levels: input.levels || DEFAULT_LEVELS }];
+    return [{ key: 'main', role: 'primary', claim: input.claim, levels: baseLevels }];
   }
   if (input.dimensions.length < 1 || input.dimensions.length > 4) throw new Error('scout dimensions must be 1..4.');
-  const dims = input.dimensions.map(d => ({ role: 'info', claim: input.claim, levels: DEFAULT_LEVELS, ...d }));
+  const dims = input.dimensions.map(d => {
+    const merged = { role: 'info', claim: input.claim, ...d };
+    merged.levels = resolveLevels(d.taxonomy ?? d.levels, baseLevels);
+    delete merged.taxonomy;
+    return merged;
+  });
   if (dims.filter(d => d.role === 'primary').length !== 1) throw new Error('scout dimensions require exactly one primary.');
   if (new Set(dims.map(d => d.key)).size !== dims.length) throw new Error('scout dimension keys must be unique.');
   for (const d of dims) if (!d.key || !Array.isArray(d.levels) || d.levels.length < 2) throw new Error(`dimension ${d.key ?? '?'} requires key and >=2 levels.`);

@@ -9,6 +9,10 @@ use std::time::Instant;
 use tree_sitter::{Language, Node, ParseOptions, Parser, Tree};
 
 use super::language::{AgLanguage, Expando};
+use super::metavars::{
+    ambiguous_function_body_capture, html_tag_name_capture, key_value_pair_capture, meta_from_node,
+    minimum_candidate_nodes, MetaVar,
+};
 use super::query::StructuralQuery;
 use super::types::{MetavarRange, StructuralMatch};
 
@@ -948,126 +952,6 @@ fn key_value_nodes(candidate: Node<'_>) -> Option<(Node<'_>, Node<'_>)> {
     }
 }
 
-fn html_tag_name_capture(pattern: &str) -> Option<String> {
-    let trimmed = pattern.trim();
-    let inner = trimmed.strip_prefix("<$")?.strip_suffix('>')?;
-    if is_capture_name(inner) {
-        return Some(inner.to_owned());
-    }
-    None
-}
-
-fn key_value_pair_capture(pattern: &str) -> Option<(String, String)> {
-    let (left, right) = pattern.trim().split_once(':')?;
-    let key_capture = capture_name_from_token(left.trim())?;
-    let value_capture = capture_name_from_token(right.trim())?;
-    Some((key_capture, value_capture))
-}
-
-fn capture_name_from_token(token: &str) -> Option<String> {
-    let name = token.strip_prefix('$')?;
-    if is_capture_name(name) {
-        return Some(name.to_owned());
-    }
-    None
-}
-
-fn minimum_candidate_nodes(pattern_children: &[Node<'_>], source: &str, expando: Expando) -> usize {
-    pattern_children
-        .iter()
-        .filter(|node| {
-            !matches!(
-                meta_from_node(**node, source, expando),
-                Some(MetaVar::Multi(_) | MetaVar::IgnoredMulti)
-            )
-        })
-        .count()
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum MetaVar {
-    Single(String),
-    Multi(Option<String>),
-    IgnoredSingle,
-    IgnoredMulti,
-}
-
-/// C++ can parse `{ $$$BODY }` after a function declarator as an initializer
-/// list. A statement terminator disambiguates only this sole-capture body;
-/// ordinary variable initializers and concrete expression lists stay untouched.
-fn ambiguous_function_body_capture(
-    root: Node<'_>,
-    source: &str,
-    expando: Expando,
-) -> Option<usize> {
-    if root.kind() != "declaration" {
-        return None;
-    }
-    let initializer = root.child_by_field_name("declarator")?;
-    if initializer.kind() != "init_declarator"
-        || initializer.child_by_field_name("declarator")?.kind() != "function_declarator"
-    {
-        return None;
-    }
-    let body = initializer.child_by_field_name("value")?;
-    if body.kind() != "initializer_list" {
-        return None;
-    }
-    let named = named_children(body);
-    let [capture] = named.as_slice() else {
-        return None;
-    };
-    matches!(
-        meta_from_node(*capture, source, expando),
-        Some(MetaVar::Multi(_) | MetaVar::IgnoredMulti)
-    )
-    .then_some(capture.end_byte())
-}
-
-/// `expando.primary` and `expando.bare_word` differ only for PHP (see
-/// `Expando`'s doc comment) — a metavar substituted at a bare-word position
-/// (a function name) used `bare_word`, everything else used `primary`. Both
-/// must be recognized here: the leading char run is checked against
-/// *either*, and the repeat-count is taken against whichever one it actually
-/// is (never a mix of the two).
-fn meta_from_node(node: Node<'_>, source: &str, expando: Expando) -> Option<MetaVar> {
-    if node.kind() == "expression_statement" {
-        let named = named_children(node);
-        if let [capture] = named.as_slice() {
-            let meta = meta_from_text(node_text(*capture, source), expando);
-            if matches!(meta, Some(MetaVar::Multi(_) | MetaVar::IgnoredMulti)) {
-                return meta;
-            }
-        }
-    }
-    meta_from_text(node_text(node, source), expando)
-}
-
-fn meta_from_text(text: &str, expando: Expando) -> Option<MetaVar> {
-    let mut chars = text.chars();
-    let leading = chars.next()?;
-    if !expando.matches_leading(leading) {
-        return None;
-    }
-
-    let expando_len = text.chars().take_while(|ch| *ch == leading).count();
-    let rest: String = text.chars().skip(expando_len).collect();
-    match expando_len {
-        1 if rest == "_" => Some(MetaVar::IgnoredSingle),
-        1 if is_capture_name(&rest) => Some(MetaVar::Single(rest)),
-        3 if rest.is_empty() => Some(MetaVar::IgnoredMulti),
-        3 if is_capture_name(&rest) => Some(MetaVar::Multi(Some(rest))),
-        _ => None,
-    }
-}
-
-fn is_capture_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|ch| ch == '_' || ch.is_ascii_uppercase() || ch.is_ascii_digit())
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawRuleDocument {
@@ -1489,7 +1373,7 @@ fn children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
     out
 }
 
-fn named_children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
+pub(super) fn named_children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
     let mut out = Vec::with_capacity(node.named_child_count());
     for index in 0..node.named_child_count() {
         if let Some(child) = node.named_child(index as u32) {
@@ -1499,7 +1383,7 @@ fn named_children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
     out
 }
 
-fn node_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
+pub(super) fn node_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
     source
         .get(node.start_byte()..node.end_byte())
         .unwrap_or_default()

@@ -8,6 +8,7 @@ use crate::response::{
     TextContent,
 };
 use crate::security::{ContentSecurity, SecurityRegistry};
+use crate::tools::id::{ToolFamily, ToolId};
 use crate::tools::local_fetch::{CancellationCheck, LocalFetchRegex};
 
 use secrecy::SecretString;
@@ -204,35 +205,37 @@ impl ToolRuntime {
     fn cursor_scope_for(&self, tool: &str) -> Result<String, RuntimeError> {
         let home = self.inspect_config().home;
         let os_home = &self.input.os_home;
-        let scope_value = if matches!(
-            tool,
-            "localSearch" | "localFetch" | "astSearch" | "astRewrite" | "lspSearch" | ""
-        ) {
-            // Local tools need cwd, allowed paths, and LSP config.
-            json!({
-                "cwd": self.input.cwd,
-                "home": home,
-                "osHome": os_home,
-                "local": self.config.resolved.local,
-                "lsp": self.config.resolved.lsp,
-            })
-        } else if matches!(
-            tool,
-            "ghSearch"
-                | "ghGetFileContent"
-                | "ghSearchHistory"
-                | "ghGetHistoryItem"
-                | "ghCloneRepo"
-        ) {
-            // GitHub tools: scoped to API endpoint + home; not local config.
-            json!({
-                "home": home,
-                "osHome": os_home,
-                "github": self.config.resolved.github,
-            })
-        } else {
-            // Artifact and other remote tools: home only.
-            json!({"home": home, "osHome": os_home})
+        // An empty tool string is treated as a local scope (cursor resume paths
+        // derive scope before the tool is decoded); unknown tools fall back to
+        // the narrowest remote scope.
+        let family = match ToolId::from_name(tool) {
+            Some(id) => id.family(),
+            None if tool.is_empty() => ToolFamily::Local,
+            None => ToolFamily::Remote,
+        };
+        let scope_value = match family {
+            ToolFamily::Local => {
+                // Local tools need cwd, allowed paths, and LSP config.
+                json!({
+                    "cwd": self.input.cwd,
+                    "home": home,
+                    "osHome": os_home,
+                    "local": self.config.resolved.local,
+                    "lsp": self.config.resolved.lsp,
+                })
+            }
+            ToolFamily::GitHub => {
+                // GitHub tools: scoped to API endpoint + home; not local config.
+                json!({
+                    "home": home,
+                    "osHome": os_home,
+                    "github": self.config.resolved.github,
+                })
+            }
+            ToolFamily::Remote => {
+                // Artifact and other remote tools: home only.
+                json!({"home": home, "osHome": os_home})
+            }
         };
         super::cursor::scope_digest(&scope_value)
             .map_err(|error| RuntimeError::new("invalidCursor", format!("{error:?}")))
@@ -325,16 +328,11 @@ impl ToolRuntime {
         let local = self.config.resolved.local.enabled;
         let clone = self.config.resolved.local.enable_clone
             && self.config.resolved.storage.mode == "persistent";
-        let github = matches!(
-            tool,
-            "ghGetFileContent" | "ghGetHistoryItem" | "ghSearch" | "ghSearchHistory"
-        );
-        let local_tools = local
-            && matches!(
-                tool,
-                "localFetch" | "localSearch" | "astSearch" | "astRewrite" | "lspSearch"
-            );
-        let jev = matches!(tool, "jevReasoning" | "jevScout")
+        let id = ToolId::from_name(tool);
+        // GitHub read tools are always enabled; cloning has an extra gate below.
+        let github = matches!(id, Some(t) if t.is_github() && t != ToolId::GhCloneRepo);
+        let local_tools = local && matches!(id, Some(t) if t.is_local());
+        let jev = matches!(id, Some(t) if t.is_jev())
             && self
                 .config
                 .env_value("OCTOCODE_JEV_KEY")
@@ -342,8 +340,8 @@ impl ToolRuntime {
                 .is_some_and(|value| !value.is_empty());
         (github
             || local_tools
-            || (tool == "ghCloneRepo" && clone)
-            || tool == "artifactSearch"
+            || (id == Some(ToolId::GhCloneRepo) && clone)
+            || id == Some(ToolId::ArtifactSearch)
             || jev)
             && self
                 .config
@@ -576,14 +574,7 @@ impl ToolRuntime {
                 let mut failure = None;
                 for (index, query) in queries.iter().enumerate() {
                     context.check()?;
-                    let result = if matches!(
-                        tool.as_str(),
-                        "ghGetFileContent"
-                            | "ghGetHistoryItem"
-                            | "ghSearch"
-                            | "ghSearchHistory"
-                            | "ghCloneRepo"
-                    ) {
+                    let result = if matches!(ToolId::from_name(&tool), Some(t) if t.is_github()) {
                         let _enter = handle.enter();
                         match github_services.get_or_init(|| {
                             super::github::GitHubServices::new(

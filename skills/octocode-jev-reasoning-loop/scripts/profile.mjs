@@ -125,9 +125,12 @@ export function buildProfileRequests(input) {
     const hasContent = entry.content !== undefined;
     if (hasPath === hasContent) throw new Error(`profile source ${entry.id} requires exactly one of path or content.`);
     if (!hasPath && entry.lines !== undefined) throw new Error(`profile source ${entry.id} lines require path.`);
+    // Per-source override for mixed file sizes; validated with the same bounds
+    // so a misplaced value fails loudly instead of silently using the default.
+    const entryLimit = entry.maxChars === undefined ? limit : maxChars(entry);
     const source = hasPath
-      ? selectedPathContent(entry, rootDir, limit)
-      : selectedInlineContent(entry, limit);
+      ? selectedPathContent(entry, rootDir, entryLimit)
+      : selectedInlineContent(entry, entryLimit);
     const questions = Object.fromEntries(aspects.map(({ key, question }) => [key, question]));
     return {
       id: entry.id,

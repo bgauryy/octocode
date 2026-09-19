@@ -81,6 +81,10 @@
     {
       "name": "jevReasoning",
       "description": "Request a bounded provisional Jev judgment for an evidence-driven reasoning fork"
+    },
+    {
+      "name": "jevScout",
+      "description": "Rank bounded candidate spans for selective reading with provisional Jev judgments"
     }
   ],
   "keywords": [

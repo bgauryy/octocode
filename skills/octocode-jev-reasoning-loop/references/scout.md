@@ -1,94 +1,21 @@
 # Scout — typed read-prioritization
 
-Load when many candidate files might hold a capability and reading them all would
-spend host context the task does not need. Why: a scout converts "read N files"
-into one typed Jev judgment per candidate plus reads of only the confirmed few;
-the candidate bytes never enter the host context.
+Load when many candidate files or rows might hold a capability and reading them all spends host context the task does not need. A scout converts "read N files" into one typed Jev judgment per candidate plus reads of only the confirmed few; candidate bytes never enter the host context.
 
-## What a scout is — and is not
-
-A scout is `LOCATE → JUDGE`: `scripts/scout.mjs` gathers every anchor-matched
-span per candidate server-side (sandboxed to the root, redacted, ≤12 spans,
-bounded chars), sends ONE Jev request with a per-candidate **Score** question
-over an ordered relationship taxonomy, and maps the returned distributions to
-`read | skip | gray_read`.
-
-A scout **prioritizes reads. It never authorizes an action and never becomes
-evidence.** Every verdict is `provisional: true` and carries its span anchors;
-reopen the anchors with a real read before asserting anything a scout suggested.
-Never report absence ("X is not implemented here") from a scout skip alone.
+`scripts/scout.mjs` gathers every anchor-matched span per candidate server-side (sandboxed, redacted, ≤12 spans, budget-bounded), sends ONE request with a per-candidate **Score** question over an ordered taxonomy, and maps distributions to `read | skip | gray_read`. A scout **prioritizes reads; it never authorizes an action and never becomes evidence.** Every verdict is `provisional: true` with span anchors; reopen anchors before asserting, and never report absence from a skip alone. Prefer the native `jevScout` tool when available (same contract, native redaction/sandbox), and prefer packet-free entry points — structured tool calls or `--input` files — over hand-authoring inline JSON: authoring nine packets in agent context measured 33k extra agent tokens versus a zero-authoring driver. Presets `taxonomy: "implements"|"relevance"` replace inline level lists. This runner is the reference implementation, fallback, and parity source (`.octocode/rfc/jev-scout-production/`).
 
 ## Gate — when NOT to scout
 
-- You will read the file regardless (you are about to edit it): read directly.
-- A lexical or exact check settles it (grep, known path, symbol lookup): use it.
-- Fewer than ~4 candidates, or you expect to read nearly all of them: the peek
-  is overhead. Scouting wins only when selectivity is real — skip fraction
-  greater than roughly `q/b`, where `q` ≈ tokens per scout row (~40) and `b` ≈
-  tokens per avoided file read.
+Read directly when you must read the file regardless (you are about to edit it), when a lexical or exact check settles it, or when candidates number under ~4 or you expect to read nearly all. Scouting wins only when the skip fraction exceeds roughly `q/b` (q ≈ 40 tokens per scout row; b ≈ tokens per avoided read) — one batched request amortizes shared state; a single-candidate judgment is insurance, not savings.
 
-## The taxonomy is the discriminator
+## Taxonomy, items, dimensions
 
-The default Score levels — `none → mentions → imports → implements` — make the
-classic trap (a file that names or imports a capability without defining it) an
-explicit answer instead of a false positive. Supply custom ordered levels when
-the question has a different spectrum. Criteria and instructions are structured
-JSON, not prose: pass exclusions and distinctions as fields
-(`distinguish: "importing is NOT implementing"`).
+Default levels `none → mentions → imports → implements` make the classic trap (naming or importing without defining) an explicit answer; supply custom ordered levels for other spectra. Criteria and instructions are structured JSON — pass exclusions as fields (`distinguish: "importing is NOT implementing"`). `items: [{id, content, source?}]` replaces `candidates`+`anchors` for pre-fetched rows (unique IDs; `itemSpanBudget` 200–8000, default 3000). `dimensions: [{key, role, claim, levels}]` (1–4, ≤24 questions) sends several courts over the same shared state; exactly one `primary` drives the action, a `veto` court may only demote read → `gray_read`, `info` reports. Combine vectors in deterministic host code, never another model.
 
-## Items mode and multi-dimension courts
+## Frozen policy v2 and thresholds
 
-`items: [{id, content, source?}]` replaces `candidates`+`anchors` when the host
-already holds cheap rows (PR/commit/issue titles from a search): the scout
-judges the rows so only the top items get their expensive diffs opened. Item
-IDs and candidate paths must be unique. `itemSpanBudget` bounds each inline item
-(200–8000 characters; default 3000).
-`dimensions: [{key, role, claim, levels}]` (1–4, ≤24 questions total) sends
-several independent courts over the SAME shared state in one request — spans
-amortize; each answer is independent, so the vector is combined by
-deterministic host code, never another model. Exactly one `primary` drives the
-action via frozen policy v2; a `veto` court at its bottom level may only demote
-a read to `gray_read` (forces more reading, never creates a skip); `info`
-courts report. Live precedent: 8 PRs × {relevance, is_fix} = 16 questions, one
-call, one correct read.
-
-## Frozen policy v2
-
-`no anchor matches → skip` · `argmax = top level → read` ·
-`P(top) ≤ 0.25 → skip` · otherwise `gray_read` (fail-open). Coverage gates
-trusting a skip, never a read. Do not tune these thresholds against a suite that
-is evaluating them; policy changes require a fresh held-out confirmation
-(precedent: `.octocode/octocode-eval-benchmark/jevpeek-scout/`, where v2 frozen
-pre-suite gave C=0.37× read-everything, 0.49× lexical prefilter, zero
-false-skips across TypeScript and Rust, Brier 0.001).
-
-## Production path
-
-When the native `jevScout` tool is available (MCP/CLI catalogs list it; requires
-`OCTOCODE_JEV_KEY`), prefer it — same contract, native redaction and sandbox.
-`scripts/scout.mjs` remains the reference implementation, the skills-only
-fallback, and the row-for-row parity source for the native port
-(`.octocode/rfc/jev-scout-production/`).
+`no anchor matches → skip` · `argmax = top level → read` · `P(top) ≤ 0.25 → skip` · otherwise `gray_read` (fail-open). Coverage gates trusting a skip, never a read. Do not tune thresholds against a suite evaluating them; changes need fresh held-out confirmation (`.octocode/octocode-eval-benchmark/jevpeek-scout/`: 0.19–0.49× host reads, zero false-skips on those suites, Brier ≤ 0.007; the evolved fan-out suite later produced the first false-skips — evidence for the next held-out round, not for tuning). Near-threshold candidates flip read ↔ gray_read across provider samples on identical packets — gate parity on the read|gray_read class, never exact actions.
 
 ## Run
 
-```sh
-node scripts/scout.mjs --input scout.json --dry-run   # build + inspect the packet
-node scripts/scout.mjs --input scout.json             # one live batched judgment
-```
-
-Input: local `{ claim, anchors[], candidates[2..12], root?, levels?, window?, spanBudget? }`
-or inline `{ claim, items[2..12], itemSpanBudget?, levels? }`; either mode may add
-`dimensions`.
-Output per candidate: `action`, taxonomy `level`, `score`, `probabilities`,
-`coverage`, `anchors`, `provisional: true`. Confidence is distribution
-concentration, never correctness — act on probability mass, and treat a soft
-distribution as `gray_read`, not as a weak yes.
-
-## Relation to the reasoning loop
-
-A scout is upstream triage: it decides *what evidence to fetch*, while the loop
-routes *judgment over fetched evidence*. A scout verdict never substitutes for a
-route call — feed the files you actually read into `contentRef` evidence and the
-normal GATE. One scout per candidate set; a second pass needs a changed locate
-(new anchors or wider window), not a repeat vote.
+`node scripts/scout.mjs --input scout.json [--dry-run]`. Input: local `{claim, anchors[], candidates[2..12], root?, levels?, window?, spanBudget?}` or `{claim, items[2..12], itemSpanBudget?, levels?}`; either may add `dimensions`. Output per candidate: `action`, `level`, `score`, `probabilities`, `coverage`, `anchors`, `provisional: true`. Confidence is distribution concentration, never correctness — treat a soft distribution as `gray_read`, not a weak yes. One scout per candidate set; a second pass needs a changed locate, not a repeat vote. Feed files you then read into `contentRef` evidence and the normal GATE.

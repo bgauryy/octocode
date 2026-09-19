@@ -195,9 +195,9 @@ than `gh`+Headroom, and ~3.2× fewer than `gh`+RTK** in the local-build headline
 
 ## Tools
 
-**12 tools in the full discovery catalog.** Ten are enabled by default on
+**13 tools in the full discovery catalog.** Ten are enabled by default on
 CLI and MCP when no Jev key is resolved. Repository cloning is opt-in, and
-`jevReasoning` is registered only with a nonblank `OCTOCODE_JEV_KEY`:
+`jevReasoning` and `jevScout` are registered only with a nonblank `OCTOCODE_JEV_KEY`:
 
 | Surface | Registers | What that set is |
 |---|---:|---|
@@ -250,6 +250,7 @@ or trees with its strict `operation` field.
 | Tool | What it does |
 |------|--------------|
 | `jevReasoning` | Returns a bounded, provisional TypeSafe Jev judgment for one caller-supplied evidence fork. It is registered only when the resolved `OCTOCODE_JEV_KEY` is nonblank; the result is never evidence or a fact. The direct CLI form is `npx octocode jevReasoning '<json>'`. |
+| `jevScout` | Ranks which bounded local-file spans or pre-fetched rows to read next. Its provisional `read`, `gray_read`, or `skip` action is not evidence; reopen returned anchors before asserting a claim. It uses the same Jev credential gate. |
 
 Full schemas, fields, and examples for every tool live in [`docs/OCTOCODE_TOOLS.md`](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) (linked under [Documentation](#documentation)).
 
