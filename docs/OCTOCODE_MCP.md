@@ -37,7 +37,7 @@ Otherwise, configure an MCP client directly to run `octocode-mcp`:
 }
 ```
 
-Set tokens through environment variables or run `npx octocode auth login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication) section of the configuration reference.
+Set tokens through environment variables or run `npx octocode login`. Don't put tokens in `.octocoderc`. For more information, see the [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#authentication) section of the configuration reference.
 
 ## Startup lifecycle
 

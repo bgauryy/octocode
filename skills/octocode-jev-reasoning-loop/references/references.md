@@ -20,11 +20,6 @@ Research snapshot: September 18, 2026. Official pages inspected through the live
 
 The SDK entry types are broader than some HTTP examples. The client follows the SDK shapes and validates responses. Model-specific guidance states 32k tokens for state plus the longest question and 64k across state plus all questions; the local 24k working target is headroom policy, not a provider limit. Aliases observed as `jev-1.13.0` may move; record the resolved model.
 
-The September 18 live index reconfirmed Choice, Score, Noul, independent questions, probabilities, and code-owned composition. A targeted building-guide fetch returned usable Choice guidance, while five concurrent CDP fetches failed with zero status; no API field was inferred from those failures.
-
-## Prior measurements and implementation sources
-A fixed-budget 80-call claim-check comparison produced 24/24 correct statuses for short instructions versus 23/24 for longer ones. A later six-case integrated trial found no final-answer gain over a 6/6 host baseline. Split pilots also showed correct typed choices but unstable host application; this motivated executable APPLY. These small studies do not prove product benefit.
-
 The browser composition pattern was inspected at [`browser-use/jev-ultrafast@452c1ad`](https://github.com/browser-use/jev-ultrafast/tree/452c1ad2dd628008f1d5608f28158d76e49e6cc0), especially `model.py`, `agent.py`, `snapshot.js`, and `test_agent.py` for fan-out, freshness, control indexing, and selected-target execution.
 
 The Rust client uses `ureq 3.4.2` with Rustls, `serde_json`, and `httpdate`. The vendored `scripts/octocode-config.mjs` is an injected standalone build artifact from `@octocodeai/config`; skill code imports it relatively.

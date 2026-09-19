@@ -2623,7 +2623,7 @@ test('re-exports the extracted Octocode UI implementation from the package entry
 test('Octocode metrics footer updates on session and turn lifecycle (single surface, no status dup)', async () => {
   setFooterDensity('default');
   const { handlers, pi } = await captureExtensions();
-  pi.execResults.set('-y octocode auth status --json', {
+  pi.execResults.set('-y octocode auth --json', {
     stdout: JSON.stringify({ authenticated: true, tokenSource: 'octocode', tokenExpired: false }),
     code: 0,
   });
@@ -2686,7 +2686,7 @@ test('Octocode metrics footer updates on session and turn lifecycle (single surf
   assert.doesNotMatch(initial, /\/harness inspect|\/now snapshot|\/status dash/);
   assert.doesNotMatch(initial, /github ✓/i, 'healthy authentication does not occupy the activity footer');
   assert.ok(
-    pi.execCalls.some((call) => call.command === 'npx' && call.args.join(' ') === '-y octocode auth status --json'),
+    pi.execCalls.some((call) => call.command === 'npx' && call.args.join(' ') === '-y octocode auth --json'),
     'session_start checks GitHub auth through the Octocode CLI',
   );
 

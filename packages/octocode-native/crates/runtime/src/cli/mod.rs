@@ -673,7 +673,12 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             sync,
         } => human::status(runtime, hostname.as_deref(), json, sync).await,
         Command::Auth { json } => human::auth_status(runtime, json).await,
-        Command::Login { refresh } => human::login(runtime, refresh).await,
+        Command::Login {
+            hostname,
+            force,
+            refresh,
+            json,
+        } => human::login(runtime, hostname.as_deref(), force, refresh, json).await,
         Command::Logout => human::logout(runtime),
         Command::Cache { action } => human::cache(runtime, &action),
         Command::Skill { args } => human::skill(&args),

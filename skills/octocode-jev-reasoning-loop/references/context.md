@@ -1,47 +1,23 @@
-# Context engineering
+# Context selection
 
-Load when estimating tokens, compacting a packet, or deciding what to include. Why: unnecessary context costs accuracy as well as tokens; missing evidence cannot be repaired by confident judgments; and the wrong context actively misleads Jev.
+Load when a question needs several sources or a packet needs trimming. Why: probabilities depend on the supplied evidence; missing or irrelevant material can mislead the judgment.
 
-> *"Context engineering is the delicate art of filling the context window with just the right information for the next step."*
-> — **Andrej Karpathy**
+## Supply the deciding evidence
 
-This is the operating principle for every Jev packet. Not the most information. Not the least. The *right* information for *this specific decision*. Every field that does not change Jev's answer wastes budget and dilutes signal. Every field that is missing but would change the answer invalidates the judgment.
+Include the decision and scope, decisive excerpts, counterevidence, definitions, and material unknowns. Preserve source anchors, negations, guard branches, units, and timestamps. Summaries can explain background but must not replace observations that could refute the host's belief.
 
-## Schema selection as context engineering
+Distinguish what an excerpt shows from what the entire file or repository does. Inspect content-reference bounds: truncation may omit the implementation. Record omissions that could change the answer and widen the read before treating a negative judgment as absence.
 
-Choosing the right schema is the first context engineering decision:
+Ground multi-part claims separately when their evidence differs. If a conclusion depends on a relationship between sources, include the relevant parts together. Independent per-file scores do not establish a cross-file relationship.
 
-| Signal | Right schema | Wrong schema (too heavy) |
-|---|---|---|
-| Weak intuition, pre-verbal | `hunch.schema.json` | hypothesis-triage (overkill) |
-| 2–5 competing explanations | `hypothesis-triage.schema.json` | claim-check (wrong contract) |
-| Evidence collected, claim to check | `claim-check.schema.json` | hypothesis-triage (wrong phase) |
-| About to assert, need grounding check | `hallucination-gate.schema.json` | any other schema |
+## Bound the request
 
-Using a heavier schema than needed pads state with structure Jev does not need. Using a lighter one omits structure Jev requires. Match the schema to the signal.
+Use current model limits in `references/protocol.md`. Budget state, instructions, and criteria together, with headroom for estimation error. Bytes and characters are not token counts; actual `usage` is telemetry after a request. Keep decisions small rather than filling the context window.
 
-## Working budget
+Deduplicate extracts and shorten background before cutting evidence. If material still does not fit, split by independent propositions or evidence dependencies. Preserve all deciding anchors for a final comparison; otherwise leave the cross-source conclusion unresolved.
 
-Treat the “34k window” as a rough capacity assumption, not a safe request size: use the stricter verified limits in `references/protocol.md`. For planning, aim well below them; about 24k estimated tokens for state plus questions is a conservative operating target, not a provider limit or measured optimum. Most checks should be much smaller.
+## Compose without inventing evidence
 
-Budget the complete serialized state, instructions and criteria—not state alone. Leave room for formatting, estimation error and provider overhead. Use a model-compatible tokenizer if available; otherwise label estimates approximate and keep generous headroom. UTF-8 bytes, characters and the client's 4 MiB file cap are not token counts. Usage from a completed request is telemetry, not a preflight guarantee. No bundled tokenizer verifies fit; provider rejection means reduce the packet, not retry it unchanged.
+Questions in a request are independent. Batch them when they share context. For a dependent question, construct the required state first; alternatively ask a branch-specific question with an explicit premise and consume it only when that branch applies. A prior model answer remains a judgment with uncertainty, not a new fact.
 
-## Compact without changing the question
-
-Order the packet: decision and scope; decisive excerpts and strongest counterevidence; necessary definitions/constraints; unknowns and coverage. Deduplicate repeated extracts. Shorten background before evidence. Keep negations, guard branches, units, timestamps and provenance intact. Record omitted material as a coverage gap if it could affect the conclusion; do not claim an exhaustive review after dropping it.
-
-Avoid sending the full conversation, unrelated source files, tool catalogs or this skill's instructions. Summarize background as background; keep deciding evidence exact and attributable. A summary of the host's belief is not a replacement for the observations that could falsify it.
-
-## Partition by dependency
-
-If the material still does not fit, partition by proposition or evidence dependency, not arbitrary byte chunks. Check independent premises separately; the host verifies and combines them. For a final cross-packet comparison, include all deciding anchors together. If those cannot fit, retain host reasoning or report unresolved scope rather than asking Jev to decide from lossy summaries.
-
-Questions in one call are independent. A dependent question needs a later call with the verified premise and original evidence in state. Do not promote an earlier model answer into fact, omit its uncertainty, or accumulate a recursive history of opinions. Continue with `references/research.md` for the bounded dispute protocol.
-
-## Bound the claim to its coverage
-
-Grounding measures the honesty of the frame, not only the facts: identical evidence scored 0.48 under a composite "all audited" claim and 0.87 once the claim enumerated its ten verified items plus an explicit not-verified list (dogfood, 2026-09-19). Bound every claim to what the evidence covers, name what it does not, and ground multi-part assertions per item — a composite claim diffuses its anchors and blocks even when each part is solid. The mirror cuts both ways: a flattering packet can buy an unearned score, so the deliberation discipline (falsifier, strongest counter, anchors) carries as much weight as the model.
-
-## Blocked is a result, not a failure
-
-A `blocked` or `needs_evidence` outcome is the judgment working: retrieve exactly what it names; never reframe the packet to force approval. When `more_evidence_needed` stays high (0.6–0.85) across successive reviews of the same decision, the missing evidence is an independent eval — build and run it instead of composing another packet (dogfood: this signal preceded every suite that later settled the decision).
+For reasoning routes, a short observations/uncertainty summary is enough unless assumptions or predictions matter. Missing evidence calls for retrieval, not repeated votes or a more flattering packet. Continue with `references/research.md` for runner diagnostics.

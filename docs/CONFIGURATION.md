@@ -39,7 +39,7 @@ This reference configures the interfaces and shared runtime of the Octocode agen
 
 ```bash
 # Step 1 — authenticate (opens browser, stores encrypted token)
-npx octocode auth login
+npx octocode login
 
 # Step 2 — (optional) add web search for better results
 echo 'TAVILY_API_KEY=tvly-...' >> ~/.octocode/.env
@@ -63,7 +63,7 @@ Octocode needs a GitHub token to search code, read files, and call the GitHub AP
 **Best for:** individual developers, local use, any time a browser is available.
 
 ```bash
-npx octocode auth login
+npx octocode login
 ```
 
 - Opens GitHub's OAuth Device Flow in your browser.
@@ -72,8 +72,8 @@ npx octocode auth login
 - Octocode reads it automatically on every request — nothing else to configure.
 
 ```bash
-npx octocode auth login --force      # replace an existing stored token
-npx octocode auth logout             # delete the stored token
+npx octocode login --force           # replace an existing stored token
+npx octocode logout                  # delete the stored token
 ```
 
 ---
@@ -136,7 +136,7 @@ Octocode checks these sources in order and stops at the first non-empty value. T
 | 2 | Env var | `GH_TOKEN` | `export GH_TOKEN=ghp_...` |
 | 3 | Env var | `GITHUB_TOKEN` | `export GITHUB_TOKEN=ghp_...` · auto-set in GitHub Actions |
 | 4 | Env var | `GITHUB_PERSONAL_ACCESS_TOKEN` | `export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_...` |
-| 5 | Octocode OAuth | encrypted storage | `npx octocode auth login` |
+| 5 | Octocode OAuth | encrypted storage | `npx octocode login` |
 | 6 | gh CLI | `gh auth token` | `gh auth login` |
 
 **Env vars always beat stored credentials.** When a token env var is set, Octocode ignores the stored token.
@@ -146,12 +146,12 @@ Octocode checks these sources in order and stops at the first non-empty value. T
 ### Auth commands
 
 ```bash
-npx octocode auth login              # OAuth — opens browser, saves encrypted token
-npx octocode auth login --force      # replace the existing stored token
-npx octocode auth login --hostname github.mycompany.com  # GitHub Enterprise OAuth
-npx octocode auth logout             # delete the stored token
-npx octocode auth status             # show token source + GitHub username
-npx octocode auth status --json      # machine-readable
+npx octocode login                   # OAuth — opens browser, saves encrypted token
+npx octocode login --force           # replace the existing stored token
+npx octocode login --hostname github.mycompany.com  # GitHub Enterprise OAuth
+npx octocode logout                  # delete the stored token
+npx octocode auth                    # show token source + GitHub username
+npx octocode auth --json             # machine-readable
 npx octocode status --json           # full status: token + tools + config
 ```
 
@@ -499,7 +499,7 @@ enabled. Removed compatibility names are rejected; they cannot be re-enabled.
 
 | Env var | Default | Notes |
 |---------|---------|-------|
-| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`; keep it in the process environment or a protected Octocode environment source. |
+| `OCTOCODE_JEV_KEY` | unset | TypeSafe Jev API key. A nonblank resolved value exposes `jevReasoning`. Env-only (a protected key): set it in your shell or MCP `env` block — it is never read from `.env` or `.octocoderc`. |
 | `OCTOCODE_JEV_MODEL` | `jev-latest` | Optional model override. A query-level `model` takes precedence. |
 | `OCTOCODE_JEV_BASE_URL` | `https://api.typesafe.ai` | Optional trusted API root. Octocode sends the key to this origin, rejects redirects, and requires HTTPS except for loopback development servers. |
 
@@ -596,6 +596,10 @@ Octocode **always ignores** these keys when loading `~/.octocode/.env` or a proj
 | `TMPDIR` | System temp directory |
 | `NODE_OPTIONS` | Node.js runtime flags — a security risk if `.env` could override them |
 | `PYTHON` | Python interpreter path |
+| `GITHUB_API_URL` | GitHub API root — set it in your shell or `.octocoderc` (`github.apiUrl`), never `.env`, so an untrusted project cannot redirect API traffic |
+| `OCTOCODE_JEV_KEY` | Jev provider credential — env-only; must be explicit |
+| `OCTOCODE_JEV_BASE_URL` | Jev API root — env-only; controls where the key is sent |
+| `OCTOCODE_JEV_MODEL` | Jev model override — env-only for parity with the key and base URL |
 
 ---
 
@@ -610,7 +614,7 @@ export GITHUB_API_URL="https://github.mycompany.com/api/v3"
 export OCTOCODE_GITHUB_CLIENT_ID="your_oauth_app_client_id"
 
 # OAuth login against GHE
-npx octocode auth login --hostname github.mycompany.com
+npx octocode login --hostname github.mycompany.com
 ```
 
 Or set it permanently in `~/.octocode/.octocoderc`:
@@ -633,8 +637,8 @@ npx octocode status --json
 
 | Symptom | Fix |
 |---------|-----|
-| No token / 401 | Run `npx octocode auth login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
-| Wrong GitHub account | `npx octocode auth logout` then `auth login` — or `auth login --force` |
+| No token / 401 | Run `npx octocode login`, or set `GITHUB_TOKEN` in shell or MCP `env` block |
+| Wrong GitHub account | `npx octocode logout` then `login` — or `login --force` |
 | Env token overriding saved token | Env always wins — unset the env var |
 | `ghCloneRepo` unavailable | Check `tools --json` for the effective availability gate. Clone is opt-in: set `ENABLE_CLONE=true` or `local.enableClone: true`. Materialization also requires `OCTOCODE_STORAGE_MODE=persistent`; tool allowlists and disable lists still apply. |
 | `astRewrite` apply is disabled | Preview first, then set `ENABLE_AST_REWRITE_APPLY=true` or `local.enableAstRewriteApply: true` and submit every returned absolute-path `beforeHash`. |

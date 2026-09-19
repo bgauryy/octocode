@@ -109,6 +109,17 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
+  it('covers the GitHub API URL and Jev provider vars (env-only, mirrors native)', () => {
+    for (const k of [
+      'GITHUB_API_URL',
+      'OCTOCODE_JEV_KEY',
+      'OCTOCODE_JEV_BASE_URL',
+      'OCTOCODE_JEV_MODEL',
+    ]) {
+      expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
+    }
+  });
+
   it('does not protect tool API keys (they go in .env)', () => {
     expect(PROTECTED_KEYS.has('TAVILY_API_KEY')).toBe(false);
     expect(PROTECTED_KEYS.has('SERPER_API_KEY')).toBe(false);

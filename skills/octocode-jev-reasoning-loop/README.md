@@ -2,15 +2,11 @@
 
 A host-owned decision loop around TypeSafe Jev. The host supplies alternatives, gathers facts, executes checks, and owns conclusions. Jev only returns typed judgments over bounded choices.
 
-```text
-HOST REASONING → BOUNDED ALTERNATIVES → JEV JUDGMENT → PRECOMMIT
-→ REAL CHECK → REAL EVIDENCE → JEV DELTA → UPDATE / ABANDON / REFRAME
-→ CLAIM CHECK → EVIDENCE GATE
-```
+Use source triage to prioritize reads, profiles to ask several questions over the same context, and a reasoning route when a bounded judgment can change the next action. Exact facts and execution remain with the host.
 
 ## Run
 
-Install with `npx -y octocode skill install octocode-jev-reasoning-loop`. Put `OCTOCODE_JEV_KEY=...` in `<home>/.octocode/.env`; `references/configuration.md` documents precedence and trusted project environments.
+Install with `npx -y octocode skill install octocode-jev-reasoning-loop`. Supply `OCTOCODE_JEV_KEY` in the process environment. If it is stored in `<home>/.octocode/.env`, explicitly load that trusted file with Node’s `--env-file` option as shown in `references/configuration.md`.
 
 Create a compact input using `assets/run-loop-input.schema.json`:
 
@@ -60,25 +56,21 @@ If claim status and selected basis disagree, the runner blocks and emits a deter
 
 Use `scripts/scout.mjs` to prioritize which candidates to read. Use `scripts/profile.mjs` after sources are selected to obtain typed semantic judgments without loading their bytes into the host-model context first. A profile accepts root-relative paths or inline text, sends every independent aspect for one source in a single request, and evaluates separate sources concurrently. See `references/scout.md`, `references/profile.md`, and `assets/profile-input.schema.json`. Both outputs are provisional; reopen source before asserting behavior.
 
-The frozen bug-triage evaluation is owned by `benchmark/CONTRACT.md`; persisted artifacts are cataloged in `benchmark/INDEX.md`.
-
 ## Contracts and low-level debugging
 
 Request schemas are under `assets/`; `assets/default-policy.json` owns host thresholds. For packet internals and direct wrappers, read `references/research.md`, then use `route-decision.mjs`, `build-decision-packet.mjs`, `validate-decision-packet.mjs`, `jev.mjs`, `research.mjs`, `check-research.mjs`, or `apply-response.mjs`. Normal execution should stay on `run-loop.mjs`.
 
-The bundled native binary targets Apple Silicon macOS. On another platform install Rust 1.85+ and a C linker, then run `npm run build`; `Cargo.toml`, `Cargo.lock`, `src/main.rs`, and `scripts/build.mjs` own the native build. `scripts/octocode-config.mjs` is injected by `@octocodeai/config` for standalone use.
+The bundled native binary is `bin/octocode-jev-darwin-arm64` for Apple Silicon macOS. On another platform install Rust 1.85+ and a C linker, then run `npm run build`; `Cargo.toml`, `Cargo.lock`, `src/main.rs`, and `scripts/build.mjs` own the native build. `scripts/octocode-config.mjs` is injected by `@octocodeai/config` for standalone use.
 
 ## Verify and benchmark
 
 ```bash
 npm test
-node scripts/eval-run-loop.mjs
 node scripts/eval-recovery-heldout.mjs
 node scripts/eval-recovery-heldout.mjs --live --output <workspace>/.octocode/octocode-jev-reasoning-loop/benchmark/recovery-v1
 ```
 
 - `evals/decision-cases.json` freezes deterministic route cases.
-- `evals/run-loop-cases.json` compares compact authoring and one-command execution with the legacy workflow.
 - `evals/recovery-heldout.json` freezes semantic recovery/control cases.
 - `evals/kpi-contract.json` owns KPI and acceptance boundaries.
 

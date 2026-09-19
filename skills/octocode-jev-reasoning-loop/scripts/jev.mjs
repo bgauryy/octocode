@@ -23,7 +23,14 @@ if (!informational) {
     const config = result.config || {};
     if (config.env !== undefined && (config.env === null || typeof config.env !== 'object' || Array.isArray(config.env))) stop('.octocoderc env must be an object.');
     const { map } = loadOctocodeEnv({ home, cwd: process.cwd(), trusted: projectEnv });
-    for (const name of ['OCTOCODE_JEV_KEY', 'OCTOCODE_JEV_MODEL', 'OCTOCODE_JEV_BASE_URL', 'REQUEST_TIMEOUT', 'MAX_RETRIES']) {
+    // Jev provider credentials/config are env-only everywhere, mirroring the
+    // native runtime's PROTECTED_KEYS: never sourced from .octocoderc or .env,
+    // only from the process environment (shell / MCP client env block).
+    for (const name of ['OCTOCODE_JEV_KEY', 'OCTOCODE_JEV_MODEL', 'OCTOCODE_JEV_BASE_URL']) {
+      childEnv[name] = childEnv[name]?.trim() || '';
+    }
+    // Network knobs are not protected; they may still come from .octocoderc / .env.
+    for (const name of ['REQUEST_TIMEOUT', 'MAX_RETRIES']) {
       const candidates = [config.env?.[name], config[name]];
       if (candidates.some(value => value !== undefined && typeof value !== 'string')) stop(`.octocoderc ${name} must be a string.`);
       const value = candidates.map(value => value?.trim()).find(Boolean);

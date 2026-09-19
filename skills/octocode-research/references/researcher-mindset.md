@@ -16,7 +16,7 @@ Load when a research task needs a campaign, not a query: planning, budgets, meas
 
 ## Environment
 Before trusting a surface, learn what is available:
-- `context` — protocol + tool list; `auth status` — GitHub reach; `lsp-server status <file>` — whether semantics exist for this language.
+- `context` — protocol + tool list; `auth` — GitHub reach; `lsp-server status <file>` — whether semantics exist for this language.
 - Availability comes from the live catalog; local/clone flags and persistent storage can disable surfaces. Declare unavailable evidence without inventing results.
 - Read the relevant corpus shape: monorepo vs flat, resolved package version vs default branch, language/server capabilities, and access restrictions.
 

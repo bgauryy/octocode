@@ -364,15 +364,32 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     }
 }
 
-pub async fn login(runtime: &ToolRuntime, refresh: bool) -> u8 {
-    let host = configured_github_host(runtime);
+pub async fn login(
+    runtime: &ToolRuntime,
+    hostname: Option<&str>,
+    force: bool,
+    refresh: bool,
+    json_out: bool,
+) -> u8 {
+    // `--hostname` overrides the configured GitHub host for enterprise device
+    // login; otherwise fall back to the host derived from `github.apiUrl`.
+    let host = hostname
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| configured_github_host(runtime));
     let client_id = oauth_client_id(runtime, &host);
     if host != "github.com" && client_id.is_none() {
-        eprintln!(
-            "OCTOCODE_GITHUB_CLIENT_ID is required for GitHub Enterprise device login and refresh."
-        );
+        let message =
+            "OCTOCODE_GITHUB_CLIENT_ID is required for GitHub Enterprise device login and refresh.";
+        if json_out {
+            return write_json(&json!({ "success": false, "error": message }), true);
+        }
+        eprintln!("{message}");
         return 1;
     }
+
+    // Refresh path: exchange the stored refresh token; no device flow, no TTY.
     if refresh {
         let result = octocode_native::providers::github::login::refresh_auth_token_result(
             Some(&host),
@@ -380,29 +397,106 @@ pub async fn login(runtime: &ToolRuntime, refresh: bool) -> u8 {
         )
         .await;
         if result.success {
-            eprintln!(
-                "Refreshed credentials for {}",
-                result.hostname.as_deref().unwrap_or("github.com")
-            );
+            let host_label = result.hostname.as_deref().unwrap_or("github.com");
+            if json_out {
+                return write_json(
+                    &json!({
+                        "success": true,
+                        "action": "refresh",
+                        "hostname": host_label,
+                        "username": result.username,
+                    }),
+                    true,
+                );
+            }
+            eprintln!("Refreshed credentials for {host_label}");
             return 0;
         }
-        eprintln!(
-            "{}",
-            result
-                .error
-                .as_deref()
-                .unwrap_or("credential.refreshFailed")
-        );
-        eprintln!("octocode login, or set GITHUB_TOKEN / GH_TOKEN.");
+        let error = result
+            .error
+            .as_deref()
+            .unwrap_or("credential.refreshFailed");
+        if json_out {
+            return write_json(&json!({ "success": false, "error": error }), true);
+        }
+        eprintln!("{error}");
+        eprintln!("Run `octocode login`, or set GITHUB_TOKEN / GH_TOKEN.");
         return 1;
     }
+
+    // Already-authenticated short-circuit: a stored OAuth credential for this
+    // host is left in place unless `--force` re-authenticates.
+    let stored = octocode_native::providers::github::load_stored_credentials(&host)
+        .ok()
+        .flatten();
+    if let Some(existing) = stored.as_ref().filter(|_| !force) {
+        let user = if existing.username.is_empty() {
+            host.clone()
+        } else {
+            existing.username.clone()
+        };
+        if json_out {
+            return write_json(
+                &json!({
+                    "success": true,
+                    "action": "none",
+                    "alreadyAuthenticated": true,
+                    "hostname": host,
+                    "username": existing.username,
+                }),
+                true,
+            );
+        }
+        println!("Already authenticated as {user} on {host}. Use `--force` to switch accounts.");
+        return 0;
+    }
+
+    // Warn when an environment token is set: it takes priority over the stored
+    // OAuth credential this flow writes, so the new login won't be used until
+    // the variable is unset. Non-fatal.
+    let env_token_var = [
+        "OCTOCODE_TOKEN",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+    ]
+    .into_iter()
+    .find(|key| {
+        runtime
+            .config()
+            .env_value(key)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+    });
+    if let Some(var) = env_token_var
+        && !json_out
+    {
+        eprintln!("⚠ {var} is set and takes priority over stored credentials until you unset it.");
+    }
+
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
-        eprintln!("login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.");
+        let message = "login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.";
+        if json_out {
+            return write_json(&json!({ "success": false, "error": message }), true);
+        }
+        eprintln!("{message}");
         return 1;
     }
-    let api = &runtime.config().resolved.github.api_url;
-    let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_api_url(api);
+
+    // `--force`: remove the stored credential before re-authenticating.
+    if force
+        && stored.is_some()
+        && let Err(error) = octocode_native::providers::github::delete_platform_credential(&host)
+    {
+        if json_out {
+            return write_json(&json!({ "success": false, "error": error.message }), true);
+        }
+        eprintln!("{}", error.message);
+        return 1;
+    }
+
+    let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_host(&host);
     match octocode_native::providers::github::login::login_device_flow_with_client_id(
         &endpoints,
         client_id.expect("public GitHub or validated enterprise client ID"),
@@ -410,15 +504,26 @@ pub async fn login(runtime: &ToolRuntime, refresh: bool) -> u8 {
     .await
     {
         Ok(stored) => {
-            eprintln!(
-                "Authenticated as {} on {}",
-                stored.username, stored.hostname
-            );
+            if json_out {
+                return write_json(
+                    &json!({
+                        "success": true,
+                        "action": "login",
+                        "hostname": stored.hostname,
+                        "username": stored.username,
+                    }),
+                    true,
+                );
+            }
+            eprintln!("Authenticated as {} on {}", stored.username, stored.hostname);
             0
         }
         Err(error) => {
+            if json_out {
+                return write_json(&json!({ "success": false, "error": error.message }), true);
+            }
             eprintln!("{}", error.message);
-            eprintln!("octocode login, or set GITHUB_TOKEN / GH_TOKEN.");
+            eprintln!("Run `octocode login`, or set GITHUB_TOKEN / GH_TOKEN.");
             1
         }
     }

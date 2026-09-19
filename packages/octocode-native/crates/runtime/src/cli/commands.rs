@@ -210,9 +210,18 @@ pub(super) enum Command {
     },
     /// Authenticate with GitHub using device flow, or refresh a stored token.
     Login {
-        /// Force re-authentication even when credentials are already stored.
+        /// GitHub API hostname (override for GitHub Enterprise device login).
+        #[arg(long)]
+        hostname: Option<String>,
+        /// Re-authenticate even when credentials are already stored (signs out first).
+        #[arg(long)]
+        force: bool,
+        /// Refresh the stored token using its refresh token instead of a new device flow.
         #[arg(long)]
         refresh: bool,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
     },
     /// Remove stored GitHub credentials from the native keychain.
     Logout,

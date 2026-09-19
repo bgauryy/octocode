@@ -1619,7 +1619,15 @@ fn attach_diff_continuations(
             continuation(query)
         }
     };
-    if let Some(page) = out.pointer("/pagination/nextPage").cloned() {
+    // Only emit a next-page continuation when there is a real next page. The
+    // pagination object carries `nextPage: null` when there is none; without the
+    // null guard that null would clobber the base query's required `page`,
+    // producing an outputContractViolation.
+    if let Some(page) = out
+        .pointer("/pagination/nextPage")
+        .cloned()
+        .filter(|value| !value.is_null())
+    {
         let mut nq = base.clone();
         nq["page"] = page;
         next.insert(

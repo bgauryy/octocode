@@ -124,6 +124,14 @@ export const PROTECTED_KEYS: ReadonlySet<string> = new Set([
   'GITHUB_TOKEN',
   'GITHUB_PERSONAL_ACCESS_TOKEN',
   'PYTHON',
+  // GitHub API URL — resolved from shell/MCP env or .octocoderc (github.apiUrl),
+  // never from .env, so an untrusted project cannot redirect API traffic.
+  'GITHUB_API_URL',
+  // Jev provider credentials/config — env-only everywhere, mirroring the native
+  // runtime's PROTECTED_KEYS. Must never be sourced from a .env file.
+  'OCTOCODE_JEV_KEY',
+  'OCTOCODE_JEV_BASE_URL',
+  'OCTOCODE_JEV_MODEL',
 ]);
 
 /**

@@ -1,6 +1,6 @@
 # Research routing
 
-Load when naming the semantic signal and schema after deterministic routing. Why: hypothesis selection, belief updating, claim proof, and assertion grounding need different state.
+Load when choosing a reasoning route and its input state. Why: hypothesis selection, belief updating, claim assessment, and assertion grounding ask different questions.
 
 | Route | Use when | Schema | Result |
 |---|---|---|---|
@@ -9,7 +9,7 @@ Load when naming the semantic signal and schema after deterministic routing. Why
 | `decision_review` | The next action is to execute, revise, or reject a supplied plan that is high-cost, close, or difficult to reverse. | `assets/decision-review.schema.json` | Viability, primary supplied risk, and evidence need. |
 | `reflection_delta` | One material observation arrived after a hypothesis check. | `assets/reflection-delta.schema.json` | Effect on prior lead, updated lead, and reframe signal. |
 | `disputed_inference` | Evidence is collected for one bounded claim. | `assets/claim-check.schema.json` | Supported, contradicted, insufficient, or conflicting plus basis. |
-| `hallucination_gate` | One evidence-backed claim is about to be asserted. | `assets/hallucination-gate.schema.json` | Proceed, qualify, or block. |
+| `hallucination_gate` | A semantic grounding check could change whether or how one evidence-backed claim is stated. | `assets/hallucination-gate.schema.json` | Proceed, qualify, or block. |
 | `apply` | Any Jev response succeeded. | `assets/apply-output.schema.json` | Provisional caller-owned action record. |
 
 Choose the judgment object before the grammar: a migration, architecture, rollout, or other proposal remains `decision_review` even if restated as the claim “this plan is ready.” Use `disputed_inference` only when the required output is the evidential status of one bounded factual or causal proposition.
@@ -18,4 +18,8 @@ Do not route exact facts, arithmetic, permissions, dates, versions, empty-eviden
 
 A route can advance only on state change: hunch → named alternatives; triage → frozen prediction then executed observation; reflection → updated, abandoned, or reframed state; claim-check → independently reopened basis; gate → scoped output. One call per crossroad is normal; one follow-up is allowed only after material new evidence. `assets/default-policy.json` sets the hard maximum.
 
-Next: use `references/deliberation.md` before packet construction and `references/research.md` for route-specific execution.
+The runner checks direct lookups, missing or stale evidence, incompatible scope, and exhausted call budgets before inference. `assets/default-policy.json` owns thresholds and limits; these are policy defaults to evaluate on your tasks, not Jev guarantees.
+
+Supply `reasoning` when observations, uncertainty, assumptions, or counterevidence clarify the state. The runner derives a minimal summary when omitted. Predictions and branch outcomes belong to testable hypotheses; do not manufacture them for classification. The low-level intermediate contract is `assets/decision-brief.schema.json`.
+
+Next: run compact input through `scripts/run-loop.mjs`; use `references/research.md` for packet debugging and individual commands.

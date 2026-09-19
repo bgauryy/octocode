@@ -36,7 +36,7 @@ and Jev provider tokens are separate meters billed to different services.
 The three rows tell one story. Quality tied everywhere. v1 lost to the
 control on agent tokens because the agent spent its own context hand-writing
 nine JSON packets and inspecting schemas — protocol overhead, not judgment
-cost. Fixing only the ergonomics (`run-case.mjs`: one command per case, the
+cost. Fixing only the ergonomics (`.octocode/octocode-eval-benchmark/jevpeek-scout/run-case.mjs`: one command per case, the
 driver builds the packet and returns the verdict plus billed usage) flipped
 the result: **36 % fewer agent tokens than the control, 5 tool calls instead
 of 27, and 2.4× faster** — with the Jev spend isolated on its own meter. Two

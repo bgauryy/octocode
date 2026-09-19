@@ -998,7 +998,11 @@ fn add_next(
             (c["file"].as_str(), c["name"].as_str(), c["line"].as_u64())
     {
         let root = q.path.as_deref().unwrap_or("").trim_end_matches('/');
-        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":format!("{root}/{file}"),"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
+        // The output contract validates this advisory continuation against the
+        // lspSearch anchored-query schema, whose serialization requires every
+        // defaulted field. Emit them explicitly (contract defaults) so the hint
+        // is a valid, directly-executable lspSearch query.
+        next.insert("verifyReferences".into(),json!({"tool":"lspSearch","query":{"operation":"references","uri":format!("{root}/{file}"),"symbolName":name,"lineHint":line,"includeDeclaration":false,"groupByFile":true,"orderHint":0,"page":1,"format":"structured","debug":false},"why":format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."),"confidence":"high"}));
     }
     if !next.is_empty() {
         base.insert("next".into(), Value::Object(next));

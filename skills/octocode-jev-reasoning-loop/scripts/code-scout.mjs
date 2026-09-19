@@ -31,7 +31,7 @@ import { runScout } from './scout.mjs';
 const options = parseFlags(
   process.argv.slice(2),
   ['--question', '--anchors', '--candidates', '--search', '--path', '--limit', '--root'],
-  ['--pretty', '--no-docs-veto'],
+  ['--pretty', '--no-docs-veto', '--dry-run'],
 );
 if (!options['--question']) stop('--question is required.', 2);
 if (!options['--candidates'] && !options['--search']) stop('Provide --candidates or --search.', 2);
@@ -88,9 +88,14 @@ if (!options['--no-docs-veto']) {
 
 let out;
 try {
-  out = runScout({ claim: options['--question'], root, candidates, anchors, dimensions });
+  out = runScout({ claim: options['--question'], root, candidates, anchors, dimensions }, { dryRun: options['--dry-run'] });
 } catch (error) {
   stop(`Scout failed: ${error.message.split('\n')[0]}`, error.exitCode ?? 3);
+}
+if (options['--dry-run']) {
+  // Validated packet + located spans only; no API call, no verdicts.
+  print({ status: 'dry-run', question: options['--question'], candidates_scouted: candidates, candidates: out.candidates, provisional: true }, options['--pretty']);
+  process.exit(0);
 }
 
 const ranked = Object.entries(out.results)

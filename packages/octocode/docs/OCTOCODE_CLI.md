@@ -176,10 +176,10 @@ Cline/Roo/Continue, OpenCode, Trae, Antigravity, Codex, Gemini CLI, Goose, Kiro.
 ## `auth` / `login` / `logout` / `status`
 
 ```bash
-npx octocode auth status --json
-npx octocode auth login
-npx octocode auth refresh
-npx octocode auth logout
+npx octocode auth --json
+npx octocode login
+npx octocode login --refresh
+npx octocode logout
 npx octocode status --sync
 ```
 

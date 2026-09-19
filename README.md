@@ -53,7 +53,7 @@ npx octocode --help
 **2. Authenticate with GitHub** - optional, but unlocks private repositories and higher API rate limits:
 
 ```bash
-npx octocode auth login
+npx octocode login
 npx octocode status       # verify the active token source
 ```
 
@@ -284,7 +284,7 @@ Add a GitHub token and options under `env` - see [Authentication](#authenticatio
 
 ## CLI
 
-Same research engine, no MCP client needed. Local paths route to local tools; `owner/repo[/path]` routes to GitHub. Authenticate once with `npx octocode auth login` (see [Authentication](#authentication-methods)); run `npx octocode --help` for full usage.
+Same research engine, no MCP client needed. Local paths route to local tools; `owner/repo[/path]` routes to GitHub. Authenticate once with `npx octocode login` (see [Authentication](#authentication-methods)); run `npx octocode --help` for full usage.
 
 ### Commands
 
@@ -326,7 +326,7 @@ Remote data is shared by the CLI and MCP under `<octocode-home>/tmp/`: git clone
 
 For memory-only operation, set `storage.mode` to `"memory"` in `.octocoderc` or set `OCTOCODE_STORAGE_MODE=memory`. This prevents persistent runtime cache, materialization, session, stats, and Pi SQLite writes without deleting existing files or credentials.
 
-Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode auth login`.
+Set values as MCP `env` entries (per client; these win over `.octocoderc`) or globally in `<octocode-home>/.octocoderc` (JSON with comments). **Tokens never go in `.octocoderc`** — use `env` or `npx octocode login`.
 
 ### Common settings
 
@@ -377,7 +377,7 @@ GitHub-backed tools require authentication. Any one method is enough. Full detai
 ### Option 1: Octocode CLI (recommended)
 
 ```bash
-npx octocode auth login
+npx octocode login
 npx octocode status       # verify the active token source
 ```
 
@@ -557,8 +557,8 @@ npx node-doctor
 ```
 
 **Common pitfalls:**
-- **GitHub auth failures:** Ensure your Personal Access Token (PAT) has the `repo` and `read:user` scopes. If using the CLI, run `npx octocode auth login` to refresh.
-- **MCP connection issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode auth login` in your terminal first, or explicitly pass your `OCTOCODE_TOKEN` in the MCP `env` configuration.
+- **GitHub auth failures:** Ensure your Personal Access Token (PAT) has the `repo` and `read:user` scopes. If using the CLI, run `npx octocode login` to refresh.
+- **MCP connection issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode login` in your terminal first, or explicitly pass your `OCTOCODE_TOKEN` in the MCP `env` configuration.
 - **Native engine errors:** Octocode uses a prebuilt Rust engine. If it fails to load on Linux, ensure your system has `glibc` or `musl` compatibility. On macOS/Windows, ensure you are on a supported architecture (x64 or arm64).
 
 ---

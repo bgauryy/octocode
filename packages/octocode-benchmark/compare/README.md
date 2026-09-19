@@ -15,6 +15,11 @@ corpus-local matchup owns its `questions/` directory.
 - [gh + RTK](octocode-vs-gh-rtk/README.md)
 - [gh + Headroom](octocode-vs-gh-headroom/README.md)
 
+The separate [Octocode+Jev agentic probe](octocode-jev/README.md) runs the same
+question set with one Sonnet session over the local CLI (incl. the Jev tools),
+measured in tokens with single-answer judging — its own protocol; never pool it
+with the character measurements above.
+
 The historical protocol and fairness rule are in
 [BENCHMARK.md](../skills/octocode-benchmark/references/BENCHMARK.md). Results are
 preserved in [../results/](../results/README.md); do not compare or pool their

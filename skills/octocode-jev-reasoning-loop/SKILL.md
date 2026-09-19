@@ -1,52 +1,59 @@
 ---
 name: octocode-jev-reasoning-loop
-description: "Use when a high-cost or difficult-to-reverse plan needs viability/risk review, or when a semantic research fork has no cheap deterministic check: competing hypotheses, changed evidence, or a bounded claim. Think openly first; Jev returns a typed provisional judgment over caller-supplied state. It never supplies facts or the answer. Skip when a lookup, test, version, or obvious action decides."
+description: "Use when source candidates need semantic triage, several questions share the same context, or a bounded hypothesis, plan, or evidence claim needs a second judgment. Jev returns typed probabilities; the host owns research and action. Skip exact lookups, tests, and judgments that cannot change the next step."
 ---
 # Octocode Jev reasoning loop
 
 tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise use the single runner below.
+routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise use the simplest entry point below.
 
-Flow: `THINK → GATE → CALL Jev → TYPED PROVISIONAL JUDGMENT → UPDATE / ABANDON / ASSERT` (ASSERT only through `hallucination_gate`). Jev scores caller-supplied alternatives; it owns no facts and never becomes evidence.
+Flow: `FRAME → SELECT CONTEXT → ASK → APPLY POLICY → VERIFY`
 
-## THINK (before any call)
+Jev evaluates supplied context and typed questions. It returns probabilities, not explanations or new evidence. Use it where semantic judgment helps; use Octocode search, AST, LSP, exact reads, and tests for facts and verification.
 
-Externalize shareable state — never private scratch: observations with source anchors; 2–5 named alternatives; a falsifier; an anchor check (confirmation-only search or one-observation basis means a real fork). If thinking settles the step, stop — do not call Jev.
+## Choose the useful call
 
-## GATE, then route
-
-| Step | Route | Jev? |
+| Need | Entry point | Host action |
 |---|---|---|
-| A lookup, test, or exact read gives one answer | `deterministic` | No — decide from evidence |
-| A needed fact or source is absent | `missing_fact` | No — retrieve or report insufficiency |
-| A supplied plan is high-cost, hard to reverse, or a close call | `decision_review` | Yes — viability, primary risk, evidence need |
-| An unfalsified attractive lead | `hunch_check`; 2–5 leads + a discriminating check → `hypothesis_triage` | Yes — keep the lead provisional |
-| One material observation after a frozen check | `reflection_delta` | Yes — update, abandon, or reframe |
-| Evidence leaves one bounded claim disputed | `disputed_inference` | Yes — status + decisive basis; if blocked, reopen the source, never repeat-vote |
-| An evidence-backed claim about to be stated | `hallucination_gate` | Yes — proceed, qualify, or block |
+| Prioritize expensive candidate reads | `jevScout` when available; otherwise `scripts/code-scout.mjs` or `scripts/scout.mjs` | Read accepted and uncertain (`gray_read`) candidates; widen retrieval when excerpts are incomplete. |
+| Triage fetched PR or issue rows | `scripts/pr-triage.mjs` | Fetch the original item before drawing a conclusion. |
+| Ask independent yes/no questions about files or fetched text | `scripts/ask-file.mjs` | Interpret P(yes); inspect uncertain results and reopen sources before citing them. |
+| Score dimensions or choose from explicit alternatives | `scripts/profile.mjs` with `assets/profile-input.schema.json` | Combine judgments in code and retain uncertainty. |
+| Review a hypothesis, consequential plan, or bounded claim | `scripts/run-loop.mjs` with `assets/run-loop-input.schema.json` | Follow the provisional result with a source check, test, or revision. |
 
-Judge the object, not the wording: "the plan is ready" is `decision_review`; claim status is `disputed_inference`. Skip calls that cannot change action.
+Scouting pays when it avoids substantial reads. Skip it for a known target or files you must read anyway. Batch questions only when their answers matter and deterministic checks do not settle them.
 
-## CALL
+## Frame and supply context
 
-Build compact input from `assets/run-loop-input.schema.json` (route + `willChangeAction` + route state):
+State the decision, relevant facts with source anchors, and what a different answer would change. Each question must be self-contained: IDs are not instructions, and questions in one request cannot see each other's answers. Batch independent questions over shared state; a dependent question needs new state or an explicit speculative premise.
+
+Use `noul` for P(yes), `choice` for competing options, and `score` for ordered rubric levels. Include an unknown/no-match outcome where needed. Supply decisive context and counterevidence, not the full conversation. Share concise observations and assumptions, never private scratch reasoning.
+
+For hypotheses, supply alternatives and a distinguishing check. Source classification does not need an artificial hypothesis deck or falsifier. If a lookup, test, or already-clear action settles the question, take that step.
+
+## Run and verify
+
+From the workspace, use the runner's absolute skill path. Setup and explicit `.env` loading are in `references/configuration.md`.
 
 ```sh
-node scripts/run-loop.mjs --input compact.json --dry-run   # validate the packet
-node scripts/run-loop.mjs --input compact.json             # live judgment
+node <skill-dir>/scripts/ask-file.mjs --files "src/retry.ts" --questions "Does it retry failed requests? || Does it implement backoff?"
+node <skill-dir>/scripts/run-loop.mjs --input compact.json --dry-run
+node <skill-dir>/scripts/run-loop.mjs --input compact.json
 ```
 
-The runner gates, validates, evaluates, and saves artifacts. Keep packets 1–4k tokens. One judgment per fork; a second needs material new evidence via `reflection_delta`.
+Treat distributions as provisional judgments. Do not turn a close probability into certainty, infer absence from a skipped excerpt, or repeat a call to obtain approval. Retrieve missing evidence or narrow the question honestly. Reopen original sources before asserting behavior; Jev never replaces code evidence or grants permission to act.
 
 ## Depth routes
 
-- When triaging PR/issue search rows end-to-end → run `scripts/pr-triage.mjs` (gh rows → one scout → single fetch). When triaging candidate code files for "which one implements X" end-to-end → run `scripts/code-scout.mjs` (paths + question → one batched scout with an `is_code` docs veto → read only the implementer; rejected files' bytes stay off host). When many candidate files or rows need triage → run `scripts/scout.mjs` per `references/scout.md`; when profiling selected sources → run `scripts/profile.mjs` per `references/profile.md`.
-- When routing or gating is disputed → `references/routing-policy.md`, then `references/routing.md`.
-- When packet/API, configuration, context, or composition details affect execution → `references/protocol.md`, `references/configuration.md`, `references/context.md`, `references/patterns.md`.
-- When debugging a runner failure → `references/research.md`, which owns `scripts/route-decision.mjs`, `scripts/build-decision-packet.mjs`, `scripts/validate-decision-packet.mjs`, `scripts/jev.mjs`, `scripts/research.mjs`, `scripts/check-research.mjs`, and `scripts/apply-response.mjs`; normal use stays on `scripts/run-loop.mjs`.
-- When claiming benefit → `references/benchmark.md`; KPI: Wrong-Lean Recovery Rate — gate first.
-- When configuring live-call auth (`OCTOCODE_JEV_KEY`) → `references/configuration.md`; when citing provenance → `references/references.md`; when writing a host checkpoint → `references/deliberation.md`.
+- Candidate retrieval, taxonomies, and read policy → `references/scout.md`.
+- When defining reusable source questions → `references/profile.md`.
+- When choosing reasoning routes and state → `references/routing.md`.
+- When checking API primitives or limits → `references/protocol.md`; for primary sources → `references/references.md`.
+- When bounding context or comparing sources → `references/context.md`; for composed workflows → `references/patterns.md`.
+- When configuring credentials or network settings → `references/configuration.md`.
+- When diagnosing runner failures → `references/research.md`.
+- When measuring workflow benefit → `references/benchmark.md`.
 
-After runtime edits run `npm test`; it runs `scripts/test.mjs`, `scripts/research.test.mjs`, `scripts/decision.test.mjs`, `scripts/run-loop.test.mjs`, `scripts/resolve-content-ref.test.mjs`, `scripts/scout.test.mjs`, `scripts/profile.test.mjs`, `scripts/verify-reasoning-loop.mjs`, `scripts/eval-decision-loop.mjs`, `scripts/eval-run-loop.mjs`, `scripts/eval-recovery-heldout.mjs`, and `scripts/eval-content-ref.mjs`. Then run the `octocode-skills` reviewer. Packaging: `package.json`, `scripts/build.mjs`, `bin/octocode-jev-darwin-arm64`. Artifacts: `<output>/octocode-jev-reasoning-loop/`; scratch: `<output>/tmp/octocode-jev-reasoning-loop/`.
+After runtime changes, run `npm test` and the `octocode-skills` reviewer. Build and standalone packaging are documented in `README.md`.

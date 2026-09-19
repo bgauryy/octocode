@@ -23,7 +23,9 @@ Jev returns typed probabilities, not a summary or explanation. Code owns weights
 Build input from `assets/profile-input.schema.json`, then:
 
 ```sh
-node scripts/profile.mjs --input profile.json --dry-run node scripts/profile.mjs --input profile.json node --test scripts/profile.test.mjs  # deterministic safety, typing, batching, and concurrency checks
+node scripts/profile.mjs --input profile.json --dry-run
+node scripts/profile.mjs --input profile.json
+node --test scripts/profile.test.mjs
 ```
 
 Example:

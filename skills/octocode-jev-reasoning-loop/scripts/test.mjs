@@ -159,7 +159,7 @@ test('endpoint restrictions and model precedence', async () => {
     assert.equal(JSON.parse(result.stdout).model, expected);
   }
 });
-test('standalone launcher config precedence, malformed config, project env opt-in', async () => {
+test('standalone launcher keeps Jev credentials process-only and rejects malformed config', async () => {
   const temp = await mkdtemp(join(tmpdir(), 'octocode-jev-test-'));
   try {
     const isolated = join(temp, 'skill'); await cp(root, isolated, { recursive: true });
@@ -168,13 +168,13 @@ test('standalone launcher config precedence, malformed config, project env opt-i
     await writeFile(join(home, '.octocoderc'), JSON.stringify({ env: { OCTOCODE_JEV_KEY: 'config-key' } }));
     await serverTest(reply(valid()), async (endpoint, requests) => {
       const call = (env = {}, flags = []) => run(['evaluate', '--base-url', endpoint, ...flags], { input: fixture, launcher: true, base: isolated, cwd, env: { OCTOCODE_HOME: home, OCTOCODE_JEV_KEY: '', ...env } });
-      assert.equal((await call()).code, 0); assert.equal(requests.at(-1).auth, 'Bearer config-key');
+      assert.equal((await call()).code, 2); assert.equal(requests.length, 0);
       await writeFile(join(home, '.octocoderc'), JSON.stringify({ OCTOCODE_JEV_KEY: 'top-level-key', env: { OCTOCODE_JEV_KEY: '   ' } }));
-      assert.equal((await call()).code, 0); assert.equal(requests.at(-1).auth, 'Bearer top-level-key');
+      assert.equal((await call()).code, 2); assert.equal(requests.length, 0);
       await writeFile(join(home, '.env'), 'OCTOCODE_JEV_KEY=global-key\n');
       await writeFile(join(cwd, '.octocode/.env'), 'OCTOCODE_JEV_KEY=project-key\n');
-      assert.equal((await call()).code, 0); assert.equal(requests.at(-1).auth, 'Bearer global-key');
-      assert.equal((await call({}, ['--project-env'])).code, 0); assert.equal(requests.at(-1).auth, 'Bearer project-key');
+      assert.equal((await call()).code, 2); assert.equal(requests.length, 0);
+      assert.equal((await call({}, ['--project-env'])).code, 2); assert.equal(requests.length, 0);
       assert.equal((await call({ OCTOCODE_JEV_KEY: 'process-key' }, ['--project-env'])).code, 0); assert.equal(requests.at(-1).auth, 'Bearer process-key');
       await writeFile(join(home, '.octocoderc'), '{ secret-malformed-key');
       const error = await call(); assert.equal(error.code, 2); assert.ok(!error.stderr.includes('secret-malformed-key'));

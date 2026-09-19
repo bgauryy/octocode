@@ -20,6 +20,11 @@ metrics or with any other campaign.
 
 ## Other deterministic diagnostics
 
+- [Tool sanity benchmark](BENCHMARK_SANITY.md) is a per-tool checkbox suite: one
+  section per public tool (schema, agent task, invocation, pass criterion) that
+  an agent runs top to bottom to confirm all 11 tools work on native CLI, node
+  CLI, and MCP. Includes a one-shot matrix runner and two continuation-contract
+  regression checks.
 - [Artifact routing v2](evals/artifact-routing-v2/README.md) compares native and
   emulated tool calls against frozen schemas and validators.
 - [Local-tool removal held-out eval](docs/UNIFIED_ROUTING_EVAL.md) is a regression

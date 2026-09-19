@@ -136,6 +136,10 @@ test('compact runner removes DecisionBrief and action-map boilerplate without we
   assert.equal(prepared.status, 'ready');
   assert.equal(prepared.routing.route, 'hypothesis_triage');
   assert.equal(validateDecisionPacket('hypothesis_triage', prepared.request, policy).valid, true);
+  const legacyPacket = buildDecisionPacket(legacy, policy);
+  assert.deepEqual(prepared.request.questions, legacyPacket.questions);
+  const withoutReasoning = ({ reasoning, ...state }) => state;
+  assert.deepEqual(withoutReasoning(prepared.request.state), withoutReasoning(legacyPacket.state));
   assert.deepEqual(prepared.request.state.reasoning, {
     observations: 'Anchored evidence: E1 (test.log:1).',
     uncertainty: legacy.state.goal

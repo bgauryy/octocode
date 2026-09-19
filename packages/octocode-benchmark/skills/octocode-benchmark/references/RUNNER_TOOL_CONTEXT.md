@@ -18,6 +18,7 @@ is a measured research call.
 | Arm | Primer |
 |---|---|
 | Octocode arm | [`references/primer-octocode.md`](primer-octocode.md) |
+| Octocode+Jev arm (`octojev`, local build) | [`references/primer-octocode.md`](primer-octocode.md) + [`references/primer-octocode-jev.md`](primer-octocode-jev.md) |
 | gh + RTK arm | [`references/primer-gh-rtk.md`](primer-gh-rtk.md) |
 | gh + Headroom arm | [`references/primer-gh-headroom.md`](primer-gh-headroom.md) |
 | gh arm (bare baseline) | [`references/primer-gh.md`](primer-gh.md) |

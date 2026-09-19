@@ -1,39 +1,23 @@
-# Reasoning-loop benchmark
+# Evaluate workflow benefit
 
-Load before claiming better decisions, lower authoring cost, or calibrated policy. Contract validity and one successful recovery do not prove comparative efficacy.
+Load before claiming better decisions, lower cost, or calibrated thresholds. Contract tests and a successful live call do not establish comparative benefit.
 
-## Frozen suites
+## Runnable checks
 
-`evals/kpi-contract.json` owns goals and gates.
+`npm test` covers transport, request validation, routing, provisional application, source bounds, and batching. `scripts/verify-reasoning-loop.mjs` checks the request contracts and native dry-runs. `scripts/eval-decision-loop.mjs` consumes `evals/decision-cases.json`; `scripts/eval-content-ref.mjs` checks evidence identity and authoring cost.
 
-```sh
-node scripts/eval-decision-loop.mjs
-node scripts/eval-run-loop.mjs
-node scripts/eval-recovery-heldout.mjs
-```
-
-- `decision-cases.json`: 15 deterministic routing/policy regressions.
-- `run-loop-cases.json`: observed legacy boilerplate versus compact runner. It measures author-input bytes, lobby words, command count, packet equivalence, APPLY behavior, and extra API calls.
-- `recovery-heldout.json`: synthetic wrong-lean and confirming controls, frozen before its first live run. The default command validates packets without network access.
-
-Run semantic characterization only with an authorized Jev key and fixed model:
+For semantic recovery, `scripts/eval-recovery-heldout.mjs` consumes `evals/recovery-heldout.json`. Its default mode validates packets offline. With a key loaded and a fixed model, run:
 
 ```sh
-node scripts/eval-recovery-heldout.mjs --live \
-  --output <workspace>/.octocode/octocode-jev-reasoning-loop/benchmark/recovery-heldout-v1
+node <skill-dir>/scripts/eval-recovery-heldout.mjs --live --output <workspace>/.octocode/octocode-jev-reasoning-loop/benchmark/recovery
 ```
 
-The live runner records initial lead, evidence delta, final lead, claim status, **Wrong-Lean Recovery Rate**, false-recovery rate, unsupported-claim rate, calls, and input/output tokens. A wrong lean recovers when contradictory evidence causes abandonment or reframing before claim assertion. A confirming control is a false recovery when the loop abandons a correct lead despite confirming evidence.
+`evals/kpi-contract.json` defines the recovery metrics and guardrails. Preserve requests, responses, and results under the workspace artifact root, outside the skill. An absolute live recovery rate is characterization until compared with a matched host-only baseline.
 
-## Decision boundaries
+## Compare the actual workflow
 
-Accept the compact runner only when author-input and lobby reductions meet the frozen floor, route packets remain equivalent except for intentionally minimal reasoning summaries, APPLY stays provisional, no extra API call is added, and all regression checks pass.
+Freeze representative tasks, labels, model version, retrieval budget, and grading before measuring. Include relevant and irrelevant files, incomplete excerpts, wrappers, negation, ambiguous claims, and confirming controls. Keep deterministic-driver and Jev-assisted-driver ergonomics comparable so orchestration savings are not mistaken for model benefit.
 
-Treat the live held-out result as **absolute characterization** until a matched host-only baseline uses identical tasks, evidence, model, retrieval budget, and grader. Comparative semantic acceptance still requires Wrong-Lean Recovery Rate improvement without worse false recovery, unsupported claims, correctness, or cost.
+Measure final correctness, relevant-source recall and false skips, unsupported claims, elapsed time, and both host-model and Jev token usage. Calibrate each question/primitive on its own cases; do not transfer thresholds between unrelated tasks or tune on held-out results. A model, prompt, or policy change requires fresh confirmation.
 
-Do not tune on held-out outcomes. If the sensor population is too small because Jev never takes the attractive wrong lead, mark the run INVALID and rotate new cases between experiments rather than rewriting the frozen run. Preserve request, response, APPLY, and report artifacts under the output directory.
-
-Next: an ACCEPT/REVERT report must distinguish deterministic ergonomics evidence, absolute semantic characterization, and comparative efficacy.
-
-
-Report agent-model tokens and Jev-provider tokens as separate meters; conflating them once misattributed a 48% interface overhead to the judgment itself (A/B 2026-09-19, docs/JEV_BENCHMARK.md).
+Keep historical answers, run logs, grading manifests, and one-off migration benchmarks in the workspace evaluation artifacts. They are not operating instructions or runtime fixtures.

@@ -482,13 +482,20 @@ fn file_error(error: ProviderError, query: &Value) -> DomainResult {
             .map(|path| path.to_string_lossy().into_owned())
             .filter(|path| !path.is_empty())
             .unwrap_or_else(|| ".".into());
+        // The output contract validates this recovery hint against the ghSearch
+        // tree-continuation schema, which requires the paginated defaulted
+        // fields. Stamp the contract defaults (fresh page 1 — this is an
+        // advisory "start a new bounded query", not a next-page of the fetch).
         let mut tree = json!({
             "tool": "ghSearch",
             "query": {
                 "operation": "tree",
                 "owner": owner,
                 "repo": repo,
-                "path": parent
+                "path": parent,
+                "page": 1,
+                "pageSize": 100,
+                "debug": false
             },
             "confidence": "low"
         });

@@ -8,12 +8,6 @@
     "measure": "fraction where the host abandons or materially reframes the wrong lead before the final claim",
     "target": "improve over the matched host-only baseline"
   },
-  "ergonomicsKpi": {
-    "name": "compact_loop_authoring_cost",
-    "direction": "decrease",
-    "baseline": "1948 author-input bytes, 936 lobby words, and 5 low-level commands in the frozen observed case",
-    "target": "at least 25% fewer author-input bytes, at least 25% fewer lobby words, one command, and zero extra API calls"
-  },
   "semanticCharacterization": {
     "suite": "recovery-heldout-v1",
     "minimumPopulation": "at least 2 actual wrong initial leans and 1 confirming control",
@@ -26,9 +20,8 @@
     "limitation": "Absolute held-out characterization is not a matched host-only efficacy comparison."
   },
   "implementationGate": {
-    "name": "planned_failure_fixture_pass_rate",
-    "baseline": "0/15 executable fixtures before the implementation",
-    "target": "15/15 plus compact-runner, diagnostics, narrowing, and frozen-suite checks"
+    "name": "behavioral_regressions",
+    "target": "All transport, routing, packet equivalence, application, and evidence-bound checks pass."
   },
   "leadingIndicators": [
     "direct lookups and empty-evidence assertions skip Jev",
@@ -44,5 +37,5 @@
     "emitted requests contain only model, state, and questions; optional input context is nested under state.context",
     "skill review reports zero ERROR"
   ],
-  "decisionRule": "ACCEPT the compact runner only when frozen ergonomics targets and implementation guards pass. Claim semantic improvement only when a matched held-out host baseline improves Wrong-Lean Recovery Rate without false-recovery, unsupported-claim, correctness, or cost regression. Absolute characterization and contract-valid judgments alone are not comparative benefit evidence."
+  "decisionRule": "Claim semantic improvement only when a matched held-out host baseline improves Wrong-Lean Recovery Rate without false-recovery, unsupported-claim, correctness, or cost regression. Absolute characterization and contract-valid judgments alone are not comparative benefit evidence."
 }

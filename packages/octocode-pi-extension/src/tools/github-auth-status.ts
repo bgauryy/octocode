@@ -46,7 +46,7 @@ function parsePayload(stdout: string): AuthStatusPayload | undefined {
   return undefined;
 }
 
-/** Parse only the allowlisted, non-secret fields emitted by Octocode auth status. */
+/** Parse only the allowlisted, non-secret fields emitted by `octocode auth --json`. */
 export function parseGitHubAuthStatus(stdout: string): GitHubAuthState {
   const payload = parsePayload(stdout);
   if (!payload) return { status: 'error' };
@@ -72,7 +72,7 @@ export async function probeGitHubAuth(
   try {
     const result = await exec(
       'npx',
-      ['-y', 'octocode', 'auth', 'status', '--json'],
+      ['-y', 'octocode', 'auth', '--json'],
       { timeout: AUTH_PROBE_TIMEOUT_MS },
     );
     const state = parseGitHubAuthStatus(result.stdout);

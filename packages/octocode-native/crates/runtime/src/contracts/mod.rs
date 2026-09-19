@@ -214,6 +214,23 @@ mod contract_owner_tests {
     }
 
     #[test]
+    fn generated_contract_body_hash_is_pinned_against_hand_edits() {
+        // `generated_contract_has_clean_matching_provenance` compares two
+        // co-generated literals; the fingerprint is generator-authored and never
+        // recomputed from the body, so a hand-edit to the generated contract
+        // passes it. This pin recomputes a digest over the embedded bytes:
+        // regeneration from core must update the literal (same discipline as
+        // the napi ABI snapshot); any other change to the generated body fails.
+        use sha2::{Digest, Sha256};
+        let digest = hex::encode(Sha256::digest(contract_json().as_bytes()));
+        assert_eq!(
+            digest,
+            "d3e6cc3a4f5b6d5d3f4fa53d4c2cfdbb2d4bd91b94439dd676f04963bec641ea",
+            "generated contract body changed without regeneration from core"
+        );
+    }
+
+    #[test]
     fn public_response_and_tree_limits_are_pinned_against_silent_drift() {
         // `generated_contract_has_clean_matching_provenance` proves the contract
         // MATCHES core, but the fingerprint moves together with any core regen —
@@ -383,6 +400,152 @@ mod contract_owner_tests {
                     .iter()
                     .any(|part| part == "page" || part == "pageSize")),
                 "stamped advisory query must not trip page/pageSize errors: {fixed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deadcode_verify_references_continuation_is_contract_valid() {
+        // Regression: astSearch deadCode emitted next.verifyReferences with an
+        // lspSearch query missing the required defaulted fields (orderHint,
+        // page, format, debug), tripping outputContractViolation. The builder
+        // now stamps them so the advisory hint is a valid lspSearch query.
+        let data = |query: serde_json::Value| {
+            json!({"results":[{"index":0,"data":{
+                "operation":"topology",
+                "analysis":"deadCode",
+                "results":[{"file":"src/util.ts","name":"greet","kind":"function",
+                    "line":1,"reason":"unreferenced-export","viaHeuristic":"reexport-chain"}],
+                "completeness":{"results":"complete","graph":"complete","diagnostics":"complete"},
+                "next":{"verifyReferences":{"tool":"lspSearch","query":query,
+                    "confidence":"high","why":"Verify candidate before deletion."}}
+            }}]})
+        };
+        let buggy = validate_output(
+            "astSearch",
+            &data(json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
+                "lineHint":1,"includeDeclaration":false,"groupByFile":true})),
+        )
+        .expect_err("missing lspSearch defaulted fields must be rejected");
+        assert!(
+            buggy.issues.iter().any(|issue| issue
+                .path
+                .iter()
+                .any(|part| part == "verifyReferences")),
+            "expected a verifyReferences continuation issue, got {buggy:?}"
+        );
+        if let Err(fixed) = validate_output(
+            "astSearch",
+            &data(json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
+                "lineHint":1,"includeDeclaration":false,"groupByFile":true,
+                "orderHint":0,"page":1,"format":"structured","debug":false})),
+        ) {
+            assert!(
+                !fixed.issues.iter().any(|issue| issue.path.iter().any(|part| {
+                    part == "verifyReferences" || part == "query"
+                })),
+                "stamped verifyReferences query must not trip continuation errors: {fixed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn filecontent_notfound_viewtree_continuation_carries_pagination() {
+        // Regression: ghGetFileContent's 404 recovery hint emitted a viewTree
+        // ghSearch tree query without page/pageSize/debug, which the tree
+        // continuation contract requires. They are now stamped (fresh page 1).
+        let data = |query: serde_json::Value| {
+            json!({"results":[{"index":0,"data":{
+                "owner":"o","repo":"r","path":"missing.md","error":"not found",
+                "next":{"viewTree":{"tool":"ghSearch","query":query,
+                    "confidence":"low"}}
+            }}]})
+        };
+        let buggy = validate_output(
+            "ghGetFileContent",
+            &data(json!({"operation":"tree","owner":"o","repo":"r","path":"."})),
+        )
+        .expect_err("missing page/pageSize must be rejected");
+        assert!(
+            buggy.issues.iter().any(|issue| issue
+                .path
+                .iter()
+                .any(|part| part == "page" || part == "pageSize")),
+            "expected a page/pageSize issue, got {buggy:?}"
+        );
+        if let Err(fixed) = validate_output(
+            "ghGetFileContent",
+            &data(json!({"operation":"tree","owner":"o","repo":"r","path":".",
+                "page":1,"pageSize":100,"debug":false})),
+        ) {
+            assert!(
+                !fixed.issues.iter().any(|issue| issue
+                    .path
+                    .iter()
+                    .any(|part| part == "page" || part == "pageSize")),
+                "stamped viewTree query must not trip page/pageSize errors: {fixed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ghsearchhistory_nextpage_carries_pagesize() {
+        // Regression: ghSearchHistory (pullRequests) emitted next.nextPage with a
+        // query missing pageSize, which the continuation contract requires. The
+        // builder now stamps the effective pageSize.
+        let data = |query: serde_json::Value| {
+            json!({"results":[{"index":0,"data":{
+                "type":"pullRequests","owner":"o","repo":"r","pullRequests":[],
+                "next":{"nextPage":{"tool":"ghSearchHistory","query":query,"confidence":"exact"}}
+            }}]})
+        };
+        let buggy = validate_output(
+            "ghSearchHistory",
+            &data(json!({"operation":"pullRequests","owner":"o","repo":"r","page":2})),
+        )
+        .expect_err("missing pageSize must be rejected");
+        assert!(
+            buggy.issues.iter().any(|issue| issue.path.iter().any(|p| p == "nextPage")),
+            "expected a nextPage continuation issue, got {buggy:?}"
+        );
+        if let Err(fixed) = validate_output(
+            "ghSearchHistory",
+            &data(json!({"operation":"pullRequests","owner":"o","repo":"r","page":2,"pageSize":30})),
+        ) {
+            assert!(
+                !fixed.issues.iter().any(|issue| issue.path.iter().any(|p| p == "pageSize")),
+                "stamped nextPage query must not trip pageSize errors: {fixed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ghgethistoryitem_compare_nextpage_keeps_page() {
+        // Regression: ghGetHistoryItem (compare) read pagination.nextPage:null
+        // and clobbered the query's required `page` with null. The builder now
+        // skips the continuation when there is no real next page.
+        let data = |query: serde_json::Value| {
+            json!({"results":[{"index":0,"data":{
+                "type":"compare","owner":"o","repo":"r","base":"a","head":"b",
+                "next":{"nextPage":{"tool":"ghGetHistoryItem","query":query,"confidence":"exact"}}
+            }}]})
+        };
+        let buggy = validate_output(
+            "ghGetHistoryItem",
+            &data(json!({"operation":"compare","owner":"o","repo":"r","base":"a","head":"b","page":null,"filePage":1,"pageSize":30})),
+        )
+        .expect_err("null page must be rejected");
+        assert!(
+            buggy.issues.iter().any(|issue| issue.path.iter().any(|p| p == "nextPage")),
+            "expected a nextPage continuation issue, got {buggy:?}"
+        );
+        if let Err(fixed) = validate_output(
+            "ghGetHistoryItem",
+            &data(json!({"operation":"compare","owner":"o","repo":"r","base":"a","head":"b","page":1,"filePage":1,"pageSize":30})),
+        ) {
+            assert!(
+                !fixed.issues.iter().any(|issue| issue.path.iter().any(|p| p == "page")),
+                "compare nextPage query must keep page: {fixed:?}"
             );
         }
     }

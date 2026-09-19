@@ -20,7 +20,7 @@ If the next question depends on the winning route, either make a second call wit
 
 ## Review a bundled proposal (decision_review)
 
-When a proposal bundles several changes, pass each distinct change as its own risk (`R1..Rn`) so `decision_review` can localize where the danger sits. A moderate `proposal_viable` (near 0.5–0.7) with probability concentrated on a single risk is a *split* signal, not an *abandon* signal: keep the parts the review leaves unthreatened and rework only the flagged part in its owning layer. Feed the concrete `strongestCounter` and `falsifier` for the leading part, since the review reasons over the risks and assumptions you supply — an unnamed risk cannot be surfaced. Example: a two-part fix (loosen a contract; reuse a paginator) scored 0.65 with `primary_risk` on the reuse at 0.70, because that paginator advanced `page+1` on advisory "look elsewhere" actions that were never continuations; the contract-loosening half was sound and shipped, the reuse half was replaced with a fresh page-1 stamp.
+For a proposal with independent changes, identify their risks separately. A selected primary risk localizes what to inspect; it does not establish that every unselected part is safe. Ask separate questions for independent blocking conditions, and combine their results in code. Check the underlying evidence before accepting or rejecting the proposal.
 
 ## Apply uncertainty and policy
 
@@ -36,7 +36,7 @@ This is an application pattern, not an additional Jev endpoint. The reference im
 4. Resolve IDs through the original candidate table. Recheck page identity, relevant state and target availability before mutation; a stale observation requires a fresh evaluation. Never convert labels into arbitrary scripts or selectors.
 5. Execute one authorized action, record its outcome, and observe again. Set an explicit step/time budget and stop on repeated no-progress states. Retry an evaluation if allowed; do not blindly replay a click or text entry.
 
-The reference uses recent history limited to ten actions, visible text capped at 6,000 characters, and control checks immediately before execution. Those are application tuning choices, not Jev API limits. Screenshots belong to its visualization layer and are not sent to Jev. This skill neither installs a browser driver nor implements the execution loop.
+The reference bounds recent history and visible text and checks controls immediately before execution. Those are application tuning choices, not Jev API limits. Screenshots belong to its visualization layer and are not sent to Jev. This skill neither installs a browser driver nor implements the execution loop.
 
 For known model limitations: use literal, aligned instructions and criteria; reduce indirection and irrelevant state. Adversarial state can still influence the answer, so confidence alone cannot enforce a security boundary. Always enforce allowed actions and authorization in caller code.
 

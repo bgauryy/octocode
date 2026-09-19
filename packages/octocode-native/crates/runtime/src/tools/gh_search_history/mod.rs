@@ -350,6 +350,11 @@ pub async fn execute<R: CredentialResolver>(
         let mut next = serde_json::to_value(&query).unwrap_or_default();
         remove_nulls(&mut next);
         next["page"] = json!(current_page + 1);
+        // The nextPage continuation validates against the input schema, whose
+        // serialization makes the paginated defaulted fields required. Stamp the
+        // effective page size so an unset pageSize still yields a valid,
+        // directly-executable continuation.
+        next["pageSize"] = json!(per);
         value["next"]["nextPage"] =
             json!({"tool":"ghSearchHistory","query":next,"confidence":"exact"});
     }
