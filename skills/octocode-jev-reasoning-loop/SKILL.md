@@ -42,7 +42,7 @@ The runner gates, validates, evaluates, and saves artifacts. Keep packets 1–4k
 
 ## Depth routes
 
-- When triaging PR/issue search rows end-to-end → run `scripts/pr-triage.mjs` (gh rows → one scout → single fetch). When many candidate files or rows need triage → run `scripts/scout.mjs` per `references/scout.md`; when profiling selected sources → run `scripts/profile.mjs` per `references/profile.md`.
+- When triaging PR/issue search rows end-to-end → run `scripts/pr-triage.mjs` (gh rows → one scout → single fetch). When triaging candidate code files for "which one implements X" end-to-end → run `scripts/code-scout.mjs` (paths + question → one batched scout with an `is_code` docs veto → read only the implementer; rejected files' bytes stay off host). When many candidate files or rows need triage → run `scripts/scout.mjs` per `references/scout.md`; when profiling selected sources → run `scripts/profile.mjs` per `references/profile.md`.
 - When routing or gating is disputed → `references/routing-policy.md`, then `references/routing.md`.
 - When packet/API, configuration, context, or composition details affect execution → `references/protocol.md`, `references/configuration.md`, `references/context.md`, `references/patterns.md`.
 - When debugging a runner failure → `references/research.md`, which owns `scripts/route-decision.mjs`, `scripts/build-decision-packet.mjs`, `scripts/validate-decision-packet.mjs`, `scripts/jev.mjs`, `scripts/research.mjs`, `scripts/check-research.mjs`, and `scripts/apply-response.mjs`; normal use stays on `scripts/run-loop.mjs`.

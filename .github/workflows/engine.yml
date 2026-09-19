@@ -57,3 +57,24 @@ jobs:
         env:
           OCTOCODE_REQUIRE_NATIVE: '1'
         run: yarn workspace @octocodeai/octocode-native test:node
+
+  coverage:
+    name: Engine line coverage (informational)
+    runs-on: ubuntu-latest
+    # Coverage is a visibility signal, not a gate: it must never block an
+    # engine change, so failures here don't fail the workflow.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.0
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/octocode-native
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Coverage summary
+        working-directory: packages/octocode-native
+        run: cargo llvm-cov -p octocode-engine --all-features --summary-only

@@ -1499,6 +1499,7 @@
           "path": "/ABS/repo/src",
           "langType": "typescript",
           "apply": false,
+          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -1539,6 +1540,7 @@
           "expectedHashes": {
             "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           },
+          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -1572,6 +1574,7 @@
           "path": ".",
           "langType": "typescript",
           "apply": false,
+          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
@@ -1612,6 +1615,7 @@
           "expectedHashes": {
             "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           },
+          "allowSyntaxRegression": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,

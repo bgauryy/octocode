@@ -17,9 +17,7 @@ const MATCHING_LINES: usize = 20;
 /// Build (once) a persistent fixture tree of `FILES` files, every one of which
 /// matches the benchmark pattern.
 fn fixture_tree() -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "octocode-search-bench-{FILES}x{MATCHING_LINES}"
-    ));
+    let root = std::env::temp_dir().join(format!("octocode-search-bench-{FILES}x{MATCHING_LINES}"));
     let marker = root.join(".complete");
     if marker.exists() {
         return root;

@@ -437,7 +437,11 @@ fn noul_is_ambiguous(value: f64) -> bool {
 /// True when a `next_check` soft tie is resolvable by a route-specific preference:
 /// at least two of the near-tied labels name a supplied check in `state.nextChecks`
 /// (mirrors the JS reference `close.length > 1` guard, which suppresses the block).
-fn next_check_has_cost_preference(state: &Value, probabilities: &Map<String, Value>, selected_probability: f64) -> bool {
+fn next_check_has_cost_preference(
+    state: &Value,
+    probabilities: &Map<String, Value>,
+    selected_probability: f64,
+) -> bool {
     let Some(checks) = state.get("nextChecks").and_then(Value::as_array) else {
         return false;
     };
@@ -503,7 +507,11 @@ fn policy_block_reasons(request: &Value, response: &Value) -> Vec<String> {
                 let gap = (selected_probability - runner_up).max(0.0);
                 if gap < SOFT_TIE_GAP
                     && !(id == "next_check"
-                        && next_check_has_cost_preference(state, probabilities, selected_probability))
+                        && next_check_has_cost_preference(
+                            state,
+                            probabilities,
+                            selected_probability,
+                        ))
                 {
                     reasons.push(format!(
                         "{id} is a soft tie; widen evidence before commitment."
@@ -518,11 +526,14 @@ fn policy_block_reasons(request: &Value, response: &Value) -> Vec<String> {
                     ));
                 }
                 if id == "grounded" && value < GROUNDED_MINIMUM {
-                    reasons.push(format!("grounded is below policy minimum {GROUNDED_MINIMUM}."));
+                    reasons.push(format!(
+                        "grounded is below policy minimum {GROUNDED_MINIMUM}."
+                    ));
                 }
                 if id == "scope_matches" && value < GROUNDED_MINIMUM {
-                    reasons
-                        .push("scope_matches is below policy minimum; narrow the claim.".to_owned());
+                    reasons.push(
+                        "scope_matches is below policy minimum; narrow the claim.".to_owned(),
+                    );
                 }
             }
             _ => {}
@@ -618,7 +629,7 @@ pub fn apply_response(route: &str, request: &Value, response: &Value) -> Result<
 #[cfg(test)]
 mod tests {
     use super::{apply_response, build_request, validate_response};
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
 
     fn hunch_query() -> serde_json::Value {
         json!({
@@ -850,7 +861,12 @@ mod tests {
                 "next_check": choice("c1", json!({ "c1": 0.5, "c2": 0.45, "none": 0.05 }))
             }),
         );
-        assert_eq!(applied["blocked"], false, "reasons: {:?}", block_reasons(&applied));
+        assert_eq!(
+            applied["blocked"],
+            false,
+            "reasons: {:?}",
+            block_reasons(&applied)
+        );
 
         // A soft tie against `none` (not a real check) has no preference: blocks.
         let hypothesis = choice("h1", json!({ "h1": 0.9, "h2": 0.08, "none": 0.02 }));
